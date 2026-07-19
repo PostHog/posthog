@@ -8,6 +8,7 @@ import { mswDecorator } from '~/mocks/browser'
 
 import type {
     GitHubSourceApi,
+    MasterFailureGroupApi,
     PullRequestListApi,
     RepoOverviewApi,
     WorkflowHealthItemApi,
@@ -16,8 +17,8 @@ import type {
 
 const SOURCES: GitHubSourceApi[] = [{ id: 'src-1', repo: 'PostHog/posthog', prefix: '' }]
 
-// Deltas cover every pill state: pp up (good), % up (neutral), % up while good-is-down (bad), and
-// an hours drop (good) — the surface this scene's quill MetricCard migration changed.
+// One overview payload feeding the whole hub: the trend sparkline cards and the quill cost-per-merge
+// line chart. Each trend series carries a null bucket so the trim + carry-forward path is exercised.
 const OVERVIEW: RepoOverviewApi = {
     run_count: 1284,
     run_count_prev: 1122,
@@ -25,6 +26,9 @@ const OVERVIEW: RepoOverviewApi = {
     success_rate_prev: 0.82,
     rerun_cycles: 41,
     rerun_cycles_prev: 30,
+    // Matches the cost_series merges below: 8 merges x 7 daily buckets.
+    merged_pr_count: 56,
+    merged_pr_count_prev: 49,
     median_open_to_merge_seconds: 14 * 3600,
     median_open_to_merge_seconds_prev: 19 * 3600,
     billable_minutes: 5230,
@@ -40,6 +44,23 @@ const OVERVIEW: RepoOverviewApi = {
         merges: 8,
         cost_per_merge_usd: cost,
     })),
+    time_to_green_series: [540, 600, null, 660, 720, 900, 780].map((p50_seconds, i) => ({
+        bucket_start: `2026-06-${25 + i}T00:00:00Z`,
+        p50_seconds,
+    })),
+    time_to_green_series_granularity: 'day',
+    success_rate_series: [0.82, 0.85, 0.8, null, 0.88, 0.79, 0.87].map((success_rate, i) => ({
+        bucket_start: `2026-06-${25 + i}T00:00:00Z`,
+        success_rate,
+    })),
+    success_rate_series_granularity: 'day',
+    open_to_merge_series: [14 * 3600, 16 * 3600, null, 12 * 3600, 15 * 3600, 18 * 3600, 13 * 3600].map(
+        (p50_seconds, i) => ({
+            bucket_start: `2026-06-${25 + i}T00:00:00Z`,
+            p50_seconds,
+        })
+    ),
+    open_to_merge_series_granularity: 'day',
 }
 
 const ACTIVITY: WorkflowRunActivityApi = {
@@ -50,6 +71,7 @@ const ACTIVITY: WorkflowRunActivityApi = {
         duration_seconds: duration,
         head_branch: 'master',
         pr_number: 0,
+        head_sha: `deadbeef${String(i).padStart(2, '0')}`,
     })),
     truncated: false,
     limit: 500,
@@ -92,12 +114,49 @@ const WORKFLOW_HEALTH: WorkflowHealthItemApi[] = [
     healthItem('Frontend CI', 71.9, [0, 1, 0, 0, 2, 0, 1], 0.95),
 ]
 
+// The latest run recovered, but the 24-hour failure feed still includes the earlier failure. The hero
+// must stay green while the triage section preserves that history.
+const RECENT_FAILURES: MasterFailureGroupApi[] = [
+    {
+        repo: { provider: 'github', owner: 'PostHog', name: 'posthog' },
+        workflow_name: 'Backend CI',
+        failed_job: 'Backend tests',
+        run_count: 1,
+        first_seen: '2026-07-01T12:00:00Z',
+        last_seen: '2026-07-01T12:00:00Z',
+        latest_run_id: 8999,
+    },
+]
+
 const PULL_REQUESTS: PullRequestListApi = {
     items: [
         {
             author: { handle: 'jane-dev', display_name: 'Jane Dev', avatar_url: '', is_bot: false },
             repo: { provider: 'github', owner: 'PostHog', name: 'posthog' },
             ci: { runs: 6, passing: 4, failing: 2, pending: 0, failing_workflows: ['Backend CI', 'E2E - Playwright'] },
+            push_history: [
+                {
+                    head_sha: 'aaa111',
+                    started_at: '2026-06-24T11:00:00Z',
+                    wall_seconds: 1320,
+                    failed: false,
+                    pending: false,
+                },
+                {
+                    head_sha: 'bbb222',
+                    started_at: '2026-06-25T09:30:00Z',
+                    wall_seconds: 1500,
+                    failed: false,
+                    pending: false,
+                },
+                {
+                    head_sha: 'ccc333',
+                    started_at: '2026-06-26T14:00:00Z',
+                    wall_seconds: 1680,
+                    failed: true,
+                    pending: false,
+                },
+            ],
             number: 41231,
             title: 'feat(insights): sticky breakdown legends',
             state: 'open',
@@ -115,6 +174,29 @@ const PULL_REQUESTS: PullRequestListApi = {
             author: { handle: 'sam-eng', display_name: 'Sam Eng', avatar_url: '', is_bot: false },
             repo: { provider: 'github', owner: 'PostHog', name: 'posthog' },
             ci: { runs: 5, passing: 5, failing: 0, pending: 0 },
+            push_history: [
+                {
+                    head_sha: 'ddd444',
+                    started_at: '2026-06-30T09:15:00Z',
+                    wall_seconds: 900,
+                    failed: false,
+                    pending: false,
+                },
+                {
+                    head_sha: 'eee555',
+                    started_at: '2026-06-30T15:00:00Z',
+                    wall_seconds: 1020,
+                    failed: false,
+                    pending: false,
+                },
+                {
+                    head_sha: 'fff666',
+                    started_at: '2026-07-01T08:00:00Z',
+                    wall_seconds: 960,
+                    failed: false,
+                    pending: false,
+                },
+            ],
             number: 41250,
             title: 'fix(cohorts): handle empty cohort in query builder',
             state: 'merged',
@@ -142,8 +224,8 @@ const meta: Meta = {
         mockDate: '2026-07-02',
         featureFlags: [FEATURE_FLAGS.ENGINEERING_ANALYTICS],
         testOptions: {
-            // The change pill only renders once the overview payload (and its deltas) has landed.
-            waitForSelector: '[data-attr="metric-card-change-pill"]',
+            // The hub is past its skeletons once the "needs attention" PR table has rendered.
+            waitForSelector: '[data-attr="engineering-analytics-attention-prs"]',
         },
     },
     decorators: [
@@ -151,7 +233,13 @@ const meta: Meta = {
             get: {
                 'api/projects/:team_id/engineering_analytics/sources/': SOURCES,
                 'api/projects/:team_id/engineering_analytics/repo_overview/': OVERVIEW,
-                'api/projects/:team_id/engineering_analytics/master_failures/': [],
+                'api/projects/:team_id/engineering_analytics/current_branch_health/': {
+                    default_branch: 'master',
+                    settled_workflows: WORKFLOW_HEALTH.length,
+                    failing_workflows: 0,
+                    failing_workflow_names: [],
+                },
+                'api/projects/:team_id/engineering_analytics/master_failures/': RECENT_FAILURES,
                 'api/projects/:team_id/engineering_analytics/repo_run_activity/': ACTIVITY,
                 'api/projects/:team_id/engineering_analytics/ci_cards/': {
                     open_prs: 18,
@@ -172,4 +260,22 @@ type Story = StoryObj<typeof meta>
 export const RepoOverview: Story = {
     render: () => <App />,
     parameters: { pageUrl: urls.engineeringAnalytics() },
+}
+
+// The red verdict: failing workflows drive the danger styling, the names subline, and the jump link.
+export const RepoOverviewFailing: Story = {
+    render: () => <App />,
+    parameters: { pageUrl: urls.engineeringAnalytics() },
+    decorators: [
+        mswDecorator({
+            get: {
+                'api/projects/:team_id/engineering_analytics/current_branch_health/': {
+                    default_branch: 'master',
+                    settled_workflows: WORKFLOW_HEALTH.length,
+                    failing_workflows: 2,
+                    failing_workflow_names: ['Backend CI', 'E2E - Playwright'],
+                },
+            },
+        }),
+    ],
 }

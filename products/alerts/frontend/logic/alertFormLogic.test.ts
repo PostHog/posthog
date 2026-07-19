@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -154,6 +155,42 @@ describe('alertFormLogic', () => {
         return logic
     }
 
+    it.each([
+        ['ordinary', { insightInterval: 'day' as const }, '', AlertCalculationInterval.DAILY, null],
+        [
+            'anomaly',
+            {
+                insightInterval: 'hour' as const,
+                defaultToAnomalyDetection: true,
+                insightName: 'Weekly signups',
+            },
+            'Anomaly in Weekly signups',
+            AlertCalculationInterval.HOURLY,
+            {
+                type: 'zscore',
+                threshold: 0.95,
+                window: 168,
+                preprocessing: { diffs_n: 1 },
+            },
+        ],
+    ])(
+        'prefills %s new alerts with the expected defaults',
+        (_name, alertProps, expectedName, expectedInterval, expectedDetectorConfig) => {
+            const logic = alertFormLogic({
+                alert: null,
+                insightId: 42,
+                onEditSuccess: jest.fn(),
+                insightVizDataLogicProps: insightLogicProps,
+                ...alertProps,
+            })
+            logic.mount()
+
+            expect(logic.values.alertForm.name).toBe(expectedName)
+            expect(logic.values.alertForm.calculation_interval).toBe(expectedInterval)
+            expect(logic.values.alertForm.detector_config).toEqual(expectedDetectorConfig)
+        }
+    )
+
     it('shows success toast and no error toast when create succeeds', async () => {
         const logic = mountForm()
 
@@ -163,7 +200,17 @@ describe('alertFormLogic', () => {
 
         expect(createSpy).toHaveBeenCalledTimes(1)
         expect(errorToastSpy).not.toHaveBeenCalled()
-        expect(successToastSpy).toHaveBeenCalledWith('Alert created.')
+        expect(successToastSpy).toHaveBeenCalledWith('Alert created.', {
+            button: {
+                label: 'View all alerts',
+                action: expect.any(Function),
+            },
+        })
+
+        const toastOptions = successToastSpy.mock.calls[0][1] as { button: { action: () => void } }
+        toastOptions.button.action()
+        expect(router.values.location.pathname).toMatch(/\/insights$/)
+        expect(router.values.searchParams.tab).toBe('alerts')
     })
 
     // Funnels hide the #/% unit toggle and always compare a relative change as a percentage of the
@@ -204,7 +251,7 @@ describe('alertFormLogic', () => {
         }).toFinishAllListeners()
 
         expect(createSpy).toHaveBeenCalledTimes(1)
-        expect(successToastSpy).toHaveBeenCalledWith('Alert created.')
+        expect(successToastSpy).toHaveBeenCalledWith('Alert created.', expect.any(Object))
         expect(errorToastSpy).not.toHaveBeenCalled()
         expect(captureExceptionSpy).toHaveBeenCalledWith(postSaveError)
     })

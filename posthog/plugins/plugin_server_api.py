@@ -1,6 +1,10 @@
 import json
-from typing import Union
+from datetime import UTC, datetime, timedelta
+from typing import Optional, Union
 
+from django.conf import settings
+
+import jwt
 import requests
 import structlog
 
@@ -104,6 +108,56 @@ def create_hog_flow_scheduled_invocation(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/scheduled_invocations",
         json={"variables": variables},
         headers=get_internal_api_headers(),
+    )
+
+
+def get_hog_flow_in_flight_count(team_id: int, hog_flow_id: str) -> requests.Response:
+    return internal_requests.get(
+        CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/in_flight_count",
+        headers=get_internal_api_headers(),
+    )
+
+
+def _mint_reschedule_parked_jwt(team_id: int, hog_flow_id: str) -> str:
+    """Short-lived scoped JWT for one reschedule_parked call — a leaked token can only sweep this
+    one team + workflow. Signed with the dedicated key (never INTERNAL_API_SECRET / SECRET_KEY /
+    JWT_SIGNING_KEY, per .agents/security.md); raises when unprovisioned so the sweep fails closed.
+    Verified in the plugin server's CdpApi.postHogFlowRescheduleParked."""
+    secrets = settings.WORKFLOWS_RESCHEDULE_JWT_SECRETS
+    if not secrets:
+        raise RuntimeError("WORKFLOWS_RESCHEDULE_JWT_SECRET is not configured — cannot call reschedule_parked")
+    return jwt.encode(
+        {
+            "team_id": team_id,
+            "hog_flow_id": hog_flow_id,
+            "aud": "posthog:workflows:reschedule_parked",
+            "exp": datetime.now(tz=UTC) + timedelta(minutes=2),
+        },
+        secrets[0],
+        algorithm="HS256",
+    )
+
+
+def reschedule_hog_flow_parked_jobs(
+    team_id: int,
+    hog_flow_id: str,
+    action_ids: list[str],
+    sweep_floor: Optional[str] = None,
+    sweep_until: Optional[str] = None,
+) -> requests.Response:
+    """One slice of the timing-edit reschedule sweep. Callers loop, threading the returned
+    sweep_floor/sweep_until into follow-up slices, until the response says done. The timeout keeps
+    a hung plugin server from pinning the calling Celery worker; the caller's retry/backoff owns
+    recovery. Sized above the endpoint's worst-case slice (chunk sleeps + chunked UPDATEs)."""
+    payload: dict = {"action_ids": action_ids}
+    if sweep_floor and sweep_until:
+        payload["sweep_floor"] = sweep_floor
+        payload["sweep_until"] = sweep_until
+    return internal_requests.post(
+        CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/reschedule_parked",
+        json=payload,
+        headers={"Authorization": f"Bearer {_mint_reschedule_parked_jwt(team_id, hog_flow_id)}"},
+        timeout=30,
     )
 
 

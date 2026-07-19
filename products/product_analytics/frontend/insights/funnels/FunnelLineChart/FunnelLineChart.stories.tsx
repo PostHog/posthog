@@ -2,7 +2,6 @@ import { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 import { useState } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import {
     createInsightStory,
     insightSceneMswDecorator,
@@ -134,10 +133,8 @@ export const GoalLine: Story = {
 }
 
 // Compare to previous: current and previous period conversion rates render as separate series
-// (the funnels-compare flag gates this — without it the data degrades to single-period rendering)
 export const Compare: Story = {
     render: () => renderFunnelLineChart(funnelHistoricalTrendsCompareFixture),
-    parameters: { featureFlags: [FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE] },
 }
 
 // Full insight scene in edit mode — the funnel trends editor

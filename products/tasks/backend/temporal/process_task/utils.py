@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Optional
@@ -38,7 +39,9 @@ from products.tasks.backend.logic.services.run_actor import (
 from products.tasks.backend.redis import get_tasks_cache
 
 if TYPE_CHECKING:
-    from products.tasks.backend.models import SandboxSnapshot, Task
+    from posthog.models.user import User
+
+    from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 
 logger = logging.getLogger(__name__)
 
@@ -127,12 +130,14 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
     ),
-    "claude-sonnet-4-6": (
+    "claude-sonnet-5": (
         ReasoningEffort.LOW,
         ReasoningEffort.MEDIUM,
         ReasoningEffort.HIGH,
+        ReasoningEffort.XHIGH,
+        ReasoningEffort.MAX,
     ),
-    "claude-sonnet-5": (
+    "claude-sonnet-4-6": (
         ReasoningEffort.LOW,
         ReasoningEffort.MEDIUM,
         ReasoningEffort.HIGH,
@@ -148,7 +153,12 @@ CODEX_XHIGH_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
     *CODEX_REASONING_EFFORTS,
     ReasoningEffort.XHIGH,
 )
-CODEX_XHIGH_REASONING_MODELS: frozenset[str] = frozenset({"gpt-5.5", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"})
+CODEX_MAX_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
+    *CODEX_XHIGH_REASONING_EFFORTS,
+    ReasoningEffort.MAX,
+)
+CODEX_XHIGH_REASONING_MODELS: frozenset[str] = frozenset({"gpt-5.5"})
+CODEX_MAX_REASONING_MODELS: frozenset[str] = frozenset({"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"})
 
 # Canonical list of Codex models. The runtime technically accepts any
 # `gpt-*` identifier passed through, but only models on this list are
@@ -198,7 +208,10 @@ def get_supported_reasoning_efforts(
     if adapter_value == RuntimeAdapter.CLAUDE.value:
         return CLAUDE_REASONING_EFFORTS_BY_MODEL.get(model, ())
     if adapter_value == RuntimeAdapter.CODEX.value:
-        if model.lower() in CODEX_XHIGH_REASONING_MODELS:
+        normalized_model = model.lower()
+        if normalized_model in CODEX_MAX_REASONING_MODELS:
+            return CODEX_MAX_REASONING_EFFORTS
+        if normalized_model in CODEX_XHIGH_REASONING_MODELS:
             return CODEX_XHIGH_REASONING_EFFORTS
         return CODEX_REASONING_EFFORTS
 
@@ -441,6 +454,101 @@ def get_user_mcp_server_configs(
         )
 
     return configs
+
+
+def build_imported_mcp_server_configs(
+    imported_servers: Any,
+    existing_names: Iterable[str],
+) -> list[McpServerConfig]:
+    """Sandbox configs for client-imported MCP servers (TaskRun.imported_mcp_servers).
+
+    Entries whose name collides with an already-resolved server (the PostHog MCP
+    or an MCP Store installation) are dropped — existing servers win. Malformed
+    entries are skipped rather than failing the launch; the shape was validated
+    at run creation, so this only guards against drift in stored data.
+    """
+    if not isinstance(imported_servers, list):
+        return []
+    # Case-insensitive dedup to match the serializer's validation (reserved names
+    # and within-list duplicates are compared lowercased); existing servers win.
+    taken = {n.lower() for n in existing_names}
+    configs: list[McpServerConfig] = []
+    for server in imported_servers:
+        if not isinstance(server, dict):
+            continue
+        name = server.get("name")
+        url = server.get("url")
+        if not isinstance(name, str) or not name or not isinstance(url, str) or not url:
+            continue
+        name_lower = name.lower()
+        if name_lower in taken:
+            continue
+        taken.add(name_lower)
+        server_type = server.get("type")
+        headers = [
+            {"name": header["name"], "value": header["value"]}
+            for header in server.get("headers") or []
+            if isinstance(header, dict) and isinstance(header.get("name"), str) and isinstance(header.get("value"), str)
+        ]
+        configs.append(
+            McpServerConfig(
+                type=server_type if server_type in ("http", "sse") else "http",
+                name=name,
+                url=url,
+                headers=headers,
+            )
+        )
+    return configs
+
+
+def get_relayed_mcp_server_names(task_run: TaskRun, existing_names: Iterable[str]) -> list[str]:
+    """Names of desktop-only MCP servers relayed into the run (TaskRun.relayed_mcp_servers).
+
+    Names whose entry collides with an already-resolved MCP config (the PostHog MCP, an MCP Store
+    installation, or an imported server) are dropped — existing servers win. Malformed entries are
+    skipped rather than failing the launch; the shape was validated at run creation, so this only
+    guards against drift in stored data.
+
+    Not adapter-gated (unlike imported servers): the relay endpoints are loopback HTTP servers in
+    the sandbox that always accept the connection and return an HTTP response (a relayed result, or
+    a 503 on a genuine mid-run desktop disconnect). Codex's reachability probe treats any HTTP
+    response — including a 503 — as reachable and only prunes on a transport failure, so a relay
+    endpoint never gets pruned from a codex session the way an unreachable remote URL would.
+    """
+    relayed_servers = task_run.relayed_mcp_servers
+    if not isinstance(relayed_servers, list):
+        return []
+    # Case-insensitive dedup to match the serializer's validation (reserved names
+    # and within-list duplicates are compared lowercased); existing servers win.
+    taken = {n.lower() for n in existing_names}
+    names: list[str] = []
+    for server in relayed_servers:
+        if not isinstance(server, dict):
+            continue
+        name = server.get("name")
+        if not isinstance(name, str) or not name:
+            continue
+        name_lower = name.lower()
+        if name_lower in taken:
+            continue
+        taken.add(name_lower)
+        names.append(name)
+    return names
+
+
+def get_imported_mcp_server_configs(task_run: TaskRun, existing_names: Iterable[str]) -> list[McpServerConfig]:
+    """Sandbox configs for the run's client-imported MCP servers.
+
+    Claude-only for now: codex-acp hard-fails the session when any configured
+    MCP server is unreachable and the sandbox does no reachability pruning (an
+    unset adapter defaults to claude). Used both at launch and when a mid-run
+    refresh_session replaces the session's server list — the agent treats that
+    list as authoritative, so leaving these out would drop them from the run.
+    """
+    runtime_adapter = (task_run.state or {}).get("runtime_adapter")
+    if runtime_adapter not in (None, RuntimeAdapter.CLAUDE.value):
+        return []
+    return build_imported_mcp_server_configs(task_run.imported_mcp_servers, existing_names)
 
 
 def _resolve_mcp_consumer(interaction_origin: str | None) -> str:

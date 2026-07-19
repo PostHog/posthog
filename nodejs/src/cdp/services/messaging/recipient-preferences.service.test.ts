@@ -63,7 +63,7 @@ describe('RecipientPreferencesService', () => {
     })
 
     const createFunctionStepInvocation = (
-        action: Extract<HogFlowAction, { type: 'function' | 'function_email' | 'function_sms' }>
+        action: Extract<HogFlowAction, { type: 'function' | 'function_email' | 'function_sms' | 'function_push' }>
     ): CyclotronJobInvocationHogFunction => {
         const hogFlow = new FixtureHogFlowBuilder()
             .withTeamId(team.id)
@@ -94,7 +94,10 @@ describe('RecipientPreferencesService', () => {
             {} as Record<string, any>
         )
 
-        return createExampleInvocation(hogFlow, { inputs })
+        // HogFlow only overlaps HogFunctionType structurally; updated_at diverges (Date|number vs string)
+        return createExampleInvocation(hogFlow as unknown as Parameters<typeof createExampleInvocation>[0], {
+            inputs,
+        })
     }
 
     describe('shouldSkipAction', () => {
@@ -440,6 +443,87 @@ describe('RecipientPreferencesService', () => {
 
                 expect(result).toBe(false)
                 expect(mockRecipientsManagerGetAllMarketingMessagingPreference).toHaveBeenCalledWith(recipient)
+            })
+        })
+
+        describe('for push actions', () => {
+            const createPushAction = (
+                categoryId: string,
+                categoryType?: 'marketing' | 'transactional'
+            ): Extract<HogFlowAction, { type: 'function_push' }> => ({
+                id: 'push',
+                name: 'Send push',
+                description: 'Send a push notification to the recipient',
+                type: 'function_push',
+                filters: null,
+                config: {
+                    template_id: 'template-native-push',
+                    message_category_id: categoryId,
+                    message_category_type: categoryType,
+                    inputs: {},
+                },
+                created_at: Date.now(),
+                updated_at: Date.now(),
+            })
+
+            // Push is keyed by the recipient's distinct_id (from the triggering event), not an email/phone
+            // 'to' field — that is the identifier the device token was registered under.
+            it.each([
+                ['opted out', 'OPTED_OUT', true],
+                ['opted in', 'OPTED_IN', false],
+            ] as const)('marketing push to a recipient %s of the category → skip=%s', async (_label, status, skip) => {
+                const action = createPushAction('123e4567-e89b-12d3-a456-426614174000', 'marketing')
+                const invocation = createFunctionStepInvocation(action)
+                const recipient = createRecipient('distinct_id', {
+                    '123e4567-e89b-12d3-a456-426614174000': status,
+                })
+
+                mockRecipientsManagerGet.mockResolvedValue(recipient)
+                mockRecipientsManagerGetPreference.mockReturnValue(status)
+                mockRecipientsManagerGetAllMarketingMessagingPreference.mockReturnValue('NO_PREFERENCE')
+
+                const result = await service.shouldSkipAction(invocation, action)
+
+                expect(result).toBe(skip)
+                expect(mockRecipientsManagerGet).toHaveBeenCalledWith({
+                    teamId: team.id,
+                    identifier: 'distinct_id',
+                })
+            })
+
+            it('should return false for a transactional push without checking preferences', async () => {
+                const action = createPushAction('123e4567-e89b-12d3-a456-426614174000', 'transactional')
+                const invocation = createFunctionStepInvocation(action)
+
+                const result = await service.shouldSkipAction(invocation, action)
+
+                expect(result).toBe(false)
+                expect(mockRecipientsManagerGet).not.toHaveBeenCalled()
+            })
+
+            it('keys the opt-out on the delivered-to person, not the triggering event', async () => {
+                // Delivery reads the device token from globals.person, so the opt-out must check that same
+                // person even when the triggering event distinct_id differs (e.g. a configured inputs.distinctId).
+                const action = createPushAction('123e4567-e89b-12d3-a456-426614174000', 'marketing')
+                const invocation = createFunctionStepInvocation(action)
+                invocation.state.globals.person!.distinct_id = 'delivered-person'
+                invocation.state.globals.event!.distinct_id = 'trigger-person'
+
+                mockRecipientsManagerGet.mockResolvedValue(
+                    createRecipient('delivered-person', {
+                        '123e4567-e89b-12d3-a456-426614174000': 'OPTED_OUT',
+                    })
+                )
+                mockRecipientsManagerGetPreference.mockReturnValue('OPTED_OUT')
+                mockRecipientsManagerGetAllMarketingMessagingPreference.mockReturnValue('NO_PREFERENCE')
+
+                const result = await service.shouldSkipAction(invocation, action)
+
+                expect(result).toBe(true)
+                expect(mockRecipientsManagerGet).toHaveBeenCalledWith({
+                    teamId: team.id,
+                    identifier: 'delivered-person',
+                })
             })
         })
 

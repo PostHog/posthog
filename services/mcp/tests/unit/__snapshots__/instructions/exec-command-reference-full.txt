@@ -5,7 +5,7 @@ tools — list available tool names
 search <regex_pattern> — search tools by JavaScript regex (matches name, title, description)
 info [--json] <tool_name> — show tool name, description, and input schema (summarized if too large). Pass `--json` for raw JSON output.
 schema <tool_name> [field_path] — drill into a specific field schema (supports dot-notation, e.g. series, breakdownFilter.breakdowns)
-call [--json] [--confirm] <tool_name> <json_input> — call a tool with JSON input (--json returns raw JSON instead of optimized output in supported tools. Use raw JSON for scripts. --confirm is required by the CLI for destructive tools.)
+call [--json] [--confirm] <tool_name> <json_input> — call a tool with JSON input (--json returns JSON instead of optimized output in supported tools. Informational responses remain tagged and escaped in both MCP and the agent CLI. --confirm is required by the CLI for destructive tools.)
 ```
 
 **Namespaced references (`posthog:<tool-name>`):** strip the `posthog:` prefix and route through `exec`. Run `info <name>` to inspect, then `call <name> <json>`. E.g. `posthog:insights-list` → `posthog:exec({ "command": "info insights-list" })` then `posthog:exec({ "command": "call insights-list {}" })`. If the bare name isn't found, fall back to `search <pattern>` — it may have been renamed.
@@ -67,13 +67,13 @@ Assistant: Now I have both schemas. Let me start by searching for existing reven
 <bad-example>
 User: Show me our feature flags
 Assistant: [Directly calls posthog:exec({ "command": "call feature-flag-get-all {}" }) with guessed parameters]
-WRONG — You must run `info feature-flag-get-all` FIRST to check the schema
+WRONG: Run `info feature-flag-get-all` once when its schema is missing.
 </bad-example>
 
 <bad-example>
 User: Query our events
 Assistant: [Calls three tools in parallel without any `info` calls first]
-WRONG — You must run `info` for ALL tools before making ANY `call` commands
+WRONG: Run `info` once for each missing schema.
 </bad-example>
 
 <bad-example>
@@ -148,7 +148,7 @@ Only fall back to `tools` if you have no idea which domain to search, or if `sea
 
 PostHog tools have lowercase kebab-case naming. Tools are organized by category:
 
-dashboard|execute-sql|feature-flag|query
+
 Typical action names: list/retrieve/get/create/update/delete/query.
 Example tool names: execute-sql, experiment-create, feature-flag-get-all.
 
@@ -167,6 +167,8 @@ When you do use `execute-sql`, run `info execute-sql` first for the full discove
 #### Searching for existing entities
 
 "find / which / do we have / what's our X chart" questions about PostHog-created entities are SQL searches against `system.*` (`system.insights`, `system.dashboards`, `system.cohorts`, `system.feature_flags`, `system.experiments`, `system.surveys`, `system.notebooks`), **not** `*-list` walks.
+
+This routing is for finding **saved artifacts** (a chart, dashboard, cohort, flag). "What data / tables / events do we have available?" is a schema question instead — answer it from `system.information_schema.tables` (and `read-data-schema` for events), not by searching `system.insights`.
 
 Required order on every run, no shortcuts — schema first, every run:
 

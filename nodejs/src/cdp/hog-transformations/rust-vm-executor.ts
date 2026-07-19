@@ -1,6 +1,8 @@
 import { DateTime } from 'luxon'
 import { Counter, Histogram } from 'prom-client'
 
+import { logger } from '~/common/utils/logger'
+
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
 import { createAddLogFunction, sanitizeLogMessage } from '../utils'
 import { createInvocationResult } from '../utils/invocation-utils'
@@ -34,36 +36,65 @@ export class RustVmExecutor {
     }
 
     /**
+     * Count and log a fallback so every node-vm handoff is attributable to a function. Returns
+     * null for the caller to pass through.
+     */
+    private fallback(
+        outcome: 'fallback_unsupported' | 'fallback_exception',
+        invocation: CyclotronJobInvocationHogFunction,
+        sensitiveValues: string[],
+        error: unknown
+    ): null {
+        rustVmExecution.inc({ outcome })
+        logger.warn('🦀', 'Rust HogVM invocation fell back to the node vm', {
+            outcome,
+            functionId: invocation.functionId,
+            teamId: invocation.teamId,
+            // Same redaction as hog print logs: marshalling errors and panic messages can embed
+            // values from the invocation globals, which include secret inputs.
+            error: error !== undefined ? sanitizeLogMessage([String(error)], sensitiveValues) : undefined,
+        })
+        return null
+    }
+
+    /**
      * Execute one transformation invocation on the Rust VM. Returns null when the Node VM must
      * run it instead.
      *
-     * Runs through `executeBatch` (a napi AsyncTask on the libuv worker pool), NOT `executeSync`:
-     * the step budget bounds total work, but a costly program running synchronously would
-     * monopolize the ingestion worker's JS thread, bypassing the wall-clock limiting and
-     * event-loop yielding the Node path has. Concurrent events therefore execute in parallel on
-     * worker threads; batching many events into one call (rayon fan-out) is a possible follow-up.
+     * Runs through `executeSync` on the JS thread — the same threading model as the Node VM's
+     * exec, minus the work. Executions are sub-millisecond and bounded by the step budget, so a
+     * libuv thread-hop per invocation would cost more than the execution it offloads; batching
+     * many events into one async call is the follow-up if that changes.
      */
-    public async execute(
+    public execute(
         invocation: CyclotronJobInvocationHogFunction,
         sensitiveValues: string[]
-    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> | null> {
+    ): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> | null {
         const module_ = this.getModule()
         if (!module_) {
+            // No per-invocation log: a missing addon affects every invocation and the loader
+            // already warned once with the load error.
             rustVmExecution.inc({ outcome: 'fallback_unavailable' })
             return null
         }
 
-        const [rust] = await module_.executeBatch(invocation.hogFunction.bytecode, [invocation.state.globals], {
-            maxSteps: RUST_MAX_STEPS,
-        })
-        if (!rust) {
-            rustVmExecution.inc({ outcome: 'fallback_unavailable' })
-            return null
+        let rust
+        try {
+            rust = module_.executeSync(invocation.hogFunction.bytecode, invocation.state.globals, {
+                maxSteps: RUST_MAX_STEPS,
+            })
+        } catch (error) {
+            // A throw here is the boundary or the native side, not the program's own error path —
+            // marshalling failures (e.g. globals containing NaN or Infinity, which serde_json
+            // can't represent), rust panics, addon bugs. Deliberately broad: the node vm can run
+            // all of these, so correctness wins and the invocation falls back — while the warn log
+            // and the fallback_exception outcome carry the error so native faults stay visible
+            // rather than being silently healed.
+            return this.fallback('fallback_exception', invocation, sensitiveValues, error)
         }
 
         if (rust.error && isUnsupportedByRustVm(rust.error)) {
-            rustVmExecution.inc({ outcome: 'fallback_unsupported' })
-            return null
+            return this.fallback('fallback_unsupported', invocation, sensitiveValues, rust.error)
         }
 
         const durationMs = rust.durationUs / 1000

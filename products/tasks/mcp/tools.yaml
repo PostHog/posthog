@@ -72,6 +72,12 @@ tools:
     task-channels-destroy:
         operation: task_channels_destroy
         enabled: false
+    task-channels-feed-create:
+        operation: task_channels_feed_create
+        enabled: false
+    task-channels-feed-list:
+        operation: task_channels_feed_list
+        enabled: false
     task-channels-list:
         operation: task_channels_list
         enabled: false
@@ -80,6 +86,9 @@ tools:
         enabled: false
     task-mentions-list:
         operation: task_mentions_list
+        enabled: false
+    tasks-active-wizard-run-retrieve:
+        operation: tasks_active_wizard_run_retrieve
         enabled: false
     tasks-create:
         operation: tasks_create
@@ -172,6 +181,9 @@ tools:
         enabled: false
     tasks-runs-artifacts-presign-create:
         operation: tasks_runs_artifacts_presign_create
+        enabled: false
+    tasks-runs-cancel-create:
+        operation: tasks_runs_cancel_create
         enabled: false
     tasks-runs-command-create:
         operation: tasks_runs_command_create

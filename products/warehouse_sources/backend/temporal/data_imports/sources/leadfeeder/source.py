@@ -38,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class LeadfeederSource(ResumableSource[LeadfeederSourceConfig, LeadfeederResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
+    api_docs_url = "https://docs.leadfeeder.com/api/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.LEADFEEDER
@@ -49,7 +51,6 @@ class LeadfeederSource(ResumableSource[LeadfeederSourceConfig, LeadfeederResumeC
             category=DataWarehouseSourceCategory.CRM,
             label="Leadfeeder",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             keywords=["dealfront"],
             caption="""Enter your Leadfeeder (Dealfront) API token to pull your website visitor and lead data into the PostHog Data warehouse.
 

@@ -36,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LinkrunnerSource(ResumableSource[LinkrunnerSourceConfig, LinkrunnerResumeConfig]):
+    api_docs_url = "https://docs.linkrunner.io/api-reference/campaign-apis"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -70,7 +72,6 @@ Note: the `reporting_campaigns` table is served by Linkrunner's Reporting API, w
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

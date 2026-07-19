@@ -50,7 +50,12 @@ export const Grouped: Story = {
 export const WithBarTrack: Story = {
     render: () => {
         const theme = useReactiveTheme()
-        const config: BarChartConfig = { barLayout: 'grouped', showGrid: true, barCornerRadius: 6, bars: { track: true } }
+        const config: BarChartConfig = {
+            barLayout: 'grouped',
+            showGrid: true,
+            barCornerRadius: 6,
+            bars: { track: true },
+        }
         return (
             <Stage>
                 <BarChart series={THREE_SERIES} labels={DAYS} config={config} theme={theme} />
@@ -211,6 +216,57 @@ export const WithValueLabels: Story = {
     },
 }
 
+export const DenseValueLabels: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        // Many bars with widely varying heights. Labels sit at each bar's tip, so neighbours
+        // rarely share a height — collision avoidance should keep every label that actually fits
+        // rather than dropping every other bar.
+        const labels = Array.from({ length: 20 }, (_, i) => `D${i + 1}`)
+        const series: Series[] = [
+            {
+                key: 'events',
+                label: 'Events',
+                color: '',
+                data: [128, 24, 205, 61, 172, 39, 240, 88, 15, 199, 54, 143, 27, 218, 76, 165, 33, 187, 96, 231],
+            },
+        ]
+        const config: BarChartConfig = { showGrid: true }
+        return (
+            <Stage width={900} height={320}>
+                <BarChart series={series} labels={labels} config={config} theme={theme}>
+                    <ValueLabels />
+                </BarChart>
+            </Stage>
+        )
+    },
+}
+
+export const DenseValueLabelsHorizontal: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        // Same stress test on a horizontal bar chart — labels track each bar's length, so the
+        // 2D collision check keeps labels whose bars differ enough in value.
+        const labels = Array.from({ length: 16 }, (_, i) => `Row ${i + 1}`)
+        const series: Series[] = [
+            {
+                key: 'events',
+                label: 'Events',
+                color: '',
+                data: [128, 24, 205, 61, 172, 39, 240, 88, 15, 199, 54, 143, 27, 218, 76, 165],
+            },
+        ]
+        const config: BarChartConfig = { axisOrientation: 'horizontal', showGrid: true }
+        return (
+            <Stage width={520} height={480}>
+                <BarChart series={series} labels={labels} config={config} theme={theme}>
+                    <ValueLabels />
+                </BarChart>
+            </Stage>
+        )
+    },
+}
+
 export const WithReferenceLine: Story = {
     render: () => {
         const theme = useReactiveTheme()
@@ -242,6 +298,25 @@ export const IncompletePeriod: Story = {
         const theme = useReactiveTheme()
         const config: BarChartConfig = { barLayout: 'stacked', showGrid: true }
         const series: Series[] = THREE_SERIES.map((s) => ({ ...s, stroke: { partial: { fromIndex: 5 } } }))
+        return (
+            <Stage>
+                <BarChart series={series} labels={DAYS} config={config} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
+/** Individual bars flagged via `bars[i].hatch` — e.g. buckets still being ingested. Unlike
+ *  `stroke.partial` (IncompletePeriod above), the flagged indices need not be contiguous. */
+export const HatchedBars: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const config: BarChartConfig = { barLayout: 'stacked', showGrid: true }
+        const hatched = new Set([2, 5, 6])
+        const series: Series[] = TWO_SERIES.map((s) => ({
+            ...s,
+            bars: DAYS.map((_, i) => (hatched.has(i) ? { hatch: true } : {})),
+        }))
         return (
             <Stage>
                 <BarChart series={series} labels={DAYS} config={config} theme={theme} />

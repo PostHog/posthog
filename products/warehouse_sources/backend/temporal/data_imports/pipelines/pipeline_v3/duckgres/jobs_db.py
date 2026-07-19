@@ -16,8 +16,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     LEASE_TTL_SECONDS,
     PARTITION_PRUNING_INTERVAL,
     STATUS_TABLE,
+    ActiveRunRef,
+    GroupLease,
     PendingBatch,
     pending_batch_select_columns,
+    scope_filters,
 )
 
 DUCKGRES_STATUS_TABLE = "sourcebatchduckgresstatus"
@@ -69,6 +72,48 @@ async def _statement_timeout(conn: psycopg.AsyncConnection[Any], timeout_ms: int
     async with conn.transaction():
         await conn.execute(f"SET LOCAL statement_timeout = {int(timeout_ms)}")
         yield
+
+
+def duckgres_pending_predicate(delta_alias: str, duckgres_alias: str) -> str:
+    """A batch is duckgres-pending (still fail-able) when its delta load succeeded
+    and its latest duckgres status is absent or non-terminal."""
+    return (
+        f"({delta_alias}.job_state = 'succeeded' AND "
+        f"({duckgres_alias}.batch_id IS NULL OR {duckgres_alias}.job_state IN ('waiting_retry', 'executing')))"
+    )
+
+
+# Shared between the async consumer path and the sync ops command so both agree
+# on what counts as a pending (fail-able) duckgres batch.
+DUCKGRES_FAIL_RUN_SQL = f"""
+    INSERT INTO {DUCKGRES_STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
+    SELECT b.id, 'failed', 0, now(), %(error_response)s, now()
+    FROM {BATCH_TABLE} b
+    LEFT JOIN {_latest_status_lateral(STATUS_TABLE, "b")} ds ON true
+    LEFT JOIN {_latest_status_lateral(DUCKGRES_STATUS_TABLE, "b")} dgs ON true
+    WHERE
+        b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+        AND b.run_uuid = %(run_uuid)s
+        AND {duckgres_pending_predicate("ds", "dgs")}
+"""
+
+
+def _stale_executing_sql(scope_sql: str = "") -> str:
+    """Shared body of the duckgres stale-executing sweep (async consumer and its sync ops twin)."""
+    return f"""
+        SELECT
+            {pending_batch_select_columns("dgs")}
+        FROM {BATCH_TABLE} b
+        JOIN {_latest_status_lateral(DUCKGRES_STATUS_TABLE, "b")} dgs ON true
+        LEFT JOIN {DUCKGRES_LEASE_TABLE} l ON l.team_id = b.team_id AND l.schema_id = b.schema_id
+        WHERE
+            b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+            AND dgs.job_state = 'executing'
+            AND dgs.created_at <= now() - make_interval(secs => %(grace)s)
+            AND (l.team_id IS NULL OR l.expires_at <= now())
+            {scope_sql}
+        ORDER BY b.created_at ASC, b.batch_index ASC
+    """
 
 
 # Structured classification key written into duckgres status error_response by
@@ -937,18 +982,24 @@ class DuckgresBatchQueue:
         reason: str,
     ) -> int:
         cursor = await conn.execute(
-            f"""
-            INSERT INTO {DUCKGRES_STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
-            SELECT b.id, 'failed', 0, now(), %(error_response)s, now()
-            FROM {BATCH_TABLE} b
-            JOIN {_latest_status_lateral(STATUS_TABLE, "b")} ds ON true
-            LEFT JOIN {_latest_status_lateral(DUCKGRES_STATUS_TABLE, "b")} dgs ON true
-            WHERE
-                b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                AND b.run_uuid = %(run_uuid)s
-                AND ds.job_state = 'succeeded'
-                AND (dgs.batch_id IS NULL OR dgs.job_state IN ('waiting_retry', 'executing'))
-            """,
+            DUCKGRES_FAIL_RUN_SQL,
+            {
+                "run_uuid": run_uuid,
+                "error_response": json.dumps({"error": reason}),
+            },
+        )
+        return cursor.rowcount or 0
+
+    @staticmethod
+    def fail_run_sync(
+        conn: psycopg.Connection[Any],
+        *,
+        run_uuid: str,
+        reason: str,
+    ) -> int:
+        """Sync twin of ``fail_run`` for the ops management command."""
+        cursor = conn.execute(
+            DUCKGRES_FAIL_RUN_SQL,
             {
                 "run_uuid": run_uuid,
                 "error_response": json.dumps({"error": reason}),
@@ -1020,22 +1071,7 @@ class DuckgresBatchQueue:
         expired — unlike the old advisory-lock probe, an abandoned lease always
         expires, so orphaned groups are always reclaimable."""
         async with conn.cursor(row_factory=dict_row) as cur:
-            await cur.execute(
-                f"""
-                SELECT
-                    {pending_batch_select_columns("dgs")}
-                FROM {BATCH_TABLE} b
-                JOIN {_latest_status_lateral(DUCKGRES_STATUS_TABLE, "b")} dgs ON true
-                LEFT JOIN {DUCKGRES_LEASE_TABLE} l ON l.team_id = b.team_id AND l.schema_id = b.schema_id
-                WHERE
-                    b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                    AND dgs.job_state = 'executing'
-                    AND dgs.created_at <= now() - make_interval(secs => %(grace)s)
-                    AND (l.team_id IS NULL OR l.expires_at <= now())
-                ORDER BY b.created_at ASC, b.batch_index ASC
-                """,
-                {"grace": grace_seconds},
-            )
+            await cur.execute(_stale_executing_sql(), {"grace": grace_seconds})
             rows = await cur.fetchall()
 
         return [PendingBatch(**row) for row in rows]
@@ -1076,3 +1112,151 @@ class DuckgresBatchQueue:
             f"DELETE FROM {DUCKGRES_LEASE_TABLE} WHERE owner_token = %(owner)s",
             {"owner": owner_token},
         )
+
+    # -- ops / management command helpers (sync) --------------------------------
+    # Duck-typed twins of BatchQueue's ops helpers so manage_warehouse_queue can
+    # drive either sink through the same interface.
+
+    @staticmethod
+    def get_active_runs(
+        conn: psycopg.Connection[Any],
+        *,
+        team_id: int | None = None,
+        schema_ids: list[str] | None = None,
+        run_uuid: str | None = None,
+        only_pending: bool = True,
+    ) -> list[ActiveRunRef]:
+        """Aggregate queue batches per run by their duckgres sink state.
+
+        ``pending_batches`` counts batches the duckgres sink still owes: delta-
+        succeeded but with no terminal duckgres status (the same predicate
+        ``fail_run`` writes against). ``latest_activity_at`` is the newest of
+        batch inserts, delta status writes, and duckgres status writes, so a run
+        the delta consumer is still actively loading does not look duckgres-stuck.
+        """
+        scope_sql, params = scope_filters(team_id=team_id, schema_ids=schema_ids, run_uuid=run_uuid)
+        having = f"HAVING COUNT(*) FILTER (WHERE {duckgres_pending_predicate('ds', 'dgs')}) > 0"
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                f"""
+                SELECT
+                    b.run_uuid,
+                    b.team_id,
+                    b.schema_id,
+                    MAX(b.job_id) AS job_id,
+                    MAX(b.source_id) AS source_id,
+                    MAX(b.metadata->>'workflow_run_id') AS workflow_run_id,
+                    COUNT(*) FILTER (
+                        WHERE {duckgres_pending_predicate("ds", "dgs")}
+                    ) AS pending_batches,
+                    COUNT(*) AS total_batches,
+                    GREATEST(MAX(ds.created_at), MAX(dgs.created_at), MAX(b.created_at)) AS latest_activity_at
+                FROM {BATCH_TABLE} b
+                LEFT JOIN {_latest_status_lateral(STATUS_TABLE, "b")} ds ON true
+                LEFT JOIN {_latest_status_lateral(DUCKGRES_STATUS_TABLE, "b")} dgs ON true
+                WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                {scope_sql}
+                GROUP BY b.run_uuid, b.team_id, b.schema_id
+                {having if only_pending else ""}
+                ORDER BY latest_activity_at ASC
+                """,
+                params,
+            )
+            rows = cur.fetchall()
+        return [ActiveRunRef(**row) for row in rows]
+
+    @staticmethod
+    def get_state_summary(
+        conn: psycopg.Connection[Any],
+        *,
+        team_id: int | None = None,
+        schema_ids: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Delta-succeeded batch counts by latest duckgres state within the scope.
+
+        Scoped to delta-succeeded batches because that is the duckgres sink's
+        input set; ``state='unclaimed'`` means the sink has not touched the
+        batch yet. Each row carries the oldest ``created_at`` in its state.
+        """
+        scope_sql, params = scope_filters(team_id=team_id, schema_ids=schema_ids)
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                f"""
+                SELECT
+                    COALESCE(dgs.job_state, 'unclaimed') AS state,
+                    COUNT(*) AS batch_count,
+                    MIN(b.created_at) AS oldest_created_at
+                FROM {BATCH_TABLE} b
+                JOIN {_latest_status_lateral(STATUS_TABLE, "b")} ds ON ds.job_state = 'succeeded'
+                LEFT JOIN {_latest_status_lateral(DUCKGRES_STATUS_TABLE, "b")} dgs ON true
+                WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                {scope_sql}
+                GROUP BY 1
+                ORDER BY 1
+                """,
+                params,
+            )
+            return cur.fetchall()
+
+    @staticmethod
+    def get_leases(
+        conn: psycopg.Connection[Any],
+        *,
+        team_id: int | None = None,
+        schema_ids: list[str] | None = None,
+    ) -> list[GroupLease]:
+        """Duckgres group leases within the scope, with computed liveness."""
+        scope_sql, params = scope_filters(team_id=team_id, schema_ids=schema_ids, alias="l")
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                f"""
+                SELECT team_id, schema_id, owner_token, acquired_at, updated_at, expires_at,
+                       expires_at > now() AS is_live
+                FROM {DUCKGRES_LEASE_TABLE} l
+                WHERE true
+                {scope_sql}
+                ORDER BY team_id, schema_id
+                """,
+                params,
+            )
+            rows = cur.fetchall()
+        return [GroupLease(**row) for row in rows]
+
+    @staticmethod
+    def force_release_leases(
+        conn: psycopg.Connection[Any],
+        *,
+        pairs: list[tuple[int, str]],
+    ) -> int:
+        """Delete duckgres group leases for ``pairs`` regardless of owner. Ops override only."""
+        if not pairs:
+            return 0
+        cursor = conn.execute(
+            f"""
+            DELETE FROM {DUCKGRES_LEASE_TABLE}
+            WHERE (team_id, schema_id) IN (
+                SELECT * FROM unnest(%(team_ids)s::bigint[], %(schema_ids)s::varchar[])
+            )
+            """,
+            {
+                "team_ids": [team_id for team_id, _ in pairs],
+                "schema_ids": [schema_id for _, schema_id in pairs],
+            },
+        )
+        return cursor.rowcount or 0
+
+    @staticmethod
+    def get_stale_executing_sync(
+        conn: psycopg.Connection[Any],
+        *,
+        grace_seconds: int = 0,
+        team_id: int | None = None,
+        schema_ids: list[str] | None = None,
+    ) -> list[PendingBatch]:
+        """Sync, scope-filtered twin of ``get_stale_executing`` for ops inspection."""
+        scope_sql, params = scope_filters(team_id=team_id, schema_ids=schema_ids)
+        params["grace"] = grace_seconds
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(_stale_executing_sql(scope_sql), params)
+            rows = cur.fetchall()
+        return [PendingBatch(**row) for row in rows]

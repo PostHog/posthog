@@ -51,6 +51,10 @@ _CATEGORIES = [
 
 @SourceRegistry.register
 class GNewsSource(ResumableSource[GNewsSourceConfig, GNewsResumeConfig]):
+    supported_versions = ("v4",)
+    default_version = "v4"
+    api_docs_url = "https://gnews.io/docs/v4"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -64,7 +68,6 @@ class GNewsSource(ResumableSource[GNewsSourceConfig, GNewsResumeConfig]):
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="GNews",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your GNews API key to pull worldwide news articles into the PostHog Data warehouse.
 
 You can find your API key in your [GNews dashboard](https://gnews.io/dashboard).

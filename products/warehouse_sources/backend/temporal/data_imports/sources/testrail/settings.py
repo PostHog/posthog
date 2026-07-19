@@ -43,6 +43,11 @@ class TestrailEndpointConfig:
     # TestRail record IDs are instance-global (case C123 / run R45 identifiers are unique across
     # projects), so `id` is a safe table-wide primary key even for fan-out endpoints.
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
+    # Stable UNIX-timestamp field to bucket the Delta table on (datetime partitioning). Never the
+    # incremental cursor when that is `updated_after` — a partition key must not move, so `cases`
+    # partitions on `created_on` even though it syncs incrementally on `updated_on`. Only set for
+    # endpoints whose records carry `created_on`; the rest stay unpartitioned.
+    partition_key: Optional[str] = None
 
 
 TESTRAIL_ENDPOINTS: dict[str, TestrailEndpointConfig] = {
@@ -87,6 +92,7 @@ TESTRAIL_ENDPOINTS: dict[str, TestrailEndpointConfig] = {
         # get_cases filters server-side on updated_after (UNIX timestamp against updated_on).
         incremental_param="updated_after",
         incremental_fields=_epoch_incremental_field("updated_on"),
+        partition_key="created_on",
     ),
     "milestones": TestrailEndpointConfig(
         name="milestones",
@@ -109,6 +115,7 @@ TESTRAIL_ENDPOINTS: dict[str, TestrailEndpointConfig] = {
         # (see _runs_rows).
         incremental_param="created_after",
         incremental_fields=_epoch_incremental_field("created_on"),
+        partition_key="created_on",
     ),
     "plans": TestrailEndpointConfig(
         name="plans",
@@ -118,6 +125,7 @@ TESTRAIL_ENDPOINTS: dict[str, TestrailEndpointConfig] = {
         paginated=True,
         incremental_param="created_after",
         incremental_fields=_epoch_incremental_field("created_on"),
+        partition_key="created_on",
     ),
     "tests": TestrailEndpointConfig(
         name="tests",
@@ -137,6 +145,7 @@ TESTRAIL_ENDPOINTS: dict[str, TestrailEndpointConfig] = {
         # TestRail, so a created_on cursor is a genuine incremental sync.
         incremental_param="created_after",
         incremental_fields=_epoch_incremental_field("created_on"),
+        partition_key="created_on",
     ),
     "statuses": TestrailEndpointConfig(
         name="statuses",

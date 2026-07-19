@@ -469,11 +469,6 @@
         "params": [],
         "scope": "project"
     },
-    "emailMFAVerify": {
-        "template": "/login/verify",
-        "params": [],
-        "scope": "global"
-    },
     "embedded": {
         "template": "/embedded/{token}",
         "params": ["token"],
@@ -512,6 +507,11 @@
     "errorTrackingConfiguration": {
         "template": "/error_tracking",
         "params": [],
+        "scope": "project"
+    },
+    "errorTrackingFingerprint": {
+        "template": "/error_tracking/fingerprint/{fingerprint}",
+        "params": ["fingerprint"],
         "scope": "project"
     },
     "errorTrackingIssue": {

@@ -20,12 +20,14 @@ export const TriggerTypeEnumApi = {
 
 /**
  * * `group_summary` - Group summary
+ * * `alert` - Alert
  * * `per_observation` - Per observation
  */
 export type VisionActionModeEnumApi = (typeof VisionActionModeEnumApi)[keyof typeof VisionActionModeEnumApi]
 
 export const VisionActionModeEnumApi = {
     GroupSummary: 'group_summary',
+    Alert: 'alert',
     PerObservation: 'per_observation',
 } as const
 
@@ -78,6 +80,89 @@ export interface SynthesisConfigApi {
      * @maxLength 500
      */
     prompt_guide?: string
+}
+
+/**
+ * * `every_match` - Every new match
+ * * `on_breach` - When a threshold is crossed
+ */
+export type AlertConfigFrequencyEnumApi = (typeof AlertConfigFrequencyEnumApi)[keyof typeof AlertConfigFrequencyEnumApi]
+
+export const AlertConfigFrequencyEnumApi = {
+    EveryMatch: 'every_match',
+    OnBreach: 'on_breach',
+} as const
+
+/**
+ * * `count` - Count of matching observations
+ * * `avg_score` - Average score
+ */
+export type VisionAlertMetricEnumApi = (typeof VisionAlertMetricEnumApi)[keyof typeof VisionAlertMetricEnumApi]
+
+export const VisionAlertMetricEnumApi = {
+    Count: 'count',
+    AvgScore: 'avg_score',
+} as const
+
+/**
+ * * `above` - At or above
+ * * `below` - At or below
+ */
+export type VisionAlertDirectionEnumApi = (typeof VisionAlertDirectionEnumApi)[keyof typeof VisionAlertDirectionEnumApi]
+
+export const VisionAlertDirectionEnumApi = {
+    Above: 'above',
+    Below: 'below',
+} as const
+
+/**
+ * * `1` - 1 day
+ * * `3` - 3 days
+ * * `7` - 7 days
+ * * `14` - 14 days
+ * * `30` - 30 days
+ */
+export type WindowDaysEnumApi = (typeof WindowDaysEnumApi)[keyof typeof WindowDaysEnumApi]
+
+export const WindowDaysEnumApi = {
+    Number1: 1,
+    Number3: 3,
+    Number7: 7,
+    Number14: 14,
+    Number30: 30,
+} as const
+
+/**
+ * The alert condition for mode='alert', applied after `selection` targeting. 'every_match'
+ * notifies about each new match since the previous check; 'on_breach' compares a metric to a
+ * threshold over a rolling window and notifies on the transition into breach.
+ */
+export interface AlertConfigApi {
+    /** 'every_match' notifies about every new matching observation (batched per check); 'on_breach' notifies once when the threshold condition starts holding. Defaults to 'on_breach'.
+     *
+     * * `every_match` - Every new match
+     * * `on_breach` - When a threshold is crossed */
+    frequency?: AlertConfigFrequencyEnumApi
+    /** What to measure over the window: 'count' of targeted observations, or 'avg_score' (the mean scorer score; scorer scanners only). every_match supports 'count' only.
+     *
+     * * `count` - Count of matching observations
+     * * `avg_score` - Average score */
+    metric?: VisionAlertMetricEnumApi
+    /** The alert fires when the metric is at or above ('above') or at or below ('below') this value, per 'direction'. Required for on_breach; ignored for every_match. */
+    threshold?: number
+    /** Which side of the threshold breaches: 'above' fires when the metric is at or above it, 'below' when at or below (e.g. an average score dropping under a floor). Both inclusive. Defaults to 'above'; ignored for every_match.
+     *
+     * * `above` - At or above
+     * * `below` - At or below */
+    direction?: VisionAlertDirectionEnumApi
+    /** Rolling lookback window for on_breach conditions, ending at each check. Defaults to 1 day. every_match ignores it (each check covers what's new since the previous one).
+     *
+     * * `1` - 1 day
+     * * `3` - 3 days
+     * * `7` - 7 days
+     * * `14` - 14 days
+     * * `30` - 30 days */
+    window_days?: WindowDaysEnumApi
 }
 
 /**
@@ -179,6 +264,7 @@ export interface VisionActionApi {
     /** What the action produces. MVP supports 'group_summary' only.
      *
      * * `group_summary` - Group summary
+     * * `alert` - Alert
      * * `per_observation` - Per observation */
     mode?: VisionActionModeEnumApi
     /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
@@ -187,6 +273,8 @@ export interface VisionActionApi {
     selection?: SelectionApi
     /** Synthesis options for the group summary, e.g. {prompt_guide}. */
     synthesis_config?: SynthesisConfigApi
+    /** Alert condition; required when mode is 'alert', ignored otherwise. */
+    alert_config?: AlertConfigApi
     /** List of delivery destinations the synthesized summary is sent to. */
     delivery_config?: DeliveryTargetApi[]
     /**
@@ -240,6 +328,7 @@ export interface PatchedVisionActionApi {
     /** What the action produces. MVP supports 'group_summary' only.
      *
      * * `group_summary` - Group summary
+     * * `alert` - Alert
      * * `per_observation` - Per observation */
     mode?: VisionActionModeEnumApi
     /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
@@ -248,6 +337,8 @@ export interface PatchedVisionActionApi {
     selection?: SelectionApi
     /** Synthesis options for the group summary, e.g. {prompt_guide}. */
     synthesis_config?: SynthesisConfigApi
+    /** Alert condition; required when mode is 'alert', ignored otherwise. */
+    alert_config?: AlertConfigApi
     /** List of delivery destinations the synthesized summary is sent to. */
     delivery_config?: DeliveryTargetApi[]
     /**
@@ -311,6 +402,8 @@ export interface VisionActionRunListApi {
      * @nullable
      */
     readonly error_reason: string | null
+    /** True for the run recording an alert's condition clearing after a breach (the recovery bookend in run history). False for alert firings and summaries. */
+    readonly is_recovery: boolean
     readonly created_at: string
     readonly updated_at: string
 }
@@ -372,6 +465,8 @@ export interface VisionActionRunApi {
      * @nullable
      */
     readonly error_reason: string | null
+    /** True for the run recording an alert's condition clearing after a breach (the recovery bookend in run history). False for alert firings and summaries. */
+    readonly is_recovery: boolean
     readonly created_at: string
     readonly updated_at: string
     /** The synthesized group-summary report in Markdown. Empty until a run completes successfully. */
@@ -453,12 +548,14 @@ export interface ScannerResultApi {
 /**
  * * `schedule` - Schedule
  * * `on_demand` - On demand
+ * * `retry` - Retry
  */
 export type ObservationTriggerEnumApi = (typeof ObservationTriggerEnumApi)[keyof typeof ObservationTriggerEnumApi]
 
 export const ObservationTriggerEnumApi = {
     Schedule: 'schedule',
     OnDemand: 'on_demand',
+    Retry: 'retry',
 } as const
 
 /**
@@ -496,10 +593,11 @@ export interface ReplayObservationApi {
     readonly scanner_snapshot: ScannerSnapshotApi | null
     /** Result data persisted on success; null until the observation succeeds. */
     readonly scanner_result: ScannerResultApi | null
-    /** Whether this observation came from the schedule or an on-demand request.
+    /** Whether this observation came from the schedule, an on-demand request, or a retry of a failed observation.
      *
      * * `schedule` - Schedule
-     * * `on_demand` - On demand */
+     * * `on_demand` - On demand
+     * * `retry` - Retry */
     readonly triggered_by: ObservationTriggerEnumApi
     /** User who triggered an on-demand observation; null for scheduled observations. */
     readonly triggered_by_user: UserBasicApi | null
@@ -514,12 +612,12 @@ export interface ReplayObservationApi {
      */
     readonly recording_subject_email: string | null
     /**
-     * Id of the newer sibling observation for the same scanner (prev/next nav); only set on retrieve, null at the start.
+     * Id of the preceding sibling observation for the same scanner (prev/next nav), honoring any list filters and ordering passed to retrieve; only set on retrieve, null at the start of the set.
      * @nullable
      */
     readonly previous_observation_id: string | null
     /**
-     * Id of the older sibling observation for the same scanner (prev/next nav); only set on retrieve, null at the end.
+     * Id of the following sibling observation for the same scanner (prev/next nav), honoring any list filters and ordering passed to retrieve; only set on retrieve, null at the end of the set.
      * @nullable
      */
     readonly next_observation_id: string | null
@@ -607,6 +705,33 @@ export const ScannerModelEnumApi = {
     Gemini35Flash: 'gemini-3.5-flash',
 } as const
 
+export interface FeedbackThemeSessionApi {
+    /** Observation whose feedback comment backs this theme. */
+    observation_id: string
+    /** Session recording the feedback comment was about. */
+    session_id: string
+}
+
+export interface FeedbackThemeApi {
+    /** Short failure mode in sentence case, for example "Review page mistaken for confirmation". */
+    theme: string
+    /** How many feedback comments describe this failure mode. */
+    count: number
+    /** Up to two short representative quotes from the feedback comments. */
+    examples: string[]
+    /** The rated sessions whose feedback comments back this theme. Empty for summaries generated before session tracking. */
+    sessions: FeedbackThemeSessionApi[]
+}
+
+export interface FeedbackThemesApi {
+    /** Recurring failure modes, most frequent first. */
+    themes: FeedbackThemeApi[]
+    /** Number of thumbs-down feedback comments the summary was generated from. */
+    feedback_count: number
+    /** When the summary was generated. */
+    generated_at: string
+}
+
 export interface ReplayScannerApi {
     readonly id: string
     /**
@@ -676,6 +801,8 @@ export interface ReplayScannerApi {
     /** User who created the scanner. */
     readonly created_by: UserBasicApi | null
     readonly updated_at: string
+    /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
+    readonly feedback_themes: FeedbackThemesApi | null
 }
 
 export interface PaginatedReplayScannerListApi {
@@ -756,6 +883,64 @@ export interface PatchedReplayScannerApi {
     /** User who created the scanner. */
     readonly created_by?: UserBasicApi | null
     readonly updated_at?: string
+    /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
+    readonly feedback_themes?: FeedbackThemesApi | null
+}
+
+/**
+ * Body of POST /vision/scanners/:id/affected_cohort/. Same qualifiers as the impact GET.
+ */
+export interface AffectedCohortRequestApi {
+    /**
+     * Trailing window of observations to count. Defaults to 30 days.
+     * @minimum 1
+     * @maximum 90
+     */
+    window_days?: number
+    /**
+     * Classifier scanners only, required for them: count sessions carrying this tag (fixed or freeform). Not applicable to other scanner types.
+     * @maxLength 100
+     * @nullable
+     */
+    tag?: string | null
+    /**
+     * Scorer scanners only: count sessions scoring at or above this value. Scorers require `min_score` and/or `max_score`. Not applicable to other scanner types.
+     * @nullable
+     */
+    min_score?: number | null
+    /**
+     * Scorer scanners only: count sessions scoring at or below this value.
+     * @nullable
+     */
+    max_score?: number | null
+}
+
+/**
+ * The static cohort created from the scanner's affected users.
+ */
+export interface AffectedCohortResponseApi {
+    /** ID of the created static cohort; usable anywhere cohorts are (funnels, surveys, experiments). */
+    readonly cohort_id: number
+    /** Generated cohort name, stamped with the creation date since the snapshot doesn't live-update. */
+    readonly name: string
+    /** Persons actually in the created cohort. Can be lower than `affected_users`: matched distinct IDs without a person profile are dropped, and merged persons deduplicate. */
+    readonly users_in_cohort: number
+    /** Trailing window the cohort was drawn from, in days. */
+    readonly window_days: number
+}
+
+/**
+ * Who this scanner's findings affected in the window; counted from observations, not estimated.
+ */
+export interface ScannerImpactApi {
+    /** Distinct sessions with an affected observation in the window. For monitors only verdict-yes observations count; for other scanner types every succeeded observation counts. */
+    readonly affected_sessions: number
+    /** Distinct users behind the affected sessions, by distinct ID. May include anonymous device IDs when the recorded sessions were not identified. */
+    readonly affected_users: number
+    /** Affected sessions whose recording carried no distinct ID at all. */
+    readonly sessions_without_user: number
+    /** Trailing window the counts cover, in days. */
+    readonly window_days: number
 }
 
 /**
@@ -824,6 +1009,8 @@ export interface ObservationVersionMarkerApi {
     up: number
     /** Thumbs-down ratings on this version's observations. */
     down: number
+    /** Succeeded (ratable) observations this version produced, rated or not. */
+    total: number
 }
 
 export interface ObservationLabelStatsApi {
@@ -930,6 +1117,65 @@ export const ReplayScannerPromptSuggestionStatusEnumApi = {
     NoChange: 'no_change',
 } as const
 
+export interface PromptEvaluationResultApi {
+    /** The rated session that was re-run with the suggested prompt. */
+    session_id: string
+    /** The original rated observation the comparison is against. */
+    observation_id: string
+    /** The team's rating of the original output (thumbs up = true). */
+    rated_correct: boolean
+    /**
+     * The original output's primary outcome.
+     * @nullable
+     */
+    before: string | null
+    /**
+     * The suggested prompt's outcome for the same session. Null when the run errored or returned no discrete outcome (e.g. a classifier with no tags).
+     * @nullable
+     */
+    after: string | null
+    /** kept (up, unchanged), regressed (up, changed), fixed (down, changed), still_wrong (down, unchanged), or error. */
+    outcome: string
+    /**
+     * Why this session's re-run failed, when it did.
+     * @nullable
+     */
+    error: string | null
+}
+
+export interface PromptEvaluationSummaryApi {
+    /** Thumbs-up sessions whose output is unchanged. */
+    kept: number
+    /** Thumbs-up sessions whose output changed. */
+    regressed: number
+    /** Thumbs-down sessions whose output changed. */
+    fixed: number
+    /** Thumbs-down sessions whose output is unchanged. */
+    still_wrong: number
+    /** Sessions whose re-run failed. */
+    errors: number
+}
+
+export interface PromptSuggestionEvaluationApi {
+    /** running, succeeded, or failed. */
+    status: string
+    /** When the evaluation started. */
+    started_at: string
+    /**
+     * When the evaluation finished, if it has.
+     * @nullable
+     */
+    finished_at: string | null
+    /** How many rated sessions are being re-run. */
+    total: number
+    /** The rated set the evaluation ran against. */
+    labels_fingerprint: string
+    /** Per-session outcomes, in completion order. */
+    results: PromptEvaluationResultApi[]
+    /** Outcome counts. Null while the evaluation is running. */
+    summary: PromptEvaluationSummaryApi | null
+}
+
 export interface ReplayScannerPromptSuggestionApi {
     readonly id: string
     /** pending (current), applied, dismissed, or superseded by a newer suggestion.
@@ -959,6 +1205,8 @@ export interface ReplayScannerPromptSuggestionApi {
     readonly applied_at: string | null
     /** User who applied this suggestion to the scanner; null unless applied. */
     readonly applied_by: UserBasicApi | null
+    /** Test-before-apply results: the suggested prompt re-run against rated sessions. */
+    readonly evaluation: PromptSuggestionEvaluationApi | null
 }
 
 export interface PaginatedReplayScannerPromptSuggestionListApi {
@@ -970,6 +1218,15 @@ export interface PaginatedReplayScannerPromptSuggestionListApi {
     results: ReplayScannerPromptSuggestionApi[]
 }
 
+export interface EvaluatePromptSuggestionRequestApi {
+    /**
+     * How many rated sessions to re-run, thumbs-down prioritized. Each successful re-run charges credits like a normal observation of the same model. Defaults to 10. The maximum is `evaluation_session_cap`.
+     * @minimum 1
+     * @maximum 100
+     */
+    session_limit?: number
+}
+
 export interface CurrentPromptSuggestionApi {
     /** The newest suggestion for this scanner, or null when none has been generated yet. */
     suggestion: ReplayScannerPromptSuggestionApi | null
@@ -977,6 +1234,8 @@ export interface CurrentPromptSuggestionApi {
     stale: boolean
     /** Number of rated (thumbs up or down) succeeded observations available to generate from. */
     rated_count: number
+    /** Maximum rated sessions one suggestion test re-runs. Each successful re-run charges credits like a normal observation of the same model. */
+    evaluation_session_cap: number
 }
 
 /**
@@ -1169,13 +1428,48 @@ export type VisionObservationsListParams = {
      */
     offset?: number
     /**
-     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
      */
     order_by?: string
     /**
      * Session recording id to return observations for.
      */
     session_id: string
+}
+
+export type VisionObservationsRetrieveParams = {
+    /**
+     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
+     */
+    labeled?: string
+    /**
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
+     */
+    order_by?: string
+    /**
+     * Filter to observations whose person email contains this value (case-insensitive).
+     */
+    recording_subject?: string
+    /**
+     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
+     */
+    session_id?: string
+    /**
+     * Filter by observation status. Accepts a comma-separated list.
+     */
+    status?: string
+    /**
+     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
+     */
+    tags?: string
+    /**
+     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
+     */
+    triggered_by?: string
+    /**
+     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string
 }
 
 export type VisionScannersListParams = {
@@ -1213,6 +1507,31 @@ export type VisionScannersListParams = {
     search?: string
 }
 
+export type VisionScannersImpactRetrieveParams = {
+    /**
+     * Scorer scanners only: count sessions scoring at or below this value.
+     * @nullable
+     */
+    max_score?: number | null
+    /**
+     * Scorer scanners only: count sessions scoring at or above this value. Scorers require `min_score` and/or `max_score`. Not applicable to other scanner types.
+     * @nullable
+     */
+    min_score?: number | null
+    /**
+     * Classifier scanners only, required for them: count sessions carrying this tag (fixed or freeform). Not applicable to other scanner types.
+     * @maxLength 100
+     * @nullable
+     */
+    tag?: string | null
+    /**
+     * Trailing window of observations to count. Defaults to 30 days.
+     * @minimum 1
+     * @maximum 90
+     */
+    window_days?: number
+}
+
 export type VisionScannersObservationsListParams = {
     /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
@@ -1227,11 +1546,11 @@ export type VisionScannersObservationsListParams = {
      */
     offset?: number
     /**
-     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
      */
     order_by?: string
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string
     /**
@@ -1247,7 +1566,42 @@ export type VisionScannersObservationsListParams = {
      */
     tags?: string
     /**
-     * Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.
+     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
+     */
+    triggered_by?: string
+    /**
+     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string
+}
+
+export type VisionScannersObservationsRetrieveParams = {
+    /**
+     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
+     */
+    labeled?: string
+    /**
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
+     */
+    order_by?: string
+    /**
+     * Filter to observations whose person email contains this value (case-insensitive).
+     */
+    recording_subject?: string
+    /**
+     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
+     */
+    session_id?: string
+    /**
+     * Filter by observation status. Accepts a comma-separated list.
+     */
+    status?: string
+    /**
+     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
+     */
+    tags?: string
+    /**
+     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
      */
     triggered_by?: string
     /**
@@ -1266,7 +1620,7 @@ export type VisionScannersObservationsStatsRetrieveParams = {
      */
     recent_days?: number
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string
     /**
@@ -1282,7 +1636,7 @@ export type VisionScannersObservationsStatsRetrieveParams = {
      */
     tags?: string
     /**
-     * Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.
+     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
      */
     triggered_by?: string
     /**

@@ -25,6 +25,7 @@ export { createPlaybackSpeedKey } from './PurePlayer'
 export interface SessionRecordingPlayerProps extends SessionRecordingPlayerLogicProps {
     noMeta?: boolean
     noBorder?: boolean
+    noDock?: boolean
     withSidebar?: boolean
     matchingEventsMatchType?: MatchingEventsMatchType
     accessToken?: string
@@ -38,6 +39,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         noMeta = false,
         matchingEventsMatchType,
         noBorder = false,
+        noDock = false,
         withSidebar = true,
         autoPlay = true,
         mode = SessionRecordingPlayerMode.Standard,
@@ -71,6 +73,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
             <SessionRecordingPlayerInternal
                 noMeta={noMeta}
                 noBorder={noBorder}
+                noDock={noDock}
                 withSidebar={withSidebar}
                 playerRef={playerRef}
             />
@@ -81,11 +84,13 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
 function SessionRecordingPlayerInternal({
     noMeta,
     noBorder,
+    noDock,
     withSidebar,
     playerRef,
 }: {
     noMeta: boolean
     noBorder: boolean
+    noDock: boolean
     withSidebar: boolean
     playerRef: React.RefObject<HTMLDivElement>
 }): JSX.Element {
@@ -93,7 +98,9 @@ function SessionRecordingPlayerInternal({
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const showSummaryDock =
-        !noMeta && (logicProps.mode ?? SessionRecordingPlayerMode.Standard) === SessionRecordingPlayerMode.Standard
+        !noMeta &&
+        !noDock &&
+        (logicProps.mode ?? SessionRecordingPlayerMode.Standard) === SessionRecordingPlayerMode.Standard
     const showVisionDock = showSummaryDock && !!featureFlags[FEATURE_FLAGS.REPLAY_VISION]
 
     return (

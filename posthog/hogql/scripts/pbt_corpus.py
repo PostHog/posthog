@@ -36,20 +36,13 @@ Typical workflow:
 """
 
 # ruff: noqa: T201 (CLI script — print is the report channel)
-# ruff: noqa: E402 (django.setup() ordering)
 
 from __future__ import annotations
 
-import os
 import sys
 import json
 import argparse
 from collections import Counter
-
-import django
-
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
-django.setup()
 
 from posthog.hogql.scripts._diagnostic_common import (
     DivergenceShape,

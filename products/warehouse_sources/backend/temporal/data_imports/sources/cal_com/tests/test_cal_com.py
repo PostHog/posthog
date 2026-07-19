@@ -10,7 +10,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.cal_com import cal_com
 from products.warehouse_sources.backend.temporal.data_imports.sources.cal_com.cal_com import (
     CAL_COM_BASE_URL,
-    PAGE_LIMIT,
     CalComResumeConfig,
     CalComRetryableError,
     cal_com_source,
@@ -83,8 +82,9 @@ class TestBookingsCursorPagination:
         manager = _FakeResumableManager()
         rows, calls = _collect(manager, self._pages, "bookings")
         assert rows == [{"id": 1}, {"id": 2}]
-        assert calls[0]["params"] == {"limit": PAGE_LIMIT}
-        assert calls[1]["params"] == {"limit": PAGE_LIMIT, "cursor": "c2"}
+        # Bookings `limit` maxes at 100; a larger value is rejected with 400 Bad Request.
+        assert calls[0]["params"] == {"limit": 100}
+        assert calls[1]["params"] == {"limit": 100, "cursor": "c2"}
         # State is saved once — after the first page, pointing at the next cursor — then we stop.
         assert [s.cursor for s in manager.saved] == ["c2"]
 
@@ -165,15 +165,18 @@ class TestBookingsCursorPagination:
 class TestWebhooksOffsetPagination:
     def test_advances_skip_until_short_page(self) -> None:
         manager = _FakeResumableManager()
-        full_page = [{"id": i} for i in range(PAGE_LIMIT)]
+        page_size = CAL_COM_ENDPOINTS["webhooks"].page_size
+        full_page = [{"id": i} for i in range(page_size)]
 
         def pages(url: str, params: dict[str, Any]) -> dict[str, Any]:
             return {"data": full_page if params["skip"] == 0 else [{"id": "last"}]}
 
         rows, calls = _collect(manager, pages, "webhooks")
-        assert len(rows) == PAGE_LIMIT + 1
-        assert [c["params"]["skip"] for c in calls] == [0, PAGE_LIMIT]
-        assert [s.skip for s in manager.saved] == [PAGE_LIMIT]
+        assert len(rows) == page_size + 1
+        # Webhooks `take` maxes at 250; a larger value is rejected with 400 Bad Request.
+        assert calls[0]["params"]["take"] == 250
+        assert [c["params"]["skip"] for c in calls] == [0, page_size]
+        assert [s.skip for s in manager.saved] == [page_size]
 
     def test_resumes_from_saved_offset(self) -> None:
         manager = _FakeResumableManager(CalComResumeConfig(skip=500))

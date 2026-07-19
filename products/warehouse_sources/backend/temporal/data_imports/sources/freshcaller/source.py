@@ -47,6 +47,9 @@ _ERR_FORBIDDEN = "Your Freshcaller API key does not have permission for this res
 @SourceRegistry.register
 class FreshcallerSource(ResumableSource[FreshcallerSourceConfig, FreshcallerResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://developers.freshcaller.com/api/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -85,7 +88,6 @@ Your **API key** is on your Freshcaller profile settings page (click your profil
             iconPath="/static/services/freshcaller.png",
             docsUrl="https://posthog.com/docs/cdp/sources/freshcaller",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

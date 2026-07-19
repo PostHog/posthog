@@ -99,6 +99,10 @@ def _billing_synced_limit(organization: Organization | None) -> tuple[bool, int 
 
 
 def compute_quota_snapshot(organization_id: UUID) -> QuotaSnapshot:
+    # noqa comment below: prompt_evaluation pulls in the temporal package, whose activities import
+    # this module — deferring breaks the quota -> prompt_evaluation -> temporal -> quota cycle.
+    from products.replay_vision.backend.prompt_evaluation import in_flight_evaluation_credits  # noqa: PLC0415
+
     # Single `now` so the usage window, bonus expiry, and any caller comparisons are computed from one instant.
     now = datetime.now(UTC)
     organization = Organization.objects.filter(pk=organization_id).only("usage").first()
@@ -127,7 +131,8 @@ def compute_quota_snapshot(organization_id: UUID) -> QuotaSnapshot:
         ).values_list("scanner_snapshot__model", flat=True)
     )
     in_flight = sum(observation_credits_for_model(model or "") * count for model, count in in_flight_models.items())
-    usage = consumed + in_flight
+    # Prompt tests have no observation rows. Their unsettled sessions are committed spend too.
+    usage = consumed + in_flight + in_flight_evaluation_credits(organization_id)
     bonus = ReplayQuotaGrant.objects.filter(
         organization_id=organization_id,
         expires_at__gt=now,

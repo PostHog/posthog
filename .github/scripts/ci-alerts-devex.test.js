@@ -64,7 +64,7 @@ function commitsWithRuns(perCommitConclusions) {
     const runsByWorkflow = {}
     perCommitConclusions.forEach((conclusionsMap, i) => {
         for (const [wf, conclusion] of Object.entries(conclusionsMap)) {
-            if (!runsByWorkflow[wf]) runsByWorkflow[wf] = []
+            if (!runsByWorkflow[wf]) {runsByWorkflow[wf] = []}
             runsByWorkflow[wf].push({
                 name: wf === 'ci-backend.yml' ? 'Backend CI' : 'Frontend CI',
                 status: 'completed',
@@ -180,7 +180,7 @@ describe('ci-alerts-devex', () => {
             assert.match(body, /Backend CI/)
             assert.match(body, /5 failed runs in a row/)
             // per-workflow link → engineering analytics workflow detail, scoped to master
-            assert.match(body, /engineering-analytics\/PostHog\/posthog\/actions\/workflows\/Backend%20CI\?q=master/)
+            assert.match(body, /engineering-analytics\/repos\/PostHog\/posthog\/actions\/workflows\/Backend%20CI\?q=master/)
             assert.equal(anchor.metadata.event_type, 'master_ci_incident')
             assert.equal(anchor.metadata.event_payload.status, 'active')
             assert.deepEqual(
@@ -224,7 +224,7 @@ describe('ci-alerts-devex', () => {
         const thread = slack.postMessage.calls[0][0].text
         assert.match(thread, /now also failing/)
         assert.match(thread, /Frontend CI/)
-        assert.match(thread, /engineering-analytics\/PostHog\/posthog\/actions\/workflows\/Frontend%20CI\?q=master/)
+        assert.match(thread, /engineering-analytics\/repos\/PostHog\/posthog\/actions\/workflows\/Frontend%20CI\?q=master/)
     })
 
     it('strikes through the anchor and threads recovery on resolve', async () => {

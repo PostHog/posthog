@@ -92,13 +92,20 @@ impl From<reqwest::Error> for ClientError {
 }
 
 impl ClientError {
-    pub fn has_api_error_code(&self, expected_code: &str) -> bool {
+    pub fn has_structured_api_error_code(&self, expected_code: &str) -> bool {
         let ClientError::ApiError(_, _, body) = self else {
             return false;
         };
 
         api_error_code(body).is_some_and(|code| code == expected_code)
-            || body.contains(expected_code)
+    }
+
+    pub fn has_api_error_code(&self, expected_code: &str) -> bool {
+        let ClientError::ApiError(_, _, body) = self else {
+            return false;
+        };
+
+        self.has_structured_api_error_code(expected_code) || body.contains(expected_code)
     }
 }
 

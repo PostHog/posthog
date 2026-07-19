@@ -41,8 +41,12 @@ export const urls = {
     eventDefinition: (id: string | number): string => `/data-management/events/${id}`,
     eventDefinitionEdit: (id: string | number): string => `/data-management/events/${id}/edit`,
     propertyDefinitions: (type?: string): string => combineUrl('/data-management/properties', type ? { type } : {}).url,
-    propertyDefinition: (id: string | number): string => `/data-management/properties/${id}`,
-    propertyDefinitionEdit: (id: string | number): string => `/data-management/properties/${id}/edit`,
+    // Virtual property ids contain `$`, which kea-router's segment charset rejects, so encode real ids
+    // (`:param` placeholders pass through untouched for route registration)
+    propertyDefinition: (id: string | number): string =>
+        `/data-management/properties/${typeof id === 'string' && id.startsWith(':') ? id : encodeURIComponent(id)}`,
+    propertyDefinitionEdit: (id: string | number): string =>
+        `/data-management/properties/${typeof id === 'string' && id.startsWith(':') ? id : encodeURIComponent(id)}/edit`,
     schemaManagement: (): string => '/data-management/schema',
     dataManagementHistory: (): string => '/data-management/history',
     database: (): string => '/data-management/database',
@@ -142,6 +146,7 @@ export const urls = {
     projectCreateFirst: (): string => '/organization/create-project',
     projectRoot: (): string => '/',
     projectHomepage: (): string => '/home',
+    quickstart: (): string => '/quickstart',
     ai: (chat?: string, ask?: string): string => combineUrl('/ai', { ask, chat }).url,
     aiHistory: (): string => '/ai/history',
     settings: (section: SettingSectionId | SettingLevelId = 'project', setting?: SettingId): string =>
@@ -167,7 +172,6 @@ export const urls = {
     credentialReview: (): string => '/account/credential-review',
     cliAuthorize: (): string => '/cli/authorize',
     cliLive: (): string => '/cli/live',
-    emailMFAVerify: (): string => '/login/verify',
     liveDebugger: (): string => '/live-debugger',
     passwordReset: (): string => '/reset',
     passwordResetComplete: (userUuid: string, token: string): string => `/reset/${userUuid}/${token}`,

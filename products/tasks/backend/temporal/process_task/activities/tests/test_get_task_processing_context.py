@@ -11,6 +11,7 @@ from posthog.models.user_integration import UserIntegration
 
 from products.tasks.backend.constants import (
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
+    CONTINUE_AS_NEW_FEATURE_FLAG,
     MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG,
     MODAL_VM_SANDBOX_FEATURE_FLAG,
     RTK_DISABLED_FEATURE_FLAG,
@@ -24,6 +25,7 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
     TaskProcessingContext,
     _is_agent_proxy_keep_stream_open_enabled,
     _is_burstable_sandbox_resources_enabled,
+    _is_continue_as_new_enabled,
     _is_modal_vm_sandbox_enabled,
     _is_rtk_enabled,
     _is_sandbox_event_ingest_enabled,
@@ -595,6 +597,62 @@ class TestGetTaskProcessingContextActivity:
                 is False
             )
 
+    @pytest.mark.parametrize("flag_value, expected", [(True, True), (False, False)])
+    @override_settings(TASKS_CONTINUE_AS_NEW_ENABLED=False)
+    def test_continue_as_new_flag_uses_organization_rollout(self, flag_value, expected):
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            return_value=flag_value,
+        ) as feature_enabled_mock:
+            assert (
+                _is_continue_as_new_enabled(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                )
+                is expected
+            )
+
+        feature_enabled_mock.assert_called_once_with(
+            CONTINUE_AS_NEW_FEATURE_FLAG,
+            distinct_id="distinct-id",
+            groups={"organization": "organization-id"},
+            group_properties={"organization": {"id": "organization-id"}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+
+    @override_settings(TASKS_CONTINUE_AS_NEW_ENABLED=False)
+    def test_continue_as_new_fails_closed_on_flag_error(self):
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            side_effect=RuntimeError("flag service failed"),
+        ):
+            assert (
+                _is_continue_as_new_enabled(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                )
+                is False
+            )
+
+    @override_settings(TASKS_CONTINUE_AS_NEW_ENABLED=True)
+    def test_continue_as_new_env_setting_force_enables_without_flag(self):
+        # The force-on env setting must not depend on the flag service.
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+        ) as feature_enabled_mock:
+            assert (
+                _is_continue_as_new_enabled(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                )
+                is True
+            )
+        feature_enabled_mock.assert_not_called()
+
     @pytest.mark.parametrize(
         "payload, expected",
         [
@@ -614,6 +672,7 @@ class TestGetTaskProcessingContextActivity:
                     run_id="run-id",
                     origin_product="user_created",
                     allowed_domains=None,
+                    custom_image_available=True,
                 )
                 is expected
             )
@@ -643,7 +702,15 @@ class TestGetTaskProcessingContextActivity:
                 is False
             )
 
-    def test_modal_vm_sandbox_state_override_skips_flag_check(self):
+    @pytest.mark.parametrize(
+        "origin_product, custom_image_available, expected",
+        [
+            ("image_builder", False, True),
+            ("user_created", False, False),
+            ("user_created", True, True),
+        ],
+    )
+    def test_modal_vm_sandbox_state_override_skips_flag_check(self, origin_product, custom_image_available, expected):
         with patch(
             VM_FLAG_PAYLOAD_TARGET,
             return_value=None,
@@ -653,11 +720,12 @@ class TestGetTaskProcessingContextActivity:
                     distinct_id="distinct-id",
                     organization_id="organization-id",
                     run_id="run-id",
-                    origin_product="user_created",
+                    origin_product=origin_product,
                     allowed_domains=None,
+                    custom_image_available=custom_image_available,
                     state={"use_modal_vm_sandbox": True},
                 )
-                is True
+                is expected
             )
 
         payload_mock.assert_not_called()
@@ -700,17 +768,20 @@ class TestGetTaskProcessingContextActivity:
         payload_mock.assert_not_called()
 
     @pytest.mark.parametrize(
-        "origin_product, payload, expected",
+        "origin_product, payload, custom_image_available, expected",
         [
-            ("user_created", None, False),
-            ("signals_scout", None, False),
-            ("signals_scout", {"origin_products": ["signals_scout"]}, True),
-            ("signals_scout", ["signals_scout", "user_created"], True),
-            ("user_created", {"origin_products": ["signals_scout"]}, False),
-            ("user_created", '{"origin_products": ["user_created"]}', True),
+            ("user_created", None, True, False),
+            ("signals_scout", None, False, False),
+            ("signals_scout", {"origin_products": ["signals_scout"]}, False, False),
+            ("signals_scout", ["signals_scout", "user_created"], False, False),
+            ("signals_scout", {"origin_products": ["signals_scout"]}, True, True),
+            ("image_builder", {"origin_products": ["image_builder"]}, False, True),
+            ("user_created", {"origin_products": ["signals_scout"]}, True, False),
+            ("user_created", '{"origin_products": ["user_created"]}', False, False),
+            ("user_created", '{"origin_products": ["user_created"]}', True, True),
         ],
     )
-    def test_modal_vm_sandbox_origin_product_gating(self, origin_product, payload, expected):
+    def test_modal_vm_sandbox_origin_product_gating(self, origin_product, payload, custom_image_available, expected):
         with patch(
             VM_FLAG_PAYLOAD_TARGET,
             return_value=payload,
@@ -722,6 +793,7 @@ class TestGetTaskProcessingContextActivity:
                     run_id="run-id",
                     origin_product=origin_product,
                     allowed_domains=None,
+                    custom_image_available=custom_image_available,
                 )
                 is expected
             )

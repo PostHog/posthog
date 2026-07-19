@@ -136,6 +136,8 @@ export interface _TracingAttributeBreakdownQueryBodyApi {
     breakdownType: SpanPropertyTypeEnumApi
     /** Drop filters targeting the breakdown key itself (including serviceNames for a service_name breakdown), so a facet's value list stays complete while one of its values is selected. */
     excludeBreakdownFilter?: boolean
+    /** Type-ahead filter over the breakdown field's own values (case-insensitive substring match). An empty string means no filter. Lets a facet's value search reach past the row limit. */
+    facetSearch?: string
     /** Order rows by span count or error count, descending. Defaults to count.
      *
      * * `count` - count
@@ -154,6 +156,29 @@ export interface _TracingAttributeBreakdownQueryBodyApi {
 export interface _TracingAttributeBreakdownRequestApi {
     /** The attribute breakdown query to execute. */
     query: _TracingAttributeBreakdownQueryBodyApi
+}
+
+export interface _TracingAttributeBreakdownRowApi {
+    /** The attribute's value for this group. Spans without the attribute group under ''. */
+    value: string
+    /** Number of matching spans with this value. */
+    count: number
+    /** Number of matching error spans (status_code = 2). */
+    error_count: number
+    /** Median span duration in nanoseconds. */
+    p50_duration_nano: number
+    /** 95th percentile span duration in nanoseconds. */
+    p95_duration_nano: number
+}
+
+export interface _TracingAttributeBreakdownResponseApi {
+    /** One row per distinct attribute value, ordered by the requested column descending. */
+    results: _TracingAttributeBreakdownRowApi[]
+    /**
+     * Rows for the comparison window when compareFilter.compare is true, else null.
+     * @nullable
+     */
+    compare: _TracingAttributeBreakdownRowApi[] | null
 }
 
 /**
@@ -235,6 +260,25 @@ export interface _TracingDurationHistogramRequestApi {
 export interface _HasSpansResponseApi {
     /** Whether the team has ingested any tracing spans yet. Used to gate the onboarding empty state. */
     hasSpans: boolean
+}
+
+export interface _TracingLatencyHeatmapRequestApi {
+    /** The latency-heatmap query to execute. */
+    query: _TracingDurationHistogramQueryBodyApi
+}
+
+export interface _TracingLatencyHeatmapCellApi {
+    /** ISO 8601 UTC start of the time bucket. */
+    time: string
+    /** Lower edge of the 1-2-5 series duration bucket in nanoseconds (1ms, 2ms, 5ms, 10ms, ...). 0 on the sentinel row that enumerates a time bucket with no matching spans. */
+    bucket_ns: number
+    /** Spans (or traces when rootSpans is true) in this cell. 0 only on sentinel rows. */
+    count: number
+}
+
+export interface _TracingLatencyHeatmapResponseApi {
+    /** Sparse heatmap cells ordered by time then duration bucket. Every time bucket in the window appears in at least one row, so the full x axis can be derived from the response. */
+    results: _TracingLatencyHeatmapCellApi[]
 }
 
 /**

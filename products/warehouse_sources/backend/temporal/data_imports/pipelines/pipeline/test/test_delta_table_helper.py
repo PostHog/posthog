@@ -41,9 +41,8 @@ def _decimal_array(values: list, *, precision: int = 10, scale: int = 2, misalig
     memoryview(padded)[8 : 8 + data_buffer.size] = memoryview(data_buffer)
     misaligned_buffer = padded.slice(8, data_buffer.size)
     assert misaligned_buffer.address % 16 == 8
-    # The validity buffer is legitimately None here; pyarrow accepts it but the stub types
-    # the list as list[Buffer], so cast rather than fight the (over-strict) annotation.
-    buffers = cast("list[pa.Buffer]", [None, misaligned_buffer])
+    # The validity buffer is legitimately None here (no nulls).
+    buffers: list[pa.Buffer | None] = [None, misaligned_buffer]
     return pa.Array.from_buffers(pa.decimal128(precision, scale), len(values), buffers)
 
 
@@ -228,7 +227,7 @@ class TestCompactIfFragmented:
         ("below_default_threshold", 100, 10, None, False),
         # 5,000 / 10 = 500 fpp, well above default 200 -> fire
         ("above_default_threshold", 5_000, 10, None, True),
-        # partition_count=None treated as 1; 250 fpp >> default 200 -> fire
+        # partition_count=None on an unpartitioned layout derives 1 partition; 250 fpp >> 200 -> fire
         ("unpartitioned_above_default", 250, None, None, True),
         # Custom threshold: 100 / 10 = 10 fpp, threshold=5 -> fire
         ("custom_threshold_fires", 100, 10, 5, True),
@@ -253,9 +252,10 @@ class TestCompactIfFragmented:
     ):
         helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
         mock_delta = MagicMock()
+        file_uris = [f"s3://bucket/table/f{i}.parquet" for i in range(file_count)]
         with (
             patch.object(helper, "get_delta_table", AsyncMock(return_value=mock_delta)),
-            patch.object(helper, "get_file_uris", AsyncMock(return_value=[f"f{i}" for i in range(file_count)])),
+            patch.object(helper, "get_file_uris", AsyncMock(return_value=file_uris)),
             patch.object(helper, "compact_table", AsyncMock()) as mock_compact,
         ):
             kwargs: dict = {"partition_count": partition_count}
@@ -268,6 +268,89 @@ class TestCompactIfFragmented:
             mock_compact.assert_called_once()
         else:
             mock_compact.assert_not_called()
+
+    # (case_name, files_per_dir, dir_count, expected_ran)
+    _DERIVATION_CASES: list[tuple[str, int, int, bool]] = [
+        # 300 files / 3 derived partitions = 100 fpp < 200 and total < 5,000 -> skip.
+        # Before derivation, None meant 1 partition (300 fpp) and this healthy table
+        # compacted on every run.
+        ("healthy_partitioned_table_skips", 100, 3, False),
+        # Genuinely fragmented per partition: 750/3 = 250 fpp > 200 -> still fires.
+        ("fragmented_partitioned_table_fires", 250, 3, True),
+    ]
+
+    @parameterized.expand(_DERIVATION_CASES)
+    @pytest.mark.asyncio
+    async def test_partition_count_derived_from_layout(
+        self, _name: str, files_per_dir: int, dir_count: int, expected_ran: bool
+    ):
+        # Only md5 partitioning persists a partition_count; datetime/numerical schemas pass
+        # None. The count must come from the layout or every >200-file partitioned table
+        # would defensively compact at the start of every sync run.
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
+        file_uris = [
+            f"s3://bucket/table/_ph_partition_key={d}/f{i}.parquet"
+            for d in range(dir_count)
+            for i in range(files_per_dir)
+        ]
+        with (
+            patch.object(helper, "get_delta_table", AsyncMock(return_value=MagicMock())),
+            patch.object(helper, "get_file_uris", AsyncMock(return_value=file_uris)),
+            patch.object(helper, "compact_table", AsyncMock()) as mock_compact,
+        ):
+            ran = await helper.compact_if_fragmented(partition_count=None)
+
+        assert ran is expected_ran
+        if expected_ran:
+            mock_compact.assert_called_once()
+        else:
+            mock_compact.assert_not_called()
+
+
+class TestGetDeltaTableUnrecoverableErrors:
+    # (case_name, error_message, expect_heal) — heal = wipe the table and fall back to first-sync mode
+    _ERROR_CASES: list[tuple[str, str, bool]] = [
+        (
+            "orphaned_delta_log",
+            "Kernel error: No table metadata or protocol found in delta log.",
+            True,
+        ),
+        ("bugged_decimal_data", "parse decimal overflow at column x", True),
+        ("other_errors_reraise", "Generic DeltaTable error: something else went wrong", False),
+    ]
+
+    @parameterized.expand(_ERROR_CASES)
+    @pytest.mark.asyncio
+    async def test_open_failure_handling(self, _name: str, error_message: str, expect_heal: bool):
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
+        delta_uri = "s3://bucket/team_id/job_id/t"
+
+        s3 = MagicMock()
+        s3._rm = AsyncMock()
+        s3_cm = MagicMock()
+        s3_cm.__aenter__ = AsyncMock(return_value=s3)
+        s3_cm.__aexit__ = AsyncMock(return_value=False)
+
+        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper"
+        with (
+            patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value=delta_uri)),
+            patch(f"{module}.deltalake.DeltaTable") as mock_delta_table,
+            patch(f"{module}.aget_s3_client", MagicMock(return_value=s3_cm)),
+            patch(f"{module}.capture_exception"),
+        ):
+            mock_delta_table.is_deltatable.return_value = True
+            mock_delta_table.side_effect = Exception(error_message)
+
+            if expect_heal:
+                result = await helper.get_delta_table()
+                assert result is None
+                assert helper.is_first_sync is True
+                s3._rm.assert_awaited_once_with(delta_uri, recursive=True)
+            else:
+                with pytest.raises(Exception, match="something else went wrong"):
+                    await helper.get_delta_table()
+                s3._rm.assert_not_awaited()
+                assert helper.is_first_sync is False
 
 
 class TestWriteToDeltalakeCommitMetadataPassThrough:
@@ -639,9 +722,10 @@ class TestRealignDecimalBuffers:
         assert good_buffer.address == orig_buffer.address
 
     def test_multi_chunk_misaligned_column(self) -> None:
+        # The arrays already carry decimal128(10, 2); an explicit type= doesn't match any
+        # pyarrow-stubs chunked_array overload for decimal types.
         chunked = pa.chunked_array(
             [_decimal_array([1, 2], misaligned=True), _decimal_array([3, 4], misaligned=True)],
-            type=pa.decimal128(10, 2),
         )
         table = pa.table({"amount": chunked, "id": pa.array([1, 2, 3, 4])})
         assert _table_is_misaligned(table) is True
@@ -736,7 +820,7 @@ class TestWriteMisalignedDecimalEndToEnd:
         # The seeded row is closed (valid_to set) and the new misaligned row is appended.
         assert final.num_rows == 2
         assert set(final.column("amount").to_pylist()) == {5, 7}
-        closed = final.filter(pc.equal(final.column("amount"), Decimal("5.00")))
+        closed = final.filter(pc.equal(final.column("amount"), pa.scalar(Decimal("5.00"), type=pa.decimal128(10, 2))))
         assert closed.column("valid_to").to_pylist() == [ts2]
 
 
@@ -754,6 +838,10 @@ class TestVacuumIfStale:
             ("below_threshold_skips", 100, False, None),
             ("at_threshold_vacuums", 50, True, 150),
             ("above_threshold_vacuums", 40, True, 150),
+            # A watermark above the current version means the table was reset/recreated (delta
+            # versions are monotonic within one incarnation) and no reset path clears the persisted
+            # watermark — it must reseed, not block the cadence until the version catches up.
+            ("stale_watermark_from_recreated_table_reseeds", 999, False, 150),
         ]
     )
     @pytest.mark.asyncio

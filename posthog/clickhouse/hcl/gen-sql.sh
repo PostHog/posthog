@@ -11,8 +11,10 @@ set -euo pipefail
 
 HCL=posthog/clickhouse/hcl
 HCLEXP="$HCL/bin/hclexp"
-MANIFEST="$HCL/nodes"
 SQL_DIR="${1:-$HCL/sql}"  # optional override (check.sh writes to a temp dir to verify freshness)
+
+# shellcheck source=posthog/clickhouse/hcl/lib.sh
+. "$HCL/lib.sh"
 
 mkdir -p "$SQL_DIR"
 # Empty schema for the diff baseline. It must live under the repo (which bin/hclexp
@@ -21,19 +23,21 @@ mkdir -p "$SQL_DIR"
 EMPTY="$HCL/.empty-schema.$$.hcl"; printf 'database "posthog" {\n}\n' > "$EMPTY"
 trap 'rm -f "$EMPTY"' EXIT
 
-while read -r env role layers; do
-  [ -z "${env:-}" ] && continue
-  case "$env" in \#*) continue ;; esac
-
-  stack=""
-  for l in $layers; do stack="${stack:+$stack,}$HCL/$l"; done
-
-  out="$SQL_DIR/$env-$role.sql"
-  {
-    echo "-- AUTO-GENERATED from the declarative HCL by ops/gen-sql.sh — do not edit."
-    echo "-- Full CREATE schema for the $env/$role node. Apply to a fresh ClickHouse to build it."
-    echo
-    "$HCLEXP" diff -left "$EMPTY" -right "$stack" -sql
-  } > "$out"
-  echo "wrote $out ($(grep -cE '^CREATE' "$out") objects)"
-done < "$MANIFEST"
+# Hoisted into assignments (not `for x in $(...)`) so set -e aborts on a failed
+# load instead of silently iterating zero times — see lib.sh.
+envs="$(manifest_envs)"
+for env in $envs; do
+  roles="$(manifest_roles "$env")"
+  mkdir -p "$SQL_DIR/$env"
+  for role in $roles; do
+    out="$SQL_DIR/$env/$role.sql"
+    stack="$(manifest_stack "$env" "$role")"
+    {
+      echo "-- AUTO-GENERATED from the declarative HCL by ops/gen-sql.sh — do not edit."
+      echo "-- Full CREATE schema for the $env/$role node. Apply to a fresh ClickHouse to build it."
+      echo
+      "$HCLEXP" diff -left "$EMPTY" -right "$stack" -sql
+    } > "$out"
+    echo "wrote $out ($(grep -cE '^CREATE' "$out") objects)"
+  done
+done

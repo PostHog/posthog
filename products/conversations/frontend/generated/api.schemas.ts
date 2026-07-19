@@ -116,6 +116,17 @@ export const ConversationTypeApi = {
 } as const
 
 /**
+ * * `acp` - ACP
+ * * `pi` - Pi
+ */
+export type RuntimeEnumApi = (typeof RuntimeEnumApi)[keyof typeof RuntimeEnumApi]
+
+export const RuntimeEnumApi = {
+    Acp: 'acp',
+    Pi: 'pi',
+} as const
+
+/**
  * @nullable
  */
 export type TaskUserBasicInfoApiHedgehogConfig = { [key: string]: unknown } | null
@@ -141,7 +152,7 @@ export interface TaskUserBasicInfoApi {
 /**
  * @nullable
  */
-export type TaskDetailDTOApiJsonSchema = { [key: string]: unknown } | null
+export type ConversationTaskApiJsonSchema = { [key: string]: unknown } | null
 
 /**
  * Conversation envelope variant: ``latest_run`` is just the latest run's id, not the nested
@@ -151,7 +162,7 @@ export type TaskDetailDTOApiJsonSchema = { [key: string]: unknown } | null
  * Read access here follows the conversation (the share-by-link unit), not per-creator task
  * visibility — write/send stays creator-gated. See ``tasks_facade.get_conversation_task_dtos``.
  */
-export interface TaskDetailDTOApi {
+export interface ConversationTaskApi {
     id: string
     /** @nullable */
     task_number: number | null
@@ -160,6 +171,11 @@ export interface TaskDetailDTOApi {
     title_manually_set: boolean
     description: string
     origin_product: string
+    /** Agent protocol and harness used for this task's runs.
+     *
+     * * `acp` - ACP
+     * * `pi` - Pi */
+    readonly runtime: RuntimeEnumApi
     /** @nullable */
     repository: string | null
     /** @nullable */
@@ -169,7 +185,7 @@ export interface TaskDetailDTOApi {
     /** @nullable */
     signal_report: string | null
     /** @nullable */
-    json_schema: TaskDetailDTOApiJsonSchema
+    json_schema: ConversationTaskApiJsonSchema
     internal: boolean
     archived: boolean
     /** @nullable */
@@ -229,7 +245,7 @@ export interface ConversationMinimalApi {
      * @nullable
      */
     readonly slack_workspace_domain: string | null
-    readonly task: TaskDetailDTOApi | null
+    readonly task: ConversationTaskApi | null
 }
 
 export interface PaginatedConversationMinimalListApi {
@@ -367,7 +383,7 @@ export interface ConversationApi {
      * Combines metadata from conversation.approval_decisions with payload from checkpoint
      * interrupts (single source of truth for payload data). */
     readonly pending_approvals: readonly ConversationApiPendingApprovalsItem[]
-    readonly task: TaskDetailDTOApi | null
+    readonly task: ConversationTaskApi | null
 }
 
 /**
@@ -438,7 +454,7 @@ export interface PatchedConversationApi {
      * Combines metadata from conversation.approval_decisions with payload from checkpoint
      * interrupts (single source of truth for payload data). */
     readonly pending_approvals?: readonly PatchedConversationApiPendingApprovalsItem[]
-    readonly task?: TaskDetailDTOApi | null
+    readonly task?: ConversationTaskApi | null
 }
 
 /**
@@ -467,6 +483,10 @@ export const SandboxAttachedContextItemTypeEnumApi = {
 
 /**
  * One typed attachment carried by a sandbox message.
+ *
+ * DEPRECATED PATH — do not extend. This structured `attached_context` (and its server-side wrap in
+ * `context_wrapper.py`) exists only for the legacy Max conversations bridge and is removed with it;
+ * the live path wraps context client-side (`products/posthog_ai/frontend/utils/posthogContextBlock.ts`).
  */
 export interface SandboxAttachedContextItemApi {
     /** Attachment kind. Entity types carry `id` (+ optional `name`); `text` carries `value`.
@@ -613,6 +633,7 @@ export const TicketStatusEnumApi = {
  * * `low` - Low
  * * `medium` - Medium
  * * `high` - High
+ * * `critical` - Critical
  */
 export type TicketPriorityEnumApi = (typeof TicketPriorityEnumApi)[keyof typeof TicketPriorityEnumApi]
 
@@ -620,6 +641,7 @@ export const TicketPriorityEnumApi = {
     Low: 'low',
     Medium: 'medium',
     High: 'high',
+    Critical: 'critical',
 } as const
 
 /**
@@ -676,11 +698,12 @@ export interface TicketApi {
      * * `on_hold` - On hold
      * * `resolved` - Resolved */
     status?: TicketStatusEnumApi
-    /** Ticket priority: low, medium, or high. Null if unset.
+    /** Ticket priority: low, medium, high, or critical. Null if unset.
      *
      * * `low` - Low
      * * `medium` - Medium
-     * * `high` - High */
+     * * `high` - High
+     * * `critical` - Critical */
     priority?: TicketPriorityEnumApi | BlankEnumApi | null
     readonly assignee: TicketAssignmentApi
     /** Customer-provided traits such as name and email */
@@ -768,11 +791,12 @@ export interface PatchedTicketApi {
      * * `on_hold` - On hold
      * * `resolved` - Resolved */
     status?: TicketStatusEnumApi
-    /** Ticket priority: low, medium, or high. Null if unset.
+    /** Ticket priority: low, medium, high, or critical. Null if unset.
      *
      * * `low` - Low
      * * `medium` - Medium
-     * * `high` - High */
+     * * `high` - High
+     * * `critical` - Critical */
     priority?: TicketPriorityEnumApi | BlankEnumApi | null
     readonly assignee?: TicketAssignmentApi
     /** Customer-provided traits such as name and email */
@@ -1037,6 +1061,22 @@ export interface PaginatedTicketViewListApi {
     results: TicketViewApi[]
 }
 
+/**
+ * Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys.
+ */
+export type PatchedTicketViewApiFilters = { [key: string]: unknown }
+
+export interface PatchedTicketViewApi {
+    readonly id?: string
+    readonly short_id?: string
+    /** @maxLength 400 */
+    name?: string
+    /** Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys. */
+    filters?: PatchedTicketViewApiFilters
+    readonly created_at?: string
+    readonly created_by?: UserBasicApi
+}
+
 export interface ZendeskImportStartApi {
     /**
      * Zendesk subdomain (e.g. 'acme' from acme.zendesk.com).
@@ -1175,7 +1215,7 @@ export type ConversationsTicketsListParams = {
      */
     order_by?: string
     /**
-     * Filter by priority. Accepts a single value or a comma-separated list (e.g. `medium,high`). Valid values: `low`, `medium`, `high`.
+     * Filter by priority. Accepts a single value or a comma-separated list (e.g. `medium,high`). Valid values: `low`, `medium`, `high`, `critical`.
      */
     priority?: string
     /**

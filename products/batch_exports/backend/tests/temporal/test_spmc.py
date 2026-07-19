@@ -173,7 +173,7 @@ def test_slice_record_batch_into_one_batch():
     """Test we do not slice a record batch without a bytes limit."""
     n_legs = pa.array([2, 2, 4, 4, 5, 100])
     animals = pa.array(["Flamingo", "Parrot", "Dog", "Horse", "Brittle stars", "Centipede"])
-    batch = pa.RecordBatch.from_arrays([n_legs, animals], names=["n_legs", "animals"])  # type: ignore
+    batch = pa.RecordBatch.from_arrays([n_legs, animals], names=["n_legs", "animals"])
 
     slices = list(slice_record_batch(batch, max_record_batch_size_bytes=0))
     assert len(slices) == 1
@@ -184,7 +184,7 @@ def test_slice_record_batch_in_half():
     """Test we can slice a record batch into half size."""
     n_legs = pa.array([4] * 6)
     animals = pa.array(["Dog"] * 6)
-    batch = pa.RecordBatch.from_arrays([n_legs, animals], names=["n_legs", "animals"])  # type: ignore
+    batch = pa.RecordBatch.from_arrays([n_legs, animals], names=["n_legs", "animals"])
 
     slices = list(slice_record_batch(batch, max_record_batch_size_bytes=batch.nbytes // 2, min_records_per_batch=1))
     assert len(slices) == 2
@@ -204,7 +204,7 @@ def test_slice_large_record_batch():
 
     payload = pa.array([b"0" * (1024)] * size, type=pa.large_binary())
     id = pa.array(list(range(size)))
-    batch = pa.RecordBatch.from_arrays([id, payload], names=["id", "payload"])  # type: ignore
+    batch = pa.RecordBatch.from_arrays([id, payload], names=["id", "payload"])
 
     # Large binary allocates additional 8 bytes per row.
     # Id array is int64, and takes up 8 bytes per row.
@@ -360,6 +360,21 @@ def test_compose_filters_clause(
     result_clause, result_values = compose_filters_clause(filters, team_id=ateam.id)
     assert result_clause == expected_clause
     assert result_values == expected_values
+
+
+def test_compose_filters_clause_uses_legacy_events_schema(settings, ateam):
+    settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA = True
+
+    result_clause, result_values = compose_filters_clause(
+        [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Chrome"]}],
+        team_id=ateam.id,
+    )
+
+    assert (
+        result_clause
+        == """ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), 0)"""
+    )
+    assert result_values == {"hogql_val_0": "$browser", "hogql_val_1": "Chrome"}
 
 
 @pytest.mark.parametrize(

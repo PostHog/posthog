@@ -1,4 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import {
@@ -11,26 +12,39 @@ import {
     SpinnerOverlay,
 } from '@posthog/lemon-ui'
 
+import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { type MetricSummary } from 'lib/components/Metric/metricSummary'
-import { AnyScaleOptions, Sparkline } from 'lib/components/Sparkline'
+import { AnyScaleOptions, Sparkline, SparklineMarker } from 'lib/components/Sparkline'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { dayjs } from 'lib/dayjs'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils/datetime'
 
-import { DateMappingOption, FilterLogicalOperator, UniversalFiltersGroup, UniversalFiltersGroupValue } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    DateMappingOption,
+    FilterLogicalOperator,
+    UniversalFiltersGroup,
+    UniversalFiltersGroupValue,
+} from '~/types'
 
+import { traceUrl } from 'products/tracing/frontend/traceLinks'
+
+import { getMetricsInsightEditorDisabledReason } from '../metricsAccess'
 import { MetricNameFilter } from './MetricNameFilter'
 import { metricNamePickerLogic } from './metricNamePickerLogic'
 import { MetricsChartLegend } from './MetricsChartLegend'
 import { metricsSamplesLogic } from './metricsSamplesLogic'
 import { MetricsSamplesPanel } from './MetricsSamplesPanel'
 import { MetricStatPanel } from './MetricStatPanel'
+import { metricsUsageTrackingLogic } from './metricsUsageTrackingLogic'
 import {
     LIVE_REFRESH_MS,
     METRIC_FILTER_OPERATOR_ALLOWLIST,
@@ -125,6 +139,8 @@ export const MetricsViewer = (): JSX.Element => {
         queryResultsLoading,
         queryError,
         savedInsightLoading,
+        savedInsight,
+        isAddToDashboardModalOpen,
         hasMetricName,
     } = useValues(logic)
     const {
@@ -143,8 +159,45 @@ export const MetricsViewer = (): JSX.Element => {
         fetchAnomaly,
         clearAnomaly,
         saveAsInsight,
+        addToDashboard,
+        closeAddToDashboardModal,
     } = useActions(logic)
     const { items: pickerItems } = useValues(pickerLogic)
+    const { traceExemplars } = useValues(metricsSamplesLogic)
+    const { exemplarDotClicked } = useActions(metricsUsageTrackingLogic)
+    const metricsViewerDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Metrics,
+        AccessControlLevel.Viewer
+    )
+    const insightEditorDisabledReason = getMetricsInsightEditorDisabledReason()
+    const tracingDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Tracing,
+        AccessControlLevel.Viewer
+    )
+
+    // Traced emissions as clickable dots along the bottom of the chart — the
+    // metric->trace pivot without opening the Samples tab. Skipped entirely when
+    // the user can't view traces, so a dot never leads to a dead end.
+    const exemplarMarkers: SparklineMarker[] = useMemo(
+        () =>
+            tracingDisabledReason
+                ? []
+                : traceExemplars.map((exemplar) => ({
+                      xValue: dayjs(exemplar.timestamp).valueOf(),
+                      color: 'primary',
+                      onClick: () => {
+                          exemplarDotClicked(!!exemplar.spanId)
+                          router.actions.push(
+                              traceUrl({
+                                  traceId: exemplar.traceId,
+                                  spanId: exemplar.spanId || null,
+                                  ts: exemplar.timestamp,
+                              })
+                          )
+                      },
+                  })),
+        [traceExemplars, tracingDisabledReason, exemplarDotClicked]
+    )
 
     // Refetch the chart whenever any filter changes — the loader breakpoint debounces input.
     useEffect(() => {
@@ -214,7 +267,12 @@ export const MetricsViewer = (): JSX.Element => {
         <div className="flex flex-col gap-3">
             <div className="flex flex-wrap items-end gap-2">
                 <div className="flex flex-col gap-1">
-                    <MetricNameFilter value={metricName} onChange={setMetricName} />
+                    <MetricNameFilter
+                        value={metricName}
+                        onChange={setMetricName}
+                        disabled={!!metricsViewerDisabledReason}
+                        disabledReason={metricsViewerDisabledReason}
+                    />
                     {selectedMetricType && recommendedAggregation && aggregation !== recommendedAggregation && (
                         <span className="text-xs text-secondary">
                             {selectedMetricType} — {recommendedAggregation} recommended
@@ -227,6 +285,7 @@ export const MetricsViewer = (): JSX.Element => {
                     options={AGGREGATION_OPTIONS}
                     onChange={(value) => setAggregation(value as MetricAggregation)}
                     data-attr="metrics-viewer-aggregation"
+                    disabledReason={metricsViewerDisabledReason}
                 />
                 <LemonInputSelect
                     mode="multiple"
@@ -241,15 +300,20 @@ export const MetricsViewer = (): JSX.Element => {
                     placeholder="Group by attribute…"
                     className="min-w-[12rem]"
                     data-attr="metrics-viewer-group-by"
+                    disabledReason={metricsViewerDisabledReason}
                 />
                 <UniversalFilters
                     rootKey="metrics-viewer-filters"
                     group={filterGroup.values[0] as UniversalFiltersGroup}
                     taxonomicGroupTypes={[TaxonomicFilterGroupType.MetricAttributes]}
                     endpointFilters={attributeEndpointFilters}
-                    onChange={(group) => setFilterGroup({ type: FilterLogicalOperator.And, values: [group] })}
+                    onChange={(group) => {
+                        if (!metricsViewerDisabledReason) {
+                            setFilterGroup({ type: FilterLogicalOperator.And, values: [group] })
+                        }
+                    }}
                 >
-                    <MetricsViewerFilterBar />
+                    <MetricsViewerFilterBar disabledReason={metricsViewerDisabledReason} />
                 </UniversalFilters>
                 <DateFilter
                     size="small"
@@ -264,12 +328,14 @@ export const MetricsViewer = (): JSX.Element => {
                     allowFixedRangeWithTime
                     allowedRollingDateOptions={['minutes', 'hours', 'days', 'weeks']}
                     use24HourFormat
+                    disabledReason={metricsViewerDisabledReason}
                 />
                 <LemonSegmentedButton
                     size="small"
                     value={viewMode}
                     options={VIEW_MODE_OPTIONS}
                     onChange={(value) => setViewMode(value)}
+                    disabledReason={metricsViewerDisabledReason ?? undefined}
                 />
                 {viewMode === 'stat' && (
                     <LemonSelect
@@ -278,6 +344,7 @@ export const MetricsViewer = (): JSX.Element => {
                         options={SUMMARY_OPTIONS}
                         onChange={(value) => setStatSummary(value)}
                         data-attr="metrics-viewer-stat-summary"
+                        disabledReason={metricsViewerDisabledReason}
                     />
                 )}
                 <LemonSwitch
@@ -287,17 +354,37 @@ export const MetricsViewer = (): JSX.Element => {
                     tooltip={`Auto-refresh every ${LIVE_REFRESH_MS / 1000}s`}
                     bordered
                     data-attr="metrics-viewer-live-toggle"
+                    disabledReason={metricsViewerDisabledReason}
                 />
                 <LemonButton
                     size="small"
                     type="secondary"
                     onClick={() => saveAsInsight()}
                     loading={savedInsightLoading}
-                    disabledReason={!hasMetricName ? 'Pick a metric first' : undefined}
+                    disabledReason={insightEditorDisabledReason ?? (!hasMetricName ? 'Pick a metric first' : undefined)}
                 >
                     Save as insight
                 </LemonButton>
+                <LemonButton
+                    size="small"
+                    type="primary"
+                    onClick={() => addToDashboard()}
+                    loading={savedInsightLoading}
+                    disabledReason={insightEditorDisabledReason ?? (!hasMetricName ? 'Pick a metric first' : undefined)}
+                    data-attr="metrics-viewer-add-to-dashboard"
+                >
+                    Add to dashboard
+                </LemonButton>
             </div>
+            {savedInsight && (
+                <AddToDashboardModal
+                    isOpen={isAddToDashboardModalOpen}
+                    closeModal={closeAddToDashboardModal}
+                    insightProps={{ dashboardItemId: savedInsight.short_id, cachedInsight: savedInsight }}
+                    canEditInsight={!insightEditorDisabledReason}
+                    data-attr="metrics-viewer-add-to-dashboard-modal"
+                />
+            )}
             <div className="flex flex-col xl:flex-row gap-3 items-stretch">
                 <div className="flex-1 min-w-0">
                     <div className="relative h-[360px] border rounded p-3">
@@ -329,6 +416,7 @@ export const MetricsViewer = (): JSX.Element => {
                                 className="w-full h-full"
                                 withXScale={withXScale}
                                 renderLabel={renderLabel}
+                                markers={exemplarMarkers}
                             />
                         ) : !queryResultsLoading ? (
                             <div className="h-full flex items-center justify-center text-secondary text-sm">
@@ -351,7 +439,7 @@ export const MetricsViewer = (): JSX.Element => {
 
 // Filter chips + "Add filter" button, mirroring the logs viewer's applied-filters row: picking an
 // attribute opens the chip for value selection, with suggestions fed by the metrics attribute endpoints.
-const MetricsViewerFilterBar = (): JSX.Element => {
+const MetricsViewerFilterBar = ({ disabledReason }: { disabledReason: string | null }): JSX.Element => {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
     const [allowInitiallyOpen, setAllowInitiallyOpen] = useState<boolean>(false)
@@ -363,18 +451,32 @@ const MetricsViewerFilterBar = (): JSX.Element => {
             {filterGroup.values.map((filterOrGroup: UniversalFiltersGroupValue, index: number) =>
                 // This UI only ever adds leaf filters, so nested groups can't occur here.
                 isUniversalGroupFilterLike(filterOrGroup) ? null : (
-                    <UniversalFilters.Value
+                    <span
                         key={index}
-                        index={index}
-                        filter={filterOrGroup}
-                        onRemove={() => removeGroupValue(index)}
-                        onChange={(value) => replaceGroupValue(index, value)}
-                        initiallyOpen={allowInitiallyOpen}
-                        operatorAllowlist={METRIC_FILTER_OPERATOR_ALLOWLIST}
-                    />
+                        title={disabledReason ?? undefined}
+                        className={disabledReason ? 'pointer-events-none opacity-50' : undefined}
+                    >
+                        <UniversalFilters.Value
+                            index={index}
+                            filter={filterOrGroup}
+                            onRemove={disabledReason ? undefined : () => removeGroupValue(index)}
+                            onChange={(value) => {
+                                if (!disabledReason) {
+                                    replaceGroupValue(index, value)
+                                }
+                            }}
+                            initiallyOpen={allowInitiallyOpen && !disabledReason}
+                            operatorAllowlist={METRIC_FILTER_OPERATOR_ALLOWLIST}
+                        />
+                    </span>
                 )
             )}
-            <UniversalFilters.AddFilterButton size="small" type="secondary" title="Filter" />
+            <UniversalFilters.AddFilterButton
+                size="small"
+                type="secondary"
+                title="Filter"
+                disabledReason={disabledReason}
+            />
         </div>
     )
 }

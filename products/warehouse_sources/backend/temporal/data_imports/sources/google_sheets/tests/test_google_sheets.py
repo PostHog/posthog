@@ -6,11 +6,13 @@ from unittest import mock
 
 import gspread
 import requests
+from google.auth import exceptions as google_auth_exceptions
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GoogleSheetsSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets import (
     _PERMISSION_DENIED_MESSAGE,
     _REQUEST_TIMEOUT_SECONDS,
+    _assert_unique_normalized_column_names,
     _get_worksheet,
     _retry_on_transient_api_error,
     get_schema_incremental_fields,
@@ -480,6 +482,39 @@ def test_reraises_spreadsheet_not_found_with_non_retryable_message(call_site):
     )
 
 
+@pytest.mark.parametrize(
+    "headers",
+    [
+        pytest.param(["Task ID", "task_id"], id="case_and_punctuation"),
+        pytest.param(["task_id", "task-id"], id="punctuation_only"),
+        pytest.param(["Name", "name"], id="case_only"),
+        pytest.param(["id", "customer name", "Customer Name"], id="collision_among_distinct"),
+    ],
+)
+def test_assert_unique_normalized_column_names_raises_on_normalized_collision(headers):
+    """Headers that differ only by case/punctuation collapse to one column name and would otherwise
+    fail with an opaque error deep in table creation. The raised message must also match one of the
+    source's non-retryable keys, or the deterministic failure gets retried forever."""
+    with pytest.raises(Exception) as exc_info:
+        _assert_unique_normalized_column_names(headers)
+
+    non_retryable_errors = GoogleSheetsSource().get_non_retryable_errors()
+    assert any(key in str(exc_info.value) for key in non_retryable_errors)
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        pytest.param(["id", "name", "email"], id="distinct"),
+        pytest.param(["id", "", "name"], id="blank_cells_ignored"),
+        # Exact duplicates are left to gspread's own "contains duplicates" check.
+        pytest.param(["id", "id"], id="exact_duplicate"),
+    ],
+)
+def test_assert_unique_normalized_column_names_allows_valid_headers(headers):
+    _assert_unique_normalized_column_names(headers)
+
+
 def test_get_schema_incremental_fields_skips_unparseable_range():
     """Google rejects the unbounded "1:2" row range with a 400 'Unable to parse range' for some
     worksheets (e.g. empty sheets). That deterministic error must not break schema discovery — the
@@ -578,3 +613,31 @@ def test_validate_credentials_maps_api_error_to_friendly_message(api_message, ex
     assert expected_fragment in (error_message or "")
     # The raw gspread "APIError: [400]: ..." dump must not reach the user.
     assert "APIError" not in (error_message or "")
+
+
+@pytest.mark.parametrize(
+    "auth_error,expect_retry_hint",
+    [
+        # Transient Google-side blip (token endpoint 5xx) — google-auth flags it retryable.
+        (google_auth_exceptions.RefreshError("A server error occurred.", retryable=True), True),
+        (google_auth_exceptions.TransportError("connection reset", retryable=True), True),
+        # Persistent problem with our own service-account key (e.g. invalid_grant) — not retryable,
+        # so the copy must not tell the user it's merely temporary.
+        (google_auth_exceptions.RefreshError({"error": "invalid_grant"}, retryable=False), False),
+    ],
+)
+def test_validate_credentials_maps_google_auth_error(auth_error, expect_retry_hint):
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.source.google_sheets_client"
+    ) as mock_client:
+        mock_client.return_value.open_by_url.side_effect = auth_error
+        config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
+        is_valid, error_message = GoogleSheetsSource().validate_credentials(config, team_id=1)
+
+    assert is_valid is False
+    # The raw Google token-endpoint message ("A server error occurred.") must not reach the user.
+    assert "A server error occurred." not in (error_message or "")
+    if expect_retry_hint:
+        assert "try again in a moment" in (error_message or "").lower()
+    else:
+        assert "try again in a moment" not in (error_message or "").lower()

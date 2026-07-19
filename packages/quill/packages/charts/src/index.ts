@@ -1,6 +1,10 @@
 // Components
 export { BarChart } from './charts/BarChart/BarChart'
 export type { BarChartProps } from './charts/BarChart/BarChart'
+export { FunnelChart, FUNNEL_BAND_PADDING } from './charts/FunnelChart/FunnelChart'
+export type { FunnelChartConfig, FunnelChartProps, FunnelStepClickData } from './charts/FunnelChart/FunnelChart'
+export { funnelConversionRate, funnelFromCounts, RATE_TO_PERCENT } from './charts/FunnelChart/funnel-data'
+export type { FunnelFromCountsOptions, FunnelStepCount } from './charts/FunnelChart/funnel-data'
 export { LineChart } from './charts/LineChart/LineChart'
 export type { LineChartProps } from './charts/LineChart/LineChart'
 export { ComboChart } from './charts/ComboChart/ComboChart'
@@ -54,6 +58,17 @@ export type { BoxPlotDatum, BoxPlotSeries } from './charts/BoxPlot/types'
 export type { BoxRect } from './core/types'
 export { BoxPlotTooltip } from './charts/BoxPlot/BoxPlotTooltip'
 export type { BoxPlotTooltipProps } from './charts/BoxPlot/BoxPlotTooltip'
+
+// Heatmap
+export { Heatmap } from './charts/Heatmap/Heatmap'
+export type {
+    HeatmapCellDatum,
+    HeatmapConfig,
+    HeatmapProps,
+    HeatmapRowMeta,
+    HeatmapTooltipContext,
+} from './charts/Heatmap/Heatmap'
+export type { HeatmapColorScale } from './charts/Heatmap/heatmap-layout'
 
 // Slope chart
 export { SlopeChart } from './charts/SlopeChart/SlopeChart'
@@ -137,6 +152,8 @@ export type {
     ReferenceLineStyle,
     ReferenceLineVariant,
 } from './overlays/ReferenceLine'
+export { HighlightedRange } from './overlays/HighlightedRange'
+export type { HighlightedRangeProps } from './overlays/HighlightedRange'
 export { ValueLabels } from './overlays/ValueLabels'
 export type { ValueLabelContext, ValueLabelFormatter, ValueLabelsProps } from './overlays/ValueLabels'
 export { AxisTitles } from './overlays/AxisTitles'

@@ -3,7 +3,8 @@ from time import perf_counter
 from typing import NoReturn
 
 from django.core.cache import cache
-from django.http import JsonResponse, StreamingHttpResponse
+from django.http import JsonResponse
+from django.http.response import HttpResponseBase
 
 import orjson
 import structlog
@@ -98,6 +99,31 @@ def _extract_validation_code(error: ValidationError) -> str:
         if isinstance(first_code, list) and first_code and isinstance(first_code[0], str):
             return first_code[0]
     return "unknown"
+
+
+# Matches an absolute ISO date that carries an explicit time-of-day (e.g. `2026-07-09T00:00:00Z`,
+# `2026-07-09 05:00:00`), but not a bare calendar day (`2026-07-09`) or a relative token (`-7d`, `mStart`).
+_ISO_TIMESTAMP_WITH_TIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}")
+
+
+def _date_bound_has_explicit_time(value: object) -> bool:
+    return isinstance(value, str) and _ISO_TIMESTAMP_WITH_TIME_RE.match(value) is not None
+
+
+def _mark_explicit_date_boundaries(query: BaseModel) -> None:
+    """MCP query tools accept ISO timestamps in `dateRange.date_to`. When a caller passes a full
+    timestamp with a time-of-day (e.g. `2026-07-09T00:00:00Z`) rather than a bare calendar day, they
+    mean an exact boundary, so mark the range explicit instead of snapping `date_to` to end of day.
+
+    Scoped to the MCP entrypoint on purpose: the web UI serialises fixed calendar ranges as naive
+    `YYYY-MM-DDTHH:mm:ss` strings and relies on the default end-of-day rounding, so this must not
+    change that path.
+    """
+    date_range = getattr(query, "dateRange", None)
+    if date_range is None or not hasattr(date_range, "explicitDate") or date_range.explicitDate:
+        return
+    if _date_bound_has_explicit_time(getattr(date_range, "date_to", None)):
+        date_range.explicitDate = True
 
 
 def _process_query_request(
@@ -208,6 +234,10 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
                 data, self.team, data.client_query_id, request.user
             )
 
+            is_mcp_client = request.headers.get("x-posthog-client") == "mcp"
+            if is_mcp_client:
+                _mark_explicit_date_boundaries(query)
+
             self._tag_client_query_id(client_query_id)
             analytics_props = get_request_analytics_properties(request)
             query_dict = query.model_dump()
@@ -278,7 +308,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
                 else status.HTTP_200_OK
             )
 
-            if request.headers.get("x-posthog-client") == "mcp":
+            if is_mcp_client:
                 with tracer.start_as_current_span("posthog.query.format_for_llm") as llm_span:
                     formatted = self._try_format_for_llm(query, result)
                     llm_span.set_attribute("query.formatted", formatted is not None)
@@ -470,7 +500,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
 MAX_QUERY_TIMEOUT = 600
 
 
-async def progress(request: Request, *args, **kwargs) -> StreamingHttpResponse:
+async def progress(request: Request, *args, **kwargs) -> HttpResponseBase:
     # TEMPORARY endpoint to avoid breaking changes
 
     return sse_streaming_response(

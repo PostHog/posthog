@@ -12,6 +12,7 @@ import { LemonButton, LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { ControlledDefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
+import { EntityFilterInfo, getSeriesRename } from 'lib/components/EntityFilterInfo'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { AUTOCAPTURE_INTERACTIONS } from 'lib/components/TaxonomicFilter/eventTypeShortcuts'
@@ -41,7 +42,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { pluralize } from 'lib/utils/strings'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
-import { EventDefinition, PropertyDefinition } from '~/types'
+import { EntityFilter, EventDefinition, PropertyDefinition } from '~/types'
 
 import { NO_ITEM_SELECTED, infiniteListLogic } from './infiniteListLogic'
 
@@ -158,18 +159,54 @@ const unusedIndicator = (eventNames: string[]): JSX.Element => {
     )
 }
 
+/**
+ * A renamed series doesn't reveal the thing it queries, so when a row is the committed
+ * selection of a renamed series, its label is the series' display name (with the
+ * underlying entity as secondary text + tooltip) — connecting the row to the series
+ * the user clicked.
+ */
+const getSelectedItemRenameMeta = (
+    selectedItemMeta: EntityFilter | null | undefined,
+    itemValue: string | number | null | undefined
+): EntityFilter | null => {
+    if (
+        !selectedItemMeta ||
+        selectedItemMeta.id == null ||
+        itemValue == null ||
+        String(selectedItemMeta.id) !== String(itemValue)
+    ) {
+        return null
+    }
+    return getSeriesRename(selectedItemMeta) ? selectedItemMeta : null
+}
+
+const rowContentsIcon = (
+    item: TaxonomicDefinitionTypes,
+    itemGroup: TaxonomicFilterGroup,
+    isActive: boolean
+): JSX.Element | null =>
+    isActive ? (
+        <div className="taxonomic-list-row-contents-icon">
+            <IconCheck />
+        </div>
+    ) : itemGroup.getIcon ? (
+        <div className="taxonomic-list-row-contents-icon">{itemGroup.getIcon(item)}</div>
+    ) : null
+
 const renderItemContents = ({
     item,
     listGroupType,
     itemGroup,
     eventNames,
     isActive,
+    selectedRenameMeta,
 }: {
     item: TaxonomicDefinitionTypes
     listGroupType: TaxonomicFilterGroupType
     itemGroup: TaxonomicFilterGroup
     eventNames: string[]
     isActive: boolean
+    selectedRenameMeta?: EntityFilter | null
 }): JSX.Element | string => {
     if (isQuickFilterItem(item)) {
         const icon = itemGroup.getIcon ? (
@@ -187,14 +224,16 @@ const renderItemContents = ({
             </div>
         )
     }
-    if (hasLocalListContext(item)) {
-        const icon = isActive ? (
-            <div className="taxonomic-list-row-contents-icon">
-                <IconCheck />
+    if (selectedRenameMeta) {
+        return (
+            <div className="taxonomic-list-row-contents min-w-0">
+                {rowContentsIcon(item, itemGroup, isActive)}
+                <EntityFilterInfo filter={selectedRenameMeta} />
             </div>
-        ) : itemGroup.getIcon ? (
-            <div className="taxonomic-list-row-contents-icon">{itemGroup.getIcon(item)}</div>
-        ) : null
+        )
+    }
+    if (hasLocalListContext(item)) {
+        const icon = rowContentsIcon(item, itemGroup, isActive)
 
         if (hasRecentContext(item) && item._recentContext.propertyFilter) {
             const label = formatPropertyLabel(item._recentContext.propertyFilter, {})
@@ -230,13 +269,7 @@ const renderItemContents = ({
         (item as PropertyDefinition).is_seen_on_filtered_events !== null &&
         !(item as PropertyDefinition).is_seen_on_filtered_events
 
-    const icon = isActive ? (
-        <div className="taxonomic-list-row-contents-icon">
-            <IconCheck />
-        </div>
-    ) : itemGroup.getIcon ? (
-        <div className="taxonomic-list-row-contents-icon">{itemGroup.getIcon(item)}</div>
-    ) : null
+    const icon = rowContentsIcon(item, itemGroup, isActive)
 
     return listGroupType === TaxonomicFilterGroupType.EventProperties ||
         listGroupType === TaxonomicFilterGroupType.EventFeatureFlags ||
@@ -248,6 +281,7 @@ const renderItemContents = ({
         listGroupType === TaxonomicFilterGroupType.SessionProperties ||
         listGroupType === TaxonomicFilterGroupType.MaxAIContext ||
         listGroupType === TaxonomicFilterGroupType.ErrorTrackingProperties ||
+        listGroupType === TaxonomicFilterGroupType.MCPProperties ||
         listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix) ? (
         <>
             <div className={clsx('taxonomic-list-row-contents', isStale && 'text-muted')}>
@@ -336,6 +370,7 @@ interface InfiniteListRowProps {
     groupType: TaxonomicFilterGroupType | undefined
     value: string | number | null | undefined
     selectedProperties: TaxonomicFilterGroupValueMap
+    selectedItemMeta: EntityFilter | null | undefined
     eventNames: string[]
     highlightedIndex: number
     isActiveTab: boolean
@@ -402,6 +437,7 @@ export const InfiniteListRow = ({
     groupType,
     value,
     selectedProperties,
+    selectedItemMeta,
     eventNames,
     highlightedIndex,
     isActiveTab,
@@ -599,6 +635,7 @@ export const InfiniteListRow = ({
                     itemGroup: resolvedItemGroup,
                     eventNames,
                     isActive,
+                    selectedRenameMeta: isSelected ? getSelectedItemRenameMeta(selectedItemMeta, itemValue) : null,
                 })}
                 {isCrossGroupItem && (
                     <LemonTag size="small" type="highlight">
@@ -871,6 +908,7 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
                                     groupType,
                                     value,
                                     selectedProperties,
+                                    selectedItemMeta,
                                     eventNames,
                                     highlightedIndex: index,
                                     isActiveTab,
