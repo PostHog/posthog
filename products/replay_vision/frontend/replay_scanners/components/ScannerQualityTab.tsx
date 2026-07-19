@@ -86,17 +86,27 @@ function SuggestionStatusTag({ status }: { status: string }): JSX.Element | null
     )
 }
 
-/** The change cards plus the model's rationale, shared by the current card and history entries. */
+/** The change cards plus the model's rationale, shared by the current card and history entries. History
+ *  entries render read-only; the current card is editable per field. */
 function SuggestionDetails({
     suggestion,
     isDarkModeOn,
+    scannerId,
+    readOnly = false,
 }: {
     suggestion: ReplayScannerPromptSuggestionApi
     isDarkModeOn: boolean
+    scannerId: string
+    readOnly?: boolean
 }): JSX.Element {
     return (
         <>
-            <ConfigChangeCards suggestion={suggestion} isDarkModeOn={isDarkModeOn} />
+            <ConfigChangeCards
+                suggestion={suggestion}
+                isDarkModeOn={isDarkModeOn}
+                scannerId={scannerId}
+                readOnly={readOnly}
+            />
             {suggestion.rationale && (
                 <div>
                     <h4 className="text-sm font-semibold m-0 mb-1">Why</h4>
@@ -129,9 +139,11 @@ const EVALUATION_OUTCOME_TAGS: Record<string, { type: LemonTagType; label: strin
 function SuggestionEvaluationPanel({
     suggestion,
     preview,
+    editedSinceTest,
 }: {
     suggestion: ReplayScannerPromptSuggestionApi
     preview: boolean
+    editedSinceTest: boolean
 }): JSX.Element | null {
     const [detailsOpen, setDetailsOpen] = useState(false)
     const evaluation = suggestion.evaluation
@@ -167,6 +179,11 @@ function SuggestionEvaluationPanel({
     const chargedCount = evaluation.results.filter((result) => result.outcome !== 'error').length
     return (
         <div className="border rounded p-3 space-y-2">
+            {editedSinceTest && (
+                <p className="text-xs text-warning m-0">
+                    You have edited fields since this test ran. Test again to see the updated result.
+                </p>
+            )}
             <div className="flex flex-wrap items-center gap-2 text-sm">
                 {isPreview ? (
                     <span className="font-medium">
@@ -278,6 +295,9 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
         evaluating,
         suggestionHistory,
         suggestionHistoryLoading,
+        assembledConfig,
+        fieldDecisions,
+        recommendationEditedSinceTest,
     } = useValues(logic)
     const {
         generateSuggestion,
@@ -355,9 +375,13 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
     } else {
         body = (
             <div className="space-y-3">
-                <SuggestionDetails suggestion={currentSuggestion} isDarkModeOn={isDarkModeOn} />
+                <SuggestionDetails suggestion={currentSuggestion} isDarkModeOn={isDarkModeOn} scannerId={scannerId} />
                 {currentSuggestion.status === 'pending' && (
-                    <SuggestionEvaluationPanel suggestion={currentSuggestion} preview={previewEvaluation} />
+                    <SuggestionEvaluationPanel
+                        suggestion={currentSuggestion}
+                        preview={previewEvaluation}
+                        editedSinceTest={recommendationEditedSinceTest}
+                    />
                 )}
                 <div className="flex flex-wrap items-center justify-between gap-2">
                     <SuggestionMeta suggestion={currentSuggestion} />
@@ -378,7 +402,7 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                                             : undefined)
                                 }
                                 tooltip="Re-runs the scanner with the suggested prompt against your rated sessions, so you can see what would change before applying. Each tested session is charged like a normal observation. Pick how many below."
-                                onClick={() => evaluateSuggestion(currentSuggestion.id)}
+                                onClick={() => evaluateSuggestion(currentSuggestion.id, assembledConfig)}
                                 data-attr="vision-quality-evaluate-suggestion"
                             >
                                 {currentSuggestion.evaluation ? 'Re-test' : 'Test against rated sessions'}
@@ -401,8 +425,13 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                                 size="small"
                                 type="primary"
                                 loading={applying}
-                                disabledReason={editDisabledReason ?? undefined}
-                                tooltip="Writes this prompt to the scanner as a new version"
+                                disabledReason={
+                                    editDisabledReason ??
+                                    (Object.values(fieldDecisions).every((decision) => !decision.approved)
+                                        ? 'Approve at least one change to apply'
+                                        : undefined)
+                                }
+                                tooltip="Writes the approved changes to the scanner as a new version"
                                 onClick={() => applySuggestion(currentSuggestion.id)}
                                 data-attr="vision-quality-apply-suggestion"
                             >
@@ -501,7 +530,12 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                                             <SuggestionStatusTag status={suggestion.status} />
                                             <SuggestionMeta suggestion={suggestion} />
                                         </div>
-                                        <SuggestionDetails suggestion={suggestion} isDarkModeOn={isDarkModeOn} />
+                                        <SuggestionDetails
+                                            suggestion={suggestion}
+                                            isDarkModeOn={isDarkModeOn}
+                                            scannerId={scannerId}
+                                            readOnly
+                                        />
                                     </div>
                                 )
                             })}
