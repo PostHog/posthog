@@ -399,22 +399,19 @@ describe('EmailTrackingService', () => {
     })
 
     describe('SES webhook writes to the suppression list', () => {
-        // The EmailSuppressionService caches the write flag and threshold read from process.env
-        // at construction time, so we must flip the env before building CdpApi (which builds the
-        // service transitively). Threshold=1 keeps the test to a single POST — the counter arithmetic
-        // is not what this test is guarding, the write-path wiring is.
+        // EmailSuppressionService reads its flags from `hub.EMAIL_SUPPRESSION_*` (via CdpConfig),
+        // not directly from process.env. The outer beforeEach recreates `hub` per test, so overriding
+        // here doesn't leak across tests — no restore in afterEach needed. Threshold=1 keeps the test
+        // to a single POST — the counter arithmetic is not what this test is guarding, the write-path
+        // wiring is.
         let api: CdpApi
         let app: express.Application
         let server: Server
         let verifySignatureSpy: jest.SpyInstance
-        let originalWriteEnv: string | undefined
-        let originalThresholdEnv: string | undefined
 
         beforeEach(() => {
-            originalWriteEnv = process.env.EMAIL_SUPPRESSION_WRITE_ENABLED
-            originalThresholdEnv = process.env.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD
-            process.env.EMAIL_SUPPRESSION_WRITE_ENABLED = 'true'
-            process.env.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD = '1'
+            hub.EMAIL_SUPPRESSION_WRITE_ENABLED = true
+            hub.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD = 1
 
             api = new CdpApi(hub, createCdpConsumerDeps(hub), {
                 hogQueue: createMockJobQueue(),
@@ -432,16 +429,6 @@ describe('EmailTrackingService', () => {
         afterEach(() => {
             server.close()
             verifySignatureSpy.mockRestore()
-            if (originalWriteEnv === undefined) {
-                delete process.env.EMAIL_SUPPRESSION_WRITE_ENABLED
-            } else {
-                process.env.EMAIL_SUPPRESSION_WRITE_ENABLED = originalWriteEnv
-            }
-            if (originalThresholdEnv === undefined) {
-                delete process.env.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD
-            } else {
-                process.env.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD = originalThresholdEnv
-            }
         })
 
         const postTransientBounce = async (functionId: string, emailAddress: string): Promise<supertest.Response> => {
