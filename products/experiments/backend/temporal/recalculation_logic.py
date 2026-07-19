@@ -566,25 +566,10 @@ def _calculate_experiment_metric_for_recalculation_sync(
         if already_computed:
             return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
 
-        # Deterministic per-metric-per-run id. ClickHouse stamps it into the query_id as
-        # `{team_id}_{client_query_id}_{random}`, so the stored value is a greppable prefix for
-        # `system.query_log` (covers every attempt, including Temporal retries). Bound before the try so the
-        # failure paths can always persist it.
         client_query_id = f"experiment_metric_recalc_{recalculation_id}_{metric_uuid}"
 
         calc_started_at = time.perf_counter()
         try:
-            # CHAOS-VERIFICATION PATCH — TEMPORARY, DO NOT COMMIT. Randomly simulates transient failures so
-            # the retry surfacing can be observed live. Remove before committing.
-            import random  # noqa: PLC0415
-
-            if random.random() < 0.6:
-                raise RuntimeError("chaos: simulated transient failure")
-
-            # Metric build + query live inside the try so unexpected shapes surface as a calculation-step failure.
-            # as_of pins the run's shared query_to as the window's evaluation instant (the runner caps it at
-            # end_date). Without it each metric defaults to its own now(), giving slightly different windows —
-            # defeating the "one query_to for the whole run" guarantee.
             runner = ExperimentQueryRunner(
                 query=ExperimentQuery(experiment_id=experiment_id, metric=build_metric(metric_dict)),
                 team=experiment.team,
