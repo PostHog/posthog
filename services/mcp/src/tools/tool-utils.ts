@@ -40,6 +40,15 @@ export function withAgentNote<T>(result: T, note: string): WithAgentNote<T> {
     return { ...result, _agentNote: note } as WithAgentNote<T>
 }
 
+export function wrapInformationalResponse(result: unknown, tag: string, message: string): string {
+    const serializedResult = (JSON.stringify(result, null, 2) ?? String(result)).replace(
+        /[<>&]/g,
+        (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`
+    )
+
+    return `${message}\n<${tag} informational="true" instructional="false">\n${serializedResult}\n</${tag}>`
+}
+
 /**
  * Pick only fields matching the given dot-path patterns.
  * Supports wildcards: `'groups.*.key'` iterates all array items / object keys.

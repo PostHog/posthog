@@ -922,6 +922,13 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
     // agent reads — point-of-use guidance without growing the tool description.
     const noteLiteral = config.agent_note ? JSON.stringify(config.agent_note) : null
     const noted = (expr: string): string => (noteLiteral ? `withAgentNote(${expr}, ${noteLiteral})` : expr)
+    const informationalWrapper = config.response?.informational_wrapper
+    const wrapped = (expr: string): string => {
+        const notedExpression = noted(expr)
+        return informationalWrapper
+            ? `wrapInformationalResponse(${notedExpression}, ${JSON.stringify(informationalWrapper.tag)}, ${JSON.stringify(informationalWrapper.message)})`
+            : notedExpression
+    }
 
     if (config.list && config.enrich_url) {
         const { prefix, field, suffix, source } = parseEnrichUrl(config.enrich_url)
@@ -938,21 +945,21 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
             `            results: await Promise.all((${resultVar}.results ?? []).map((item) => withPostHogUrl(context, item, \`${baseUrl}/${prefix}\${item.${field}}${suffix}\`))),`,
             `        }, '${baseUrl}')`,
         ].join('\n')
-        return `        return ${noted(enriched)}\n`
+        return `        return ${wrapped(enriched)}\n`
     }
 
     if (config.list) {
-        return `        return ${noted(`await withPostHogUrl(context, ${resultVar}, '${baseUrl}')`)}\n`
+        return `        return ${wrapped(`await withPostHogUrl(context, ${resultVar}, '${baseUrl}')`)}\n`
     }
 
     if (config.enrich_url) {
         const { prefix, field, suffix, source } = parseEnrichUrl(config.enrich_url)
         const sourceExpr = source === 'params' ? `params.${field}` : `${resultVar}.${field}`
 
-        return `        return ${noted(`await withPostHogUrl(context, ${resultVar}, \`${baseUrl}/${prefix}\${${sourceExpr}}${suffix}\`)`)}\n`
+        return `        return ${wrapped(`await withPostHogUrl(context, ${resultVar}, \`${baseUrl}/${prefix}\${${sourceExpr}}${suffix}\`)`)}\n`
     }
 
-    return `        return ${noted(resultVar)}\n`
+    return `        return ${wrapped(resultVar)}\n`
 }
 
 // ------------------------------------------------------------------
@@ -1152,7 +1159,9 @@ function generateToolCode(
     // agent_note wraps whatever the enrichment produced (or the bare result).
     const hasAgentNote = !!config.agent_note
     const needsWithAgentNote = hasAgentNote && !!responseType
-    if (needsWithAgentNote) {
+    if (config.response?.informational_wrapper) {
+        resultType = 'string'
+    } else if (needsWithAgentNote) {
         resultType = `WithAgentNote<${resultType}>`
     }
 
@@ -1415,7 +1424,11 @@ function generateCustomSchemaToolCode(
 
     const hasAgentNote = !!config.agent_note
     const needsWithAgentNote = hasAgentNote && !!responseType
-    const customResultType = needsWithAgentNote ? `WithAgentNote<${responseType}>` : (responseType ?? 'unknown')
+    const customResultType = config.response?.informational_wrapper
+        ? 'string'
+        : needsWithAgentNote
+          ? `WithAgentNote<${responseType}>`
+          : (responseType ?? 'unknown')
 
     const code = `
 const ${schemaName} = ${baseSchemaExpr}
@@ -1522,6 +1535,7 @@ function generateCategoryFile(
 
     let hasWithAgentNote = false
     let hasAgentNote = false
+    const hasInformationalWrapper = enabledTools.some(([, config]) => config.response?.informational_wrapper)
 
     const responseFilterImports = new Set<string>()
 
@@ -1702,6 +1716,9 @@ function generateCategoryFile(
     }
     if (hasAgentNote) {
         toolUtilsValueImports.push('withAgentNote')
+    }
+    if (hasInformationalWrapper) {
+        toolUtilsValueImports.push('wrapInformationalResponse')
     }
     for (const imp of responseFilterImports) {
         toolUtilsValueImports.push(imp)
