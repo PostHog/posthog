@@ -4,8 +4,10 @@ import io
 from contextlib import contextmanager
 
 import pytest
+from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from PIL import Image
 
 from products.visual_review.backend import diffing, logic
@@ -21,7 +23,7 @@ from products.visual_review.backend.facade.enums import (
 )
 from products.visual_review.backend.models import RunSnapshot
 from products.visual_review.backend.tasks.tasks import post_approval_comment, process_run_diffs
-from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
+from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES, VisualReviewTeamScopedTestMixin
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -73,47 +75,6 @@ class TestProcessRunDiffs:
         run = api.get_run(create_result.run_id)
         assert run.status == RunStatus.FAILED
         assert "Something went wrong" in (run.error_message or "")
-
-    def test_count_processed_diffs_from_persisted_state(self, repo):
-        cases: list[tuple[str, dict[str, object], int]] = [
-            (
-                "persisted_changed",
-                {"result": SnapshotResult.CHANGED, "change_kind": ChangeKind.PIXEL},
-                1,
-            ),
-            (
-                "below_threshold_unchanged",
-                {
-                    "result": SnapshotResult.UNCHANGED,
-                    "classification_reason": ClassificationReason.BELOW_THRESHOLD,
-                },
-                1,
-            ),
-            (
-                "exact_unchanged",
-                {
-                    "result": SnapshotResult.UNCHANGED,
-                    "classification_reason": ClassificationReason.EXACT,
-                },
-                0,
-            ),
-            ("new", {"result": SnapshotResult.NEW}, 0),
-            ("incomplete_changed", {"result": SnapshotResult.CHANGED, "change_kind": ""}, 0),
-        ]
-
-        for index, (name, snapshot_fields, expected) in enumerate(cases):
-            run, _ = logic.create_run(
-                repo_id=repo.id,
-                team_id=repo.team_id,
-                run_type=RunType.STORYBOOK,
-                commit_sha=f"count-{index}",
-                branch=f"count-{index}",
-                pr_number=None,
-                snapshots=[{"identifier": name, "content_hash": f"hash-{index}"}],
-            )
-            RunSnapshot.objects.filter(run=run).update(**snapshot_fields)
-
-            assert diffing.count_processed_diffs(run.id) == expected, name
 
     def test_metrics_event_uses_run_id_as_uuid(self, repo, mocker):
         run, _ = logic.create_run(
@@ -357,6 +318,52 @@ class TestProcessRunDiffs:
         assert process_diffs(create_result.run_id) == 1
         assert process_diffs(create_result.run_id) == 0
         assert compare_images.call_count == 1
+
+
+class TestCountProcessedDiffs(VisualReviewTeamScopedTestMixin, BaseTest):
+    databases = PRODUCT_DATABASES
+
+    @parameterized.expand(
+        [
+            (
+                "persisted_changed",
+                {"result": SnapshotResult.CHANGED, "change_kind": ChangeKind.PIXEL},
+                1,
+            ),
+            (
+                "below_threshold_unchanged",
+                {
+                    "result": SnapshotResult.UNCHANGED,
+                    "classification_reason": ClassificationReason.BELOW_THRESHOLD,
+                },
+                1,
+            ),
+            (
+                "exact_unchanged",
+                {
+                    "result": SnapshotResult.UNCHANGED,
+                    "classification_reason": ClassificationReason.EXACT,
+                },
+                0,
+            ),
+            ("new", {"result": SnapshotResult.NEW}, 0),
+            ("incomplete_changed", {"result": SnapshotResult.CHANGED, "change_kind": ""}, 0),
+        ]
+    )
+    def test_from_persisted_state(self, _name: str, snapshot_fields: dict[str, object], expected: int) -> None:
+        repo = api.create_repo(team_id=self.team.id, repo_external_id=99999, repo_full_name="org/test")
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha=f"count-{_name}",
+            branch=f"count-{_name}",
+            pr_number=None,
+            snapshots=[{"identifier": _name, "content_hash": f"hash-{_name}"}],
+        )
+        RunSnapshot.objects.filter(run=run).update(**snapshot_fields)
+
+        assert diffing.count_processed_diffs(run.id) == expected
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
