@@ -320,11 +320,17 @@ async def _handle_import_error(
     source_cls = SourceRegistry.get_source(job_inputs.job_type)
     non_retryable_errors = source_cls.get_non_retryable_errors()
     error_msg = str(error)
-    is_non_retryable_error = any(
-        non_retryable_error in error_msg for non_retryable_error in non_retryable_errors.keys()
-    )
+    is_non_retryable_error = False
+    user_message: str | None = None
+    for pattern, friendly_message in non_retryable_errors.items():
+        if pattern in error_msg:
+            is_non_retryable_error = True
+            # Prefer the first classification that carries a user-facing explanation.
+            if friendly_message:
+                user_message = friendly_message
+                break
     if is_non_retryable_error:
-        await handle_non_retryable_error(job_inputs, error_msg, logger, error)
+        await handle_non_retryable_error(job_inputs, error_msg, logger, error, user_message=user_message)
     else:
         await logger.aexception(error_msg)
         await logger.adebug("Error encountered during import_data_activity - re-raising")

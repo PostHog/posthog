@@ -194,11 +194,18 @@ async def handle_non_retryable_error(
     error_msg: str,
     logger: FilteringBoundLogger,
     error: Exception,
+    user_message: str | None = None,
 ) -> NoReturn:
+    # Carry the classified, user-facing explanation (e.g. "your GitLab token needs the read_api
+    # scope") on the exception so it reaches the customer's latest_error and error tracking,
+    # instead of a bare, empty NonRetryableException that reads as a defect.
+    def _give_up() -> NonRetryableException:
+        return NonRetryableException(user_message) if user_message else NonRetryableException()
+
     async with _get_redis() as redis_client:
         if redis_client is None:
             await logger.adebug(f"Failed to get Redis client for non-retryable error tracking. error={error_msg}")
-            raise NonRetryableException() from error
+            raise _give_up() from error
 
         retry_key = build_non_retryable_errors_redis_key(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id
@@ -213,7 +220,7 @@ async def handle_non_retryable_error(
             raise error
 
     await logger.adebug(f"Non-retryable error after {attempts} runs, giving up. error={error_msg}")
-    raise NonRetryableException() from error
+    raise _give_up() from error
 
 
 async def reset_rows_synced_if_needed(

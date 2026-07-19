@@ -708,8 +708,12 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 update_inputs.status = ExternalDataJob.Status.BILLING_LIMIT_TOO_LOW
             elif isinstance(e.cause, exceptions.ApplicationError) and e.cause.type == "NonRetryableException":
                 update_inputs.status = ExternalDataJob.Status.FAILED
-                update_inputs.internal_error = str(e.cause.cause)
-                update_inputs.latest_error = str(e.cause.cause)
+                # The underlying cause is the raw source error (e.g. "403 Client Error"); keep it
+                # for internal debugging. Show the customer the classified, user-facing message
+                # threaded onto the NonRetryableException when present, falling back to the raw error.
+                underlying_error = str(e.cause.cause) if e.cause.cause else ""
+                update_inputs.internal_error = underlying_error or e.cause.message
+                update_inputs.latest_error = e.cause.message or underlying_error
                 raise
             else:
                 # Handle other activity errors normally
