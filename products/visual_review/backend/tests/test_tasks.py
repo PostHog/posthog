@@ -26,8 +26,16 @@ from products.visual_review.backend.tasks.tasks import post_approval_comment, pr
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES, VisualReviewTeamScopedTestMixin
 
 
-def _make_png(color: tuple[int, int, int, int]) -> bytes:
-    image = Image.new("RGBA", (10, 10), color)
+def _make_png(color: tuple[int, int, int, int], size: tuple[int, int] = (10, 10)) -> bytes:
+    image = Image.new("RGBA", size, color)
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def _make_png_with_single_changed_pixel() -> bytes:
+    image = Image.new("RGBA", (100, 100), (255, 0, 0, 255))
+    image.putpixel((0, 0), (0, 0, 255, 255))
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
     return buffer.getvalue()
@@ -320,8 +328,11 @@ class TestProcessRunDiffs:
         assert process_diffs(create_result.run_id) == 0
         assert compare_images.call_count == 1
 
-    def testprocess_diffs_counts_below_threshold_comparisons(self, repo, mocker):
-        image_bytes = _make_png((255, 0, 0, 255))
+    def test_process_diffs_counts_below_threshold_comparisons(self, repo, mocker):
+        stored_bytes = {
+            "old_hash": _make_png((255, 0, 0, 255), size=(100, 100)),
+            "new_hash": _make_png_with_single_changed_pixel(),
+        }
         logic.get_or_create_artifact(repo.id, "old_hash", "visual_review/old_hash")
         logic.get_or_create_artifact(repo.id, "new_hash", "visual_review/new_hash")
         create_result = api.create_run(
@@ -347,7 +358,14 @@ class TestProcessRunDiffs:
         mocker.patch(
             "products.visual_review.backend.storage.ArtifactStorage.read",
             autospec=True,
-            return_value=image_bytes,
+            side_effect=lambda _storage, content_hash: stored_bytes.get(content_hash),
+        )
+        mocker.patch(
+            "products.visual_review.backend.storage.ArtifactStorage.write",
+            autospec=True,
+            side_effect=lambda _storage, content_hash, content: (
+                stored_bytes.setdefault(content_hash, content) and f"visual_review/{content_hash}"
+            ),
         )
 
         assert process_diffs(create_result.run_id) == 1
@@ -355,6 +373,10 @@ class TestProcessRunDiffs:
         snapshot = RunSnapshot.objects.get(run_id=create_result.run_id)
         assert snapshot.result == SnapshotResult.UNCHANGED
         assert snapshot.classification_reason == ClassificationReason.BELOW_THRESHOLD
+        assert snapshot.diff_pixel_count is not None
+        assert snapshot.diff_pixel_count > 0
+        assert snapshot.diff_percentage is not None
+        assert snapshot.diff_percentage > 0
         assert ToleratedHash.objects.filter(
             repo_id=repo.id,
             identifier="Button",
