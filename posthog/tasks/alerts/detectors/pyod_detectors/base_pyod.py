@@ -32,7 +32,9 @@ class BasePyODDetector(BaseDetector):
         if not self._validate_data(data, min_length=self.MIN_SAMPLES):
             return DetectionResult(is_anomaly=False)
 
-        data = self.preprocess(data)
+        # Remove historical outliers before preprocessing so a past mega-spike
+        # can't poison the fit; the recent points being scored are protected.
+        data = self.preprocess_robust(data, protect_last=max(self.training_offset, 1))
         threshold = self.config.get("threshold", self.DEFAULT_THRESHOLD)
 
         if data.ndim == 1:
@@ -91,6 +93,9 @@ class BasePyODDetector(BaseDetector):
                 continue
 
             try:
+                # Remove outliers from the training window (excludes the point
+                # being scored) so a past mega-spike can't poison the fit.
+                train_data = self.remove_training_outliers(train_data)
                 model = self._build_model(n_samples=len(train_data))
                 model.fit(train_data)
                 prob = float(model.predict_proba(test_point)[0, 1])

@@ -47,7 +47,9 @@ class ZScoreDetector(BaseDetector):
         if not self._validate_data(data, min_length=window + 1):
             return DetectionResult(is_anomaly=False)
 
-        data = self.preprocess(data)
+        # Remove historical outliers before smoothing/differencing so a past
+        # mega-spike can't skew the baseline or bleed into the scored point.
+        data = self.preprocess_robust(data, protect_last=1)
         values = data if data.ndim == 1 else data[:, 0]
 
         # Use rolling window for mean/std (exclude current point)
@@ -99,7 +101,9 @@ class ZScoreDetector(BaseDetector):
         scores: list[float | None] = [None] * window
 
         for i in range(window, len(values)):
-            window_data = values[i - window : i]
+            # Remove outliers from the rolling window (excludes the scored
+            # point) so a past mega-spike can't skew the baseline.
+            window_data = self.remove_training_outliers(values[i - window : i])
             mean = np.mean(window_data)
             std = np.std(window_data)
 

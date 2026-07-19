@@ -39,6 +39,44 @@ def preprocess_data(data: np.ndarray, config: dict[str, Any] | None) -> np.ndarr
     return result
 
 
+def remove_outliers(data: np.ndarray, n_sigmas: float = 4.0) -> np.ndarray:
+    """Replace extreme outliers with the median so they can't skew a baseline.
+
+    A few unflagged mega-spikes left in a training window skew mean/variance
+    baselines and min-max normalization ranges, which makes an ordinary
+    following value look anomalous. Values further than ``n_sigmas`` robust
+    sigmas from the median — i.e. beyond ``median ± n_sigmas * (1.4826 * MAD)``
+    — are replaced by the median. Both the threshold and the replacement come
+    from robust statistics, so the outliers can't move them themselves, and a
+    window with no extreme values is left unchanged.
+
+    This is meant for the historical/baseline portion only; capping to the
+    threshold instead would leave a residual bump that smoothing amplifies, so
+    extreme values are removed outright rather than winsorized. For 2D inputs
+    each column is handled independently.
+
+    Args:
+        data: Input array (1D series, or 2D as (n_samples, n_features)).
+        n_sigmas: Robust-sigma distance beyond which values are replaced.
+                  Values <= 0 disable outlier removal.
+    """
+    if data.size == 0 or n_sigmas <= 0:
+        return data
+
+    arr = data.astype(float)
+    keepdims = arr.ndim > 1
+    axis = 0 if keepdims else None
+
+    median = np.median(arr, axis=axis, keepdims=keepdims)
+    # 1.4826 scales the MAD to be comparable to the std of a normal distribution
+    scale = 1.4826 * np.median(np.abs(arr - median), axis=axis, keepdims=keepdims)
+    spread = n_sigmas * scale
+
+    # Where the robust scale is 0 (constant data) there is nothing to remove
+    is_outlier = (scale > 0) & (np.abs(arr - median) > spread)
+    return np.where(is_outlier, np.broadcast_to(median, arr.shape), arr)
+
+
 def first_difference(data: np.ndarray) -> np.ndarray:
     """
     Compute first difference of time series.

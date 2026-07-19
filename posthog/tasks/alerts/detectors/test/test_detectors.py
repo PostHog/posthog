@@ -8,6 +8,7 @@ from parameterized import parameterized
 from posthog.tasks.alerts.detector import _compute_min_samples_for_detector
 from posthog.tasks.alerts.detectors.base import DetectionResult
 from posthog.tasks.alerts.detectors.ensemble import EnsembleDetector
+from posthog.tasks.alerts.detectors.preprocessing import remove_outliers
 from posthog.tasks.alerts.detectors.pyod_detectors.copod import COPODDetector
 from posthog.tasks.alerts.detectors.pyod_detectors.ecod import ECODDetector
 from posthog.tasks.alerts.detectors.pyod_detectors.hbos import HBOSDetector
@@ -664,3 +665,75 @@ class TestRealisticScoreBehavior:
             f"Ensemble OR fired on stable data (score={result.score:.4f}, "
             f"sub_results={result.metadata.get('sub_results')})"
         )
+
+
+def _make_spiky_series_with_normal_tail(spike_gap: int = 2, last_value: float = 20058.0) -> np.ndarray:
+    """Daily series with recurring batch spikes ending on a dead-normal value.
+
+    Mirrors the real 'Stripe webhook' series: a ~16k-21.6k baseline with
+    occasional 3-5x batch spikes, and an unflagged mega-spike ``spike_gap`` days
+    before the end. The final value (20,058) is well inside the baseline and
+    must not be flagged just because a mega-spike sits a couple of days back in
+    the training window.
+    """
+    rng = np.random.default_rng(20058)
+    values = rng.uniform(16000, 21600, size=90)
+    values[34] = 57876  # earlier batch spikes, never flagged
+    values[41] = 86757
+    values[-1 - spike_gap] = 93755  # the real, unflagged mega-spike
+    values[-1] = last_value
+    return values
+
+
+def _spiky_ensemble() -> EnsembleDetector:
+    """OR ensemble of a smoothed z-score and IsolationForest, as dogfooded."""
+    return EnsembleDetector(
+        {
+            "type": "ensemble",
+            "operator": "or",
+            "detectors": [
+                {"type": "zscore", "threshold": 0.95, "window": 60, "preprocessing": {"smooth_n": 3, "diffs_n": 1}},
+                {"type": "isolation_forest", "threshold": 0.95, "preprocessing": {"lags_n": 3, "diffs_n": 1}},
+            ],
+        }
+    )
+
+
+class TestOutlierRobustBaseline:
+    """A past mega-spike left in the training window must not make an ordinary
+    following value score as anomalous (the post-spike false positive)."""
+
+    @parameterized.expand([("one_day", 1), ("two_days", 2), ("three_days", 3)])
+    def test_normal_day_after_spike_does_not_fire(self, _name: str, spike_gap: int) -> None:
+        result = _spiky_ensemble().detect(_make_spiky_series_with_normal_tail(spike_gap=spike_gap))
+        assert not result.is_anomaly, (
+            f"Ensemble fired on a normal day {spike_gap}d after a mega-spike "
+            f"(sub_results={result.metadata.get('sub_results')})"
+        )
+
+    def test_genuine_current_spike_still_fires(self) -> None:
+        # The point being scored is never treated as a baseline outlier, so a
+        # genuine spike landing on the current day is still detected.
+        series = _make_spiky_series_with_normal_tail(last_value=95000.0)
+        result = _spiky_ensemble().detect(series)
+        assert result.is_anomaly
+
+    @parameterized.expand(
+        [
+            ("removes_high_outlier", np.array([10.0, 11.0, 9.0, 10.0, 11.0, 9.0, 500.0]), 6, 10.0),
+            ("removes_low_outlier", np.array([10.0, 11.0, 9.0, 10.0, 11.0, 9.0, -500.0]), 6, 10.0),
+        ]
+    )
+    def test_remove_outliers_replaces_extremes_with_median(
+        self, _name: str, data: np.ndarray, outlier_idx: int, expected: float
+    ) -> None:
+        cleaned = remove_outliers(data, n_sigmas=4.0)
+        assert cleaned[outlier_idx] == expected
+
+    def test_remove_outliers_leaves_clean_data_unchanged(self) -> None:
+        data = np.array([10.0, 11.0, 9.0, 10.0, 11.0, 9.0, 10.0])
+        np.testing.assert_array_equal(remove_outliers(data, n_sigmas=4.0), data)
+
+    def test_remove_outliers_disabled_when_sigmas_zero(self) -> None:
+        data = np.array([10.0, 11.0, 9.0, 10.0, 11.0, 9.0, 500.0])
+        np.testing.assert_array_equal(remove_outliers(data, n_sigmas=0.0), data)

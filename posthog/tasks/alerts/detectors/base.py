@@ -4,7 +4,7 @@ from typing import Any
 
 import numpy as np
 
-from posthog.tasks.alerts.detectors.preprocessing import preprocess_data
+from posthog.tasks.alerts.detectors.preprocessing import preprocess_data, remove_outliers
 
 
 @dataclass
@@ -29,10 +29,16 @@ class BaseDetector(ABC):
     # Higher values make the model slower to adapt to recent distribution shifts.
     DEFAULT_TRAINING_OFFSET = 1
 
+    # Default robust-sigma distance for removing training/baseline outliers.
+    # Keeps a single unflagged mega-spike from skewing the baseline the next
+    # point is judged against. Set to 0 to disable outlier removal.
+    DEFAULT_OUTLIER_SIGMAS = 4.0
+
     def __init__(self, config: dict[str, Any]):
         self.config = config
         self.preprocessing_config = config.get("preprocessing", {})
         self.training_offset: int = config.get("training_offset_n", self.DEFAULT_TRAINING_OFFSET)
+        self.outlier_sigmas: float = config.get("outlier_sigmas", self.DEFAULT_OUTLIER_SIGMAS)
 
     @abstractmethod
     def detect(self, data: np.ndarray) -> DetectionResult:
@@ -72,6 +78,29 @@ class BaseDetector(ABC):
     def preprocess(self, data: np.ndarray) -> np.ndarray:
         """Apply preprocessing pipeline to data."""
         return preprocess_data(data, self.preprocessing_config)
+
+    def remove_training_outliers(self, data: np.ndarray) -> np.ndarray:
+        """Remove extreme outliers from a training/baseline slice before fitting.
+
+        Meant for the historical portion only — never pass the point being
+        scored, or a genuine spike would be removed and missed.
+        """
+        return remove_outliers(data, self.outlier_sigmas)
+
+    def preprocess_robust(self, data: np.ndarray, protect_last: int = 1) -> np.ndarray:
+        """Remove historical outliers on the raw series, then preprocess.
+
+        Outlier removal runs before smoothing so a past mega-spike can't bleed
+        across neighboring points (and into the value being scored) once
+        smoothed. The most recent ``protect_last`` points are left untouched so
+        a genuine current spike still surfaces.
+        """
+        if self.outlier_sigmas <= 0 or data.ndim != 1 or protect_last < 1 or len(data) <= protect_last + 1:
+            return self.preprocess(data)
+
+        result = data.astype(float).copy()
+        result[:-protect_last] = self.remove_training_outliers(result[:-protect_last])
+        return self.preprocess(result)
 
     @classmethod
     def get_default_config(cls) -> dict[str, Any]:
