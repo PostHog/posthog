@@ -200,6 +200,11 @@ class EvaluatePromptSuggestionRequestSerializer(serializers.Serializer):
             "The maximum is `evaluation_session_cap`."
         ),
     )
+    config = serializers.JSONField(
+        required=False,
+        help_text="The edited config to test, assembled from the recommendation's approved fields. "
+        "Omit to test the full suggested config.",
+    )
 
 
 class CurrentPromptSuggestionSerializer(serializers.Serializer):
@@ -432,7 +437,10 @@ class ReplayScannerPromptSuggestionViewSet(
             async_to_sync(client.start_workflow)(  # type: ignore[misc]
                 EVALUATE_PROMPT_SUGGESTION_WORKFLOW_NAME,  # type: ignore[arg-type]
                 EvaluatePromptSuggestionInputs(  # type: ignore[arg-type]
-                    suggestion_id=suggestion.id, team_id=scanner.team_id, session_limit=session_limit
+                    suggestion_id=suggestion.id,
+                    team_id=scanner.team_id,
+                    session_limit=session_limit,
+                    config_override=input_serializer.validated_data.get("config"),
                 ),
                 id=build_evaluate_prompt_suggestion_workflow_id(suggestion.id),
                 task_queue=settings.REPLAY_VISION_TASK_QUEUE,

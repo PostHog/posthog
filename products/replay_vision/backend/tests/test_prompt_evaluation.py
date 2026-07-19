@@ -428,6 +428,20 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
         self.assertIn(str(suggestion.id), client.start_workflow.await_args.kwargs["id"])
         # Without an explicit session_limit the test runs the small default, not the full cap.
         self.assertEqual(client.start_workflow.await_args.args[1].session_limit, EVALUATION_SESSION_DEFAULT)
+        # No edited config posted, so the run tests the stored suggestion.
+        self.assertIsNone(client.start_workflow.await_args.args[1].config_override)
+
+    def test_evaluate_passes_edited_config_to_workflow(self) -> None:
+        self._create_rated()
+        suggestion = self._create_pending_suggestion()
+        edited = {"prompt": "edited prompt", "allow_inconclusive": True}
+        connect_patch, client = self._mock_temporal()
+        with connect_patch:
+            resp = self.client.post(self._url(suggestion.id), {"config": edited}, format="json")
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        client.start_workflow.assert_awaited_once()
+        self.assertEqual(client.start_workflow.await_args.args[1].config_override, edited)
 
     def test_evaluate_while_running_does_not_restart(self) -> None:
         self._create_rated()
