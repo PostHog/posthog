@@ -41,8 +41,12 @@ from products.experiments.backend.models.experiment import (
 from products.experiments.backend.temporal.metric_resolution import build_metric, find_metric_dict
 from products.experiments.backend.temporal.models import (
     CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS,
+    MAX_METRIC_ATTEMPTS,
     METRIC_CALC_MAX_EXECUTION_TIME_SECONDS,
     NON_RETRYABLE_ERROR_TYPES,
+    RECALCULATION_RETRY_BACKOFF_COEFFICIENT,
+    RECALCULATION_RETRY_INITIAL_INTERVAL_SECONDS,
+    RECALCULATION_RETRY_MAX_INTERVAL_SECONDS,
     ExperimentMetricToRecalculate,
     MetricRecalculationResult,
     RecalculationProgressUpdate,
@@ -330,6 +334,42 @@ def _record_failure(recalculation_id: str, metric_uuid: str, step: str, message:
         recalc.save(update_fields=["metric_errors"])
 
 
+def _estimated_retry_delay_seconds(attempt: int) -> float:
+    """Mirror of the workflow's RetryPolicy backoff for the attempt that just failed."""
+    return min(
+        RECALCULATION_RETRY_INITIAL_INTERVAL_SECONDS * RECALCULATION_RETRY_BACKOFF_COEFFICIENT ** (attempt - 1),
+        RECALCULATION_RETRY_MAX_INTERVAL_SECONDS,
+    )
+
+
+def _record_retry(
+    recalculation_id: str, metric_uuid: str, attempt: int, error_type: str, message: str, delay_seconds: float
+) -> None:
+    """Transient attempt state for the UI, keyed by metric_uuid; overwritten per attempt, removed by the
+    metric's terminal write. Carries the server error that triggered the retry so the UI can show why;
+    next_retry_at is an estimate (worker pickup adds slack after it passes)."""
+    with transaction.atomic():
+        recalc = ExperimentMetricsRecalculation.objects.select_for_update().get(id=recalculation_id)
+        metric_retries = recalc.metric_retries or {}
+        metric_retries[metric_uuid] = {
+            "attempt": attempt,
+            "max_attempts": MAX_METRIC_ATTEMPTS,
+            "error_type": error_type,
+            "message": message[:_MAX_ERROR_MESSAGE_LENGTH],
+            "next_retry_at": (timezone.now() + timedelta(seconds=delay_seconds)).isoformat(),
+        }
+        recalc.metric_retries = metric_retries
+        recalc.save(update_fields=["metric_retries"])
+
+
+def _clear_retry(recalculation_id: str, metric_uuid: str) -> None:
+    with transaction.atomic():
+        recalc = ExperimentMetricsRecalculation.objects.select_for_update().get(id=recalculation_id)
+        if metric_uuid in (recalc.metric_retries or {}):
+            recalc.metric_retries.pop(metric_uuid)
+            recalc.save(update_fields=["metric_retries"])
+
+
 def _store_result(
     *,
     experiment_id: int,
@@ -364,6 +404,7 @@ def _store_result(
 def _fail(recalculation_id: str, metric_uuid: str, step: str, message: str) -> MetricRecalculationResult:
     """Record a failure on the job (lookup step: job-only; calculation step: also persists a result row upstream)."""
     _record_failure(recalculation_id, metric_uuid, step, message)
+    _clear_retry(recalculation_id, metric_uuid)
     return MetricRecalculationResult(
         metric_uuid=metric_uuid, success=False, error_step=step, error_message=message[:_MAX_ERROR_MESSAGE_LENGTH]
     )
@@ -444,6 +485,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
     query_to: str,
     metric_type: str = "primary",
     is_final_attempt: bool = True,
+    attempt: int = 1,
 ) -> MetricRecalculationResult:
     close_old_connections()
 
@@ -532,6 +574,13 @@ def _calculate_experiment_metric_for_recalculation_sync(
 
         calc_started_at = time.perf_counter()
         try:
+            # CHAOS-VERIFICATION PATCH — TEMPORARY, DO NOT COMMIT. Randomly simulates transient failures so
+            # the retry surfacing can be observed live. Remove before committing.
+            import random  # noqa: PLC0415
+
+            if random.random() < 0.6:
+                raise RuntimeError("chaos: simulated transient failure")
+
             # Metric build + query live inside the try so unexpected shapes surface as a calculation-step failure.
             # as_of pins the run's shared query_to as the window's evaluation instant (the runner caps it at
             # end_date). Without it each metric defaults to its own now(), giving slightly different windows —
@@ -585,6 +634,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 {"duration_ms": round((time.perf_counter() - calc_started_at) * 1000)},
                 trigger=state.trigger,
             )
+            _clear_retry(recalculation_id, metric_uuid)
             return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
 
         except (StatisticError, ZeroDivisionError) as e:
@@ -657,6 +707,18 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 is_final_attempt=is_final_attempt,
                 error_class=type(e).__name__,
             )
+            if is_final_attempt:
+                _clear_retry(recalculation_id, metric_uuid)
+            else:
+                # Exact, not estimated: this branch sets the delay explicitly via next_retry_delay.
+                _record_retry(
+                    recalculation_id,
+                    metric_uuid,
+                    attempt,
+                    classify_experiment_query_error(e),
+                    message,
+                    CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS,
+                )
             raise ApplicationError(
                 message,
                 type=type(e).__name__,
@@ -708,6 +770,17 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 is_final_attempt=is_final_attempt,
                 error_type=error_type,
             )
+            if is_final_attempt or is_permanent:
+                _clear_retry(recalculation_id, metric_uuid)
+            else:
+                _record_retry(
+                    recalculation_id,
+                    metric_uuid,
+                    attempt,
+                    error_type,
+                    message,
+                    _estimated_retry_delay_seconds(attempt),
+                )
             if is_permanent:
                 raise ApplicationError(message, type=error_type, non_retryable=True) from e
             raise
