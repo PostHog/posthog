@@ -490,6 +490,23 @@ async function disableAutoMergeIfEnabled(fetchImpl = fetch) {
     return true
 }
 
+async function assignReviewersWithAutoMergeGuard(
+    teams,
+    users,
+    { assignReviewersImpl = assignReviewers, disableAutoMergeImpl = disableAutoMergeIfEnabled } = {}
+) {
+    if (teams.length === 0 && users.length === 0) {
+        return assignReviewersImpl(teams, users)
+    }
+
+    await disableAutoMergeImpl()
+    const reviewersAssigned = await assignReviewersImpl(teams, users)
+    if (reviewersAssigned) {
+        await disableAutoMergeImpl()
+    }
+    return reviewersAssigned
+}
+
 // Best-effort: a label failure must never fail the job.
 async function applyTeamLabels(labels) {
     const { GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER } = process.env
@@ -639,17 +656,12 @@ async function main() {
         console.info(`Demoted to comment: ${demoted.map((f) => f.owner).join(', ') || 'none'}`)
         console.info()
 
-        let reviewersAssigned
         if (!isExternal) {
-            reviewersAssigned = await assignReviewers(teams, users)
+            await assignReviewersWithAutoMergeGuard(teams, users)
         } else {
             const { toLabel, toRequest } = partitionExternalTeams(teams)
             await applyTeamLabels(toLabel.map(teamSlugToLabel).filter(Boolean))
-            reviewersAssigned = await assignReviewers(toRequest, users)
-        }
-
-        if (reviewersAssigned) {
-            await disableAutoMergeIfEnabled()
+            await assignReviewersWithAutoMergeGuard(toRequest, users)
         }
 
         const commentBody = buildReviewerComment(requested, demoted)
@@ -678,4 +690,5 @@ module.exports = {
     buildReviewerComment,
     fileMatchesPattern,
     disableAutoMergeIfEnabled,
+    assignReviewersWithAutoMergeGuard,
 }

@@ -24,6 +24,17 @@ TRACER = trace.get_tracer(__name__)
 
 
 @shared_task(
+    name="products.visual_review.backend.tasks.emit_run_processing_metrics",
+    ignore_result=True,
+)
+@with_team_scope()
+def emit_run_processing_metrics(team_id: int, run_id: str, outcome: str, diffed_count: int) -> None:
+    from .. import logic  # noqa: PLC0415 — avoids the logic/tasks circular import
+
+    logic.capture_run_processing_metrics(UUID(run_id), outcome=outcome, diffed_count=diffed_count)
+
+
+@shared_task(
     name="products.visual_review.backend.tasks.process_run_diffs",
     bind=True,
     ignore_result=True,

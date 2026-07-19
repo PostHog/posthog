@@ -15,6 +15,7 @@ const {
     buildReviewerComment,
     fileMatchesPattern,
     disableAutoMergeIfEnabled,
+    assignReviewersWithAutoMergeGuard,
 } = require('./assign-reviewers')
 
 const file = (filename, additions = 0, deletions = 0) => ({
@@ -112,6 +113,24 @@ test('disableAutoMergeIfEnabled: leaves auto-merge alone when it was not enabled
 
     assert.equal(await withGitHubEnv(() => disableAutoMergeIfEnabled(fetchImpl)), false)
     assert.equal(requestCount, 1)
+})
+
+test('assignReviewersWithAutoMergeGuard: disables auto-merge before and after reviewer assignment', async () => {
+    const calls = []
+
+    const reviewersAssigned = await assignReviewersWithAutoMergeGuard(['team-devex'], [], {
+        disableAutoMergeImpl: async () => {
+            calls.push('disable')
+            return false
+        },
+        assignReviewersImpl: async () => {
+            calls.push('assign')
+            return true
+        },
+    })
+
+    assert.equal(reviewersAssigned, true)
+    assert.deepEqual(calls, ['disable', 'assign', 'disable'])
 })
 
 for (const [filename, expected] of [

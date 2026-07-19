@@ -7,7 +7,6 @@ Classifies snapshots as genuinely changed or rendering noise.
 Called by the Celery task; all business logic lives here.
 """
 
-from collections.abc import Callable
 from uuid import UUID
 
 from django.db.models import Q
@@ -164,7 +163,6 @@ def _diff_snapshot(snapshot: RunSnapshot) -> bool:
         return False
 
     result = compare_images(baseline_bytes, current_bytes)
-    on_compared()
 
     _store_thumbnail(snapshot, result)
 

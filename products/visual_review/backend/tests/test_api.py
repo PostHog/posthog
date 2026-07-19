@@ -280,8 +280,9 @@ class TestRunAPI:
 
         assert {r.commit_sha for r in runs} == expected_commits
 
+    @patch("products.visual_review.backend.tasks.tasks.emit_run_processing_metrics.delay")
     @patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
-    def test_complete_run_no_changes_skips_task(self, mock_delay, repo):
+    def test_complete_run_no_changes_skips_task(self, mock_diff_delay, mock_metrics_delay, repo):
         """Runs with no changes complete immediately without triggering diff task."""
         create_result = api.create_run(
             CreateRunInput(
@@ -294,12 +295,11 @@ class TestRunAPI:
             team_id=repo.team_id,
         )
 
-        with patch("products.visual_review.backend.logic.capture_run_processing_metrics") as capture:
-            result = api.complete_run(create_result.run_id)
+        result = api.complete_run(create_result.run_id)
 
         assert result.status == "completed"
-        mock_delay.assert_not_called()
-        capture.assert_called_once_with(create_result.run_id, outcome="completed", diffed_count=0)
+        mock_diff_delay.assert_not_called()
+        mock_metrics_delay.assert_called_once_with(repo.team_id, str(create_result.run_id), "completed", 0)
 
     @patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
     def test_complete_run_with_changes_triggers_task(self, mock_delay, repo):

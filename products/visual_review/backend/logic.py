@@ -950,15 +950,17 @@ def complete_run(run_id: UUID) -> Run:
     # recorded — leaving every future run requesting the same upload while
     # CI posts green.
     if run.changed_count == 0 and run.new_count == 0:
+        from .tasks.tasks import emit_run_processing_metrics  # noqa: PLC0415 — avoids the logic/tasks circular import
+
         try:
             verify_uploads_and_create_artifacts(run_id)
         except HashIntegrityError as e:
             logger.warning("visual_review.hash_integrity_failed", run_id=str(run_id), error=str(e))
             finish_processing(run_id, error_message=str(e))
-            capture_run_processing_metrics(run_id, outcome="hash_integrity_failed", diffed_count=0)
+            emit_run_processing_metrics.delay(run.team_id, str(run_id), "hash_integrity_failed", 0)
             return get_run(run_id)
         finish_processing(run_id)
-        capture_run_processing_metrics(run_id, outcome="completed", diffed_count=0)
+        emit_run_processing_metrics.delay(run.team_id, str(run_id), "completed", 0)
         return get_run(run_id)
 
     mark_run_processing(run_id)
