@@ -14,6 +14,7 @@ export type YAxisFormat =
     | 'currency'
     | 'duration'
     | 'duration_ms'
+    | 'duration_ns'
     | 'short'
 
 export interface YFormatterConfig {
@@ -37,6 +38,9 @@ export function buildYTickFormatter(config: YFormatterConfig): (value: number) =
                 break
             case 'duration_ms':
                 formatted = humanFriendlyDuration(value / 1000, { secondsFixed: 1 })
+                break
+            case 'duration_ns':
+                formatted = humanFriendlyDuration(value / 1_000_000_000, { secondsFixed: 1 })
                 break
             case 'percentage':
                 formatted = percentage(value / 100, decimalPlaces)
