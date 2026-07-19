@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     _earliest_supported_since,
     _fetch_integration_row,
     _is_permanent_auth_error,
+    _is_transient_error,
     _iter_simple_pagination,
     _iter_time_range_pagination,
     _next_smaller_limit,
@@ -383,6 +384,26 @@ class TestSimplePaginationMalformedJson:
 
         # Bounded: one attempt per allowed try, then it gives up (stays retryable upstream).
         assert mock_get.return_value.get.call_count == MALFORMED_JSON_MAX_ATTEMPTS
+
+
+class TestIsTransientError:
+    @pytest.mark.parametrize(
+        "body,expected",
+        [
+            ({"error": {"is_transient": True, "code": 2}}, True),
+            ({"error": {"code": 190}}, False),
+            ({"data": []}, False),
+        ],
+    )
+    def test_reads_transient_flag(self, body: dict, expected: bool) -> None:
+        assert _is_transient_error(_mock_response(500, body)) is expected
+
+    def test_non_json_body_is_not_transient(self) -> None:
+        # A proxy/gateway can return a non-JSON error page; the flag check must not crash on it.
+        response = mock.MagicMock()
+        response.status_code = 500
+        response.json.side_effect = RequestsJSONDecodeError("Expecting value", "<html>", 0)
+        assert _is_transient_error(response) is False
 
 
 class TestTransientErrorRetry:
