@@ -257,7 +257,7 @@ export function HeatmapCanvas({
             <div
                 key={
                     exportToken
-                        ? 'export-heatmap'
+                        ? `export-heatmap-${widthOverride ?? windowWidth}x${heightOverride}x${heatmapFixedPositionMode}`
                         : `${widthOverride ?? windowWidth}x${windowHeight}x${heightOverride}x${heatmapFixedPositionMode}`
                 }
                 className={cn('absolute inset-0', loadingClass)}

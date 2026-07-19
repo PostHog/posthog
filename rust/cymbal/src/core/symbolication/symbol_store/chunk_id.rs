@@ -358,7 +358,7 @@ mod test {
             sourcemap::{OwnedSourceMapCache, SourcemapProvider},
             Catalog, MockS3Client, Provider,
         },
-        types::RawErrProps,
+        types::RawExceptionProperties,
     };
 
     const EXAMPLE_EXCEPTION: &str =
@@ -404,7 +404,8 @@ mod test {
 
     fn get_example_frame() -> RawJSFrame {
         let event: ClickHouseEvent = serde_json::from_str(EXAMPLE_EXCEPTION).unwrap();
-        let mut props: RawErrProps = serde_json::from_str(&event.properties.unwrap()).unwrap();
+        let mut props: RawExceptionProperties =
+            serde_json::from_str(&event.properties.unwrap()).unwrap();
         let stack = props.exception_list.swap_remove(0).stack.unwrap();
         let Stacktrace::Raw { frames } = stack else {
             panic!("Expected a raw stacktrace");

@@ -305,6 +305,48 @@ describe('InstructionsFormatter', () => {
         })
     })
 
+    describe('metric discovery gating (data catalog flag)', () => {
+        const surfaces: {
+            name: string
+            render: (formatter: InstructionsFormatter, ctx: InstructionsContext) => string
+        }[] = [
+            {
+                name: 'buildToolsInstructions',
+                render: (formatter, ctx) => formatter.buildToolsInstructions(ctx),
+            },
+            {
+                name: 'analytics learn topic content',
+                render: (formatter, ctx) =>
+                    formatter.buildClaudeExecHelpEntries(ctx).find((entry) => entry.id === 'analytics')!.content,
+            },
+            {
+                name: 'buildExecCommandReference',
+                render: (formatter, ctx) => formatter.buildExecCommandReference(ctx, { stripEnvContext: false }),
+            },
+        ]
+
+        it.each(surfaces)('$name includes metric discovery only when the catalog exists', ({ render }) => {
+            const formatter = new InstructionsFormatter()
+            const flagOn = render(formatter, { ...fullCtx, dataCatalogEnabled: true })
+            expect(flagOn).toContain('#### Metric discovery (semantic layer)')
+            expect(flagOn).toContain('system.information_schema.metrics')
+
+            // Flag-off must be byte-identical to a context without the field, so orgs
+            // without the catalog are never steered at a table that doesn't exist.
+            const flagOff = render(formatter, { ...fullCtx, dataCatalogEnabled: false })
+            expect(flagOff).not.toContain('#### Metric discovery')
+            expect(flagOff).toBe(render(formatter, fullCtx))
+        })
+
+        it('advertises governed metrics in the analytics topic description only when the catalog exists', () => {
+            const formatter = new InstructionsFormatter()
+            const analyticsDescription = (ctx: InstructionsContext): string =>
+                formatter.buildClaudeExecHelpEntries(ctx).find((entry) => entry.id === 'analytics')!.description
+            expect(analyticsDescription({ ...fullCtx, dataCatalogEnabled: true })).toContain('governed metrics')
+            expect(analyticsDescription(fullCtx)).toBe('Query or analyze PostHog data, metrics, and events.')
+        })
+    })
+
     // Mirrors the single-exec wiring in `src/mcp.ts`. When the client honors the MCP
     // `instructions` field, env-context moves out of the `command` description and into
     // `instructions`: tool domains (including the `query` domain), user preferences

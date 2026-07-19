@@ -2208,6 +2208,15 @@ export interface ExternalDataSourceSerializersApi {
     readonly access_method: AccessMethodEnumApi
     /** Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources. */
     direct_query_enabled?: boolean
+    /** Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources. */
+    auto_sync_new_schemas?: boolean
+    /**
+     * Optional fnmatch-style globs (`*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.
+     * @maxItems 100
+     * @nullable
+     * @items.maxLength 250
+     */
+    auto_sync_schema_patterns?: string[] | null
     /** Backend engine detected for the direct connection.
      *
      * * `duckdb` - duckdb
@@ -3199,6 +3208,15 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly access_method?: AccessMethodEnumApi
     /** Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources. */
     direct_query_enabled?: boolean
+    /** Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources. */
+    auto_sync_new_schemas?: boolean
+    /**
+     * Optional fnmatch-style globs (`*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.
+     * @maxItems 100
+     * @nullable
+     * @items.maxLength 250
+     */
+    auto_sync_schema_patterns?: string[] | null
     /** Backend engine detected for the direct connection.
      *
      * * `duckdb` - duckdb
@@ -3287,6 +3305,8 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
      * @nullable
      */
     row_filters?: ExternalDataSourceBulkUpdateSchemaApiRowFiltersItem[] | null
+    /** When true and the schema has no sync method configured yet (and this update does not set one), discover the table on the source and fill in default sync settings: incremental sync with an auto-selected tracking column where supported, otherwise append, otherwise full refresh. Ignored for schemas that already have a sync method. */
+    apply_sync_defaults?: boolean
 }
 
 export interface PatchedExternalDataSourceBulkUpdateSchemasApi {
@@ -7932,6 +7952,10 @@ export type ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams = {
 export type ExternalDataSourcesRepairCdcCreate200 = {
     success?: boolean
     schemas_reset?: number
+}
+
+export type ExternalDataSourcesResumeCdcCreate200 = {
+    success?: boolean
 }
 
 export type ExternalDataSourcesCheckCdcPrerequisitesCreate200 = {

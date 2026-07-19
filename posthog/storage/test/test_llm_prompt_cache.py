@@ -8,6 +8,7 @@ from django.utils import timezone
 from posthog.storage.llm_prompt_cache import (
     _serialize_prompt,
     get_prompt_by_name_from_cache,
+    invalidate_prompt_label_cache,
     invalidate_prompt_latest_cache,
     invalidate_prompt_name_caches,
     invalidate_prompt_version_cache,
@@ -15,7 +16,7 @@ from posthog.storage.llm_prompt_cache import (
 )
 from posthog.storage.llm_prompt_cache_keys import prompt_latest_cache_key
 
-from products.ai_observability.backend.models.llm_prompt import LLMPrompt
+from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptLabel
 
 
 class TestLLMPromptCache(BaseTest):
@@ -300,3 +301,24 @@ class TestLLMPromptCacheSignals(BaseTest):
         self.assertTrue(mock_on_commit.called)
         mock_invalidate_latest.assert_called_with(self.team.id, "signal-prompt")
         mock_invalidate_version.assert_called_with(self.team.id, "signal-prompt", 1)
+
+    def test_label_cache_never_touches_object_storage(self):
+        prompt = LLMPrompt.objects.create(
+            team=self.team, name="labeled-prompt", prompt="content", version=1, is_latest=True
+        )
+        LLMPromptLabel.objects.create(team=self.team, prompt_name="labeled-prompt", name="production", prompt=prompt)
+        # Warm the latest entry (the label path reads it for the generation marker); it
+        # belongs to the S3-enabled instance, so it must be a redis hit inside the patch.
+        get_prompt_by_name_from_cache(self.team, "labeled-prompt")
+
+        # Miss -> DB fill -> hit -> invalidation: none of it may reach S3, or a stale
+        # fill would persist there without a TTL and resurrect past every redis expiry.
+        with patch("posthog.storage.hypercache.object_storage") as mock_storage:
+            fetched = get_prompt_by_name_from_cache(self.team, "labeled-prompt", label="production")
+            assert fetched is not None and fetched["label"] == "production"
+            get_prompt_by_name_from_cache(self.team, "labeled-prompt", label="production")
+            invalidate_prompt_label_cache(self.team.id, "labeled-prompt", "production")
+
+        mock_storage.read.assert_not_called()
+        mock_storage.write.assert_not_called()
+        mock_storage.delete.assert_not_called()
