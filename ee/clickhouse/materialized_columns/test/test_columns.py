@@ -16,10 +16,12 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns
 from posthog.conftest import create_clickhouse_tables
 from posthog.constants import GROUP_TYPES_LIMIT
+from posthog.errors import InternalCHQueryError
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.property import PropertyName, TableColumn
 from posthog.settings import CLICKHOUSE_DATABASE
 
+from ee.clickhouse.materialized_columns import columns as columns_module
 from ee.clickhouse.materialized_columns.columns import (
     MATERIALIZATION_VALID_TABLES,
     MaterializedColumn,
@@ -651,3 +653,39 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
             mat_col_none.has_ngram_lower_index,
             mat_col_none.has_bloom_filter_lower_index,
         ) == (False, False, False, False)
+
+    def test_get_all_degrades_without_data_skipping_indices_grant(self):
+        # A low-privilege ClickHouse user can read system.columns but lack SELECT on
+        # system.data_skipping_indices. Introspection must fall back to a columns-only query
+        # instead of hard-failing (which used to kill find_flags_with_enriched_analytics).
+        materialize("events", "prop_x", create_minmax_index=True)
+        _clear_materialized_columns_cache("events")
+
+        real_sync_execute = columns_module.sync_execute
+        access_denied = InternalCHQueryError("Not enough privileges", code=497, code_name="access_denied")
+
+        def fake_sync_execute(query, *args, **kwargs):
+            if "data_skipping_indices" in query:
+                raise access_denied
+            return real_sync_execute(query, *args, **kwargs)
+
+        with patch.object(columns_module, "sync_execute", side_effect=fake_sync_execute):
+            cols = list(MaterializedColumn.get_all("events"))
+
+        mat_col = next((c for c in cols if c.details.property_name == "prop_x"), None)
+        assert mat_col is not None
+        # Index info is unavailable, so every skip index is reported as absent.
+        assert not mat_col.has_minmax_index
+        assert not mat_col.has_bloom_filter_index
+        assert not mat_col.has_ngram_lower_index
+        assert not mat_col.has_bloom_filter_lower_index
+
+    def test_get_all_reraises_non_access_denied_errors(self):
+        # Only ACCESS_DENIED triggers the fallback; other errors must still propagate.
+        _clear_materialized_columns_cache("events")
+
+        other_error = InternalCHQueryError("boom", code=999, code_name="unknown_exception")
+
+        with patch.object(columns_module, "sync_execute", side_effect=other_error):
+            with pytest.raises(InternalCHQueryError):
+                list(MaterializedColumn.get_all("events"))

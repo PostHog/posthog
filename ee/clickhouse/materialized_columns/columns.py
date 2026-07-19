@@ -24,6 +24,7 @@ from posthog.clickhouse.materialized_columns import (
     TablesWithMaterializedColumns,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.errors import InternalCHQueryError
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person.sql import PERSONS_TABLE
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
@@ -51,6 +52,57 @@ SHORT_TABLE_COLUMN_NAME = {
     "group3_properties": "gp3",
     "group4_properties": "gp4",
 }
+
+
+# Query columns and their skip indexes using multiple LEFT JOINs. Returns index names as an
+# array, parsed in Python to set boolean flags. Note: columns exist on both distributed and
+# data tables, but indexes only exist on data tables.
+_GET_ALL_MATERIALIZED_COLUMNS_SQL = """
+    SELECT
+        c.name,
+        c.comment,
+        c.type,
+        c.type like 'Nullable(%%)' as is_nullable,
+        arrayFilter(x -> x != '', [i_minmax.name, i_bf.name, i_ngram.name, i_bf_lower.name]) as index_names
+    FROM system.columns c
+    LEFT JOIN system.data_skipping_indices i_minmax
+        ON i_minmax.database = c.database
+        AND i_minmax.table = %(data_table)s
+        AND i_minmax.name = concat('minmax_', c.name)
+    LEFT JOIN system.data_skipping_indices i_bf
+        ON i_bf.database = c.database
+        AND i_bf.table = %(data_table)s
+        AND i_bf.name = concat('bloom_filter_', c.name)
+    LEFT JOIN system.data_skipping_indices i_ngram
+        ON i_ngram.database = c.database
+        AND i_ngram.table = %(data_table)s
+        AND i_ngram.name = concat('ngram_bf_lower_', c.name)
+    LEFT JOIN system.data_skipping_indices i_bf_lower
+        ON i_bf_lower.database = c.database
+        AND i_bf_lower.table = %(data_table)s
+        AND i_bf_lower.name = concat('bloom_filter_lower_', c.name)
+    WHERE c.database = %(database)s
+      AND c.table = %(table)s
+      AND c.comment LIKE '%%column_materializer::%%'
+      AND c.comment not LIKE '%%column_materializer::elements_chain::%%'
+    """
+
+# Fallback for ClickHouse users without a SELECT grant on system.data_skipping_indices: read
+# columns alone and report no skip indexes (empty index_names), so callers treat every index
+# as absent instead of the whole introspection query failing.
+_GET_ALL_MATERIALIZED_COLUMNS_NO_INDEX_SQL = """
+    SELECT
+        c.name,
+        c.comment,
+        c.type,
+        c.type like 'Nullable(%%)' as is_nullable,
+        emptyArrayString() as index_names
+    FROM system.columns c
+    WHERE c.database = %(database)s
+      AND c.table = %(table)s
+      AND c.comment LIKE '%%column_materializer::%%'
+      AND c.comment not LIKE '%%column_materializer::elements_chain::%%'
+    """
 
 
 def _clear_materialized_columns_cache(table: TablesWithMaterializedColumns) -> None:
@@ -121,42 +173,30 @@ class MaterializedColumn:
             product=Product.INTERNAL,
             feature=Feature.SCHEMA_INTROSPECTION,
         ):
-            # Query columns and their indexes using multiple LEFT JOINs
-            # Returns index names as an array, parsed in Python to set boolean flags
-            # Note: Columns exist on both distributed and data tables, but indexes only exist on data tables
-            result = sync_execute(
-                """
-                SELECT
-                    c.name,
-                    c.comment,
-                    c.type,
-                    c.type like 'Nullable(%%)' as is_nullable,
-                    arrayFilter(x -> x != '', [i_minmax.name, i_bf.name, i_ngram.name, i_bf_lower.name]) as index_names
-                FROM system.columns c
-                LEFT JOIN system.data_skipping_indices i_minmax
-                    ON i_minmax.database = c.database
-                    AND i_minmax.table = %(data_table)s
-                    AND i_minmax.name = concat('minmax_', c.name)
-                LEFT JOIN system.data_skipping_indices i_bf
-                    ON i_bf.database = c.database
-                    AND i_bf.table = %(data_table)s
-                    AND i_bf.name = concat('bloom_filter_', c.name)
-                LEFT JOIN system.data_skipping_indices i_ngram
-                    ON i_ngram.database = c.database
-                    AND i_ngram.table = %(data_table)s
-                    AND i_ngram.name = concat('ngram_bf_lower_', c.name)
-                LEFT JOIN system.data_skipping_indices i_bf_lower
-                    ON i_bf_lower.database = c.database
-                    AND i_bf_lower.table = %(data_table)s
-                    AND i_bf_lower.name = concat('bloom_filter_lower_', c.name)
-                WHERE c.database = %(database)s
-                  AND c.table = %(table)s
-                  AND c.comment LIKE '%%column_materializer::%%'
-                  AND c.comment not LIKE '%%column_materializer::elements_chain::%%'
-                """,
-                {"database": CLICKHOUSE_DATABASE, "table": table, "data_table": data_table},
-                ch_user=ClickHouseUser.HOGQL,
-            )
+            query_params = {"database": CLICKHOUSE_DATABASE, "table": table, "data_table": data_table}
+            try:
+                result = sync_execute(
+                    _GET_ALL_MATERIALIZED_COLUMNS_SQL,
+                    query_params,
+                    ch_user=ClickHouseUser.HOGQL,
+                )
+            except InternalCHQueryError as e:
+                # Some low-privilege ClickHouse users can read system.columns but lack a SELECT
+                # grant on system.data_skipping_indices, so the join above throws ACCESS_DENIED.
+                # Degrade gracefully: query columns alone and treat every skip index as absent,
+                # rather than hard-failing schema introspection (and the tasks that depend on it).
+                if getattr(e, "code_name", None) != "access_denied":
+                    raise
+                logger.warning(
+                    "Missing SELECT grant on system.data_skipping_indices; "
+                    "reading materialized columns for table %s without index info",
+                    table,
+                )
+                result = sync_execute(
+                    _GET_ALL_MATERIALIZED_COLUMNS_NO_INDEX_SQL,
+                    query_params,
+                    ch_user=ClickHouseUser.HOGQL,
+                )
 
         if table in MATERIALIZATION_VALID_TABLES and MATERIALIZED_COLUMNS_USE_CACHE:
             try:
