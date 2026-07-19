@@ -8,7 +8,7 @@ registerActionNodeCategory({
             name: 'LLM prompt',
             description: 'Send a prompt to an LLM and store the response in a workflow variable.',
             config: {
-                model: 'openai/gpt-4o-mini',
+                model: 'gpt-5-mini',
                 messages: [{ role: 'user', content: { value: '', templating: 'liquid' } }],
                 max_wait_duration: '5m',
             },
