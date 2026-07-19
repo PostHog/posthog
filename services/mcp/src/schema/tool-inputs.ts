@@ -278,6 +278,21 @@ export const FeedbackSubmitSchema = z.object({
         .string()
         .optional()
         .describe("Any additional context that doesn't fit the other fields. Keep it to clear, concise bullet points."),
+}).superRefine((data, ctx) => {
+    // Scout feedback without its join keys can't be aggregated per skill/version downstream,
+    // so reject it at validation time instead of recording an unattributable event.
+    if (data.feedback_type !== 'scout') {
+        return
+    }
+    for (const field of ['scout_skill_name', 'scout_skill_version', 'scout_category'] as const) {
+        if (data[field] === undefined) {
+            ctx.addIssue({
+                code: 'custom',
+                path: [field],
+                message: `${field} is required when feedback_type is "scout".`,
+            })
+        }
+    }
 })
 
 const SavedMetricAttachItemSchema = z.object({
