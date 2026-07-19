@@ -8,6 +8,7 @@ NOTE: Imports are done inside functions to avoid circular imports
 when Celery loads this module at startup.
 """
 
+import time
 from uuid import UUID
 
 import structlog
@@ -43,17 +44,33 @@ def process_run_diffs(self, team_id: int, run_id: str) -> None:
     from ..diffing import process_diffs
 
     run_uuid = UUID(run_id)
+    started = time.monotonic()
+    timings: dict[str, float] = {}
+    outcome = "completed"
+    retrying = False
 
     try:
         logger.info("visual_review.diff_processing_started", run_id=run_id, team_id=team_id)
+
+        phase_start = time.monotonic()
         logic.verify_uploads_and_create_artifacts(run_uuid)
+        timings["verify_seconds"] = time.monotonic() - phase_start
+
+        phase_start = time.monotonic()
         process_diffs(run_uuid)
+        timings["diff_seconds"] = time.monotonic() - phase_start
+
+        phase_start = time.monotonic()
         logic.finish_processing(run_uuid)
+        timings["finish_seconds"] = time.monotonic() - phase_start
+
         logger.info("visual_review.diff_processing_completed", run_id=run_id, team_id=team_id)
     except HashIntegrityError as e:
+        outcome = "hash_integrity_failed"
         logger.warning("visual_review.hash_integrity_failed", run_id=run_id, error=str(e))
         logic.finish_processing(run_uuid, error_message=str(e))
     except GitHubRateLimitError as e:
+        outcome = "rate_limited"
         logger.warning(
             "visual_review.diff_processing_rate_limited",
             run_id=run_id,
@@ -61,14 +78,27 @@ def process_run_diffs(self, team_id: int, run_id: str) -> None:
             max_retries=self.max_retries,
         )
         try:
+            retrying = True
             countdown = e.retry_after or 60
             self.retry(countdown=min(countdown, 600), exc=e)
         except self.MaxRetriesExceededError:
+            retrying = False
+            outcome = "rate_limit_exhausted"
             logic.finish_processing(run_uuid, error_message="GitHub API rate limit exceeded after retries")
     except Exception as e:
+        outcome = "failed"
         logger.exception("visual_review.diff_processing_failed", run_id=run_id, team_id=team_id, error=str(e))
         logic.finish_processing(run_uuid, error_message=str(e))
         raise
+    finally:
+        # Skip on retry: the run isn't terminal yet and will emit on its next attempt.
+        if not retrying:
+            logic.capture_run_processing_metrics(
+                run_uuid,
+                outcome=outcome,
+                timings=timings,
+                total_seconds=time.monotonic() - started,
+            )
 
 
 @shared_task(

@@ -41,6 +41,7 @@ from posthog.helpers.trigram_search import (
     normalize_search_term,
 )
 from posthog.models.github_integration_base import GitHubIntegrationError
+from posthog.ph_client import ph_scoped_capture
 
 from .classifier import SnapshotClassifier
 from .db import READER_DB, WRITER_DB
@@ -1212,6 +1213,65 @@ def finish_processing(run_id: UUID, error_message: str = "") -> Run:
     _update_counts_and_post_status(run)
 
     return run
+
+
+def capture_run_processing_metrics(
+    run_id: UUID,
+    *,
+    outcome: str,
+    timings: Mapping[str, float],
+    total_seconds: float,
+) -> None:
+    """Emit a product-analytics event for a finished diff-processing run.
+
+    Records run volume, how many snapshots actually needed a pixel comparison
+    (changed / new / removed vs. unchanged / tolerated), and where the task
+    spent its time. That's the signal to tell a snapshot-determinism regression
+    — where the changed rate climbs because images stop being byte-stable, so
+    the content-hash dedup and tolerance cache stop absorbing work — apart from
+    plain run-volume growth, and to see which phase dominates a slow run.
+
+    Best-effort: instrumentation must never fail or slow the task, so every
+    error is swallowed — including so it can't mask a real exception when
+    called from the task's ``finally``.
+    """
+    try:
+        try:
+            run = Run.objects.select_related("repo").get(id=run_id)
+        except Run.DoesNotExist:
+            return
+
+        properties = {
+            "run_id": str(run.id),
+            "run_type": run.run_type,
+            "outcome": outcome,
+            "status": run.status,
+            "repo": run.repo.repo_full_name,
+            "branch": run.branch,
+            "pr_number": run.pr_number,
+            "team_id": run.team_id,
+            "is_partial": run.is_partial,
+            "total_snapshots": run.total_snapshots,
+            "changed_count": run.changed_count,
+            "new_count": run.new_count,
+            "removed_count": run.removed_count,
+            "tolerated_match_count": run.tolerated_match_count,
+            # Snapshots that actually ran a pixel comparison — the cost the
+            # content-hash dedup and tolerance cache are meant to keep near zero.
+            "diffed_count": run.changed_count,
+            "reviewable_count": run.changed_count + run.new_count + run.removed_count,
+            "processing_seconds": round(total_seconds, 3),
+            **{key: round(value, 3) for key, value in timings.items()},
+        }
+
+        with ph_scoped_capture() as capture_ph_event:
+            capture_ph_event(
+                distinct_id=run.repo.repo_full_name or str(run.repo_id),
+                event="vr_run_processed",
+                properties=properties,
+            )
+    except Exception:
+        logger.warning("visual_review.metrics_capture_failed", run_id=str(run_id), exc_info=True)
 
 
 @transaction.atomic(using=WRITER_DB)

@@ -62,6 +62,49 @@ class TestProcessRunDiffs:
         assert run.status == RunStatus.FAILED
         assert "Something went wrong" in (run.error_message or "")
 
+    def test_emits_metrics_event_on_success(self, repo):
+        create_result = api.create_run(
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="main",
+                snapshots=[SnapshotManifestItem(identifier="Button", content_hash="hash1")],
+            ),
+            team_id=repo.team_id,
+        )
+
+        with patch("products.visual_review.backend.logic.capture_run_processing_metrics") as capture:
+            process_run_diffs(repo.team_id, str(create_result.run_id))
+
+        capture.assert_called_once()
+        assert capture.call_args.kwargs["outcome"] == "completed"
+        # All three phases ran, so all three timings are recorded.
+        assert set(capture.call_args.kwargs["timings"]) == {"verify_seconds", "diff_seconds", "finish_seconds"}
+
+    def test_emits_metrics_event_on_failure(self, repo):
+        create_result = api.create_run(
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="main",
+                snapshots=[],
+            ),
+            team_id=repo.team_id,
+        )
+
+        with (
+            patch("products.visual_review.backend.diffing.process_diffs", side_effect=Exception("boom")),
+            patch("products.visual_review.backend.logic.capture_run_processing_metrics") as capture,
+        ):
+            with pytest.raises(Exception, match="boom"):
+                process_run_diffs(repo.team_id, str(create_result.run_id))
+
+        # Metrics still emitted on the failure path, and the real error is not masked.
+        capture.assert_called_once()
+        assert capture.call_args.kwargs["outcome"] == "failed"
+
     def testprocess_diffs_skips_unchanged(self, repo):
         # Create artifact that exists for both baseline and current
         logic.get_or_create_artifact(
