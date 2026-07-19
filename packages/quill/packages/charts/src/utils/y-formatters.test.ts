@@ -9,6 +9,8 @@ describe('buildYTickFormatter', () => {
         ['percentage_scaled', { format: 'percentage_scaled' as const }, 0.5, '50%'],
         ['duration', { format: 'duration' as const }, 90, `1m${NBSP}30s`],
         ['duration_ms', { format: 'duration_ms' as const }, 1500, '1.5s'],
+        ['duration_ns below one microsecond', { format: 'duration_ns' as const }, 500, '500ns'],
+        ['duration_ns below one millisecond', { format: 'duration_ns' as const }, 500_000, '500µs'],
         ['duration_ns', { format: 'duration_ns' as const }, 1_500_000_000, '1.5s'],
         ['short', { format: 'short' as const }, 1500, `1.5${NBSP}K`],
         ['prefix and suffix', { format: 'numeric' as const, prefix: '~', suffix: '!' }, 7, '~7!'],

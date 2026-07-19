@@ -47,6 +47,21 @@ export const INSIGHT_UNIT_OPTIONS_SHORT: Record<AggregationAxisFormat, string> =
     currency: '$',
     short: 'Short',
 }
+
+const formatNanoseconds = (value: number): string => {
+    if (value < 0) {
+        return `-${formatNanoseconds(-value)}`
+    }
+    const absoluteValue = Math.abs(value)
+    if (absoluteValue < 1_000) {
+        return `${humanFriendlyNumber(value)}ns`
+    }
+    if (absoluteValue < 1_000_000) {
+        return `${humanFriendlyNumber(value / 1_000)}µs`
+    }
+    return humanFriendlyDuration(value / 1_000_000_000, { secondsFixed: 1 })
+}
+
 // this function needs to support a trendsFilter as part of an insight query and
 // legacy trend filters, as we still return these as part of a data response
 export const formatAggregationAxisValue = (
@@ -79,7 +94,7 @@ export const formatAggregationAxisValue = (
                 formattedValue = humanFriendlyDuration(value / 1000, { secondsFixed: 1 })
                 break
             case 'duration_ns':
-                formattedValue = humanFriendlyDuration(value / 1_000_000_000, { secondsFixed: 1 })
+                formattedValue = formatNanoseconds(value)
                 break
             case 'percentage':
                 formattedValue = percentage(value / 100, maxDecimalPlaces)
