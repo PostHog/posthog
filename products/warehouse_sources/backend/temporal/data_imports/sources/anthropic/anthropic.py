@@ -29,6 +29,12 @@ ENTITY_PAGE_SIZE = 1000
 DEFAULT_STARTING_AT = datetime(2023, 1, 1, tzinfo=UTC)
 
 
+# Prefix of every AnthropicRetryableError message. The source matches on it in
+# `get_expected_retryable_errors` to route retries-exhausted transient failures away from
+# exception logging, so the raised message below must keep starting with it.
+ANTHROPIC_RETRYABLE_ERROR_PREFIX = "Anthropic API error (retryable)"
+
+
 class AnthropicRetryableError(Exception):
     def __init__(self, message: str, retry_after: float | None = None) -> None:
         super().__init__(message)
@@ -123,7 +129,7 @@ def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], lo
     if response.status_code == 429 or response.status_code >= 500:
         retry_after = _parse_retry_after(response.headers.get("retry-after")) if response.status_code == 429 else None
         raise AnthropicRetryableError(
-            f"Anthropic API error (retryable): status={response.status_code}, url={url}",
+            f"{ANTHROPIC_RETRYABLE_ERROR_PREFIX}: status={response.status_code}, url={url}",
             retry_after=retry_after,
         )
 

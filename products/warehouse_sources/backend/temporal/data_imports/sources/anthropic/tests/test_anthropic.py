@@ -311,6 +311,24 @@ class TestNonRetryableErrors:
         non_retryable = AnthropicSource().get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable)
 
+    def test_retries_exhausted_rate_limit_is_expected_retryable_not_non_retryable(self) -> None:
+        # A report endpoint that exhausts `_fetch_page`'s in-process 429 backoff re-raises this.
+        # It must match get_expected_retryable_errors (logged as a warning, no error-tracking issue)
+        # and must not match get_non_retryable_errors (which would stop the job). Building the message
+        # from the real raise site guards against the prefix drifting away from the matcher.
+        response = MagicMock(status_code=429, ok=False, headers={})
+        session = MagicMock()
+        session.get.return_value = response
+        with patch.object(anthropic._fetch_page.retry, "sleep", lambda *_: None):  # type: ignore[attr-defined]
+            with pytest.raises(AnthropicRetryableError) as exc_info:
+                anthropic._fetch_page(
+                    session, "https://api.anthropic.com/v1/organizations/cost_report", {}, MagicMock()
+                )
+        message = str(exc_info.value)
+        source = AnthropicSource()
+        assert any(key in message for key in source.get_expected_retryable_errors())
+        assert not any(key in message for key in source.get_non_retryable_errors())
+
 
 class TestFetchPage:
     @parameterized.expand([("rate_limited", 429), ("server_error", 503)])

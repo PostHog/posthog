@@ -196,6 +196,15 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
         return {}
 
+    def get_expected_retryable_errors(self) -> dict[str, str | None]:
+        """Errors that are expected transient conditions (e.g. upstream rate limiting), matched the
+        same way as `get_non_retryable_errors`. These are re-raised so Temporal retries the activity,
+        but logged as warnings rather than exceptions so they don't create error-tracking noise for a
+        condition the retry already recovers from.
+        """
+
+        return {}
+
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         """Curated, documentation-sourced descriptions for this source's well-known tables/endpoints.
 

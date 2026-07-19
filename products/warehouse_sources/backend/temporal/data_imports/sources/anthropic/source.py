@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     SourceResponse,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.anthropic import (
+    ANTHROPIC_RETRYABLE_ERROR_PREFIX,
     AnthropicResumeConfig,
     anthropic_source,
     validate_credentials as validate_anthropic_credentials,
@@ -85,6 +86,13 @@ Create an Admin API key (prefixed `sk-ant-admin...`) in your [Anthropic Console]
             "401 Client Error: Unauthorized for url: https://api.anthropic.com": "Your Anthropic Admin API key is invalid or has been revoked. Create a new Admin API key in the Anthropic Console, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.anthropic.com": "Your Anthropic API key does not have organization admin access. Use an Admin API key (prefixed sk-ant-admin) created by an organization admin, then reconnect.",
         }
+
+    def get_expected_retryable_errors(self) -> dict[str, str | None]:
+        # The rate-limited report endpoints (usage_report/cost_report) can trip Anthropic's 429 limit
+        # for longer than `_fetch_page`'s in-process backoff rides out, exhausting its retries and
+        # re-raising this. Temporal retries the activity, so it's an expected transient condition, not
+        # an error worth surfacing in error tracking.
+        return {ANTHROPIC_RETRYABLE_ERROR_PREFIX: None}
 
     def get_schemas(
         self,

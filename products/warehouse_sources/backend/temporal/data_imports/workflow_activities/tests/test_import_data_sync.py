@@ -63,10 +63,15 @@ def _patched_activity(source_mock):
         yield handle_mock
 
 
-def _make_source(error: Exception, non_retryable: dict[str, str | None]):
+def _make_source(
+    error: Exception,
+    non_retryable: dict[str, str | None],
+    expected_retryable: dict[str, str | None] | None = None,
+):
     source = mock.MagicMock(spec=SimpleSource)
     source.parse_config.return_value = {}
     source.get_non_retryable_errors.return_value = non_retryable
+    source.get_expected_retryable_errors.return_value = expected_retryable or {}
     source.source_for_pipeline.side_effect = error
     return source
 
@@ -119,6 +124,7 @@ async def test_unparseable_config_routes_through_handler():
     source = mock.MagicMock(spec=SimpleSource)
     source.parse_config.side_effect = error
     source.get_non_retryable_errors.return_value = {}
+    source.get_expected_retryable_errors.return_value = {}
 
     with _patched_activity(source) as handle_mock:
         handle_mock.side_effect = NonRetryableException()
@@ -128,6 +134,32 @@ async def test_unparseable_config_routes_through_handler():
     handle_mock.assert_awaited_once()
     assert handle_mock.await_args.args[3] is error
     source.source_for_pipeline.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_expected_retryable_error_warns_and_reraises_without_logging_an_exception():
+    # A source-classified transient error (e.g. an upstream rate limit that outlasts the source's
+    # in-process backoff) must be re-raised so Temporal retries the activity, but logged as a warning
+    # rather than an exception — otherwise every retry mints error-tracking noise for a condition the
+    # retry recovers from. It must also skip the non-retryable handler (which would stop the job).
+    error = Exception(
+        "Anthropic API error (retryable): status=429, url=https://api.anthropic.com/v1/organizations/cost_report"
+    )
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_expected_retryable_errors.return_value = {"Anthropic API error (retryable)": None}
+    logger = mock.MagicMock(awarning=mock.AsyncMock(), aexception=mock.AsyncMock(), adebug=mock.AsyncMock())
+
+    with (
+        mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
+        mock.patch.object(module, "handle_non_retryable_error", new=mock.AsyncMock()) as handle_mock,
+    ):
+        with pytest.raises(Exception, match="retryable"):
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    logger.awarning.assert_awaited_once()
+    logger.aexception.assert_not_awaited()
+    handle_mock.assert_not_awaited()
 
 
 def _incremental_schema(*, is_incremental: bool, lookback_seconds: int | None) -> mock.MagicMock:
