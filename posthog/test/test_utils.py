@@ -60,6 +60,9 @@ from posthog.utils import (
     variables_override_requested_by_client,
 )
 
+from products.feature_flags.backend.cache_keys import EU_CROSS_REGION_MIRROR_CACHE_KEY
+from products.feature_flags.backend.local_evaluation import flag_definitions_hypercache
+
 
 class TestAbsoluteUrls(TestCase):
     def test_format_absolute_url(self) -> None:
@@ -1331,6 +1334,7 @@ class TestBuildFlagProvider(TestCase):
         # create is the first one. Cascade deletes roll back with the test transaction.
         User.objects.all().delete()
         Organization.objects.all().delete()
+        flag_definitions_hypercache.clear_cache(EU_CROSS_REGION_MIRROR_CACHE_KEY, kinds=["redis", "s3"])
 
     @patch.dict(os.environ, {"POSTHOG_SELF_TEAM_ID": "5"}, clear=False)
     @override_settings(SELF_CAPTURE=True, E2E_TESTING=False)
@@ -1346,12 +1350,22 @@ class TestBuildFlagProvider(TestCase):
 
         assert _build_flag_provider()._resolve_team_id() == first_team.id
 
+    @parameterized.expand(
+        [
+            (None, 2),
+            ("US", 2),
+            ("EU", EU_CROSS_REGION_MIRROR_CACHE_KEY),
+        ]
+    )
     @patch.dict(os.environ, {}, clear=False)
-    @override_settings(SELF_CAPTURE=False, E2E_TESTING=False)
-    def test_falls_back_to_team_2_off_self_capture(self):
+    def test_cloud_routes_by_region(self, cloud_deployment: str | None, expected_key: int | str) -> None:
+        # EU has no Postgres rows for PostHog's own team, so it must read the
+        # sentinel-keyed mirror that cross_region_flag_sync writes, not literal team
+        # id 2 -- which on EU belongs to a real, unrelated team. Every other region
+        # falls back to the canonical PostHog-internal team 2.
         os.environ.pop("POSTHOG_SELF_TEAM_ID", None)
-
-        assert _build_flag_provider()._resolve_team_id() == 2
+        with override_settings(SELF_CAPTURE=False, E2E_TESTING=False, CLOUD_DEPLOYMENT=cloud_deployment):
+            assert _build_flag_provider()._resolve_team_id() == expected_key
 
     @patch.dict(os.environ, {}, clear=False)
     @override_settings(SELF_CAPTURE=True, E2E_TESTING=True)
@@ -1359,6 +1373,22 @@ class TestBuildFlagProvider(TestCase):
         os.environ.pop("POSTHOG_SELF_TEAM_ID", None)
 
         assert _build_flag_provider()._resolve_team_id() == 2
+
+    @patch.dict(os.environ, {}, clear=False)
+    @override_settings(SELF_CAPTURE=False, E2E_TESTING=False, CLOUD_DEPLOYMENT="EU")
+    def test_eu_region_provider_reads_back_payload_written_under_sentinel_key(self):
+        os.environ.pop("POSTHOG_SELF_TEAM_ID", None)
+        payload = {"flags": [{"key": "mirrored-flag"}], "group_type_mapping": {}, "cohorts": {}}
+        flag_definitions_hypercache.set_cache_value(EU_CROSS_REGION_MIRROR_CACHE_KEY, payload)
+
+        definitions = _build_flag_provider().get_flag_definitions()
+        assert definitions is not None
+        assert dict(definitions) == payload
+
+    @patch.dict(os.environ, {"POSTHOG_SELF_TEAM_ID": "5"}, clear=False)
+    @override_settings(SELF_CAPTURE=False, E2E_TESTING=False, CLOUD_DEPLOYMENT="EU")
+    def test_explicit_env_team_id_wins_over_eu_region(self):
+        assert _build_flag_provider()._resolve_team_id() == 5
 
 
 VALID_PRELOAD_MANIFEST = {

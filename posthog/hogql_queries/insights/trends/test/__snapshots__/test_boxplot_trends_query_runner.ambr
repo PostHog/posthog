@@ -279,7 +279,7 @@
          max(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS max_val,
          avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS mean_val
   FROM events AS e
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-10-01 00:00:00', 'UTC')), toIntervalMonth(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-31 23:59:59', 'UTC'))))
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-10-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-31 23:59:59', 'UTC'))))
   GROUP BY day_start
   ORDER BY day_start ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -306,7 +306,7 @@
          max(accurateCastOrNull(if(notEquals(toJSONString(e.properties.^revenue), '{}'), toJSONString(e.properties.^revenue), if(isNull(e.properties.revenue), NULL, if(startsWith(dynamicType(e.properties.revenue), 'DateTime'), replaceOne(toString(e.properties.revenue), ' ', 'T'), if(or(startsWith(dynamicType(e.properties.revenue), 'Array'), startsWith(dynamicType(e.properties.revenue), 'Map'), startsWith(dynamicType(e.properties.revenue), 'Tuple')), toJSONString(e.properties.revenue), toString(e.properties.revenue))))), 'Float64')) AS max_val,
          avg(accurateCastOrNull(if(notEquals(toJSONString(e.properties.^revenue), '{}'), toJSONString(e.properties.^revenue), if(isNull(e.properties.revenue), NULL, if(startsWith(dynamicType(e.properties.revenue), 'DateTime'), replaceOne(toString(e.properties.revenue), ' ', 'T'), if(or(startsWith(dynamicType(e.properties.revenue), 'Array'), startsWith(dynamicType(e.properties.revenue), 'Map'), startsWith(dynamicType(e.properties.revenue), 'Tuple')), toJSONString(e.properties.revenue), toString(e.properties.revenue))))), 'Float64')) AS mean_val
   FROM events_json AS e
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-10-01 00:00:00', 'UTC')), toIntervalMonth(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-31 23:59:59', 'UTC'))))
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-10-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-31 23:59:59', 'UTC'))))
   GROUP BY day_start
   ORDER BY day_start ASC
   LIMIT 100 SETTINGS readonly=2,

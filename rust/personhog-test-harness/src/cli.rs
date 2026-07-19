@@ -127,9 +127,11 @@ pub struct GateArgs {
     #[arg(long, default_value_t = 2)]
     pub leaders: u32,
 
-    /// Number of leader-mode routers to spawn (each is a coordinator
-    /// candidate). Traffic targets the last one, so a coordinator kill —
-    /// which targets the first — leaves the traffic path intact.
+    /// Number of leader-mode routers to spawn. Traffic targets the last
+    /// one, which (with 2+ routers) opts out of election candidacy —
+    /// coordinator chaos resolves the live election holder and can never
+    /// land on the traffic path. Use 3+ so a crash leaves a standby
+    /// candidate to win the election.
     #[arg(long, default_value_t = 1)]
     pub routers: u32,
 
@@ -213,8 +215,8 @@ pub struct GateArgs {
     #[arg(long, default_value = "10s", value_parser = humantime::parse_duration)]
     pub writer_pause_duration: Duration,
 
-    /// SIGKILL the first router (the presumed coordinator) this long into
-    /// the traffic phase. Requires --routers >= 2.
+    /// SIGKILL the router holding the coordinator election this long
+    /// into the traffic phase. Requires --routers >= 3.
     #[arg(long, value_parser = humantime::parse_duration)]
     pub router_kill_after: Option<Duration>,
 
@@ -225,10 +227,10 @@ pub struct GateArgs {
     #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
     pub router_kill_fast: bool,
 
-    /// Gracefully shut down (SIGTERM) the first router (the presumed
-    /// coordinator) this long into the traffic phase: the election must
-    /// hand over to a survivor immediately via the revoke-on-exit path,
-    /// not by waiting out the lease TTL. Requires --routers >= 2.
+    /// Gracefully shut down (SIGTERM) the router holding the coordinator
+    /// election this long into the traffic phase: the election must hand
+    /// over to a survivor immediately via the revoke-on-exit path, not by
+    /// waiting out the lease TTL. Requires --routers >= 3.
     #[arg(long, value_parser = humantime::parse_duration)]
     pub router_shutdown_after: Option<Duration>,
 
@@ -243,6 +245,11 @@ pub struct GateArgs {
     /// cache under eviction pressure.
     #[arg(long, default_value_t = 100_000)]
     pub cache_capacity: usize,
+
+    /// Recovery consumer pool size for spawned leaders
+    /// (RECOVERY_POOL_SIZE) — bounds concurrent changelog recoveries.
+    #[arg(long, default_value_t = 16)]
+    pub recovery_pool_size: usize,
 
     /// etcd lease TTL for spawned leaders, in seconds. The production
     /// default is 30; lower it (5s works) so a TTL-expiry kill

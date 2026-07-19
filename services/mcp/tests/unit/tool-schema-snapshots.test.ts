@@ -5,6 +5,7 @@ import { format } from 'oxfmt'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
+import { OAUTH_SCOPES_HIDDEN } from '@/lib/constants'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
 import type { Context } from '@/tools/types'
@@ -23,8 +24,12 @@ function createMockContext(): Context {
             POSTHOG_UI_APPS_TOKEN: undefined,
         },
         stateManager: {
-            getApiKey: async () => ({ scopes: ['*'] }),
+            // Staff-only tools require their OAuth-hidden scope explicitly on the key
+            // (`*` alone does not match) plus a staff user, so grant both here to keep
+            // their schemas in the snapshot surface.
+            getApiKey: async () => ({ scopes: ['*', ...OAUTH_SCOPES_HIDDEN] }),
             getAiConsentGiven: async () => true,
+            getUser: async () => ({ is_staff: true }),
         } as any,
         sessionManager: new SessionManager({} as any),
         getDistinctId: async () => 'test-distinct-id',
