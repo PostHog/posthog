@@ -74,11 +74,15 @@ class TestProcessRunDiffs:
             team_id=repo.team_id,
         )
 
-        with patch("products.visual_review.backend.logic.capture_run_processing_metrics") as capture:
+        with (
+            patch("products.visual_review.backend.diffing.process_diffs", return_value=3),
+            patch("products.visual_review.backend.logic.capture_run_processing_metrics") as capture,
+        ):
             process_run_diffs(repo.team_id, str(create_result.run_id))
 
         capture.assert_called_once()
         assert capture.call_args.kwargs["outcome"] == "completed"
+        assert capture.call_args.kwargs["diffed_count"] == 3
 
     def test_emits_metrics_event_on_failure(self, repo):
         create_result = api.create_run(
@@ -102,6 +106,7 @@ class TestProcessRunDiffs:
         # Metrics still emitted on the failure path, and the real error is not masked.
         capture.assert_called_once()
         assert capture.call_args.kwargs["outcome"] == "failed"
+        assert capture.call_args.kwargs["diffed_count"] == 0
 
     def testprocess_diffs_skips_unchanged(self, repo):
         # Create artifact that exists for both baseline and current
@@ -196,8 +201,9 @@ class TestProcessRunDiffs:
 
         # Process - should attempt to diff but fail because artifacts aren't in storage
         with patch("products.visual_review.backend.diffing.logger") as mock_logger:
-            process_diffs(create_result.run_id)
+            diffed_count = process_diffs(create_result.run_id)
 
+            assert diffed_count == 0
             # Check that warning was logged about missing artifacts
             mock_logger.warning.assert_called()
             call_args = [call[0][0] for call in mock_logger.warning.call_args_list]

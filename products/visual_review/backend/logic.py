@@ -972,32 +972,39 @@ def verify_uploads_and_create_artifacts(run_id: UUID) -> int:
     """
     from .hashing import ImageTooLargeError, hash_image
 
-    run = get_run_with_snapshots(run_id)
+    run = get_run(run_id)
     repo_id = run.repo_id
     storage = ArtifactStorage(str(repo_id))
 
     # Collect all unique hashes we expect, keyed by the CLI-claimed value.
     # The claim is treated as a lookup key only — verification below produces
     # the server-computed hash that becomes authoritative.
-    expected_hashes: dict[str, dict] = {}
-    for snapshot in run.snapshots.all():
-        if snapshot.current_hash and snapshot.current_hash not in expected_hashes:
-            expected_hashes[snapshot.current_hash] = {
-                "width": snapshot.current_width,
-                "height": snapshot.current_height,
+    expected_hashes: dict[str, dict[str, int | None]] = {}
+    snapshots = run.snapshots.values_list("current_hash", "current_width", "current_height", "baseline_hash")
+    for current_hash, current_width, current_height, baseline_hash in snapshots.iterator(chunk_size=1000):
+        if current_hash and current_hash not in expected_hashes:
+            expected_hashes[current_hash] = {
+                "width": current_width,
+                "height": current_height,
             }
-        if snapshot.baseline_hash and snapshot.baseline_hash not in expected_hashes:
-            expected_hashes[snapshot.baseline_hash] = {
+        if baseline_hash and baseline_hash not in expected_hashes:
+            expected_hashes[baseline_hash] = {
                 "width": None,
                 "height": None,
             }
 
+    existing_hashes = set(
+        Artifact.objects.filter(repo_id=repo_id, content_hash__in=expected_hashes).values_list(
+            "content_hash", flat=True
+        )
+    )
+
     # Pass 1: read + hash all new uploads. Skip existing artifacts. Fail loudly
     # on any hash mismatch, decode error, or missing upload before any Artifact
     # row is written.
-    verified: list[tuple[str, bytes, dict]] = []
+    verified: list[tuple[str, int, dict[str, int | None]]] = []
     for claimed_hash, metadata in expected_hashes.items():
-        if get_artifact(repo_id, claimed_hash):
+        if claimed_hash in existing_hashes:
             continue
 
         png_bytes = storage.read(claimed_hash)
@@ -1052,28 +1059,26 @@ def verify_uploads_and_create_artifacts(run_id: UUID) -> int:
                 f"Upload integrity check failed: claimed {claimed_hash[:16]}… but image hashes to {actual_hash[:16]}…"
             )
 
-        verified.append((actual_hash, png_bytes, metadata))
+        verified.append((actual_hash, len(png_bytes), metadata))
 
     # Pass 2: create Artifact rows from verified server-computed hashes only.
     # The claimed hash isn't used past this point.
-    created_count = 0
-    for actual_hash, png_bytes, metadata in verified:
-        storage_path = storage._key(actual_hash)
-        artifact, created = get_or_create_artifact(
+    artifacts = [
+        Artifact(
             repo_id=repo_id,
             content_hash=actual_hash,
-            storage_path=storage_path,
+            storage_path=storage._key(actual_hash),
             width=metadata.get("width"),
             height=metadata.get("height"),
-            size_bytes=len(png_bytes),
+            size_bytes=size_bytes,
             team_id=run.team_id,
         )
+        for actual_hash, size_bytes, metadata in verified
+    ]
+    Artifact.objects.bulk_create(artifacts, batch_size=500, ignore_conflicts=True)
+    link_artifacts_to_snapshots(repo_id, {actual_hash for actual_hash, _, _ in verified})
 
-        if created:
-            created_count += 1
-            link_artifact_to_snapshots(repo_id, actual_hash)
-
-    return created_count
+    return len(artifacts)
 
 
 def _stamp_quarantine(run: Run) -> None:
@@ -1215,7 +1220,7 @@ def finish_processing(run_id: UUID, error_message: str = "") -> Run:
     return run
 
 
-def capture_run_processing_metrics(run_id: UUID, *, outcome: str) -> None:
+def capture_run_processing_metrics(run_id: UUID, *, outcome: str, diffed_count: int) -> None:
     """Emit a product-analytics event for a finished diff-processing run.
 
     Records run volume and how many snapshots actually needed a pixel
@@ -1250,9 +1255,7 @@ def capture_run_processing_metrics(run_id: UUID, *, outcome: str) -> None:
             "new_count": run.new_count,
             "removed_count": run.removed_count,
             "tolerated_match_count": run.tolerated_match_count,
-            # Snapshots that actually ran a pixel comparison — the cost the
-            # content-hash dedup and tolerance cache are meant to keep near zero.
-            "diffed_count": run.changed_count,
+            "diffed_count": diffed_count,
             "reviewable_count": run.changed_count + run.new_count + run.removed_count,
         }
 
@@ -2976,28 +2979,39 @@ def update_snapshot_diff(
     return snapshot
 
 
-def link_artifact_to_snapshots(repo_id: UUID, content_hash: str) -> int:
+def link_artifacts_to_snapshots(repo_id: UUID, content_hashes: set[str]) -> int:
     """
-    After an artifact is uploaded, link it to any pending snapshots.
+    After artifacts are uploaded, link them to any pending snapshots.
 
     Returns number of snapshots updated.
     """
-    artifact = get_artifact(repo_id, content_hash)
-    if not artifact:
+    if not content_hashes:
         return 0
 
-    # Link as current artifact where hash matches but artifact not linked
+    artifact_id = Artifact.objects.filter(
+        repo_id=repo_id,
+        content_hash=db_models.OuterRef("current_hash"),
+    ).values("id")[:1]
+
     current_updated = RunSnapshot.objects.filter(
         run__repo_id=repo_id,
-        current_hash=content_hash,
+        current_hash__in=content_hashes,
         current_artifact__isnull=True,
-    ).update(current_artifact=artifact)
+    ).update(current_artifact_id=db_models.Subquery(artifact_id))
 
-    # Link as baseline artifact where hash matches but artifact not linked
+    artifact_id = Artifact.objects.filter(
+        repo_id=repo_id,
+        content_hash=db_models.OuterRef("baseline_hash"),
+    ).values("id")[:1]
+
     baseline_updated = RunSnapshot.objects.filter(
         run__repo_id=repo_id,
-        baseline_hash=content_hash,
+        baseline_hash__in=content_hashes,
         baseline_artifact__isnull=True,
-    ).update(baseline_artifact=artifact)
+    ).update(baseline_artifact_id=db_models.Subquery(artifact_id))
 
     return current_updated + baseline_updated
+
+
+def link_artifact_to_snapshots(repo_id: UUID, content_hash: str) -> int:
+    return link_artifacts_to_snapshots(repo_id, {content_hash})
