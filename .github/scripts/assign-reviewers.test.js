@@ -14,6 +14,7 @@ const {
     classifyOwners,
     buildReviewerComment,
     fileMatchesPattern,
+    disableAutoMergeIfEnabled,
 } = require('./assign-reviewers')
 
 const file = (filename, additions = 0, deletions = 0) => ({
@@ -30,6 +31,88 @@ function assertMatchObject(actual, partial) {
         assert.deepEqual(actual[key], expected)
     }
 }
+
+async function withGitHubEnv(callback) {
+    const originalValues = {
+        GITHUB_TOKEN: process.env.GITHUB_TOKEN,
+        GITHUB_REPOSITORY: process.env.GITHUB_REPOSITORY,
+        PR_NUMBER: process.env.PR_NUMBER,
+    }
+    process.env.GITHUB_TOKEN = 'test-token'
+    process.env.GITHUB_REPOSITORY = 'PostHog/posthog'
+    process.env.PR_NUMBER = '72174'
+
+    try {
+        return await callback()
+    } finally {
+        for (const [name, value] of Object.entries(originalValues)) {
+            if (value === undefined) {
+                delete process.env[name]
+            } else {
+                process.env[name] = value
+            }
+        }
+    }
+}
+
+test('disableAutoMergeIfEnabled: disables auto-merge enabled before reviewer assignment completes', async () => {
+    const requests = []
+    const responses = [
+        {
+            data: {
+                repository: {
+                    pullRequest: {
+                        id: 'PR_test',
+                        autoMergeRequest: { enabledAt: '2026-07-19T09:16:30Z' },
+                    },
+                },
+            },
+        },
+        {
+            data: {
+                disablePullRequestAutoMerge: {
+                    pullRequest: { id: 'PR_test' },
+                },
+            },
+        },
+    ]
+    const fetchImpl = async (url, options) => {
+        requests.push({ url, body: JSON.parse(options.body) })
+        return {
+            ok: true,
+            json: async () => responses.shift(),
+        }
+    }
+
+    assert.equal(await withGitHubEnv(() => disableAutoMergeIfEnabled(fetchImpl)), true)
+    assert.equal(requests.length, 2)
+    assert.equal(requests[0].body.variables.number, 72174)
+    assert.equal(requests[1].body.variables.pullRequestId, 'PR_test')
+    assert.ok(requests[1].body.query.includes('disablePullRequestAutoMerge'))
+})
+
+test('disableAutoMergeIfEnabled: leaves auto-merge alone when it was not enabled', async () => {
+    let requestCount = 0
+    const fetchImpl = async () => {
+        requestCount += 1
+        return {
+            ok: true,
+            json: async () => ({
+                data: {
+                    repository: {
+                        pullRequest: {
+                            id: 'PR_test',
+                            autoMergeRequest: null,
+                        },
+                    },
+                },
+            }),
+        }
+    }
+
+    assert.equal(await withGitHubEnv(() => disableAutoMergeIfEnabled(fetchImpl)), false)
+    assert.equal(requestCount, 1)
+})
 
 for (const [filename, expected] of [
     ['frontend/src/generated/core/api.ts', true],

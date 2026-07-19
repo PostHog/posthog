@@ -355,7 +355,7 @@ async function assignReviewers(teams, users) {
 
     if (teams.length === 0 && users.length === 0) {
         console.info('ℹ️  No reviewers to assign')
-        return
+        return false
     }
 
     const payload = {}
@@ -393,12 +393,15 @@ async function assignReviewers(teams, users) {
         console.warn(`⚠️  422 on bulk request, retrying individually:\n${errorText}`)
 
         const dropped = []
+        let assignedCount = 0
         for (const user of users) {
             const r = await post({ reviewers: [user] })
             if (r.status === 422) {
                 dropped.push(`@${user}`)
             } else if (!r.ok) {
                 throw new Error(`GitHub API error assigning user '${user}': ${r.status} ${r.statusText}\n${await r.text()}`)
+            } else {
+                assignedCount += 1
             }
         }
 
@@ -410,6 +413,8 @@ async function assignReviewers(teams, users) {
                 throw new Error(
                     `GitHub API error assigning team '${team}': ${r.status} ${r.statusText}\n${await r.text()}`
                 )
+            } else {
+                assignedCount += 1
             }
         }
 
@@ -420,7 +425,7 @@ async function assignReviewers(teams, users) {
             )
         }
         console.info('✅ Reviewers assigned (with fallback)')
-        return
+        return assignedCount > 0
     }
 
     if (!response.ok) {
@@ -429,6 +434,60 @@ async function assignReviewers(teams, users) {
     }
 
     console.info('✅ Reviewers assigned successfully')
+    return true
+}
+
+async function disableAutoMergeIfEnabled(fetchImpl = fetch) {
+    const { GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER } = process.env
+    const [owner, name] = GITHUB_REPOSITORY.split('/')
+    const headers = {
+        Authorization: `Bearer ${GITHUB_TOKEN}`,
+        'Content-Type': 'application/json',
+    }
+
+    const graphql = async (query, variables) => {
+        const response = await fetchImpl('https://api.github.com/graphql', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ query, variables }),
+        })
+        if (!response.ok) {
+            throw new Error(`GitHub GraphQL error: ${response.status} ${response.statusText}\n${await response.text()}`)
+        }
+
+        const result = await response.json()
+        if (result.errors?.length) {
+            throw new Error(`GitHub GraphQL error: ${result.errors.map((error) => error.message).join('; ')}`)
+        }
+        return result.data
+    }
+
+    const data = await graphql(
+        `query PullRequestAutoMerge($owner: String!, $name: String!, $number: Int!) {
+            repository(owner: $owner, name: $name) {
+                pullRequest(number: $number) {
+                    id
+                    autoMergeRequest { enabledAt }
+                }
+            }
+        }`,
+        { owner, name, number: Number(PR_NUMBER) }
+    )
+    const pullRequest = data.repository.pullRequest
+    if (!pullRequest.autoMergeRequest) {
+        return false
+    }
+
+    await graphql(
+        `mutation DisablePullRequestAutoMerge($pullRequestId: ID!) {
+            disablePullRequestAutoMerge(input: { pullRequestId: $pullRequestId }) {
+                pullRequest { id }
+            }
+        }`,
+        { pullRequestId: pullRequest.id }
+    )
+    console.warn('⚠️  Auto-merge was disabled because reviewer requests were still being assigned.')
+    return true
 }
 
 // Best-effort: a label failure must never fail the job.
@@ -580,12 +639,17 @@ async function main() {
         console.info(`Demoted to comment: ${demoted.map((f) => f.owner).join(', ') || 'none'}`)
         console.info()
 
+        let reviewersAssigned
         if (!isExternal) {
-            await assignReviewers(teams, users)
+            reviewersAssigned = await assignReviewers(teams, users)
         } else {
             const { toLabel, toRequest } = partitionExternalTeams(teams)
             await applyTeamLabels(toLabel.map(teamSlugToLabel).filter(Boolean))
-            await assignReviewers(toRequest, users)
+            reviewersAssigned = await assignReviewers(toRequest, users)
+        }
+
+        if (reviewersAssigned) {
+            await disableAutoMergeIfEnabled()
         }
 
         const commentBody = buildReviewerComment(requested, demoted)
@@ -613,4 +677,5 @@ module.exports = {
     classifyOwners,
     buildReviewerComment,
     fileMatchesPattern,
+    disableAutoMergeIfEnabled,
 }
