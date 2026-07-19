@@ -2500,9 +2500,10 @@ class EmailIntegration:
         host: str = config.get("host", current.get("host", ""))
         port: int = config.get("port", current.get("port", 0))
         encryption: str = config.get("encryption", current.get("encryption", ""))
-        username: str = config.get("username", current.get("username", ""))
-        # Omitted password means "keep the existing one" — it is never echoed to the frontend,
-        # so edit forms can't round-trip it.
+        # Blank username/password both mean "keep the existing one" — neither is echoed to the
+        # frontend (the username is redacted for SMTP too, since it can be the secret), so edit
+        # forms can't round-trip them.
+        username: str = config.get("username") or current.get("username", "")
         password: str = config.get("password") or self.integration.sensitive_config.get("password", "")
 
         SMTPProvider().test_connection(

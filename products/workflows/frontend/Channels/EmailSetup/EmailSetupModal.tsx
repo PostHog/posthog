@@ -106,7 +106,15 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                                         />
                                     </LemonField>
                                 </div>
-                                <LemonField name="username" label="Username">
+                                <LemonField
+                                    name="username"
+                                    label="Username"
+                                    help={
+                                        savedIntegration
+                                            ? 'Leave blank to keep the existing username.'
+                                            : 'Your provider may call this an API key.'
+                                    }
+                                >
                                     <LemonInput type="text" placeholder="apikey" disabledReason={busyReason} />
                                 </LemonField>
                                 <LemonField

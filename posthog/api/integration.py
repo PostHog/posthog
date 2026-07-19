@@ -431,6 +431,17 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             raise ValidationError("This integration kind is deprecated and can no longer be created.")
         return value
 
+    def to_representation(self, instance: Any) -> dict:
+        data = super().to_representation(instance)
+        # Custom SMTP senders often reuse one secret for both username and password — a Postmark
+        # server token, for instance, is both. The password already stays out of the read path
+        # (it lives in sensitive_config); redact the username too so the secret can't be recovered
+        # from it. Edit forms send it blank to keep the stored value (see _update_smtp_integration).
+        config = data.get("config")
+        if isinstance(config, dict) and config.get("provider") == "smtp" and "username" in config:
+            data["config"] = {**config, "username": None}
+        return data
+
     def create(self, validated_data: Any) -> Any:
         team_id = self.context["team_id"]
         kind = validated_data["kind"]

@@ -67,9 +67,9 @@ const getEmailSenderFromIntegration = (integration: IntegrationType): EmailSende
         host: integration.config.host,
         port: integration.config.port,
         encryption: integration.config.encryption,
-        username: integration.config.username,
-        // The password is stored encrypted and never returned by the API; leaving it blank on
-        // edit means "keep the existing password"
+        // Username and password are both redacted by the API (for SMTP the username can be the
+        // secret); leaving them blank on edit means "keep the existing value"
+        username: '',
         password: '',
     }
 }
@@ -227,7 +227,10 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
                               ? 'Port must be 587, 465 or 2525'
                               : undefined,
                         encryption: !encryption ? 'Encryption mode is required' : undefined,
-                        username: !username ? 'Username is required' : undefined,
+                        username:
+                            values.savedIntegration === null && !username
+                                ? 'Username is required for new senders'
+                                : undefined,
                         password:
                             values.savedIntegration === null && !password
                                 ? 'Password is required for new senders'
