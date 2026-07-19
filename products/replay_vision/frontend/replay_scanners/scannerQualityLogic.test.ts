@@ -133,6 +133,36 @@ describe('scannerQualityLogic', () => {
         })
     })
 
+    it('assembles config from base plus approved edits, defaulting to the suggested value', async () => {
+        ;(visionScannersPromptSuggestionsCurrentRetrieve as jest.Mock).mockResolvedValue({
+            suggestion: {
+                ...PENDING_SUGGESTION,
+                base_config: { prompt: 'base', tags: ['a', 'b'] },
+                suggested_config: { prompt: 'new', tags: ['a', 'b', 'c'] },
+                changes: [
+                    { field: 'prompt', kind: 'prompt', op: 'set', before: 'base', after: 'new' },
+                    { field: 'tags', kind: 'tags', op: 'add', before: null, after: 'c' },
+                ],
+            },
+            stale: false,
+            rated_count: 3,
+            evaluation_session_cap: 10,
+        })
+        await mountLogic()
+
+        expect(logic.values.assembledConfig).toEqual({ prompt: 'new', tags: ['a', 'b', 'c'] })
+
+        // Rejecting the prompt falls back to the base prompt; tags stay approved.
+        await expectLogic(logic, () => logic.actions.setFieldApproved('prompt', false)).toMatchValues({
+            assembledConfig: { prompt: 'base', tags: ['a', 'b', 'c'] },
+        })
+
+        // Editing the tag list flows straight into what apply would write.
+        await expectLogic(logic, () => logic.actions.setFieldValue('tags', ['a', 'c'])).toMatchValues({
+            assembledConfig: { prompt: 'base', tags: ['a', 'c'] },
+        })
+    })
+
     it('a stale current-suggestion read does not clobber a fresh generate', async () => {
         await mountLogic()
         let resolveStale: (value: unknown) => void = () => {}
@@ -191,11 +221,12 @@ describe('scannerQualityLogic', () => {
             evaluation: runningEvaluation,
         })
         await mountLogic()
-        logic.actions.evaluateSuggestion('sug-1')
+        logic.actions.evaluateSuggestion('sug-1', logic.values.assembledConfig)
         await expectLogic(logic).toDispatchActions(['evaluateSuggestionSuccess'])
 
         // The default test size (10) clamps to the 3 rated sessions.
         expect(visionScannersPromptSuggestionsEvaluateCreate).toHaveBeenCalledWith(TEAM_ID, 'scan-1', 'sug-1', {
+            config: {},
             session_limit: 3,
         })
         expect(logic.values.currentSuggestion?.evaluation).toEqual(runningEvaluation)
@@ -206,10 +237,11 @@ describe('scannerQualityLogic', () => {
         ;(visionScannersPromptSuggestionsEvaluateCreate as jest.Mock).mockResolvedValue(PENDING_SUGGESTION)
         await mountLogic()
         logic.actions.setTestSessionLimit(2)
-        logic.actions.evaluateSuggestion('sug-1')
+        logic.actions.evaluateSuggestion('sug-1', logic.values.assembledConfig)
         await expectLogic(logic).toDispatchActions(['evaluateSuggestionSuccess'])
 
         expect(visionScannersPromptSuggestionsEvaluateCreate).toHaveBeenCalledWith(TEAM_ID, 'scan-1', 'sug-1', {
+            config: {},
             session_limit: 2,
         })
     })
