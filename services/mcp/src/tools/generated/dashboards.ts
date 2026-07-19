@@ -3,6 +3,8 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    DashboardTemplatesListQueryParams,
+    DashboardTemplatesRetrieveParams,
     DashboardsCopyTileCreateBody,
     DashboardsCopyTileCreateParams,
     DashboardsCreateBody,
@@ -338,6 +340,62 @@ const dashboardReorderTiles = (): ToolBase<typeof DashboardReorderTilesSchema, W
     },
 })
 
+const DashboardTemplatesListSchema = DashboardTemplatesListQueryParams
+
+const dashboardTemplatesList = (): ToolBase<
+    typeof DashboardTemplatesListSchema,
+    WithPostHogUrl<Schemas.PaginatedDashboardTemplateList>
+> => ({
+    name: 'dashboard-templates-list',
+    schema: DashboardTemplatesListSchema,
+    handler: async (context: Context, params: z.infer<typeof DashboardTemplatesListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedDashboardTemplateList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboard_templates/`,
+            query: {
+                is_featured: params.is_featured,
+                limit: params.limit,
+                offset: params.offset,
+                ordering: params.ordering,
+                scope: params.scope,
+                search: params.search,
+            },
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                omitResponseFields(item, [
+                    'tiles',
+                    'variables',
+                    'dashboard_filters',
+                    'non_portable_references',
+                    'availability_contexts',
+                ])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/dashboard')
+    },
+})
+
+const DashboardTemplatesRetrieveSchema = DashboardTemplatesRetrieveParams.omit({ project_id: true })
+
+const dashboardTemplatesRetrieve = (): ToolBase<
+    typeof DashboardTemplatesRetrieveSchema,
+    Schemas.DashboardTemplate
+> => ({
+    name: 'dashboard-templates-retrieve',
+    schema: DashboardTemplatesRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof DashboardTemplatesRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.DashboardTemplate>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboard_templates/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
 const DashboardTileCopySchema = DashboardsCopyTileCreateParams.omit({ project_id: true })
     .extend(DashboardsCopyTileCreateBody.shape)
     .extend({ id: z.preprocess(castStringToInt, DashboardsCopyTileCreateParams.shape['id']) })
@@ -660,6 +718,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'dashboard-get': dashboardGet,
     'dashboard-insights-run': dashboardInsightsRun,
     'dashboard-reorder-tiles': dashboardReorderTiles,
+    'dashboard-templates-list': dashboardTemplatesList,
+    'dashboard-templates-retrieve': dashboardTemplatesRetrieve,
     'dashboard-tile-copy': dashboardTileCopy,
     'dashboard-update': dashboardUpdate,
     'dashboard-update-text-tile': dashboardUpdateTextTile,

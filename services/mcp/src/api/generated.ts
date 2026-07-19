@@ -21035,6 +21035,12 @@ export namespace Schemas {
       github_login?: string;
       /** PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here. */
       user_uuid?: string;
+      /**
+         * One sentence of evidence for WHY this person: what ties them to the affected surface (e.g. 'authored 4 of the last 10 commits touching products/tracing/mcp/', 'human correction routed the prior tracing report to them'). Persisted on the report so the routing is auditable — always set it when you can name the evidence; 'precedent' alone is weak, prefer code-derived ownership.
+         * @maxLength 500
+         * @nullable
+         */
+      reason?: string | null;
     }
 
     /**
@@ -34488,6 +34494,42 @@ export namespace Schemas {
       config?: LogsListWidgetConfig;
     }
 
+    export interface LogsMetricRule {
+      /** Unique identifier for this metric rule. */
+      readonly id: string;
+      /**
+         * User-visible label for this rule.
+         * @maxLength 255
+         */
+      name: string;
+      /**
+         * Name of the generated metric as it appears in the Metrics product. Must start with a letter and contain only letters, digits, dots, underscores, and dashes. Unique per project and immutable after creation — create a new rule to emit under a different name.
+         * @maxLength 200
+         */
+      metric_name: string;
+      /** When true, ingestion evaluates this rule against every log record. At most 10 rules can be enabled per project. */
+      enabled?: boolean;
+      /** PropertyGroupFilter JSON (AND/OR tree of property predicates) selecting which log records feed the metric, e.g. `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api","type":"log_attribute"}]}]}`. Null matches every ingested log record. Every group must contain at least one filter — empty groups never match. */
+      filter_group?: unknown;
+      /**
+         * Log attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`. Omit to count matching log records instead. Immutable after creation — it determines the emitted metric type.
+         * @maxLength 512
+         * @nullable
+         */
+      value_attribute?: string | null;
+      /**
+         * Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` / `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.
+         * @items.maxLength 512
+         */
+      group_by?: string[];
+      /** Incremented on each update for worker cache coherency. */
+      readonly version: number;
+      readonly created_by: number;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
     export type LogsSamplingRuleScopeAttributeFiltersItem = { [key: string]: unknown };
 
     /**
@@ -37974,6 +38016,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: LogsAlertEvent[];
+    }
+
+    export interface PaginatedLogsMetricRuleList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: LogsMetricRule[];
     }
 
     export interface PaginatedLogsSamplingRuleList {
@@ -45652,6 +45703,42 @@ export namespace Schemas {
          * When the alert was last modified.
          * @nullable
          */
+      readonly updated_at?: string | null;
+    }
+
+    export interface PatchedLogsMetricRule {
+      /** Unique identifier for this metric rule. */
+      readonly id?: string;
+      /**
+         * User-visible label for this rule.
+         * @maxLength 255
+         */
+      name?: string;
+      /**
+         * Name of the generated metric as it appears in the Metrics product. Must start with a letter and contain only letters, digits, dots, underscores, and dashes. Unique per project and immutable after creation — create a new rule to emit under a different name.
+         * @maxLength 200
+         */
+      metric_name?: string;
+      /** When true, ingestion evaluates this rule against every log record. At most 10 rules can be enabled per project. */
+      enabled?: boolean;
+      /** PropertyGroupFilter JSON (AND/OR tree of property predicates) selecting which log records feed the metric, e.g. `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api","type":"log_attribute"}]}]}`. Null matches every ingested log record. Every group must contain at least one filter — empty groups never match. */
+      filter_group?: unknown;
+      /**
+         * Log attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`. Omit to count matching log records instead. Immutable after creation — it determines the emitted metric type.
+         * @maxLength 512
+         * @nullable
+         */
+      value_attribute?: string | null;
+      /**
+         * Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` / `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.
+         * @items.maxLength 512
+         */
+      group_by?: string[];
+      /** Incremented on each update for worker cache coherency. */
+      readonly version?: number;
+      readonly created_by?: number;
+      readonly created_at?: string;
+      /** @nullable */
       readonly updated_at?: string | null;
     }
 
@@ -72264,6 +72351,10 @@ export namespace Schemas {
      * Optional. `global`: official templates only. `team`: this project's saved templates only (`scope=team` rows for the current project). `organization`: templates shared across all projects in this organization. `feature_flag`: feature-flag dashboard templates only. Omit for official, organization, and this project's templates (default dashboard template picker behavior).
      */
     scope?: DashboardTemplatesListScope;
+    /**
+     * Optional. Full-text search across template name, tags, and description, ranked by relevance. Use it to find templates for a topic (e.g. `retention`, `revenue`, `product analytics`).
+     */
+    search?: string;
     };
 
     export type DashboardTemplatesListScope = typeof DashboardTemplatesListScope[keyof typeof DashboardTemplatesListScope];
@@ -76584,6 +76675,17 @@ export namespace Schemas {
     export type LogsExportCreate201 = { [key: string]: unknown };
 
     export type LogsHasLogsRetrieve200 = { [key: string]: unknown };
+
+    export type LogsMetricRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type LogsSamplingRulesListParams = {
     /**
