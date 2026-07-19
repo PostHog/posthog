@@ -142,7 +142,7 @@ from posthog.utils import (
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.access import (
-    DashboardAccessMethod,
+    claim_dashboard_cache_miss_persistence,
     dashboard_access_method,
     record_dashboard_cache_outcome,
 )
@@ -164,8 +164,6 @@ tracer = trace.get_tracer(__name__)
 
 LEGACY_INSIGHT_ENDPOINTS_BLOCKED_FLAG = "legacy-insight-endpoints-disabled"
 LEGACY_INSIGHT_FILTERS_BLOCKED_FLAG = "legacy-insight-filters-disabled"
-
-
 EXPORT_QUERY_CACHE_MISS = Counter(
     "export_query_cache_miss",
     "Cache misses during PNG export rendering when expected cache key was not found",
@@ -1318,10 +1316,27 @@ class InsightSerializer(InsightBasicSerializer):
                             ExecutionMode.CALCULATE_ASYNC_ALWAYS,
                         }
                     ):
-                        record_dashboard_cache_outcome(
-                            access_method,
-                            is_cached=insight_result.is_cached,
-                        )
+                        request = self.context["request"]
+                        try:
+                            record_dashboard_cache_outcome(
+                                dashboard,
+                                access_method,
+                                is_cached=insight_result.is_cached,
+                                persist_miss=claim_dashboard_cache_miss_persistence(
+                                    request,
+                                    dashboard,
+                                    access_method,
+                                    execution_mode,
+                                    is_cached=insight_result.is_cached,
+                                ),
+                            )
+                        except Exception:
+                            logger.exception(
+                                "dashboard_cache_outcome_recording_failed",
+                                dashboard_id=dashboard.id,
+                                insight_id=insight.id,
+                                team_id=insight.team_id,
+                            )
                     return insight_result
             except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
                 raise ValidationError(str(e), getattr(e, "code_name", None))

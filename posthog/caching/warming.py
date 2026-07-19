@@ -1,5 +1,10 @@
+import json
+import math
+import heapq
 import itertools
+from collections import Counter
 from collections.abc import Generator
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
 
@@ -9,10 +14,15 @@ import structlog
 import posthoganalytics
 from celery import shared_task
 from celery.canvas import chain
-from prometheus_client import Counter, Gauge
+from prometheus_client import (
+    Counter as PrometheusCounter,
+    Gauge,
+    Histogram,
+)
 
 from posthog.hogql.constants import LimitContext
 
+from posthog import redis
 from posthog.api.services.query import process_query_dict
 from posthog.caching.utils import largest_teams
 from posthog.clickhouse.query_tagging import Feature, get_team_query_tags, tag_queries
@@ -27,6 +37,7 @@ from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
+from products.dashboards.backend.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.models.insight import Insight
 
@@ -34,18 +45,136 @@ logger = structlog.get_logger(__name__)
 
 STALE_INSIGHTS_GAUGE = Gauge(
     "posthog_cache_warming_stale_insights_gauge",
-    "Number of stale insights present",
+    "Number of stale insights scanned for cache warming",
     ["team_id"],
     multiprocess_mode="max",
 )
-PRIORITY_INSIGHTS_COUNTER = Counter(
+PRIORITY_INSIGHTS_COUNTER = PrometheusCounter(
     "posthog_cache_warming_priority_insights",
     "Number of priority insights warmed",
     ["team_id", "dashboard", "is_cached"],
 )
+CACHE_WARMING_CANDIDATE_COUNTER = PrometheusCounter(
+    "posthog_cache_warming_candidates_total",
+    "Cache warming candidates by access method and scheduling outcome",
+    ["access_method", "outcome", "cache_miss_boost"],
+)
+CACHE_WARMING_PRIORITY_HISTOGRAM = Histogram(
+    "posthog_cache_warming_priority_score",
+    "Priority scores for selected cache warming candidates",
+    ["access_method"],
+    buckets=(1, 5, 10, 25, 50, 100, 200, 400, 800),
+)
 
 LAST_VIEWED_THRESHOLD = timedelta(days=7)
 SHARED_INSIGHTS_LAST_VIEWED_THRESHOLD = timedelta(days=3)
+MAX_WARMING_CANDIDATES_PER_TEAM = 500
+CACHE_MISS_BOOST = 300.0
+CACHE_MISS_BOOST_THRESHOLD = timedelta(days=1)
+DASHBOARD_CANDIDATE_QUERY_CHUNK_SIZE = 100
+STALE_INSIGHT_SCAN_BUDGET = 2000
+STALE_INSIGHT_HOT_SCAN_BUDGET = 500
+STALE_INSIGHT_CURSOR_TTL_SECONDS = 60 * 60 * 48
+
+ACCESS_METHOD_WEIGHTS = {
+    DashboardAccessMethod.HUMAN: 300.0,
+    DashboardAccessMethod.EMBEDDED: 200.0,
+    DashboardAccessMethod.API: 100.0,
+}
+ACCESS_METHOD_THRESHOLDS = {
+    DashboardAccessMethod.HUMAN: LAST_VIEWED_THRESHOLD,
+    DashboardAccessMethod.EMBEDDED: SHARED_INSIGHTS_LAST_VIEWED_THRESHOLD,
+    DashboardAccessMethod.API: timedelta(days=1),
+}
+ACCESS_RECENCY_BONUS = 40.0
+ACCESS_FREQUENCY_BONUS = 40.0
+
+
+@dataclass(frozen=True)
+class WarmingCandidate:
+    insight_id: int
+    dashboard_id: int | None
+    priority: float
+    access_method: str
+    has_cache_miss_boost: bool = False
+
+
+def _parse_access_timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _dashboard_warming_priority(
+    most_recent_access: object,
+    last_accessed_at: datetime | None,
+    *,
+    current_time: datetime,
+    max_access_age: timedelta | None = None,
+) -> tuple[float, str, bool]:
+    best_priority = 0.0
+    best_access_method = "none"
+    best_has_cache_miss_boost = False
+    latest_structured_access: datetime | None = None
+
+    if isinstance(most_recent_access, dict):
+        for access_method, weight in ACCESS_METHOD_WEIGHTS.items():
+            access_record = most_recent_access.get(access_method.value)
+            if not isinstance(access_record, dict):
+                continue
+
+            accessed_at = _parse_access_timestamp(access_record.get("timestamp"))
+            priority = 0.0
+            if accessed_at is not None:
+                latest_structured_access = max(latest_structured_access or accessed_at, accessed_at)
+                threshold = ACCESS_METHOD_THRESHOLDS[access_method]
+                if max_access_age is not None:
+                    threshold = min(threshold, max_access_age)
+                age = current_time - accessed_at
+                if timedelta(0) <= age <= threshold:
+                    count = access_record.get("count", 0)
+                    normalized_count = count if isinstance(count, int) and count > 0 else 1
+                    frequency_bonus = min(math.log2(normalized_count + 1), 4.0) / 4.0 * ACCESS_FREQUENCY_BONUS
+                    recency_bonus = max(0.0, 1.0 - age / threshold) * ACCESS_RECENCY_BONUS
+                    priority = weight + frequency_bonus + recency_bonus
+
+            cache_miss_at = _parse_access_timestamp(access_record.get("last_cache_miss_at"))
+            cache_miss_age = current_time - cache_miss_at if cache_miss_at is not None else None
+            has_cache_miss_boost = (
+                cache_miss_age is not None and timedelta(0) <= cache_miss_age < CACHE_MISS_BOOST_THRESHOLD
+            )
+            if has_cache_miss_boost and cache_miss_age is not None:
+                miss_recency_multiplier = 1.0 - cache_miss_age / CACHE_MISS_BOOST_THRESHOLD
+                priority += CACHE_MISS_BOOST * miss_recency_multiplier
+
+            if priority > best_priority:
+                best_priority = priority
+                best_access_method = access_method.value
+                best_has_cache_miss_boost = has_cache_miss_boost
+
+    if last_accessed_at is not None and (
+        latest_structured_access is None or last_accessed_at > latest_structured_access
+    ):
+        legacy_age = current_time - last_accessed_at
+        legacy_threshold = min(LAST_VIEWED_THRESHOLD, max_access_age) if max_access_age else LAST_VIEWED_THRESHOLD
+        if timedelta(0) <= legacy_age <= legacy_threshold:
+            legacy_priority = (
+                ACCESS_METHOD_WEIGHTS[DashboardAccessMethod.API]
+                + max(0.0, 1.0 - legacy_age / legacy_threshold) * ACCESS_RECENCY_BONUS
+            )
+            if legacy_priority > best_priority:
+                return legacy_priority, "legacy", False
+
+    if best_priority > 0:
+        return best_priority, best_access_method, best_has_cache_miss_boost
+
+    return 0.0, "none", False
 
 
 def teams_enabled_for_cache_warming() -> list[int]:
@@ -81,33 +210,126 @@ def teams_enabled_for_cache_warming() -> list[int]:
     return enabled_team_ids
 
 
+def _iter_stale_insights(*, team_id: int, current_time: datetime) -> Generator[str]:
+    redis_key = f"{QueryCacheManagerBase._redis_key_prefix()}:{team_id}"
+    redis_client = redis.get_client()
+    cursor_key = f"cache_warming_cursor:{team_id}"
+    hot_page = redis_client.zrevrangebyscore(
+        name=redis_key,
+        max=current_time.timestamp(),
+        min="-inf",
+        start=0,
+        num=STALE_INSIGHT_HOT_SCAN_BUDGET,
+    )
+    backlog_budget = STALE_INSIGHT_SCAN_BUDGET - len(hot_page)
+    backlog_page: list[bytes] | None = None
+    raw_cursor = redis_client.get(cursor_key)
+    has_valid_cursor = False
+
+    if raw_cursor:
+        cursor_member: bytes | None = None
+        cursor_score: float | None = None
+        try:
+            cursor = json.loads(raw_cursor)
+            cursor_member = cursor["member"].encode("utf-8")
+            cursor_score = float(cursor["score"])
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            pass
+        if cursor_member is not None and cursor_score is not None:
+            has_valid_cursor = True
+            if redis_client.zscore(redis_key, cursor_member) == cursor_score:
+                cursor_rank = redis_client.zrevrank(redis_key, cursor_member)
+                if cursor_rank is not None:
+                    backlog_page = redis_client.zrevrange(
+                        redis_key,
+                        cursor_rank + 1,
+                        cursor_rank + backlog_budget,
+                    )
+            if backlog_page is None:
+                backlog_page = redis_client.zrevrangebyscore(
+                    name=redis_key,
+                    max=f"({cursor_score}",
+                    min="-inf",
+                    start=0,
+                    num=backlog_budget,
+                )
+
+    if backlog_page is None:
+        backlog_page = redis_client.zrevrangebyscore(
+            name=redis_key,
+            max=current_time.timestamp(),
+            min="-inf",
+            start=len(hot_page),
+            num=backlog_budget,
+        )
+
+    if has_valid_cursor and len(backlog_page) < backlog_budget:
+        backlog_page.extend(
+            redis_client.zrevrangebyscore(
+                name=redis_key,
+                max=current_time.timestamp(),
+                min="-inf",
+                start=len(hot_page),
+                num=backlog_budget - len(backlog_page),
+            )
+        )
+
+    seen_identifiers: set[bytes] = set()
+    for raw_identifier in itertools.chain(hot_page, backlog_page):
+        if raw_identifier not in seen_identifiers:
+            seen_identifiers.add(raw_identifier)
+            yield raw_identifier.decode("utf-8")
+
+
+def _checkpoint_stale_insight_scan(*, team_id: int, last_identifier: str | None) -> None:
+    redis_client = redis.get_client()
+    redis_key = f"{QueryCacheManagerBase._redis_key_prefix()}:{team_id}"
+    cursor_key = f"cache_warming_cursor:{team_id}"
+    if last_identifier is None:
+        redis_client.delete(cursor_key)
+        return
+    last_score = redis_client.zscore(redis_key, last_identifier)
+    if last_score is not None:
+        redis_client.set(
+            cursor_key,
+            json.dumps({"member": last_identifier, "score": last_score}),
+            ex=STALE_INSIGHT_CURSOR_TTL_SECONDS,
+        )
+    else:
+        redis_client.delete(cursor_key)
+
+
 def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[tuple[int, Optional[int]]]:
     """
-    This is the place to decide which insights should be kept warm for the provided team.
-    The reasoning is that this will be a yes or no decision. If we need to keep it warm, we try our best
-    to not let the cache go stale. There isn't any middle ground, like trying to refresh it once a day, since
-    that would be like clock that's only right twice a day.
+    Rank stale insight and dashboard combinations for the provided team, then keep the
+    highest-priority candidates inside the per-team warming budget.
     """
-    # for shared insights, use a lower cut off
-    threshold = datetime.now(UTC) - (
-        LAST_VIEWED_THRESHOLD if not shared_only else SHARED_INSIGHTS_LAST_VIEWED_THRESHOLD
-    )
+    current_time = datetime.now(UTC)
+    threshold = current_time - (SHARED_INSIGHTS_LAST_VIEWED_THRESHOLD if shared_only else LAST_VIEWED_THRESHOLD)
 
     QueryCacheManagerBase.clean_up_stale_insights(team_id=team.pk, threshold=threshold)
 
-    # get all insights currently in the cache for the team
-    combos = QueryCacheManagerBase.get_stale_insights(team_id=team.pk, limit=500)
+    candidate_heap: list[tuple[float, int, WarmingCandidate]] = []
+    candidate_sequence = itertools.count()
+    candidate_metric_counts: Counter[tuple[str, str, str]] = Counter()
 
-    STALE_INSIGHTS_GAUGE.labels(team_id=team.pk).set(len(combos))
+    def add_candidate(candidate: WarmingCandidate) -> None:
+        cache_miss_boost = str(candidate.has_cache_miss_boost).lower()
+        candidate_metric_counts[(candidate.access_method, "deprioritized", cache_miss_boost)] += 1
+        heap_entry = (candidate.priority, -next(candidate_sequence), candidate)
+        if len(candidate_heap) < MAX_WARMING_CANDIDATES_PER_TEAM:
+            heapq.heappush(candidate_heap, heap_entry)
+        elif heap_entry[:2] > candidate_heap[0][:2]:
+            heapq.heapreplace(candidate_heap, heap_entry)
 
-    dashboard_q_filter = Q()
-    insight_ids_single = set()
-
-    for insight_id, dashboard_id in (combo.split(":") for combo in combos):
-        if dashboard_id:
-            dashboard_q_filter |= Q(insight_id=insight_id, dashboard_id=dashboard_id)
+    stale_insights = list(_iter_stale_insights(team_id=team.pk, current_time=current_time))
+    dashboard_pairs: list[tuple[int, int]] = []
+    insight_ids_single: set[int] = set()
+    for raw_insight_id, raw_dashboard_id in (combo.split(":") for combo in stale_insights):
+        if raw_dashboard_id:
+            dashboard_pairs.append((int(raw_insight_id), int(raw_dashboard_id)))
         else:
-            insight_ids_single.add(insight_id)
+            insight_ids_single.add(int(raw_insight_id))
 
     if insight_ids_single:
         single_insights = team.insight_set.filter(
@@ -118,21 +340,76 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
             single_insights = single_insights.filter(sharingconfiguration__enabled=True)
 
         for single_insight_id in single_insights.distinct().values_list("id", flat=True):
-            yield single_insight_id, None
+            add_candidate(
+                WarmingCandidate(
+                    insight_id=single_insight_id,
+                    dashboard_id=None,
+                    priority=ACCESS_METHOD_WEIGHTS[DashboardAccessMethod.HUMAN],
+                    access_method=DashboardAccessMethod.HUMAN.value,
+                )
+            )
 
-    if not dashboard_q_filter:
-        return
+    for dashboard_pair_chunk in itertools.batched(dashboard_pairs, DASHBOARD_CANDIDATE_QUERY_CHUNK_SIZE, strict=False):
+        dashboard_q_filter = Q()
+        for candidate_insight_id, candidate_dashboard_id in dashboard_pair_chunk:
+            dashboard_q_filter |= Q(insight_id=candidate_insight_id, dashboard_id=candidate_dashboard_id)
+        if shared_only:
+            dashboard_q_filter &= Q(dashboard__sharingconfiguration__enabled=True)
 
-    if shared_only:
-        dashboard_q_filter &= Q(dashboard__sharingconfiguration__enabled=True)
+        dashboard_tiles = (
+            DashboardTile.objects.filter(dashboard_q_filter)
+            .distinct()
+            .values_list(
+                "insight_id",
+                "dashboard_id",
+                "dashboard__last_accessed_at",
+                "dashboard__most_recent_access",
+            )
+        )
+        for tile_insight_id, tile_dashboard_id, last_accessed_at, most_recent_access in dashboard_tiles:
+            priority, access_method, has_cache_miss_boost = _dashboard_warming_priority(
+                most_recent_access,
+                last_accessed_at,
+                current_time=current_time,
+                max_access_age=SHARED_INSIGHTS_LAST_VIEWED_THRESHOLD if shared_only else None,
+            )
+            if priority <= 0:
+                candidate_metric_counts[(access_method, "ineligible", "false")] += 1
+                continue
+            add_candidate(
+                WarmingCandidate(
+                    insight_id=tile_insight_id,
+                    dashboard_id=tile_dashboard_id,
+                    priority=priority,
+                    access_method=access_method,
+                    has_cache_miss_boost=has_cache_miss_boost,
+                )
+            )
 
-    dashboard_tiles = (
-        DashboardTile.objects.filter(dashboard__last_accessed_at__gte=threshold)
-        .filter(dashboard_q_filter)
-        .distinct()
-        .values_list("insight_id", "dashboard_id")
+    STALE_INSIGHTS_GAUGE.labels(team_id=team.pk).set(len(stale_insights))
+    _checkpoint_stale_insight_scan(
+        team_id=team.pk,
+        last_identifier=stale_insights[-1] if stale_insights else None,
     )
-    yield from dashboard_tiles
+
+    selected_candidates = [entry[2] for entry in sorted(candidate_heap, reverse=True)]
+    for candidate in selected_candidates:
+        cache_miss_boost = str(candidate.has_cache_miss_boost).lower()
+        candidate_metric_counts[(candidate.access_method, "deprioritized", cache_miss_boost)] -= 1
+        candidate_metric_counts[(candidate.access_method, "selected", cache_miss_boost)] += 1
+        CACHE_WARMING_PRIORITY_HISTOGRAM.labels(access_method=candidate.access_method).observe(candidate.priority)
+
+    for (access_method, outcome, cache_miss_boost), count in candidate_metric_counts.items():
+        if count <= 0:
+            continue
+        CACHE_WARMING_CANDIDATE_COUNTER.labels(
+            access_method=access_method,
+            outcome=outcome,
+            cache_miss_boost=cache_miss_boost,
+        ).inc(count)
+
+    for candidate in selected_candidates:
+        yield candidate.insight_id, candidate.dashboard_id
 
 
 @shared_task(ignore_result=True, expires=60 * 15)
