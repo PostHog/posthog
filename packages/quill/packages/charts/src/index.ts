@@ -59,6 +59,17 @@ export type { BoxRect } from './core/types'
 export { BoxPlotTooltip } from './charts/BoxPlot/BoxPlotTooltip'
 export type { BoxPlotTooltipProps } from './charts/BoxPlot/BoxPlotTooltip'
 
+// Heatmap
+export { Heatmap } from './charts/Heatmap/Heatmap'
+export type {
+    HeatmapCellDatum,
+    HeatmapConfig,
+    HeatmapProps,
+    HeatmapRowMeta,
+    HeatmapTooltipContext,
+} from './charts/Heatmap/Heatmap'
+export type { HeatmapColorScale } from './charts/Heatmap/heatmap-layout'
+
 // Slope chart
 export { SlopeChart } from './charts/SlopeChart/SlopeChart'
 export type {

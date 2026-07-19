@@ -1,4 +1,5 @@
 import os
+import shlex
 import subprocess
 from typing import Any
 
@@ -282,8 +283,6 @@ class TestDockerSandboxUnit:
         ],
     )
     def test_clone_repository_command_escaping(self, repository):
-        import shlex
-
         sandbox = DockerSandbox.__new__(DockerSandbox)
         sandbox._container_id = "abc123"
         sandbox.id = "abc123"
@@ -323,6 +322,20 @@ class TestDockerSandboxUnit:
                 assert expected_in_command in command
                 if not_expected_in_command:
                     assert not_expected_in_command not in command
+
+    def test_clone_repository_branch_flag(self):
+        sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox._container_id = "abc123"
+        sandbox.id = "abc123"
+        sandbox.config = SandboxConfig(name="test")
+        branch = "feature/branch; echo hacked"
+
+        with patch.object(sandbox, "is_running", return_value=True):
+            with patch.object(sandbox, "execute") as mock_execute:
+                sandbox.clone_repository("PostHog/posthog", github_token="test-token", branch=branch)
+                command = mock_execute.call_args[0][0]
+
+                assert f"--branch {shlex.quote(branch)}" in command
 
     @pytest.mark.parametrize(
         "repository,task_id,run_id,mode",
