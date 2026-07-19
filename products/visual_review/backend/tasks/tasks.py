@@ -48,6 +48,7 @@ def process_run_diffs(self, team_id: int, run_id: str) -> None:
     run_uuid = UUID(run_id)
     outcome = "completed"
     retrying = False
+    diffed_count = 0
 
     # Phase timings go to OTel spans (where is time spent); counts go to the
     # vr_run_processed event (how many runs, how many diffs).
@@ -59,8 +60,9 @@ def process_run_diffs(self, team_id: int, run_id: str) -> None:
 
             with TRACER.start_as_current_span("visual_review.verify_uploads"):
                 logic.verify_uploads_and_create_artifacts(run_uuid)
-            with TRACER.start_as_current_span("visual_review.process_diffs"):
-                process_diffs(run_uuid)
+            with TRACER.start_as_current_span("visual_review.process_diffs") as diff_span:
+                diffed_count = process_diffs(run_uuid)
+                diff_span.set_attribute("visual_review.diffed_count", diffed_count)
             with TRACER.start_as_current_span("visual_review.finish_processing"):
                 logic.finish_processing(run_uuid)
 
@@ -96,7 +98,7 @@ def process_run_diffs(self, team_id: int, run_id: str) -> None:
             span.set_attribute("visual_review.outcome", outcome)
             # Skip on retry: the run isn't terminal yet and will emit on its next attempt.
             if not retrying:
-                logic.capture_run_processing_metrics(run_uuid, outcome=outcome)
+                logic.capture_run_processing_metrics(run_uuid, outcome=outcome, diffed_count=diffed_count)
 
 
 @shared_task(

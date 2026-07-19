@@ -4,9 +4,12 @@ from datetime import timedelta
 
 import pytest
 
+from django.db import connections
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from products.visual_review.backend import logic
+from products.visual_review.backend.db import WRITER_DB
 from products.visual_review.backend.facade.enums import ReviewDecision, ReviewState, RunStatus, RunType, SnapshotResult
 from products.visual_review.backend.models import Repo, Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
@@ -2430,6 +2433,46 @@ class TestVerifyUploadsAndCreateArtifacts:
         assert artifact is not None
         assert artifact.content_hash == server_hash
         assert artifact.size_bytes == len(png)
+        snapshot = RunSnapshot.objects.get(run=run)
+        assert snapshot.current_artifact_id == artifact.id
+
+    def test_verification_query_count_does_not_grow_per_hash(self, repo, mocker):
+        from products.visual_review.backend.hashing import hash_image
+
+        def create_run_with_images(count: int, color_offset: int) -> tuple[Run, dict[str, bytes]]:
+            images: dict[str, bytes] = {}
+            snapshots: list[dict[str, str]] = []
+            for index in range(count):
+                png = self._png((color_offset + index, 20, 30, 255))
+                content_hash = hash_image(png)
+                images[content_hash] = png
+                snapshots.append({"identifier": f"Card-{color_offset}-{index}", "content_hash": content_hash})
+
+            run, _ = logic.create_run(
+                repo_id=repo.id,
+                team_id=repo.team_id,
+                run_type=RunType.STORYBOOK,
+                commit_sha=f"sha-{count}-{color_offset}",
+                branch="main",
+                pr_number=None,
+                snapshots=snapshots,
+            )
+            return run, images
+
+        single_run, single_images = create_run_with_images(1, 10)
+        mock_read = mocker.patch(
+            "products.visual_review.backend.storage.ArtifactStorage.read",
+            side_effect=lambda content_hash: single_images.get(content_hash),
+        )
+        with CaptureQueriesContext(connections[WRITER_DB]) as single_queries:
+            logic.verify_uploads_and_create_artifacts(single_run.id)
+
+        scaled_run, scaled_images = create_run_with_images(5, 100)
+        mock_read.side_effect = lambda content_hash: scaled_images.get(content_hash)
+        with CaptureQueriesContext(connections[WRITER_DB]) as scaled_queries:
+            logic.verify_uploads_and_create_artifacts(scaled_run.id)
+
+        assert len(scaled_queries) <= len(single_queries)
 
     def test_hash_mismatch_raises_and_persists_no_artifacts(self, repo, mocker):
         # Two snapshots: first verifies cleanly, second has a mismatched claim.

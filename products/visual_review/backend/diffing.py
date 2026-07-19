@@ -124,7 +124,7 @@ def _store_diff(
     )
 
 
-def _diff_snapshot(snapshot: RunSnapshot) -> None:
+def _diff_snapshot(snapshot: RunSnapshot) -> bool:
     """Compare snapshot against baseline; classify and store diff metrics.
 
     Classification (in priority order):
@@ -157,7 +157,7 @@ def _diff_snapshot(snapshot: RunSnapshot) -> None:
             has_baseline=baseline_bytes is not None,
             has_current=current_bytes is not None,
         )
-        return
+        return False
 
     result = compare_images(baseline_bytes, current_bytes)
 
@@ -166,7 +166,7 @@ def _diff_snapshot(snapshot: RunSnapshot) -> None:
     kind = classify_compare_result(result)
     if kind is not None:
         _store_diff(snapshot, result, kind)
-        return
+        return True
 
     # Both tiers below threshold — genuine noise, reclassify and cache for future runs
     snapshot.result = SnapshotResult.UNCHANGED
@@ -201,6 +201,7 @@ def _diff_snapshot(snapshot: RunSnapshot) -> None:
             "diff_percentage": result.diff_percentage,
         },
     )
+    return True
 
 
 def _generate_thumbnail_for_new(snapshot: RunSnapshot) -> None:
@@ -239,16 +240,19 @@ def _generate_thumbnail_for_new(snapshot: RunSnapshot) -> None:
     artifact.save(update_fields=["thumbnail"])
 
 
-def process_diffs(run_id: UUID) -> None:
+def process_diffs(run_id: UUID) -> int:
     """
     Process diffs for all changed snapshots in a run.
 
     Uses single-pass comparison (pixelmatch + SSIM + thumbnail) to classify
     each snapshot and generate thumbnails for the grid view.
     """
-    from . import logic
-
-    snapshots = logic.get_run_snapshots(run_id)
+    snapshots = (
+        RunSnapshot.objects.filter(run_id=run_id, result__in=[SnapshotResult.NEW, SnapshotResult.CHANGED])
+        .select_related("run", "current_artifact", "baseline_artifact")
+        .iterator(chunk_size=100)
+    )
+    diffed_count = 0
 
     for snapshot in snapshots:
         if snapshot.result == SnapshotResult.NEW and snapshot.current_artifact:
@@ -261,7 +265,8 @@ def process_diffs(run_id: UUID) -> None:
             continue
 
         try:
-            _diff_snapshot(snapshot)
+            if _diff_snapshot(snapshot):
+                diffed_count += 1
         except Exception as e:
             logger.warning(
                 "visual_review.snapshot_diff_failed",
@@ -269,3 +274,5 @@ def process_diffs(run_id: UUID) -> None:
                 identifier=snapshot.identifier,
                 error=str(e),
             )
+
+    return diffed_count
