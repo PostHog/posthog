@@ -1355,6 +1355,8 @@ export interface ClaudeTaskRunCreateSchemaApi {
      * @nullable
      */
     rtk_enabled?: boolean | null
+    /** Whether this cloud run may control an isolated virtual Linux desktop in its sandbox. */
+    computer_use?: boolean
 }
 
 /**
@@ -1465,6 +1467,8 @@ export interface CodexTaskRunCreateSchemaApi {
      * @nullable
      */
     rtk_enabled?: boolean | null
+    /** Whether this cloud run may control an isolated virtual Linux desktop in its sandbox. */
+    computer_use?: boolean
 }
 
 export interface TaskRunResumeRequestSchemaApi {
@@ -1787,6 +1791,8 @@ export interface TaskRunBootstrapCreateRequestApi {
      * @nullable
      */
     rtk_enabled?: boolean | null
+    /** Whether this cloud run may control an isolated virtual Linux desktop in its sandbox. */
+    computer_use?: boolean
     /**
      * Label of the Home-tab quick action that started this run (e.g. 'Fix CI'), surfaced on the workstream.
      * @maxLength 120

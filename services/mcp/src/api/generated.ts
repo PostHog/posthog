@@ -14134,6 +14134,8 @@ export namespace Schemas {
          * @nullable
          */
       rtk_enabled?: boolean | null;
+      /** Whether this cloud run may control an isolated virtual Linux desktop in its sandbox. */
+      computer_use?: boolean;
     }
 
     export type ClickhouseEventProperties = { [key: string]: unknown };
@@ -14504,6 +14506,8 @@ export namespace Schemas {
          * @nullable
          */
       rtk_enabled?: boolean | null;
+      /** Whether this cloud run may control an isolated virtual Linux desktop in its sandbox. */
+      computer_use?: boolean;
     }
 
     export type PropertyGroupOperator = typeof PropertyGroupOperator[keyof typeof PropertyGroupOperator];
@@ -61654,6 +61658,8 @@ export namespace Schemas {
          * @nullable
          */
       rtk_enabled?: boolean | null;
+      /** Whether this cloud run may control an isolated virtual Linux desktop in its sandbox. */
+      computer_use?: boolean;
       /**
          * Label of the Home-tab quick action that started this run (e.g. 'Fix CI'), surfaced on the workstream.
          * @maxLength 120
