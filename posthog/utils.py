@@ -816,6 +816,9 @@ def _build_flag_provider() -> "HyperCacheFlagProvider":
     initialize_self_capture_api_token() (ASGI). Callers assign the result to
     posthoganalytics.flag_definition_cache_provider and handle loading themselves.
     """
+    from products.feature_flags.backend.cache_keys import (
+        EU_CROSS_REGION_MIRROR_CACHE_KEY,  # noqa: PLC0415 — this core module doesn't otherwise depend on product code
+    )
     from products.feature_flags.backend.sdk_cache_provider import (  # noqa: PLC0415 — keeps the heavy dep off the import path
         HyperCacheFlagProvider,
     )
@@ -832,7 +835,11 @@ def _build_flag_provider() -> "HyperCacheFlagProvider":
         # Intentionally the FIRST team, not self-capture's current_team — see
         # resolve_dogfood_flags_team().
         return HyperCacheFlagProvider.for_dynamic_resolution(get_dogfood_flags_team_id)
-    # Cloud (SELF_CAPTURE off) or E2E: the canonical PostHog-internal team is 2.
+    if get_instance_region() == "EU":
+        # EU has no rows for PostHog's own team — reads go to the sentinel-keyed
+        # mirror that cross_region_flag_sync writes (see the key's definition).
+        return HyperCacheFlagProvider.for_static_team(EU_CROSS_REGION_MIRROR_CACHE_KEY)
+    # Cloud (SELF_CAPTURE off) or E2E, non-EU: the canonical PostHog-internal team is 2.
     return HyperCacheFlagProvider.for_static_team(2)
 
 

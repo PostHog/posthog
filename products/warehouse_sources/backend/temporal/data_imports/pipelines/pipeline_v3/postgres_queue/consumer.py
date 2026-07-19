@@ -96,7 +96,16 @@ class DeltaBatchConsumerAdapter:
     waiting_retry_state: str = SourceBatchStatus.State.WAITING_RETRY.value
     per_group_connections: bool = True
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        claim_sync_types: list[str] | None = None,
+        claim_exclude_sync_types: list[str] | None = None,
+    ) -> None:
+        # Fleet partition: the sync_type classes this consumer claims and sweeps.
+        # None/None (the default) means the whole queue — a single-fleet deployment.
+        self._claim_sync_types = claim_sync_types
+        self._claim_exclude_sync_types = claim_exclude_sync_types
         # job_id -> (is_dead, checked_at via time.monotonic())
         self._job_dead_cache: dict[str, tuple[bool, float]] = {}
 
@@ -115,6 +124,8 @@ class DeltaBatchConsumerAdapter:
             limit=limit,
             retry_backoff_base_seconds=retry_backoff_base_seconds,
             lease_ttl_seconds=lease_ttl_seconds,
+            sync_types=self._claim_sync_types,
+            exclude_sync_types=self._claim_exclude_sync_types,
         )
 
     async def unlock(
@@ -238,7 +249,12 @@ class DeltaBatchConsumerAdapter:
     ) -> list[PendingBatch]:
         # keep_locks is meaningless for the lease sink: get_stale_executing holds
         # no locks and the lease LEFT JOIN already excludes live groups.
-        return await BatchQueue.get_stale_executing(conn, grace_seconds=grace_seconds)
+        return await BatchQueue.get_stale_executing(
+            conn,
+            grace_seconds=grace_seconds,
+            sync_types=self._claim_sync_types,
+            exclude_sync_types=self._claim_exclude_sync_types,
+        )
 
     async def reconcile_failed_runs(
         self,
@@ -429,6 +445,8 @@ class BatchConsumer(SharedBatchConsumer):
         config: ConsumerConfig,
         process_batch: DeltaProcessBatchFn,
         health_reporter: Callable[[], None] | None = None,
+        claim_sync_types: list[str] | None = None,
+        claim_exclude_sync_types: list[str] | None = None,
     ) -> None:
         async def process_with_ownership_check(batch: PendingBatch) -> None:
             await process_batch(batch, self._make_verify_ownership(batch))
@@ -436,7 +454,10 @@ class BatchConsumer(SharedBatchConsumer):
         super().__init__(
             config=config,
             process_batch=process_with_ownership_check,
-            adapter=DeltaBatchConsumerAdapter(),
+            adapter=DeltaBatchConsumerAdapter(
+                claim_sync_types=claim_sync_types,
+                claim_exclude_sync_types=claim_exclude_sync_types,
+            ),
             health_reporter=health_reporter,
         )
 
