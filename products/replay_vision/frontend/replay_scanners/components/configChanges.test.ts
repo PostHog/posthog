@@ -1,4 +1,10 @@
-import { describeTagOp, formatChangeValue, parseConfigChanges } from './configChanges'
+import {
+    buildAppliedConfig,
+    changedFields,
+    describeTagOp,
+    formatChangeValue,
+    parseConfigChanges,
+} from './configChanges'
 
 describe('configChanges', () => {
     it('parses a well-formed change list and drops junk', () => {
@@ -48,5 +54,41 @@ describe('configChanges', () => {
         ['scale with label', { min: 0, max: 10, label: 'frustration' }, '0-10 (frustration)'],
     ])('formats %s', (_name, value, expected) => {
         expect(formatChangeValue(value)).toBe(expected)
+    })
+
+    it('lists distinct changed fields with their kind, in first-seen order', () => {
+        expect(
+            changedFields([
+                { field: 'prompt', kind: 'prompt', op: 'set', before: 'a', after: 'b' },
+                { field: 'tags', kind: 'tags', op: 'add', before: null, after: 'x' },
+                { field: 'tags', kind: 'tags', op: 'remove', before: 'y', after: null },
+            ])
+        ).toEqual([
+            { field: 'prompt', kind: 'prompt' },
+            { field: 'tags', kind: 'tags' },
+        ])
+    })
+
+    it.each([
+        [
+            'approved uses the edited value',
+            { prompt: { approved: true, value: 'edited' } },
+            { prompt: 'edited', tags: ['a'] },
+        ],
+        [
+            'rejected falls back to base',
+            { prompt: { approved: false, value: 'edited' } },
+            { prompt: 'base', tags: ['a'] },
+        ],
+    ])('buildAppliedConfig: %s', (_name, decisions, expected) => {
+        expect(buildAppliedConfig({ prompt: 'base', tags: ['a'] }, decisions)).toEqual(expected)
+    })
+
+    it('buildAppliedConfig only touches decided fields, leaving the rest of base intact', () => {
+        const applied = buildAppliedConfig(
+            { prompt: 'base', tags: ['a', 'b'], multi_label: true },
+            { tags: { approved: true, value: ['a', 'c'] } }
+        )
+        expect(applied).toEqual({ prompt: 'base', tags: ['a', 'c'], multi_label: true })
     })
 })
