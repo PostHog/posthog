@@ -186,6 +186,10 @@ class SuggestedReviewerEntry(BaseModel):
         default_factory=list,
         description="Commit evidence explaining why this reviewer is relevant.",
     )
+    reason: str | None = Field(
+        default=None,
+        description="Why this reviewer was chosen — the evidence behind the routing (e.g. recent author on the affected surface, human correction precedent).",
+    )
 
     @field_validator("github_login")
     @classmethod

@@ -21041,6 +21041,12 @@ export namespace Schemas {
       github_login?: string;
       /** PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here. */
       user_uuid?: string;
+      /**
+         * One sentence of evidence for WHY this person: what ties them to the affected surface (e.g. 'authored 4 of the last 10 commits touching products/tracing/mcp/', 'human correction routed the prior tracing report to them'). Persisted on the report so the routing is auditable — always set it when you can name the evidence; 'precedent' alone is weak, prefer code-derived ownership.
+         * @maxLength 500
+         * @nullable
+         */
+      reason?: string | null;
     }
 
     /**
@@ -72356,6 +72362,10 @@ export namespace Schemas {
      * Optional. `global`: official templates only. `team`: this project's saved templates only (`scope=team` rows for the current project). `organization`: templates shared across all projects in this organization. `feature_flag`: feature-flag dashboard templates only. Omit for official, organization, and this project's templates (default dashboard template picker behavior).
      */
     scope?: DashboardTemplatesListScope;
+    /**
+     * Optional. Full-text search across template name, tags, and description, ranked by relevance. Use it to find templates for a topic (e.g. `retention`, `revenue`, `product analytics`).
+     */
+    search?: string;
     };
 
     export type DashboardTemplatesListScope = typeof DashboardTemplatesListScope[keyof typeof DashboardTemplatesListScope];
