@@ -2191,6 +2191,7 @@ export const AggregationAxisFormatApi = {
     Numeric: 'numeric',
     Duration: 'duration',
     DurationMs: 'duration_ms',
+    DurationNs: 'duration_ns',
     Percentage: 'percentage',
     PercentageScaled: 'percentage_scaled',
     Currency: 'currency',
