@@ -8,6 +8,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from django.db import OperationalError, close_old_connections
 
+import structlog
 from requests import Response
 from requests.exceptions import JSONDecodeError as RequestsJSONDecodeError
 
@@ -20,10 +21,15 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     SourceResponse,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccountListingError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MetaAdsSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.schemas import RESOURCE_SCHEMAS
 from products.warehouse_sources.backend.types import IncrementalFieldType
+
+logger = structlog.get_logger(__name__)
 
 # Meta Ads API only supports data from the last 3 years. Meta's insights endpoints
 # reject a `time_range` whose start is beyond ~37 months from today with error code
@@ -144,16 +150,26 @@ def _fetch_integration_row(integration_id: int, team_id: int) -> Integration:
             _backoff_sleep(attempt)
 
 
-def get_integration(config: MetaAdsSourceConfig, team_id: int) -> Integration:
-    """Get the Meta Ads integration."""
-    integration = _fetch_integration_row(config.meta_ads_integration_id, team_id)
+class MetaAdsTokenRefreshError(Exception):
+    """Meta refused to refresh the integration's access token — only re-authorization fixes it."""
+
+
+def get_integration_by_id(integration_id: int, team_id: int) -> Integration:
+    """Get a Meta Ads integration by row id, with a freshly refreshed access token."""
+    integration = _fetch_integration_row(integration_id, team_id)
     meta_ads_integration = MetaAdsIntegration(integration)
     meta_ads_integration.refresh_access_token()
 
     if meta_ads_integration.integration.errors == ERROR_TOKEN_REFRESH_FAILED:
-        raise Exception("Failed to refresh token for Meta Ads integration. Please re-authorize the integration.")
+        raise MetaAdsTokenRefreshError(
+            "Failed to refresh token for Meta Ads integration. Please re-authorize the integration."
+        )
 
     return meta_ads_integration.integration
+
+
+def get_integration(config: MetaAdsSourceConfig, team_id: int) -> Integration:
+    return get_integration_by_id(config.meta_ads_integration_id, team_id)
 
 
 @dataclass
@@ -283,9 +299,32 @@ def _is_timeout_error(response: Response) -> bool:
 META_AUTH_ERROR_CODES = {102, 190}
 META_PERMISSION_ERROR_CODES = {10, *range(200, 300)}
 
+# Meta throttling codes. The request was rejected for its volume, not for being malformed, so the
+# call is fine and the only fix is waiting — never a bug on our side.
+#   4 — application request limit reached (our app, across all users).
+#   17 — user request limit reached.
+#   32 — page request limit reached.
+#   613 — custom-level rate limit reached.
+# https://developers.facebook.com/docs/graph-api/overview/rate-limiting
+META_RATE_LIMIT_ERROR_CODES = {4, 17, 32, 613}
+
 META_AUTH_ERROR_MESSAGE = (
     "Meta Ads access token is invalid, expired, or lacks the required permissions. Please re-authorize the integration."
 )
+
+META_RATE_LIMIT_ERROR_MESSAGE = (
+    "Meta is rate limiting requests for this connection. Please wait a few minutes and try again."
+)
+
+
+def _meta_error_code(response: Response) -> int | None:
+    """The numeric ``error.code`` of a Meta error body, or None if it carries no parseable one."""
+    try:
+        error = response.json().get("error", {})
+    except (ValueError, AttributeError):
+        return None
+    code = error.get("code")
+    return code if isinstance(code, int) else None
 
 
 def _is_permanent_auth_error(response: Response) -> bool:
@@ -295,14 +334,13 @@ def _is_permanent_auth_error(response: Response) -> bool:
     permission denials. These are terminal: retrying the sync keeps failing
     until the user reconnects the integration.
     """
-    try:
-        error = response.json().get("error", {})
-    except (ValueError, AttributeError):
-        return False
-    code = error.get("code")
-    if not isinstance(code, int):
-        return False
+    code = _meta_error_code(response)
     return code in META_AUTH_ERROR_CODES or code in META_PERMISSION_ERROR_CODES
+
+
+def _is_rate_limit_error(response: Response) -> bool:
+    """Return True for Meta errors that mean "too many requests", which only waiting fixes."""
+    return _meta_error_code(response) in META_RATE_LIMIT_ERROR_CODES
 
 
 def _raise_meta_api_error(response: Response) -> typing.NoReturn:
@@ -316,6 +354,79 @@ def _raise_meta_api_error(response: Response) -> typing.NoReturn:
     if _is_permanent_auth_error(response):
         raise Exception(f"{META_AUTH_ERROR_MESSAGE} (Meta API response: {response.status_code} - {response.text})")
     raise Exception(f"Meta API request failed: {response.status_code} - {response.text}")
+
+
+class MetaAdsAuthError(Exception):
+    """Meta rejected the credentials or the permissions they carry (see `_is_permanent_auth_error`)."""
+
+
+class MetaAdsRateLimitError(Exception):
+    """Meta throttled the request (see `_is_rate_limit_error`) — retrying later is the only fix."""
+
+
+# No `business{name}`: reading it needs the `business_management` scope, which the Meta OAuth
+# consent doesn't request (`ads_read` only), and Meta 400s the whole request when it's asked for.
+AD_ACCOUNT_FIELDS = "account_id,name,account_status"
+AD_ACCOUNT_PAGE_LIMIT = 100
+# This listing runs in the web request path, not a Temporal worker, so a cursor that never resolves
+# would pin a worker. Bound it rather than trusting Meta to end the chain.
+MAX_AD_ACCOUNT_PAGES = 100
+# Per-request timeout for the listing path. Without it a hung Meta connection pins the web worker
+# for the life of the request, since these calls run inline in `oauth_accounts`, not in a worker.
+AD_ACCOUNT_LISTING_TIMEOUT_SECONDS = 10
+
+
+def _raise_for_meta_error(response: Response) -> None:
+    """Map a non-200 Meta listing response to the actionable error the picker surfaces. Called for every
+    page, including the one fetched just before the page cap, so an auth or rate-limit failure on the
+    final fetch isn't swallowed and mislabeled as "too many pages"."""
+    if response.status_code != 200:
+        if _is_permanent_auth_error(response):
+            raise MetaAdsAuthError(META_AUTH_ERROR_MESSAGE)
+        if _is_rate_limit_error(response):
+            raise MetaAdsRateLimitError(META_RATE_LIMIT_ERROR_MESSAGE)
+        _raise_meta_api_error(response)
+
+
+def list_ad_accounts(integration: Integration) -> list[dict]:
+    """Every ad account the connected Meta user can access."""
+    access_token = integration.sensitive_config["access_token"]
+    # `redact_values` masks the access token wherever it lands in telemetry — Meta takes it as a query
+    # param here and echoes it back inside each `paging.next` URL, so without this the credential would
+    # be recorded in the logged/sampled request URLs.
+    session = make_tracked_session(redact_values=(access_token,))
+    accounts: list[dict] = []
+    response = session.get(
+        f"https://graph.facebook.com/{MetaAdsIntegration.api_version}/me/adaccounts",
+        params={"fields": AD_ACCOUNT_FIELDS, "limit": AD_ACCOUNT_PAGE_LIMIT, "access_token": access_token},
+        timeout=AD_ACCOUNT_LISTING_TIMEOUT_SECONDS,
+    )
+
+    for _ in range(MAX_AD_ACCOUNT_PAGES):
+        _raise_for_meta_error(response)
+
+        body = response.json()
+        page = body.get("data") or []
+        accounts.extend(page)
+
+        next_url = (body.get("paging") or {}).get("next")
+        # Meta keeps handing out a `next` cursor past the final page, which then returns no data.
+        if not next_url or not page:
+            return accounts
+
+        response = session.get(
+            _strip_access_token(next_url),
+            params={"access_token": access_token},
+            timeout=AD_ACCOUNT_LISTING_TIMEOUT_SECONDS,
+        )
+
+    # The response fetched on the final loop iteration is never re-checked by the loop, so surface a real
+    # auth/rate-limit failure there rather than masking it with the "too many pages" error below.
+    _raise_for_meta_error(response)
+    # Hitting the cap means Meta kept returning a fresh, non-empty `next` cursor past the bound. Returning
+    # `accounts` here would present a truncated (and possibly duplicated) list as the complete set, so the
+    # picker would silently hide accounts. Fail closed with an actionable message instead.
+    raise IntegrationAccountListingError("Meta returned too many pages while listing ad accounts. Please try again.")
 
 
 def _iter_simple_pagination(

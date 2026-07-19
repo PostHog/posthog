@@ -1105,3 +1105,52 @@ class TestClaimGates:
         finally:
             await conn.execute("SET enable_seqscan = on")
         assert "sb_claimable_idx" in plan
+
+
+@pytest.mark.django_db(transaction=True)
+class TestSyncTypeFleetPartition:
+    @pytest.mark.asyncio
+    async def test_allowlist_and_denylist_fleets_partition_the_queue(self, conn, conn_b):
+        # Two fleets with complementary scopes must claim disjoint sets that
+        # together cover every class — a class neither fleet claims would sit in
+        # the queue until partition pruning.
+        cdc_bid = await _insert_batch(conn, team_id=1, schema_id="cdc-s", run_uuid="cdc-run", sync_type="cdc")
+        fr_bid = await _insert_batch(conn, team_id=2, schema_id="fr-s", run_uuid="fr-run", sync_type="full_refresh")
+        inc_bid = await _insert_batch(conn, team_id=3, schema_id="inc-s", run_uuid="inc-run", sync_type="incremental")
+
+        cdc_fleet = await _claim(conn, owner=OWNER_A, sync_types=["cdc"])
+        general_fleet = await _claim(conn_b, owner=OWNER_B, exclude_sync_types=["cdc"])
+
+        assert [str(b.id) for b in cdc_fleet] == [cdc_bid]
+        assert {str(b.id) for b in general_fleet} == {fr_bid, inc_bid}
+
+    @pytest.mark.asyncio
+    async def test_filter_leaves_schema_busy_gate_class_blind(self, conn):
+        # A CDC schema's initial snapshot enqueues full_refresh batches, which run
+        # on the other fleet. While one is executing, a cdc-scoped claim must still
+        # see the schema as busy — scoping the busy gate itself would let two
+        # fleets write the same schema's table concurrently.
+        snapshot_bid = await _insert_batch(conn, schema_id="S", run_uuid="snapshot-run", sync_type="full_refresh")
+        await _insert_batch(conn, schema_id="S", run_uuid="cdc-run", sync_type="cdc")
+        control_bid = await _insert_batch(conn, team_id=2, schema_id="T", run_uuid="t-run", sync_type="cdc")
+        await BatchQueue.update_status(conn, batch_id=snapshot_bid, job_state="executing", attempt=1)
+
+        batches = await _claim(conn, sync_types=["cdc"])
+
+        assert [str(b.id) for b in batches] == [control_bid]
+
+    @pytest.mark.asyncio
+    async def test_stale_sweep_scoped_to_fleet_classes(self, conn):
+        # Each fleet judges staleness against its own recovery grace, so its sweep
+        # must only recover its own classes: an unscoped short-grace sweep would
+        # re-queue a batch the other fleet still considers mid-write.
+        cdc_bid = await _insert_batch(conn, schema_id="cdc-s", run_uuid="cdc-run", sync_type="cdc")
+        fr_bid = await _insert_batch(conn, team_id=2, schema_id="fr-s", run_uuid="fr-run", sync_type="full_refresh")
+        await _insert_backdated_executing(conn, batch_id=cdc_bid, age_seconds=120)
+        await _insert_backdated_executing(conn, batch_id=fr_bid, age_seconds=120)
+
+        cdc_stale = await BatchQueue.get_stale_executing(conn, grace_seconds=60, sync_types=["cdc"])
+        all_stale = await BatchQueue.get_stale_executing(conn, grace_seconds=60)
+
+        assert [str(b.id) for b in cdc_stale] == [cdc_bid]
+        assert {str(b.id) for b in all_stale} == {cdc_bid, fr_bid}

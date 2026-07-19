@@ -62,6 +62,8 @@ mod tests {
                 person_id: "01928aaa-bbbb-cccc-dddd-eeeeeeeeeeee".to_string(),
                 last_updated: TS.to_string(),
                 status: MembershipStatus::Entered,
+                origin: None,
+                run_id: None,
             },
             source_offset: 12345,
             depth: 2,
