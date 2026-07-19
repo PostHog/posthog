@@ -160,3 +160,25 @@ def invalidate_llm_prompt_cache(sender: type[LLMPrompt], instance: LLMPrompt, **
             capture_exception(err)
 
     transaction.on_commit(clear_cache)
+
+
+@receiver(post_save, sender=LLMPromptLabel)
+@receiver(post_delete, sender=LLMPromptLabel)
+def invalidate_llm_prompt_label_cache(sender: type[LLMPromptLabel], instance: LLMPromptLabel, **kwargs) -> None:
+    # Label pointer changes never touch LLMPrompt rows, so the receiver above can't cover
+    # them — without this, a moved label would keep serving the old version from cache.
+    # post_save covers create (clears a cached 404 miss) and move; post_delete covers
+    # removal, including archive's queryset delete.
+    team_id = instance.team_id
+    prompt_name = instance.prompt_name
+    label_name = instance.name
+
+    def clear_cache() -> None:
+        from posthog.storage.llm_prompt_cache import invalidate_prompt_label_cache
+
+        try:
+            invalidate_prompt_label_cache(team_id, prompt_name, label_name)
+        except Exception as err:
+            capture_exception(err)
+
+    transaction.on_commit(clear_cache)

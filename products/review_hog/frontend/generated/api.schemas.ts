@@ -416,6 +416,23 @@ export interface ReviewPerspectiveStatsApi {
     perspectives: ReviewPerspectiveStatItemApi[]
 }
 
+export interface ReviewTriggerRequestApi {
+    /** GitHub pull request URL to review, e.g. 'https://github.com/PostHog/posthog.com/pull/123'. The repository must be accessible to the project's GitHub App installation. */
+    pr_url: string
+}
+
+export interface ReviewTriggerResponseApi {
+    /** Temporal workflow id for the started review run; empty when no run was started. */
+    workflow_id: string
+    /** Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the pull request's current commit already has a published review (no new run starts). */
+    status: string
+}
+
+export interface ReviewTriggerErrorApi {
+    /** Human-readable explanation of why the trigger was rejected. */
+    error: string
+}
+
 /**
  * * `consider` - Consider
  * * `should_fix` - Should Fix
@@ -440,6 +457,8 @@ export interface ReviewUserSettingsApi {
      * * `should_fix` - Should Fix
      * * `must_fix` - Must Fix */
     urgency_threshold?: UrgencyThresholdEnumApi
+    /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog team while the product is in alpha). */
+    readonly can_trigger_reviews: boolean
 }
 
 export interface PatchedReviewUserSettingsApi {
@@ -453,6 +472,8 @@ export interface PatchedReviewUserSettingsApi {
      * * `should_fix` - Should Fix
      * * `must_fix` - Must Fix */
     urgency_threshold?: UrgencyThresholdEnumApi
+    /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog team while the product is in alpha). */
+    readonly can_trigger_reviews?: boolean
 }
 
 export interface ReviewValidatorConfigApi {
@@ -491,6 +512,25 @@ export type ReviewHogReviewsListParams = {
 export type ReviewHogReviewsListScope = (typeof ReviewHogReviewsListScope)[keyof typeof ReviewHogReviewsListScope]
 
 export const ReviewHogReviewsListScope = {
+    Mine: 'mine',
+    Everyone: 'everyone',
+} as const
+
+export type ReviewHogReviewsPerspectiveStatsRetrieveParams = {
+    /**
+     * Whose reviews to aggregate: `mine` for reviews of the requesting user's pull requests (the default), `everyone` for every review on this project.
+     *
+     * * `mine` - mine
+     * * `everyone` - everyone
+     * @minLength 1
+     */
+    scope?: ReviewHogReviewsPerspectiveStatsRetrieveScope
+}
+
+export type ReviewHogReviewsPerspectiveStatsRetrieveScope =
+    (typeof ReviewHogReviewsPerspectiveStatsRetrieveScope)[keyof typeof ReviewHogReviewsPerspectiveStatsRetrieveScope]
+
+export const ReviewHogReviewsPerspectiveStatsRetrieveScope = {
     Mine: 'mine',
     Everyone: 'everyone',
 } as const

@@ -1,7 +1,8 @@
 from datetime import UTC, datetime, timedelta
-from typing import Optional
+from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
@@ -26,6 +27,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     IntervalType,
     PropertyOperator,
+    SamplingRate,
     SessionPropertyFilter,
     SessionTableVersion,
     WebAnalyticsSampling,
@@ -36,6 +38,7 @@ from posthog.schema import (
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import Element
@@ -1110,8 +1113,21 @@ class TestWebOverviewNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
                 False,
             ),
             ("conversion_goal", {"conversionGoal": CustomEventConversionGoal(customEventName="purchase")}, False),
-            ("sampling_enabled", {"sampling": WebAnalyticsSampling(enabled=True)}, False),
-            ("sampling_factor", {"samplingFactor": 0.1}, False),
+            # Sampling is not applied by web analytics runners, so a sampling
+            # object on the query — the frontend historically attached a dormant
+            # {enabled: false, forceSamplingRate: 1/10} to every tile — must not
+            # kick eligible queries off the fast path.
+            (
+                "dormant_sampling_object_ignored",
+                {
+                    "sampling": WebAnalyticsSampling(
+                        enabled=False, forceSamplingRate=SamplingRate(numerator=1, denominator=10)
+                    )
+                },
+                True,
+            ),
+            ("sampling_enabled_ignored", {"sampling": WebAnalyticsSampling(enabled=True)}, True),
+            ("sampling_factor_ignored", {"samplingFactor": 0.1}, True),
         ]
     )
     def test_no_join_eligibility(self, _name: str, query_kwargs: dict, expected: bool):
@@ -1130,6 +1146,305 @@ class TestWebOverviewNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
         with override_settings(WEB_ANALYTICS_NO_JOIN_TEAM_IDS=[self.team.pk]):
             runner = self._make_runner(filterTestAccounts=True)
             assert not runner.should_skip_session_join
+
+
+@pytest.mark.usefixtures("unittest_snapshot")
+class TestWebOverviewSessionIdSetFastPath(ClickhouseTestMixin, APIBaseTest):
+    QUERY_TIMESTAMP = "2025-01-29"
+    snapshot: Any
+
+    def _create_pageviews(self):
+        s1, s2, s3 = str(uuid7("2025-01-10")), str(uuid7("2025-01-11")), str(uuid7("2025-01-12"))
+        for distinct_id, session_id, path_timestamps in [
+            ("user_a", s1, [("/pricing", "2025-01-10T10:00:00Z"), ("/docs", "2025-01-10T10:05:00Z")]),
+            ("user_a", s2, [("/docs", "2025-01-11T09:00:00Z")]),
+            ("user_b", s3, [("/pricing", "2025-01-12T12:00:00Z"), ("/pricing", "2025-01-12T12:00:30Z")]),
+        ]:
+            with freeze_time(path_timestamps[0][1]):
+                _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
+            for pathname, ts in path_timestamps:
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=distinct_id,
+                    timestamp=ts,
+                    properties={
+                        "$session_id": session_id,
+                        "$pathname": pathname,
+                        "$current_url": f"https://example.com{pathname}",
+                    },
+                )
+        # A matching pageview with a malformed (non-UUID) session id: the join path
+        # leaves it unmatched; the session-id-set id set must drop it instead of feeding
+        # a toUUID() conversion that aborts the whole query.
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user_b",
+            timestamp="2025-01-12T13:00:00Z",
+            properties={"$session_id": "legacy-session", "$pathname": "/pricing"},
+        )
+
+    def _make_runner(self, **query_kwargs) -> WebOverviewQueryRunner:
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2025-01-08", date_to="2025-01-15"),
+            properties=query_kwargs.pop(
+                "properties",
+                [EventPropertyFilter(key="$pathname", operator=PropertyOperator.EXACT, value="/pricing")],
+            ),
+            **query_kwargs,
+        )
+        return WebOverviewQueryRunner(team=self.team, query=query)
+
+    @parameterized.expand([(True,), (False,)])
+    def test_session_id_set_results_match_join_path(self, compare: bool):
+        self._create_pageviews()
+
+        kwargs = {"compareFilter": CompareFilter(compare=True)} if compare else {}
+        with freeze_time(self.QUERY_TIMESTAMP):
+            with override_settings(WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk]):
+                fast_runner = self._make_runner(**kwargs)
+                assert fast_runner.should_use_session_id_set
+                assert not fast_runner.should_skip_session_join
+                fast_results = fast_runner.calculate().results
+
+            join_runner = self._make_runner(**kwargs)
+            assert not join_runner.should_use_session_id_set
+            join_results = join_runner.calculate().results
+
+        assert [item.key for item in fast_results] == [item.key for item in join_results]
+        for fast, join in zip(fast_results, join_results):
+            assert fast.value == join.value, f"{fast.key}: {fast.value} != {join.value}"
+            assert fast.previous == join.previous, f"{fast.key} previous: {fast.previous} != {join.previous}"
+
+    @parameterized.expand(
+        [
+            ("event_property_filter", {}, True),
+            ("no_filters", {"properties": []}, False),
+            (
+                "session_property_filter",
+                {
+                    "properties": [
+                        SessionPropertyFilter(key="$channel_type", operator=PropertyOperator.EXACT, value="Direct")
+                    ]
+                },
+                False,
+            ),
+            (
+                "mixed_filters",
+                {
+                    "properties": [
+                        EventPropertyFilter(key="$pathname", operator=PropertyOperator.EXACT, value="/pricing"),
+                        SessionPropertyFilter(key="$channel_type", operator=PropertyOperator.EXACT, value="Direct"),
+                    ]
+                },
+                False,
+            ),
+            ("conversion_goal", {"conversionGoal": CustomEventConversionGoal(customEventName="purchase")}, False),
+            # Sampling fields are accepted-but-ignored no-ops across web analytics,
+            # so they must not kick eligible queries off the session-id-set path.
+            ("sampling_enabled_ignored", {"sampling": WebAnalyticsSampling(enabled=True)}, True),
+            ("sampling_factor_ignored", {"samplingFactor": 0.1}, True),
+        ]
+    )
+    def test_session_id_set_eligibility(self, _name: str, query_kwargs: dict, expected: bool):
+        with override_settings(WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk]):
+            runner = self._make_runner(**query_kwargs)
+            assert runner.should_use_session_id_set == expected
+
+    @parameterized.expand(
+        [
+            ("flag_expands_beyond_allowlist", False, True, True),
+            ("flag_off_fails_closed", False, False, False),
+            ("allowlist_independent_of_flag", True, False, True),
+            ("flag_evaluation_error_fails_closed", False, RuntimeError("flag service down"), False),
+        ]
+    )
+    def test_session_id_set_feature_flag_gating(
+        self, _name: str, in_allowlist: bool, flag_behavior: bool | Exception, expected: bool
+    ):
+        allowlist = [self.team.pk] if in_allowlist else []
+        flag_mock_kwargs = (
+            {"side_effect": flag_behavior} if isinstance(flag_behavior, Exception) else {"return_value": flag_behavior}
+        )
+        with (
+            override_settings(WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=allowlist),
+            patch(
+                "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.posthoganalytics.feature_enabled",
+                **flag_mock_kwargs,
+            ),
+        ):
+            runner = self._make_runner(
+                properties=[EventPropertyFilter(key="$pathname", operator=PropertyOperator.EXACT, value="/pricing")]
+            )
+            assert runner.should_use_session_id_set == expected
+
+    @parameterized.expand(
+        [
+            (
+                "event_test_filter",
+                [{"key": "$host", "type": "event", "operator": "exact", "value": "example.com"}],
+                True,
+            ),
+            (
+                "person_test_filter",
+                [{"key": "email", "type": "person", "operator": "not_icontains", "value": "@posthog.com"}],
+                True,
+            ),
+            ("cohort_test_filter", [{"key": "id", "type": "cohort", "value": 1}], False),
+        ]
+    )
+    def test_session_id_set_supports_event_and_person_test_account_filters(self, _name, filters, expected):
+        self.team.test_account_filters = filters
+        self.team.save()
+        with override_settings(WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk]):
+            runner = self._make_runner(filterTestAccounts=True)
+            assert runner.should_use_session_id_set == expected
+
+    def test_session_id_set_with_test_filters_matches_join_path(self):
+        self._create_pageviews()
+        self.team.test_account_filters = [
+            {"key": "$pathname", "type": "event", "operator": "not_icontains", "value": "/docs"}
+        ]
+        self.team.save()
+
+        with freeze_time(self.QUERY_TIMESTAMP):
+            with override_settings(WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk]):
+                fast_runner = self._make_runner(filterTestAccounts=True)
+                assert fast_runner.should_use_session_id_set
+                fast_results = fast_runner.calculate().results
+            join_results = self._make_runner(filterTestAccounts=True).calculate().results
+
+        for fast, join in zip(fast_results, join_results):
+            assert fast.value == join.value, f"{fast.key}: {fast.value} != {join.value}"
+
+    def test_session_id_set_requires_team_allowlist(self):
+        runner = self._make_runner()
+        assert not runner.should_use_session_id_set
+
+    def test_session_id_set_pushes_id_filter_below_session_aggregation(self):
+        with freeze_time(self.QUERY_TIMESTAMP):
+            with override_settings(WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk]):
+                runner = self._make_runner()
+                context = HogQLContext(
+                    team_id=self.team.pk,
+                    enable_select_queries=True,
+                    modifiers=HogQLQueryModifiers(sessionIdPushdown=True),
+                )
+                sql, _ = prepare_and_print_ast(runner.to_query(), context=context, dialect="clickhouse")
+
+        # The rewrite is fail-open, so without this assertion a silent break would
+        # keep results correct while regressing the sessions scan back to
+        # aggregating every session in range.
+        assert "globalIn(raw_sessions.session_id_v7" in sql
+        # The pushdown must MOVE the id filter, not copy it: a retained outer
+        # predicate makes ClickHouse execute the identical GLOBAL IN id-subquery
+        # twice — one extra full filtered-events scan per query.
+        assert sql.count("globalIn(") == 1
+        # Full-shape lock on the generated SQL, complementing the targeted
+        # assertions above — any change to the rendered fast-path query shows up
+        # in review as a snapshot diff.
+        assert self.generalize_sql(sql) == self.snapshot
+
+    def test_session_id_set_executes_with_pushdown_modifier_and_tag(self):
+        # The fast path only pays off if _calculate actually flips the
+        # sessionIdPushdown modifier on the executed query — the rewrite fails
+        # open, so dropping the modifier wiring would keep every parity test
+        # green while silently regressing the sessions scan.
+        self._create_pageviews()
+        calls: list[tuple[Optional[str], Optional[HogQLQueryModifiers]]] = []
+
+        def record_calls(*args, **kwargs):
+            calls.append((kwargs.get("query_type"), kwargs.get("modifiers")))
+            return execute_hogql_query(*args, **kwargs)
+
+        with freeze_time(self.QUERY_TIMESTAMP):
+            with override_settings(WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk]):
+                with patch(
+                    "products.web_analytics.backend.hogql_queries.web_overview.execute_hogql_query",
+                    side_effect=record_calls,
+                ):
+                    self._make_runner().calculate()
+
+        main_calls = [c for c in calls if c[0] == "web_overview_session_id_set_query"]
+        assert len(main_calls) == 1, calls
+        modifiers = main_calls[0][1]
+        assert modifiers is not None and modifiers.sessionIdPushdown is True
+
+    def test_session_id_set_falls_back_to_join_when_preflight_query_fails(self):
+        self._create_pageviews()
+        calls: list[Optional[str]] = []
+
+        def fail_preflight(*args, **kwargs):
+            if kwargs.get("query_type") == "web_overview_session_id_set_preflight":
+                raise Exception("clickhouse unavailable")
+            calls.append(kwargs.get("query_type"))
+            return execute_hogql_query(*args, **kwargs)
+
+        with freeze_time(self.QUERY_TIMESTAMP):
+            with override_settings(WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk]):
+                # The preflight executes from the shared base module; the main
+                # query from the runner module — both must be intercepted.
+                with (
+                    patch(
+                        "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.execute_hogql_query",
+                        side_effect=fail_preflight,
+                    ),
+                    patch(
+                        "products.web_analytics.backend.hogql_queries.web_overview.execute_hogql_query",
+                        side_effect=fail_preflight,
+                    ),
+                ):
+                    runner = self._make_runner()
+                    fallback_results = runner.calculate().results
+                    assert runner._session_id_set_selectivity_ok is False
+
+            join_results = self._make_runner().calculate().results
+
+        # The fallback must be observable, not just an internal flag: the main
+        # query has to run as the plain join (results alone can't distinguish the
+        # branches — the two paths are result-equivalent by design).
+        assert calls == ["web_overview_query"]
+        for fallback, join in zip(fallback_results, join_results):
+            assert fallback.value == join.value, f"{fallback.key}: {fallback.value} != {join.value}"
+
+    def test_session_id_set_falls_back_to_join_when_filter_is_unselective(self):
+        self._create_pageviews()
+        calls: list[Optional[str]] = []
+
+        def record_calls(*args, **kwargs):
+            calls.append(kwargs.get("query_type"))
+            return execute_hogql_query(*args, **kwargs)
+
+        with freeze_time(self.QUERY_TIMESTAMP):
+            with override_settings(WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk]):
+                with patch(
+                    "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.SESSION_ID_SET_MAX_MATCHING_SESSIONS",
+                    0,
+                ):
+                    # The preflight executes from the shared base module; the main
+                    # query from the runner module — record both.
+                    with (
+                        patch(
+                            "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.execute_hogql_query",
+                            side_effect=record_calls,
+                        ),
+                        patch(
+                            "products.web_analytics.backend.hogql_queries.web_overview.execute_hogql_query",
+                            side_effect=record_calls,
+                        ),
+                    ):
+                        runner = self._make_runner()
+                        gated_results = runner.calculate().results
+                        assert runner._session_id_set_selectivity_ok is False
+
+            join_results = self._make_runner().calculate().results
+
+        # Over-cap must observably serve the join — this is the memory guard
+        # against shipping unbounded GLOBAL IN sets to shards.
+        assert calls == ["web_overview_session_id_set_preflight", "web_overview_query"]
+        for gated, join in zip(gated_results, join_results):
+            assert gated.value == join.value, f"{gated.key}: {gated.value} != {join.value}"
 
 
 class TestWebOverviewNoJoinRolloutPercent(ClickhouseTestMixin, APIBaseTest):

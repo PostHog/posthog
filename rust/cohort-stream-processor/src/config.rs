@@ -218,6 +218,31 @@ pub struct Config {
     #[envconfig(default = "cohort-stream-cascade")]
     pub kafka_cascade_consumer_group: String,
 
+    /// Consume `cohort_stream_seed_events` and apply backfill day-tiles. Default off.
+    #[envconfig(from = "COHORT_SEED_CONSUMER_ENABLED", default = "false")]
+    pub cohort_seed_consumer_enabled: bool,
+
+    /// The backfill seed-tile topic; must be co-partitioned with `cohort_stream_events`.
+    #[envconfig(default = "cohort_stream_seed_events")]
+    pub cohort_stream_seed_events_topic: String,
+
+    /// Group for the seed follower — separate so backfill lag age is observable on its own.
+    #[envconfig(default = "cohort-stream-seeds")]
+    pub kafka_seed_consumer_group: String,
+
+    /// Apply-fence margin (ms) over `s_chunk`: covers shuffler clock skew, lag spread, and
+    /// producer linger.
+    #[envconfig(from = "COHORT_SEED_FENCE_MARGIN_MS", default = "600000")]
+    pub cohort_seed_fence_margin_ms: i64,
+
+    /// How often the seed consumer probes idle live partitions so a quiet partition's fence can
+    /// still open.
+    #[envconfig(
+        from = "COHORT_SEED_WATERMARK_IDLE_PROBE_INTERVAL_MS",
+        default = "30000"
+    )]
+    pub cohort_seed_watermark_idle_probe_interval_ms: u64,
+
     /// Stable per-pod identity for `group.instance.id` + `client.id`, enabling static membership.
     /// Read from `POD_NAME`, else `HOSTNAME`. Absent means no static membership.
     #[envconfig(from = "POD_NAME")]
@@ -567,6 +592,12 @@ impl Config {
         Duration::from_millis(self.merge_gc_interval_ms)
     }
 
+    pub fn seed_idle_probe_interval(&self) -> Duration {
+        // Floor at 1s: `tokio::time::interval` panics on a zero period.
+        Duration::from_millis(self.cohort_seed_watermark_idle_probe_interval_ms)
+            .max(Duration::from_secs(1))
+    }
+
     pub fn checkpoint_interval(&self) -> Duration {
         Duration::from_millis(self.checkpoint_interval_ms)
     }
@@ -634,6 +665,16 @@ impl Config {
                  F3-on-revoke and the post-join↔delete REVOKE race are NOT covered (single-pod \
                  membership sidesteps them); merge column-family *content* resume after an S3 restore \
                  is validated only on this shadow, NOT production multi-pod merge durability.",
+            );
+        }
+
+        // Not a refusal (dev runs with durability off), but a crash then loses applied tiles
+        // that never replay.
+        if self.cohort_seed_consumer_enabled && !self.durable_restore_enabled {
+            warn!(
+                "COHORT_SEED_CONSUMER_ENABLED without DURABLE_RESTORE_ENABLED: a committed seed \
+                 offset does not imply a durably applied tile across restarts; do not stamp \
+                 backfill readiness against this deployment.",
             );
         }
 
@@ -804,6 +845,8 @@ impl Config {
             kafka_producer_topic_metadata_refresh_interval_ms: None,
             kafka_producer_message_max_bytes: None,
             kafka_producer_sticky_partitioning_linger_ms: None,
+            kafka_producer_acks: None,
+            kafka_producer_retries: None,
         }
     }
 
@@ -919,6 +962,11 @@ mod tests {
             checkpoint_import_window_hours: 24,
             checkpoint_import_attempt_depth: 10,
             checkpoint_import_timeout_secs: 240,
+            cohort_seed_consumer_enabled: false,
+            cohort_stream_seed_events_topic: "cohort_stream_seed_events".to_string(),
+            kafka_seed_consumer_group: "cohort-stream-seeds".to_string(),
+            cohort_seed_fence_margin_ms: 600_000,
+            cohort_seed_watermark_idle_probe_interval_ms: 30_000,
         }
     }
 

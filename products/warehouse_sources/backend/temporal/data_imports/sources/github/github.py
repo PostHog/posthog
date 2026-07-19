@@ -286,13 +286,21 @@ def validate_credentials(personal_access_token: str, repository: str) -> tuple[b
             return False, f"Repository '{repository}' not found or not accessible"
 
         try:
-            error_data = response.json()
-            message = error_data.get("message", response.text)
+            body = response.json()
+            message = body.get("message") if isinstance(body, dict) else None
+        except ValueError:
+            message = None
+        if message:
             return False, message
-        except Exception:
-            pass
 
-        return False, response.text
+        # A non-JSON body means GitHub returned an HTML error page (e.g. its 5xx "Unicorn!" page) —
+        # never surface that raw markup to the user.
+        if response.status_code >= 500:
+            return False, "GitHub is temporarily unavailable. Please try again in a few minutes."
+        return (
+            False,
+            f"GitHub rejected the request (status {response.status_code}). Please check your token and repository access.",
+        )
     except requests.exceptions.RequestException as e:
         return False, str(e)
 

@@ -163,6 +163,37 @@ describe('ActionFilterRow', () => {
             expect(document.querySelector('.ActionFilterRow')!.textContent).toContain('Pageview')
         })
 
+        it('shows the underlying event alongside a renamed series', () => {
+            const { logic } = setup()
+            renderRow(logic, {
+                filter: { ...DEFAULT_FILTER, id: 'user signed up', name: 'Signed up', custom_name: 'Signed up' },
+            })
+            const row = document.querySelector('.ActionFilterRow')!
+            expect(row.textContent).toContain('Signed up')
+            expect(row.textContent).toContain('user signed up')
+        })
+
+        it('opens the picker with the renamed selection first, labelled by the series name', async () => {
+            const { logic } = setup()
+            renderRow(logic, {
+                ...INLINE_CONTEXT,
+                filter: { ...DEFAULT_FILTER, id: 'user signed up', name: 'Signed up', custom_name: 'Signed up' },
+            })
+
+            await userEvent.click(screen.getByTestId('trend-element-subject-0'))
+
+            // The committed selection leads the list, labelled with the series' rename
+            // and revealing the event it actually queries.
+            await waitFor(() => {
+                const rows = Array.from(document.querySelectorAll('.taxonomic-list-row'))
+                const selectedRow = rows.find(
+                    (row) => row.textContent?.includes('Signed up') && row.textContent?.includes('user signed up')
+                )
+                expect(selectedRow).toBeTruthy()
+                expect(selectedRow!.getAttribute('data-attr')).toMatch(/-0$/)
+            })
+        })
+
         describe('series indicators', () => {
             it.each([
                 ['alpha', 'A'],
