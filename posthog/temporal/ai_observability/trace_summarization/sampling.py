@@ -5,6 +5,8 @@ The full trace data is fetched later by the summarization activity using
 TraceQueryRunner per-item, so sampling only needs IDs and timestamps.
 """
 
+import asyncio
+import weakref
 from typing import Any
 
 import structlog
@@ -21,6 +23,7 @@ from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.trace_summarization.constants import (
     AI_EVENT_TYPES,
+    MAX_CONCURRENT_SAMPLING_QUERIES,
     MAX_TRACE_EVENTS_LIMIT,
     MAX_TRACE_PROPERTIES_SIZE,
 )
@@ -36,6 +39,22 @@ logger = structlog.get_logger(__name__)
 # Saved cohort references survive cohort deletion, so we pre-flight check
 # them before sampling to avoid crashing the activity at resolver time.
 _COHORT_FILTER_TYPES = ("cohort", "static-cohort", "precalculated-cohort")
+
+# Per-worker gate on concurrent sampling queries — see MAX_CONCURRENT_SAMPLING_QUERIES.
+# Keyed by the running event loop so tests that spin up their own loop each get a
+# fresh semaphore, sidestepping asyncio's "bound to a different event loop" error.
+_sampling_semaphores: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore]" = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def _sampling_semaphore() -> asyncio.Semaphore:
+    loop = asyncio.get_running_loop()
+    semaphore = _sampling_semaphores.get(loop)
+    if semaphore is None:
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT_SAMPLING_QUERIES)
+        _sampling_semaphores[loop] = semaphore
+    return semaphore
 
 
 def _missing_cohort_ids(team: Team, event_filters: list[dict[str, Any]]) -> list[int]:
@@ -260,14 +279,18 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
             ]
 
     async with Heartbeater():
-        items = await database_sync_to_async(_sample_items, thread_sensitive=False)(
-            inputs.team_id,
-            inputs.window_start,
-            inputs.window_end,
-            inputs.max_items,
-            inputs.analysis_level,
-            event_filters=inputs.event_filters if inputs.event_filters else None,
-        )
+        # Bound concurrent ClickHouse hits per worker so the coordinators' fan-out
+        # of sampling activities doesn't exhaust the shared `default` user's
+        # simultaneous-query cap. Heartbeats keep flowing while we wait for a slot.
+        async with _sampling_semaphore():
+            items = await database_sync_to_async(_sample_items, thread_sensitive=False)(
+                inputs.team_id,
+                inputs.window_start,
+                inputs.window_end,
+                inputs.max_items,
+                inputs.analysis_level,
+                event_filters=inputs.event_filters if inputs.event_filters else None,
+            )
 
     logger.debug(
         "sample_items_in_window_result",
