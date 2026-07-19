@@ -8,6 +8,8 @@ from django.db import connections
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from products.visual_review.backend import logic
 from products.visual_review.backend.db import WRITER_DB
 from products.visual_review.backend.facade.enums import ReviewDecision, ReviewState, RunStatus, RunType, SnapshotResult
@@ -3007,14 +3009,13 @@ class TestApprovalComment:
         cell = logic._image_cell("https://cdn.example/full", "after")
         assert cell == f'<img src="https://cdn.example/full" width="{logic._COMMENT_IMAGE_WIDTH}" alt="after">'
 
-    @pytest.mark.parametrize(
-        "identifier,expected",
+    @parameterized.expand(
         [
-            ("a|b", "`a\\|b`"),  # pipes escaped so the cell stays intact
-            ("a`b", "`ab`"),  # backticks stripped so the code span isn't closed early
+            ("pipe", "a|b", "`a\\|b`"),  # pipes escaped so the cell stays intact
+            ("backtick", "a`b", "`ab`"),  # backticks stripped so the code span isn't closed early
         ],
     )
-    def test_snapshot_name_cell_escapes_markdown(self, identifier, expected):
+    def test_snapshot_name_cell_escapes_markdown(self, _name, identifier, expected):
         assert logic._snapshot_name_cell(identifier) == expected
 
     def test_snapshot_name_cell_collapses_control_characters(self):
