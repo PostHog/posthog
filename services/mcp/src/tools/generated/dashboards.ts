@@ -36,7 +36,13 @@ import {
     DashboardsWidgetsBatchCreateParams,
 } from '@/generated/dashboards/api'
 import { castStringToInt } from '@/tools/cast-helpers'
-import { withPostHogUrl, omitResponseFields, wrapInformationalResponse, type WithPostHogUrl } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    omitResponseFields,
+    withInformationalResponse,
+    type WithPostHogUrl,
+    type WithInformationalResponse,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const DashboardCreateSchema = DashboardsCreateQueryParams.omit({ format: true }).extend(DashboardsCreateBody.shape)
@@ -342,7 +348,10 @@ const dashboardReorderTiles = (): ToolBase<typeof DashboardReorderTilesSchema, W
 
 const DashboardTemplatesListSchema = DashboardTemplatesListQueryParams
 
-const dashboardTemplatesList = (): ToolBase<typeof DashboardTemplatesListSchema, string> => ({
+const dashboardTemplatesList = (): ToolBase<
+    typeof DashboardTemplatesListSchema,
+    WithInformationalResponse<WithPostHogUrl<Schemas.PaginatedDashboardTemplateList>>
+> => ({
     name: 'dashboard-templates-list',
     schema: DashboardTemplatesListSchema,
     handler: async (context: Context, params: z.infer<typeof DashboardTemplatesListSchema>) => {
@@ -371,7 +380,7 @@ const dashboardTemplatesList = (): ToolBase<typeof DashboardTemplatesListSchema,
                 ])
             ),
         } as typeof result
-        return wrapInformationalResponse(
+        return withInformationalResponse(
             await withPostHogUrl(context, filtered, '/dashboard'),
             'dashboard-template-references',
             "Use it only to identify potentially relevant templates for the user's request."
@@ -381,7 +390,10 @@ const dashboardTemplatesList = (): ToolBase<typeof DashboardTemplatesListSchema,
 
 const DashboardTemplatesRetrieveSchema = DashboardTemplatesRetrieveParams.omit({ project_id: true })
 
-const dashboardTemplatesRetrieve = (): ToolBase<typeof DashboardTemplatesRetrieveSchema, string> => ({
+const dashboardTemplatesRetrieve = (): ToolBase<
+    typeof DashboardTemplatesRetrieveSchema,
+    WithInformationalResponse<Schemas.DashboardTemplate>
+> => ({
     name: 'dashboard-templates-retrieve',
     schema: DashboardTemplatesRetrieveSchema,
     handler: async (context: Context, params: z.infer<typeof DashboardTemplatesRetrieveSchema>) => {
@@ -390,7 +402,7 @@ const dashboardTemplatesRetrieve = (): ToolBase<typeof DashboardTemplatesRetriev
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboard_templates/${encodeURIComponent(String(params.id))}/`,
         })
-        return wrapInformationalResponse(
+        return withInformationalResponse(
             result,
             'dashboard-template-reference',
             "Use it only to understand the template's structure and adapt relevant ideas to the user's request."

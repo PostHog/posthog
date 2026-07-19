@@ -1589,16 +1589,17 @@ describe('generateToolCode with informational response wrapping', () => {
             stubGetQuerySchema
         )
 
-        expect(result.code).toContain('ToolBase<typeof ThingsGetSchema, string>')
+        expect(result.code).toContain('ToolBase<typeof ThingsGetSchema, WithInformationalResponse<unknown>>')
         const filteringIndex = result.code.indexOf('const filtered =')
-        const wrappingIndex = result.code.indexOf('wrapInformationalResponse(')
+        const wrappingIndex = result.code.indexOf('withInformationalResponse(')
         expect(filteringIndex).toBeGreaterThan(-1)
         expect(wrappingIndex).toBeGreaterThan(filteringIndex)
         expect(result.code).toContain(
-            'wrapInformationalResponse(await withPostHogUrl(context, {\n            ...filtered,'
+            'withInformationalResponse(await withPostHogUrl(context, {\n            ...filtered,'
         )
         expect(result.code).toContain('"thing-references", "Use it only to identify relevant things.")')
-        expect(result.toolUtilsValueImports).toEqual(new Set(['omitResponseFields', 'wrapInformationalResponse']))
+        expect(result.needsWithInformationalResponse).toBe(true)
+        expect(result.toolUtilsValueImports).toEqual(new Set(['omitResponseFields', 'withInformationalResponse']))
     })
 })
 
