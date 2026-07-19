@@ -1215,21 +1215,15 @@ def finish_processing(run_id: UUID, error_message: str = "") -> Run:
     return run
 
 
-def capture_run_processing_metrics(
-    run_id: UUID,
-    *,
-    outcome: str,
-    timings: Mapping[str, float],
-    total_seconds: float,
-) -> None:
+def capture_run_processing_metrics(run_id: UUID, *, outcome: str) -> None:
     """Emit a product-analytics event for a finished diff-processing run.
 
-    Records run volume, how many snapshots actually needed a pixel comparison
-    (changed / new / removed vs. unchanged / tolerated), and where the task
-    spent its time. That's the signal to tell a snapshot-determinism regression
-    — where the changed rate climbs because images stop being byte-stable, so
-    the content-hash dedup and tolerance cache stop absorbing work — apart from
-    plain run-volume growth, and to see which phase dominates a slow run.
+    Records run volume and how many snapshots actually needed a pixel
+    comparison (changed / new / removed vs. unchanged / tolerated). That's the
+    signal to tell a snapshot-determinism regression — where the changed rate
+    climbs because images stop being byte-stable, so the content-hash dedup and
+    tolerance cache stop absorbing work — apart from plain run-volume growth.
+    Where the time goes is captured separately as OTel spans in the task.
 
     Best-effort: instrumentation must never fail or slow the task, so every
     error is swallowed — including so it can't mask a real exception when
@@ -1260,8 +1254,6 @@ def capture_run_processing_metrics(
             # content-hash dedup and tolerance cache are meant to keep near zero.
             "diffed_count": run.changed_count,
             "reviewable_count": run.changed_count + run.new_count + run.removed_count,
-            "processing_seconds": round(total_seconds, 3),
-            **{key: round(value, 3) for key, value in timings.items()},
         }
 
         with ph_scoped_capture() as capture_ph_event:

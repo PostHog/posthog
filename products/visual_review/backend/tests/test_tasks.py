@@ -79,8 +79,6 @@ class TestProcessRunDiffs:
 
         capture.assert_called_once()
         assert capture.call_args.kwargs["outcome"] == "completed"
-        # All three phases ran, so all three timings are recorded.
-        assert set(capture.call_args.kwargs["timings"]) == {"verify_seconds", "diff_seconds", "finish_seconds"}
 
     def test_emits_metrics_event_on_failure(self, repo):
         create_result = api.create_run(

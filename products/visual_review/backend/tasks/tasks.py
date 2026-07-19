@@ -8,17 +8,19 @@ NOTE: Imports are done inside functions to avoid circular imports
 when Celery loads this module at startup.
 """
 
-import time
 from uuid import UUID
 
 import structlog
 from celery import shared_task
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 
 from posthog.models.scoping import with_team_scope
 
 from ..logic import HashIntegrityError
 
 logger = structlog.get_logger(__name__)
+TRACER = trace.get_tracer(__name__)
 
 
 @shared_task(
@@ -44,61 +46,57 @@ def process_run_diffs(self, team_id: int, run_id: str) -> None:
     from ..diffing import process_diffs
 
     run_uuid = UUID(run_id)
-    started = time.monotonic()
-    timings: dict[str, float] = {}
     outcome = "completed"
     retrying = False
 
-    try:
-        logger.info("visual_review.diff_processing_started", run_id=run_id, team_id=team_id)
-
-        phase_start = time.monotonic()
-        logic.verify_uploads_and_create_artifacts(run_uuid)
-        timings["verify_seconds"] = time.monotonic() - phase_start
-
-        phase_start = time.monotonic()
-        process_diffs(run_uuid)
-        timings["diff_seconds"] = time.monotonic() - phase_start
-
-        phase_start = time.monotonic()
-        logic.finish_processing(run_uuid)
-        timings["finish_seconds"] = time.monotonic() - phase_start
-
-        logger.info("visual_review.diff_processing_completed", run_id=run_id, team_id=team_id)
-    except HashIntegrityError as e:
-        outcome = "hash_integrity_failed"
-        logger.warning("visual_review.hash_integrity_failed", run_id=run_id, error=str(e))
-        logic.finish_processing(run_uuid, error_message=str(e))
-    except GitHubRateLimitError as e:
-        outcome = "rate_limited"
-        logger.warning(
-            "visual_review.diff_processing_rate_limited",
-            run_id=run_id,
-            retry=self.request.retries,
-            max_retries=self.max_retries,
-        )
+    # Phase timings go to OTel spans (where is time spent); counts go to the
+    # vr_run_processed event (how many runs, how many diffs).
+    with TRACER.start_as_current_span("visual_review.process_run_diffs") as span:
+        span.set_attribute("visual_review.run_id", run_id)
+        span.set_attribute("visual_review.team_id", team_id)
         try:
-            retrying = True
-            countdown = e.retry_after or 60
-            self.retry(countdown=min(countdown, 600), exc=e)
-        except self.MaxRetriesExceededError:
-            retrying = False
-            outcome = "rate_limit_exhausted"
-            logic.finish_processing(run_uuid, error_message="GitHub API rate limit exceeded after retries")
-    except Exception as e:
-        outcome = "failed"
-        logger.exception("visual_review.diff_processing_failed", run_id=run_id, team_id=team_id, error=str(e))
-        logic.finish_processing(run_uuid, error_message=str(e))
-        raise
-    finally:
-        # Skip on retry: the run isn't terminal yet and will emit on its next attempt.
-        if not retrying:
-            logic.capture_run_processing_metrics(
-                run_uuid,
-                outcome=outcome,
-                timings=timings,
-                total_seconds=time.monotonic() - started,
+            logger.info("visual_review.diff_processing_started", run_id=run_id, team_id=team_id)
+
+            with TRACER.start_as_current_span("visual_review.verify_uploads"):
+                logic.verify_uploads_and_create_artifacts(run_uuid)
+            with TRACER.start_as_current_span("visual_review.process_diffs"):
+                process_diffs(run_uuid)
+            with TRACER.start_as_current_span("visual_review.finish_processing"):
+                logic.finish_processing(run_uuid)
+
+            logger.info("visual_review.diff_processing_completed", run_id=run_id, team_id=team_id)
+        except HashIntegrityError as e:
+            outcome = "hash_integrity_failed"
+            logger.warning("visual_review.hash_integrity_failed", run_id=run_id, error=str(e))
+            logic.finish_processing(run_uuid, error_message=str(e))
+        except GitHubRateLimitError as e:
+            outcome = "rate_limited"
+            logger.warning(
+                "visual_review.diff_processing_rate_limited",
+                run_id=run_id,
+                retry=self.request.retries,
+                max_retries=self.max_retries,
             )
+            try:
+                retrying = True
+                countdown = e.retry_after or 60
+                self.retry(countdown=min(countdown, 600), exc=e)
+            except self.MaxRetriesExceededError:
+                retrying = False
+                outcome = "rate_limit_exhausted"
+                logic.finish_processing(run_uuid, error_message="GitHub API rate limit exceeded after retries")
+        except Exception as e:
+            outcome = "failed"
+            span.set_status(Status(StatusCode.ERROR, str(e)))
+            span.record_exception(e)
+            logger.exception("visual_review.diff_processing_failed", run_id=run_id, team_id=team_id, error=str(e))
+            logic.finish_processing(run_uuid, error_message=str(e))
+            raise
+        finally:
+            span.set_attribute("visual_review.outcome", outcome)
+            # Skip on retry: the run isn't terminal yet and will emit on its next attempt.
+            if not retrying:
+                logic.capture_run_processing_metrics(run_uuid, outcome=outcome)
 
 
 @shared_task(
