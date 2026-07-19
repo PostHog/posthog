@@ -30,6 +30,7 @@ export interface Filters {
     ordering?: string
     tags?: string[]
     verified?: boolean
+    excludeHidden?: boolean
 }
 
 const DEFAULT_FILTERS: Filters = {
@@ -39,6 +40,7 @@ const DEFAULT_FILTERS: Filters = {
     ordering: 'event',
     tags: undefined,
     verified: undefined,
+    excludeHidden: undefined,
 }
 
 export function createDefinitionKey(event?: EventDefinition, property?: PropertyDefinition): string {
@@ -98,6 +100,7 @@ export interface eventDefinitionsTableLogicValues {
     eventPropertiesCacheMapLoading: boolean
     filters: Filters
     paramsFromFilters: Record<string, any>
+    showHiddenFilter: boolean
     showVerifiedFilter: boolean
 }
 
@@ -254,6 +257,7 @@ export interface eventDefinitionsTableLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         showVerifiedFilter: (eventDefinitions: EventDefinitionsPaginatedResponse, filters: Filters) => boolean
+        showHiddenFilter: (eventDefinitions: EventDefinitionsPaginatedResponse, filters: Filters) => boolean
         paramsFromFilters: (filters: Filters) => Record<string, any>
     }
 }
@@ -486,6 +490,14 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                 filters.verified !== undefined ||
                 (eventDefinitions.results.length > 0 && 'verified' in eventDefinitions.results[0]),
         ],
+        // `hidden` is an Enterprise-only field, so only surface the filter when the results carry
+        // it (or a filter is already applied) — mirrors showVerifiedFilter.
+        showHiddenFilter: [
+            (s) => [s.eventDefinitions, s.filters],
+            (eventDefinitions: EventDefinitionsPaginatedResponse, filters: Filters): boolean =>
+                filters.excludeHidden !== undefined ||
+                (eventDefinitions.results.length > 0 && 'hidden' in eventDefinitions.results[0]),
+        ],
         // Convert filters to API params
         paramsFromFilters: [
             (s) => [s.filters],
@@ -500,6 +512,9 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                 }
                 if (filters.verified !== undefined) {
                     params.verified = filters.verified
+                }
+                if (filters.excludeHidden) {
+                    params.exclude_hidden = true
                 }
                 return params
             },
@@ -555,7 +570,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
     })),
     urlToAction(({ actions, values }) => ({
         '/data-management/events': (_, searchParams) => {
-            const { event, event_type, ordering, tags, verified } = searchParams
+            const { event, event_type, ordering, tags, verified, excludeHidden } = searchParams
 
             const filtersFromUrl: Filters = {
                 ...DEFAULT_FILTERS,
@@ -564,6 +579,9 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                 ...(ordering !== undefined && { ordering }),
                 ...(parseTagsFilter(tags) !== undefined && { tags: parseTagsFilter(tags) }),
                 ...(verified !== undefined && { verified: verified === 'true' || verified === true }),
+                ...(excludeHidden !== undefined && {
+                    excludeHidden: excludeHidden === 'true' || excludeHidden === true,
+                }),
             }
 
             if (!objectsEqual(values.filters, filtersFromUrl)) {

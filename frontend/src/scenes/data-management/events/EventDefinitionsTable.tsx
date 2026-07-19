@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconApps, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect, LemonSelectOptions, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, LemonSelectOptions, Link } from '@posthog/lemon-ui'
 
 import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -42,7 +42,7 @@ const eventTypeOptions: LemonSelectOptions<EventDefinitionType> = [
 ]
 
 export function EventDefinitionsTable(): JSX.Element {
-    const { eventDefinitions, eventDefinitionsLoading, filters, showVerifiedFilter } =
+    const { eventDefinitions, eventDefinitionsLoading, filters, showVerifiedFilter, showHiddenFilter } =
         useValues(eventDefinitionsTableLogic)
     const { loadEventDefinitions, setFilters, applyBulkTagUpdates } = useActions(eventDefinitionsTableLogic)
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
@@ -202,6 +202,17 @@ export function EventDefinitionsTable(): JSX.Element {
                                 size="small"
                             />
                         </>
+                    )}
+                    {showHiddenFilter && (
+                        <LemonCheckbox
+                            label="Exclude hidden events"
+                            checked={!!filters.excludeHidden}
+                            onChange={(checked) => {
+                                setFilters({ excludeHidden: checked || undefined })
+                            }}
+                            data-attr="event-hidden-filter"
+                            size="small"
+                        />
                     )}
                     <LemonButton
                         type="primary"
