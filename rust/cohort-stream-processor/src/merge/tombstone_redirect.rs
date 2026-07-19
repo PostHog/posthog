@@ -16,7 +16,7 @@ use crate::filters::TeamId;
 use crate::merge::transfer::Tombstone;
 use crate::observability::metrics::MERGE_TOMBSTONE_REDIRECTS_TOTAL;
 use crate::partitions::partitioner::partition_of;
-use crate::store::{CohortStore, StoreError, StoreHandle, TombstoneKey};
+use crate::store::{CohortStore, ReadLane, StoreError, StoreHandle, TombstoneKey};
 
 /// Defensive bound on same-partition tombstone hops in one [`resolve`] call.
 const MAX_TOMBSTONE_HOPS: usize = 16;
@@ -117,20 +117,20 @@ fn read_tombstone(
     }
 }
 
-/// Async twin of [`resolve`] over the [`StoreHandle`] facade: identical tombstone walk,
-/// [`Resolution`] semantics, and [`MAX_TOMBSTONE_HOPS`] cap, but each hop reads through the Event
-/// lane so the store I/O runs on the blocking pool. Used by the event-path worker; drain/apply call
-/// the sync [`resolve`] inside their `run_section` closures.
+/// Async twin of [`resolve`] over the [`StoreHandle`] facade; each hop reads on the caller's
+/// `lane`. Drain/apply call the sync [`resolve`] inside their `run_section` closures.
 pub async fn resolve_offloaded(
     handle: &StoreHandle,
     partition_id: u16,
     team_id: TeamId,
     person: Uuid,
     partition_count: u32,
+    lane: ReadLane,
 ) -> Result<Resolution, StoreError> {
     let team = team_id.0 as u64;
 
-    let Some(first) = read_tombstone_offloaded(handle, partition_id, team, person).await? else {
+    let Some(first) = read_tombstone_offloaded(handle, partition_id, team, person, lane).await?
+    else {
         return Ok(Resolution::NotMerged);
     };
 
@@ -145,7 +145,7 @@ pub async fn resolve_offloaded(
                 origin,
             });
         }
-        match read_tombstone_offloaded(handle, partition_id, team, current).await? {
+        match read_tombstone_offloaded(handle, partition_id, team, current, lane).await? {
             Some(next) => current = next.new_person,
             None => {
                 return Ok(Resolution::Inline {
@@ -169,19 +169,20 @@ pub async fn resolve_offloaded(
     })
 }
 
-/// Read and decode one tombstone through the Event lane, or `None` when absent or corrupt.
+/// Read and decode one tombstone, or `None` when absent or corrupt.
 async fn read_tombstone_offloaded(
     handle: &StoreHandle,
     partition_id: u16,
     team: u64,
     person: Uuid,
+    lane: ReadLane,
 ) -> Result<Option<Tombstone>, StoreError> {
     let key = TombstoneKey {
         partition_id,
         team_id: team,
         person,
     };
-    let Some(bytes) = handle.get_tombstone(&key).await? else {
+    let Some(bytes) = handle.get_tombstone(&key, lane).await? else {
         return Ok(None);
     };
     match Tombstone::decode(&bytes) {

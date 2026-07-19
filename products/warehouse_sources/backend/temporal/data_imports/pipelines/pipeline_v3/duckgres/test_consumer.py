@@ -1,4 +1,5 @@
 import time
+import uuid
 from contextlib import contextmanager
 from typing import Any
 
@@ -6,6 +7,9 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import psycopg
+from asgiref.sync import async_to_sync
+
+from posthog.models import DuckgresSinkSchemaState, Organization, Team
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
     OwnershipLostError,
@@ -748,3 +752,54 @@ class TestPermanentApplyErrors:
 
         mock_fail.assert_called_once()
         mock_diverged.assert_not_called()
+
+
+# transaction=True: the stamp helper runs via sync_to_async in a separate thread and calls
+# close_old_connections, so the row must be committed for that thread to see it.
+@pytest.mark.django_db(transaction=True)
+class TestLiveApplyStamp:
+    def _sink_state(self) -> DuckgresSinkSchemaState:
+        team = Team.objects.create(organization=Organization.objects.create(name="org"), name="t")
+        return DuckgresSinkSchemaState.objects.create(
+            team=team, schema_id=uuid.uuid4(), state=DuckgresSinkSchemaState.State.PRIMED
+        )
+
+    def test_live_apply_stamps_the_sink_state_row(self) -> None:
+        # This stamp is the only thing the Data ops Overview tab has for "last applied to
+        # warehouse" — if the hook stops writing it, the UI silently freezes in time.
+        state = self._sink_state()
+        adapter = DuckgresBatchConsumerAdapter()
+        batch = _make_batch(schema_id=str(state.schema_id))
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.mark_applied",
+            new=AsyncMock(),
+        ) as mock_mark_applied:
+            async_to_sync(adapter.after_batch_processed)(_make_healthy_conn(), batch=batch)
+
+        mock_mark_applied.assert_awaited_once()
+        state.refresh_from_db()
+        assert state.queue_last_applied_at is not None
+
+    @pytest.mark.parametrize(
+        "overrides",
+        [
+            {"metadata": {"duckgres_backfill": True, "chunk_paths": ["s3://b/f"], "chunk_count": 1}},
+            {"is_final_batch": True},
+        ],
+    )
+    def test_backfill_and_final_batches_do_not_stamp(self, overrides: dict[str, Any]) -> None:
+        # Backfill chunks report through the chunk counters, and final markers apply nothing;
+        # stamping either would misreport historical or zero-work processing as a live import.
+        state = self._sink_state()
+        adapter = DuckgresBatchConsumerAdapter()
+        batch = _make_batch(schema_id=str(state.schema_id), **overrides)
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.mark_applied",
+            new=AsyncMock(),
+        ):
+            async_to_sync(adapter.after_batch_processed)(_make_healthy_conn(), batch=batch)
+
+        state.refresh_from_db()
+        assert state.queue_last_applied_at is None

@@ -46,6 +46,7 @@ export interface relatedFeatureFlagsLogicValues {
     filteredMappedFlags: RelatedFeatureFlag[]
     filters: Partial<RelatedFlagsFilters>
     isLoading: boolean
+    loadError: boolean
     mappedRelatedFeatureFlags: RelatedFeatureFlag[]
     relatedFeatureFlags: RelatedFeatureFlagResponse | null
     relatedFeatureFlagsLoading: boolean
@@ -187,6 +188,16 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
                     }
                     return { ...state, ...filters }
                 },
+            },
+        ],
+        // Track whether the evaluation_reasons request failed so the table can show a
+        // retry affordance instead of rendering as an empty (looks like "no flags") list.
+        loadError: [
+            false,
+            {
+                loadRelatedFeatureFlags: () => false,
+                loadRelatedFeatureFlagsSuccess: () => false,
+                loadRelatedFeatureFlagsFailure: () => true,
             },
         ],
     }),

@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common::{create_test_kafka, test_warming_config, CHANGELOG_TOPIC, NUM_PARTITIONS};
-use personhog_leader::cache::{CacheLookup, PartitionedCache, PersonCacheKey};
+use personhog_leader::cache::{CacheLookup, DirtyIndex, PartitionedCache, PersonCacheKey};
 use personhog_leader::warming::{warm_from_kafka, WarmingConfig};
 use personhog_proto::personhog::types::v1::Person;
 use prost::Message as ProtoMessage;
@@ -103,7 +103,7 @@ async fn warming_populates_cache_from_kafka() {
     let cache = PartitionedCache::new(100);
     let cfg = warming_config_for("warmer-0", &cluster);
 
-    warm_from_kafka(&cfg, &cache, 0)
+    warm_from_kafka(&cfg, &cache, &DirtyIndex::new(1_000_000), 0)
         .await
         .expect("warming should succeed");
 
@@ -135,7 +135,7 @@ async fn warming_handles_empty_partition() {
     let cache = PartitionedCache::new(100);
     let cfg = warming_config_for("warmer-empty", &cluster);
 
-    warm_from_kafka(&cfg, &cache, 0)
+    warm_from_kafka(&cfg, &cache, &DirtyIndex::new(1_000_000), 0)
         .await
         .expect("warming an empty partition should succeed");
 
@@ -167,7 +167,7 @@ async fn warming_only_populates_target_partition() {
     let cache = PartitionedCache::new(100);
     let cfg = warming_config_for("warmer-iso", &cluster);
 
-    warm_from_kafka(&cfg, &cache, 0)
+    warm_from_kafka(&cfg, &cache, &DirtyIndex::new(1_000_000), 0)
         .await
         .expect("warming partition 0 should succeed");
 
@@ -203,7 +203,7 @@ async fn warming_fails_loudly_on_decode_error_and_leaves_cache_clean() {
     let cache = PartitionedCache::new(100);
     let cfg = warming_config_for("warmer-decode", &cluster);
 
-    let result = warm_from_kafka(&cfg, &cache, 0).await;
+    let result = warm_from_kafka(&cfg, &cache, &DirtyIndex::new(1_000_000), 0).await;
     assert!(
         result.is_err(),
         "a malformed message must fail the entire warm"
@@ -233,7 +233,7 @@ async fn warming_works_across_all_partitions() {
     let cfg = warming_config_for("warmer-all", &cluster);
 
     for partition in 0..NUM_PARTITIONS {
-        warm_from_kafka(&cfg, &cache, partition)
+        warm_from_kafka(&cfg, &cache, &DirtyIndex::new(1_000_000), partition)
             .await
             .unwrap_or_else(|e| panic!("warming partition {partition} failed: {e}"));
     }
@@ -304,7 +304,7 @@ async fn warming_starts_from_writer_committed_offset() {
     // records, defeating the point of this assertion.
     cfg.lookback_offsets = 0;
 
-    warm_from_kafka(&cfg, &cache, 0)
+    warm_from_kafka(&cfg, &cache, &DirtyIndex::new(1_000_000), 0)
         .await
         .expect("warming should succeed");
 
@@ -367,7 +367,7 @@ async fn warming_fails_loudly_on_properties_json_error() {
     let cache = PartitionedCache::new(100);
     let cfg = warming_config_for("warmer-bad-props", &cluster);
 
-    let result = warm_from_kafka(&cfg, &cache, 0).await;
+    let result = warm_from_kafka(&cfg, &cache, &DirtyIndex::new(1_000_000), 0).await;
     assert!(
         result.is_err(),
         "invalid JSON in properties must fail the entire warm"
@@ -409,7 +409,7 @@ async fn warming_preserves_last_write_for_same_key() {
     let cache = PartitionedCache::new(100);
     let cfg = warming_config_for("warmer-lww", &cluster);
 
-    warm_from_kafka(&cfg, &cache, 0)
+    warm_from_kafka(&cfg, &cache, &DirtyIndex::new(1_000_000), 0)
         .await
         .expect("warming should succeed");
 
@@ -430,4 +430,85 @@ async fn warming_preserves_last_write_for_same_key() {
         }
         other => panic!("expected Found, got {:?}", std::mem::discriminant(&other)),
     }
+}
+
+/// When the warm range spans the writer's committed offset, only the
+/// records at or past it may be marked: marking applied ones would send
+/// their misses to the changelog for state PG already has, and skipping
+/// unapplied ones would reopen the stale-fallback hole.
+#[tokio::test]
+async fn warming_seeds_dirty_index_only_at_or_past_the_committed_offset() {
+    let (cluster, producer) = create_test_kafka().await;
+
+    // Offset N → person_id N+1.
+    for i in 0..8 {
+        let person = make_person(1, i + 1);
+        produce_person_to_partition(&producer, 0, &person).await;
+    }
+
+    // Records at offsets 0..4 are applied to PG; 5..7 are not.
+    commit_writer_offset_at(&cluster, "personhog-writer", 0, 5);
+
+    let cache = PartitionedCache::new(100);
+    let dirty_index = DirtyIndex::new(1_000_000);
+    let mut cfg = warming_config_for("warmer-seed-committed", &cluster);
+    // Rewind the warm range below the committed offset so it spans the
+    // boundary and both seeding arms are exercised.
+    cfg.lookback_offsets = 8;
+
+    warm_from_kafka(&cfg, &cache, &dirty_index, 0)
+        .await
+        .expect("warming should succeed");
+
+    assert_eq!(dirty_index.len(), 3);
+    for person_id in 1..=8 {
+        let key = PersonCacheKey {
+            team_id: 1,
+            person_id,
+        };
+        assert!(matches!(cache.get(0, &key), CacheLookup::Found(_)));
+        match dirty_index.get(&key) {
+            None => assert!(
+                person_id <= 5,
+                "person {person_id} is unapplied, must be marked"
+            ),
+            Some(mark) => {
+                assert!(
+                    person_id > 5,
+                    "person {person_id} is applied, must not be marked"
+                );
+                assert_eq!(mark.offset, person_id - 1);
+            }
+        }
+    }
+}
+
+/// Warming must seed the dirty index for every record the writer has not
+/// applied — with no committed offset at all, that is every record — so a
+/// post-warm eviction still recovers from the changelog instead of
+/// trusting a PG row the writer never wrote.
+#[tokio::test]
+async fn warming_seeds_dirty_index_when_writer_has_no_commits() {
+    let (cluster, producer) = create_test_kafka().await;
+
+    for person_id in 1..=3 {
+        let person = make_person(1, person_id);
+        produce_person_to_partition(&producer, 0, &person).await;
+    }
+
+    let cache = PartitionedCache::new(100);
+    let dirty_index = DirtyIndex::new(1_000_000);
+    let cfg = warming_config_for("warmer-seed", &cluster);
+
+    warm_from_kafka(&cfg, &cache, &dirty_index, 0)
+        .await
+        .expect("warming should succeed");
+
+    assert_eq!(
+        dirty_index.len(),
+        3,
+        "every warmed record must be marked dirty when the writer has no commits"
+    );
+    // Marks carry the record offsets: 3 records at offsets 0..=2.
+    assert_eq!(dirty_index.max_offset(0), Some(2));
 }

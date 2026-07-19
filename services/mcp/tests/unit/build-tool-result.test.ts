@@ -173,6 +173,23 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
 })
 
 describe('buildToolResultPayload — non-query use cases', () => {
+    it('preserves array handler results', () => {
+        const result = [{ id: 'template-1' }]
+        Object.defineProperty(result, POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, {
+            value: 'informational result',
+            enumerable: false,
+        })
+
+        const payload = buildToolResultPayload({
+            handlerResult: result,
+            toolMeta: undefined,
+            toolName: 'templates-list',
+            params: {},
+        })
+
+        expect(payload.content).toEqual([{ type: 'text', text: 'informational result' }])
+    })
+
     it('passes string handler results through verbatim (no character-indexed expansion)', () => {
         // Regression guard for the original bug: `execute-sql` and other
         // string-returning handlers must not be object-rest-destructured.

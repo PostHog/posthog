@@ -102,10 +102,14 @@ class ReviewerInput:
     Mirrors the inbox `SuggestedReviewerEntryWriteSerializer`: at least one of the two must be set. A
     `user_uuid` is resolved server-side to the org member's linked GitHub login (and wins over a
     supplied `github_login` when both are given), so a scout that only knows a PostHog user — e.g.
-    routing a report to an account owner — can route it without first looking up the handle."""
+    routing a report to an account owner — can route it without first looking up the handle.
+    `reason` is the evidence behind the pick (recent author on the affected surface, human
+    correction, …), persisted on the artefact so the routing is auditable without the run
+    transcript."""
 
     github_login: str | None = None
     user_uuid: str | None = None
+    reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -269,7 +273,7 @@ def _build_suggested_reviewers(team_id: int, reviewers: list[ReviewerInput] | No
     uuids_to_resolve = [str(entry.user_uuid) for entry in reviewers if entry.user_uuid]
     uuid_to_login = get_org_member_github_logins_by_user_uuid(team_id, uuids_to_resolve) if uuids_to_resolve else {}
 
-    logins: list[str] = []
+    entries: list[SuggestedReviewerEntry] = []
     seen: set[str] = set()
     for entry in reviewers:
         if entry.user_uuid:
@@ -286,11 +290,12 @@ def _build_suggested_reviewers(team_id: int, reviewers: list[ReviewerInput] | No
         if login in seen:
             continue
         seen.add(login)
-        logins.append(login)
+        reason = entry.reason.strip() if entry.reason and entry.reason.strip() else None
+        entries.append(SuggestedReviewerEntry(github_login=login, reason=reason))
 
-    if not logins:
+    if not entries:
         return None
-    return SuggestedReviewers(root=[SuggestedReviewerEntry(github_login=login) for login in logins])
+    return SuggestedReviewers(root=entries)
 
 
 def _wants_repo_selection(
