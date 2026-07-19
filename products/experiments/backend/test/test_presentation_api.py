@@ -5767,10 +5767,17 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             status="completed",
             is_terminal=True,
             pr_url="https://github.com/PostHog/posthog/pull/123",
+            team_id=self.team.id,
         )
-        with patch(
-            "products.experiments.backend.presentation.views.tasks_facade.get_latest_run_by_task",
-            return_value={str(task_id): run},
+        with (
+            patch(
+                "products.experiments.backend.presentation.views.tasks_facade.get_latest_run_by_task",
+                return_value={str(task_id): run},
+            ),
+            patch(
+                "products.experiments.backend.presentation.views.tasks_facade.task_visible",
+                return_value=True,
+            ) as mock_task_visible,
         ):
             resp = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp_id}/flag_cleanup_task/")
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
@@ -5781,17 +5788,47 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 "run_status": "completed",
                 "is_terminal": True,
                 "pr_url": "https://github.com/PostHog/posthog/pull/123",
+                "can_view_task": True,
             },
         )
+        mock_task_visible.assert_called_once_with(task_id, self.team.pk, self.user.id)
 
-        # A PR URL that doesn't point at GitHub is dropped rather than rendered as a link.
-        run = SimpleNamespace(status="completed", is_terminal=True, pr_url="http://evil.example.com/pr/1")
+        # No Task row exists for this id, so the real visibility check reports False.
         with patch(
             "products.experiments.backend.presentation.views.tasks_facade.get_latest_run_by_task",
             return_value={str(task_id): run},
         ):
             resp = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp_id}/flag_cleanup_task/")
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertFalse(resp.json()["can_view_task"])
+
+        # A PR URL that doesn't point at GitHub is dropped rather than rendered as a link.
+        run = SimpleNamespace(
+            status="completed", is_terminal=True, pr_url="http://evil.example.com/pr/1", team_id=self.team.id
+        )
+        with patch(
+            "products.experiments.backend.presentation.views.tasks_facade.get_latest_run_by_task",
+            return_value={str(task_id): run},
+        ):
+            resp = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp_id}/flag_cleanup_task/")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertIsNone(resp.json()["pr_url"])
+
+        # A run in another team (experiment transferred across projects) is treated as absent.
+        run = SimpleNamespace(
+            status="completed",
+            is_terminal=True,
+            pr_url="https://github.com/PostHog/posthog/pull/123",
+            team_id=self.team.id + 1,
+        )
+        with patch(
+            "products.experiments.backend.presentation.views.tasks_facade.get_latest_run_by_task",
+            return_value={str(task_id): run},
+        ):
+            resp = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp_id}/flag_cleanup_task/")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(resp.json()["run_status"], "queued")
+        self.assertFalse(resp.json()["is_terminal"])
         self.assertIsNone(resp.json()["pr_url"])
 
         # Task recorded but no run row yet: reported as queued, non-terminal.

@@ -591,6 +591,11 @@ class EnterpriseExperimentsViewSet(
         run = tasks_facade.get_latest_run_by_task([experiment.flag_cleanup_task_id]).get(
             str(experiment.flag_cleanup_task_id)
         )
+        # get_latest_run_by_task filters by task id only. After a project transfer the
+        # experiment can point at a task in the old team — treat that run as absent rather
+        # than leaking its status across teams.
+        if run is not None and run.team_id != experiment.team_id:
+            run = None
         # The PR URL comes from the task run's output blob — only pass it through when it
         # actually points at GitHub, since the frontend renders it as a GitHub link.
         pr_url = run.pr_url if run else None
@@ -602,6 +607,11 @@ class EnterpriseExperimentsViewSet(
                 "run_status": run.status if run else "queued",
                 "is_terminal": run.is_terminal if run else False,
                 "pr_url": pr_url,
+                # Whether the tasks API would let this user open the task page — cleanup
+                # tasks are creator-visible there today, so hide the link from everyone else.
+                "can_view_task": tasks_facade.task_visible(
+                    experiment.flag_cleanup_task_id, self.team.pk, cast(User, request.user).id
+                ),
             }
         )
         return Response(response_serializer.data)
@@ -699,8 +709,9 @@ class EnterpriseExperimentsViewSet(
         """
         Reset an experiment back to draft state.
 
-        Clears start/end dates, conclusion, and archived flag. The feature
-        flag is left unchanged — users continue to see their assigned variants.
+        Clears start/end dates, conclusion, archived flag, and any flag-cleanup
+        task pointer. The feature flag is left unchanged — users continue to see
+        their assigned variants.
 
         Previously collected events still exist but won't be included in
         results unless the start date is manually adjusted after re-launch.

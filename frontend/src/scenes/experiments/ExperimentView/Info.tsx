@@ -32,13 +32,11 @@ function FlagCleanupLine({ experimentId, taskId }: { experimentId: number; taskI
     }
 
     let text = 'Preparing cleanup PR…'
-    let linkText = 'View task'
-    let to = urls.taskDetail(taskId)
+    let prUrl: string | null = null
     if (cleanupTask.is_terminal) {
         if (cleanupTask.run_status === 'completed' && cleanupTask.pr_url) {
             text = 'Cleanup PR opened'
-            linkText = 'View on GitHub'
-            to = cleanupTask.pr_url
+            prUrl = cleanupTask.pr_url
         } else if (cleanupTask.run_status === 'completed') {
             text = 'Cleanup found no flag code to remove'
         } else if (cleanupTask.run_status === 'failed') {
@@ -48,16 +46,31 @@ function FlagCleanupLine({ experimentId, taskId }: { experimentId: number; taskI
         }
     }
 
+    const isExternalLink = prUrl !== null
+    // The task page 404s for everyone but the task's creator — hide the internal link from others.
+    const showLink = isExternalLink || cleanupTask.can_view_task
+
     return (
         <div className="text-xs text-muted mt-1 mb-3 flex items-center gap-1">
-            {text} ·
-            <Link
-                target={to === cleanupTask.pr_url ? '_blank' : undefined}
-                className="flex items-center gap-0.5"
-                to={to}
-            >
-                {linkText} <IconOpenInNew fontSize="12" />
-            </Link>
+            {text}
+            {showLink && (
+                <>
+                    ·
+                    <Link
+                        target={isExternalLink ? '_blank' : undefined}
+                        className="flex items-center gap-0.5"
+                        to={prUrl ?? urls.taskDetail(taskId)}
+                    >
+                        {isExternalLink ? (
+                            <>
+                                View on GitHub <IconOpenInNew fontSize="12" />
+                            </>
+                        ) : (
+                            'View task'
+                        )}
+                    </Link>
+                </>
+            )}
         </div>
     )
 }

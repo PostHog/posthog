@@ -25060,6 +25060,8 @@ export namespace Schemas {
          * @nullable
          */
       pr_url: string | null;
+      /** Whether the requesting user can open the task in PostHog Code. Cleanup tasks are visible to their creator only, so other viewers should not be shown a task link. */
+      can_view_task: boolean;
     }
 
     /**

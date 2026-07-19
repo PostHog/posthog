@@ -282,7 +282,7 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
             )
             .optional()
             .describe(
-                "Non-empty list of release-condition groups defining the held-out population, using the same shape as feature-flag release conditions. Each element's `rollout_percentage` (0–100, may be fractional) is the *\*exclusion*\* percentage — the share of users held back from all experiments that reference this holdout. `properties` optionally narrows the group by person/group properties. Do not set `variant`: the server normalizes it to `holdout-{id}`. Note that only the first element's `rollout_percentage` is embedded into each linked experiment's feature flag, and this population is shared across every experiment using the holdout."
+                "Non-empty list of release-condition groups defining the held-out population, using the same shape as feature-flag release conditions. Each element's `rollout_percentage` (0–100, may be fractional) is the **exclusion** percentage — the share of users held back from all experiments that reference this holdout. `properties` optionally narrows the group by person/group properties. Do not set `variant`: the server normalizes it to `holdout-{id}`. Note that only the first element's `rollout_percentage` is embedded into each linked experiment's feature flag, and this population is shared across every experiment using the holdout."
             ),
     })
     .describe('A holdout group — a stable slice of users excluded from experiment exposure.')
@@ -559,7 +559,7 @@ export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
             )
             .optional()
             .describe(
-                "Non-empty list of release-condition groups defining the held-out population, using the same shape as feature-flag release conditions. Each element's `rollout_percentage` (0–100, may be fractional) is the *\*exclusion*\* percentage — the share of users held back from all experiments that reference this holdout. `properties` optionally narrows the group by person/group properties. Do not set `variant`: the server normalizes it to `holdout-{id}`. Note that only the first element's `rollout_percentage` is embedded into each linked experiment's feature flag, and this population is shared across every experiment using the holdout."
+                "Non-empty list of release-condition groups defining the held-out population, using the same shape as feature-flag release conditions. Each element's `rollout_percentage` (0–100, may be fractional) is the **exclusion** percentage — the share of users held back from all experiments that reference this holdout. `properties` optionally narrows the group by person/group properties. Do not set `variant`: the server normalizes it to `holdout-{id}`. Note that only the first element's `rollout_percentage` is embedded into each linked experiment's feature flag, and this population is shared across every experiment using the holdout."
             ),
     })
     .describe('A holdout group — a stable slice of users excluded from experiment exposure.')
@@ -1716,7 +1716,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     .default(
                                                         experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneoneTypeDefault
                                                     )
-                                                    .describe('Event property with "$feature/\" prepended'),
+                                                    .describe('Event property with "$feature/" prepended'),
                                                 value: zod
                                                     .union([
                                                         zod.array(
@@ -5269,7 +5269,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     .default(
                                                         experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneoneTypeDefault
                                                     )
-                                                    .describe('Event property with "$feature/\" prepended'),
+                                                    .describe('Event property with "$feature/" prepended'),
                                                 value: zod
                                                     .union([
                                                         zod.array(
@@ -8773,7 +8773,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     .default(
                                                         experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneoneTypeDefault
                                                     )
-                                                    .describe('Event property with "$feature/\" prepended'),
+                                                    .describe('Event property with "$feature/" prepended'),
                                                 value: zod
                                                     .union([
                                                         zod.array(
@@ -11440,8 +11440,9 @@ export const ExperimentsPauseCreateParams = /* @__PURE__ */ zod.object({
 /**
  * Reset an experiment back to draft state.
  *
- * Clears start/end dates, conclusion, and archived flag. The feature
- * flag is left unchanged — users continue to see their assigned variants.
+ * Clears start/end dates, conclusion, archived flag, and any flag-cleanup
+ * task pointer. The feature flag is left unchanged — users continue to see
+ * their assigned variants.
  *
  * Previously collected events still exist but won't be included in
  * results unless the start date is manually adjusted after re-launch.

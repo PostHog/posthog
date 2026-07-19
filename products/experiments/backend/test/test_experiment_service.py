@@ -4,7 +4,7 @@ from copy import deepcopy
 from datetime import timedelta
 from decimal import Decimal
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -4194,6 +4194,8 @@ class TestExperimentService(APIBaseTest):
         else:
             experiment = self._create_ended_experiment(name="Reset Ended", feature_flag_key=f"reset-{state}-flag")
             assert experiment.is_stopped
+        experiment.flag_cleanup_task_id = uuid4()
+        experiment.save()
 
         reset = self._service().reset_experiment(experiment)
 
@@ -4204,6 +4206,7 @@ class TestExperimentService(APIBaseTest):
         assert reset.archived is False
         assert reset.conclusion is None
         assert reset.conclusion_comment is None
+        assert reset.flag_cleanup_task_id is None
 
     def test_reset_experiment_leaves_feature_flag_unchanged(self):
         experiment = self._create_running_experiment(name="Reset Flag", feature_flag_key="reset-flag-unchanged")

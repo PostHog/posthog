@@ -2531,6 +2531,9 @@ class ExperimentService:
         experiment.archived = False
         experiment.conclusion = None
         experiment.conclusion_comment = None
+        # The cleanup task belongs to the ended run — keeping the pointer would resurrect a
+        # stale "Cleanup PR opened" line after the experiment is re-ended without opting in.
+        experiment.flag_cleanup_task_id = None
 
         experiment.save()
 

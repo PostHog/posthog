@@ -755,8 +755,9 @@ export const getExperimentsResetCreateUrl = (projectId: string, id: number) => {
 /**
  * Reset an experiment back to draft state.
  *
- * Clears start/end dates, conclusion, and archived flag. The feature
- * flag is left unchanged — users continue to see their assigned variants.
+ * Clears start/end dates, conclusion, archived flag, and any flag-cleanup
+ * task pointer. The feature flag is left unchanged — users continue to see
+ * their assigned variants.
  *
  * Previously collected events still exist but won't be included in
  * results unless the start date is manually adjusted after re-launch.

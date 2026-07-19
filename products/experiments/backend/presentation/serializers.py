@@ -1035,6 +1035,12 @@ class ExperimentFlagCleanupTaskSerializer(serializers.Serializer):
         allow_null=True,
         help_text="URL of the pull request the task opened, when it opened one.",
     )
+    can_view_task = serializers.BooleanField(
+        help_text=(
+            "Whether the requesting user can open the task in PostHog Code. Cleanup tasks are "
+            "visible to their creator only, so other viewers should not be shown a task link."
+        ),
+    )
 
 
 class ArchiveExperimentSerializer(serializers.Serializer):
