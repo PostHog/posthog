@@ -235,6 +235,9 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             json_schema: z.any().optional(),
             temperature: z.number().optional(),
             max_tokens: z.number().optional(),
+            top_p: z.number().optional(),
+            reasoning_effort: z.enum(['minimal', 'low', 'medium', 'high']).optional(),
+            thinking: z.boolean().optional(),
             tools: z.array(z.any()).optional(),
             // Per-workflow guardrail: max LLM calls/minute for this step. Overrides the deployment
             // default. Over-cap dispatches take the error branch instead of running up spend.

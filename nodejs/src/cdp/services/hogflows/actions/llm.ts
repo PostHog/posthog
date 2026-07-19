@@ -118,6 +118,9 @@ export class LlmActionHandler implements ActionHandler {
             jsonSchema: action.config.json_schema,
             temperature: action.config.temperature,
             maxTokens: action.config.max_tokens,
+            topP: action.config.top_p,
+            reasoningEffort: action.config.reasoning_effort,
+            thinking: action.config.thinking,
             tools: action.config.tools,
         }
 

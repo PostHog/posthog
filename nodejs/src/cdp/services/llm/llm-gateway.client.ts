@@ -54,6 +54,17 @@ export class FetchLlmGatewayClient implements LlmGatewayClient {
         if (request.maxTokens !== undefined) {
             body.max_tokens = request.maxTokens
         }
+        if (request.topP !== undefined) {
+            body.top_p = request.topP
+        }
+        // Provider-specific; forwarded only when set so default calls stay unchanged. The gateway
+        // (litellm) maps/ignores these per provider.
+        if (request.reasoningEffort !== undefined) {
+            body.reasoning_effort = request.reasoningEffort
+        }
+        if (request.thinking) {
+            body.thinking = request.thinking
+        }
         if (request.tools) {
             body.tools = request.tools
         }

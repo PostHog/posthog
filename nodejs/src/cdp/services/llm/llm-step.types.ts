@@ -32,6 +32,9 @@ export interface LlmStepRequest {
     jsonSchema?: unknown
     temperature?: number
     maxTokens?: number
+    topP?: number
+    reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high'
+    thinking?: boolean
     tools?: unknown[]
 }
 
