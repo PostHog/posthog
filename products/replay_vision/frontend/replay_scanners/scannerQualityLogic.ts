@@ -23,7 +23,7 @@ import type {
     VisionScannersObservationsListParams,
 } from '../generated/api.schemas'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
-import { buildAppliedConfig, changedFields, FieldDecision, parseConfigChanges } from './components/configChanges'
+import { buildAppliedConfig, changedFields, parseConfigChanges } from './components/configChanges'
 import { ObservationsSorting, replayScannerLogic, resolveOrderByKey } from './replayScannerLogic'
 
 export type RatedFilterValue = 'all' | 'unrated' | 'rated'
@@ -43,12 +43,13 @@ export interface scannerQualityLogicValues {
     applying: boolean
     assembledConfig: Record<string, unknown>
     currentSuggestion: ReplayScannerPromptSuggestionApi | null
-    decisionOverrides: Record<string, { approved?: boolean; value?: unknown }>
     dismissing: boolean
     evaluating: boolean
     evaluationSessionCap: number
-    fieldDecisions: Record<string, FieldDecision>
+    fieldValueOverrides: Record<string, unknown>
+    fieldValues: Record<string, unknown>
     generating: boolean
+    hasEditableFields: boolean
     labelStats: ObservationLabelStatsApi | null
     labelStatsLoading: boolean
     lastTestedConfig: Record<string, unknown> | null
@@ -101,13 +102,6 @@ export interface scannerQualityLogicActions {
     }
     evaluateSuggestionFailure: () => {
         value: true
-    }
-    setFieldApproved: (
-        field: string,
-        approved: boolean
-    ) => {
-        field: string
-        approved: boolean
     }
     setFieldValue: (
         field: string,
@@ -247,7 +241,6 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
         evaluateSuggestion: (suggestionId: string, config: Record<string, unknown>) => ({ suggestionId, config }),
         evaluateSuggestionSuccess: (suggestion: ReplayScannerPromptSuggestionApi) => ({ suggestion }),
         evaluateSuggestionFailure: true,
-        setFieldApproved: (field: string, approved: boolean) => ({ field, approved }),
         setFieldValue: (field: string, value: unknown) => ({ field, value }),
         setTestSessionLimit: (limit: number | null) => ({ limit }),
         loadSuggestionHistory: true,
@@ -346,14 +339,10 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
         ],
         // Per-field edits the user has made to the current recommendation. Any new or changed
         // recommendation clears them so a stale edit is never applied.
-        decisionOverrides: [
-            {} as Record<string, { approved?: boolean; value?: unknown }>,
+        fieldValueOverrides: [
+            {} as Record<string, unknown>,
             {
-                setFieldApproved: (state, { field, approved }) => ({
-                    ...state,
-                    [field]: { ...state[field], approved },
-                }),
-                setFieldValue: (state, { field, value }) => ({ ...state, [field]: { ...state[field], value } }),
+                setFieldValue: (state, { field, value }) => ({ ...state, [field]: value }),
                 loadCurrentSuggestionSuccess: () => ({}),
                 generateSuggestionSuccess: () => ({}),
                 applySuggestionSuccess: () => ({}),
@@ -457,37 +446,40 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
                 return Math.max(1, Math.min(maxAllowed, testSessionLimit ?? maxAllowed))
             },
         ],
-        // One decision per changed field, the user's edit falling back to the suggested value.
-        fieldDecisions: [
-            (s) => [s.currentSuggestion, s.decisionOverrides],
+        // The editable value per changed field, the user's edit falling back to the suggested value.
+        fieldValues: [
+            (s) => [s.currentSuggestion, s.fieldValueOverrides],
             (
                 suggestion: ReplayScannerPromptSuggestionApi | null,
-                overrides: Record<string, { approved?: boolean; value?: unknown }>
-            ): Record<string, FieldDecision> => {
+                overrides: Record<string, unknown>
+            ): Record<string, unknown> => {
                 if (!suggestion) {
                     return {}
                 }
                 const base = (suggestion.base_config ?? {}) as Record<string, unknown>
                 const suggested = (suggestion.suggested_config ?? {}) as Record<string, unknown>
-                const decisions: Record<string, FieldDecision> = {}
+                const values: Record<string, unknown> = {}
                 for (const { field } of changedFields(parseConfigChanges(suggestion.changes))) {
-                    const override = overrides[field] ?? {}
-                    decisions[field] = {
-                        approved: override.approved ?? true,
-                        value: 'value' in override ? override.value : (suggested[field] ?? base[field]),
-                    }
+                    values[field] = field in overrides ? overrides[field] : (suggested[field] ?? base[field])
                 }
-                return decisions
+                return values
             },
         ],
-        // What apply and test send: base config with the approved edits laid over it.
+        // False for legacy prompt-only rows: they carry no changes[], so there is nothing to assemble
+        // and apply/test must fall back to the stored suggestion rather than sending an empty config.
+        hasEditableFields: [
+            (s) => [s.currentSuggestion],
+            (suggestion: ReplayScannerPromptSuggestionApi | null): boolean =>
+                !!suggestion && changedFields(parseConfigChanges(suggestion.changes)).length > 0,
+        ],
+        // What apply and test send: the current config with the user's field edits laid over it.
         assembledConfig: [
-            (s) => [s.currentSuggestion, s.fieldDecisions],
+            (s) => [s.currentSuggestion, s.fieldValues],
             (
                 suggestion: ReplayScannerPromptSuggestionApi | null,
-                decisions: Record<string, FieldDecision>
+                fieldValues: Record<string, unknown>
             ): Record<string, unknown> =>
-                buildAppliedConfig((suggestion?.base_config ?? {}) as Record<string, unknown>, decisions),
+                buildAppliedConfig((suggestion?.base_config ?? {}) as Record<string, unknown>, fieldValues),
         ],
         recommendationEditedSinceTest: [
             (s) => [s.assembledConfig, s.lastTestedConfig],
@@ -617,7 +609,8 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
                     props.scannerId,
                     suggestionId,
                     {
-                        config,
+                        // Legacy prompt-only rows have no editable config, so test the stored suggestion.
+                        ...(values.hasEditableFields ? { config } : {}),
                         ...(values.plannedTestSessions > 0 ? { session_limit: values.plannedTestSessions } : {}),
                     }
                 )
@@ -662,7 +655,8 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
                     String(teamId),
                     props.scannerId,
                     suggestionId,
-                    { config: values.assembledConfig }
+                    // Legacy prompt-only rows have no editable config, so apply the stored suggestion.
+                    values.hasEditableFields ? { config: values.assembledConfig } : undefined
                 )
                 cache.suggestionEpoch = (cache.suggestionEpoch ?? 0) + 1
                 actions.applySuggestionSuccess(suggestion)

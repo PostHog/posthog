@@ -39,11 +39,6 @@ export function formatChangeValue(value: unknown): string {
     return String(value)
 }
 
-export interface FieldDecision {
-    approved: boolean
-    value: unknown
-}
-
 /** The distinct fields a recommendation changes, each with its kind. Field and kind are 1:1, so one row per field. */
 export function changedFields(changes: ScannerConfigChange[]): { field: string; kind: ScannerConfigChange['kind'] }[] {
     const seen = new Set<string>()
@@ -57,18 +52,13 @@ export function changedFields(changes: ScannerConfigChange[]): { field: string; 
     return fields
 }
 
-/** Approved fields take their edited value; rejected (and untouched) fields keep the base value. */
+/** The config to write: the current config with the user's edited field values laid over it. A field edited
+ *  back to its current value is a no-op. */
 export function buildAppliedConfig(
     baseConfig: Record<string, unknown>,
-    decisions: Record<string, FieldDecision>
+    fieldValues: Record<string, unknown>
 ): Record<string, unknown> {
-    const result = { ...baseConfig }
-    for (const [field, decision] of Object.entries(decisions)) {
-        if (decision.approved) {
-            result[field] = decision.value
-        }
-    }
-    return result
+    return { ...baseConfig, ...fieldValues }
 }
 
 export function describeTagOp(change: ScannerConfigChange): { verb: 'Add' | 'Remove' | 'Rename'; text: string } {

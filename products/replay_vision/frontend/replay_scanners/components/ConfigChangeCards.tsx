@@ -1,13 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconExpand45 } from '@posthog/icons'
+import { IconExpand45, IconRevert } from '@posthog/icons'
 import {
     LemonButton,
-    LemonCheckbox,
     LemonInput,
     LemonModal,
     LemonSegmentedButton,
+    LemonSwitch,
     LemonTag,
     LemonTagType,
     LemonTextArea,
@@ -31,12 +31,14 @@ import { SUMMARIZER_LENGTH_OPTIONS } from './ScannerTypeConfigEditor'
 
 /** The bordered side-by-side diff with labeled panes, rendered inline and inside the fullscreen modal. */
 function SuggestionDiffPanes({
-    suggestion,
+    original,
+    modified,
     isDarkModeOn,
     editorHeight,
     onExpand,
 }: {
-    suggestion: ReplayScannerPromptSuggestionApi
+    original: string | null
+    modified: string | null
     isDarkModeOn: boolean
     editorHeight?: string
     onExpand?: () => void
@@ -46,7 +48,7 @@ function SuggestionDiffPanes({
             <div className="flex items-center border-b bg-surface-secondary text-xs font-medium">
                 <div className="flex-1 px-3 py-1.5 border-r">Current prompt</div>
                 <div className="flex-1 px-3 py-1.5 flex items-center justify-between">
-                    <span>Suggested prompt</span>
+                    <span>New prompt</span>
                     {onExpand && (
                         <LemonButton
                             size="xsmall"
@@ -59,8 +61,8 @@ function SuggestionDiffPanes({
                 </div>
             </div>
             <MonacoDiffEditor
-                original={suggestion.base_prompt}
-                modified={suggestion.suggested_prompt}
+                original={original}
+                modified={modified}
                 language="markdown"
                 theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
                 height={editorHeight}
@@ -84,25 +86,29 @@ function SuggestionDiffPanes({
     )
 }
 
-/** The prompt diff for reference, expandable to full screen. Shown above the editable prompt field. */
+/** The current-vs-new prompt diff, expandable to full screen. Its right pane reflects the edited value live. */
 function PromptDiff({
-    suggestion,
+    original,
+    modified,
     isDarkModeOn,
 }: {
-    suggestion: ReplayScannerPromptSuggestionApi
+    original: string | null
+    modified: string | null
     isDarkModeOn: boolean
 }): JSX.Element {
     const [isExpanded, setIsExpanded] = useState(false)
     return (
         <>
             <SuggestionDiffPanes
-                suggestion={suggestion}
+                original={original}
+                modified={modified}
                 isDarkModeOn={isDarkModeOn}
                 onExpand={() => setIsExpanded(true)}
             />
             <LemonModal isOpen={isExpanded} onClose={() => setIsExpanded(false)} title="Recommendation" fullScreen>
                 <SuggestionDiffPanes
-                    suggestion={suggestion}
+                    original={original}
+                    modified={modified}
                     isDarkModeOn={isDarkModeOn}
                     editorHeight="calc(100vh - 16rem)"
                 />
@@ -131,28 +137,28 @@ function TagChips({ changes }: { changes: ScannerConfigChange[] }): JSX.Element 
     )
 }
 
-/** The editable control for a field, by kind. A flag has nothing to edit, so approving the field applies its value. */
+/** The editable control for a field, by kind. */
 function FieldValueEditor({
     kind,
     value,
     onChange,
-    suggestion,
+    basePrompt,
     isDarkModeOn,
     tagChanges,
-    flagChange,
 }: {
     kind: ScannerConfigChange['kind']
     value: unknown
     onChange: (value: unknown) => void
-    suggestion: ReplayScannerPromptSuggestionApi
+    basePrompt: string | null
     isDarkModeOn: boolean
     tagChanges: ScannerConfigChange[]
-    flagChange: ScannerConfigChange | undefined
 }): JSX.Element {
     if (kind === 'prompt') {
         return (
             <div className="space-y-2">
-                {suggestion.base_prompt ? <PromptDiff suggestion={suggestion} isDarkModeOn={isDarkModeOn} /> : null}
+                {basePrompt ? (
+                    <PromptDiff original={basePrompt} modified={String(value ?? '')} isDarkModeOn={isDarkModeOn} />
+                ) : null}
                 <LemonTextArea value={String(value ?? '')} onChange={onChange} minRows={6} />
             </div>
         )
@@ -209,12 +215,8 @@ function FieldValueEditor({
             />
         )
     }
-    // flag: a boolean has no third state, so the approve checkbox is the control. Show what applying does.
-    return (
-        <p className="text-xs text-muted m-0">
-            {formatChangeValue(flagChange?.before)} to {formatChangeValue(flagChange?.after)}
-        </p>
-    )
+    // flag: a plain on/off toggle for the boolean field.
+    return <LemonSwitch checked={!!value} onChange={onChange} label={value ? 'On' : 'Off'} />
 }
 
 /** The static before-to-after view of a field, used for past recommendations. */
@@ -231,7 +233,11 @@ function FieldValueReadOnly({
 }): JSX.Element {
     if (kind === 'prompt') {
         return suggestion.base_prompt ? (
-            <PromptDiff suggestion={suggestion} isDarkModeOn={isDarkModeOn} />
+            <PromptDiff
+                original={suggestion.base_prompt}
+                modified={suggestion.suggested_prompt}
+                isDarkModeOn={isDarkModeOn}
+            />
         ) : (
             <div className="border rounded bg-surface-secondary p-2 font-mono text-xs whitespace-pre-wrap max-h-48 overflow-y-auto">
                 {suggestion.suggested_prompt}
@@ -249,8 +255,8 @@ function FieldValueReadOnly({
     )
 }
 
-/** One recommendation. For the current suggestion, each field gets an approve checkbox and an editor, and apply
- *  and test read the assembled config from the logic. Past recommendations render the same fields read-only. */
+/** One recommendation. For the current suggestion every changed field is editable, so the user controls the new
+ *  version (a field edited back to its current value is a no-op). Past recommendations render read-only. */
 export function ConfigChangeCards({
     suggestion,
     isDarkModeOn,
@@ -262,15 +268,21 @@ export function ConfigChangeCards({
     scannerId: string
     readOnly?: boolean
 }): JSX.Element {
-    const { fieldDecisions } = useValues(scannerQualityLogic({ scannerId }))
-    const { setFieldApproved, setFieldValue } = useActions(scannerQualityLogic({ scannerId }))
+    const { fieldValues } = useValues(scannerQualityLogic({ scannerId }))
+    const { setFieldValue } = useActions(scannerQualityLogic({ scannerId }))
     const changes = parseConfigChanges(suggestion.changes)
     const fields = changedFields(changes)
+    const base = (suggestion.base_config ?? {}) as Record<string, unknown>
+    const suggested = (suggestion.suggested_config ?? {}) as Record<string, unknown>
 
     // Rows written before changes[] existed carry no fields but may still rewrite the prompt.
     if (fields.length === 0) {
         return suggestion.base_prompt !== suggestion.suggested_prompt ? (
-            <PromptDiff suggestion={suggestion} isDarkModeOn={isDarkModeOn} />
+            <PromptDiff
+                original={suggestion.base_prompt}
+                modified={suggestion.suggested_prompt}
+                isDarkModeOn={isDarkModeOn}
+            />
         ) : (
             <></>
         )
@@ -279,39 +291,43 @@ export function ConfigChangeCards({
     return (
         <div className="space-y-3">
             {fields.map(({ field, kind }) => {
-                const decision = fieldDecisions[field] ?? { approved: true, value: undefined }
                 const fieldChanges = changes.filter((change) => change.field === field)
+                const suggestedValue = suggested[field] ?? base[field]
+                const value = readOnly ? suggestedValue : fieldValues[field]
+                const edited = !readOnly && JSON.stringify(value) !== JSON.stringify(suggestedValue)
                 return (
                     <div key={field} className="border rounded p-2 space-y-2">
+                        <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium">{identifierToHuman(field)}</span>
+                            {edited && (
+                                <LemonButton
+                                    size="xsmall"
+                                    type="secondary"
+                                    icon={<IconRevert />}
+                                    onClick={() => setFieldValue(field, suggestedValue)}
+                                    tooltip="Revert to the suggested value"
+                                    data-attr="vision-quality-revert-field"
+                                >
+                                    Revert
+                                </LemonButton>
+                            )}
+                        </div>
                         {readOnly ? (
-                            <>
-                                <div className="text-sm font-medium">{identifierToHuman(field)}</div>
-                                <FieldValueReadOnly
-                                    kind={kind}
-                                    suggestion={suggestion}
-                                    isDarkModeOn={isDarkModeOn}
-                                    fieldChanges={fieldChanges}
-                                />
-                            </>
+                            <FieldValueReadOnly
+                                kind={kind}
+                                suggestion={suggestion}
+                                isDarkModeOn={isDarkModeOn}
+                                fieldChanges={fieldChanges}
+                            />
                         ) : (
-                            <>
-                                <LemonCheckbox
-                                    checked={decision.approved}
-                                    onChange={(checked) => setFieldApproved(field, checked)}
-                                    label={identifierToHuman(field)}
-                                />
-                                {decision.approved && (
-                                    <FieldValueEditor
-                                        kind={kind}
-                                        value={decision.value}
-                                        onChange={(value) => setFieldValue(field, value)}
-                                        suggestion={suggestion}
-                                        isDarkModeOn={isDarkModeOn}
-                                        tagChanges={fieldChanges}
-                                        flagChange={fieldChanges[0]}
-                                    />
-                                )}
-                            </>
+                            <FieldValueEditor
+                                kind={kind}
+                                value={value}
+                                onChange={(newValue) => setFieldValue(field, newValue)}
+                                basePrompt={suggestion.base_prompt}
+                                isDarkModeOn={isDarkModeOn}
+                                tagChanges={fieldChanges}
+                            />
                         )}
                         {fieldChanges.map(
                             (change, index) =>

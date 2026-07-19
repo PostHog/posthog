@@ -296,7 +296,6 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
         suggestionHistory,
         suggestionHistoryLoading,
         assembledConfig,
-        fieldDecisions,
         recommendationEditedSinceTest,
     } = useValues(logic)
     const {
@@ -425,13 +424,8 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                                 size="small"
                                 type="primary"
                                 loading={applying}
-                                disabledReason={
-                                    editDisabledReason ??
-                                    (Object.values(fieldDecisions).every((decision) => !decision.approved)
-                                        ? 'Approve at least one change to apply'
-                                        : undefined)
-                                }
-                                tooltip="Writes the approved changes to the scanner as a new version"
+                                disabledReason={editDisabledReason ?? undefined}
+                                tooltip="Writes this config to the scanner as a new version"
                                 onClick={() => applySuggestion(currentSuggestion.id)}
                                 data-attr="vision-quality-apply-suggestion"
                             >

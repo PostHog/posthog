@@ -133,7 +133,7 @@ describe('scannerQualityLogic', () => {
         })
     })
 
-    it('assembles config from base plus approved edits, defaulting to the suggested value', async () => {
+    it('assembles config from base plus field edits, defaulting to the suggested value', async () => {
         ;(visionScannersPromptSuggestionsCurrentRetrieve as jest.Mock).mockResolvedValue({
             suggestion: {
                 ...PENDING_SUGGESTION,
@@ -151,9 +151,10 @@ describe('scannerQualityLogic', () => {
         await mountLogic()
 
         expect(logic.values.assembledConfig).toEqual({ prompt: 'new', tags: ['a', 'b', 'c'] })
+        expect(logic.values.hasEditableFields).toBe(true)
 
-        // Rejecting the prompt falls back to the base prompt; tags stay approved.
-        await expectLogic(logic, () => logic.actions.setFieldApproved('prompt', false)).toMatchValues({
+        // Editing the prompt back to its current value makes that field a no-op.
+        await expectLogic(logic, () => logic.actions.setFieldValue('prompt', 'base')).toMatchValues({
             assembledConfig: { prompt: 'base', tags: ['a', 'b', 'c'] },
         })
 
@@ -224,9 +225,9 @@ describe('scannerQualityLogic', () => {
         logic.actions.evaluateSuggestion('sug-1', logic.values.assembledConfig)
         await expectLogic(logic).toDispatchActions(['evaluateSuggestionSuccess'])
 
-        // The default test size (10) clamps to the 3 rated sessions.
+        // The default test size (10) clamps to the 3 rated sessions. This legacy row has no editable
+        // fields, so no config is sent and the stored suggestion is tested.
         expect(visionScannersPromptSuggestionsEvaluateCreate).toHaveBeenCalledWith(TEAM_ID, 'scan-1', 'sug-1', {
-            config: {},
             session_limit: 3,
         })
         expect(logic.values.currentSuggestion?.evaluation).toEqual(runningEvaluation)
@@ -241,7 +242,6 @@ describe('scannerQualityLogic', () => {
         await expectLogic(logic).toDispatchActions(['evaluateSuggestionSuccess'])
 
         expect(visionScannersPromptSuggestionsEvaluateCreate).toHaveBeenCalledWith(TEAM_ID, 'scan-1', 'sug-1', {
-            config: {},
             session_limit: 2,
         })
     })

@@ -70,24 +70,17 @@ describe('configChanges', () => {
     })
 
     it.each([
-        [
-            'approved uses the edited value',
-            { prompt: { approved: true, value: 'edited' } },
-            { prompt: 'edited', tags: ['a'] },
-        ],
-        [
-            'rejected falls back to base',
-            { prompt: { approved: false, value: 'edited' } },
-            { prompt: 'base', tags: ['a'] },
-        ],
-    ])('buildAppliedConfig: %s', (_name, decisions, expected) => {
-        expect(buildAppliedConfig({ prompt: 'base', tags: ['a'] }, decisions)).toEqual(expected)
+        ['an edited field overlays the base', { prompt: 'edited' }, { prompt: 'edited', tags: ['a'] }],
+        ['a field edited back to base is a no-op', { prompt: 'base' }, { prompt: 'base', tags: ['a'] }],
+        ['no edits leaves the base untouched', {}, { prompt: 'base', tags: ['a'] }],
+    ])('buildAppliedConfig: %s', (_name, fieldValues, expected) => {
+        expect(buildAppliedConfig({ prompt: 'base', tags: ['a'] }, fieldValues)).toEqual(expected)
     })
 
-    it('buildAppliedConfig only touches decided fields, leaving the rest of base intact', () => {
+    it('buildAppliedConfig only overlays the given fields, leaving the rest of base intact', () => {
         const applied = buildAppliedConfig(
             { prompt: 'base', tags: ['a', 'b'], multi_label: true },
-            { tags: { approved: true, value: ['a', 'c'] } }
+            { tags: ['a', 'c'] }
         )
         expect(applied).toEqual({ prompt: 'base', tags: ['a', 'c'], multi_label: true })
     })
