@@ -53,6 +53,16 @@ describe('utils', () => {
                 'Informational response wrapping requires an object or array result'
             )
         })
+
+        it('builds the formatted result lazily and caches it', () => {
+            const toJSON = vi.fn(() => ({ id: 'template-1' }))
+            const result = withInformationalResponse({ toJSON }, 'dashboard-template-reference')
+
+            expect(toJSON).not.toHaveBeenCalled()
+            expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain('template-1')
+            expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain('template-1')
+            expect(toJSON).toHaveBeenCalledTimes(1)
+        })
     })
 
     describe('redactToken', () => {
