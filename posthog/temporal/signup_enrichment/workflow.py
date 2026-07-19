@@ -11,8 +11,6 @@ import typing
 import datetime as dt
 import dataclasses
 
-from django.db import close_old_connections
-
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -20,6 +18,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.ph_client import get_client
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.common.utils import aretry_on_db_connection_drop, close_db_connections
 
 from products.growth.backend.enrichment.core import enrich_organization
 from products.growth.backend.enrichment.providers import HarmonicEnrichmentProvider
@@ -62,6 +61,7 @@ def _deterministic_company_type(organization_id: str) -> typing.Optional[str]:
 
 
 @activity.defn
+@close_db_connections
 async def enrich_signup_organization_activity(
     inputs: SignupEnrichmentInputs, is_recheck: bool = False
 ) -> dict[str, typing.Any]:
@@ -74,7 +74,6 @@ async def enrich_signup_organization_activity(
     """
     from asgiref.sync import sync_to_async  # noqa: PLC0415 — heavy import kept off the workflow module path
 
-    close_old_connections()
     logger = LOGGER.bind(organization_id=inputs.organization_id, is_recheck=is_recheck)
 
     if is_recheck:
@@ -83,7 +82,11 @@ async def enrich_signup_organization_activity(
         # group projection would write properties for a dead org).
         from posthog.models import Organization  # noqa: PLC0415 — heavy import kept off the workflow module path
 
-        org_exists = await sync_to_async(Organization.objects.filter(id=inputs.organization_id).exists)()
+        # The pooled connection has been idle through the 4h recheck delay, so it may have been
+        # recycled by pgbouncer / CONN_MAX_AGE / failover; retry once on a dropped connection.
+        org_exists = await aretry_on_db_connection_drop(
+            lambda: sync_to_async(Organization.objects.filter(id=inputs.organization_id).exists)()
+        )
         if not org_exists:
             logger.info("signup_enrichment_recheck_skipped_org_deleted")
             return {"matched": False, "fields_filled": 0, "org_deleted": True}
