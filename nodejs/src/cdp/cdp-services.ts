@@ -220,7 +220,7 @@ export function createCdpReaderRedisPool(
 
         // Non-blocking startup health check — surfaces misconfig immediately in logs
         void readerPool
-            .useClient({ name: 'startup-ping', timeout: 5000 }, (client) => client.ping())
+            .useClient({ name: 'startup-ping', timeout: 5000, captureTimeout: false }, (client) => client.ping())
             .catch((err) => {
                 logger.error(
                     '🔌',
@@ -292,7 +292,7 @@ export function createCdpValkeyShadowPools(
 
     // Non-blocking startup health check — shadow misconfig must not block startup.
     void writer
-        .useClient({ name: 'startup-ping', timeout: 5000 }, (client) => client.ping())
+        .useClient({ name: 'startup-ping', timeout: 5000, captureTimeout: false }, (client) => client.ping())
         .catch((err) => {
             logger.error(
                 '🪞',
@@ -319,7 +319,7 @@ export function createCdpValkeyShadowPools(
         })
 
         void reader
-            .useClient({ name: 'startup-ping', timeout: 5000 }, (client) => client.ping())
+            .useClient({ name: 'startup-ping', timeout: 5000, captureTimeout: false }, (client) => client.ping())
             .catch((err) => {
                 logger.error(
                     '🪞',

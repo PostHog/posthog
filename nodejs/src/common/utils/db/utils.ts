@@ -45,7 +45,11 @@ export function timeoutGuard(
         const ctx = typeof context === 'function' ? context() : context
         logger.warn('⌛', message, ctx)
         if (sendException) {
-            captureException(message, ctx ? { extra: ctx } : undefined)
+            // Every guard fires from this one callback, so the synthetic stack trace is identical
+            // across all of them and error tracking would collapse unrelated timeouts (Redis health
+            // checks, slow Postgres transactions, background publishers) into a single issue. Key the
+            // fingerprint off the message so each distinct timeout gets its own issue and title.
+            captureException(message, { extra: ctx, fingerprint: `plugin-server-timeout-guard:${message}` })
         }
         if (reportMetric) {
             reportMetric()

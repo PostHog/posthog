@@ -59,7 +59,7 @@ describe('createCdpReaderRedisPool', () => {
         await Promise.resolve()
 
         expect(mockReaderPool.useClient).toHaveBeenCalledWith(
-            { name: 'startup-ping', timeout: 5000 },
+            { name: 'startup-ping', timeout: 5000, captureTimeout: false },
             expect.any(Function)
         )
     })
