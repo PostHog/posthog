@@ -92,6 +92,31 @@ if (user.body.total_count == 1) {
         },
         'body': payload
     })
+
+    // A concurrent invocation for the same new contact may have created it between our
+    // search and create, so Intercom returns 409 with the winning contact's id. Update
+    // that contact instead of failing the invocation.
+    if (res.status == 409) {
+        let existingId := null
+        if (not empty(res.body.errors) and not empty(res.body.errors.1.message)) {
+            let parts := splitByString('id=', res.body.errors.1.message)
+            if (length(parts) > 1) {
+                existingId := trim(parts.2)
+            }
+        }
+        if (not empty(existingId)) {
+            res := fetch(f'https://{regions[inputs.oauth['app.region']]}/contacts/{existingId}', {
+                'method': 'PUT',
+                'headers': {
+                    'Content-Type': 'application/json',
+                    'Intercom-Version': '2.11',
+                    'Accept': 'application/json',
+                    'Authorization': f'Bearer {inputs.oauth.access_token}',
+                },
+                'body': payload
+            })
+        }
+    }
 } else {
     throw Error('Found multiple contacts with the same email address. Skipping...')
 }
