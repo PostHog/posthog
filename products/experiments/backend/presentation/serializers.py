@@ -1222,6 +1222,16 @@ class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
     )
     # Named metric_errors (not errors) to avoid shadowing DRF's reserved Serializer.errors property.
     metric_errors = serializers.JSONField(read_only=True, help_text="Map of metric_uuid to error details")
+    metric_retries = serializers.JSONField(
+        read_only=True,
+        required=False,
+        help_text=(
+            "Transient retry state per metric_uuid: {attempt, max_attempts, error_type, message, "
+            "next_retry_at}. message is the server error that triggered the retry. Present only while a "
+            "metric is between failed attempts; cleared when it succeeds or fails terminally, so treat "
+            "entries for metrics that already have a result as stale."
+        ),
+    )
     trigger = serializers.ChoiceField(
         choices=ExperimentMetricsRecalculation.Trigger.choices,
         read_only=True,
