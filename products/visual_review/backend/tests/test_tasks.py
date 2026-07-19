@@ -174,7 +174,7 @@ class TestProcessRunDiffs:
             logic.complete_run(create_result.run_id)
 
         # Process - should skip unchanged snapshot
-        assert process_diffs(create_result.run_id) == 0
+        assert process_diffs(create_result.run_id, team_id=repo.team_id) == 0
 
         # Snapshot should remain unchanged
         snapshots = api.get_run_snapshots(create_result.run_id).snapshots
@@ -195,7 +195,7 @@ class TestProcessRunDiffs:
         )
 
         # Process - should skip new snapshot (no baseline to diff against)
-        assert process_diffs(create_result.run_id) == 0
+        assert process_diffs(create_result.run_id, team_id=repo.team_id) == 0
 
         snapshots = api.get_run_snapshots(create_result.run_id).snapshots
         assert len(snapshots) == 1
@@ -373,8 +373,14 @@ class TestCountProcessedDiffs(VisualReviewTeamScopedTestMixin, BaseTest):
             ),
             patch("products.visual_review.backend.diffing.logger") as mock_logger,
         ):
-            assert process_diffs(create_result.run_id) == 1
+            assert process_diffs(create_result.run_id, team_id=repo.team_id) == 1
         mock_logger.warning.assert_called_once()
+
+        snapshot = logic.get_run_snapshots(create_result.run_id)[0]
+        snapshot.result = SnapshotResult.UNCHANGED
+        snapshot.ssim_score = compare_result.ssim_score
+        snapshot.save(using=logic.WRITER_DB, update_fields=["result", "ssim_score"])
+        assert process_diffs(create_result.run_id, team_id=repo.team_id) == 1
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

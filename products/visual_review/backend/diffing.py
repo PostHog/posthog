@@ -307,4 +307,7 @@ def process_diffs(run_id: UUID) -> int:
                 error=str(e),
             )
 
-    return diffed_count
+    durable_diffed_count = (
+        RunSnapshot.objects.using(WRITER_DB).filter(run_id=run_id, team_id=team_id, ssim_score__isnull=False).count()
+    )
+    return max(diffed_count, durable_diffed_count)
