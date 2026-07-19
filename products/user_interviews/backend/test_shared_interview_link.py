@@ -24,6 +24,10 @@ from products.user_interviews.backend.models import (
 )
 
 
+def _mock_web_call(assistant_overrides: dict[str, Any]) -> dict[str, Any]:
+    return {"webCallUrl": "https://daily.example/call", "id": "call_test"}
+
+
 def _make_shared_config(*, team: Any, topic: UserInterviewTopic, created_by: User) -> SharingConfiguration:
     """Build a shared link the way the product does — a sentinel IntervieweeContext plus a
     SharingConfiguration on it (no new model / no main-app FK)."""
@@ -151,8 +155,12 @@ class TestRevokeSharedLink(_FeatureFlagEnabledMixin):
             enabled=True,
         ).count()
 
+    @patch(
+        "products.user_interviews.backend.presentation.webhooks._create_vapi_web_call",
+        side_effect=_mock_web_call,
+    )
     @override_settings(VAPI_PUBLIC_KEY="pk_test", VAPI_ASSISTANT_ID="asst_test")
-    def test_delete_revokes_link_and_post_mints_a_fresh_one(self) -> None:
+    def test_delete_revokes_link_and_post_mints_a_fresh_one(self, _create_vapi_web_call) -> None:
         topic = self._topic()
         token1 = self._token(self.client.post(self._url(str(topic.id))).json())
         assert self._enabled_shared_count(topic) == 1
@@ -200,6 +208,15 @@ class TestSharedInterviewPublicViewer(APIBaseTest):
 
 
 class TestSharedStartCall(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        patcher = patch(
+            "products.user_interviews.backend.presentation.webhooks._create_vapi_web_call",
+            side_effect=_mock_web_call,
+        )
+        self.create_vapi_web_call = patcher.start()
+        self.addCleanup(patcher.stop)
+
     def _shared_config(self) -> SharingConfiguration:
         topic = UserInterviewTopic.objects.create(
             team=self.team,
@@ -230,7 +247,7 @@ class TestSharedStartCall(APIBaseTest):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
-        metadata = response.json()["assistant_overrides"]["metadata"]
+        metadata = self.create_vapi_web_call.call_args.args[0]["metadata"]
         assert metadata["shared"] == "true"
         assert metadata["respondent_name"] == "Robin"
         # The identifier is namespaced on the respondent_key, never the provided distinct_id — so a
@@ -241,7 +258,7 @@ class TestSharedStartCall(APIBaseTest):
         assert metadata["session_id"] == self._SESSION_ID_V7
         assert metadata["sharing_access_token"] == config.access_token
         # The self-reported name greets the respondent.
-        assert "Robin" in response.json()["assistant_overrides"]["firstMessage"]
+        assert "Robin" in self.create_vapi_web_call.call_args.args[0]["firstMessage"]
 
     @override_settings(VAPI_PUBLIC_KEY="pk_test", VAPI_ASSISTANT_ID="asst_test")
     def test_drops_invalid_linkage_but_still_starts(self) -> None:
@@ -255,7 +272,7 @@ class TestSharedStartCall(APIBaseTest):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
-        metadata = response.json()["assistant_overrides"]["metadata"]
+        metadata = self.create_vapi_web_call.call_args.args[0]["metadata"]
         assert metadata["session_id"] == ""
         # Illegal distinct_id is dropped from the linkage field; the identifier is still a namespaced
         # shared marker (never the self-reported name), so same-named respondents can't collide.

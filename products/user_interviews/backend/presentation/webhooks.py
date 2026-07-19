@@ -3,8 +3,7 @@
 Two surfaces live here, both keyed on a SharingConfiguration access token:
 
 * ``start_call`` — called by the public interview page when the recipient clicks
-  Start. Returns the Vapi credentials and the personalized assistant overrides
-  (including merged ``agent_context``). Keeps that context off the initial HTML.
+  Start. Creates one Vapi web call server-side and returns only its join payload.
 * ``vapi_webhook`` — called by Vapi at end-of-call. Persists a UserInterview row
   attributed to the topic creator. Signature-verified; idempotent on ``call.id``.
 """
@@ -22,6 +21,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils.timezone import now
 
+import requests
 import structlog
 import posthoganalytics
 from rest_framework import status
@@ -35,6 +35,7 @@ from posthog.schema import EmbeddingModelName
 
 from posthog.api.embedding_worker import emit_embedding_request
 from posthog.constants import AvailableFeature
+from posthog.egress.vapi import vapi_request
 from posthog.event_usage import groups
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team import Team
@@ -327,6 +328,61 @@ def _shared_interviewee_identifier(respondent_key: str) -> str:
     return f"{SHARED_RESPONDENT_IDENTIFIER_PREFIX}{respondent_key or uuid4().hex}"
 
 
+VAPI_WEB_CALL_URL = "https://api.vapi.ai/call/web"
+
+
+class VapiWebCallError(Exception):
+    def __init__(self, message: str, status_code: int = status.HTTP_502_BAD_GATEWAY) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+def _create_vapi_web_call(assistant_overrides: dict[str, Any]) -> dict[str, Any]:
+    try:
+        response = vapi_request(
+            "POST",
+            VAPI_WEB_CALL_URL,
+            api_token=settings.VAPI_PUBLIC_KEY,
+            source="user_interviews",
+            endpoint="/call/web",
+            timeout=(3.05, 15),
+            json={
+                "assistantId": settings.VAPI_ASSISTANT_ID,
+                "assistantOverrides": assistant_overrides,
+                "roomDeleteOnUserLeaveEnabled": True,
+            },
+        )
+    except requests.RequestException as error:
+        raise VapiWebCallError("Could not connect to Vapi.") from error
+
+    if response.status_code == status.HTTP_429_TOO_MANY_REQUESTS:
+        raise VapiWebCallError("Vapi is temporarily rate limited.", status.HTTP_429_TOO_MANY_REQUESTS)
+    if not 200 <= response.status_code < 300:
+        raise VapiWebCallError(f"Vapi rejected web call creation with status {response.status_code}.")
+
+    try:
+        payload = response.json()
+    except ValueError as error:
+        raise VapiWebCallError("Vapi returned an invalid web call response.") from error
+    if not isinstance(payload, dict):
+        raise VapiWebCallError("Vapi returned an invalid web call response.")
+
+    transport = payload.get("transport")
+    transport_url = transport.get("callUrl") if isinstance(transport, dict) else None
+    web_call_url = payload.get("webCallUrl") or transport_url
+    if not isinstance(web_call_url, str) or not web_call_url:
+        raise VapiWebCallError("Vapi returned a web call without a join URL.")
+
+    web_call: dict[str, Any] = {"webCallUrl": web_call_url}
+    call_id = payload.get("id")
+    if isinstance(call_id, str):
+        web_call["id"] = call_id
+    artifact_plan = payload.get("artifactPlan")
+    if isinstance(artifact_plan, dict):
+        web_call["artifactPlan"] = {"videoRecordingEnabled": bool(artifact_plan.get("videoRecordingEnabled", False))}
+    return web_call
+
+
 def _collapse_abandoned_partials(*, team: Team, topic: UserInterviewTopic, respondent_key: str, keep_pk: Any) -> None:
     """Delete the abandoned partial an accidental mid-call refresh leaves behind, when the same
     respondent (same ``respondent_key``) comes back and finishes — so the topic shows one response
@@ -379,7 +435,7 @@ def _collapse_abandoned_partials(*, team: Team, topic: UserInterviewTopic, respo
     ]
 )
 def start_call(request: Request, access_token: str) -> Response:
-    """Return the Vapi credentials + assistant overrides for a public interview share.
+    """Create a Vapi web call and return its join payload for a public interview share.
 
     Handles both share types the token can resolve to:
     * a personalised (per-invitee) share — greets the named invitee, merges their per-person
@@ -389,13 +445,9 @@ def start_call(request: Request, access_token: str) -> Response:
       as best-effort person/session linkage, and a client ``respondent_key`` lets a refreshed call
       re-attach to the same respondent.
 
-    The ``agent_context`` (which may include internal CRM notes about a personalised invitee) is
-    intentionally NOT embedded in the public interview page's HTML — it's fetched from here only
-    when the recipient clicks Start, keeping casual view-source inspection from leaking the prompt.
-
-    Note: anyone with the share token can still get this payload — by design, since they also use it
-    to actually start the call. The win is removing the leak from the initial HTML and giving us a
-    single, auditable, rate-limitable surface.
+    The ``agent_context`` (which may include internal CRM notes about a personalised invitee) and
+    reusable Vapi credentials stay server-side. The browser receives only a single call's join
+    payload after the existing start-call throttles have accepted the request.
     """
     from .views import _merge_agent_context, _parse_identifier
 
@@ -473,36 +525,38 @@ def start_call(request: Request, access_token: str) -> Response:
         team_id=sharing_config.team_id,
     )
 
+    assistant_overrides: dict[str, Any] = {
+        "firstMessage": first_message,
+        # Scope server messages to just the lifecycle hooks we act on. Default Vapi
+        # config sends ~10 message types that we'd otherwise ignore.
+        "serverMessages": ["status-update", "end-of-call-report"],
+        "variableValues": {
+            "userName": user_name,
+            "topic": topic.topic or "",
+            "agent_context": agent_context,
+            "questions": json.dumps(topic.questions or []),
+        },
+        "metadata": metadata,
+    }
+    try:
+        web_call = _create_vapi_web_call(assistant_overrides)
+    except VapiWebCallError as error:
+        logger.exception(
+            "user_interviews_vapi_web_call_creation_failed",
+            team_id=sharing_config.team_id,
+            topic_id=str(topic.id),
+            status_code=error.status_code,
+        )
+        return Response({"error": str(error)}, status=error.status_code)
+
     logger.info(
         "user_interviews_start_call_issued",
         team_id=sharing_config.team_id,
         topic_id=str(topic.id),
         shared=is_shared_interviewee_context(ic.interviewee_identifier),
+        call_id=web_call.get("id"),
     )
-
-    return Response(
-        {
-            "public_key": settings.VAPI_PUBLIC_KEY,
-            "assistant_id": settings.VAPI_ASSISTANT_ID,
-            "assistant_overrides": {
-                "firstMessage": first_message,
-                # Scope server messages to just the lifecycle hooks we act on. Default Vapi
-                # config sends ~10 message types (speech-update, conversation-update, etc.)
-                # which we'd ignore anyway — and every ignored delivery still costs a
-                # webhook round-trip and a signature verification.
-                "serverMessages": ["status-update", "end-of-call-report"],
-                "variableValues": {
-                    "userName": user_name,
-                    "topic": topic.topic or "",
-                    "agent_context": agent_context,
-                    # `json.dumps` so the Vapi assistant prompt receives standard JSON
-                    # (`["q1", "q2"]`) rather than Python's repr (`['q1', 'q2']`).
-                    "questions": json.dumps(topic.questions or []),
-                },
-                "metadata": metadata,
-            },
-        }
-    )
+    return Response({"web_call": web_call})
 
 
 @api_view(["POST"])

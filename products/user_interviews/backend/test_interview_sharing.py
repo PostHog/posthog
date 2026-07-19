@@ -12,7 +12,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import Mock, patch
 
 from django.template.loader import get_template
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -29,8 +29,42 @@ from products.user_interviews.backend.presentation.webhooks import (
     EMBEDDING_CONTENT_MAX_BYTES,
     FIRST_MESSAGE_PROMPT_NAME,
     _build_first_message,
+    _create_vapi_web_call,
     _resolve_first_message_template,
 )
+
+
+def _mock_web_call(assistant_overrides: dict[str, Any]) -> dict[str, Any]:
+    return {"webCallUrl": "https://daily.example/call", "id": "call_test"}
+
+
+class TestCreateVapiWebCall(SimpleTestCase):
+    @override_settings(VAPI_PUBLIC_KEY="pk_test", VAPI_ASSISTANT_ID="asst_test")
+    @patch("products.user_interviews.backend.presentation.webhooks.vapi_request")
+    def test_creates_call_server_side_and_returns_only_join_fields(self, mock_request: Mock) -> None:
+        response = Mock(status_code=201)
+        response.json.return_value = {
+            "id": "call_123",
+            "webCallUrl": "https://daily.example/call",
+            "assistant": {"id": "asst_test", "secret": "not-for-browser"},
+            "artifactPlan": {"videoRecordingEnabled": False},
+        }
+        mock_request.return_value = response
+        overrides = {"metadata": {"sharing_access_token": "share-token"}}
+
+        web_call = _create_vapi_web_call(overrides)
+
+        assert web_call == {
+            "id": "call_123",
+            "webCallUrl": "https://daily.example/call",
+            "artifactPlan": {"videoRecordingEnabled": False},
+        }
+        assert mock_request.call_args.kwargs["api_token"] == "pk_test"
+        assert mock_request.call_args.kwargs["json"] == {
+            "assistantId": "asst_test",
+            "assistantOverrides": overrides,
+            "roomDeleteOnUserLeaveEnabled": True,
+        }
 
 
 class _FeatureFlagEnabledMixin(APIBaseTest):
@@ -507,6 +541,15 @@ class TestResolveFirstMessageTemplate(APIBaseTest):
 
 
 class TestInterviewStartCall(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        patcher = patch(
+            "products.user_interviews.backend.presentation.webhooks._create_vapi_web_call",
+            side_effect=_mock_web_call,
+        )
+        self.create_vapi_web_call = patcher.start()
+        self.addCleanup(patcher.stop)
+
     def _create_share(self) -> SharingConfiguration:
         topic = UserInterviewTopic.objects.create(
             team=self.team,
@@ -532,9 +575,8 @@ class TestInterviewStartCall(APIBaseTest):
         response = self.client.post(f"/api/user_interviews/share/{share.access_token}/start_call/")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         body = response.json()
-        self.assertEqual(body["public_key"], "pk_test")
-        self.assertEqual(body["assistant_id"], "asst_test")
-        overrides = body["assistant_overrides"]
+        self.assertEqual(body, {"web_call": {"webCallUrl": "https://daily.example/call", "id": "call_test"}})
+        overrides = self.create_vapi_web_call.call_args.args[0]
         # Merged agent_context combines topic-level and per-person notes.
         self.assertIn("adoption research", overrides["variableValues"]["agent_context"])
         self.assertIn("heavy user, churned last quarter", overrides["variableValues"]["agent_context"])
@@ -547,7 +589,7 @@ class TestInterviewStartCall(APIBaseTest):
         self.client.logout()
         response = self.client.post(f"/api/user_interviews/share/{share.access_token}/start_call/")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
-        overrides = response.json()["assistant_overrides"]
+        overrides = self.create_vapi_web_call.call_args.args[0]
         # Scoped to the two lifecycle events we act on — keeps Vapi from sending
         # speech-update / conversation-update / etc that we'd just ignore.
         self.assertEqual(overrides["serverMessages"], ["status-update", "end-of-call-report"])
@@ -558,7 +600,7 @@ class TestInterviewStartCall(APIBaseTest):
         self.client.logout()
         response = self.client.post(f"/api/user_interviews/share/{share.access_token}/start_call/")
         assert response.status_code == status.HTTP_200_OK, response.content
-        first_message = response.json()["assistant_overrides"]["firstMessage"]
+        first_message = self.create_vapi_web_call.call_args.args[0]["firstMessage"]
         assert "Hey Alex!" in first_message
         assert "Replay adoption" in first_message
 
@@ -582,8 +624,8 @@ class TestInterviewStartCall(APIBaseTest):
     def test_returns_questions_as_json_not_python_repr(self):
         share = self._create_share()
         self.client.logout()
-        response = self.client.post(f"/api/user_interviews/share/{share.access_token}/start_call/")
-        questions_raw = response.json()["assistant_overrides"]["variableValues"]["questions"]
+        self.client.post(f"/api/user_interviews/share/{share.access_token}/start_call/")
+        questions_raw = self.create_vapi_web_call.call_args.args[0]["variableValues"]["questions"]
         # The Vapi assistant prompt receives this string verbatim; it must parse as JSON,
         # not Python repr (which would be `['What blocks you?']` with single quotes).
         self.assertEqual(json.loads(questions_raw), ["What blocks you?"])

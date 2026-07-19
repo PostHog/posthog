@@ -84,12 +84,10 @@ interface VapiTranscriptMessage {
 }
 
 interface StartCallPayload {
-    public_key: string
-    assistant_id: string
-    assistant_overrides: {
-        firstMessage?: string
-        variableValues?: Record<string, string>
-        metadata?: Record<string, string>
+    web_call: {
+        webCallUrl: string
+        id?: string
+        artifactPlan?: { videoRecordingEnabled?: boolean }
     }
 }
 
@@ -320,10 +318,8 @@ const CallBodyPanel = memo(function CallBodyPanel({
 })
 
 /**
- * Fetch the Vapi public key, assistant id, and *full* assistant overrides (including
- * `agent_context`) from the server only when the interviewee clicks Start. Keeps the
- * personalized agent context out of the initial HTML payload, so a recipient can't
- * see "this person is a heavy user, be empathetic" just by viewing source.
+ * Ask the server to create one Vapi web call when the interviewee clicks Start. The
+ * response contains only that call's join payload, never reusable Vapi credentials.
  */
 async function fetchStartCallPayload(accessToken: string, body: StartCallBody): Promise<StartCallPayload> {
     const response = await fetch(`/api/user_interviews/share/${accessToken}/start_call/`, {
@@ -455,7 +451,7 @@ export default function ExporterInterviewScene({
                 if (!isMountedRef.current) {
                     return
                 }
-                const vapi = new Vapi(startPayload.public_key)
+                const vapi = new Vapi('')
                 vapiRef.current = vapi
                 const setPhase = (next: ConversationPhase): void => {
                     if (lastPhaseRef.current === next) {
@@ -519,7 +515,7 @@ export default function ExporterInterviewScene({
                     }
                 })
                 setState('connecting')
-                await vapi.start(startPayload.assistant_id, startPayload.assistant_overrides)
+                await vapi.reconnect(startPayload.web_call)
                 if (!isMountedRef.current) {
                     vapi.stop()
                     return
