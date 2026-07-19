@@ -13,7 +13,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLoadAction, dashboardLogic, resetDashboardCacheForTests } from 'scenes/dashboard/dashboardLogic'
 import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
 import * as widgetFetchUtils from 'scenes/dashboard/widgetFetchUtils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -80,6 +80,14 @@ const insight800 = (): QueryBasedInsightModel => ({
     last_refresh: now().toISOString(),
 })
 
+const representativeDashboardInsight = (id: number): QueryBasedInsightModel => ({
+    ...insightOnDashboard(id, [12]),
+    id,
+    short_id: String(id) as InsightShortId,
+    last_refresh: now().toISOString(),
+    cache_target_age: now().add(5, 'minutes').toISOString(),
+})
+
 describe('dashboardLogic', () => {
     let logic: ReturnType<typeof dashboardLogic.build>
 
@@ -104,6 +112,7 @@ describe('dashboardLogic', () => {
     let dashboards: Record<number, DashboardType<QueryBasedInsightModel>> = {}
 
     beforeEach(() => {
+        resetDashboardCacheForTests()
         jest.spyOn(api, 'update')
 
         const insights: Record<number, QueryBasedInsightModel> = {
@@ -143,6 +152,11 @@ describe('dashboardLogic', () => {
                 last_refresh: now().toISOString(),
             },
             800: insight800(),
+            1200: representativeDashboardInsight(1200),
+            1201: representativeDashboardInsight(1201),
+            1202: representativeDashboardInsight(1202),
+            1203: representativeDashboardInsight(1203),
+            1204: representativeDashboardInsight(1204),
         }
         dashboards = {
             5: {
@@ -168,6 +182,18 @@ describe('dashboardLogic', () => {
             11: {
                 ...dashboardResult(11, [], { date_from: '-24h' }),
             },
+            12: {
+                ...dashboardResult(12, [
+                    tileFromInsight(insights['1200']),
+                    tileFromInsight(insights['1201']),
+                    tileFromInsight(insights['1202']),
+                    tileFromInsight(insights['1203']),
+                    tileFromInsight(insights['1204']),
+                    TEXT_TILE,
+                    WIDGET_TILE,
+                    WIDGET_TILE_WITH_CUSTOM_NAME,
+                ]),
+            },
         }
         useMocks({
             get: {
@@ -186,6 +212,7 @@ describe('dashboardLogic', () => {
                 '/api/environments/:team_id/dashboards/9/': { ...dashboards[9] },
                 '/api/environments/:team_id/dashboards/10/': { ...dashboards[10] },
                 '/api/environments/:team_id/dashboards/11/': { ...dashboards[11] },
+                '/api/environments/:team_id/dashboards/12/': { ...dashboards[12] },
                 '/api/environments/:team_id/dashboards/': {
                     count: 6,
                     next: null,
@@ -285,6 +312,11 @@ describe('dashboardLogic', () => {
         initKeaTests()
         dashboardsModel.mount()
         insightsModel.mount()
+        eventUsageLogic.mount()
+    })
+
+    afterEach(() => {
+        jest.restoreAllMocks()
     })
 
     describe('key() guard', () => {
@@ -1406,6 +1438,336 @@ describe('dashboardLogic', () => {
                     .toDispatchActions(['setPageVisibility'])
                     .toNotHaveDispatchedActions(['resetInterval'])
             })
+        })
+    })
+
+    describe('when loading a representative dashboard', () => {
+        it('requests cached data immediately and loads every tile type', async () => {
+            const getResponseSpy = jest.spyOn(api, 'getResponse')
+            getResponseSpy.mockClear()
+            logic = dashboardLogic({ id: 12 })
+            logic.mount()
+
+            expect(getResponseSpy.mock.calls.filter(([url]) => String(url).includes('/dashboards/12/'))).toHaveLength(1)
+
+            await expectLogic(logic)
+                .toFinishAllListeners()
+                .toMatchValues({
+                    tiles: truth((tiles) => tiles.length === 8),
+                    insightTiles: truth((tiles) => tiles.length === 5),
+                    textTiles: truth((tiles) => tiles.length === 1),
+                    widgetTiles: truth((tiles) => tiles.length === 2),
+                })
+
+            getResponseSpy.mockRestore()
+        })
+
+        it('shows a cached dashboard while immediately revalidating it', async () => {
+            logic = dashboardLogic({ id: 12 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            dashboardsModel.actions.updateDashboardSuccess({ ...dashboards[12], name: 'Edited dashboard' })
+            logic.unmount()
+
+            const hydrateDashboardSpy = jest.spyOn(logic.actions, 'loadDashboardMetadataSuccess')
+            let rejectDashboardRequest: (reason?: unknown) => void = () => {}
+            const dashboardRequest = new Promise<Response>((_, reject) => {
+                rejectDashboardRequest = reject
+            })
+            const getResponse = api.getResponse.bind(api)
+            const getResponseSpy = jest.spyOn(api, 'getResponse').mockImplementation(async (url, options) => {
+                if (String(url).includes('/dashboards/12/')) {
+                    return await dashboardRequest
+                }
+                return await getResponse(url, options)
+            })
+            getResponseSpy.mockClear()
+            logic.mount()
+
+            expect(hydrateDashboardSpy).toHaveBeenCalledTimes(1)
+            expect(logic.values.dashboard?.name).toBe('Edited dashboard')
+            expect(logic.values.dashboard?.tiles).toHaveLength(8)
+            expect(getResponseSpy.mock.calls.filter(([url]) => String(url).includes('/dashboards/12/'))).toHaveLength(1)
+
+            await expectLogic(logic, () => rejectDashboardRequest(new Error('Revalidation failed')))
+                .toDispatchActions([
+                    'loadDashboardFailure',
+                    'setDashboardRevalidationError',
+                    'loadDashboardMetadataSuccess',
+                ])
+                .toMatchValues({
+                    dashboardFailedToLoad: false,
+                    dashboardRevalidationError: 'Revalidation failed',
+                    dashboard: truth((dashboard) => dashboard?.tiles.length === 8),
+                })
+
+            hydrateDashboardSpy.mockRestore()
+            getResponseSpy.mockRestore()
+        })
+
+        it('aborts a regular request when streaming supersedes it', async () => {
+            let firstRequestSignal: AbortSignal | undefined
+            const getResponse = api.getResponse.bind(api)
+            const getResponseSpy = jest.spyOn(api, 'getResponse').mockImplementation(async (url, options) => {
+                if (String(url).includes('/dashboards/12/')) {
+                    return await new Promise<Response>((_, reject) => {
+                        firstRequestSignal = options?.signal
+                        options?.signal?.addEventListener('abort', () =>
+                            reject(new DOMException('Aborted', 'AbortError'))
+                        )
+                    })
+                }
+                return await getResponse(url, options)
+            })
+
+            logic = dashboardLogic({ id: 12 })
+            logic.mount()
+
+            expect(firstRequestSignal?.aborted).toBe(false)
+
+            const streamCleanup = jest.fn()
+            const streamTilesSpy = jest.spyOn(api.dashboards, 'streamTiles').mockResolvedValueOnce(streamCleanup)
+            await expectLogic(logic, () => {
+                logic.actions.loadDashboardStreaming({ action: DashboardLoadAction.Update })
+            }).toFinishAllListeners()
+
+            expect(firstRequestSignal?.aborted).toBe(true)
+
+            getResponseSpy.mockRestore()
+            streamTilesSpy.mockRestore()
+        })
+
+        it('keeps cached tiles visible while streamed tiles replace them', async () => {
+            logic = dashboardLogic({ id: 12, dashboard: dashboards[12] })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.unmount()
+
+            const freshDashboard = {
+                ...dashboards[12],
+                tiles: dashboards[12].tiles.slice(0, 7),
+            }
+            const streamTilesSpy = jest.spyOn(api.dashboards, 'streamTiles')
+
+            logic = dashboardLogic({ id: 12 })
+            logic.mount()
+            expect(logic.values.dashboard?.tiles).toHaveLength(8)
+
+            let resolveStream: () => void = () => {}
+            const streamCompleted = new Promise<void>((resolve) => {
+                resolveStream = resolve
+            })
+            streamTilesSpy.mockImplementation(async (_id, _params, onMessage, onComplete) => {
+                onMessage({
+                    type: 'metadata',
+                    dashboard: { ...freshDashboard, tiles: freshDashboard.tiles.slice(0, 2) },
+                })
+                expect(logic.values.dashboard?.tiles).toHaveLength(8)
+
+                freshDashboard.tiles.slice(2).forEach((tile, order) => {
+                    onMessage({ type: 'tile', tile, order: order + 2 })
+                })
+                onComplete()
+                resolveStream()
+                return () => {}
+            })
+
+            logic.actions.loadDashboardStreaming({ action: DashboardLoadAction.Update })
+            await streamCompleted
+
+            expect(logic.values.tiles).toHaveLength(7)
+            expect(new Set(logic.values.tiles.map((tile) => tile.id)).size).toBe(7)
+
+            logic.unmount()
+            streamTilesSpy.mockRestore()
+        })
+
+        it('cancels streaming when a regular request supersedes it', async () => {
+            const streamCleanup = jest.fn()
+            let staleOnMessage: Parameters<typeof api.dashboards.streamTiles>[2] | undefined
+            const streamTilesSpy = jest
+                .spyOn(api.dashboards, 'streamTiles')
+                .mockImplementationOnce(async (_id, _params, onMessage) => {
+                    staleOnMessage = onMessage
+                    return streamCleanup
+                })
+
+            logic = dashboardLogic({ id: 12, dashboard: dashboards[12] })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.loadDashboardStreaming({ action: DashboardLoadAction.Update })
+            }).toFinishAllListeners()
+            await expectLogic(logic, () => {
+                logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
+            }).toFinishAllListeners()
+
+            expect(streamCleanup).toHaveBeenCalledTimes(1)
+            staleOnMessage?.({ type: 'metadata', dashboard: { ...dashboards[12], name: 'Stale stream' } })
+            expect(logic.values.dashboard?.name).not.toBe('Stale stream')
+
+            streamTilesSpy.mockRestore()
+        })
+
+        it('restores the cached snapshot when streaming fails partway through', async () => {
+            const cachedDashboard = { ...dashboards[12], name: 'Cached dashboard' }
+            logic = dashboardLogic({ id: 12, dashboard: cachedDashboard })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.unmount()
+
+            const streamTilesSpy = jest.spyOn(api.dashboards, 'streamTiles')
+
+            logic = dashboardLogic({ id: 12 })
+            logic.mount()
+            expect(logic.values.dashboard?.name).toBe('Cached dashboard')
+
+            let resolveStreamFailure: () => void = () => {}
+            const streamFailed = new Promise<void>((resolve) => {
+                resolveStreamFailure = resolve
+            })
+            streamTilesSpy.mockImplementationOnce(async (_id, _params, onMessage, _onComplete, onError) => {
+                onMessage({
+                    type: 'metadata',
+                    dashboard: {
+                        ...dashboards[12],
+                        name: 'Partial dashboard',
+                        tiles: dashboards[12].tiles.slice(0, 2),
+                    },
+                })
+                onMessage({ type: 'tile', tile: dashboards[12].tiles[2], order: 2 })
+                onError(new Error('Stream failed'))
+                resolveStreamFailure()
+                return jest.fn()
+            })
+
+            logic.actions.loadDashboardStreaming({ action: DashboardLoadAction.Update })
+            await streamFailed
+
+            expect(logic.values.dashboard?.name).toBe('Cached dashboard')
+            expect(logic.values.dashboard?.tiles).toHaveLength(cachedDashboard.tiles.length)
+
+            logic.unmount()
+            streamTilesSpy.mockRestore()
+        })
+
+        it('shows a load failure instead of partial data when an uncached stream fails', async () => {
+            const getResponse = api.getResponse.bind(api)
+            const getResponseSpy = jest.spyOn(api, 'getResponse').mockImplementation(async (url, options) => {
+                if (String(url).includes('/dashboards/13/')) {
+                    return await new Promise<Response>((_, reject) => {
+                        options?.signal?.addEventListener('abort', () =>
+                            reject(new DOMException('Aborted', 'AbortError'))
+                        )
+                    })
+                }
+                return await getResponse(url, options)
+            })
+            const streamTilesSpy = jest
+                .spyOn(api.dashboards, 'streamTiles')
+                .mockImplementationOnce(async (_id, _params, onMessage, _onComplete, onError) => {
+                    onMessage({
+                        type: 'metadata',
+                        dashboard: { ...dashboards[12], id: 13, tiles: dashboards[12].tiles.slice(0, 2) },
+                    })
+                    onError(new Error('Stream failed'))
+                    return jest.fn()
+                })
+
+            logic = dashboardLogic({ id: 13 })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.loadDashboardStreaming({ action: DashboardLoadAction.Update })
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    dashboard: null,
+                    dashboardFailedToLoad: true,
+                })
+
+            getResponseSpy.mockRestore()
+            streamTilesSpy.mockRestore()
+        })
+
+        it('aborts superseded streams and ignores their callbacks', async () => {
+            const firstCleanup = jest.fn()
+            const secondCleanup = jest.fn()
+            let firstOnMessage: Parameters<typeof api.dashboards.streamTiles>[2] | undefined
+            let firstOnComplete: Parameters<typeof api.dashboards.streamTiles>[3] | undefined
+            let secondOnMessage: Parameters<typeof api.dashboards.streamTiles>[2] | undefined
+            let secondOnComplete: Parameters<typeof api.dashboards.streamTiles>[3] | undefined
+            const streamTilesSpy = jest
+                .spyOn(api.dashboards, 'streamTiles')
+                .mockImplementationOnce(async (_id, _params, onMessage, onComplete) => {
+                    firstOnMessage = onMessage
+                    firstOnComplete = onComplete
+                    return firstCleanup
+                })
+                .mockImplementationOnce(async (_id, _params, onMessage, onComplete) => {
+                    secondOnMessage = onMessage
+                    secondOnComplete = onComplete
+                    return secondCleanup
+                })
+
+            logic = dashboardLogic({ id: 12, dashboard: dashboards[12] })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.loadDashboardStreaming({ action: DashboardLoadAction.Update })
+            }).toFinishAllListeners()
+            await expectLogic(logic, () => {
+                logic.actions.loadDashboardStreaming({ action: DashboardLoadAction.Update })
+            }).toFinishAllListeners()
+
+            expect(firstCleanup).toHaveBeenCalledTimes(1)
+
+            firstOnMessage?.({ type: 'metadata', dashboard: { ...dashboards[12], name: 'Stale stream' } })
+            firstOnComplete?.()
+            expect(logic.values.dashboard?.name).not.toBe('Stale stream')
+
+            secondOnMessage?.({ type: 'metadata', dashboard: { ...dashboards[12], name: 'Current stream' } })
+            secondOnComplete?.()
+            expect(logic.values.dashboard?.name).toBe('Current stream')
+            expect(secondCleanup).toHaveBeenCalledTimes(1)
+
+            streamTilesSpy.mockRestore()
+        })
+
+        it('does not replace a private cached dashboard with public dashboard data', async () => {
+            const privateDashboard = { ...dashboards[12], name: 'Private dashboard' }
+            logic = dashboardLogic({ id: 12, dashboard: privateDashboard })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.unmount()
+
+            logic = dashboardLogic({
+                id: 12,
+                dashboard: { ...dashboards[12], name: 'Public dashboard' },
+                placement: DashboardPlacement.Public,
+            })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.unmount()
+
+            const getResponseSpy = jest.spyOn(api, 'getResponse').mockImplementationOnce(
+                async (_url, options) =>
+                    await new Promise<Response>((_, reject) => {
+                        options?.signal?.addEventListener('abort', () =>
+                            reject(new DOMException('Aborted', 'AbortError'))
+                        )
+                    })
+            )
+            logic = dashboardLogic({ id: 12 })
+            logic.mount()
+
+            expect(logic.values.dashboard?.name).toBe('Private dashboard')
+
+            logic.unmount()
+            getResponseSpy.mockRestore()
         })
     })
 

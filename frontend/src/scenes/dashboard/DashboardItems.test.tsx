@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { render } from '@testing-library/react'
+import { cleanup, render } from '@testing-library/react'
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
@@ -144,6 +144,8 @@ const mockedUseActions = useActions as jest.Mock
 const mockedUseAsyncActions = useAsyncActions as jest.Mock
 
 describe('DashboardItems', () => {
+    afterEach(cleanup)
+
     beforeEach(() => {
         jest.clearAllMocks()
 
@@ -240,6 +242,32 @@ describe('DashboardItems', () => {
     it('matches snapshot in edit mode with layout zoom enabled', () => {
         const { container } = render(<DashboardItems />)
         expect(container.firstChild).toMatchSnapshot()
+    })
+
+    it.each([
+        { scenario: 'the stream is empty', tiles: [], spinnerVisible: true },
+        {
+            scenario: 'a tile is already visible',
+            tiles: [{ id: 1, insight: { id: 101, short_id: 'abc123', query: { kind: 'InsightVizNode' } } }],
+            spinnerVisible: false,
+        },
+    ])('shows the streaming spinner only when $scenario', ({ tiles, spinnerVisible }) => {
+        const defaultUseValues = mockedUseValues.getMockImplementation()!
+        const dashboardValues = defaultUseValues(dashboardLogic)
+        mockedUseValues.mockImplementation((logic) => {
+            if (logic === dashboardLogic) {
+                return { ...dashboardValues, tiles, dashboardStreaming: true }
+            }
+            return defaultUseValues(logic)
+        })
+
+        const { queryByText } = render(<DashboardItems />)
+
+        if (spinnerVisible) {
+            expect(queryByText('Loading tiles...')).toBeInTheDocument()
+        } else {
+            expect(queryByText('Loading tiles...')).not.toBeInTheDocument()
+        }
     })
 
     it('shows widget tiles on public dashboards', () => {

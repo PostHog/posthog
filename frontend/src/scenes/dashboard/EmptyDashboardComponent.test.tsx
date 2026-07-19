@@ -64,10 +64,10 @@ describe('EmptyDashboardComponent', () => {
         cleanup()
     })
 
-    function renderEmptyState(opts: { widgetsEnabled?: boolean } = {}): {
+    function renderEmptyState(opts: { widgetsEnabled?: boolean; loading?: boolean } = {}): {
         logic: ReturnType<typeof dashboardLogic.build>
     } {
-        const { widgetsEnabled = false } = opts
+        const { widgetsEnabled = false, loading = false } = opts
 
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DASHBOARD_WIDGETS], {
             [FEATURE_FLAGS.DASHBOARD_WIDGETS]: widgetsEnabled,
@@ -78,7 +78,7 @@ describe('EmptyDashboardComponent', () => {
 
         render(
             <BindLogic logic={dashboardLogic} props={{ id: MOCK_DASHBOARD.id, dashboard: MOCK_DASHBOARD }}>
-                <EmptyDashboardComponent loading={false} canEdit={true} />
+                <EmptyDashboardComponent loading={loading} canEdit={true} />
             </BindLogic>
         )
 
@@ -88,6 +88,14 @@ describe('EmptyDashboardComponent', () => {
     async function openGetStartedDropdown(): Promise<void> {
         await userEvent.click(document.querySelector('[data-attr="dashboard-add-dropdown"]')!)
     }
+
+    it('shows a cached empty dashboard while revalidating', () => {
+        const { logic } = renderEmptyState({ loading: true })
+
+        expect(screen.getByText('Get started')).toBeInTheDocument()
+
+        logic.unmount()
+    })
 
     it('routes Add widget preview to feature previews when flag is disabled', async () => {
         const pushSpy = jest.spyOn(router.actions, 'push')

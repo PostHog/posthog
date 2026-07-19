@@ -1,10 +1,11 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render } from '@testing-library/react'
+import { act, cleanup, render } from '@testing-library/react'
 import { BindLogic } from 'kea'
 
 import { useFeatureFlagVariantKey } from '@posthog/react'
 
+import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
@@ -13,7 +14,7 @@ import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, DashboardMode, DashboardType, QueryBasedInsightModel } from '~/types'
 
 import { DashboardHeader } from './DashboardHeader'
-import { dashboardLogic } from './dashboardLogic'
+import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
 
 jest.mock('lib/components/FullScreen', () => ({
     FullScreen: () => null,
@@ -169,6 +170,20 @@ describe('DashboardHeader', () => {
             logic.unmount()
         }
     )
+
+    it('keeps cached dashboard metadata visible during background revalidation', () => {
+        const getResponseSpy = jest.spyOn(api, 'getResponse').mockReturnValue(new Promise<Response>(() => {}))
+        const { logic } = renderHeader({ dashboard: MOCK_DASHBOARD })
+
+        act(() => {
+            logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
+        })
+
+        expect(document.querySelector('[data-attr="scene-name"]')).toHaveTextContent(MOCK_DASHBOARD.name)
+
+        logic.unmount()
+        getResponseSpy.mockRestore()
+    })
 
     it.each([
         { variant: 'control', showsLabel: false },
