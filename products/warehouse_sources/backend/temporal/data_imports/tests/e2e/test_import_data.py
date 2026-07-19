@@ -19,9 +19,12 @@ from products.warehouse_sources.backend.facade.models import (
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
 from products.warehouse_sources.backend.temporal.data_imports.settings import import_data_activity_sync
+from products.warehouse_sources.backend.temporal.data_imports.sources.github.github import GithubRetryableError
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportDataActivityInputs,
+    _handle_import_error,
 )
 
 
@@ -619,3 +622,31 @@ def test_report_heartbeat_timeout_heartbeat_not_within_timeout(team):
                     "attempt": mock_info.attempt,
                 },
             )
+
+
+@pytest.mark.parametrize(
+    "error,expect_captured",
+    [
+        (GithubRetryableError("Github API error (retryable): status=503, url=https://api.github.com/x"), False),
+        (Exception("unexpected pipeline failure"), True),
+    ],
+)
+@pytest.mark.asyncio
+async def test_handle_import_error_downgrades_transient_github_errors(error: Exception, expect_captured: bool) -> None:
+    job_inputs = PipelineInputs(
+        source_id=uuid.uuid4(),
+        run_id="run-id",
+        schema_id=uuid.uuid4(),
+        dataset_name="dataset",
+        job_type=ExternalDataSourceType.GITHUB,
+        team_id=1,
+    )
+    logger = mock.AsyncMock()
+
+    with pytest.raises(type(error)):
+        await _handle_import_error(job_inputs, logger, error)
+
+    # A retry-exhausted GitHub 5xx is re-raised so Temporal retries the activity, but logged as a
+    # warning rather than captured as an exception (which would mint an error-tracking issue).
+    assert logger.aexception.called is expect_captured
+    assert logger.awarning.called is (not expect_captured)
