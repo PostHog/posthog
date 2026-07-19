@@ -499,8 +499,8 @@ async function assignReviewersWithAutoMergeGuard(
         return assignReviewersImpl(teams, users)
     }
 
-    await disableAutoMergeImpl()
     try {
+        await disableAutoMergeImpl()
         return await assignReviewersImpl(teams, users)
     } finally {
         await disableAutoMergeImpl()

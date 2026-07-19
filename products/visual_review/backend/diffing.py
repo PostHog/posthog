@@ -7,7 +7,6 @@ Classifies snapshots as genuinely changed or rendering noise.
 Called by the Celery task; all business logic lives here.
 """
 
-from collections.abc import Callable
 from uuid import UUID
 
 from django.db.models import Q
@@ -128,7 +127,7 @@ def _store_diff(
     )
 
 
-def _diff_snapshot(snapshot: RunSnapshot, *, on_compared: Callable[[], None]) -> None:
+def _diff_snapshot(snapshot: RunSnapshot) -> bool:
     """Compare snapshot against baseline; classify and store diff metrics.
 
     Classification (in priority order):
@@ -161,17 +160,16 @@ def _diff_snapshot(snapshot: RunSnapshot, *, on_compared: Callable[[], None]) ->
             has_baseline=baseline_bytes is not None,
             has_current=current_bytes is not None,
         )
-        return
+        return False
 
     result = compare_images(baseline_bytes, current_bytes)
-    on_compared()
 
     _store_thumbnail(snapshot, result)
 
     kind = classify_compare_result(result)
     if kind is not None:
         _store_diff(snapshot, result, kind)
-        return
+        return True
 
     # Both tiers below threshold — genuine noise, reclassify and cache for future runs
     snapshot.result = SnapshotResult.UNCHANGED
@@ -206,6 +204,7 @@ def _diff_snapshot(snapshot: RunSnapshot, *, on_compared: Callable[[], None]) ->
             "diff_percentage": result.diff_percentage,
         },
     )
+    return True
 
 
 def _generate_thumbnail_for_new(snapshot: RunSnapshot) -> None:
@@ -282,10 +281,6 @@ def process_diffs(run_id: UUID) -> int:
     )
     diffed_count = 0
 
-    def record_comparison() -> None:
-        nonlocal diffed_count
-        diffed_count += 1
-
     for snapshot in snapshots:
         if snapshot.result == SnapshotResult.NEW and snapshot.current_artifact:
             _generate_thumbnail_for_new(snapshot)
@@ -307,7 +302,4 @@ def process_diffs(run_id: UUID) -> int:
                 error=str(e),
             )
 
-    durable_diffed_count = (
-        RunSnapshot.objects.using(WRITER_DB).filter(run_id=run_id, team_id=team_id, ssim_score__isnull=False).count()
-    )
-    return max(diffed_count, durable_diffed_count)
+    return diffed_count

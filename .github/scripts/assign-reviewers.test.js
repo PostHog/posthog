@@ -153,6 +153,32 @@ test('assignReviewersWithAutoMergeGuard: rechecks auto-merge when reviewer assig
     assert.deepEqual(calls, ['disable', 'assign', 'disable'])
 })
 
+
+test('assignReviewersWithAutoMergeGuard: retries disabling auto-merge when the initial check throws', async () => {
+    const calls = []
+    let disableAttempts = 0
+
+    await assert.rejects(
+        assignReviewersWithAutoMergeGuard(['team-devex'], [], {
+            disableAutoMergeImpl: async () => {
+                calls.push('disable')
+                disableAttempts += 1
+                if (disableAttempts === 1) {
+                    throw new Error('initial disable failed')
+                }
+                return false
+            },
+            assignReviewersImpl: async () => {
+                calls.push('assign')
+                return true
+            },
+        }),
+        /initial disable failed/
+    )
+
+    assert.deepEqual(calls, ['disable', 'disable'])
+})
+
 for (const [filename, expected] of [
     ['frontend/src/generated/core/api.ts', true],
     ['frontend/src/generated/core/api.schemas.ts', true],

@@ -60,7 +60,6 @@ def process_run_diffs(self, team_id: int, run_id: str) -> None:
     outcome = "completed"
     diffed_count = 0
     retrying = False
-    diffed_count = 0
 
     # Phase timings go to OTel spans (where is time spent); counts go to the
     # vr_run_processed event (how many runs, how many diffs).

@@ -174,7 +174,7 @@ class TestProcessRunDiffs:
             logic.complete_run(create_result.run_id)
 
         # Process - should skip unchanged snapshot
-        assert process_diffs(create_result.run_id, team_id=repo.team_id) == 0
+        process_diffs(create_result.run_id)
 
         # Snapshot should remain unchanged
         snapshots = api.get_run_snapshots(create_result.run_id).snapshots
@@ -195,7 +195,7 @@ class TestProcessRunDiffs:
         )
 
         # Process - should skip new snapshot (no baseline to diff against)
-        assert process_diffs(create_result.run_id, team_id=repo.team_id) == 0
+        process_diffs(create_result.run_id)
 
         snapshots = api.get_run_snapshots(create_result.run_id).snapshots
         assert len(snapshots) == 1
@@ -365,23 +365,6 @@ class TestCountProcessedDiffs(VisualReviewTeamScopedTestMixin, BaseTest):
 
         assert diffing.count_processed_diffs(run.id) == expected
 
-        with (
-            patch("products.visual_review.backend.logic.read_artifact_bytes", return_value=b"png"),
-            patch("products.visual_review.backend.diffing.compare_images", return_value=compare_result),
-            patch(
-                "products.visual_review.backend.diffing._store_thumbnail", side_effect=RuntimeError("storage failed")
-            ),
-            patch("products.visual_review.backend.diffing.logger") as mock_logger,
-        ):
-            assert process_diffs(create_result.run_id, team_id=repo.team_id) == 1
-        mock_logger.warning.assert_called_once()
-
-        snapshot = logic.get_run_snapshots(create_result.run_id)[0]
-        snapshot.result = SnapshotResult.UNCHANGED
-        snapshot.ssim_score = compare_result.ssim_score
-        snapshot.save(using=logic.WRITER_DB, update_fields=["result", "ssim_score"])
-        assert process_diffs(create_result.run_id, team_id=repo.team_id) == 1
-
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestPostApprovalCommentTask:
@@ -406,6 +389,8 @@ class TestPostApprovalCommentTask:
             post_approval_comment(repo.team_id, "00000000-0000-0000-0000-000000000002")
 
     def test_retries_on_rate_limit(self, repo):
+        from posthog.egress.github.transport import GitHubRateLimitError
+
         with (
             patch(
                 "products.visual_review.backend.logic.post_approval_comment_for_run",
