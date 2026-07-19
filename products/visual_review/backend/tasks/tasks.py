@@ -62,7 +62,7 @@ def process_run_diffs(self, team_id: int, run_id: str) -> None:
                 logic.verify_uploads_and_create_artifacts(run_uuid)
             with TRACER.start_as_current_span("visual_review.process_diffs") as diff_span:
                 diffed_count = process_diffs(run_uuid)
-                diff_span.set_attribute("visual_review.diffed_count", diffed_count)
+                diff_span.set_attribute("visual_review.attempt_diffed_count", diffed_count)
             with TRACER.start_as_current_span("visual_review.finish_processing"):
                 logic.finish_processing(run_uuid)
 

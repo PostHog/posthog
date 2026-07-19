@@ -1279,6 +1279,7 @@ def capture_run_processing_metrics(run_id: UUID, *, outcome: str, diffed_count: 
                 distinct_id=run.repo.repo_full_name or str(run.repo_id),
                 event="vr_run_processed",
                 properties=properties,
+                uuid=run.id,
             )
     except Exception:
         logger.warning("visual_review.metrics_capture_failed", run_id=str(run_id), exc_info=True)

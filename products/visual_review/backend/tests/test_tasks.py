@@ -1,6 +1,7 @@
 """Tests for visual_review Celery tasks."""
 
 import io
+from contextlib import contextmanager
 
 import pytest
 from unittest.mock import patch
@@ -11,7 +12,14 @@ from products.visual_review.backend import diffing, logic
 from products.visual_review.backend.diffing import process_diffs
 from products.visual_review.backend.facade import api
 from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
-from products.visual_review.backend.facade.enums import RunStatus, RunType, SnapshotResult
+from products.visual_review.backend.facade.enums import (
+    ChangeKind,
+    ClassificationReason,
+    RunStatus,
+    RunType,
+    SnapshotResult,
+)
+from products.visual_review.backend.models import RunSnapshot
 from products.visual_review.backend.tasks.tasks import post_approval_comment, process_run_diffs
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
@@ -65,6 +73,69 @@ class TestProcessRunDiffs:
         run = api.get_run(create_result.run_id)
         assert run.status == RunStatus.FAILED
         assert "Something went wrong" in (run.error_message or "")
+
+    def test_count_processed_diffs_from_persisted_state(self, repo):
+        cases = [
+            (
+                "persisted_changed",
+                {"result": SnapshotResult.CHANGED, "change_kind": ChangeKind.PIXEL},
+                1,
+            ),
+            (
+                "below_threshold_unchanged",
+                {
+                    "result": SnapshotResult.UNCHANGED,
+                    "classification_reason": ClassificationReason.BELOW_THRESHOLD,
+                },
+                1,
+            ),
+            (
+                "exact_unchanged",
+                {
+                    "result": SnapshotResult.UNCHANGED,
+                    "classification_reason": ClassificationReason.EXACT,
+                },
+                0,
+            ),
+            ("new", {"result": SnapshotResult.NEW}, 0),
+            ("incomplete_changed", {"result": SnapshotResult.CHANGED, "change_kind": ""}, 0),
+        ]
+
+        for index, (name, snapshot_fields, expected) in enumerate(cases):
+            run, _ = logic.create_run(
+                repo_id=repo.id,
+                team_id=repo.team_id,
+                run_type=RunType.STORYBOOK,
+                commit_sha=f"count-{index}",
+                branch=f"count-{index}",
+                pr_number=None,
+                snapshots=[{"identifier": name, "content_hash": f"hash-{index}"}],
+            )
+            RunSnapshot.objects.filter(run=run).update(**snapshot_fields)
+
+            assert diffing.count_processed_diffs(run.id) == expected, name
+
+    def test_metrics_event_uses_run_id_as_uuid(self, repo, mocker):
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="metrics-uuid",
+            branch="main",
+            pr_number=None,
+            snapshots=[],
+        )
+        capture = mocker.Mock()
+
+        @contextmanager
+        def scoped_capture():
+            yield capture
+
+        mocker.patch.object(logic, "ph_scoped_capture", scoped_capture)
+
+        logic.capture_run_processing_metrics(run.id, outcome="completed", diffed_count=0)
+
+        assert capture.call_args.kwargs["uuid"] == run.id
 
     def test_emits_metrics_event_on_success(self, repo):
         create_result = api.create_run(
