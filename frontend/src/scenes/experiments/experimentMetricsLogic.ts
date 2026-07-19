@@ -277,7 +277,7 @@ export interface experimentMetricsLogicMeta {
         metricRetries: (
             currentRecalculation: ExperimentMetricsRecalculationApi | null
         ) => Record<string, MetricRetryInfo>
-        nextRetryAt: (metricRetries: any) => string | null
+        nextRetryAt: (metricRetries: Record<string, MetricRetryInfo>) => string | null
         recalculationDisplayState: (
             recalculationLoading: boolean,
             currentRecalculation: ExperimentMetricsRecalculationApi | null
