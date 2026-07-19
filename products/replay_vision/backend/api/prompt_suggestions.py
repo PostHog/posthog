@@ -180,6 +180,14 @@ class ReplayScannerPromptSuggestionSerializer(serializers.ModelSerializer):
         }
 
 
+class ApplyPromptSuggestionRequestSerializer(serializers.Serializer):
+    config = serializers.JSONField(
+        required=False,
+        help_text="The edited config to apply, assembled from the recommendation's approved fields. "
+        "Omit to apply the full suggested config unchanged.",
+    )
+
+
 class EvaluatePromptSuggestionRequestSerializer(serializers.Serializer):
     session_limit = serializers.IntegerField(
         required=False,
@@ -315,13 +323,14 @@ class ReplayScannerPromptSuggestionViewSet(
         return Response(ReplayScannerPromptSuggestionSerializer(suggestion).data)
 
     @extend_schema(
-        request=None,
+        request=ApplyPromptSuggestionRequestSerializer,
         responses={200: ReplayScannerPromptSuggestionSerializer},
         description=(
-            "Apply this suggestion: write its full suggested config to the scanner (the prompt plus any "
-            "type-specific config such as classifier tags or the monitor allow_inconclusive flag), bumping "
-            "the scanner version, and mark the suggestion applied. Only the current pending suggestion can be "
-            "applied. Requires session recording edit access."
+            "Apply this suggestion: write a config to the scanner (the prompt plus any type-specific config "
+            "such as classifier tags or the monitor allow_inconclusive flag), bumping the scanner version, "
+            "and mark the suggestion applied. Pass `config` to apply an edited subset of the recommendation; "
+            "omit it to apply the full suggested config. Only the current pending suggestion can be applied. "
+            "Requires session recording edit access."
         ),
     )
     @action(detail=True, methods=["post"], required_scopes=["replay_scanner:write", "session_recording:read"])
@@ -329,6 +338,9 @@ class ReplayScannerPromptSuggestionViewSet(
         scanner = self._scanner_for_url()
         self._require_editor()
         suggestion = self.get_object()
+        input_serializer = ApplyPromptSuggestionRequestSerializer(data=request.data)
+        input_serializer.is_valid(raise_exception=True)
+        edited_config = input_serializer.validated_data.get("config")
         # Guards must run on locked rows: unlocked reads let two concurrent applies both pass,
         # and the second silently overwrites the first.
         with transaction.atomic():
@@ -341,8 +353,11 @@ class ReplayScannerPromptSuggestionViewSet(
                 raise ValidationError("Only the current recommendation can be applied.")
             if suggestion.scanner_version != scanner.scanner_version:
                 raise ValidationError("The scanner prompt changed since this was generated. Generate a fresh one.")
-            # New rows carry the full proposed config. Old prompt-only rows fall back to a prompt overwrite.
-            if suggestion.suggested_config is not None:
+            # The edited config the user assembled wins. Otherwise new rows carry the full proposed config,
+            # and old prompt-only rows fall back to a prompt overwrite.
+            if edited_config is not None:
+                config = dict(edited_config)
+            elif suggestion.suggested_config is not None:
                 config = dict(suggestion.suggested_config)
             else:
                 config = {**(scanner.scanner_config or {}), "prompt": suggestion.suggested_prompt}

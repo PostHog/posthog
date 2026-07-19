@@ -215,6 +215,55 @@ class TestPromptSuggestions(_VisionAPITestCase):
         self.assertEqual(scanner.scanner_config["tags"], ["a", "b"])
         self.assertEqual(scanner.scanner_version, version_before + 1)
 
+    def test_apply_with_edited_config_writes_it_instead_of_suggested(self) -> None:
+        scanner = self._create_scanner(
+            name="classifier-edit", scanner_type="classifier", scanner_config={"prompt": "p", "tags": ["a", "b"]}
+        )
+        suggestion = ReplayScannerPromptSuggestion.objects.create(
+            scanner=scanner,
+            team=self.team,
+            suggested_prompt="new",
+            base_prompt="p",
+            base_config={"prompt": "p", "tags": ["a", "b"]},
+            suggested_config={"prompt": "new", "tags": ["a", "b", "c"]},
+            changes=[{"field": "tags", "kind": "tags", "op": "add", "before": None, "after": "c", "rationale": ""}],
+            status=SuggestionStatus.PENDING,
+            scanner_version=scanner.scanner_version,
+        )
+        edited = {"prompt": "user edited", "tags": ["a", "c"]}
+
+        url = f"{self.scanners_url}{scanner.id}/prompt_suggestions/{suggestion.id}/apply/"
+        resp = self.client.post(url, {"config": edited}, format="json")
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.scanner_config, edited)
+        suggestion.refresh_from_db()
+        self.assertEqual(suggestion.status, SuggestionStatus.APPLIED)
+
+    def test_apply_rejects_invalid_edited_config(self) -> None:
+        scanner = self._create_scanner(
+            name="monitor-edit", scanner_type="monitor", scanner_config={"prompt": "keep me"}
+        )
+        suggestion = ReplayScannerPromptSuggestion.objects.create(
+            scanner=scanner,
+            team=self.team,
+            suggested_prompt="new",
+            base_prompt="keep me",
+            base_config={"prompt": "keep me"},
+            suggested_config={"prompt": "new"},
+            changes=[{"field": "prompt", "kind": "prompt", "op": "set", "before": "keep me", "after": "new"}],
+            status=SuggestionStatus.PENDING,
+            scanner_version=scanner.scanner_version,
+        )
+
+        url = f"{self.scanners_url}{scanner.id}/prompt_suggestions/{suggestion.id}/apply/"
+        resp = self.client.post(url, {"config": {"prompt": "x" * 20_001}}, format="json")
+
+        self.assertEqual(resp.status_code, 400)
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.scanner_config["prompt"], "keep me")
+
     def test_apply_old_prompt_only_row_still_works(self) -> None:
         # Rows generated before config-generic suggestions existed have suggested_config=None.
         scanner = self._create_scanner(name="legacy-apply", scanner_type="monitor", scanner_config={"prompt": "old"})
