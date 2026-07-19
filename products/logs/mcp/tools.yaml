@@ -374,6 +374,24 @@ tools:
     logs-has-logs-retrieve:
         operation: logs_has_logs_retrieve
         enabled: false
+    logs-metric-rules-create:
+        operation: logs_metric_rules_create
+        enabled: false
+    logs-metric-rules-destroy:
+        operation: logs_metric_rules_destroy
+        enabled: false
+    logs-metric-rules-list:
+        operation: logs_metric_rules_list
+        enabled: false
+    logs-metric-rules-partial-update:
+        operation: logs_metric_rules_partial_update
+        enabled: false
+    logs-metric-rules-retrieve:
+        operation: logs_metric_rules_retrieve
+        enabled: false
+    logs-metric-rules-update:
+        operation: logs_metric_rules_update
+        enabled: false
     logs-patterns:
         operation: logs_patterns_create
         enabled: true

@@ -88,7 +88,7 @@ from products.feature_flags.backend.tasks import (
     feature_flags_local_eval_canary_task,
     refresh_expiring_flag_definitions_cache_entries,
     refresh_expiring_flags_cache_entries,
-    sync_cross_region_dogfood_flags_task,
+    sync_cross_region_flags_task,
 )
 from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
 from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
@@ -375,7 +375,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         expires_seconds=5 * 60,
     )
 
-    # Cross-region dogfood flags sync (EU only) - every 30s, matching the SDK's
+    # Cross-region flags sync (EU only) - every 30s, matching the SDK's
     # own default poll_interval so EU's local-eval freshness matches what a
     # customer backend gets. Raw interval is safe here (sub-minute; see the
     # warning on add_periodic_task_with_expiry above). Registered only in EU so
@@ -385,8 +385,8 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     if get_instance_region() == "EU":
         sender.add_periodic_task(
             30,
-            sync_cross_region_dogfood_flags_task.s(),
-            name="cross-region dogfood flags sync",
+            sync_cross_region_flags_task.s(),
+            name="cross-region flags sync",
             expires=30,
         )
 

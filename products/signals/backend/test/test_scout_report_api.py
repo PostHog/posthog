@@ -1,3 +1,4 @@
+import json
 from uuid import uuid4
 
 import pytest
@@ -14,8 +15,8 @@ from social_django.models import UserSocialAuth
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 
-from products.signals.backend.artefact_schemas import TaskRunArtefact
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalSourceConfig
+from products.signals.backend.artefact_schemas import SuggestedReviewers, TaskRunArtefact
+from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalSourceConfig
 from products.signals.backend.scout_harness.tools.report import (
     MAX_SUGGESTED_REVIEWERS,
     REPORT_KIND_FINDING,
@@ -293,6 +294,45 @@ class TestScoutReportAPI(APIBaseTest):
         run.refresh_from_db()
         assert run.edited_report_ids == [report_id]
 
+    def test_edit_report_reason_only_reroute_keeps_commit_evidence(self) -> None:
+        # A scout re-route rebuilds entries from logins, so without merge-forward a reason-only edit
+        # would wipe the pipeline-derived relevant_commits (and prior name) the precedent-weighing
+        # guidance runs on. Kept logins must keep their evidence; new logins start clean.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        report_id = created["report_id"]
+        commit = {"sha": "abc123f", "url": "https://example.com/c/abc123f", "reason": "touched the hot path"}
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=report_id,
+            content=SuggestedReviewers.model_validate(
+                [{"github_login": "alice", "github_name": "Alice A.", "relevant_commits": [commit]}]
+            ),
+            attribution=ArtefactAttribution.system(),
+            reevaluate_autostart=False,
+        )
+        with patch(AUTOSTART_PATH, new=AsyncMock()):
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={
+                    "report_id": report_id,
+                    "suggested_reviewers": [
+                        {"github_login": "alice", "reason": "confirmed owner via human correction"},
+                        {"github_login": "dave"},
+                    ],
+                },
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        artefact = self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS)
+        assert artefact is not None
+        stored = {entry["github_login"]: entry for entry in json.loads(artefact.content)}
+        assert stored["alice"]["relevant_commits"] == [commit]
+        assert stored["alice"]["github_name"] == "Alice A."
+        assert stored["alice"]["reason"] == "confirmed owner via human correction"
+        assert stored["dave"]["relevant_commits"] == []
+
     def test_edit_report_unresolvable_reviewer_does_not_partially_mutate(self) -> None:
         # A combined edit (title + a bad reviewer) must fail atomically: reviewers resolve before any
         # write, so an unresolvable user_uuid 400s without the title change leaking through.
@@ -522,6 +562,22 @@ class TestBuildSuggestedReviewers(APIBaseTest):
         result = _build_suggested_reviewers(self.team.id, [ReviewerInput(github_login="OctoCat")])
         assert result is not None
         assert [e.github_login for e in result.root] == ["octocat"]
+
+    def test_reason_persists_on_resolved_entries(self) -> None:
+        # The resolver rebuilds entries from resolved logins — a refactor that drops `reason` there
+        # silently reverts reviewer routing to unexplained picks. Whitespace-only normalizes to None.
+        result = _build_suggested_reviewers(
+            self.team.id,
+            [
+                ReviewerInput(github_login="alice", reason="Top recent author on the affected surface"),
+                ReviewerInput(github_login="bob", reason="   "),
+            ],
+        )
+        assert result is not None
+        assert [(e.github_login, e.reason) for e in result.root] == [
+            ("alice", "Top recent author on the affected surface"),
+            ("bob", None),
+        ]
 
     def test_resolves_user_uuid_to_linked_login(self) -> None:
         member = self._github_member("ghhandle")
