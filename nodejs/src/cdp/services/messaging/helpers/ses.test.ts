@@ -211,7 +211,7 @@ describe('SesWebhookHandler', () => {
             ...baseMail,
             // isTest rides on the signed header code (preferred by the webhook); the short tag
             // code stays legacy-shaped without it.
-            headers: [{ name: TRACKING_CODE_HEADER, value: signer.generate(baseInvocation, true) }],
+            headers: [{ name: TRACKING_CODE_HEADER, value: signer.generate(baseInvocation, { isTest: true }) }],
             tags: { ph_id: [signer.generateShort(baseInvocation)] },
         }
         const body = [{ eventType, mail: testMail, ...eventFields }]
@@ -225,7 +225,7 @@ describe('SesWebhookHandler', () => {
             ...baseMail,
             // isTest rides on the signed header code (preferred by the webhook); the short tag
             // code stays legacy-shaped without it.
-            headers: [{ name: TRACKING_CODE_HEADER, value: signer.generate(baseInvocation, true) }],
+            headers: [{ name: TRACKING_CODE_HEADER, value: signer.generate(baseInvocation, { isTest: true }) }],
             tags: { ph_id: [signer.generateShort(baseInvocation)] },
         }
         const body = [

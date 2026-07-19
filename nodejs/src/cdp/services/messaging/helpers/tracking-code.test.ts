@@ -33,6 +33,7 @@ describe('email tracking code', () => {
                     actionId: 'act-5',
                     parentRunId: 'batch-4',
                     isTest: false,
+                    directTracking: false,
                     distinctId: 'user@example.com',
                     format: 'signed',
                 },
@@ -48,7 +49,7 @@ describe('email tracking code', () => {
                         state: { actionId: 'act-5' },
                         distinctId: 'user@example.com',
                     },
-                    true
+                    { isTest: true }
                 ),
                 expected: {
                     functionId: 'fn-1',
@@ -57,6 +58,7 @@ describe('email tracking code', () => {
                     actionId: 'act-5',
                     parentRunId: 'batch-4',
                     isTest: true,
+                    directTracking: false,
                     distinctId: 'user@example.com',
                     format: 'signed',
                 },
@@ -64,7 +66,7 @@ describe('email tracking code', () => {
             {
                 // isTest sits after actionId/parentRunId, so it must survive both being empty.
                 name: 'roundtrips isTest when neither actionId nor parentRunId is supplied',
-                encoded: signer.generate({ functionId: 'fn-1', id: 'inv-2', teamId: 3 }, true),
+                encoded: signer.generate({ functionId: 'fn-1', id: 'inv-2', teamId: 3 }, { isTest: true }),
                 expected: {
                     functionId: 'fn-1',
                     invocationId: 'inv-2',
@@ -72,6 +74,7 @@ describe('email tracking code', () => {
                     actionId: undefined,
                     parentRunId: undefined,
                     isTest: true,
+                    directTracking: false,
                     distinctId: undefined,
                     format: 'signed',
                 },
@@ -91,6 +94,7 @@ describe('email tracking code', () => {
                     actionId: undefined,
                     parentRunId: undefined,
                     isTest: false,
+                    directTracking: false,
                     distinctId: '550e8400-e29b-41d4-a716-446655440000',
                     format: 'signed',
                 },
@@ -110,6 +114,7 @@ describe('email tracking code', () => {
                     actionId: 'act-5',
                     parentRunId: undefined,
                     isTest: false,
+                    directTracking: false,
                     distinctId: undefined,
                     format: 'signed',
                 },
@@ -132,6 +137,7 @@ describe('email tracking code', () => {
                     actionId: 'act-5',
                     parentRunId: 'batch-4',
                     isTest: false,
+                    directTracking: false,
                     distinctId: undefined,
                     format: 'unsigned',
                 },
@@ -147,6 +153,7 @@ describe('email tracking code', () => {
                     actionId: 'act-5',
                     parentRunId: undefined,
                     isTest: false,
+                    directTracking: false,
                     distinctId: undefined,
                     format: 'unsigned',
                 },
@@ -161,6 +168,7 @@ describe('email tracking code', () => {
                     actionId: 'act-5',
                     parentRunId: 'batch-4',
                     isTest: false,
+                    directTracking: false,
                     distinctId: undefined,
                     format: 'unsigned',
                 },
@@ -176,6 +184,7 @@ describe('email tracking code', () => {
                     actionId: 'act-5',
                     parentRunId: 'batch-4',
                     isTest: true,
+                    directTracking: false,
                     distinctId: undefined,
                     format: 'unsigned',
                 },
@@ -192,6 +201,62 @@ describe('email tracking code', () => {
                     actionId: 'act-5',
                     parentRunId: 'batch-4',
                     isTest: false,
+                    directTracking: false,
+                    distinctId: undefined,
+                    format: 'unsigned',
+                },
+            },
+            {
+                // Custom-SMTP sends mint this flag so the production pixel/redirect handlers
+                // record engagement directly (no delivery webhook exists for SMTP).
+                name: 'roundtrips the directTracking flag with distinctId',
+                encoded: signer.generate(
+                    { functionId: 'fn-1', id: 'inv-2', teamId: 3, distinctId: 'user@example.com' },
+                    { directTracking: true }
+                ),
+                expected: {
+                    functionId: 'fn-1',
+                    invocationId: 'inv-2',
+                    teamId: '3',
+                    actionId: undefined,
+                    parentRunId: undefined,
+                    isTest: false,
+                    directTracking: true,
+                    distinctId: 'user@example.com',
+                    format: 'signed',
+                },
+            },
+            {
+                name: 'roundtrips combined isTest + directTracking flags',
+                encoded: signer.generate(
+                    { functionId: 'fn-1', id: 'inv-2', teamId: 3 },
+                    { isTest: true, directTracking: true }
+                ),
+                expected: {
+                    functionId: 'fn-1',
+                    invocationId: 'inv-2',
+                    teamId: '3',
+                    actionId: undefined,
+                    parentRunId: undefined,
+                    isTest: true,
+                    directTracking: true,
+                    distinctId: undefined,
+                    format: 'signed',
+                },
+            },
+            {
+                // Security: a forged UNSIGNED code must not be able to coerce the production
+                // handlers into direct recording — the flag is only trusted when signed.
+                name: 'ignores the directTracking flag on an unsigned (forged) code',
+                encoded: encodeRaw('fn-1:inv-2:3:act-5:batch-4:d:attacker-distinct-id'),
+                expected: {
+                    functionId: 'fn-1',
+                    invocationId: 'inv-2',
+                    teamId: '3',
+                    actionId: 'act-5',
+                    parentRunId: 'batch-4',
+                    isTest: false,
+                    directTracking: false,
                     distinctId: undefined,
                     format: 'unsigned',
                 },
@@ -203,6 +268,37 @@ describe('email tracking code', () => {
             },
         ])('$name', ({ encoded, expected }) => {
             expect(signer.parse(encoded)).toEqual(expected)
+        })
+    })
+
+    describe('redirect target binding', () => {
+        const invocation = { functionId: 'fn-1', id: 'inv-2', teamId: 3 }
+        const urlParts = (url: string): { phId: string; target: string; th: string } => {
+            const parsed = new URL(url)
+            return {
+                phId: parsed.searchParams.get('ph_id')!,
+                target: parsed.searchParams.get('target')!,
+                th: parsed.searchParams.get('th')!,
+            }
+        }
+
+        it('mints redirect URLs with a target-binding signature that verifies', () => {
+            const url = signer.redirectUrl(invocation, 'https://example.com/page?a=1')
+            const { phId, target, th } = urlParts(url)
+            expect(target).toBe('https://example.com/page?a=1')
+            expect(signer.verifyRedirectTarget(phId, target, th)).toBe(true)
+        })
+
+        it('rejects a valid ph_id replayed with a swapped target (open-redirect guard)', () => {
+            const url = signer.redirectUrl(invocation, 'https://example.com/page')
+            const { phId, th } = urlParts(url)
+            expect(signer.verifyRedirectTarget(phId, 'https://evil.example/phish', th)).toBe(false)
+        })
+
+        it('rejects a tampered target-binding signature', () => {
+            const url = signer.redirectUrl(invocation, 'https://example.com/page')
+            const { phId, target } = urlParts(url)
+            expect(signer.verifyRedirectTarget(phId, target, 'A'.repeat(22))).toBe(false)
         })
     })
 

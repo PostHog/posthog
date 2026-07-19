@@ -2,6 +2,9 @@ import { FetchResponse } from '~/common/utils/request'
 
 jest.mock('~/common/utils/request', () => {
     return {
+        // The SSRF-safe DNS lookup does no HTTP I/O and is needed by the SMTP transport
+        // pool even when fetch is mocked — pass the real implementation through.
+        httpStaticLookup: jest.requireActual('~/common/utils/request').httpStaticLookup,
         fetch: jest.fn(() =>
             Promise.resolve({
                 status: 200,

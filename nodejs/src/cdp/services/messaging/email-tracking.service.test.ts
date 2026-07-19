@@ -231,6 +231,112 @@ describe('EmailTrackingService', () => {
                 const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
                 expect(messages).toHaveLength(0)
             })
+
+            const mintedRedirectPath = (targetUrl: string): string => {
+                const url = new URL(
+                    signer.redirectUrl({ functionId: hogFunction.id, id: invocationId, teamId: team.id }, targetUrl)
+                )
+                return url.pathname + url.search
+            }
+
+            it('redirects links minted with target binding and suppresses the Referer', async () => {
+                const res = await supertest(app).get(mintedRedirectPath('https://example.com'))
+                expect(res.status).toBe(302)
+                expect(res.headers.location).toBe('https://example.com')
+                // The ph_id can carry a recipient identifier for direct-tracking sends; it must
+                // not reach the click destination via the Referer header.
+                expect(res.headers['referrer-policy']).toBe('no-referrer')
+            })
+
+            it('returns 404 for a valid ph_id replayed with a swapped target (open-redirect guard)', async () => {
+                const path = mintedRedirectPath('https://example.com').replace(
+                    encodeURIComponent('https://example.com'),
+                    encodeURIComponent('https://evil.example/phish')
+                )
+                const res = await supertest(app).get(path)
+                expect(res.status).toBe(404)
+
+                const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                expect(messages).toHaveLength(0)
+            })
+        })
+
+        describe('direct recording gate in production', () => {
+            // Outside dev/test, the handlers must record ONLY for signed direct-tracking codes
+            // (custom SMTP, which has no delivery webhook) — recording SES-origin codes here
+            // would double-count against the SES webhook.
+            let envSpies: jest.SpyInstance[]
+
+            beforeEach(() => {
+                envSpies = [
+                    jest.spyOn(envUtils, 'isDevEnv').mockReturnValue(false),
+                    jest.spyOn(envUtils, 'isTestEnv').mockReturnValue(false),
+                ]
+            })
+
+            afterEach(() => {
+                envSpies.forEach((spy) => spy.mockRestore())
+            })
+
+            const mintPixelPath = (flags: { isTest?: boolean; directTracking?: boolean }): string => {
+                const url = new URL(
+                    signer.pixelUrl({ functionId: hogFunction.id, id: invocationId, teamId: team.id }, flags)
+                )
+                return url.pathname + url.search
+            }
+
+            it('records opens for direct-tracking (SMTP) codes', async () => {
+                const res = await supertest(app).get(mintPixelPath({ directTracking: true }))
+                expect(res.status).toBe(200)
+
+                await waitForExpect(() => {
+                    const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    expect(messages).toHaveLength(1)
+                    expect(messages[0].value).toMatchObject({ metric_name: 'email_opened' })
+                })
+            })
+
+            it.each([
+                ['an SES-origin code (webhook owns attribution)', { directTracking: false }],
+                ['a direct-tracking test send', { directTracking: true, isTest: true }],
+            ])('does not record opens for %s', async (_name, flags) => {
+                const res = await supertest(app).get(mintPixelPath(flags))
+                expect(res.status).toBe(200)
+
+                const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                expect(messages).toHaveLength(0)
+            })
+
+            it('records clicks only for direct-tracking links with a verified target binding', async () => {
+                const boundUrl = new URL(
+                    signer.redirectUrl(
+                        { functionId: hogFunction.id, id: invocationId, teamId: team.id },
+                        'https://example.com',
+                        { directTracking: true }
+                    )
+                )
+                const res = await supertest(app).get(boundUrl.pathname + boundUrl.search)
+                expect(res.status).toBe(302)
+
+                await waitForExpect(() => {
+                    const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    expect(messages).toHaveLength(1)
+                    expect(messages[0].value).toMatchObject({ metric_name: 'email_link_clicked' })
+                })
+            })
+
+            it('redirects legacy links without a target binding but never records them', async () => {
+                const phId = signer.generate(
+                    { functionId: hogFunction.id, id: invocationId, teamId: team.id },
+                    { directTracking: true }
+                )
+                const res = await supertest(app).get(`/public/m/redirect?ph_id=${phId}&target=https://example.com`)
+                expect(res.status).toBe(302)
+                expect(res.headers.location).toBe('https://example.com')
+
+                const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                expect(messages).toHaveLength(0)
+            })
         })
 
         describe('email tracking pixel', () => {

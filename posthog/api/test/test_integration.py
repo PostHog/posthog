@@ -26,7 +26,7 @@ from posthog.api.github_callback.team_services import (
     link_existing_team_github_integration,
 )
 from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
-from posthog.api.integration import IntegrationSerializer, IntegrationViewSet
+from posthog.api.integration import IntegrationSerializer, IntegrationViewSet, NativeEmailIntegrationSerializer
 from posthog.models.integration import (
     ERROR_TOKEN_REFRESH_FAILED,
     GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
@@ -472,6 +472,223 @@ class TestEmailIntegration:
         assert integration1.config["verified"]
         assert integration2.config["verified"]
         assert not integrationOtherDomain.config["verified"]
+
+
+class TestNativeEmailIntegrationSerializer:
+    def _config(self, **overrides) -> dict:
+        return {
+            "email": "test@posthog.com",
+            "name": "Test User",
+            "provider": "smtp",
+            "host": "smtp.example.com",
+            "port": 587,
+            "encryption": "starttls",
+            "username": "apikey",
+            "password": "secret",
+            **overrides,
+        }
+
+    def test_valid_smtp_config(self):
+        serializer = NativeEmailIntegrationSerializer(data=self._config())
+        assert serializer.is_valid(), serializer.errors
+
+    @pytest.mark.parametrize("missing_field", ["host", "port", "encryption"])
+    def test_smtp_requires_connection_fields(self, missing_field):
+        config = self._config()
+        del config[missing_field]
+        serializer = NativeEmailIntegrationSerializer(data=config)
+        assert not serializer.is_valid()
+        assert missing_field in serializer.errors
+
+    def test_ses_config_does_not_require_smtp_fields(self):
+        serializer = NativeEmailIntegrationSerializer(
+            data={"email": "test@posthog.com", "name": "Test User", "provider": "ses"}
+        )
+        assert serializer.is_valid(), serializer.errors
+
+    def test_port_out_of_range(self):
+        serializer = NativeEmailIntegrationSerializer(data=self._config(port=70000))
+        assert not serializer.is_valid()
+        assert "port" in serializer.errors
+
+
+SMTP_CONFIG = {
+    "email": "sender@posthog.com",
+    "name": "SMTP Sender",
+    "provider": "smtp",
+    "host": "smtp.example.com",
+    "port": 587,
+    "encryption": "starttls",
+    "username": "apikey",
+    "password": "super-secret",
+}
+
+
+class TestSmtpEmailIntegration:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    @patch("posthog.models.integration.SMTPProvider")
+    def test_create_stores_password_in_sensitive_config_only(self, mock_smtp_provider_class):
+        mock_provider = MagicMock()
+        mock_smtp_provider_class.return_value = mock_provider
+
+        integration = EmailIntegration.create_native_integration(
+            dict(SMTP_CONFIG),
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            created_by=self.user,
+        )
+
+        mock_provider.test_connection.assert_called_once_with(
+            host="smtp.example.com", port=587, encryption="starttls", username="apikey", password="super-secret"
+        )
+        # A passing connection test is what "verified" means for SMTP — no DNS records to wait on.
+        assert integration.config == {
+            "email": "sender@posthog.com",
+            "domain": "posthog.com",
+            "name": "SMTP Sender",
+            "provider": "smtp",
+            "host": "smtp.example.com",
+            "port": 587,
+            "encryption": "starttls",
+            "username": "apikey",
+            "verified": True,
+        }
+        assert integration.sensitive_config == {"password": "super-secret"}
+
+    @patch("posthog.models.integration.SMTPProvider")
+    def test_create_fails_closed_when_connection_test_fails(self, mock_smtp_provider_class):
+        mock_smtp_provider_class.return_value.test_connection.side_effect = ValidationError("Auth rejected")
+
+        with pytest.raises(ValidationError):
+            EmailIntegration.create_native_integration(
+                dict(SMTP_CONFIG),
+                team_id=self.team.id,
+                organization_id=self.organization.id,
+                created_by=self.user,
+            )
+        assert Integration.objects.count() == 0
+
+    @patch("posthog.models.integration.SMTPProvider")
+    def test_update_with_omitted_password_keeps_existing(self, mock_smtp_provider_class):
+        mock_provider = MagicMock()
+        mock_smtp_provider_class.return_value = mock_provider
+        integration = EmailIntegration.create_native_integration(
+            dict(SMTP_CONFIG),
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            created_by=self.user,
+        )
+
+        EmailIntegration(integration).update_native_integration(
+            {"name": "Renamed", "host": "smtp2.example.com", "port": 2525, "encryption": "ssl", "username": "apikey"},
+            team_id=self.team.id,
+        )
+
+        integration.refresh_from_db()
+        assert integration.config["name"] == "Renamed"
+        assert integration.config["host"] == "smtp2.example.com"
+        assert integration.config["port"] == 2525
+        assert integration.sensitive_config == {"password": "super-secret"}
+        # The connection re-test must run with the retained password, not an empty one
+        assert mock_provider.test_connection.call_args_list[-1].kwargs["password"] == "super-secret"
+
+    @patch("posthog.models.integration.SMTPProvider")
+    def test_update_with_new_password_replaces_it(self, mock_smtp_provider_class):
+        mock_smtp_provider_class.return_value = MagicMock()
+        integration = EmailIntegration.create_native_integration(
+            dict(SMTP_CONFIG),
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            created_by=self.user,
+        )
+
+        EmailIntegration(integration).update_native_integration({"password": "rotated-secret"}, team_id=self.team.id)
+
+        integration.refresh_from_db()
+        assert integration.sensitive_config == {"password": "rotated-secret"}
+
+    @patch("posthog.models.integration.SMTPProvider")
+    def test_verify_failure_marks_unverified_and_records_error(self, mock_smtp_provider_class):
+        mock_provider = MagicMock()
+        mock_smtp_provider_class.return_value = mock_provider
+        integration = EmailIntegration.create_native_integration(
+            dict(SMTP_CONFIG),
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            created_by=self.user,
+        )
+
+        mock_provider.test_connection.side_effect = ValidationError("The SMTP server rejected the credentials (535)")
+        result = EmailIntegration(integration).verify()
+
+        assert result["status"] == "failed"
+        assert "rejected the credentials" in str(result["error"])
+        integration.refresh_from_db()
+        assert not integration.config["verified"]
+        assert "rejected the credentials" in integration.errors
+
+        # A later successful verify recovers: verified flips back and the error clears
+        mock_provider.test_connection.side_effect = None
+        result = EmailIntegration(integration).verify()
+        assert result == {"status": "success", "dnsRecords": []}
+        integration.refresh_from_db()
+        assert integration.config["verified"]
+        assert integration.errors == ""
+
+    @patch("posthog.models.integration.SMTPProvider")
+    def test_verify_does_not_fan_out_to_same_domain_integrations(self, mock_smtp_provider_class):
+        mock_smtp_provider_class.return_value = MagicMock()
+        integration1 = EmailIntegration.create_native_integration(
+            dict(SMTP_CONFIG),
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            created_by=self.user,
+        )
+        integration2 = EmailIntegration.create_native_integration(
+            {**SMTP_CONFIG, "email": "other@posthog.com"},
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            created_by=self.user,
+        )
+        # SMTP verification is per-integration (each sender can point at different credentials),
+        # unlike the DNS-based providers where one domain check covers every sender
+        for integration in (integration1, integration2):
+            integration.config["verified"] = False
+            integration.save()
+
+        EmailIntegration(integration1).verify()
+
+        integration1.refresh_from_db()
+        integration2.refresh_from_db()
+        assert integration1.config["verified"]
+        assert not integration2.config["verified"]
+
+    @patch("posthog.models.integration.SMTPProvider")
+    def test_api_create_never_returns_the_password(self, mock_smtp_provider_class, client: HttpClient):
+        mock_smtp_provider_class.return_value = MagicMock()
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {"kind": "email", "config": SMTP_CONFIG},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        body = response.json()
+        assert "super-secret" not in json.dumps(body)
+        assert "sensitive_config" not in body
+        assert body["config"]["host"] == "smtp.example.com"
+
+        integration = Integration.objects.get(id=body["id"])
+        assert integration.sensitive_config == {"password": "super-secret"}
 
 
 class TestDatabricksIntegration:

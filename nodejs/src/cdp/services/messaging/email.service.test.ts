@@ -3,8 +3,10 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 import { MessageRejected, SendingPausedException, TooManyRequestsException } from '@aws-sdk/client-sesv2'
 
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
+import { TestSmtpServer } from '~/cdp/_tests/smtp-server'
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
+import { defaultConfig } from '~/common/config/config'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
@@ -13,6 +15,7 @@ import { Hub, Team } from '../../../types'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { EmailService, parseAddressList, sanitizeEmailSubject } from './email.service'
 import { MailDevAPI } from './helpers/maildev'
+import { smtpTransportPool } from './helpers/smtp'
 import { EmailTrackingCodeSigner } from './helpers/tracking-code'
 
 class ThrottlingException extends Error {
@@ -380,7 +383,7 @@ describe('EmailService', () => {
             // ph_id may be unsigned (base64url only) or signed (base64url + `.` + signature) depending on
             // ENCRYPTION_SALT_KEYS. Match the structure, not the exact value.
             expect(emails[0].html).toMatch(
-                /^<body>Hi! <a href="http:\/\/localhost:8010\/public\/m\/redirect\?ph_id=[A-Za-z0-9._-]+&target=https%3A%2F%2Fexample\.com">Click me<\/a><img src="http:\/\/localhost:8010\/public\/m\/pixel\?ph_id=[A-Za-z0-9._-]+" style="display: none;" \/><\/body>$/
+                /^<body>Hi! <a href="http:\/\/localhost:8010\/public\/m\/redirect\?ph_id=[A-Za-z0-9._-]+&target=https%3A%2F%2Fexample\.com&th=[A-Za-z0-9_-]+">Click me<\/a><img src="http:\/\/localhost:8010\/public\/m\/pixel\?ph_id=[A-Za-z0-9._-]+" style="display: none;" \/><\/body>$/
             )
         })
     })
@@ -688,6 +691,180 @@ describe('EmailService', () => {
                 event: '$workflows_email_failed',
                 distinct_id: 'distinct_id',
             })
+        })
+    })
+
+    describe('native email sending with custom SMTP', () => {
+        // A real in-process SMTP server on an allowlisted port: sends go through the actual
+        // nodemailer pooled transport, socket, protocol and MIME encoding — only delivery
+        // beyond the relay is fake. Port 2525 is in ALLOWED_SMTP_PORTS and unused locally
+        // (maildev is 1025).
+        const SMTP_TEST_PORT = 2525
+        const smtpServer = new TestSmtpServer(SMTP_TEST_PORT)
+        const signer = new EmailTrackingCodeSigner(
+            defaultConfig.ENCRYPTION_SALT_KEYS,
+            defaultConfig.CDP_EMAIL_TRACKING_URL
+        )
+        let invocation: CyclotronJobInvocationHogFunction
+
+        const unfoldedHeaders = (data: string): string => data.split('\r\n\r\n')[0].replace(/\r\n[ \t]/g, ' ')
+        const decodedBody = (data: string): string =>
+            TestSmtpServer.decodeQuotedPrintable(data.split('\r\n\r\n').slice(1).join('\r\n\r\n'))
+
+        beforeAll(async () => {
+            await smtpServer.start()
+        })
+
+        afterAll(async () => {
+            await smtpServer.stop()
+        })
+
+        beforeEach(async () => {
+            smtpServer.reset()
+            await insertIntegration(hub.postgres, team.id, {
+                id: 1,
+                kind: 'email',
+                config: {
+                    email: 'test@posthog.com',
+                    name: 'Test User',
+                    domain: 'posthog.com',
+                    verified: true,
+                    provider: 'smtp',
+                    host: '127.0.0.1',
+                    port: SMTP_TEST_PORT,
+                    encryption: 'none',
+                    username: 'apikey',
+                },
+                sensitive_config: { password: 'relay-secret' },
+            })
+            invocation = createExampleInvocation({ team_id: team.id, id: 'function-1' })
+            invocation.id = 'invocation-1'
+            invocation.state.vmState = { stack: [] } as any
+            invocation.queueParameters = createEmailParams({ from: { integrationId: 1 } })
+        })
+
+        afterEach(() => {
+            // Fresh pooled connection per test so a scripted error response can't leak into the next one
+            smtpTransportPool.closeAll()
+        })
+
+        it('delivers through a real SMTP transaction with tracking rewritten for direct recording', async () => {
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1 },
+                html: '<body>Hi! <a href="https://example.com">Click me</a></body>',
+            })
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            expect(smtpServer.received).toHaveLength(1)
+            const email = smtpServer.received[0]
+            expect(email.mailFrom).toBe('test@posthog.com')
+            expect(email.rcptTo).toEqual(['test@example.com'])
+
+            const headers = unfoldedHeaders(email.data)
+            expect(headers).toMatch(/^From: "Test User" <test@posthog\.com>$/m)
+            expect(headers).toMatch(/^Subject: Test Subject$/m)
+            // Marketing (non-transactional) sends must keep unsubscribe headers on SMTP too
+            expect(headers).toMatch(/^List-Unsubscribe:\s*</im)
+            expect(headers).toMatch(/^List-Unsubscribe-Post:\s*List-Unsubscribe=One-Click$/im)
+
+            // The tracking code header carries the direct-tracking flag and the recipient's
+            // distinct_id — with no delivery webhook, the pixel/redirect handlers are the only
+            // engagement attribution path for SMTP sends.
+            const trackingCode = headers.match(/^X-PostHog-Tracking-Code:\s*(\S+)\s*$/im)![1]
+            const parsedCode = signer.parse(trackingCode)
+            expect(parsedCode).toMatchObject({
+                format: 'signed',
+                directTracking: true,
+                distinctId: 'distinct_id',
+            })
+
+            // Links are rewritten with the target-binding signature; the pixel is appended.
+            const body = decodedBody(email.data)
+            const linkMatch = body.match(/redirect\?ph_id=([A-Za-z0-9._-]+)&target=([^&"]+)&th=([A-Za-z0-9_-]+)/)
+            expect(linkMatch).not.toBeNull()
+            const [, linkPhId, target, th] = linkMatch!
+            expect(decodeURIComponent(target)).toBe('https://example.com')
+            expect(signer.parse(linkPhId)?.directTracking).toBe(true)
+            expect(signer.verifyRedirectTarget(linkPhId, decodeURIComponent(target), th)).toBe(true)
+            expect(body).toMatch(/pixel\?ph_id=[A-Za-z0-9._-]+/)
+        })
+
+        it('authenticates with the password from sensitive_config', async () => {
+            const result = await service.executeSendEmail(invocation)
+            expect(result.error).toBeUndefined()
+            expect(smtpServer.received[0].auth).toEqual({ user: 'apikey', pass: 'relay-secret' })
+        })
+
+        it('omits unsubscribe headers for transactional sends but keeps the tracking code', async () => {
+            invocation.hogFunction.metadata = { message_category_type: 'transactional' }
+            const result = await service.executeSendEmail(invocation)
+            expect(result.error).toBeUndefined()
+            const headers = unfoldedHeaders(smtpServer.received[0].data)
+            expect(headers).not.toMatch(/^List-Unsubscribe/im)
+            expect(headers).toMatch(/^X-PostHog-Tracking-Code: /im)
+        })
+
+        it('records email_sent for real sends but nothing for test sends', async () => {
+            const normal = await service.executeSendEmail(invocation)
+            expect(normal.metrics.map((m) => m.metric_name)).toContain('email_sent')
+
+            const testSend = await service.executeSendEmail(invocation, true)
+            expect(testSend.error).toBeUndefined()
+            expect(testSend.metrics).toEqual([])
+        })
+
+        it('reschedules with backoff when the relay answers 4xx (greylisting)', async () => {
+            smtpServer.setResponses({ MAIL: '451 4.7.1 Greylisted, try again later' })
+
+            const before = Date.now()
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            expect(result.finished).toBe(false)
+            const scheduledMs = result.invocation.queueScheduledAt!.toMillis()
+            // Jittered 15–30s retry window for customer relays
+            expect(scheduledMs).toBeGreaterThanOrEqual(before + 14_000)
+            expect(scheduledMs).toBeLessThan(before + 31_000)
+            // No business metric on reschedule — the eventual retry produces email_sent
+            expect(result.metrics ?? []).toEqual([])
+        })
+
+        it('fails terminally with the relay response when the relay answers 5xx', async () => {
+            smtpServer.setResponses({ RCPT: '550 5.1.1 No such user here' })
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.finished).toBe(true)
+            expect(result.error).toMatch(/550/)
+            expect(result.invocation.queueScheduledAt).toBeUndefined()
+            expect(result.metrics).toEqual(
+                expect.arrayContaining([expect.objectContaining({ metric_name: 'email_failed' })])
+            )
+        })
+
+        it('never retries an ambiguous DATA-phase network failure (duplicate-send guard)', async () => {
+            // A timeout after DATA was accepted may mean the relay is already delivering;
+            // a blind retry double-sends. Synthetic error for a deterministic failure shape.
+            const dataPhaseError = Object.assign(new Error('Connection closed unexpectedly'), {
+                command: 'DATA',
+                code: 'ECONNECTION',
+            })
+            const getSpy = jest
+                .spyOn(smtpTransportPool, 'get')
+                .mockResolvedValue({ sendMail: jest.fn().mockRejectedValue(dataPhaseError) } as any)
+            try {
+                const result = await service.executeSendEmail(invocation)
+                expect(result.finished).toBe(true)
+                expect(result.error).toMatch(/may or may not have been delivered/)
+                expect(result.invocation.queueScheduledAt).toBeUndefined()
+                expect(result.metrics).toEqual(
+                    expect.arrayContaining([expect.objectContaining({ metric_name: 'email_failed' })])
+                )
+            } finally {
+                getSpy.mockRestore()
+            }
         })
     })
 })
