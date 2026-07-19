@@ -252,8 +252,6 @@ finding points at one query you want to explain or fix, switch to
 owns root-causing an individual query (its `references/investigation-playbook.md`) and applying the fix at
 the right layer (printer, query runner, or ClickHouse migration).
 
-When the question is **dollar cost / spend** rather than slowness — which products, workflows, or
-customers cost the most, free-vs-paid splits, cost concentration, wasted spend on failed queries — use
-[`analyzing-query-costs`](../analyzing-query-costs/SKILL.md) instead. It reads the same archive data
-through the `query_log_archive_us` / `query_log_archive_eu` warehouse sources via the PostHog MCP, so it
-also works where Metabase SSO is unavailable (e.g. PostHog Code cloud).
+When the question is dollar cost rather than slowness (which products, workflows, or customers cost the most, free vs paid splits, wasted spend on failed queries), use the `analyzing-query-costs` skill from the PostHog skills store instead: fetch it with `posthog:skill-get`.
+It reads the archive data through the `query_log_archive_us` / `query_log_archive_eu` warehouse sources via the PostHog MCP, so it also works where Metabase SSO is unavailable (e.g. PostHog Code cloud).
+Those tables are not a 1:1 copy of what Metabase sees: they hold a once-a-day export of `query_log_archive` (nothing for today yet), and the raw `query_log` with un-normalized query text is only available here in Metabase.
