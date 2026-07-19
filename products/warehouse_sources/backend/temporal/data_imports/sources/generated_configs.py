@@ -2441,7 +2441,8 @@ class LambdaLabsSourceConfig(config.Config):
 
 @config.config
 class LangSmithSourceConfig(config.Config):
-    pass
+    api_key: str
+    host: str | None = None
 
 
 @config.config
@@ -4104,7 +4105,8 @@ class SonatypeNexusSourceConfig(config.Config):
 
 @config.config
 class SourcegraphSourceConfig(config.Config):
-    pass
+    host: str
+    access_token: str
 
 
 @config.config

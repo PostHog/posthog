@@ -15,6 +15,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
 
+import { AlertDefinitionRow } from 'products/alerts/frontend/components/AlertDefinition'
 import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
 import { getDefaultSimulationRange } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 import { getDefaultAnomalyDetectorConfig } from 'products/alerts/frontend/logic/detectorConfigDefaults'
@@ -183,11 +184,11 @@ export function AlertDefinitionSection({
             )}
 
             {alertMode === 'threshold' ? (
-                <div className="deprecated-space-y-2">
+                <div className="space-y-2">
                     {thresholdBoundsFormError ? (
                         <LemonBanner type="error">{thresholdBoundsFormError}</LemonBanner>
                     ) : null}
-                    <div className="flex flex-wrap gap-x-3 gap-y-2 items-center">
+                    <AlertDefinitionRow>
                         {supportsRelativeConditions && (
                             <Group name={['condition']}>
                                 <LemonField name="type">
@@ -325,7 +326,7 @@ export function AlertDefinitionSection({
                                 </LemonField>
                             </Group>
                         )}
-                    </div>
+                    </AlertDefinitionRow>
                 </div>
             ) : (
                 <DetectorSelector
