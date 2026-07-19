@@ -151,3 +151,7 @@ class TestExportProviderCredentials:
 
         export_provider_credentials(settings)
         assert os.environ["OPENAI_BASE_URL"] == "https://eu.api.openai.com/v1"
+
+
+def test_default_request_body_limit_supports_large_agent_contexts() -> None:
+    assert Settings().max_request_body_size == 25 * 1024 * 1024

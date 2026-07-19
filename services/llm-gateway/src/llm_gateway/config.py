@@ -133,7 +133,7 @@ class Settings(BaseSettings):
     request_timeout: float = 300.0
     streaming_timeout: float = 300.0
 
-    max_request_body_size: int = 10_485_760  # 10MB
+    max_request_body_size: int = 26_214_400  # 25 MiB
 
     cors_origins: list[str] = ["*"]
 
