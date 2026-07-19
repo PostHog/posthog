@@ -27,6 +27,7 @@ import {
     isExperimentRetentionMetric,
     Node,
     NodeKind,
+    RefreshType,
 } from '~/queries/schema/schema-general'
 import {
     getBreakdown,
@@ -725,7 +726,7 @@ export interface eventUsageLogicActions {
         variables: Record<string, any>,
         lastRefreshed: string | Dayjs | null,
         action: string,
-        forceRefresh: boolean,
+        refresh: RefreshType,
         insightsRefreshedInfo: {
             refreshDurationMs: number
             tilesAbortedCount: number
@@ -739,7 +740,6 @@ export interface eventUsageLogicActions {
         dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
         dashboardId: number
         filters: Record<string, any>
-        forceRefresh: boolean
         insightsRefreshedInfo: {
             refreshDurationMs: number
             tilesAbortedCount: number
@@ -749,6 +749,7 @@ export interface eventUsageLogicActions {
             totalTileCount: number
         }
         lastRefreshed: string | Dayjs | null
+        refresh: RefreshType
         variables: Record<string, any>
     }
     reportDashboardShareToggled: (
@@ -2107,7 +2108,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             variables: Record<string, any>,
             lastRefreshed: string | Dayjs | null,
             action: string,
-            forceRefresh: boolean,
+            refresh: RefreshType,
             insightsRefreshedInfo: {
                 totalTileCount: number
                 tilesStaleCount: number
@@ -2123,7 +2124,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             variables,
             lastRefreshed,
             action,
-            forceRefresh,
+            refresh,
             insightsRefreshedInfo,
         }),
         reportDashboardTileRefreshed: (
@@ -3050,7 +3051,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             variables,
             lastRefreshed,
             action,
-            forceRefresh,
+            refresh,
             insightsRefreshedInfo,
         }) => {
             posthog.capture(`dashboard refreshed`, {
@@ -3061,7 +3062,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 last_refreshed: lastRefreshed?.toString(),
                 refreshAge: lastRefreshed ? now().diff(lastRefreshed, 'seconds') : undefined,
                 action: action,
-                force_refresh: forceRefresh,
+                refresh_type: refresh,
+                force_refresh: refresh === 'force_blocking',
                 refresh_duration_ms: insightsRefreshedInfo.refreshDurationMs,
                 total_tile_count: insightsRefreshedInfo.totalTileCount,
                 tiles_stale_count: insightsRefreshedInfo.tilesStaleCount,

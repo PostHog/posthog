@@ -13,7 +13,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLoadAction, dashboardLogic, RefreshDashboardItemsAction } from 'scenes/dashboard/dashboardLogic'
 import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
 import * as widgetFetchUtils from 'scenes/dashboard/widgetFetchUtils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -1079,7 +1079,10 @@ describe('dashboardLogic', () => {
                     .toDispatchActions([
                         // starts loading
                         'triggerDashboardRefresh',
-                        'refreshDashboardItems',
+                        logic.actionCreators.refreshDashboardItems({
+                            action: RefreshDashboardItemsAction.Refresh,
+                            refresh: 'force_blocking',
+                        }),
                         // sets the "reloading" status
                         logic.actionCreators.setRefreshStatuses([insight1.short_id, insight2.short_id], false, true),
                     ])
@@ -1175,7 +1178,7 @@ describe('dashboardLogic', () => {
                 }
 
                 try {
-                    // forceRefresh: true so both tiles enter the refresh loop
+                    // force_blocking ensures both tiles enter the refresh loop
                     const refreshDone = expectLogic(logic, () => {
                         logic.actions.triggerDashboardRefresh()
                     }).toFinishAllListeners()
@@ -1233,7 +1236,7 @@ describe('dashboardLogic', () => {
                 try {
                     ;(api.update as jest.Mock).mockClear()
 
-                    // forceRefresh: true so every insight tile hits getInsightWithRetry (applyFilters/preview can skip fresh tiles)
+                    // force_blocking ensures every insight tile hits getInsightWithRetry (applyFilters/preview can skip fresh tiles)
                     const refreshDone = expectLogic(logic, () => {
                         logic.actions.triggerDashboardRefresh()
                     }).toFinishAllListeners()
@@ -1373,6 +1376,49 @@ describe('dashboardLogic', () => {
         })
 
         describe('page visibility', () => {
+            it('uses cached results for automatic refreshes', async () => {
+                const currentTime = now()
+                logic.actions.loadDashboardMetadataSuccess({
+                    ...logic.values.dashboard!,
+                    last_refresh: currentTime.subtract(2, 'hours').toISOString(),
+                })
+                for (const tile of logic.values.insightTiles) {
+                    dashboardsModel.actions.updateDashboardInsight({
+                        ...tile.insight!,
+                        last_refresh: currentTime.toISOString(),
+                    })
+                }
+
+                let intervalCallback: TimerHandler | undefined
+                const setIntervalSpy = jest
+                    .spyOn(window, 'setInterval')
+                    .mockImplementation((callback: TimerHandler) => {
+                        intervalCallback = callback
+                        return 1
+                    })
+
+                try {
+                    await expectLogic(logic, () => {
+                        logic.actions.setAutoRefresh(true, 1800)
+                    })
+                        .toDispatchActions(['setAutoRefresh', 'resetInterval'])
+                        .toNotHaveDispatchedActions(['refreshDashboardItems'])
+
+                    expect(intervalCallback).toBeInstanceOf(Function)
+
+                    await expectLogic(logic, () => {
+                        ;(intervalCallback as () => void)()
+                    }).toDispatchActions([
+                        logic.actionCreators.refreshDashboardItems({
+                            action: RefreshDashboardItemsAction.Refresh,
+                            refresh: 'blocking',
+                        }),
+                    ])
+                } finally {
+                    setIntervalSpy.mockRestore()
+                }
+            })
+
             it('pauses auto-refresh when page is hidden and resumes when visible', async () => {
                 await expectLogic(logic, () => {
                     logic.actions.setAutoRefresh(true, 1800)
@@ -1952,7 +1998,7 @@ describe('dashboardLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             await expectLogic(logic, () => {
-                logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], forceRefresh: true })
+                logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], refresh: 'force_blocking' })
             }).toFinishAllListeners()
 
             expect(fetchRunWidgetsMock).toHaveBeenCalledWith(
@@ -1982,7 +2028,7 @@ describe('dashboardLogic', () => {
             expect(fetchRunWidgetsMock).not.toHaveBeenCalled()
 
             await expectLogic(logic, () => {
-                logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], forceRefresh: true })
+                logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], refresh: 'force_blocking' })
             }).toFinishAllListeners()
 
             expect(fetchRunWidgetsMock).not.toHaveBeenCalled()
@@ -2011,7 +2057,7 @@ describe('dashboardLogic', () => {
             fetchRunWidgetsMock.mockRejectedValueOnce(new Error('Network error'))
 
             await expectLogic(logic, () => {
-                logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], forceRefresh: true })
+                logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], refresh: 'force_blocking' })
             }).toFinishAllListeners()
 
             expect(logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.error).toBe(DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE)
@@ -2032,7 +2078,7 @@ describe('dashboardLogic', () => {
             ])
 
             await expectLogic(logic, () => {
-                logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], forceRefresh: true })
+                logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], refresh: 'force_blocking' })
             }).toFinishAllListeners()
 
             expect(logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.error).toBe(DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE)
@@ -2060,7 +2106,7 @@ describe('dashboardLogic', () => {
             ])
 
             await expectLogic(logic, () => {
-                logic.actions.refreshDashboardWidgets({ tileIds: [10, 11], forceRefresh: true })
+                logic.actions.refreshDashboardWidgets({ tileIds: [10, 11], refresh: 'force_blocking' })
             }).toFinishAllListeners()
 
             expect(logic.values.widgetRefreshStatus[10]?.error).toBeNull()
