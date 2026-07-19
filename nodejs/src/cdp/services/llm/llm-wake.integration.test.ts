@@ -44,7 +44,7 @@ describe('wakeParkedLlmJob (integration)', () => {
             await manager.connect()
         } catch {
             dbAvailable = false
-            // eslint-disable-next-line no-console
+
             console.warn(`[llm-wake.integration] cyclotron DB unavailable at ${DB_URL} - skipping integration tests`)
         }
     })
@@ -74,7 +74,7 @@ describe('wakeParkedLlmJob (integration)', () => {
         })
     }
 
-    const jobRow = async (id: string): Promise<{ scheduled: Date; status: string; state: Buffer }> => {
+    const jobRow = async (id: string): Promise<{ scheduled: string; status: string; state: Buffer }> => {
         const res = await pool.query('SELECT scheduled, status, state FROM cyclotron_jobs WHERE id = $1', [id])
         return res.rows[0]
     }
@@ -96,7 +96,8 @@ describe('wakeParkedLlmJob (integration)', () => {
         const row = await jobRow(id)
         // Pulled forward to ~now (was an hour out), still available for a worker to pick up.
         expect(row.status).toBe('available')
-        expect(row.scheduled.getTime()).toBeLessThan(Date.now() + 5_000)
+        // The pg pool returns timestamptz as an ISO string, not a Date, so parse before comparing.
+        expect(new Date(row.scheduled).getTime()).toBeLessThan(Date.now() + 5_000)
         // The completion is now in the parked step's state.
         const state = parseJSON(row.state.toString('utf-8'))
         expect(state.state.currentAction.llmResult).toEqual({ text: 'the answer', model: 'gpt-4o-mini' })
