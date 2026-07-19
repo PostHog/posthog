@@ -19,6 +19,7 @@ import {
 } from './LlmAnalyticsSignalCard'
 import { LogsAlertSignalCard, logsAlertSignalCardEntry } from './LogsAlertSignalCard'
 import { PgAnalyzeSignalCard, pgAnalyzeSignalCardEntry } from './PgAnalyzeSignalCard'
+import { ScannerFindingSignalCard, scannerFindingSignalCardEntry } from './ScannerFindingSignalCard'
 import { SessionReplaySignalCard, sessionReplaySignalCardEntry } from './SessionReplaySignalCard'
 import { SignalsScoutSignalCard, signalsScoutSignalCardEntry } from './SignalsScoutSignalCard'
 import type { SignalCardEntry } from './types'
@@ -37,6 +38,7 @@ export {
     LlmEvalTraceSignalCard,
     LogsAlertSignalCard,
     PgAnalyzeSignalCard,
+    ScannerFindingSignalCard,
     SessionReplaySignalCard,
     SignalsScoutSignalCard,
     ZendeskTicketSignalCard,
@@ -51,6 +53,7 @@ export const SIGNAL_CARD_REGISTRY: SignalCardEntry[] = [
     // PostHog products with live embeds
     errorTrackingSignalCardEntry,
     sessionReplaySignalCardEntry,
+    scannerFindingSignalCardEntry,
     // LLM analytics: report variant first (mutually exclusive guards, but explicit)
     llmEvalReportSignalCardEntry,
     llmEvalTraceSignalCardEntry,

@@ -20,6 +20,22 @@ CALENDLY_BASE_URL = "https://api.calendly.com"
 PAGE_SIZE = 100
 REQUEST_TIMEOUT = 60
 
+CALENDLY_API_VERSION_V1 = "v1"
+CALENDLY_API_VERSION_V2 = "v2"
+SUPPORTED_API_VERSIONS = (CALENDLY_API_VERSION_V1, CALENDLY_API_VERSION_V2)
+
+# Both declared versions target Calendly's current REST API host. The original "v1" label
+# already pointed here, so v2 resolves byte-for-byte identically while becoming the default
+# for new sources; a future breaking version would branch its host/paths from here.
+_BASE_URL_BY_VERSION: dict[str, str] = {
+    CALENDLY_API_VERSION_V1: CALENDLY_BASE_URL,
+    CALENDLY_API_VERSION_V2: CALENDLY_BASE_URL,
+}
+
+
+def _base_url_for_version(api_version: str) -> str:
+    return _BASE_URL_BY_VERSION.get(api_version, CALENDLY_BASE_URL)
+
 
 class CalendlyRetryableError(Exception):
     pass
@@ -55,15 +71,13 @@ def validate_credentials(token: str) -> bool:
         return False
 
 
-def get_current_organization(token: str) -> str:
+def get_current_organization(token: str, base_url: str = CALENDLY_BASE_URL) -> str:
     """Resolve the organization URI for the token via `/users/me`.
 
     Every list endpoint we sync is scoped by this URI, so we access it directly and let a
     malformed response surface immediately as a KeyError rather than degrading to None.
     """
-    response = make_tracked_session().get(
-        f"{CALENDLY_BASE_URL}/users/me", headers=_get_headers(token), timeout=REQUEST_TIMEOUT
-    )
+    response = make_tracked_session().get(f"{base_url}/users/me", headers=_get_headers(token), timeout=REQUEST_TIMEOUT)
     response.raise_for_status()
     return response.json()["resource"]["current_organization"]
 
@@ -93,11 +107,13 @@ def get_rows(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[CalendlyResumeConfig],
+    api_version: str = CALENDLY_API_VERSION_V1,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
 ) -> Iterator[Any]:
     config = CALENDLY_ENDPOINTS[endpoint]
     headers = _get_headers(token)
+    base_url = _base_url_for_version(api_version)
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
@@ -105,11 +121,11 @@ def get_rows(
         url = resume_config.next_url
         logger.debug(f"Calendly: resuming from URL: {url}")
     else:
-        organization = get_current_organization(token) if config.scope_param == "organization" else None
+        organization = get_current_organization(token, base_url) if config.scope_param == "organization" else None
         params = _build_initial_params(
             config, organization, should_use_incremental_field, db_incremental_field_last_value
         )
-        url = f"{CALENDLY_BASE_URL}{config.path}?{urlencode(params)}"
+        url = f"{base_url}{config.path}?{urlencode(params)}"
 
     @retry(
         retry=retry_if_exception_type((CalendlyRetryableError, requests.ReadTimeout, requests.ConnectionError)),
@@ -155,6 +171,7 @@ def calendly_source(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[CalendlyResumeConfig],
+    api_version: str = CALENDLY_API_VERSION_V1,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
@@ -167,6 +184,7 @@ def calendly_source(
             endpoint=endpoint,
             logger=logger,
             resumable_source_manager=resumable_source_manager,
+            api_version=api_version,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
         ),

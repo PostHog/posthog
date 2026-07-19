@@ -1503,7 +1503,7 @@
             "default": {
                 "prompt_token": 9.8e-8,
                 "completion_token": 1.96e-7,
-                "cache_read_token": 2e-8
+                "cache_read_token": 1.96e-8
             },
             "akashml-fp8": {
                 "prompt_token": 1.4e-7,
@@ -1557,11 +1557,6 @@
             "morph": {
                 "prompt_token": 1.39e-7,
                 "completion_token": 2.78e-7
-            },
-            "nextbit-fp8": {
-                "prompt_token": 1.8e-7,
-                "completion_token": 3.5e-7,
-                "cache_read_token": 3.5e-8
             },
             "novita-fp8": {
                 "prompt_token": 1.4e-7,
@@ -1647,6 +1642,11 @@
                 "prompt_token": 0.000001131,
                 "completion_token": 0.000002262,
                 "cache_read_token": 9.425e-8
+            },
+            "ionstream-fp4": {
+                "prompt_token": 0.000001131,
+                "completion_token": 0.000002262,
+                "cache_read_token": 9.4e-8
             },
             "novita-fp8": {
                 "prompt_token": 0.000001168,
@@ -2980,9 +2980,8 @@
         "model": "google/gemma-4-31b-it",
         "cost": {
             "default": {
-                "prompt_token": 2.2e-7,
-                "completion_token": 5.5e-7,
-                "cache_read_token": 1.2e-7
+                "prompt_token": 1.2e-7,
+                "completion_token": 3.7e-7
             },
             "cerebras-fp16": {
                 "prompt_token": 9.9e-7,
@@ -3346,19 +3345,6 @@
         }
     },
     {
-        "model": "meta-llama/llama-3.2-11b-vision-instruct",
-        "cost": {
-            "default": {
-                "prompt_token": 3.45e-7,
-                "completion_token": 3.45e-7
-            },
-            "deepinfra-fp8": {
-                "prompt_token": 3.45e-7,
-                "completion_token": 3.45e-7
-            }
-        }
-    },
-    {
         "model": "meta-llama/llama-3.2-1b-instruct",
         "cost": {
             "default": {
@@ -3699,11 +3685,6 @@
                 "prompt_token": 1.5e-7,
                 "completion_token": 0.0000012,
                 "cache_read_token": 7.5e-8
-            },
-            "deepinfra-fp8": {
-                "prompt_token": 1.5e-7,
-                "completion_token": 0.00000115,
-                "cache_read_token": 3e-8
             },
             "digitalocean": {
                 "prompt_token": 2.25e-7,
@@ -4080,15 +4061,15 @@
         "model": "mistralai/mistral-nemo",
         "cost": {
             "default": {
-                "prompt_token": 2e-8,
-                "completion_token": 4e-8
+                "prompt_token": 1.9e-8,
+                "completion_token": 3e-8
             },
             "deepinfra-fp8": {
                 "prompt_token": 1.9e-8,
                 "completion_token": 3e-8
             },
             "dekallm-fp8": {
-                "prompt_token": 2e-8,
+                "prompt_token": 1.8e-8,
                 "completion_token": 3e-8
             },
             "mistral": {
@@ -4299,11 +4280,6 @@
                 "completion_token": 0.000002025,
                 "cache_read_token": 2.03e-7
             },
-            "modelrun-fp4": {
-                "prompt_token": 4e-7,
-                "completion_token": 0.0000019,
-                "cache_read_token": 9e-8
-            },
             "moonshotai-int4": {
                 "prompt_token": 6e-7,
                 "completion_token": 0.000003,
@@ -4483,11 +4459,6 @@
                 "prompt_token": 7.2e-7,
                 "completion_token": 0.0000035,
                 "cache_read_token": 1.5e-7
-            },
-            "modelrun-fp4": {
-                "prompt_token": 8.5e-7,
-                "completion_token": 0.00000375,
-                "cache_read_token": 1.6e-7
             },
             "moonshotai-highspeed": {
                 "prompt_token": 0.0000019,
@@ -4673,19 +4644,6 @@
         }
     },
     {
-        "model": "nvidia/llama-3.3-nemotron-super-49b-v1.5",
-        "cost": {
-            "default": {
-                "prompt_token": 4e-7,
-                "completion_token": 4e-7
-            },
-            "deepinfra-fp8": {
-                "prompt_token": 4e-7,
-                "completion_token": 4e-7
-            }
-        }
-    },
-    {
         "model": "nvidia/nemotron-3-nano-30b-a3b",
         "cost": {
             "default": {
@@ -4779,6 +4737,11 @@
                 "prompt_token": 6e-7,
                 "completion_token": 0.0000036,
                 "cache_read_token": 2e-7
+            },
+            "baseten-fp4": {
+                "prompt_token": 6e-7,
+                "completion_token": 0.0000024,
+                "cache_read_token": 1.2e-7
             },
             "deepinfra-fp4": {
                 "prompt_token": 5e-7,
@@ -6569,6 +6532,15 @@
         }
     },
     {
+        "model": "openrouter/auto-beta",
+        "cost": {
+            "default": {
+                "prompt_token": 0,
+                "completion_token": 0
+            }
+        }
+    },
+    {
         "model": "openrouter/bodybuilder",
         "cost": {
             "default": {
@@ -6865,7 +6837,7 @@
         "model": "qwen/qwen3-14b",
         "cost": {
             "default": {
-                "prompt_token": 1e-7,
+                "prompt_token": 1.2e-7,
                 "completion_token": 2.4e-7
             },
             "alibaba": {
@@ -8064,11 +8036,6 @@
                 "completion_token": 8e-7,
                 "cache_read_token": 5e-8
             },
-            "deepinfra-fp8": {
-                "prompt_token": 1.4e-7,
-                "completion_token": 5.8e-7,
-                "cache_read_token": 3.5e-8
-            },
             "gmicloud-bf16": {
                 "prompt_token": 1.4e-7,
                 "completion_token": 5.8e-7,
@@ -8640,9 +8607,8 @@
         "model": "z-ai/glm-4.7-flash",
         "cost": {
             "default": {
-                "prompt_token": 6e-8,
-                "completion_token": 4e-7,
-                "cache_read_token": 1e-8
+                "prompt_token": 6.05e-8,
+                "completion_token": 4e-7
             },
             "cloudflare": {
                 "prompt_token": 6.05e-8,
@@ -8861,9 +8827,9 @@
         "model": "z-ai/glm-5.2",
         "cost": {
             "default": {
-                "prompt_token": 9.324e-7,
-                "completion_token": 0.0000029304,
-                "cache_read_token": 1.7316e-7
+                "prompt_token": 9.184e-7,
+                "completion_token": 0.0000028864,
+                "cache_read_token": 1.7056e-7
             },
             "akashml-fp8": {
                 "prompt_token": 0.0000013,
@@ -8885,9 +8851,9 @@
                 "cache_read_token": 2.34e-7
             },
             "baidu-fp8": {
-                "prompt_token": 9.7e-7,
-                "completion_token": 0.00000307,
-                "cache_read_token": 1.81e-7
+                "prompt_token": 4.2e-7,
+                "completion_token": 0.00000132,
+                "cache_read_token": 7.8e-8
             },
             "baseten-fp8": {
                 "prompt_token": 0.0000014,
@@ -8950,9 +8916,9 @@
                 "cache_read_token": 2.2e-7
             },
             "novita-fp8": {
-                "prompt_token": 9.562e-7,
-                "completion_token": 0.0000030052,
-                "cache_read_token": 1.7758e-7
+                "prompt_token": 9.184e-7,
+                "completion_token": 0.0000028864,
+                "cache_read_token": 1.7056e-7
             },
             "parasail-fp4": {
                 "prompt_token": 0.0000014,
@@ -8970,9 +8936,9 @@
                 "cache_read_token": 2.6e-7
             },
             "streamlake-fp8": {
-                "prompt_token": 9.555e-7,
-                "completion_token": 0.000003003,
-                "cache_read_token": 1.7745e-7
+                "prompt_token": 9.191e-7,
+                "completion_token": 0.0000028886,
+                "cache_read_token": 1.7069e-7
             },
             "together": {
                 "prompt_token": 0.0000014,

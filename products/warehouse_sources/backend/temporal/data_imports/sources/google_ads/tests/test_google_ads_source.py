@@ -8,6 +8,7 @@ import pytest
 from freezegun import freeze_time
 from unittest import mock
 
+from django.core.cache import cache
 from django.db import OperationalError
 
 import grpc
@@ -1142,6 +1143,39 @@ class TestOverviewStatsSchemas:
         assert overview["field_names"] == [f for f in stats["field_names"] if f != "segments.click_type"]
         assert overview["primary_key"] == [k for k in stats["primary_key"] if k != "segments.click_type"]
         assert overview["filter_field_names"] == [("segments.date", IncrementalFieldType.Date)]
+
+
+_SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.source"
+
+
+class TestGetOAuthAccountsCaching:
+    def test_distinct_search_terms_reuse_one_hierarchy_walk(self):
+        # The whole account list comes from one expensive walk (listAccessibleCustomers + a searchStream
+        # per accessible root) that ignores `search`. Keying the cache on the search term would repeat
+        # that walk for every distinct query; the walk must run once and be filtered in memory.
+        cache.clear()
+        source = GoogleAdsSource()
+        accounts = [
+            {"id": "1234567890", "name": "Acme Corp", "level": None, "parent_id": "1234567890", "manager": False},
+            {"id": "9876543210", "name": "Beta Client", "level": None, "parent_id": "9876543210", "manager": False},
+        ]
+        integration = mock.Mock(errors=None)
+
+        with (
+            mock.patch.object(GoogleAdsSource, "get_oauth_integration", return_value=integration),
+            mock.patch(f"{_SOURCE_MODULE}.OauthIntegration") as mock_oauth,
+            mock.patch(f"{_SOURCE_MODULE}.GoogleAdsIntegration") as mock_google_ads,
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            walk = mock_google_ads.return_value.list_google_ads_accessible_accounts
+            walk.return_value = accounts
+
+            first = source.get_oauth_accounts(1, 2, search="acme")
+            second = source.get_oauth_accounts(1, 2, search="beta")
+
+        walk.assert_called_once()
+        assert [account.value for account in first] == ["123-456-7890"]
+        assert [account.value for account in second] == ["987-654-3210"]
 
 
 class TestGoogleAdsQueryConstruction:

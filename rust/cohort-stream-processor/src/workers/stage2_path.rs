@@ -20,7 +20,6 @@ use crate::producer::{CohortMembershipChange, MembershipStatus};
 use crate::stage1::key::LeafStateKey;
 use crate::stage1::person_record::PersonRecord;
 use crate::stage1::state::{Stage1State, StateVariant, StatefulRecord};
-use crate::stage1::transition::LeafTransition;
 use crate::stage2::evaluator::{evaluate_tree, leaf_membership};
 use crate::stage2::state::Stage2State;
 use crate::stage2::CohortEligibility;
@@ -28,31 +27,72 @@ use crate::store::{
     BehavioralKey, PersonRecordKey, ReadLane, Stage2Key, StagedBatch, StoreError, StoreHandle,
 };
 
+/// `affected_leaves` is the touched `(leaf, person)` set; `lane` is the read lane every recompute
+/// read runs on (`Maintenance` on the seed path, so backfill never contends with live reads).
 pub async fn compose_stage2(
     partition_id: u16,
     handle: &StoreHandle,
     filters: &TeamFilters,
-    transitions: &[LeafTransition],
+    affected_leaves: &[(LeafStateKey, Uuid)],
     event_ms: i64,
     last_updated: &str,
+    lane: ReadLane,
 ) -> Result<Vec<CohortMembershipChange>, StoreError> {
+    let recompute = recompute_stage2(
+        partition_id,
+        handle,
+        filters,
+        affected_leaves,
+        event_ms,
+        last_updated,
+        lane,
+    )
+    .await?;
+    commit_stage2_writes(handle, &recompute.writes).await?;
+    recompute.record_metrics();
+    Ok(recompute.changes)
+}
+
+/// Uncommitted recompute result: the flips and their pending `cf_stage2` writes. Lets
+/// produce-before-state callers commit only after their produces ack, so a failed produce is
+/// re-derived on replay.
+pub(crate) struct Stage2Recompute {
+    pub changes: Vec<CohortMembershipChange>,
+    pub writes: Vec<(Stage2Key, Stage2State)>,
+    evaluated: u64,
+}
+
+impl Stage2Recompute {
+    /// Call only once the writes committed, so a failed commit's redelivery cannot double-count.
+    pub(crate) fn record_metrics(&self) {
+        counter!(STAGE2_COHORTS_EVALUATED).increment(self.evaluated);
+        for change in &self.changes {
+            counter!(STAGE2_TRANSITIONS, "kind" => change.status.as_str()).increment(1);
+        }
+    }
+}
+
+/// The read-only half of [`compose_stage2`].
+pub(crate) async fn recompute_stage2(
+    partition_id: u16,
+    handle: &StoreHandle,
+    filters: &TeamFilters,
+    affected_leaves: &[(LeafStateKey, Uuid)],
+    event_ms: i64,
+    last_updated: &str,
+    lane: ReadLane,
+) -> Result<Stage2Recompute, StoreError> {
     let mut affected: BTreeSet<(CohortId, Uuid)> = BTreeSet::new();
-    for transition in transitions {
-        if let Some(cohorts) = filters
-            .by_lsk_to_composable_cohorts
-            .get(&transition.leaf_state_key)
-        {
+    for &(leaf_state_key, person_id) in affected_leaves {
+        if let Some(cohorts) = filters.by_lsk_to_composable_cohorts.get(&leaf_state_key) {
             for &cohort_id in cohorts {
-                affected.insert((cohort_id, transition.person_id));
+                affected.insert((cohort_id, person_id));
             }
         }
     }
-    if affected.is_empty() {
-        return Ok(Vec::new());
-    }
 
     let mut changes = Vec::new();
-    let mut pending: Vec<(Stage2Key, Stage2State)> = Vec::new();
+    let mut writes: Vec<(Stage2Key, Stage2State)> = Vec::new();
     let mut evaluated: u64 = 0;
 
     for (cohort_id, person_id) in affected {
@@ -60,7 +100,7 @@ pub async fn compose_stage2(
             continue;
         };
 
-        let diff = recompute_and_diff(partition_id, person_id, tree, filters, handle).await?;
+        let diff = recompute_and_diff(partition_id, person_id, tree, filters, handle, lane).await?;
         evaluated += 1;
         if !diff.flipped() {
             continue;
@@ -72,9 +112,11 @@ pub async fn compose_stage2(
             person_id: person_id.to_string(),
             last_updated: last_updated.to_string(),
             status: diff.status(),
+            origin: None,
+            run_id: None,
         });
         // Write `false` rather than deleting so absence means "never evaluated".
-        pending.push((
+        writes.push((
             diff.stage2_key,
             Stage2State {
                 in_cohort: diff.new_bit,
@@ -83,20 +125,26 @@ pub async fn compose_stage2(
         ));
     }
 
-    if !pending.is_empty() {
-        let mut staged = StagedBatch::default();
-        for (key, state) in &pending {
-            staged.put_stage2(key, &state.encode());
-        }
-        handle.commit(staged).await?;
-    }
+    Ok(Stage2Recompute {
+        changes,
+        writes,
+        evaluated,
+    })
+}
 
-    counter!(STAGE2_COHORTS_EVALUATED).increment(evaluated);
-    for change in &changes {
-        counter!(STAGE2_TRANSITIONS, "kind" => change.status.as_str()).increment(1);
+/// Commit recomputed `cf_stage2` bits.
+pub(crate) async fn commit_stage2_writes(
+    handle: &StoreHandle,
+    writes: &[(Stage2Key, Stage2State)],
+) -> Result<(), StoreError> {
+    if writes.is_empty() {
+        return Ok(());
     }
-
-    Ok(changes)
+    let mut staged = StagedBatch::default();
+    for (key, state) in writes {
+        staged.put_stage2(key, &state.encode());
+    }
+    handle.commit(staged).await
 }
 
 /// One cohort's recomputed membership for one person, diffed against the stored `cf_stage2` bit.
@@ -129,16 +177,26 @@ pub(crate) async fn recompute_and_diff(
     tree: &CohortTree,
     filters: &TeamFilters,
     handle: &StoreHandle,
+    lane: ReadLane,
 ) -> Result<RecomputeDiff, StoreError> {
     let team_id = tree.team_id.0 as u64;
-    let new_bit = evaluate_cohort(partition_id, team_id, person_id, tree, filters, handle).await?;
+    let new_bit = evaluate_cohort(
+        partition_id,
+        team_id,
+        person_id,
+        tree,
+        filters,
+        handle,
+        lane,
+    )
+    .await?;
     let stage2_key = Stage2Key {
         partition_id,
         team_id,
         cohort_id: tree.cohort_id.0 as u64,
         person_id,
     };
-    let prior_bit = read_stage2_bit(handle, &stage2_key).await?;
+    let prior_bit = read_stage2_bit(handle, &stage2_key, lane).await?;
     Ok(RecomputeDiff {
         new_bit,
         prior_bit,
@@ -148,6 +206,7 @@ pub(crate) async fn recompute_and_diff(
 
 /// Compose one cohort for one person. A leaf with absent or undecodable state reads as non-member;
 /// a cohort-reference leaf reads the referenced cohort's stored membership (see [`resolve_ref_membership`]).
+#[allow(clippy::too_many_arguments)]
 async fn evaluate_cohort(
     partition_id: u16,
     team_id: u64,
@@ -155,15 +214,25 @@ async fn evaluate_cohort(
     tree: &CohortTree,
     filters: &TeamFilters,
     handle: &StoreHandle,
+    lane: ReadLane,
 ) -> Result<bool, StoreError> {
     let mut lsks = Vec::new();
     collect_leaf_state_keys(&tree.root, &mut lsks);
 
-    let resolver = LeafMembershipResolver::new(partition_id, team_id, person_id, filters, handle);
+    let resolver =
+        LeafMembershipResolver::new(partition_id, team_id, person_id, filters, handle, lane);
     let membership = resolver.resolve(&lsks).await?;
 
-    let ref_membership =
-        resolve_ref_membership(partition_id, team_id, person_id, tree, filters, handle).await?;
+    let ref_membership = resolve_ref_membership(
+        partition_id,
+        team_id,
+        person_id,
+        tree,
+        filters,
+        handle,
+        lane,
+    )
+    .await?;
 
     Ok(evaluate_tree(&tree.root, &membership, &ref_membership))
 }
@@ -180,6 +249,7 @@ struct LeafMembershipResolver<'a> {
     person_id: Uuid,
     filters: &'a TeamFilters,
     handle: &'a StoreHandle,
+    lane: ReadLane,
 }
 
 impl<'a> LeafMembershipResolver<'a> {
@@ -189,6 +259,7 @@ impl<'a> LeafMembershipResolver<'a> {
         person_id: Uuid,
         filters: &'a TeamFilters,
         handle: &'a StoreHandle,
+        lane: ReadLane,
     ) -> Self {
         Self {
             partition_id,
@@ -196,6 +267,7 @@ impl<'a> LeafMembershipResolver<'a> {
             person_id,
             filters,
             handle,
+            lane,
         }
     }
 
@@ -238,10 +310,7 @@ impl<'a> LeafMembershipResolver<'a> {
             .iter()
             .map(|&lsk| BehavioralKey::new(self.partition_id, self.team_id, self.person_id, lsk))
             .collect();
-        let raw = self
-            .handle
-            .multi_get_behavioral(keys, ReadLane::Event)
-            .await?;
+        let raw = self.handle.multi_get_behavioral(keys, self.lane).await?;
         for (&lsk, bytes) in lsks.iter().zip(raw) {
             let Some(meta) = self.filters.by_lsk.get(&lsk) else {
                 continue;
@@ -265,7 +334,7 @@ impl<'a> LeafMembershipResolver<'a> {
             return Ok(());
         }
         let key = PersonRecordKey::new(self.partition_id, self.team_id, self.person_id);
-        let matched = match self.handle.get_person_record(&key).await? {
+        let matched = match self.handle.get_person_record(&key, self.lane).await? {
             None => None,
             Some(bytes) => match PersonRecord::decode(&bytes) {
                 Ok(record) => Some(record.matched),
@@ -289,6 +358,7 @@ impl<'a> LeafMembershipResolver<'a> {
 /// A `SingleLeaf` referent is read from `cf_behavioral` via [`leaf_membership`] (so its comparator
 /// applies); a composable referent from its stored `cf_stage2` bit; anything else as non-member.
 /// One batched read per store.
+#[allow(clippy::too_many_arguments)]
 async fn resolve_ref_membership(
     partition_id: u16,
     team_id: u64,
@@ -296,6 +366,7 @@ async fn resolve_ref_membership(
     tree: &CohortTree,
     filters: &TeamFilters,
     handle: &StoreHandle,
+    lane: ReadLane,
 ) -> Result<HashMap<CohortId, bool>, StoreError> {
     let mut ref_ids = Vec::new();
     collect_cohort_refs(&tree.root, &mut ref_ids);
@@ -323,7 +394,7 @@ async fn resolve_ref_membership(
         // Resolve single-leaf referents through the same seam as the cohort's own leaves, so both
         // apply the leaf's comparator identically.
         let resolver =
-            LeafMembershipResolver::new(partition_id, team_id, person_id, filters, handle);
+            LeafMembershipResolver::new(partition_id, team_id, person_id, filters, handle, lane);
         let lsks: Vec<LeafStateKey> = single_leaf_refs.iter().map(|(_, lsk)| *lsk).collect();
         let membership = resolver.resolve(&lsks).await?;
         for (ref_id, lsk) in &single_leaf_refs {
@@ -341,7 +412,7 @@ async fn resolve_ref_membership(
                 person_id,
             })
             .collect();
-        let raw = handle.multi_get_stage2(keys).await?;
+        let raw = handle.multi_get_stage2(keys, lane).await?;
         for (ref_id, bytes) in composable_refs.iter().zip(raw) {
             ref_membership.insert(*ref_id, decode_stage2_bit(bytes));
         }
@@ -363,8 +434,12 @@ fn decode_stage1_state(bytes: Option<Vec<u8>>) -> Option<Stage1State> {
 }
 
 /// The stored `cf_stage2` membership bit for `key`, `false` when absent or undecodable.
-async fn read_stage2_bit(handle: &StoreHandle, key: &Stage2Key) -> Result<bool, StoreError> {
-    Ok(decode_stage2_bit(handle.get_stage2(key).await?))
+async fn read_stage2_bit(
+    handle: &StoreHandle,
+    key: &Stage2Key,
+    lane: ReadLane,
+) -> Result<bool, StoreError> {
+    Ok(decode_stage2_bit(handle.get_stage2(key, lane).await?))
 }
 
 /// Decode a `cf_stage2` value into its membership bit, `false` when absent or undecodable.
@@ -424,7 +499,6 @@ mod tests {
     use crate::filters::{CohortId, TeamFiltersBuilder, TeamId};
     use crate::stage1::person_record::{MatchedSet, PersonRecord};
     use crate::stage1::state::AppliedOffsets;
-    use crate::stage1::transition::TransitionKind;
     use crate::store::{
         Behavioral, CohortStore, OffloadConfig, OffloadMode, PersonRecordKey, PersonRecords,
         StoreConfig,
@@ -544,21 +618,6 @@ mod tests {
             .unwrap();
     }
 
-    fn transition(
-        lsk: LeafStateKey,
-        who: Uuid,
-        hash: [u8; 16],
-        kind: TransitionKind,
-    ) -> LeafTransition {
-        LeafTransition {
-            team_id: TeamId(TEAM as i32),
-            leaf_state_key: lsk,
-            person_id: who,
-            condition_hash: hash,
-            kind,
-        }
-    }
-
     fn stage2_bit(store: &CohortStore, cohort: u64, who: Uuid) -> Option<bool> {
         let key = Stage2Key {
             partition_id: PARTITION,
@@ -593,9 +652,10 @@ mod tests {
             PARTITION,
             &handle(&store),
             &filters,
-            &[transition(beh_lsk, alice, HASH, TransitionKind::Entered)],
+            &[(beh_lsk, alice)],
             EVENT_MS,
             TS,
+            ReadLane::Event,
         )
         .await
         .unwrap();
@@ -627,9 +687,10 @@ mod tests {
             PARTITION,
             &handle(&store),
             &filters,
-            &[transition(beh_lsk, alice, HASH, TransitionKind::Entered)],
+            &[(beh_lsk, alice)],
             EVENT_MS,
             TS,
+            ReadLane::Event,
         )
         .await
         .unwrap();
@@ -657,9 +718,10 @@ mod tests {
             PARTITION,
             &handle(&store),
             &filters,
-            &[transition(beh_lsk, alice, HASH, TransitionKind::Entered)],
+            &[(beh_lsk, alice)],
             EVENT_MS,
             TS,
+            ReadLane::Event,
         )
         .await
         .unwrap();
@@ -675,14 +737,10 @@ mod tests {
             PARTITION,
             &handle(&store),
             &filters,
-            &[transition(
-                per_lsk,
-                alice,
-                PERSON_HASH,
-                TransitionKind::Entered,
-            )],
+            &[(per_lsk, alice)],
             EVENT_MS,
             TS,
+            ReadLane::Event,
         )
         .await
         .unwrap();
@@ -704,9 +762,10 @@ mod tests {
             PARTITION,
             &handle(&store),
             &filters,
-            &[transition(beh_lsk, alice, HASH, TransitionKind::Entered)],
+            &[(beh_lsk, alice)],
             EVENT_MS,
             TS,
+            ReadLane::Event,
         )
         .await
         .unwrap();
@@ -718,14 +777,10 @@ mod tests {
             PARTITION,
             &handle(&store),
             &filters,
-            &[transition(
-                per_lsk,
-                alice,
-                PERSON_HASH,
-                TransitionKind::Left,
-            )],
+            &[(per_lsk, alice)],
             EVENT_MS,
             TS,
+            ReadLane::Event,
         )
         .await
         .unwrap();
@@ -751,9 +806,10 @@ mod tests {
             PARTITION,
             &handle(&store),
             &filters,
-            &[transition(beh_lsk, alice, HASH, TransitionKind::Entered)],
+            &[(beh_lsk, alice)],
             EVENT_MS,
             TS,
+            ReadLane::Event,
         )
         .await
         .unwrap();
@@ -763,9 +819,10 @@ mod tests {
             PARTITION,
             &handle(&store),
             &filters,
-            &[transition(beh_lsk, alice, HASH, TransitionKind::Entered)],
+            &[(beh_lsk, alice)],
             EVENT_MS,
             TS,
+            ReadLane::Event,
         )
         .await
         .unwrap();
@@ -789,12 +846,10 @@ mod tests {
             PARTITION,
             &handle(&store),
             &filters,
-            &[
-                transition(lsks[0], alice, HASH, TransitionKind::Entered),
-                transition(lsks[1], alice, HASH, TransitionKind::Entered),
-            ],
+            &[(lsks[0], alice), (lsks[1], alice)],
             EVENT_MS,
             TS,
+            ReadLane::Event,
         )
         .await
         .unwrap();
@@ -820,9 +875,10 @@ mod tests {
             PARTITION,
             &handle(&store),
             &filters,
-            &[transition(beh_lsk, alice, HASH, TransitionKind::Entered)],
+            &[(beh_lsk, alice)],
             EVENT_MS,
             TS,
+            ReadLane::Event,
         )
         .await
         .unwrap();
@@ -841,9 +897,10 @@ mod tests {
             PARTITION,
             &handle(&store2),
             &filters,
-            &[transition(beh_lsk, alice, HASH, TransitionKind::Entered)],
+            &[(beh_lsk, alice)],
             EVENT_MS,
             TS,
+            ReadLane::Event,
         )
         .await
         .unwrap();
@@ -865,9 +922,10 @@ mod tests {
             PARTITION,
             &handle(&store),
             &filters,
-            &[transition(beh_lsk, alice, HASH, TransitionKind::Entered)],
+            &[(beh_lsk, alice)],
             EVENT_MS,
             TS,
+            ReadLane::Event,
         )
         .await
         .unwrap();
@@ -899,9 +957,10 @@ mod tests {
             PARTITION,
             &handle(&store),
             &filters,
-            &[transition(beh_lsk, alice, HASH, TransitionKind::Entered)],
+            &[(beh_lsk, alice)],
             EVENT_MS,
             TS,
+            ReadLane::Event,
         )
         .await
         .unwrap();
@@ -921,9 +980,10 @@ mod tests {
             PARTITION,
             &handle(&store),
             &filters,
-            &[transition(beh_lsk, alice, HASH, TransitionKind::Entered)],
+            &[(beh_lsk, alice)],
             EVENT_MS,
             TS,
+            ReadLane::Event,
         )
         .await
         .unwrap();
@@ -935,14 +995,10 @@ mod tests {
             PARTITION,
             &handle(&store),
             &filters,
-            &[transition(
-                per_lsk,
-                alice,
-                PERSON_HASH,
-                TransitionKind::Entered,
-            )],
+            &[(per_lsk, alice)],
             EVENT_MS,
             TS,
+            ReadLane::Event,
         )
         .await
         .unwrap();
@@ -1006,14 +1062,10 @@ mod tests {
             PARTITION,
             handle,
             filters,
-            &[transition(
-                per_lsk,
-                who,
-                PERSON_HASH,
-                TransitionKind::Entered,
-            )],
+            &[(per_lsk, who)],
             EVENT_MS,
             TS,
+            ReadLane::Event,
         )
         .await
         .unwrap()
