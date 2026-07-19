@@ -21,9 +21,16 @@ from products.visual_review.backend.facade.enums import (
     RunType,
     SnapshotResult,
 )
-from products.visual_review.backend.models import RunSnapshot
+from products.visual_review.backend.models import RunSnapshot, ToleratedHash
 from products.visual_review.backend.tasks.tasks import post_approval_comment, process_run_diffs
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES, VisualReviewTeamScopedTestMixin
+
+
+def _make_png(color: tuple[int, int, int, int]) -> bytes:
+    image = Image.new("RGBA", (10, 10), color)
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -269,15 +276,9 @@ class TestProcessRunDiffs:
             assert any("diff_skipped_missing_artifact" in arg for arg in call_args)
 
     def testprocess_diffs_does_not_repeat_completed_comparisons(self, repo, mocker):
-        def png(color: tuple[int, int, int, int]) -> bytes:
-            image = Image.new("RGBA", (10, 10), color)
-            buffer = io.BytesIO()
-            image.save(buffer, format="PNG")
-            return buffer.getvalue()
-
         stored_bytes = {
-            "old_hash": png((255, 0, 0, 255)),
-            "new_hash": png((0, 0, 255, 255)),
+            "old_hash": _make_png((255, 0, 0, 255)),
+            "new_hash": _make_png((0, 0, 255, 255)),
         }
         logic.get_or_create_artifact(repo.id, "old_hash", "visual_review/old_hash")
         logic.get_or_create_artifact(repo.id, "new_hash", "visual_review/new_hash")
@@ -318,6 +319,48 @@ class TestProcessRunDiffs:
         assert process_diffs(create_result.run_id) == 1
         assert process_diffs(create_result.run_id) == 0
         assert compare_images.call_count == 1
+
+    def testprocess_diffs_counts_below_threshold_comparisons(self, repo, mocker):
+        image_bytes = _make_png((255, 0, 0, 255))
+        logic.get_or_create_artifact(repo.id, "old_hash", "visual_review/old_hash")
+        logic.get_or_create_artifact(repo.id, "new_hash", "visual_review/new_hash")
+        create_result = api.create_run(
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="main",
+                snapshots=[SnapshotManifestItem(identifier="Button", content_hash="new_hash")],
+                baseline_hashes={"Button": "old_hash"},
+            ),
+            team_id=repo.team_id,
+        )
+        with (
+            patch(
+                "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+                return_value=({"Button": "old_hash"}, 0),
+            ),
+            patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay"),
+        ):
+            logic.complete_run(create_result.run_id)
+
+        mocker.patch(
+            "products.visual_review.backend.storage.ArtifactStorage.read",
+            autospec=True,
+            return_value=image_bytes,
+        )
+
+        assert process_diffs(create_result.run_id) == 1
+
+        snapshot = RunSnapshot.objects.get(run_id=create_result.run_id)
+        assert snapshot.result == SnapshotResult.UNCHANGED
+        assert snapshot.classification_reason == ClassificationReason.BELOW_THRESHOLD
+        assert ToleratedHash.objects.filter(
+            repo_id=repo.id,
+            identifier="Button",
+            baseline_hash="old_hash",
+            alternate_hash="new_hash",
+        ).exists()
 
 
 class TestCountProcessedDiffs(VisualReviewTeamScopedTestMixin, BaseTest):
