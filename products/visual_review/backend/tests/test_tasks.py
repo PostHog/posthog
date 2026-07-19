@@ -75,7 +75,7 @@ class TestProcessRunDiffs:
         assert "Something went wrong" in (run.error_message or "")
 
     def test_count_processed_diffs_from_persisted_state(self, repo):
-        cases = [
+        cases: list[tuple[str, dict[str, object], int]] = [
             (
                 "persisted_changed",
                 {"result": SnapshotResult.CHANGED, "change_kind": ChangeKind.PIXEL},
