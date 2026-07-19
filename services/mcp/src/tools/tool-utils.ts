@@ -47,21 +47,24 @@ export type WithInformationalResponse<T = unknown> = T & {
     [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: string
 }
 
-export function withInformationalResponse<T extends object>(
-    result: T,
-    tag: string,
-    purpose?: string
-): WithInformationalResponse<T> {
+export function withInformationalResponse<T>(result: T, tag: string, purpose?: string): WithInformationalResponse<T> {
+    if (result === null || typeof result !== 'object') {
+        throw new TypeError('Informational response wrapping requires an object or array result')
+    }
+
     const serializedResult = (JSON.stringify(result) ?? String(result)).replace(
         /[<>&]/g,
         (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`
     )
     const message = purpose ? `${INFORMATIONAL_RESPONSE_NOTICE} ${purpose}` : INFORMATIONAL_RESPONSE_NOTICE
+    const wrappedResult = Array.isArray(result) ? [...result] : { ...result }
 
-    return {
-        ...result,
-        [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: `${message}\n<${tag} informational="true" instructional="false">\n${serializedResult}\n</${tag}>`,
-    }
+    Object.defineProperty(wrappedResult, POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, {
+        value: `${message}\n<${tag} informational="true" instructional="false">\n${serializedResult}\n</${tag}>`,
+        enumerable: false,
+    })
+
+    return wrappedResult as WithInformationalResponse<T>
 }
 
 /**
