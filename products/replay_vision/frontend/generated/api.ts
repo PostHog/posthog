@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AffectedCohortRequestApi,
     AffectedCohortResponseApi,
+    ApplyPromptSuggestionRequestApi,
     CurrentPromptSuggestionApi,
     EstimateRequestApi,
     EstimateResponseApi,
@@ -765,12 +766,13 @@ export const getVisionScannersPromptSuggestionsApplyCreateUrl = (projectId: stri
 }
 
 /**
- * Apply this suggestion: write its full suggested config to the scanner (the prompt plus any type-specific config such as classifier tags or the monitor allow_inconclusive flag), bumping the scanner version, and mark the suggestion applied. Only the current pending suggestion can be applied. Requires session recording edit access.
+ * Apply this suggestion: write a config to the scanner (the prompt plus any type-specific config such as classifier tags or the monitor allow_inconclusive flag), bumping the scanner version, and mark the suggestion applied. Pass `config` to apply an edited subset of the recommendation; omit it to apply the full suggested config. Only the current pending suggestion can be applied. Requires session recording edit access.
  */
 export const visionScannersPromptSuggestionsApplyCreate = async (
     projectId: string,
     scannerId: string,
     id: string,
+    applyPromptSuggestionRequestApi?: ApplyPromptSuggestionRequestApi,
     options?: RequestInit
 ): Promise<ReplayScannerPromptSuggestionApi> => {
     return apiMutator<ReplayScannerPromptSuggestionApi>(
@@ -778,6 +780,8 @@ export const visionScannersPromptSuggestionsApplyCreate = async (
         {
             ...options,
             method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(applyPromptSuggestionRequestApi),
         }
     )
 }

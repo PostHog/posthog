@@ -9956,6 +9956,11 @@ export namespace Schemas {
       totals: AppMetricsTotalsResponseTotals;
     }
 
+    export interface ApplyPromptSuggestionRequest {
+      /** The edited config to apply, assembled from the recommendation's approved fields. Omit to apply the full suggested config unchanged. */
+      config?: unknown;
+    }
+
     export interface ApprovalPolicy {
       readonly id: string;
       /** @maxLength 128 */
@@ -23439,6 +23444,8 @@ export namespace Schemas {
          * @maximum 100
          */
       session_limit?: number;
+      /** The edited config to test, assembled from the recommendation's approved fields. Omit to test the full suggested config. */
+      config?: unknown;
     }
 
     /**

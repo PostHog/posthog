@@ -1226,6 +1226,11 @@ export interface PaginatedReplayScannerPromptSuggestionListApi {
     results: ReplayScannerPromptSuggestionApi[]
 }
 
+export interface ApplyPromptSuggestionRequestApi {
+    /** The edited config to apply, assembled from the recommendation's approved fields. Omit to apply the full suggested config unchanged. */
+    config?: unknown
+}
+
 export interface EvaluatePromptSuggestionRequestApi {
     /**
      * How many rated sessions to re-run, thumbs-down prioritized. Each successful re-run charges credits like a normal observation of the same model. Defaults to 10. The maximum is `evaluation_session_cap`.
@@ -1233,6 +1238,8 @@ export interface EvaluatePromptSuggestionRequestApi {
      * @maximum 100
      */
     session_limit?: number
+    /** The edited config to test, assembled from the recommendation's approved fields. Omit to test the full suggested config. */
+    config?: unknown
 }
 
 export interface CurrentPromptSuggestionApi {
