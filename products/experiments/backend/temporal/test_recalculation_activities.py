@@ -27,6 +27,7 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.temporal.models import (
     CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS,
+    MAX_METRIC_ATTEMPTS,
     RecalculationProgressUpdate,
 )
 from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
@@ -61,9 +62,12 @@ def _calculate(
     query_to: str,
     metric_type: str = "primary",
     is_final_attempt: bool = True,
+    attempt: int = 1,
 ):
     with patch("products.experiments.backend.temporal.recalculation_logic.close_old_connections"):
-        return _calculate_raw(experiment_id, metric_uuid, recalculation_id, query_to, metric_type, is_final_attempt)
+        return _calculate_raw(
+            experiment_id, metric_uuid, recalculation_id, query_to, metric_type, is_final_attempt, attempt
+        )
 
 
 @pytest.mark.django_db(transaction=True)
@@ -451,6 +455,67 @@ class TestCalculateActivity(BaseTest):
                 _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=True)
             recalc.refresh_from_db()
             assert "m1" in recalc.metric_errors
+
+    @parameterized.expand(
+        [
+            # (name, exc, expected_error_type, expected_delay_seconds) — backpressure uses the explicit
+            # next_retry_delay; a generic transient on attempt 2 follows the policy backoff (5 * 2^1).
+            ("backpressure", ConcurrencyLimitExceeded("quota"), "rate_limited", 60),
+            ("generic_transient", RuntimeError("transient blip"), "server_error", 10),
+        ]
+    )
+    def test_transient_attempt_records_retry_state_and_success_clears_it(
+        self, name: str, exc: Exception, expected_error_type: str, expected_delay_seconds: int
+    ):
+        # The retry entry is what the UI shows between attempts; without it the metric looks stuck. It must
+        # carry the attempt counters and a next_retry_at estimate, and vanish once the metric resolves.
+        exp = self._experiment(flag_key=f"calc-retry-{name}", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+
+        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+            mock_runner.return_value.run.side_effect = exc
+            before = timezone.now()
+            with pytest.raises((type(exc), ApplicationError)):
+                _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False, attempt=2)
+
+        recalc.refresh_from_db()
+        entry = recalc.metric_retries["m1"]
+        assert entry["attempt"] == 2
+        assert entry["max_attempts"] == MAX_METRIC_ATTEMPTS
+        assert entry["error_type"] == expected_error_type
+        # The server error that triggered the retry is surfaced verbatim in the UI.
+        assert entry["message"] == str(exc)
+        next_retry_at = datetime.fromisoformat(entry["next_retry_at"])
+        delta = (next_retry_at - before).total_seconds()
+        assert expected_delay_seconds <= delta <= expected_delay_seconds + 5
+
+        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+            mock_runner.return_value.run.return_value.model_dump.return_value = {}
+            result = _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, attempt=3)
+
+        assert result.success is True
+        recalc.refresh_from_db()
+        assert recalc.metric_retries == {}
+
+    def test_terminal_failure_clears_retry_state(self):
+        # A metric that retried and then failed for good must not keep a stale "retrying" entry alongside
+        # its terminal error.
+        exp = self._experiment(flag_key="calc-retry-terminal", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+
+        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+            mock_runner.return_value.run.side_effect = RuntimeError("transient blip")
+            with pytest.raises(RuntimeError):
+                _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False, attempt=2)
+            recalc.refresh_from_db()
+            assert "m1" in recalc.metric_retries
+
+            with pytest.raises(RuntimeError):
+                _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=True, attempt=8)
+
+        recalc.refresh_from_db()
+        assert recalc.metric_retries == {}
+        assert "m1" in recalc.metric_errors
 
     @parameterized.expand(
         [
