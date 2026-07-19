@@ -1,4 +1,4 @@
-import { describeTagOp, parseConfigChanges } from './configChanges'
+import { describeTagOp, formatChangeValue, parseConfigChanges } from './configChanges'
 
 describe('configChanges', () => {
     it('parses a well-formed change list and drops junk', () => {
@@ -37,5 +37,16 @@ describe('configChanges', () => {
         expect(describeTagOp({ field: 'tags', kind: 'tags', op: 'rename', before: 'b', after: 'c' }).text).toContain(
             'c'
         )
+    })
+
+    // A scorer's scale change carries `{min, max, label}` objects; without object-aware formatting the card printed "[object Object]".
+    it.each([
+        ['boolean on', true, 'on'],
+        ['boolean off', false, 'off'],
+        ['string', 'long', 'long'],
+        ['scale without label', { min: 1, max: 5 }, '1-5'],
+        ['scale with label', { min: 0, max: 10, label: 'frustration' }, '0-10 (frustration)'],
+    ])('formats %s', (_name, value, expected) => {
+        expect(formatChangeValue(value)).toBe(expected)
     })
 })

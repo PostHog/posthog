@@ -7,7 +7,7 @@ import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
 import { identifierToHuman } from 'lib/utils/strings'
 
 import type { ReplayScannerPromptSuggestionApi } from '../../generated/api.schemas'
-import { describeTagOp, parseConfigChanges, ScannerConfigChange } from './configChanges'
+import { describeTagOp, formatChangeValue, parseConfigChanges, ScannerConfigChange } from './configChanges'
 
 /** The bordered side-by-side diff with labeled panes, rendered inline and inside the fullscreen modal. */
 function SuggestionDiffPanes({
@@ -143,14 +143,6 @@ function TagChangesCard({ changes }: { changes: ScannerConfigChange[] }): JSX.El
             )}
         </div>
     )
-}
-
-/** Humanizes a scalar change value for the compact "field: before to after" line: booleans read as on/off. */
-function formatChangeValue(value: unknown): string {
-    if (typeof value === 'boolean') {
-        return value ? 'on' : 'off'
-    }
-    return String(value)
 }
 
 function FieldChangeLine({ change }: { change: ScannerConfigChange }): JSX.Element {
