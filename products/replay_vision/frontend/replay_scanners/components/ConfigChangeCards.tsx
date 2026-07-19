@@ -18,6 +18,7 @@ import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect
 import { objectsEqual } from 'lib/utils/objects'
 
 import type { ReplayScannerPromptSuggestionApi } from '../../generated/api.schemas'
+import { replayScannerLogic } from '../replayScannerLogic'
 import { scannerQualityLogic } from '../scannerQualityLogic'
 import { SummarizerScannerConfig } from '../types'
 import {
@@ -199,9 +200,10 @@ function FieldValueEditor({
         )
     }
     if (kind === 'scale') {
+        // Mirrors the scale editor in ScannerTypeConfigEditor.
         const scale = (value as { min: number; max: number; label?: string }) ?? { min: 0, max: 10 }
         return (
-            <div className="space-y-2">
+            <div className="space-y-3">
                 <div className="flex items-center gap-3 max-w-md">
                     <LemonInput
                         type="number"
@@ -217,11 +219,14 @@ function FieldValueEditor({
                         prefix={<span className="text-muted text-xs">max</span>}
                     />
                 </div>
-                <LemonInput
-                    value={scale.label ?? ''}
-                    onChange={(v) => onChange({ ...scale, label: v || undefined })}
-                    placeholder="Score label (optional)"
-                />
+                <div className="space-y-1">
+                    <label className="block text-sm font-medium">Score label (optional)</label>
+                    <LemonInput
+                        value={scale.label ?? ''}
+                        onChange={(v) => onChange({ ...scale, label: v || undefined })}
+                        placeholder="frustration"
+                    />
+                </div>
             </div>
         )
     }
@@ -233,9 +238,6 @@ function FieldValueEditor({
                 onChange={onChange}
             />
         )
-    }
-    if (kind === 'flag') {
-        return <LemonSwitch checked={!!value} onChange={onChange} label={value ? 'On' : 'Off'} />
     }
     return <LemonTextArea value={String(value ?? '')} onChange={onChange} minRows={2} />
 }
@@ -305,6 +307,7 @@ export function ConfigChangeCards({
 }): JSX.Element {
     const { fieldValues } = useValues(scannerQualityLogic({ scannerId }))
     const { setFieldValue } = useActions(scannerQualityLogic({ scannerId }))
+    const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     const changes = parseConfigChanges(suggestion.changes)
 
     // Rows written before changes[] existed only carry a prompt rewrite, with no full config to edit.
@@ -327,28 +330,55 @@ export function ConfigChangeCards({
         : Object.keys(suggested).sort((a, b) => (a === 'prompt' ? -1 : b === 'prompt' ? 1 : 0))
 
     return (
-        <div className="space-y-3">
+        <div className="space-y-4">
             {fieldNames.map((field) => {
                 const fieldChanges = changes.filter((change) => change.field === field)
                 const value = readOnly ? suggested[field] : fieldValues[field]
-                const { kind, label } = fieldEditor(field, value)
+                const { kind, label, description } = fieldEditor(field, value)
+                // The configurator labels the summarizer's prompt "Additional context"; read the same way here.
+                const fieldLabel =
+                    field === 'prompt' && scanner?.scanner_type === 'summarizer' ? 'Additional context' : label
                 const edited = !readOnly && !objectsEqual(value, suggested[field])
+                const revert = edited ? (
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        icon={<IconRevert />}
+                        onClick={() => setFieldValue(suggestion.id, field, suggested[field])}
+                        tooltip="Revert to the suggested value"
+                        data-attr="vision-quality-revert-field"
+                    >
+                        Revert
+                    </LemonButton>
+                ) : null
+
+                // Flags render as the configurator's switch rows: switch left, title and description beside it.
+                if (kind === 'flag' && !readOnly) {
+                    return (
+                        <div key={field} className="space-y-1">
+                            <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                    <LemonSwitch
+                                        checked={!!value}
+                                        onChange={(checked) => setFieldValue(suggestion.id, field, checked)}
+                                    />
+                                    <div>
+                                        <div className="text-sm font-medium">{fieldLabel}</div>
+                                        {description && <div className="text-xs text-muted">{description}</div>}
+                                    </div>
+                                </div>
+                                {revert}
+                            </div>
+                            <FieldRationales fieldChanges={fieldChanges} />
+                        </div>
+                    )
+                }
+
                 return (
-                    <div key={field} className="border rounded p-2 space-y-2">
-                        <div className="flex items-center justify-between">
-                            <span className="text-sm font-medium">{label}</span>
-                            {edited && (
-                                <LemonButton
-                                    size="xsmall"
-                                    type="secondary"
-                                    icon={<IconRevert />}
-                                    onClick={() => setFieldValue(suggestion.id, field, suggested[field])}
-                                    tooltip="Revert to the suggested value"
-                                    data-attr="vision-quality-revert-field"
-                                >
-                                    Revert
-                                </LemonButton>
-                            )}
+                    <div key={field} className="space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                            <label className="text-sm font-medium">{fieldLabel}</label>
+                            {revert}
                         </div>
                         {readOnly ? (
                             <FieldValueReadOnly
