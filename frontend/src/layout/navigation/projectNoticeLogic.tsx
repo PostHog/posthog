@@ -47,6 +47,10 @@ export interface ProjectNoticeBlueprint {
     mountNoEventsBannerLogic?: boolean
 }
 
+export function shouldShowNoEventsProjectNotice(activeSceneId: string | null, liveEventCount: number): boolean {
+    return activeSceneId !== Scene.Quickstart && !(activeSceneId === Scene.LiveEvents && liveEventCount > 0)
+}
+
 const NOTICE_DISMISS_PREFIX = 'project-notice-dismissed.'
 
 function isNoticeDismissed(key: string): boolean {
@@ -371,7 +375,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     // Belt-and-braces: never claim "no events" while the live activity feed is
                     // actively rendering events on the same screen — `currentTeam.ingested_event`
                     // can lag behind the live SSE stream during the first ingestion window.
-                    !(activeSceneId === Scene.LiveEvents && liveEventCount > 0)
+                    shouldShowNoEventsProjectNotice(activeSceneId, liveEventCount)
                 ) {
                     return 'real_project_with_no_events'
                 } else if (hasEventIngestionRestriction) {

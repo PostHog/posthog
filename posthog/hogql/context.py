@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from posthog.hogql.database.database import Database
     from posthog.hogql.database.models import Table
     from posthog.hogql.observability import HogQLTypeObservability
+    from posthog.hogql.property_metadata import PropertyMetadata
     from posthog.hogql.transforms.property_types import PropertySwapper
 
     from posthog.clickhouse.client.execute import ClickHouseExternalTable
@@ -80,6 +81,7 @@ class HogQLContext:
     output_format: str | None = None
     # Globals that will be resolved in the context of the query
     globals: Optional[dict] = None
+    property_type_overrides: Optional[dict[str, str]] = None
     # Per-query data that query runners want to ingest into the HogQL resolution (e.g. pending updates
     # merged into a table via UNION ALL in error tracking).
     data_to_ingest: dict[str, Any] = field(default_factory=dict)
@@ -115,13 +117,16 @@ class HogQLContext:
     # Bounded source/surface label for type-system observability metrics.
     observability_source: str = "unknown"
 
+    # Property-definition metadata for the properties this query touches, loaded from Postgres by
+    # load_property_metadata during property-type resolution (None until build_property_swapper runs).
+    property_metadata: Optional["PropertyMetadata"] = None
     property_swapper: Optional["PropertySwapper"] = None
     # Workload detected during AST resolution (set by prepare_ast_for_printing)
     workload: Optional[Workload] = None
     # Per-query cache of the `system.information_schema` introspection result (populated lazily in
     # posthog/hogql/database/schema/information_schema.py). A dict keyed by the pushed-down table
-    # filter, so information_schema tables resolving to the same bound within one query walk the
-    # database (and fire the warehouse metadata ORM queries) only once.
+    # filter and holding lazy introspection objects, so tables resolving to the same bound walk the
+    # database only once while surface-specific catalog metadata is fetched only when requested.
     information_schema_introspection: Optional[Any] = field(default=None, compare=False, repr=False)
     # Property-level access control: set of (property_name, PropertyDefinition.Type) tuples
     # that the current user is denied access to. Populated before type resolution so that

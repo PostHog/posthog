@@ -26,20 +26,13 @@ from products.data_warehouse.backend.facade.api import (
     cancel_external_data_workflow,
     create_and_register_webhook,
     external_data_workflow_exists,
+    get_direct_query_engine,
     get_or_create_webhook_hog_function,
     get_postgres_source_location,
-    hide_direct_mysql_table,
-    hide_direct_postgres_table,
-    hide_direct_redshift_table,
-    hide_direct_snowflake_table,
     is_any_external_data_schema_paused,
     is_cdc_enabled_for_team,
     pause_external_data_schedule,
     reconcile_webhook_events,
-    reproject_direct_mysql_table,
-    reproject_direct_postgres_table,
-    reproject_direct_redshift_table,
-    reproject_direct_snowflake_table,
     sync_cdc_extraction_schedule,
     sync_external_data_job_workflow,
     trigger_external_data_workflow,
@@ -971,35 +964,21 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         )
 
         if source.is_direct_query:
+            direct_engine_adapter = get_direct_query_engine(source.direct_engine)
             # Direct-mode lifecycle hooks that need a fresh DataWarehouseTable projection:
             # (1) row is being re-exposed (should_sync flipping False → True);
             # (2) the column-picker selection changed on an already-exposed row.
             newly_exposed = should_sync is True and instance.should_sync is False
             projection_needs_refresh = enabled_columns_changed and instance.table is not None and instance.should_sync
-            if newly_exposed or projection_needs_refresh:
-                if source.is_direct_postgres:
-                    reproject = reproject_direct_postgres_table
-                elif source.is_direct_snowflake:
-                    reproject = reproject_direct_snowflake_table
-                elif source.is_direct_redshift:
-                    reproject = reproject_direct_redshift_table
-                else:
-                    reproject = reproject_direct_mysql_table
-                validated_data["table"] = reproject(
+            if direct_engine_adapter is not None and (newly_exposed or projection_needs_refresh):
+                validated_data["table"] = direct_engine_adapter.reproject_table(
                     instance,
                     source=source,
                     enabled_columns=validated_data.get("enabled_columns", instance.enabled_columns),
                 )
 
-            if should_sync is False and instance.should_sync is True:
-                if source.is_direct_postgres:
-                    hide_direct_postgres_table(instance.table)
-                elif source.is_direct_snowflake:
-                    hide_direct_snowflake_table(instance.table)
-                elif source.is_direct_redshift:
-                    hide_direct_redshift_table(instance.table)
-                else:
-                    hide_direct_mysql_table(instance.table)
+            if direct_engine_adapter is not None and should_sync is False and instance.should_sync is True:
+                direct_engine_adapter.hide_table(instance.table)
         elif enabled_columns_changed and instance.table is not None and instance.should_sync:
             # Warehouse mode: hide newly-disabled columns from HogQL immediately. Restoration
             # (reset to None or re-enabling a column) is deferred to the next sync — Delta may
@@ -1157,6 +1136,11 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         """
         if self._webhook_only_check_applies():
             self._is_webhook_only_schema_cached(instance)
+
+    def seed_webhook_only_check(self, webhook_only: bool) -> None:
+        """Pre-fill the webhook-only cache when the caller already discovered this table (e.g.
+        bulk sync-defaults filling), so warm_webhook_only_check doesn't re-probe the source."""
+        self.__dict__["_webhook_only_result"] = webhook_only
 
     def _webhook_only_check_applies(self) -> bool:
         # Single source of truth for when the webhook-only check runs, so update() and the
@@ -1544,14 +1528,9 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance: ExternalDataSchema = self.get_object()
 
         if instance.source.is_direct_query:
-            if instance.source.is_direct_postgres:
-                hide_direct_postgres_table(instance.table)
-            elif instance.source.is_direct_snowflake:
-                hide_direct_snowflake_table(instance.table)
-            elif instance.source.is_direct_redshift:
-                hide_direct_redshift_table(instance.table)
-            else:
-                hide_direct_mysql_table(instance.table)
+            direct_engine_adapter = get_direct_query_engine(instance.source.direct_engine)
+            if direct_engine_adapter is not None:
+                direct_engine_adapter.hide_table(instance.table)
             instance.should_sync = False
             instance.save(update_fields=["should_sync", "updated_at"])
             return Response(status=status.HTTP_200_OK)

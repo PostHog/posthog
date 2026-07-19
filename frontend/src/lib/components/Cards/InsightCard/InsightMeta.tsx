@@ -224,13 +224,9 @@ export function InsightMeta({
 
     const showDashboardAlertsMenuItem = isUsedAsDashboardTile && !!dashboardId && !!insight.id && canViewInsight
     const canCreateAlertForInsight = areAlertsSupportedForInsight(query, {
-        hogqlAlertsEnabled: !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHT_ALERTS],
-        funnelAlertsEnabled: !!featureFlags[FEATURE_FLAGS.FUNNEL_INSIGHT_ALERTS],
         metricsAlertsEnabled: !!featureFlags[FEATURE_FLAGS.METRICS],
     })
-    const canCreateAnomalyAlertForInsight = areAnomalyAlertsSupportedForInsight(query, {
-        hogqlAlertsEnabled: !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHT_ALERTS],
-    })
+    const canCreateAnomalyAlertForInsight = areAnomalyAlertsSupportedForInsight(query)
 
     const showDisplayOptionsMenu = isUsedAsDashboardTile && canEditInsight && !!persistDisplayOptions
     // Hoist the hook out of the More overlay so kea logics it mounts don't do so lazily inside a

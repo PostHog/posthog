@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 from django.conf import settings
 
 import structlog
+import posthoganalytics
 from prometheus_client import Counter
 from structlog.contextvars import bound_contextvars
 
@@ -30,8 +31,9 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
-from posthog.hogql.parser import parse_expr
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import action_to_expr, apply_path_cleaning, property_to_expr
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tag_value, tag_queries
@@ -61,6 +63,18 @@ WEB_ANALYTICS_NO_JOIN_SERVED = Counter(
     "Web analytics queries served by a no-session-join fast path.",
     ["family"],
 )
+
+# Ceiling on the number of matching session ids a session-id-set fast path may ship
+# to shards via GLOBAL IN. Cross-team prod validation: memory scales ~linearly at
+# ~190 MiB per million ids on the sessions side; the id-set shape beats the join at
+# 4-5M ids (3.8s/727MiB vs 6.8s/4.5GiB at 3.8M); the extrapolated crossover where
+# the shipped set stops paying is ~20M. 10M caps session-id-set memory at ~2 GiB —
+# under half the join's typical footprint — with margin before the crossover.
+SESSION_ID_SET_MAX_MATCHING_SESSIONS = 10_000_000
+
+# Expands the env allowlist without a deploy: per-team/percent targeting and the
+# kill switch live in the flag UI. The allowlist stays as the flag-independent base.
+SESSION_ID_SET_FEATURE_FLAG_KEY = "web-analytics-session-id-set"
 
 WebQueryNode = Union[
     WebOverviewQuery,
@@ -240,6 +254,98 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
         # Deterministic per-team bucketing: query results must come from one code
         # path for everyone on a team, so the rollout unit is the team, not the user.
         return percent > 0 and self.team.pk % 100 < percent
+
+    @cached_property
+    def _session_id_set_flag_enabled(self) -> bool:
+        """Evaluate the rollout flag locally — fails closed on flag-service errors.
+
+        A raised exception here must never fail the query: the fast path is an
+        optimization, so any flag-evaluation failure degrades to the join path.
+        """
+        try:
+            return bool(
+                posthoganalytics.feature_enabled(
+                    SESSION_ID_SET_FEATURE_FLAG_KEY,
+                    str(self.team.uuid),
+                    groups={
+                        "organization": str(self.team.organization_id),
+                        "project": str(self.team.id),
+                    },
+                    group_properties={
+                        "organization": {"id": str(self.team.organization_id)},
+                        "project": {"id": str(self.team.id)},
+                    },
+                    only_evaluate_locally=True,
+                    send_feature_flag_events=False,
+                )
+            )
+        except Exception as e:
+            logger.warning("web_analytics_session_id_set_flag_evaluation_failed", error=e, team_id=self.team.pk)
+            return False
+
+    def _session_id_set_common_eligibility(self) -> bool:
+        """Shared gates for the session-id-set fast paths (filtered two-scan shape).
+
+        A filter is only evaluable events-side when it's an event property filter
+        (user filters) or an event/person test-account filter (person props via
+        person-on-events). Session/cohort filters can't feed the id collection
+        and keep the join path. Runners add their own shape-specific gates on top.
+        """
+        if self.team.pk not in settings.WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS and not self._session_id_set_flag_enabled:
+            return False
+        if getattr(self.query, "conversionGoal", None):
+            return False
+        properties = getattr(self.query, "properties", None) or []
+        if not properties and not self._test_account_filters:
+            return False
+        if not all(isinstance(p, EventPropertyFilter) for p in properties):
+            return False
+        if not all(f.get("type") in ("event", "person") for f in self._test_account_filters):
+            return False
+        return True
+
+    def _run_session_id_set_preflight(self, filters: ast.Expr, query_type: str) -> bool:
+        """Preflight: is the filtered session-id set small enough to ship to shards?
+
+        A cheap count over the filtered events (materialized columns only) — the
+        events scan is work the id collection does anyway, so this bounds the
+        worst case at one extra sub-second query for eligible teams. Fails closed
+        to the join path on error.
+        """
+        count_query = parse_select(
+            """
+SELECT uniq(events.$session_id_uuid) AS matching_sessions
+FROM events
+WHERE and(
+    events.$session_id_uuid IS NOT NULL,
+    {event_type_expr},
+    {inside_timestamp_period},
+    {filters},
+)
+            """,
+            placeholders={
+                "event_type_expr": self.event_type_expr,
+                "inside_timestamp_period": self._periods_expression("timestamp"),
+                "filters": filters,
+            },
+        )
+        try:
+            response = execute_hogql_query(
+                query_type=query_type,
+                query=count_query,
+                team=self.team,
+                user=self.user,
+                timings=self.timings,
+                modifiers=self.modifiers,
+                limit_context=self.limit_context,
+            )
+            matching = response.results[0][0] if response.results else None
+            if matching is None:
+                return False
+            return matching <= SESSION_ID_SET_MAX_MATCHING_SESSIONS
+        except Exception as e:
+            logger.exception("web_analytics_session_id_set_preflight_failed", error=e, query_type=query_type)
+            return False
 
     @cached_property
     def filters_eligibility_hash(self) -> Optional[str]:
@@ -609,14 +715,14 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
     def events_session_id_present(self) -> ast.Expr:
         """True when the event carries a usable session id.
 
-        A missing `$session_id` materializes as an empty string, not NULL, so an
-        `IS NOT NULL` check alone lets sessionless (server-side) events through.
-        The join path excludes them implicitly (NULL session start fails the
-        period HAVING); the no-join query shapes need this explicit guard.
+        Uses the nullable-UUID materialized column in both join modes: a missing
+        `$session_id` materializes as an empty string (not NULL) and a malformed
+        one isn't a UUID — both become NULL here and are excluded, which is
+        exactly what the join path does implicitly (their NULL session start
+        fails the period HAVING). The no-join query shapes need the explicit
+        guard to match.
         """
-        if self.query.modifiers and self.query.modifiers.sessionsV2JoinMode == "uuid":
-            return parse_expr("events.$session_id_uuid IS NOT NULL")
-        return parse_expr("events.$session_id IS NOT NULL AND events.$session_id != ''")
+        return parse_expr("events.$session_id_uuid IS NOT NULL")
 
 
 def map_columns(results, mapper: dict[int, typing.Callable]):

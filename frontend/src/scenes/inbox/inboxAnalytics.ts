@@ -14,6 +14,7 @@ export const INBOX_CLIENT = 'cloud' as const
 
 export const INBOX_EVENTS = {
     VIEWED: 'Inbox viewed',
+    REPORTS_IMPRESSED: 'Inbox reports impressed',
     REPORT_OPENED: 'Inbox report opened',
     REPORT_CLOSED: 'Inbox report closed',
     REPORT_ACTION: 'Inbox report action',
@@ -133,6 +134,43 @@ export function captureInboxViewed(params: {
         scope: params.scope,
         ...priorityBreakdown(params.reports),
         ...actionabilityBreakdown(params.reports),
+    })
+}
+
+/**
+ * Impression log for the report list: which reports were shown, at what rank, with the
+ * classification each carried at render time. This is the negative class (and position record)
+ * for ranking-model training — `Inbox report opened` alone only records the clicked report.
+ * Fired with the newly-shown reports each time the visible list grows (first page, pagination,
+ * refresh), never twice for the same report within a tab mount.
+ */
+export function captureInboxReportsImpressed(params: {
+    tab: string
+    /** Only the newly-impressed reports, in list order. */
+    reports: SignalReport[]
+    /** 1-based rank of each impressed report in the full loaded list, parallel to `reports`. */
+    ranks: number[]
+    listSize: number
+    totalCount: number | null
+    hasActiveFilters: boolean
+    scope: string
+}): void {
+    captureInboxEvent(INBOX_EVENTS.REPORTS_IMPRESSED, {
+        tab: params.tab,
+        list_size: params.listSize,
+        total_count: params.totalCount,
+        has_active_filters: params.hasActiveFilters,
+        scope: params.scope,
+        impression_count: params.reports.length,
+        impressions: params.reports.map((report, index) => ({
+            ...baseReportProperties(report),
+            rank: params.ranks[index],
+            status: report.status ?? null,
+            source_products: report.source_products ?? [],
+            signal_count: report.signal_count,
+            total_weight: report.total_weight,
+            is_suggested_reviewer: report.is_suggested_reviewer,
+        })),
     })
 }
 
