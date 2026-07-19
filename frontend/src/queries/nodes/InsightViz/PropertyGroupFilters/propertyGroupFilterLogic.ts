@@ -81,9 +81,18 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([
     props({} as PropertyGroupFilterLogicProps),
     key((props) => props.pageKey),
 
-    propsChanged(({ actions, props }, oldProps) => {
+    propsChanged(({ actions, values, props }, oldProps) => {
         if (props.query && !objectsEqual(props.query.properties, oldProps.query.properties)) {
-            actions.setFilters(convertPropertiesToPropertyGroup(props.query.properties))
+            const incoming = convertPropertiesToPropertyGroup(props.query.properties)
+            // Preserve a locally-added empty filter group. We persist `undefined` to the query
+            // while a group has no real filters yet, so on dashboard-attached insights the merged
+            // query re-flows back through here with empty properties. Resetting then would discard
+            // the empty group the user just added — skip the reset when neither side has real
+            // filters, keeping the empty group rendered until a real property is added.
+            if (!hasAnyPropertyFilters(incoming) && !hasAnyPropertyFilters(values.filters)) {
+                return
+            }
+            actions.setFilters(incoming)
         }
     }),
 
@@ -165,9 +174,11 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([
         },
         addFilterGroup: () => {
             eventUsageLogic.actions.reportPropertyGroupFilterAdded()
+            actions.update()
         },
         duplicateFilterGroup: () => {
             eventUsageLogic.actions.reportPropertyGroupFilterDuplicated()
+            actions.update()
         },
         update: () => {
             // Don't persist empty PropertyGroupFilter structures — they cause ghost
