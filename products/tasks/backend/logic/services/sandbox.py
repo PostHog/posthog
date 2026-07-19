@@ -28,6 +28,7 @@ import structlog
 from pydantic import BaseModel, model_validator
 
 from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, SNAPSHOT_KIND_FILESYSTEM, SnapshotKind
+from products.tasks.backend.logic.services.agentsh import ENV_FILE, ENV_WRAPPER_SCRIPT, build_exec_prefix
 from products.tasks.backend.logic.services.sandbox_config import (
     BURSTABLE_REQUEST_CPU_CORES,
     BURSTABLE_REQUEST_MEMORY_MB,
@@ -167,7 +168,7 @@ def redact_sandbox_command(command: str) -> str:
 def build_computer_use_env_prefix(computer_use: bool) -> str:
     if not computer_use:
         return ""
-    return "DISPLAY=:99 WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1 GTK_A11Y=none "
+    return "DISPLAY=:99 GTK_A11Y=none "
 
 
 def build_agent_runtime_env_prefix(
@@ -256,8 +257,11 @@ class SandboxBase(ABC):
         result = self.execute("grep -q autoPublish /scripts/node_modules/.bin/agent-server", timeout_seconds=10)
         return result.exit_code == 0
 
-    def start_virtual_desktop(self) -> ExecutionResult:
-        return self.execute("DISPLAY=:99 /usr/local/bin/start-virtual-desktop", timeout_seconds=30)
+    def start_virtual_desktop(self, *, restricted_egress: bool = False) -> ExecutionResult:
+        command = "DISPLAY=:99 /usr/local/bin/start-virtual-desktop"
+        if restricted_egress:
+            command = f"cd /scripts && env -0 > {ENV_FILE} && {build_exec_prefix()} {ENV_WRAPPER_SCRIPT} {command}"
+        return self.execute(command, timeout_seconds=30)
 
     def clone_repository(
         self,

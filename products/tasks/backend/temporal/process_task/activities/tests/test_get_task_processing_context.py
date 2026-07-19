@@ -730,6 +730,25 @@ class TestGetTaskProcessingContextActivity:
 
         payload_mock.assert_not_called()
 
+    def test_computer_use_requires_modal_vm_even_with_restricted_egress(self) -> None:
+        with patch(
+            VM_FLAG_PAYLOAD_TARGET,
+            return_value=None,
+        ) as payload_mock:
+            assert (
+                _is_modal_vm_sandbox_enabled(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                    origin_product="user_created",
+                    allowed_domains=["github.com"],
+                    state={"computer_use": True},
+                )
+                is True
+            )
+
+        payload_mock.assert_not_called()
+
     def test_modal_vm_sandbox_restricted_egress_forces_gvisor(self):
         with patch(
             VM_FLAG_PAYLOAD_TARGET,

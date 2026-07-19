@@ -465,9 +465,30 @@ class TestModalSandboxAgentServer:
         assert "DISPLAY=:99 /usr/local/bin/start-virtual-desktop" in commands
         launch_command = next(command for command in commands if "--taskId" in command)
         assert "DISPLAY=:99" in launch_command
-        assert "WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1" in launch_command
+        assert "WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS" not in launch_command
         assert "GTK_A11Y=none" in launch_command
         assert "--computerUse true" in launch_command
+
+    def test_start_agent_server_starts_restricted_desktop_inside_agentsh(self, mock_sandbox: Any) -> None:
+        mock_sandbox.execute = MagicMock(
+            return_value=ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
+        )
+
+        with patch.object(mock_sandbox, "_setup_agentsh"):
+            mock_sandbox.start_agent_server(
+                repository="posthog/posthog",
+                task_id="task-123",
+                run_id="run-456",
+                computer_use=True,
+                allowed_domains=["github.com"],
+                wait_for_health=False,
+            )
+
+        desktop_command = next(
+            call.args[0] for call in mock_sandbox.execute.call_args_list if "start-virtual-desktop" in call.args[0]
+        )
+        assert "agentsh exec" in desktop_command
+        assert "/tmp/agentsh-env-wrapper.sh" in desktop_command
 
     def test_start_agent_server_waits_for_repository_before_launch(self, mock_sandbox: Any):
         mock_sandbox.execute = MagicMock(

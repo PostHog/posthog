@@ -938,7 +938,7 @@ class DockerSandbox(SandboxBase):
             auto_publish = False
 
         if computer_use:
-            desktop_result = self.start_virtual_desktop()
+            desktop_result = self.start_virtual_desktop(restricted_egress=allowed_domains is not None)
             if desktop_result.exit_code != 0:
                 raise SandboxExecutionError(
                     "Virtual desktop failed to start",

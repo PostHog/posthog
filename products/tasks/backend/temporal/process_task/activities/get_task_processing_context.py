@@ -363,6 +363,14 @@ def _is_modal_vm_sandbox_enabled(
     custom_image_available: bool = False,
     state: dict | None = None,
 ) -> bool:
+    if (state or {}).get("computer_use") is True:
+        log_with_activity_context(
+            "modal_vm_sandbox_required_for_computer_use",
+            run_id=run_id,
+            use_modal_vm_sandbox=True,
+        )
+        return True
+
     if allowed_domains is not None:
         log_with_activity_context(
             "modal_vm_sandbox_skipped_restricted_egress",

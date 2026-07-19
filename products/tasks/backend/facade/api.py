@@ -3508,6 +3508,7 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
         warm_branch_provided
         and validated_data["origin_product"] == Task.OriginProduct.USER_CREATED
         and validated_data.get("repository")
+        and not validated_data.get("computer_use", False)
         and user_id is not None
     ):
         warm_run = _find_idling_warm_run(
