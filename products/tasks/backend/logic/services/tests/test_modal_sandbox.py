@@ -465,6 +465,8 @@ class TestModalSandboxAgentServer:
         assert "DISPLAY=:99 /usr/local/bin/start-virtual-desktop" in commands
         launch_command = next(command for command in commands if "--taskId" in command)
         assert "DISPLAY=:99" in launch_command
+        assert "WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1" in launch_command
+        assert "GTK_A11Y=none" in launch_command
         assert "--computerUse true" in launch_command
 
     def test_start_agent_server_waits_for_repository_before_launch(self, mock_sandbox: Any):

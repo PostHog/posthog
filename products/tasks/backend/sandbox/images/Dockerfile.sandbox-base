@@ -44,9 +44,11 @@ RUN apt-get update && \
     imagemagick \
     libgtk-3-bin \
     openbox \
+    python3-xdg \
     wmctrl \
     x11-utils \
     xdotool \
+    xfonts-base \
     xterm \
     xvfb \
     # System libraries often needed by Python packages

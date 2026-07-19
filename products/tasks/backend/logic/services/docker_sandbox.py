@@ -55,6 +55,7 @@ from .sandbox import (
     SandboxStatus,
     SandboxTemplate,
     build_agent_runtime_env_prefix,
+    build_computer_use_env_prefix,
     parse_sandbox_repo_mount_map,
     redact_sandbox_command,
     wait_for_health_check,
@@ -834,7 +835,7 @@ class DockerSandbox(SandboxBase):
         unset_flags = "".join(f"-u {name} " for name in SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS)
         server_cmd = (
             f"env {unset_flags}BASH_ENV={shlex.quote(BASH_ENV_SCRIPT)} "
-            f"{'DISPLAY=:99 ' if computer_use else ''}{env_prefix}"
+            f"{build_computer_use_env_prefix(computer_use)}{env_prefix}"
             f"./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
             f"{create_pr_flag}{auto_publish_flag}{computer_use_flag}{branch_flag}{mcp_servers_arg}"

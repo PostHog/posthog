@@ -164,6 +164,12 @@ def redact_sandbox_command(command: str) -> str:
     return SENSITIVE_AGENT_RUNTIME_ENV_PATTERN.sub(r"\g<name>=<redacted>", command)
 
 
+def build_computer_use_env_prefix(computer_use: bool) -> str:
+    if not computer_use:
+        return ""
+    return "DISPLAY=:99 WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1 GTK_A11Y=none "
+
+
 def build_agent_runtime_env_prefix(
     *,
     interaction_origin: str | None = None,
