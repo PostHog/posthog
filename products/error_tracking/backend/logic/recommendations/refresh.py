@@ -234,6 +234,14 @@ def _refresh_rec_for_teams(
         )
         _bulk_revert_to_ready(list(claimed))
         return 0
+    except BaseException:
+        # A slow compute_batch can trip the Temporal heartbeat timeout, cancelling the
+        # activity and killing the in-flight query, which surfaces as CancelledError —
+        # a BaseException that escapes the `except Exception` above. Release the rows we
+        # claimed so the next sweep can pick them up immediately instead of waiting out
+        # COMPUTING_STUCK_AFTER, then re-raise so Temporal still sees the cancellation.
+        _bulk_revert_to_ready(list(claimed))
+        raise
 
     computed_at = timezone.now()
     to_update = []

@@ -547,7 +547,12 @@ class ErrorTrackingStackFrame(UUIDTModel):
     context = models.JSONField(null=True, blank=True)
 
     class Meta:
-        indexes = []
+        indexes = [
+            # Backs the recommendations sweep, which aggregates recent frames per team
+            # (team_id + created_at window). Without it the aggregation degrades into a
+            # large scan on high-volume teams and trips the Temporal heartbeat timeout.
+            models.Index(fields=["team_id", "created_at"], name="et_frame_team_created_idx"),
+        ]
 
         constraints = [
             models.UniqueConstraint(fields=["team_id", "raw_id", "part"], name="unique_team_id_raw_id_part"),
