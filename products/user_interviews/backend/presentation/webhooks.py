@@ -353,7 +353,12 @@ def _collapse_abandoned_partials(*, team: Team, topic: UserInterviewTopic, respo
     ]
     if not stale_pks:
         return
-    deleted_count, _ = UserInterview.objects.filter(pk__in=stale_pks).delete()
+    deleted_count, _ = UserInterview.objects.filter(
+        team=team,
+        topic=topic,
+        respondent_key=respondent_key,
+        pk__in=stale_pks,
+    ).delete()
     logger.info(
         "user_interviews_collapsed_abandoned_partials",
         team_id=team.id,
@@ -429,6 +434,8 @@ def start_call(request: Request, access_token: str) -> Response:
     topic = ic.topic
     if is_shared_interviewee_context(ic.interviewee_identifier):
         respondent_name = _clean_field(body.get("name"), _RESPONDENT_NAME_MAX_CHARS)
+        if not respondent_name:
+            return Response({"error": "name is required"}, status=status.HTTP_400_BAD_REQUEST)
         respondent_key = _clean_field(body.get("respondent_key"), _RESPONDENT_KEY_MAX_CHARS)
         user_name = respondent_name or "there"
         agent_context = topic.agent_context or ""

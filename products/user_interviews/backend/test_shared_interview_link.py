@@ -263,6 +263,18 @@ class TestSharedStartCall(APIBaseTest):
         assert metadata["interviewee_identifier"].startswith("shared:")
 
     @override_settings(VAPI_PUBLIC_KEY="pk_test", VAPI_ASSISTANT_ID="asst_test")
+    def test_missing_name_is_rejected(self) -> None:
+        config = self._shared_config()
+        self.client.logout()
+        response = self.client.post(
+            self._url(config.access_token),
+            data={"respondent_key": "resp-123"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.json() == {"error": "name is required"}
+
+    @override_settings(VAPI_PUBLIC_KEY="pk_test", VAPI_ASSISTANT_ID="asst_test")
     def test_honeypot_filled_is_rejected(self) -> None:
         config = self._shared_config()
         self.client.logout()
