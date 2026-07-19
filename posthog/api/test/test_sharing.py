@@ -48,8 +48,7 @@ def mock_exporter_template(test_func):
     """
 
     @wraps(test_func)
-    @patch("posthog.api.sharing.render_template")
-    def wrapper(self, mock_render_template, *args, **kwargs):
+    def wrapper(self, *args, **kwargs):
         def mock_render_side_effect(template_name, request, context, **kwargs):
             from django.http import HttpResponse
 
@@ -81,8 +80,9 @@ def mock_exporter_template(test_func):
                 # For non-exporter templates, return a simple response
                 return HttpResponse('<html><body>{"dashboard": "content"}</body></html>')
 
-        mock_render_template.side_effect = mock_render_side_effect
-        return test_func(self, *args, **kwargs)
+        with patch("posthog.api.sharing.render_template") as mock_render_template:
+            mock_render_template.side_effect = mock_render_side_effect
+            return test_func(self, *args, **kwargs)
 
     return wrapper
 
