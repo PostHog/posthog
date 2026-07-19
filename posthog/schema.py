@@ -2409,6 +2409,22 @@ class SamplingRate(BaseModel):
     numerator: float
 
 
+class ScatterSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    labelColumn: str | None = Field(
+        default=None,
+        description=("Column used as the tooltip title for each point; null means the user explicitly chose no label"),
+    )
+    xAxisColumn: str | None = Field(default=None, description="Numeric column plotted on the X axis")
+    xAxisLabel: str | None = None
+    xLogScale: bool | None = None
+    yAxisColumn: str | None = Field(default=None, description="Numeric column plotted on the Y axis")
+    yAxisLabel: str | None = None
+    yLogScale: bool | None = None
+
+
 class SessionData(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -13532,6 +13548,7 @@ class ChartSettings(BaseModel):
         description=("Per-breakdown-value color customizations. Keyed by the raw breakdown column value."),
     )
     rightYAxisSettings: YAxisSettings | None = None
+    scatter: ScatterSettings | None = None
     seriesBreakdownColumn: str | None = None
     showLegend: bool | None = None
     showNullsAsZero: bool | None = None

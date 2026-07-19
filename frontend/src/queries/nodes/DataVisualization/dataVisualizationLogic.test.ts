@@ -358,6 +358,124 @@ describe('dataVisualizationLogic', () => {
             },
         })
     })
+    it('auto-fills scatter columns when selecting a scatter plot', async () => {
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['org', 'gb_ingested', 'query_count'],
+            types: [
+                ['org', 'String'],
+                ['gb_ingested', 'Int64'],
+                ['query_count', 'Int64'],
+            ],
+            results: [['Org A', 10, 100]],
+        })
+
+        logic.actions.setVisualizationType(ChartDisplayType.ScatterPlot)
+
+        await expectLogic(logic).toMatchValues({
+            effectiveVisualizationType: ChartDisplayType.ScatterPlot,
+            chartSettings: expect.objectContaining({
+                scatter: {
+                    xAxisColumn: 'gb_ingested',
+                    yAxisColumn: 'query_count',
+                    labelColumn: 'org',
+                },
+            }),
+        })
+    })
+
+    it('does not override existing scatter settings when re-picking scatter', async () => {
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['org', 'gb_ingested', 'query_count'],
+            types: [
+                ['org', 'String'],
+                ['gb_ingested', 'Int64'],
+                ['query_count', 'Int64'],
+            ],
+            results: [['Org A', 10, 100]],
+        })
+
+        logic.actions.updateChartSettings({
+            scatter: { xAxisColumn: 'query_count', yAxisColumn: 'gb_ingested', xLogScale: true, labelColumn: null },
+        })
+        logic.actions.setVisualizationType(ChartDisplayType.ScatterPlot)
+
+        await expectLogic(logic).toMatchValues({
+            chartSettings: expect.objectContaining({
+                scatter: {
+                    xAxisColumn: 'query_count',
+                    yAxisColumn: 'gb_ingested',
+                    xLogScale: true,
+                    // an explicit "no label" choice must survive auto-fill
+                    labelColumn: null,
+                },
+            }),
+        })
+    })
+
+    it('re-derives scatter columns that no longer exist in the response', async () => {
+        const nodeLogic = dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId })
+        nodeLogic.actions.setResponse({
+            columns: ['org', 'gb_ingested', 'query_count'],
+            types: [
+                ['org', 'String'],
+                ['gb_ingested', 'Int64'],
+                ['query_count', 'Int64'],
+            ],
+            results: [['Org A', 10, 100]],
+        })
+        logic.actions.setVisualizationType(ChartDisplayType.ScatterPlot)
+
+        nodeLogic.actions.setResponse({
+            columns: ['org', 'gb', 'query_count'],
+            types: [
+                ['org', 'String'],
+                ['gb', 'Int64'],
+                ['query_count', 'Int64'],
+            ],
+            results: [['Org A', 10, 100]],
+        })
+
+        await expectLogic(logic).toMatchValues({
+            chartSettings: expect.objectContaining({
+                scatter: expect.objectContaining({
+                    xAxisColumn: 'gb',
+                    yAxisColumn: 'query_count',
+                    labelColumn: 'org',
+                }),
+            }),
+        })
+    })
+
+    it('does not auto-fill both scatter axes with the same column', async () => {
+        const nodeLogic = dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId })
+        nodeLogic.actions.setResponse({
+            columns: ['org', 'gb_ingested', 'query_count'],
+            types: [
+                ['org', 'String'],
+                ['gb_ingested', 'Int64'],
+                ['query_count', 'Int64'],
+            ],
+            results: [['Org A', 10, 100]],
+        })
+        logic.actions.setVisualizationType(ChartDisplayType.ScatterPlot)
+
+        // X is valid and already points at the last numerical column; Y is stale and must not
+        // re-derive to that same column
+        logic.actions.updateChartSettings({
+            scatter: { xAxisColumn: 'query_count', yAxisColumn: 'missing', labelColumn: null },
+        })
+        logic.actions.setVisualizationType(ChartDisplayType.ScatterPlot)
+
+        await expectLogic(logic).toMatchValues({
+            chartSettings: expect.objectContaining({
+                scatter: expect.objectContaining({
+                    xAxisColumn: 'query_count',
+                    yAxisColumn: 'gb_ingested',
+                }),
+            }),
+        })
+    })
+
     it('stamps labels onto the slices when a pie chart is newly picked', async () => {
         logic.actions.setVisualizationType(ChartDisplayType.ActionsPie)
 

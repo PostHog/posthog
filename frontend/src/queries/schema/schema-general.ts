@@ -1243,6 +1243,19 @@ export interface HeatmapSettings {
     sortOrder?: HeatmapSortOrder
 }
 
+export interface ScatterSettings {
+    /** Numeric column plotted on the X axis */
+    xAxisColumn?: string
+    /** Numeric column plotted on the Y axis */
+    yAxisColumn?: string
+    /** Column used as the tooltip title for each point; null means the user explicitly chose no label */
+    labelColumn?: string | null
+    xAxisLabel?: string
+    yAxisLabel?: string
+    xLogScale?: boolean
+    yLogScale?: boolean
+}
+
 export interface PieChartSettings {
     /** What to render on each slice. Defaults to labels. */
     sliceContent?: 'labels' | 'values' | 'none'
@@ -1285,6 +1298,7 @@ export interface ChartSettings {
     showTotalRow?: boolean
     showNullsAsZero?: boolean
     heatmap?: HeatmapSettings
+    scatter?: ScatterSettings
     pie?: PieChartSettings
     /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
     resultCustomizations?: Record<string, ResultCustomizationByValue>

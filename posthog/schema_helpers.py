@@ -205,6 +205,10 @@ def grouped_chart_display_types(display: ChartDisplayType) -> ChartDisplayType:
             # separate runner — only the two range endpoints, cached on its own key
             return ChartDisplayType.SLOPE_GRAPH
 
+        case ChartDisplayType.SCATTER_PLOT:
+            # SQL-insight-only visualization
+            return ChartDisplayType.SCATTER_PLOT
+
         case ChartDisplayType.AUTO:
             return ChartDisplayType.AUTO
 

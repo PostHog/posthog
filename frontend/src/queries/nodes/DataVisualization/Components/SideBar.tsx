@@ -33,7 +33,8 @@ const TABS_TO_CONTENT: Record<SideBarTab, TabContent> = {
         shouldShow: (displayType: ChartDisplayType): boolean =>
             displayType !== ChartDisplayType.ActionsTable &&
             displayType !== ChartDisplayType.BoldNumber &&
-            displayType !== ChartDisplayType.TwoDimensionalHeatmap,
+            displayType !== ChartDisplayType.TwoDimensionalHeatmap &&
+            displayType !== ChartDisplayType.ScatterPlot,
     },
 }
 
@@ -41,28 +42,31 @@ export const SideBar = (): JSX.Element => {
     const { activeSideBarTab, effectiveVisualizationType } = useValues(dataVisualizationLogic)
     const { setSideBarTab } = useActions(dataVisualizationLogic)
 
-    const tabs: LemonTab<string>[] = useMemo(
+    const visibleTabKeys: SideBarTab[] = useMemo(
         () =>
             Object.entries(TABS_TO_CONTENT)
                 .filter(([_, tab]) => tab.shouldShow(effectiveVisualizationType))
-                .map(([key, tab]) => ({
-                    label: tab.label,
-                    key,
-                })),
+                .map(([key]) => key as SideBarTab),
         [effectiveVisualizationType]
     )
+    const tabs: LemonTab<string>[] = visibleTabKeys.map((key) => ({
+        label: TABS_TO_CONTENT[key].label,
+        key,
+    }))
+    // Switching chart type can hide the active tab — fall back to the first visible one
+    const activeTab = visibleTabKeys.includes(activeSideBarTab) ? activeSideBarTab : visibleTabKeys[0]
 
     return (
         <div className="bg-surface-primary w-[18rem] flex flex-col">
             <LemonTabs
                 size="small"
-                activeKey={activeSideBarTab}
+                activeKey={activeTab}
                 onChange={(tab) => setSideBarTab(tab as SideBarTab)}
                 tabs={tabs}
                 className="pt-1"
                 barClassName="px-3"
             />
-            <div className="flex-1 overflow-y-auto">{TABS_TO_CONTENT[activeSideBarTab].content}</div>
+            <div className="flex-1 overflow-y-auto">{TABS_TO_CONTENT[activeTab].content}</div>
         </div>
     )
 }

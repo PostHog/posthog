@@ -23,6 +23,7 @@ export const DISPLAY_TYPES_TO_CATEGORIES: Record<ChartDisplayType, ChartDisplayC
     // The slope's two points are the first and last interval bucket, so it's time-series at heart;
     // it keeps the group-by interval and InsightDisplayConfig hides the options between the ends.
     [ChartDisplayType.SlopeGraph]: ChartDisplayCategory.TimeSeries,
+    [ChartDisplayType.ScatterPlot]: ChartDisplayCategory.TotalValue,
 }
 export const NON_TIME_SERIES_DISPLAY_TYPES = Object.entries(DISPLAY_TYPES_TO_CATEGORIES)
     .filter(([, category]) => category === ChartDisplayCategory.TotalValue)
@@ -35,6 +36,7 @@ export const NON_BREAKDOWN_DISPLAY_TYPES = [
     ChartDisplayType.CalendarHeatmap,
     ChartDisplayType.TwoDimensionalHeatmap,
     ChartDisplayType.BoxPlot,
+    ChartDisplayType.ScatterPlot,
 ]
 /** Display types which only work with a single series. */
 export const SINGLE_SERIES_DISPLAY_TYPES = [
@@ -43,6 +45,7 @@ export const SINGLE_SERIES_DISPLAY_TYPES = [
     ChartDisplayType.Metric,
     ChartDisplayType.CalendarHeatmap,
     ChartDisplayType.TwoDimensionalHeatmap,
+    ChartDisplayType.ScatterPlot,
 ]
 
 export const NON_VALUES_ON_SERIES_DISPLAY_TYPES = [
@@ -52,6 +55,7 @@ export const NON_VALUES_ON_SERIES_DISPLAY_TYPES = [
     ChartDisplayType.Metric,
     ChartDisplayType.CalendarHeatmap,
     ChartDisplayType.TwoDimensionalHeatmap,
+    ChartDisplayType.ScatterPlot,
 ]
 
 /** Display types for which a percent stack view is available. */
@@ -215,6 +219,7 @@ export const FEATURE_FLAGS = {
     REPLAY_HOGQL_FILTERS: 'replay-hogql-filters', // owner: @pauldambra #team-replay
     REPLAY_SETTINGS_HELP: 'replay-settings-help', // owner: @veryayskiy #team-replay
     REPLAY_TRIGGER_TYPE_CHOICE: 'replay-trigger-type-choice', // owner: @pauldambra #team-replay
+    SCATTER_PLOT_INSIGHT: 'scatter-plot-insight', // owner: #team-data-warehouse
     SESSION_REPLAY_BACKEND_LOGS: 'session-replay-backend-logs', // owner: #team-replay
     SESSION_REPLAY_DOCTOR: 'session-replay-doctor', // owner: #team-replay
     SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE: 'settings-bounce-rate-page-view-mode', // owner: #team-web-analytics

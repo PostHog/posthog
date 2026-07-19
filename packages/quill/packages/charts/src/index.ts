@@ -7,6 +7,8 @@ export { funnelConversionRate, funnelFromCounts, RATE_TO_PERCENT } from './chart
 export type { FunnelFromCountsOptions, FunnelStepCount } from './charts/FunnelChart/funnel-data'
 export { LineChart } from './charts/LineChart/LineChart'
 export type { LineChartProps } from './charts/LineChart/LineChart'
+export { ScatterChart } from './charts/ScatterChart/ScatterChart'
+export type { ScatterChartConfig, ScatterChartPoint, ScatterChartProps } from './charts/ScatterChart/ScatterChart'
 export { ComboChart } from './charts/ComboChart/ComboChart'
 export type { ComboChartProps } from './charts/ComboChart/ComboChart'
 export { TimeSeriesLineChart } from './charts/TimeSeriesLineChart/TimeSeriesLineChart'
