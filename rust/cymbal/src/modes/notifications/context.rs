@@ -3,8 +3,9 @@ use std::time::Duration;
 use common_kafka::kafka_producer::{create_kafka_producer, KafkaContext};
 use health::HealthRegistry;
 use rdkafka::producer::FutureProducer;
-use sqlx::{postgres::PgPoolOptions, PgPool};
+use sqlx::PgPool;
 
+use crate::core::config::build_pg_pool;
 use crate::core::error::UnhandledError;
 use crate::modes::notifications::config::NotificationsConfig;
 use crate::modes::notifications::signals::{MaybeSignalClient, SignalClient};
@@ -21,10 +22,11 @@ pub struct NotificationsContext {
 
 impl NotificationsContext {
     pub async fn from_config(config: &NotificationsConfig) -> Result<Self, UnhandledError> {
-        let posthog_pool = PgPoolOptions::new()
-            .max_connections(config.max_pg_connections)
-            .connect(&config.database_url)
-            .await?;
+        let posthog_pool = build_pg_pool(
+            &config.database_url,
+            config.max_pg_connections,
+            "cymbal_notifications",
+        )?;
         let immediate_producer = build_immediate_producer(config).await?;
 
         Ok(Self {

@@ -23,6 +23,7 @@ from products.signals.backend.artefact_schemas import (
     ArtefactContentValidationError,
     Dismissal,
     LogArtefactContent,
+    RelatedTo,
     SignalFinding,
     StatusArtefactContent,
     TaskRunArtefact,
@@ -59,6 +60,7 @@ class SignalSourceConfig(UUIDModel):
         ENDPOINT_EXECUTION_FAILED = "endpoint_execution_failed", "Endpoint execution failed"
         ENDPOINT_BREAKDOWN_LIMIT_EXCEEDED = "endpoint_breakdown_limit_exceeded", "Endpoint breakdown limit exceeded"
         SCANNER_FINDING = "scanner_finding", "Scanner finding"
+        ANOMALY_INVESTIGATION = "anomaly_investigation", "Anomaly investigation"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="signal_source_configs")
     source_product = models.CharField(max_length=100, choices=SIGNAL_SOURCE_PRODUCT_CHOICES)
@@ -128,6 +130,10 @@ class SignalTeamConfig(UUIDModel):
         on_delete=models.CASCADE,
         related_name="signal_team_config",
     )
+    # Master switch for autonomous inbox PRs. Null means the team never set it (autostart stays on
+    # by default); only an explicit False disables it, leaving reports to still generate and notify
+    # while the team reviews and opens PRs manually.
+    autostart_enabled = models.BooleanField(null=True, blank=True)
     default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P4)
     default_slack_notification_channel = models.CharField(max_length=255, null=True, blank=True)
     autostart_base_branches = models.JSONField(default=dict, blank=True)
@@ -270,9 +276,11 @@ class SignalReport(UUIDModel):
         match (self.status, new_status):
             # Pipeline transitions
             # - POTENTIAL -> CANDIDATE when the report is selected for summary generation
-            # - READY | RESOLVED -> CANDIDATE when new matching signals reopen the report for
-            #   summary / agentic research (READY: every signal; resolved: recurrence of the issue)
-            case (S.POTENTIAL | S.READY | S.RESOLVED, S.CANDIDATE):
+            # - READY -> CANDIDATE when new matching signals reopen the report for summary / agentic
+            #   research. RESOLVED is terminal and never reopens: a recurring issue starts a fresh
+            #   report, linked to the resolved one via related_to artefacts (see
+            #   assign_and_emit_signal_activity).
+            case (S.POTENTIAL | S.READY, S.CANDIDATE):
                 self.promoted_at = timezone.now()
                 updated_fields.add("promoted_at")
 
@@ -699,6 +707,7 @@ class SignalReportArtefact(UUIDModel):
         TITLE_CHANGE = "title_change"
         SUMMARY_CHANGE = "summary_change"
         CODE_REVIEW = "code_review"
+        RELATED_TO = "related_to"
 
     # Every artefact is an append-only, point-in-time log entry — nothing is mutated in place by
     # the producers. The two sets below classify *what an entry means*, not how it is written:
@@ -729,6 +738,7 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.TITLE_CHANGE,
             ArtefactType.SUMMARY_CHANGE,
             ArtefactType.CODE_REVIEW,
+            ArtefactType.RELATED_TO,
         }
     )
 
@@ -865,10 +875,24 @@ class SignalReportArtefact(UUIDModel):
         """Append a log artefact (see `LOG_ARTEFACT_TYPES`) to a report and return it.
 
         Log artefacts accumulate — each call creates a new row.
+
+        `related_to` links are symmetric: writing A→B here also records B→A on the other report, so
+        the link is maintained on the common write path and stays discoverable from either side. The
+        reverse row goes through `_create` (not `add_log`) so it doesn't recurse.
         """
         if artefact_type_for(content) not in cls.LOG_ARTEFACT_TYPES:
             raise ValueError(f"{type(content).__name__} is not a log artefact content model")
-        return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
+        artefact = cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
+        if isinstance(content, RelatedTo):
+            # Same team_id: reports link only within a team (grouping is per-team), so the reverse
+            # row belongs to the same tenant.
+            cls._create(
+                team_id=team_id,
+                report_id=content.report_id,
+                content=RelatedTo(report_id=str(report_id)),
+                attribution=attribution,
+            )
+        return artefact
 
     @classmethod
     def append(
@@ -888,6 +912,9 @@ class SignalReportArtefact(UUIDModel):
         an agent can append a new status version just like the pipeline, and the newest row of a
         status type is the report's canonical status. (The HTTP write API additionally refuses
         legacy read-only types such as `video_segment` — see `NON_WRITABLE_ARTEFACT_TYPES`.)
+
+        Log types route through `add_log` (not straight to `_create`) so its side effects — e.g. the
+        symmetric `related_to` back-link — are maintained no matter which write path is used.
         """
         artefact_type = artefact_type_for(content)
         if artefact_type in cls.STATUS_ARTEFACT_TYPES:
@@ -897,6 +924,10 @@ class SignalReportArtefact(UUIDModel):
                 content=cast(StatusArtefactContent, content),
                 attribution=attribution,
                 reevaluate_autostart=reevaluate_autostart,
+            )
+        if artefact_type in cls.LOG_ARTEFACT_TYPES:
+            return cls.add_log(
+                team_id=team_id, report_id=report_id, content=cast(LogArtefactContent, content), attribution=attribution
             )
         return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
 

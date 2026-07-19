@@ -111,6 +111,7 @@ REFRESH_TERMINAL_FAILURE_COUNT = 5
 REFRESH_FAILURE_REASON_INVALID_GRANT = "invalid_grant"
 REFRESH_FAILURE_REASON_INVALID_CLIENT = "invalid_client"
 REFRESH_FAILURE_REASON_HTTP_5XX = "http_5xx"
+REFRESH_FAILURE_REASON_NETWORK = "network"
 REFRESH_FAILURE_REASON_OTHER = "other"
 
 
@@ -383,6 +384,12 @@ class Integration(models.Model):
 
     @property
     def display_name(self) -> str:
+        if self.kind == "pinterest-ads":
+            # Pinterest's OAuth username is an opaque hash, so prefer the business name when there is one.
+            return self.config.get("business_name") or self.config.get("username") or self.integration_id
+        if self.kind == "tiktok-ads":
+            # The OAuth id is a list of advertiser ids, so prefer whoever authorized the connection.
+            return self.config.get("user_email") or self.config.get("user_display_name") or self.integration_id
         if self.kind in OauthIntegration.supported_kinds:
             oauth_config = OauthIntegration.oauth_config_for_kind(self.kind)
             return dot_get(self.config, oauth_config.name_path, self.integration_id)
@@ -456,6 +463,8 @@ class OauthConfig:
     token_info_graphql_query: str | None = None
     token_info_config_fields: list[str] | None = None
     additional_authorize_params: dict[str, str] | None = None
+    client_id_fallback: str | None = None
+    client_secret_fallback: str | None = None
     # When true, the authorize/token-exchange flow uses PKCE (RFC 7636, S256)
     pkce: bool = False
     # When set, disconnecting the integration also revokes the grant at the provider
@@ -514,6 +523,15 @@ class OauthIntegration:
     @classmethod
     @cache_for(timedelta(minutes=5))
     def oauth_config_for_kind(cls, kind: str) -> OauthConfig:
+        config = cls._build_oauth_config(kind)
+        fallback = settings.OAUTH_CLIENT_FALLBACKS.get(kind)
+        if fallback and fallback.get("client_secret"):
+            config.client_secret_fallback = fallback["client_secret"]
+            config.client_id_fallback = fallback.get("client_id") or config.client_id
+        return config
+
+    @classmethod
+    def _build_oauth_config(cls, kind: str) -> OauthConfig:
         if kind == "slack":
             from_settings = get_instance_settings(
                 [
@@ -757,7 +775,12 @@ class OauthIntegration:
                 client_secret=settings.REDDIT_ADS_CLIENT_SECRET,
                 scope="read adsread adsconversions history adsedit",
                 id_path="reddit_user_id",  # We'll extract this from JWT
-                name_path="reddit_user_id",  # Same as ID for Reddit
+                # ads-api /me returns the human-readable username under the granted ads scopes
+                # (oauth.reddit.com/api/v1/me would need the extra `identity` scope), wrapped in a
+                # `data` object. Falls back to the JWT user id when absent.
+                token_info_url="https://ads-api.reddit.com/api/v3/me",
+                token_info_config_fields=["data.reddit_username"],
+                name_path="data.reddit_username",
                 additional_authorize_params={"duration": "permanent"},
             )
         elif kind == "tiktok-ads":
@@ -812,7 +835,7 @@ class OauthIntegration:
                 authorize_url="https://www.pinterest.com/oauth/",
                 token_url="https://api.pinterest.com/v5/oauth/token",
                 token_info_url="https://api.pinterest.com/v5/user_account",
-                token_info_config_fields=["id", "username"],
+                token_info_config_fields=["id", "username", "business_name"],
                 client_id=settings.PINTEREST_ADS_CLIENT_ID,
                 client_secret=settings.PINTEREST_ADS_CLIENT_SECRET,
                 scope="ads:read user_accounts:read",
@@ -1152,6 +1175,23 @@ class OauthIntegration:
             data = config.pop("data", {})
             # Move other data fields to main config for TikTok
             config.update(data)
+            # Best-effort: fetch who authorized this, so it isn't listed as a row of advertiser ids.
+            try:
+                user_res = requests.get(
+                    "https://business-api.tiktok.com/open_api/v1.3/user/info/",
+                    headers={"Access-Token": config["access_token"]},
+                    timeout=10,
+                )
+                # TikTok answers 200 even when the call failed; the body `code` (0 = OK) is the outcome.
+                body = user_res.json()
+                if body.get("code") == 0:
+                    user = body.get("data") or {}
+                    if user.get("email"):
+                        config["user_email"] = user["email"]
+                    if user.get("display_name"):
+                        config["user_display_name"] = user["display_name"]
+            except Exception:
+                logger.warning("Failed to fetch TikTok user info for display name")
 
         sensitive_config: dict = {
             "access_token": config.pop("access_token"),
@@ -1272,6 +1312,81 @@ class OauthIntegration:
 
         return time.time() > refreshed_at + expires_in - time_threshold.total_seconds()
 
+    def _post_token_refresh(self, oauth_config: OauthConfig, client_id: str, client_secret: str) -> requests.Response:
+        refresh_token = self.integration.sensitive_config["refresh_token"]
+        kind = self.integration.kind
+
+        # Reddit uses HTTP Basic Auth for token refresh
+        if kind == "reddit-ads":
+            return requests.post(
+                oauth_config.token_url,
+                auth=HTTPBasicAuth(client_id, client_secret),
+                data={"refresh_token": refresh_token, "grant_type": "refresh_token"},
+                # If I use a standard User-Agent, it will throw a 429 too many requests error
+                headers={"User-Agent": "PostHog/1.0 by PostHogTeam"},
+                timeout=10,
+            )
+        # Pinterest uses HTTP Basic Auth for token refresh
+        elif kind == "pinterest-ads":
+            return requests.post(
+                oauth_config.token_url,
+                auth=HTTPBasicAuth(client_id, client_secret),
+                data={"refresh_token": refresh_token, "grant_type": "refresh_token"},
+                timeout=10,
+            )
+        elif kind == "tiktok-ads":
+            return requests.post(
+                "https://open.tiktokapis.com/v2/oauth/token/",
+                data={
+                    "client_key": client_id,  # TikTok uses client_key instead of client_id
+                    "client_secret": client_secret,
+                    "refresh_token": refresh_token,
+                    "grant_type": "refresh_token",
+                },
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                timeout=10,
+            )
+        elif kind == "bing-ads":
+            # Microsoft Azure AD requires scope parameter on token refresh
+            return requests.post(
+                oauth_config.token_url,
+                data={
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "refresh_token": refresh_token,
+                    "grant_type": "refresh_token",
+                    "scope": oauth_config.scope,
+                },
+                timeout=10,
+            )
+        elif kind == "stripe":
+            # Stripe Apps OAuth: secret as HTTP Basic username, no client_id/client_secret in body.
+            return requests.post(
+                oauth_config.token_url,
+                auth=HTTPBasicAuth(client_secret, ""),
+                data={"refresh_token": refresh_token, "grant_type": "refresh_token"},
+                timeout=10,
+            )
+        else:
+            return requests.post(
+                oauth_config.token_url,
+                data={
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "refresh_token": refresh_token,
+                    "grant_type": "refresh_token",
+                },
+                timeout=10,
+            )
+
+    @staticmethod
+    def _parse_token_refresh_response(res: requests.Response) -> dict:
+        try:
+            return res.json()
+        except ValueError:
+            # e.g. an HTML error page from a proxy/5xx - still a failed refresh, not an exception
+            return {}
+
     def refresh_access_token(self):
         """
         Refresh the access token for the integration if necessary
@@ -1281,88 +1396,47 @@ class OauthIntegration:
         # Clear out previous token refreshing errors, as they'll be re-set below if another error occurs
         self.integration.errors = ""
 
-        # Reddit uses HTTP Basic Auth for token refresh
-        if self.integration.kind == "reddit-ads":
-            res = requests.post(
-                oauth_config.token_url,
-                auth=HTTPBasicAuth(oauth_config.client_id, oauth_config.client_secret),
-                data={
-                    "refresh_token": self.integration.sensitive_config["refresh_token"],
-                    "grant_type": "refresh_token",
-                },
-                # If I use a standard User-Agent, it will throw a 429 too many requests error
-                headers={"User-Agent": "PostHog/1.0 by PostHogTeam"},
-                timeout=10,
-            )
-        # Pinterest uses HTTP Basic Auth for token refresh
-        elif self.integration.kind == "pinterest-ads":
-            res = requests.post(
-                oauth_config.token_url,
-                auth=HTTPBasicAuth(oauth_config.client_id, oauth_config.client_secret),
-                data={
-                    "refresh_token": self.integration.sensitive_config["refresh_token"],
-                    "grant_type": "refresh_token",
-                },
-                timeout=10,
-            )
-        elif self.integration.kind == "tiktok-ads":
-            res = requests.post(
-                "https://open.tiktokapis.com/v2/oauth/token/",
-                data={
-                    "client_key": oauth_config.client_id,  # TikTok uses client_key instead of client_id
-                    "client_secret": oauth_config.client_secret,
-                    "refresh_token": self.integration.sensitive_config["refresh_token"],
-                    "grant_type": "refresh_token",
-                },
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-                timeout=10,
-            )
-        elif self.integration.kind == "bing-ads":
-            # Microsoft Azure AD requires scope parameter on token refresh
-            res = requests.post(
-                oauth_config.token_url,
-                data={
-                    "client_id": oauth_config.client_id,
-                    "client_secret": oauth_config.client_secret,
-                    "refresh_token": self.integration.sensitive_config["refresh_token"],
-                    "grant_type": "refresh_token",
-                    "scope": oauth_config.scope,
-                },
-                timeout=10,
-            )
-        elif self.integration.kind == "stripe":
-            # Stripe Apps OAuth: secret as HTTP Basic username, no client_id/client_secret in body.
-            res = requests.post(
-                oauth_config.token_url,
-                auth=HTTPBasicAuth(oauth_config.client_secret, ""),
-                data={
-                    "refresh_token": self.integration.sensitive_config["refresh_token"],
-                    "grant_type": "refresh_token",
-                },
-                timeout=10,
-            )
-        else:
-            res = requests.post(
-                oauth_config.token_url,
-                data={
-                    "client_id": oauth_config.client_id,
-                    "client_secret": oauth_config.client_secret,
-                    "refresh_token": self.integration.sensitive_config["refresh_token"],
-                    "grant_type": "refresh_token",
-                },
-                timeout=10,
-            )
-
+        res: requests.Response | None = None
+        config: dict = {}
+        used_fallback = False
         try:
-            config: dict = res.json()
-        except ValueError:
-            # e.g. an HTML error page from a proxy/5xx - still a failed refresh, not an exception
-            config = {}
+            res = self._post_token_refresh(oauth_config, oauth_config.client_id, oauth_config.client_secret)
+            config = self._parse_token_refresh_response(res)
+        except requests.RequestException as e:
+            # A network error (timeout, connection reset) is a failed refresh, not a crash. Without
+            # this the Celery sweep task errors out before recording the failure, so the backoff and
+            # the TOKEN_REFRESH_FAILED reconnect state are never persisted.
+            logger.warning(f"Network error on primary credentials for {self}", error=str(e))
 
-        if res.status_code != 200 or not config.get("access_token"):
-            logger.warning(f"Failed to refresh token for {self}", response=res.text)
+        # A rotated or migrated OAuth app leaves users with refresh tokens only the previous
+        # credentials can refresh. Retry with the fallback pair — including when the primary hit a
+        # network error — so they keep working until they reconnect.
+        if (
+            res is None or res.status_code != 200 or not config.get("access_token")
+        ) and oauth_config.client_secret_fallback:
+            try:
+                res = self._post_token_refresh(
+                    oauth_config,
+                    oauth_config.client_id_fallback or oauth_config.client_id,
+                    oauth_config.client_secret_fallback,
+                )
+                config = self._parse_token_refresh_response(res)
+                used_fallback = True
+            except requests.RequestException as e:
+                logger.warning(f"Network error on fallback credentials for {self}", error=str(e))
+                res = None
+                config = {}
+
+        if res is None or res.status_code != 200 or not config.get("access_token"):
+            logger.warning(
+                f"Failed to refresh token for {self}", response=res.text if res is not None else "network error"
+            )
             self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
-            reason = oauth_refresh_failure_reason(res.status_code, config, kind=self.integration.kind)
+            reason = (
+                oauth_refresh_failure_reason(res.status_code, config, kind=self.integration.kind)
+                if res is not None
+                else REFRESH_FAILURE_REASON_NETWORK
+            )
             attempt = record_refresh_failure(self.integration, reason=reason)
             oauth_refresh_counter.labels(
                 kind=self.integration.kind, result="failed", reason=reason, attempt=attempt
@@ -1389,7 +1463,12 @@ class OauthIntegration:
             self.integration.config["expires_in"] = expires_in
             self.integration.config["refreshed_at"] = int(time.time())
             reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
-            oauth_refresh_counter.labels(kind=self.integration.kind, result="success", reason="", attempt="").inc()
+            oauth_refresh_counter.labels(
+                kind=self.integration.kind,
+                result="success_fallback" if used_fallback else "success",
+                reason="",
+                attempt="",
+            ).inc()
 
         self.integration.save()
 
@@ -1572,6 +1651,12 @@ def validate_slack_request(request: HttpRequest | Request, signing_secret: str) 
         raise SlackIntegrationError("Invalid")
 
 
+def google_ads_hierarchy_level(account: dict) -> int:
+    """Depth of an account below the manager the walk started from. Google's REST responses omit proto3
+    defaults, so a level-0 account carries no `level` key at all, and deeper ones arrive as strings."""
+    return int(account.get("level") or 0)
+
+
 class GoogleAdsIntegration:
     integration: Integration
 
@@ -1630,7 +1715,7 @@ class GoogleAdsIntegration:
 
     # Google Ads manager accounts can have access to other accounts (including other manager accounts).
     # Filter out duplicates where a user has direct access and access through a manager account, while prioritizing direct access.
-    def list_google_ads_accessible_accounts(self) -> list[dict[str, str]]:
+    def list_google_ads_accessible_accounts(self) -> list[dict[str, Any]]:
         response = requests.request(
             "GET",
             "https://googleads.googleapis.com/v21/customers:listAccessibleCustomers",
@@ -1666,7 +1751,7 @@ class GoogleAdsIntegration:
             raise Exception("There was an internal error")
 
         accessible_accounts = response.json()
-        all_accounts: list[dict[str, str]] = []
+        all_accounts: list[dict[str, Any]] = []
 
         def dfs(account_id, accounts=None, parent_id=None) -> list[dict]:
             if accounts is None:
@@ -1689,33 +1774,40 @@ class GoogleAdsIntegration:
             if response.status_code != 200:
                 return accounts
 
+            # searchStream's REST body is an array of response objects, one per streamed batch.
             data = response.json()
+            results = [row for chunk in data for row in chunk.get("results", [])]
 
-            for nested_account in data[0]["results"]:
-                if any(
-                    account["id"] == nested_account["customerClient"]["clientCustomer"].split("/")[1]
-                    and account["level"] > nested_account["customerClient"]["level"]
-                    for account in accounts
-                ):
-                    accounts = [
-                        account
-                        for account in accounts
-                        if account["id"] != nested_account["customerClient"]["clientCustomer"].split("/")[1]
-                    ]
-                elif any(
-                    account["id"] == nested_account["customerClient"]["clientCustomer"].split("/")[1]
-                    and account["level"] < nested_account["customerClient"]["level"]
-                    for account in accounts
-                ):
+            for nested_account in results:
+                client = nested_account["customerClient"]
+                client_id = client["clientCustomer"].split("/")[1]
+                # `level` is compared numerically: it is absent on the level-0 row and a string ("1", "2")
+                # below it, so the raw values are not mutually comparable.
+                client_level = google_ads_hierarchy_level(client)
+
+                # Reject non-enabled accounts before deduping. Otherwise a disabled, shallower sighting
+                # of an account we already kept as enabled would evict the enabled entry here and then be
+                # skipped by the status check below, dropping the account from the picker entirely.
+                if client.get("status") != "ENABLED":
                     continue
-                if nested_account["customerClient"].get("status") != "ENABLED":
-                    continue
+
+                # One account can be reached from several accessible roots — e.g. a user with access to
+                # both a manager and one of its clients walks that client twice, once as a root (level 0)
+                # and once beneath the manager (level 1). Keep the shallowest sighting, whose `parent_id`
+                # is the account we can authenticate the sync as.
+                already_seen = [account for account in accounts if account["id"] == client_id]
+                if already_seen:
+                    if all(google_ads_hierarchy_level(account) <= client_level for account in already_seen):
+                        continue
+                    accounts = [account for account in accounts if account["id"] != client_id]
+
                 accounts.append(
                     {
                         "parent_id": parent_id,
-                        "id": nested_account["customerClient"].get("clientCustomer").split("/")[1],
-                        "level": nested_account["customerClient"].get("level"),
-                        "name": nested_account["customerClient"].get("descriptiveName", "Google Ads account"),
+                        "id": client_id,
+                        "level": client.get("level"),
+                        "name": client.get("descriptiveName", "Google Ads account"),
+                        "manager": client.get("manager", False),
                     }
                 )
 
@@ -2426,7 +2518,7 @@ class LinearIntegration:
         teams = dot_get(body, "data.teams.nodes")
         return teams
 
-    def create_issue(self, team_id: str, posthog_issue_id: str, config: dict[str, str]) -> dict[str, str]:
+    def create_issue(self, attachment_url: str, config: dict[str, str]) -> dict[str, str]:
         title: str = config.pop("title")
         description: str = config.pop("description")
         linear_team_id = config.pop("team_id")
@@ -2445,7 +2537,6 @@ class LinearIntegration:
         )
         linear_issue_id = dot_get(body, "data.issueCreate.issue.identifier")
 
-        attachment_url = f"{settings.SITE_URL}/project/{team_id}/error_tracking/{posthog_issue_id}"
         link_attachment_query = """
         mutation AttachmentCreate($issueId: String!, $title: String!, $url: String!) {
             attachmentCreate(input: { issueId: $issueId, title: $title, url: $url }) {

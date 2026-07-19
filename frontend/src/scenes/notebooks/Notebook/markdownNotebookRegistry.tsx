@@ -1,4 +1,3 @@
-import '../Nodes/NotebookNodeBacklink'
 import '../Nodes/NotebookNodeCohort'
 import '../Nodes/NotebookNodeCustomerJourney/NotebookNodeCustomerJourney'
 import '../Nodes/NotebookNodeSQLV2'
@@ -25,7 +24,6 @@ import '../Nodes/NotebookNodePythonV2'
 import '../Nodes/NotebookNodeQuery'
 import '../Nodes/NotebookNodeRecording'
 import '../Nodes/NotebookNodeRelatedGroups'
-import '../Nodes/NotebookNodeReplayTimestamp'
 import '../Nodes/NotebookNodeSupportTickets'
 import '../Nodes/NotebookNodeSurvey'
 import '../Nodes/NotebookNodeTaskCreate'
@@ -825,7 +823,7 @@ export function getSerializableAttributeInputValue(
 
 export function getSerializableProps(attributes: Partial<NotebookNodeAttributes<any>>): NotebookComponentProps {
     return Object.entries(attributes).reduce<NotebookComponentProps>((props, [key, value]) => {
-        // Normalize before validating, mirroring the legacy notebook flow(via useSyncedAttributes).
+        // Normalize before validating, mirroring how the legacy notebook flow synced attributes.
         // Otherwise isNotebookPropValue rejects an object with a single nested `undefined` property and—
         // it gets ignored. e.g. a person-property filter's absent `label`/`group_type_index` inside
         // `query.source.properties` — fails isNotebookPropValue and the whole `query` prop is dropped

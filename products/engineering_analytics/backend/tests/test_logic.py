@@ -28,10 +28,12 @@ from products.engineering_analytics.backend.logic.queries._curated import Curate
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_cost_per_merge_series
 from products.engineering_analytics.backend.logic.sources import (
     PULL_REQUESTS_SCHEMA,
+    WORKFLOW_JOBS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
     GitHubTables,
     list_github_sources,
     resolve_github_tables,
+    resolve_job_cost_source_pairs,
 )
 from products.engineering_analytics.backend.logic.views.source_schema import WORKFLOW_JOBS_COLUMNS
 from products.engineering_analytics.backend.tests.test_views import (
@@ -45,7 +47,7 @@ from products.engineering_analytics.backend.tests.test_views import (
     create_warehouse_table_row,
     link_schema,
 )
-from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
 
@@ -701,6 +703,18 @@ class TestListGitHubSources(BaseTest):
         ExternalDataSource.objects.filter(pk=source.pk).update(job_inputs=["not", "a", "dict"])
         assert list_github_sources(team=self.team) == [GitHubSource(id=str(source.id), repo="", prefix="weird")]
 
+    def test_empty_repositories_list_falls_back_to_legacy_repository(self) -> None:
+        # A legacy source with `repository` set but `repositories: []` (empty) — the sync parser treats
+        # the empty list as unset and still syncs the legacy repo, so the picker must list that repo, not
+        # a blank unknown entry.
+        source = self._source(prefix="emptylist", repository="PostHog/posthog")
+        ExternalDataSource.objects.filter(pk=source.pk).update(
+            job_inputs={"repository": "PostHog/posthog", "repositories": []}
+        )
+        assert list_github_sources(team=self.team) == [
+            GitHubSource(id=str(source.id), repo="PostHog/posthog", prefix="emptylist")
+        ]
+
     def test_excludes_non_github_and_soft_deleted_sources(self) -> None:
         self._source(prefix="stripe", source_type=ExternalDataSourceType.STRIPE)
         deleted = self._source(prefix="gone", repository="PostHog/posthog")
@@ -715,6 +729,234 @@ class TestListGitHubSources(BaseTest):
         other_team = Team.objects.create(organization=self.organization, name="other")
         self._source(prefix="theirs", repository="PostHog/posthog", team=other_team)
         assert list_github_sources(team=self.team) == []
+
+
+class TestMultiRepoGitHubResolution(BaseTest):
+    """One GitHub source can sync several repositories: its added repos carry repo-qualified schema
+    rows (``owner/repo.endpoint`` + location metadata) while its original repo keeps bare names.
+    These guard the regression where the resolver only matched bare endpoint names — which made
+    every repo-qualified row (including a new source's single day-one-qualified repo) invisible, so
+    the product 400'd, and silently dropped a multi-repo source's added repos from the cost view."""
+
+    @staticmethod
+    def _slug(repo: str) -> str:
+        return repo.replace("/", "_").replace(".", "_").lower()
+
+    def _multi_repo_source(
+        self,
+        *,
+        prefix: str,
+        legacy_repository: str = "",
+        repos: dict[str, list[tuple[str, bool]]],
+    ) -> ExternalDataSource:
+        # repos: {repo_full_name: [(endpoint, has_table), ...]}. The repo equal to
+        # legacy_repository keeps bare endpoint names (the source's pre-multi-repo repo); every
+        # other repo is qualified as ``owner/repo.endpoint`` with location metadata, exactly as the
+        # multi-repo GitHub source lands them.
+        job_inputs: dict[str, Any] = {"repositories": list(repos.keys())}
+        if legacy_repository:
+            job_inputs["repository"] = legacy_repository
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=f"src-{prefix}",
+            connection_id=f"src-{prefix}",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.GITHUB,
+            prefix=prefix,
+            job_inputs=job_inputs,
+        )
+        for repo, endpoints in repos.items():
+            is_legacy = bool(legacy_repository) and repo.casefold() == legacy_repository.casefold()
+            for endpoint, has_table in endpoints:
+                name = endpoint if is_legacy else f"{repo}.{endpoint}"
+                table = (
+                    create_warehouse_table_row(
+                        self.team, name=f"{prefix}github_{self._slug(repo)}_{endpoint}", source=source
+                    )
+                    if has_table
+                    else None
+                )
+                ExternalDataSchema.objects.create(
+                    team=self.team,
+                    source=source,
+                    name=name,
+                    table=table,
+                    should_sync=True,
+                    sync_type_config={}
+                    if is_legacy
+                    else {"schema_metadata": {"source_repository": repo.lower(), "source_endpoint": endpoint}},
+                )
+        return source
+
+    def test_new_source_single_qualified_repo_resolves(self) -> None:
+        # A source created via the multi-repo `repositories` field has no legacy `repository`, so its
+        # one repo is qualified from day one. Bare-name matching would 400 this — the onboarding break.
+        self._multi_repo_source(
+            prefix="fresh",
+            repos={"PostHog/posthog": [(PULL_REQUESTS_SCHEMA, True), (WORKFLOW_RUNS_SCHEMA, True)]},
+        )
+        tables = resolve_github_tables(team=self.team)
+        assert tables == GitHubTables(
+            pull_requests="freshgithub_posthog_posthog_pull_requests",
+            workflow_runs="freshgithub_posthog_posthog_workflow_runs",
+            repository="posthog/posthog",
+        )
+
+    @parameterized.expand(
+        [
+            # (repo arg, expected resolved repo, expected pull_requests table)
+            (None, "PostHog/posthog", "mixgithub_posthog_posthog_pull_requests"),
+            ("posthog/posthog.com", "posthog/posthog.com", "mixgithub_posthog_posthog_com_pull_requests"),
+            ("POSTHOG/POSTHOG", "PostHog/posthog", "mixgithub_posthog_posthog_pull_requests"),
+        ]
+    )
+    def test_multi_repo_source_scopes_by_repo(self, repo: str | None, expected_repo: str, expected_pr: str) -> None:
+        # One source, two repos: the legacy repo keeps bare names, the added repo is qualified. A
+        # `repo`-scoped read must reach the added repo's own tables, never mix them with the legacy
+        # repo's; the default (no repo) resolves the legacy repo first, as a single-repo source did.
+        self._multi_repo_source(
+            prefix="mix",
+            legacy_repository="PostHog/posthog",
+            repos={
+                "PostHog/posthog": [(PULL_REQUESTS_SCHEMA, True), (WORKFLOW_RUNS_SCHEMA, True)],
+                "posthog/posthog.com": [(PULL_REQUESTS_SCHEMA, True), (WORKFLOW_RUNS_SCHEMA, True)],
+            },
+        )
+        tables = resolve_github_tables(team=self.team, repo=repo)
+        assert tables.repository == expected_repo
+        assert tables.pull_requests == expected_pr
+
+    def test_picker_marks_repos_with_both_endpoints_synced(self) -> None:
+        # `synced` drives the default page's label: a repo is synced only with both pull_requests and
+        # workflow_runs, so a still-backfilling repo (only pull_requests) is flagged unsynced and the
+        # default selection skips it — matching what the resolver reads.
+        self._multi_repo_source(
+            prefix="mark",
+            legacy_repository="PostHog/posthog",
+            repos={
+                "PostHog/posthog": [(PULL_REQUESTS_SCHEMA, True), (WORKFLOW_RUNS_SCHEMA, True)],
+                "posthog/posthog.com": [(PULL_REQUESTS_SCHEMA, True)],
+            },
+        )
+        assert {source.repo: source.synced for source in list_github_sources(team=self.team)} == {
+            "PostHog/posthog": True,
+            "posthog/posthog.com": False,
+        }
+
+    def test_default_repo_follows_configured_order_not_alphabetical(self) -> None:
+        # A new source with no legacy repo: the default (unscoped) resolve must pick the first
+        # *configured* repo, matching what the picker labels as githubSources[0] — an alphabetical
+        # pick would query one repo while the UI names another.
+        self._multi_repo_source(
+            prefix="ordered",
+            repos={
+                "z/org": [(PULL_REQUESTS_SCHEMA, True), (WORKFLOW_RUNS_SCHEMA, True)],
+                "a/org": [(PULL_REQUESTS_SCHEMA, True), (WORKFLOW_RUNS_SCHEMA, True)],
+            },
+        )
+        # _multi_repo_source stores repositories in dict order (z/org, a/org), so z/org is configured first.
+        assert resolve_github_tables(team=self.team).repository == "z/org"
+
+    def test_default_follows_configured_order_even_over_the_legacy_repo(self) -> None:
+        # A legacy source (bare `repository`) whose `repositories` multi-select puts another repo first:
+        # the default must resolve that configured-first repo, matching the picker's first entry — the
+        # legacy repo gets no priority, or the UI would label repo A while the backend queried the legacy.
+        self._multi_repo_source(
+            prefix="legacyorder",
+            legacy_repository="PostHog/posthog",
+            repos={
+                # posthog.com configured first (qualified); the legacy posthog repo second (bare names).
+                "posthog/posthog.com": [(PULL_REQUESTS_SCHEMA, True), (WORKFLOW_RUNS_SCHEMA, True)],
+                "PostHog/posthog": [(PULL_REQUESTS_SCHEMA, True), (WORKFLOW_RUNS_SCHEMA, True)],
+            },
+        )
+        assert resolve_github_tables(team=self.team).repository == "posthog/posthog.com"
+
+    def test_explicit_repo_does_not_fall_through_to_a_sibling_repo(self) -> None:
+        # The picker lists a repo before it finishes syncing. Selecting one whose pull_requests/
+        # workflow_runs pair is incomplete must surface not-connected — never silently resolve the
+        # source's other (complete) repo, which would mix two repos' metrics.
+        self._multi_repo_source(
+            prefix="partial",
+            legacy_repository="PostHog/posthog",
+            repos={
+                "PostHog/posthog": [(PULL_REQUESTS_SCHEMA, True), (WORKFLOW_RUNS_SCHEMA, True)],
+                # workflow_runs still backfilling — no complete pair for this repo yet.
+                "posthog/posthog.com": [(PULL_REQUESTS_SCHEMA, True)],
+            },
+        )
+        with self.assertRaises(GitHubSourceNotConnectedError):
+            resolve_github_tables(team=self.team, repo="posthog/posthog.com")
+        # The complete sibling still resolves on its own.
+        assert resolve_github_tables(team=self.team, repo="PostHog/posthog").repository == "PostHog/posthog"
+
+    def test_incomplete_exact_match_does_not_fall_through_to_a_bare_source(self) -> None:
+        # An explicit repo whose own candidate exists but is half-synced must surface not-connected —
+        # never fall through to another source's bare/unattributed rows, which belong to an unknown
+        # repo. The bare fallback is only for when the requested repo has no candidate at all.
+        self._multi_repo_source(
+            prefix="halfsynced",
+            repos={"posthog/posthog.com": [(PULL_REQUESTS_SCHEMA, True)]},
+        )
+        bare = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="src-bare",
+            connection_id="src-bare",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.GITHUB,
+            prefix="bare",
+            job_inputs={},
+        )
+        for endpoint in (PULL_REQUESTS_SCHEMA, WORKFLOW_RUNS_SCHEMA):
+            ExternalDataSchema.objects.create(
+                team=self.team,
+                source=bare,
+                name=endpoint,
+                table=create_warehouse_table_row(self.team, name=f"baregithub_{endpoint}", source=bare),
+                should_sync=True,
+                sync_type_config={},
+            )
+        with self.assertRaises(GitHubSourceNotConnectedError):
+            resolve_github_tables(team=self.team, repo="posthog/posthog.com")
+        # Without an exact match the bare rows still serve as the fallback (branch-hint reads).
+        assert resolve_github_tables(team=self.team, repo="some/other").pull_requests == "baregithub_pull_requests"
+
+    def test_cost_pairs_include_every_repo_in_a_source(self) -> None:
+        # The cost view unions (jobs, runs) across repos. A multi-repo source must contribute one
+        # pair per fully-synced repo — collapsing it to one repo silently under-counts the view.
+        self._multi_repo_source(
+            prefix="cost",
+            legacy_repository="PostHog/posthog",
+            repos={
+                "PostHog/posthog": [(WORKFLOW_RUNS_SCHEMA, True), (WORKFLOW_JOBS_SCHEMA, True)],
+                "posthog/posthog.com": [(WORKFLOW_RUNS_SCHEMA, True), (WORKFLOW_JOBS_SCHEMA, True)],
+                # runs but no jobs — excluded, the view needs both.
+                "posthog/other": [(WORKFLOW_RUNS_SCHEMA, True)],
+            },
+        )
+        pairs = resolve_job_cost_source_pairs(self.team)
+        assert set(pairs) == {
+            ("costgithub_posthog_posthog_workflow_jobs", "costgithub_posthog_posthog_workflow_runs"),
+            ("costgithub_posthog_posthog_com_workflow_jobs", "costgithub_posthog_posthog_com_workflow_runs"),
+        }
+
+    def test_picker_lists_one_entry_per_configured_repo(self) -> None:
+        # A multi-repo source's `repositories` list drives the picker: one selectable (id, repo) per
+        # configured repo, in order, so a repo picker offers every repo the source syncs — not just
+        # the legacy one, and not the whole GitHub App's repo catalog.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="src-picker",
+            connection_id="src-picker",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.GITHUB,
+            prefix="picker",
+            job_inputs={"repository": "PostHog/posthog", "repositories": ["PostHog/posthog", "PostHog/posthog.com"]},
+        )
+        assert list_github_sources(team=self.team) == [
+            GitHubSource(id=str(source.id), repo="PostHog/posthog", prefix="picker"),
+            GitHubSource(id=str(source.id), repo="PostHog/posthog.com", prefix="picker"),
+        ]
 
 
 class TestWorkflowHealthWindowCap(BaseTest):
@@ -1010,15 +1252,15 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         assert ci.success_rate == 1.0
         assert ci.success_rate_prev == 1.0
 
-    def test_workflow_health_duration_percentiles_exclude_cancelled_and_failed_runs(self) -> None:
+    def test_workflow_health_duration_percentiles_exclude_cancelled_failed_and_noop_runs(self) -> None:
         self._create_table(
             "github_pull_requests",
             _PULL_REQUESTS_COLUMNS,
             [_pr_row(90, "alice", "open", 0, _ago(1), head_sha="sha90")],
         )
-        # Every success shares one duration, so success-only p50/p95 are exactly 100; any leaked
-        # cancel (1s) or failure (1000s) in the percentile population moves them off 100.
-        conclusions = [("success", 100)] * 2 + [("cancelled", 1)] * 3 + [("failure", 1000)]
+        # Every real success shares one duration, so the percentile population is exactly 100; any
+        # leaked cancel (1s), failure (1000s), or no-op gate success (4s) moves p50/p95 off 100.
+        conclusions = [("success", 100)] * 2 + [("success", 4)] * 3 + [("cancelled", 1)] * 3 + [("failure", 1000)]
         self._create_table(
             "github_workflow_runs",
             _WORKFLOW_RUNS_COLUMNS,
@@ -1034,18 +1276,26 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
                     head_branch="feature/ci",
                 )
                 for index, (conclusion, duration_seconds) in enumerate(conclusions)
+            ]
+            # An all-fast workflow has no real successes — its percentiles fall back to every
+            # successful run instead of reading as missing.
+            + [
+                _run_row(9100, "Guard", "guard-1", "completed", "success", *_ago_with_duration(1, 4)),
+                _run_row(9101, "Guard", "guard-2", "completed", "success", *_ago_with_duration(2, 4)),
             ],
         )
 
-        ci = next(
-            item for item in api.list_workflow_health(team=self.team, date_from="-30d") if item.workflow_name == "CI"
-        )
+        health = api.list_workflow_health(team=self.team, date_from="-30d")
+        ci = next(item for item in health if item.workflow_name == "CI")
 
         # Counts and rate stay over all/completed runs; only the duration population narrows.
-        assert ci.run_count == 6
-        assert ci.success_rate == pytest.approx(2 / 6)
+        assert ci.run_count == 9
+        assert ci.success_rate == pytest.approx(5 / 9)
         assert ci.p50_seconds == pytest.approx(100)
         assert ci.p95_seconds == pytest.approx(100)
+
+        guard = next(item for item in health if item.workflow_name == "Guard")
+        assert guard.p50_seconds == pytest.approx(4)
 
     def test_workflow_health_pull_request_scope_excludes_default_branch_and_unattributed_runs(self) -> None:
         self._create_table(
@@ -1251,6 +1501,9 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
     def test_workflow_run_activity_projects_and_windows(self) -> None:
         # The chart endpoint returns compact per-run points over the window, newest first, with the
         # projection mapped in the right column order and an explicit (untruncated) cap signal.
+        # No-op gate runs (benign conclusion, settled in seconds) are hidden by the endpoint — real
+        # runs fill the cap first — while fast failures and in-flight runs stay, and an all-fast
+        # workflow falls back to showing everything.
         self._create_table(
             "github_pull_requests",
             _PULL_REQUESTS_COLUMNS,
@@ -1260,23 +1513,52 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
             "github_workflow_runs",
             _WORKFLOW_RUNS_COLUMNS,
             [
+                # A fast failure is signal (broken config fails in seconds) — never filtered as no-op.
                 _run_row(
-                    8101, "CI", "sha-a", "completed", "failure", _ago(2), _ago(2), pr_number=80, head_branch="feat"
+                    8101,
+                    "CI",
+                    "sha-a",
+                    "completed",
+                    "failure",
+                    *_ago_with_duration(2, 4),
+                    pr_number=80,
+                    head_branch="feat",
                 ),
-                _run_row(8102, "CI", "sha-b", "completed", "success", _ago(1), _ago(1)),
-                _run_row(8103, "Deploy", "sha-c", "completed", "success", _ago(1), _ago(1)),
+                _run_row(8102, "CI", "sha-b", "completed", "success", *_ago_with_duration(1, 300)),
+                _run_row(8103, "Deploy", "sha-c", "completed", "success", *_ago_with_duration(1, 300)),
                 # Older than the default -30d window — excluded unless the caller widens it.
-                _run_row(8104, "CI", "sha-d", "completed", "success", _ago(60), _ago(60)),
+                _run_row(8104, "CI", "sha-d", "completed", "success", *_ago_with_duration(60, 120)),
+                # A no-op gate run: succeeded in seconds without doing real work — off the chart.
+                _run_row(8105, "CI", "sha-e", "completed", "success", *_ago_with_duration(1, 4)),
+                # Still running: no duration yet, but it must stay (it feeds the in-flight band).
+                _run_row(8106, "CI", "sha-f", "in_progress", None, _ago(3), _ago(3)),
+                # Completed fast but with a NULL conclusion (conclusions can lag the sync) — undecided,
+                # so it must stay; a non-NULL-safe no-op flag would silently drop it.
+                _run_row(8107, "CI", "sha-g", "completed", None, *_ago_with_duration(4, 4)),
+                # A legitimately fast workflow: every run finishes in seconds. Duration alone can't
+                # tell it from a gate no-op, so with no real runs to show the filter must stand down.
+                _run_row(8110, "Guard", "sha-h", "completed", "success", *_ago_with_duration(2, 3)),
+                _run_row(8111, "Guard", "sha-i", "completed", "success", *_ago_with_duration(1, 4)),
+                # A sparse workflow: one real execution, one in flight, one fast no-op. The in-flight
+                # run has no duration to plot, so dropping the no-op would leave the scatter below its
+                # 2-point minimum — the fallback must count duration-bearing runs, not kept rows.
+                _run_row(8120, "Sparse", "sha-j", "completed", "success", *_ago_with_duration(3, 300)),
+                _run_row(8121, "Sparse", "sha-k", "in_progress", None, _ago(2), _ago(2)),
+                _run_row(8122, "Sparse", "sha-l", "completed", "success", *_ago_with_duration(1, 4)),
             ],
         )
         activity = api.get_workflow_run_activity(team=self.team, repo="PostHog/posthog", workflow_name="CI")
-        assert [p.run_id for p in activity.points] == [8102, 8101]  # only CI runs in window, newest first
+        # Only CI runs in window, newest first; the no-op 8105 is excluded, the in-flight 8106 and the
+        # fast-but-undecided 8107 are kept.
+        assert [p.run_id for p in activity.points] == [8102, 8101, 8106, 8107]
         assert activity.truncated is False
         assert activity.limit == 2000
         # Each field maps to the right column — guards a wrong unpack order in _to_point.
-        newest, failed = activity.points
+        newest, failed, in_flight, undecided = activity.points
         assert (newest.run_id, newest.conclusion, newest.pr_number) == (8102, "success", 0)
         assert (failed.conclusion, failed.head_branch, failed.pr_number) == ("failure", "feat", 80)
+        assert (in_flight.conclusion, in_flight.duration_seconds) == (None, None)
+        assert (undecided.conclusion, undecided.duration_seconds) == (None, 4)
         # run_started_at is non-null on this endpoint — the window filter excludes unparseable-start runs.
         assert all(p.run_started_at is not None for p in activity.points)
 
@@ -1284,7 +1566,16 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         wide = api.get_workflow_run_activity(
             team=self.team, repo="PostHog/posthog", workflow_name="CI", date_from="-90d"
         )
-        assert [p.run_id for p in wide.points] == [8102, 8101, 8104]
+        assert [p.run_id for p in wide.points] == [8102, 8101, 8106, 8107, 8104]
+
+        # An all-fast workflow keeps its history: with no real runs left to show, hiding the no-ops
+        # would blank the chart, so the filter stands down and both runs come back.
+        guard = api.get_workflow_run_activity(team=self.team, repo="PostHog/posthog", workflow_name="Guard")
+        assert [p.run_id for p in guard.points] == [8111, 8110]
+
+        # One plottable real run isn't enough for the scatter either — the no-op stays visible too.
+        sparse = api.get_workflow_run_activity(team=self.team, repo="PostHog/posthog", workflow_name="Sparse")
+        assert [p.run_id for p in sparse.points] == [8122, 8121, 8120]
 
     def test_repo_run_activity_collapses_workflows_per_commit(self) -> None:
         # The repo-health chart folds every workflow run of a default-branch commit into ONE point: the
@@ -1342,9 +1633,11 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
             "github_workflow_runs",
             _WORKFLOW_RUNS_COLUMNS,
             [
-                _run_row(8501, "CI", "sha-m1", "completed", "success", _ago(2), _ago(2), head_branch="main"),
-                _run_row(8502, "CI", "sha-m2", "completed", "failure", _ago(1), _ago(1), head_branch="main"),
-                _run_row(8503, "CI", "sha-r1", "completed", "success", _ago(1), _ago(1), head_branch="release"),
+                _run_row(8501, "CI", "sha-m1", "completed", "success", *_ago_with_duration(2, 60), head_branch="main"),
+                _run_row(8502, "CI", "sha-m2", "completed", "failure", *_ago_with_duration(1, 60), head_branch="main"),
+                _run_row(
+                    8503, "CI", "sha-r1", "completed", "success", *_ago_with_duration(1, 60), head_branch="release"
+                ),
             ],
         )
         self._create_table(

@@ -308,6 +308,7 @@ class HogQLQueryExecutor:
         if self.limit_context in (
             LimitContext.EXPORT,
             LimitContext.COHORT_CALCULATION,
+            LimitContext.NOTEBOOK_MATERIALIZE,
             LimitContext.QUERY_ASYNC,
             LimitContext.SAVED_QUERY,
             LimitContext.RETENTION,
@@ -462,6 +463,7 @@ class HogQLQueryExecutor:
         if self.limit_context in (
             LimitContext.EXPORT,
             LimitContext.COHORT_CALCULATION,
+            LimitContext.NOTEBOOK_MATERIALIZE,
             LimitContext.QUERY_ASYNC,
             LimitContext.SAVED_QUERY,
             LimitContext.RETENTION,

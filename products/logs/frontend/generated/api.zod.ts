@@ -298,29 +298,26 @@ export const LogsAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
     type: zod
         .enum(['slack', 'webhook', 'teams'])
         .describe('\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams')
-        .describe(
-            'Destination type — slack, webhook, or teams.\n\n\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams'
-        ),
+        .describe('Notification destination type.\n\n\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams'),
     slack_workspace_id: zod
         .number()
         .optional()
         .describe('Integration ID for the Slack workspace. Required when type=slack.'),
     slack_channel_id: zod.string().optional().describe('Slack channel ID. Required when type=slack.'),
     slack_channel_name: zod.string().optional().describe('Human-readable channel name for display.'),
-    webhook_url: zod
-        .url()
-        .optional()
-        .describe('HTTPS endpoint to POST to. Required when type=webhook, or the Teams webhook URL when type=teams.'),
+    webhook_url: zod.url().optional().describe('HTTPS endpoint to post to. Required for webhook and teams.'),
 })
 
 /**
  * Delete a notification destination by deleting its HogFunction group atomically.
  */
+export const logsAlertsDestinationsDeleteCreateBodyHogFunctionIdsMax = 4
 
 export const LogsAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object({
     hog_function_ids: zod
         .array(zod.uuid())
         .min(1)
+        .max(logsAlertsDestinationsDeleteCreateBodyHogFunctionIdsMax)
         .describe('HogFunction IDs to delete as one atomic destination group.'),
 })
 
@@ -819,6 +816,143 @@ export const LogsGroupByCreateBody = /* @__PURE__ */ zod.object({
                 .describe('Maximum number of groups to return (top-N by orderGroupsBy). Defaults to 100.'),
         })
         .describe('The group-by query to execute.'),
+})
+
+export const logsMetricRulesCreateBodyNameMax = 255
+
+export const logsMetricRulesCreateBodyMetricNameMax = 200
+
+export const logsMetricRulesCreateBodyEnabledDefault = false
+export const logsMetricRulesCreateBodyValueAttributeMax = 512
+
+export const logsMetricRulesCreateBodyGroupByItemMax = 512
+
+export const LogsMetricRulesCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(logsMetricRulesCreateBodyNameMax).describe('User-visible label for this rule.'),
+    metric_name: zod
+        .string()
+        .max(logsMetricRulesCreateBodyMetricNameMax)
+        .describe(
+            'Name of the generated metric as it appears in the Metrics product. Must start with a letter and contain only letters, digits, dots, underscores, and dashes. Unique per project and immutable after creation — create a new rule to emit under a different name.'
+        ),
+    enabled: zod
+        .boolean()
+        .default(logsMetricRulesCreateBodyEnabledDefault)
+        .describe(
+            'When true, ingestion evaluates this rule against every log record. At most 10 rules can be enabled per project.'
+        ),
+    filter_group: zod
+        .unknown()
+        .optional()
+        .describe(
+            'PropertyGroupFilter JSON (AND\/OR tree of property predicates) selecting which log records feed the metric, e.g. `{\"type\":\"AND\",\"values\":[{\"type\":\"AND\",\"values\":[{\"key\":\"service.name\",\"operator\":\"exact\",\"value\":\"api\",\"type\":\"log_attribute\"}]}]}`. Null matches every ingested log record. Every group must contain at least one filter — empty groups never match.'
+        ),
+    value_attribute: zod
+        .string()
+        .max(logsMetricRulesCreateBodyValueAttributeMax)
+        .nullish()
+        .describe(
+            'Log attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`. Omit to count matching log records instead. Immutable after creation — it determines the emitted metric type.'
+        ),
+    group_by: zod
+        .array(zod.string().max(logsMetricRulesCreateBodyGroupByItemMax))
+        .optional()
+        .describe(
+            'Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` \/ `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.'
+        ),
+})
+
+export const logsMetricRulesUpdateBodyNameMax = 255
+
+export const logsMetricRulesUpdateBodyMetricNameMax = 200
+
+export const logsMetricRulesUpdateBodyEnabledDefault = false
+export const logsMetricRulesUpdateBodyValueAttributeMax = 512
+
+export const logsMetricRulesUpdateBodyGroupByItemMax = 512
+
+export const LogsMetricRulesUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(logsMetricRulesUpdateBodyNameMax).describe('User-visible label for this rule.'),
+    metric_name: zod
+        .string()
+        .max(logsMetricRulesUpdateBodyMetricNameMax)
+        .describe(
+            'Name of the generated metric as it appears in the Metrics product. Must start with a letter and contain only letters, digits, dots, underscores, and dashes. Unique per project and immutable after creation — create a new rule to emit under a different name.'
+        ),
+    enabled: zod
+        .boolean()
+        .default(logsMetricRulesUpdateBodyEnabledDefault)
+        .describe(
+            'When true, ingestion evaluates this rule against every log record. At most 10 rules can be enabled per project.'
+        ),
+    filter_group: zod
+        .unknown()
+        .optional()
+        .describe(
+            'PropertyGroupFilter JSON (AND\/OR tree of property predicates) selecting which log records feed the metric, e.g. `{\"type\":\"AND\",\"values\":[{\"type\":\"AND\",\"values\":[{\"key\":\"service.name\",\"operator\":\"exact\",\"value\":\"api\",\"type\":\"log_attribute\"}]}]}`. Null matches every ingested log record. Every group must contain at least one filter — empty groups never match.'
+        ),
+    value_attribute: zod
+        .string()
+        .max(logsMetricRulesUpdateBodyValueAttributeMax)
+        .nullish()
+        .describe(
+            'Log attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`. Omit to count matching log records instead. Immutable after creation — it determines the emitted metric type.'
+        ),
+    group_by: zod
+        .array(zod.string().max(logsMetricRulesUpdateBodyGroupByItemMax))
+        .optional()
+        .describe(
+            'Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` \/ `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.'
+        ),
+})
+
+export const logsMetricRulesPartialUpdateBodyNameMax = 255
+
+export const logsMetricRulesPartialUpdateBodyMetricNameMax = 200
+
+export const logsMetricRulesPartialUpdateBodyEnabledDefault = false
+export const logsMetricRulesPartialUpdateBodyValueAttributeMax = 512
+
+export const logsMetricRulesPartialUpdateBodyGroupByItemMax = 512
+
+export const LogsMetricRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(logsMetricRulesPartialUpdateBodyNameMax)
+        .optional()
+        .describe('User-visible label for this rule.'),
+    metric_name: zod
+        .string()
+        .max(logsMetricRulesPartialUpdateBodyMetricNameMax)
+        .optional()
+        .describe(
+            'Name of the generated metric as it appears in the Metrics product. Must start with a letter and contain only letters, digits, dots, underscores, and dashes. Unique per project and immutable after creation — create a new rule to emit under a different name.'
+        ),
+    enabled: zod
+        .boolean()
+        .default(logsMetricRulesPartialUpdateBodyEnabledDefault)
+        .describe(
+            'When true, ingestion evaluates this rule against every log record. At most 10 rules can be enabled per project.'
+        ),
+    filter_group: zod
+        .unknown()
+        .optional()
+        .describe(
+            'PropertyGroupFilter JSON (AND\/OR tree of property predicates) selecting which log records feed the metric, e.g. `{\"type\":\"AND\",\"values\":[{\"type\":\"AND\",\"values\":[{\"key\":\"service.name\",\"operator\":\"exact\",\"value\":\"api\",\"type\":\"log_attribute\"}]}]}`. Null matches every ingested log record. Every group must contain at least one filter — empty groups never match.'
+        ),
+    value_attribute: zod
+        .string()
+        .max(logsMetricRulesPartialUpdateBodyValueAttributeMax)
+        .nullish()
+        .describe(
+            'Log attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`. Omit to count matching log records instead. Immutable after creation — it determines the emitted metric type.'
+        ),
+    group_by: zod
+        .array(zod.string().max(logsMetricRulesPartialUpdateBodyGroupByItemMax))
+        .optional()
+        .describe(
+            'Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` \/ `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.'
+        ),
 })
 
 export const LogsPatternsCreateBody = /* @__PURE__ */ zod.object({
@@ -1474,6 +1608,8 @@ export const LogsSparklineCreateBody = /* @__PURE__ */ zod.object({
 
 export const logsViewsCreateBodyNameMax = 400
 
+export const logsViewsCreateBodyColumnsItemWidthMax = 2000
+
 export const LogsViewsCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(logsViewsCreateBodyNameMax),
     filters: zod
@@ -1482,10 +1618,54 @@ export const LogsViewsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.'
         ),
+    columns: zod
+        .array(
+            zod.object({
+                id: zod
+                    .string()
+                    .describe(
+                        'Client-generated stable identity for list operations (React keys, reorder). Never interpreted by the server.'
+                    ),
+                type: zod
+                    .enum(['timestamp', 'level', 'source', 'trace_id', 'span_id', 'message', 'custom'])
+                    .describe(
+                        '\* `timestamp` - timestamp\n\* `level` - level\n\* `source` - source\n\* `trace_id` - trace_id\n\* `span_id` - span_id\n\* `message` - message\n\* `custom` - custom'
+                    )
+                    .describe(
+                        'Column type. Built-in types resolve client-side from log row fields; `custom` columns are computed server-side from `expression`.\n\n\* `timestamp` - timestamp\n\* `level` - level\n\* `source` - source\n\* `trace_id` - trace_id\n\* `span_id` - span_id\n\* `message` - message\n\* `custom` - custom'
+                    ),
+                name: zod
+                    .string()
+                    .optional()
+                    .describe(
+                        "Header label override. Defaults to the built-in type's label, or to the expression for custom columns."
+                    ),
+                expression: zod
+                    .string()
+                    .optional()
+                    .describe(
+                        "Only meaningful for `type: custom`: a source-prefixed shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar HogQL expression, sent verbatim in the logs query's `customColumns`."
+                    ),
+                width: zod
+                    .number()
+                    .min(1)
+                    .max(logsViewsCreateBodyColumnsItemWidthMax)
+                    .optional()
+                    .describe(
+                        'Column width in pixels (1–2000). Omitted for the default width; ignored for the flex message column.'
+                    ),
+            })
+        )
+        .nullish()
+        .describe(
+            'Ordered column configuration for the logs table (LogsColumnConfig[]). Order is array index. Null means the view has no column preference and the client renders its default column set. Omitting the field on update leaves the saved configuration unchanged; send null to clear it.'
+        ),
     pinned: zod.boolean().optional(),
 })
 
 export const logsViewsUpdateBodyNameMax = 400
+
+export const logsViewsUpdateBodyColumnsItemWidthMax = 2000
 
 export const LogsViewsUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(logsViewsUpdateBodyNameMax),
@@ -1495,10 +1675,54 @@ export const LogsViewsUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.'
         ),
+    columns: zod
+        .array(
+            zod.object({
+                id: zod
+                    .string()
+                    .describe(
+                        'Client-generated stable identity for list operations (React keys, reorder). Never interpreted by the server.'
+                    ),
+                type: zod
+                    .enum(['timestamp', 'level', 'source', 'trace_id', 'span_id', 'message', 'custom'])
+                    .describe(
+                        '\* `timestamp` - timestamp\n\* `level` - level\n\* `source` - source\n\* `trace_id` - trace_id\n\* `span_id` - span_id\n\* `message` - message\n\* `custom` - custom'
+                    )
+                    .describe(
+                        'Column type. Built-in types resolve client-side from log row fields; `custom` columns are computed server-side from `expression`.\n\n\* `timestamp` - timestamp\n\* `level` - level\n\* `source` - source\n\* `trace_id` - trace_id\n\* `span_id` - span_id\n\* `message` - message\n\* `custom` - custom'
+                    ),
+                name: zod
+                    .string()
+                    .optional()
+                    .describe(
+                        "Header label override. Defaults to the built-in type's label, or to the expression for custom columns."
+                    ),
+                expression: zod
+                    .string()
+                    .optional()
+                    .describe(
+                        "Only meaningful for `type: custom`: a source-prefixed shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar HogQL expression, sent verbatim in the logs query's `customColumns`."
+                    ),
+                width: zod
+                    .number()
+                    .min(1)
+                    .max(logsViewsUpdateBodyColumnsItemWidthMax)
+                    .optional()
+                    .describe(
+                        'Column width in pixels (1–2000). Omitted for the default width; ignored for the flex message column.'
+                    ),
+            })
+        )
+        .nullish()
+        .describe(
+            'Ordered column configuration for the logs table (LogsColumnConfig[]). Order is array index. Null means the view has no column preference and the client renders its default column set. Omitting the field on update leaves the saved configuration unchanged; send null to clear it.'
+        ),
     pinned: zod.boolean().optional(),
 })
 
 export const logsViewsPartialUpdateBodyNameMax = 400
+
+export const logsViewsPartialUpdateBodyColumnsItemWidthMax = 2000
 
 export const LogsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(logsViewsPartialUpdateBodyNameMax).optional(),
@@ -1507,6 +1731,48 @@ export const LogsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.'
+        ),
+    columns: zod
+        .array(
+            zod.object({
+                id: zod
+                    .string()
+                    .describe(
+                        'Client-generated stable identity for list operations (React keys, reorder). Never interpreted by the server.'
+                    ),
+                type: zod
+                    .enum(['timestamp', 'level', 'source', 'trace_id', 'span_id', 'message', 'custom'])
+                    .describe(
+                        '\* `timestamp` - timestamp\n\* `level` - level\n\* `source` - source\n\* `trace_id` - trace_id\n\* `span_id` - span_id\n\* `message` - message\n\* `custom` - custom'
+                    )
+                    .describe(
+                        'Column type. Built-in types resolve client-side from log row fields; `custom` columns are computed server-side from `expression`.\n\n\* `timestamp` - timestamp\n\* `level` - level\n\* `source` - source\n\* `trace_id` - trace_id\n\* `span_id` - span_id\n\* `message` - message\n\* `custom` - custom'
+                    ),
+                name: zod
+                    .string()
+                    .optional()
+                    .describe(
+                        "Header label override. Defaults to the built-in type's label, or to the expression for custom columns."
+                    ),
+                expression: zod
+                    .string()
+                    .optional()
+                    .describe(
+                        "Only meaningful for `type: custom`: a source-prefixed shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar HogQL expression, sent verbatim in the logs query's `customColumns`."
+                    ),
+                width: zod
+                    .number()
+                    .min(1)
+                    .max(logsViewsPartialUpdateBodyColumnsItemWidthMax)
+                    .optional()
+                    .describe(
+                        'Column width in pixels (1–2000). Omitted for the default width; ignored for the flex message column.'
+                    ),
+            })
+        )
+        .nullish()
+        .describe(
+            'Ordered column configuration for the logs table (LogsColumnConfig[]). Order is array index. Null means the view has no column preference and the client renders its default column set. Omitting the field on update leaves the saved configuration unchanged; send null to clear it.'
         ),
     pinned: zod.boolean().optional(),
 })

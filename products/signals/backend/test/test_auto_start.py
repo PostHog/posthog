@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from django.apps import apps
 
+from asgiref.sync import sync_to_async
 from social_django.models import UserSocialAuth
 
 from posthog.models import Organization, Team, User
@@ -14,11 +15,13 @@ from posthog.models.scoping import team_scope
 from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.auto_start import (
     ReviewerContent,
+    _build_autostart_task_description,
     _create_implementation_task_if_absent,
     _report_meets_team_autostart_threshold,
     _resolve_autostart_assignee,
     _resolve_autostart_fallback_user,
     _resolve_triggering_user,
+    maybe_autostart_implementation_task,
 )
 from products.signals.backend.models import (
     SignalReport,
@@ -26,9 +29,15 @@ from products.signals.backend.models import (
     SignalReportTask,
     SignalScoutRun,
     SignalSourceConfig,
+    SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
-from products.signals.backend.report_generation.research import Priority
+from products.signals.backend.report_generation.research import (
+    ActionabilityAssessment,
+    ActionabilityChoice,
+    Priority,
+    PriorityAssessment,
+)
 from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION, signals_task_ids
 from products.signals.backend.test.test_billing import _seed_canonical_scout_skill
 from products.tasks.backend.facade import api as tasks_facade
@@ -54,7 +63,7 @@ def _create_org_member_with_github(email: str, organization: Organization, login
 
 
 def _reviewer(login: str) -> ReviewerContent:
-    return ReviewerContent(github_login=login, github_name=None, relevant_commits=[])
+    return ReviewerContent(github_login=login, github_name=None, relevant_commits=[], reason=None)
 
 
 @pytest.mark.django_db
@@ -368,3 +377,98 @@ def test_create_implementation_task_threads_resolved_runtime(organization, team)
     assert call_kwargs["runtime_adapter"] == "codex"
     assert call_kwargs["model"] == "gpt-5.6-terra"
     assert call_kwargs["reasoning_effort"] == "medium"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("autostart_enabled", [True, False, None])
+async def test_team_autostart_switch_gates_reviewerless_fallback(autostart_enabled):
+    # The master switch must gate the reviewer-less fallback — the path email-login teams (no linked
+    # GitHub) hit. An actionable, prioritized report with no resolvable reviewer auto-starts under the
+    # team's signals enabler unless the switch is an explicit False (null leaves autostart on); committed
+    # rows are required because the fallback resolves its runner via a thread_sensitive=False executor.
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
+
+    def _setup() -> tuple[Team, SignalReport]:
+        organization = Organization.objects.create(name="switch-org")
+        team = Team.objects.create(organization=organization, name="switch-team")
+        enabler = User.objects.create(email="enabler@example.com")
+        OrganizationMembership.objects.create(user=enabler, organization=organization)
+        SignalSourceConfig.objects.create(
+            team=team, source_product="error_tracking", source_type="issue_created", created_by=enabler
+        )
+        # A team-extension signal already created the config row on Team.create; flip the switch.
+        SignalTeamConfig.objects.update_or_create(team=team, defaults={"autostart_enabled": autostart_enabled})
+        report = SignalReport.objects.create(
+            team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
+        )
+        return team, report
+
+    team, report = await sync_to_async(_setup)()
+
+    def _fake_create_and_run_task(**kwargs):
+        task = Task.objects.create(
+            team_id=team.id,
+            title=kwargs["title"],
+            description=kwargs["description"],
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        run = TaskRun.objects.create(task=task, team_id=team.id)
+        return SimpleNamespace(task_id=task.id, team_id=team.id, latest_run=SimpleNamespace(id=run.id))
+
+    pinned = AgentRuntime(runtime_adapter="codex", model="gpt-5.6-terra", reasoning_effort="medium")
+    with (
+        patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create,
+        patch("products.signals.backend.auto_start.resolve_agent_runtime", return_value=pinned),
+    ):
+        await maybe_autostart_implementation_task(
+            team_id=team.id,
+            report_id=str(report.id),
+            repository="owner/repo",
+            title="t",
+            summary="s",
+            actionability=ActionabilityAssessment(
+                explanation="Clear fix in the affected module.",
+                actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+                already_addressed=False,
+            ),
+            reviewers_content=[],
+            priority=PriorityAssessment(explanation="Affects many sessions.", priority=Priority.P2),
+        )
+
+    assert (mock_create.call_count == 1) is (autostart_enabled is not False)
+
+
+@pytest.mark.parametrize(
+    ("summary", "expect_fix_loop"),
+    [
+        # Scout-authored metric block (the MCP scout's autoresearch handoff) → loop instructions present.
+        (
+            "MCP data-warehouse tools failing broadly.\n\n"
+            "## Fix loop metric\n\n"
+            "Metric: category error rate over the problem tools (trailing 7d).\n"
+            "Baseline: 41%. Goal: decrease.",
+            True,
+        ),
+        # Marker detection is case-insensitive — scouts write prose, not exact headings.
+        ("Tools failing.\n\nFIX LOOP METRIC: error rate 41% -> decrease via the query above.", True),
+        # No metric block → the generic one-shot prompt, no autoresearch instructions.
+        ("MCP data-warehouse tools failing broadly, fix the handler.", False),
+    ],
+)
+def test_autostart_description_appends_fix_loop_instructions_only_for_metric_reports(summary, expect_fix_loop):
+    description = _build_autostart_task_description(
+        report_id="0198c0de-0000-7000-8000-000000000001",
+        team_id=1,
+        summary=summary,
+        repository="PostHog/posthog",
+        priority=None,
+    )
+
+    assert summary in description
+    assert ("autoresearch target" in description) is expect_fix_loop
+    assert ("never by masking errors" in description) is expect_fix_loop
+    # Evidence-hygiene guardrail: fix-loop PRs may target public repos, so the prompt must forbid
+    # real telemetry (raw rows, error messages, identifiers) in before/after evidence.
+    assert ("never raw telemetry rows" in description) is expect_fix_loop

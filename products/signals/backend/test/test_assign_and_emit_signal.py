@@ -13,7 +13,8 @@ from asgiref.sync import sync_to_async
 from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.models import SignalReport
+from products.signals.backend.artefact_schemas import RelatedTo
+from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.temporal.grouping import (
     WEIGHT_THRESHOLD,
     AssignAndEmitSignalInput,
@@ -350,15 +351,11 @@ async def test_candidate_repromotion_does_not_advance_run_count(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-@pytest.mark.parametrize(
-    "starting_status",
-    [SignalReport.Status.READY, SignalReport.Status.RESOLVED],
-)
-async def test_ready_and_resolved_repromote_to_candidate_on_any_signal(ateam, starting_status):
-    """READY and RESOLVED re-promote on every signal regardless of weight thresholds."""
+async def test_ready_repromotes_to_candidate_on_any_signal(ateam):
+    """A READY report re-promotes on every signal regardless of weight thresholds."""
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
-        status=starting_status,
+        status=SignalReport.Status.READY,
         total_weight=1.5,
         signal_count=2,
         title="original title",
@@ -377,6 +374,49 @@ async def test_ready_and_resolved_repromote_to_candidate_on_any_signal(ateam, st
     assert refreshed.summary == "original summary"
 
 
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_resolved_match_spawns_new_report_and_leaves_resolved_untouched(ateam):
+    """A signal that would group into a RESOLVED report must not reopen it. Instead a fresh
+    POTENTIAL report is created and symmetrically linked to the resolved one via related_to
+    artefacts, and the resolved report keeps its status and signal count."""
+    resolved = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.RESOLVED,
+        total_weight=1.5,
+        signal_count=2,
+        title="original title",
+        summary="original summary",
+    )
+    input_ = _build_input(ateam.id, _existing_match(str(resolved.id)), weight=WEIGHT_THRESHOLD)
+
+    result = await assign_and_emit_signal_activity(input_)
+
+    # A brand-new report was created, not the resolved one.
+    assert result.report_id != str(resolved.id)
+    new_report = await database_sync_to_async(SignalReport.objects.get)(id=result.report_id)
+    assert new_report.status == SignalReport.Status.CANDIDATE  # weight at threshold promotes it
+    assert new_report.signal_count == 1
+    # Placeholder title/summary carried over from the resolved report until research rewrites them.
+    assert new_report.title == "original title"
+    assert new_report.summary == "original summary"
+
+    # The two reports are symmetrically linked via related_to artefacts, each pointing at the other.
+    new_link = await database_sync_to_async(
+        lambda: SignalReportArtefact.objects.get(report=new_report, type=SignalReportArtefact.ArtefactType.RELATED_TO)
+    )()
+    assert RelatedTo.model_validate_json(new_link.content) == RelatedTo(report_id=str(resolved.id))
+    resolved_link = await database_sync_to_async(
+        lambda: SignalReportArtefact.objects.get(report=resolved, type=SignalReportArtefact.ArtefactType.RELATED_TO)
+    )()
+    assert RelatedTo.model_validate_json(resolved_link.content) == RelatedTo(report_id=str(new_report.id))
+
+    # The resolved report is untouched — not reopened, no new signal counted.
+    refreshed_resolved = await database_sync_to_async(SignalReport.objects.get)(id=resolved.id)
+    assert refreshed_resolved.status == SignalReport.Status.RESOLVED
+    assert refreshed_resolved.signal_count == 2
+
+
 # ---------------------------------------------------------------------------
 # Re-research cap: already-researched reports stop re-researching past RERESEARCH_MAX_SIGNALS
 # ---------------------------------------------------------------------------
@@ -384,16 +424,12 @@ async def test_ready_and_resolved_repromote_to_candidate_on_any_signal(ateam, st
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-@pytest.mark.parametrize(
-    "starting_status",
-    [SignalReport.Status.READY, SignalReport.Status.RESOLVED],
-)
-async def test_reresearch_allowed_up_to_cap(ateam, starting_status):
+async def test_reresearch_allowed_up_to_cap(ateam):
     """At the boundary (the new signal brings signal_count exactly to RERESEARCH_MAX_SIGNALS), a
-    READY/RESOLVED report still re-promotes — the cap only bites once signal_count exceeds it."""
+    READY report still re-promotes — the cap only bites once signal_count exceeds it."""
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
-        status=starting_status,
+        status=SignalReport.Status.READY,
         total_weight=1.5,
         signal_count=RERESEARCH_MAX_SIGNALS - 1,
     )
@@ -409,16 +445,12 @@ async def test_reresearch_allowed_up_to_cap(ateam, starting_status):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-@pytest.mark.parametrize(
-    "starting_status",
-    [SignalReport.Status.READY, SignalReport.Status.RESOLVED],
-)
-async def test_reresearch_capped_past_threshold_still_assigns_signal(ateam, patch_side_effects, starting_status):
-    """Past the cap, a READY/RESOLVED report stops re-researching: promoted=False and status is
-    unchanged, but the signal is still counted, weighted, and emitted (not marked deleted)."""
+async def test_reresearch_capped_past_threshold_still_assigns_signal(ateam, patch_side_effects):
+    """Past the cap, a READY report stops re-researching: promoted=False and status is unchanged,
+    but the signal is still counted, weighted, and emitted (not marked deleted)."""
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
-        status=starting_status,
+        status=SignalReport.Status.READY,
         total_weight=2.0,
         signal_count=RERESEARCH_MAX_SIGNALS,  # post-increment lands at cap + 1
         title="original title",
@@ -430,7 +462,7 @@ async def test_reresearch_capped_past_threshold_still_assigns_signal(ateam, patc
 
     assert result.promoted is False
     refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report.id)
-    assert refreshed.status == starting_status
+    assert refreshed.status == SignalReport.Status.READY
     assert refreshed.promoted_at is None
     assert refreshed.signal_count == RERESEARCH_MAX_SIGNALS + 1
     assert refreshed.total_weight == pytest.approx(2.5)
@@ -485,7 +517,13 @@ async def test_reresearch_within_cap_does_not_emit_skipped_event(ateam, patch_si
 
     await assign_and_emit_signal_activity(input_)
 
-    events = [call.kwargs["event"] for call in patch_side_effects["capture"].call_args_list]
+    # The model-level signal_report_status_changed label (READY -> CANDIDATE re-promotion) rides
+    # the same analytics client; this test asserts the pipeline's own telemetry only.
+    events = [
+        call.kwargs["event"]
+        for call in patch_side_effects["capture"].call_args_list
+        if call.kwargs["event"] != "signal_report_status_changed"
+    ]
     assert events == ["signal_assigned_to_report"]
 
 

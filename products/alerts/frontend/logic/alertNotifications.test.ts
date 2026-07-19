@@ -1,6 +1,11 @@
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
-import { PendingAlertNotification, buildAlertFilterConfig, buildHogFunctionPayload } from './alertNotifications'
+import {
+    PendingAlertNotification,
+    buildAlertFilterConfig,
+    buildHogFunctionPayload,
+    notificationTypeFromTemplateId,
+} from './alertNotifications'
 
 describe('alertUtils', () => {
     describe('buildAlertFilterConfig', () => {
@@ -162,6 +167,23 @@ describe('alertUtils', () => {
                         '{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}',
                 },
             })
+        })
+    })
+
+    describe('notificationTypeFromTemplateId', () => {
+        // Guards the create/delete analytics events: buildAlertDestination writes these template_ids,
+        // and this maps them back to the type we report — a drift between the two would mislabel adoption.
+        it.each([
+            ['template-slack', 'slack'],
+            ['template-discord', 'discord'],
+            ['template-microsoft-teams', 'microsoft_teams'],
+            ['template-webhook', 'webhook'],
+        ])('maps %s to %s', (templateId, expected) => {
+            expect(notificationTypeFromTemplateId(templateId)).toEqual(expected)
+        })
+
+        it.each([[undefined], [null], ['template-unknown']])('returns null for %s', (templateId) => {
+            expect(notificationTypeFromTemplateId(templateId)).toBeNull()
         })
     })
 })

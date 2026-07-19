@@ -40,6 +40,7 @@ from posthog.models.integration import (
     EmailIntegration,
     GitHubIntegration,
     GitHubIntegrationError,
+    GoogleAdsIntegration,
     GoogleCloudIntegration,
     GoogleCloudServiceAccountIntegration,
     Integration,
@@ -159,9 +160,9 @@ class TestLinearIntegrationModel(BaseTest):
                 {"data": {"attachmentCreate": {"success": True}}},
             ],
         ) as mock_query:
+            attachment_url = f'https://us.posthog.com/project/{self.team.id}/error_tracking/issue-id" }} mutation {{'
             result = linear.create_issue(
-                str(self.team.id),
-                'issue-id" } mutation {',
+                attachment_url,
                 {
                     "team_id": 'team-id" } mutation {',
                     "title": 'Title "quoted"',
@@ -595,6 +596,86 @@ class TestOauthIntegrationModel(BaseTest):
         assert integration.errors == "TOKEN_REFRESH_FAILED"
 
         mock_reload.assert_not_called()
+
+    def _mock_token_response(self, status_code: int, token: Optional[str]) -> MagicMock:
+        response = MagicMock()
+        response.status_code = status_code
+        response.json.return_value = {"access_token": token, "expires_in": 1000} if token else {}
+        response.text = "error"
+        return response
+
+    @parameterized.expand(
+        [
+            # Primary works: the fallback must not fire, even when configured.
+            ("primary_ok", True, [(200, "primary-token")], "primary-token", "", 1),
+            # A token issued by the previous app only refreshes with the fallback pair.
+            ("fallback_rescues", True, [(401, None), (200, "fallback-token")], "fallback-token", "", 2),
+            # Both credentials failing still marks the integration errored so the reconnect banner shows.
+            ("both_fail", True, [(401, None), (401, None)], None, "TOKEN_REFRESH_FAILED", 2),
+            # Without a fallback configured, behavior is identical to before: a single attempt, no retry.
+            ("no_fallback_no_retry", False, [(401, None)], None, "TOKEN_REFRESH_FAILED", 1),
+        ]
+    )
+    def test_refresh_falls_back_to_previous_credentials(
+        self, _name, has_fallback, responses, expected_token, expected_errors, expected_calls
+    ):
+        fallbacks = {"bing-ads": {"client_id": "old-app-id", "client_secret": "old-app-secret"}} if has_fallback else {}
+        integration = self.create_integration(kind="bing-ads", config={"expires_in": 1000})
+
+        with (
+            self.settings(
+                BING_ADS_CLIENT_ID="new-app-id",
+                BING_ADS_CLIENT_SECRET="new-app-secret",
+                OAUTH_CLIENT_FALLBACKS=fallbacks,
+            ),
+            patch("posthog.models.integration.reload_integrations_on_workers"),
+            patch(
+                "posthog.models.integration.requests.post",
+                side_effect=[self._mock_token_response(status, token) for status, token in responses],
+            ) as mock_post,
+        ):
+            OauthIntegration(integration).refresh_access_token()
+
+        integration.refresh_from_db()
+        assert mock_post.call_count == expected_calls
+        assert integration.errors == expected_errors
+        if expected_token is not None:
+            assert integration.sensitive_config["access_token"] == expected_token
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_refresh_network_error_marks_failed_without_raising(self, mock_post, mock_reload):
+        # A timeout must not escape refresh_access_token: the Celery sweep would error out before
+        # recording the failure, leaving the integration without a backoff or the reconnect state.
+        mock_post.side_effect = requests.Timeout("timed out")
+        integration = self.create_integration(kind="bing-ads", config={"expires_in": 1000})
+
+        with self.settings(BING_ADS_CLIENT_ID="new-app-id", BING_ADS_CLIENT_SECRET="new-app-secret"):
+            OauthIntegration(integration).refresh_access_token()
+
+        integration.refresh_from_db()
+        assert integration.errors == "TOKEN_REFRESH_FAILED"
+        assert integration.config.get("refresh_failure_count") == 1
+        assert integration.config.get("refresh_next_attempt_at")
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_refresh_primary_network_error_still_tries_fallback(self, mock_post, mock_reload):
+        # A network error on the primary credentials must not skip the fallback attempt.
+        mock_post.side_effect = [requests.Timeout("timed out"), self._mock_token_response(200, "fallback-token")]
+        integration = self.create_integration(kind="bing-ads", config={"expires_in": 1000})
+
+        with self.settings(
+            BING_ADS_CLIENT_ID="new-app-id",
+            BING_ADS_CLIENT_SECRET="new-app-secret",
+            OAUTH_CLIENT_FALLBACKS={"bing-ads": {"client_id": "old-app-id", "client_secret": "old-app-secret"}},
+        ):
+            OauthIntegration(integration).refresh_access_token()
+
+        integration.refresh_from_db()
+        assert mock_post.call_count == 2
+        assert integration.errors == ""
+        assert integration.sensitive_config["access_token"] == "fallback-token"
 
     @patch("posthog.models.integration.reload_integrations_on_workers")
     @patch("posthog.models.integration.requests.post")
@@ -2774,6 +2855,177 @@ class TestS3CompatibleIntegrationModel(BaseTest):
         )
         with pytest.raises(S3CredentialIntegrationError, match="missing required field: 'endpoint_url'"):
             S3CompatibleIntegration(integration)
+
+
+class TestGoogleAdsIntegrationModel(BaseTest):
+    def _integration(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="google-ads",
+            config={},
+            sensitive_config={"access_token": "token"},
+            integration_id="google_ads_test",
+        )
+
+    @staticmethod
+    def _customer_client(
+        customer_id: str, name: str, level: Optional[str] = None, manager: bool = False, status: str = "ENABLED"
+    ) -> dict:
+        client: dict = {"clientCustomer": f"customers/{customer_id}", "descriptiveName": name, "status": status}
+        # Google's REST responses omit proto3 defaults, so level 0 and manager=false are absent.
+        if level is not None:
+            client["level"] = level
+        if manager:
+            client["manager"] = True
+        return {"customerClient": client}
+
+    @override_settings(GOOGLE_ADS_DEVELOPER_TOKEN="dev_token")
+    @patch("posthog.models.integration.requests.request")
+    def test_accessible_accounts_reads_every_search_stream_chunk(self, mock_request):
+        accessible = MagicMock(status_code=200)
+        accessible.json.return_value = {"resourceNames": ["customers/6501924158"]}
+        # searchStream's REST body is an array of batches; a large hierarchy spans several.
+        stream = MagicMock(status_code=200)
+        stream.json.return_value = [
+            {"results": [self._customer_client("6501924158", "Acme Corp", manager=True)]},
+            {"results": [self._customer_client("1234567890", "Client One", level="1")]},
+        ]
+        mock_request.side_effect = [accessible, stream]
+
+        accounts = GoogleAdsIntegration(self._integration()).list_google_ads_accessible_accounts()
+
+        assert [account["id"] for account in accounts] == ["6501924158", "1234567890"]
+        assert accounts[0]["manager"] is True
+        assert accounts[1]["parent_id"] == "6501924158"
+
+    @override_settings(GOOGLE_ADS_DEVELOPER_TOKEN="dev_token")
+    @patch("posthog.models.integration.requests.request")
+    def test_accessible_accounts_dedupes_an_account_reachable_from_two_roots(self, mock_request):
+        # A user with direct access to both a manager and one of its clients gets both in
+        # `resourceNames`, so the client is walked twice: once as a root (level absent, i.e. 0) and once
+        # under the manager (level "1"). Those two levels must be compared as numbers — comparing the raw
+        # values raises TypeError (None vs "1") and 500s the picker.
+        accessible = MagicMock(status_code=200)
+        accessible.json.return_value = {"resourceNames": ["customers/1234567890", "customers/6501924158"]}
+        client_walk = MagicMock(status_code=200)
+        client_walk.json.return_value = [{"results": [self._customer_client("1234567890", "Client One")]}]
+        manager_walk = MagicMock(status_code=200)
+        manager_walk.json.return_value = [
+            {
+                "results": [
+                    self._customer_client("6501924158", "Acme Corp", manager=True),
+                    self._customer_client("1234567890", "Client One", level="1"),
+                ]
+            }
+        ]
+        mock_request.side_effect = [accessible, client_walk, manager_walk]
+
+        accounts = GoogleAdsIntegration(self._integration()).list_google_ads_accessible_accounts()
+
+        # The client is kept once, at its shallowest sighting: reachable directly, so it needs no manager
+        # to log in as.
+        assert [account["id"] for account in accounts] == ["1234567890", "6501924158"]
+        assert accounts[0]["level"] is None
+        assert accounts[0]["parent_id"] == "1234567890"
+
+    @override_settings(GOOGLE_ADS_DEVELOPER_TOKEN="dev_token")
+    @patch("posthog.models.integration.requests.request")
+    def test_accessible_accounts_keeps_enabled_sighting_when_shallower_root_is_disabled(self, mock_request):
+        # The same client is reachable enabled under a manager (level "1") and directly as a disabled root
+        # (level 0). The enabled path is walked first and kept; the disabled shallower root must not evict
+        # it — otherwise the account vanishes from the picker even though Google returned an enabled path.
+        accessible = MagicMock(status_code=200)
+        accessible.json.return_value = {"resourceNames": ["customers/6501924158", "customers/1234567890"]}
+        manager_walk = MagicMock(status_code=200)
+        manager_walk.json.return_value = [
+            {
+                "results": [
+                    self._customer_client("6501924158", "Acme Corp", manager=True),
+                    self._customer_client("1234567890", "Client One", level="1"),
+                ]
+            }
+        ]
+        disabled_root_walk = MagicMock(status_code=200)
+        disabled_root_walk.json.return_value = [
+            {"results": [self._customer_client("1234567890", "Client One", status="DISABLED")]}
+        ]
+        mock_request.side_effect = [accessible, manager_walk, disabled_root_walk]
+
+        accounts = GoogleAdsIntegration(self._integration()).list_google_ads_accessible_accounts()
+
+        client = next(account for account in accounts if account["id"] == "1234567890")
+        assert client["level"] == "1"
+        assert client["parent_id"] == "6501924158"
+
+
+class TestPinterestAdsIntegrationDisplayName(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "business",
+                {"id": "1", "username": "13x6ppss87fecv1q790xh1orhyp9th", "business_name": "Posthog Inc"},
+                "Posthog Inc",
+            ),
+            ("personal", {"id": "1", "username": "javierposthog", "business_name": ""}, "javierposthog"),
+            # Older connections predate business_name being stored.
+            ("legacy", {"id": "1", "username": "javierposthog"}, "javierposthog"),
+        ]
+    )
+    def test_display_name_prefers_business_name(self, _name: str, config: dict, expected: str) -> None:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="pinterest-ads",
+            config=config,
+            integration_id=config["id"],
+        )
+        assert integration.display_name == expected
+
+
+class TestTikTokAdsIntegrationDisplayName(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "email_wins_over_display_name",
+                {
+                    "advertiser_ids": ["7554133187111469074"],
+                    "user_email": "e***g@posthog.com",
+                    "user_display_name": "user1140434302514",
+                },
+                "e***g@posthog.com",
+            ),
+            ("neither_fetched_falls_back_to_id", {"advertiser_ids": ["7554133187111469074"]}, "7554133187111469074"),
+        ]
+    )
+    def test_display_name_prefers_user_email(self, _name: str, config: dict, expected: str) -> None:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="tiktok-ads",
+            config=config,
+            integration_id=",".join(config["advertiser_ids"]),
+        )
+        assert integration.display_name == expected
+
+
+@override_settings(REDDIT_ADS_CLIENT_ID="reddit-client-id", REDDIT_ADS_CLIENT_SECRET="reddit-client-secret")
+class TestRedditAdsIntegrationDisplayName(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "username",
+                {"reddit_user_id": "t2_1tqubocxl4", "data.reddit_username": "javierposthog"},
+                "javierposthog",
+            ),
+            ("legacy", {"reddit_user_id": "t2_1tqubocxl4"}, "t2_1tqubocxl4"),
+        ]
+    )
+    def test_display_name_prefers_username(self, _name: str, config: dict, expected: str) -> None:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="reddit-ads",
+            config=config,
+            integration_id=config["reddit_user_id"],
+        )
+        assert integration.display_name == expected
 
 
 class TestSnowflakeIntegrationModel(BaseTest):

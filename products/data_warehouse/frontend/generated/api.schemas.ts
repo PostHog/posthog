@@ -88,10 +88,9 @@ export interface EnableWarehouseBackfillResponseApi {
  * * `not_configured` - not_configured
  * * `waiting` - waiting
  * * `backfilling` - backfilling
- * * `catching_up` - catching_up
  * * `up_to_date` - up_to_date
  * * `needs_attention` - needs_attention
- * * `unknown` - unknown
+ * * `sync_paused` - sync_paused
  */
 export type ManagedWarehouseReadinessStateEnumApi =
     (typeof ManagedWarehouseReadinessStateEnumApi)[keyof typeof ManagedWarehouseReadinessStateEnumApi]
@@ -100,10 +99,9 @@ export const ManagedWarehouseReadinessStateEnumApi = {
     NotConfigured: 'not_configured',
     Waiting: 'waiting',
     Backfilling: 'backfilling',
-    CatchingUp: 'catching_up',
     UpToDate: 'up_to_date',
     NeedsAttention: 'needs_attention',
-    Unknown: 'unknown',
+    SyncPaused: 'sync_paused',
 } as const
 
 /**
@@ -128,10 +126,9 @@ export interface ManagedWarehouseDatasetStatusApi {
      * * `not_configured` - not_configured
      * * `waiting` - waiting
      * * `backfilling` - backfilling
-     * * `catching_up` - catching_up
      * * `up_to_date` - up_to_date
      * * `needs_attention` - needs_attention
-     * * `unknown` - unknown */
+     * * `sync_paused` - sync_paused */
     readiness_state: ManagedWarehouseReadinessStateEnumApi
     /** Human-readable explanation of the current readiness state. */
     detail: string
@@ -166,10 +163,9 @@ export interface ManagedWarehouseSourceSummaryApi {
      * * `not_configured` - not_configured
      * * `waiting` - waiting
      * * `backfilling` - backfilling
-     * * `catching_up` - catching_up
      * * `up_to_date` - up_to_date
      * * `needs_attention` - needs_attention
-     * * `unknown` - unknown */
+     * * `sync_paused` - sync_paused */
     readiness_state: ManagedWarehouseReadinessStateEnumApi
     /** Human-readable explanation of this source's readiness state. */
     detail: string
@@ -178,10 +174,10 @@ export interface ManagedWarehouseSourceSummaryApi {
     /** Number of schemas whose one-time historical copy into the warehouse has completed. */
     backfilled_schemas: number
     /**
-     * Imported batches waiting to be applied across this source's schemas, or null when queue status is unavailable.
+     * Most recent time an imported batch was applied to the warehouse across this source's schemas, or null if no apply has been recorded.
      * @nullable
      */
-    pending_batches: number | null
+    last_applied_at: string | null
     /**
      * Most recent upstream source import completion across this source's schemas.
      * @nullable
@@ -195,10 +191,9 @@ export interface ManagedWarehouseSourcesStatusApi {
      * * `not_configured` - not_configured
      * * `waiting` - waiting
      * * `backfilling` - backfilling
-     * * `catching_up` - catching_up
      * * `up_to_date` - up_to_date
      * * `needs_attention` - needs_attention
-     * * `unknown` - unknown */
+     * * `sync_paused` - sync_paused */
     readiness_state: ManagedWarehouseReadinessStateEnumApi
     /** Human-readable explanation of imported source readiness. */
     detail: string
@@ -212,10 +207,9 @@ export interface ManagedWarehouseDataStatusResponseApi {
      * * `not_configured` - not_configured
      * * `waiting` - waiting
      * * `backfilling` - backfilling
-     * * `catching_up` - catching_up
      * * `up_to_date` - up_to_date
      * * `needs_attention` - needs_attention
-     * * `unknown` - unknown */
+     * * `sync_paused` - sync_paused */
     overall_readiness_state: ManagedWarehouseReadinessStateEnumApi
     /** Events backfill readiness. */
     events: ManagedWarehouseDatasetStatusApi
@@ -243,10 +237,9 @@ export interface ManagedWarehouseSourceTableStatusApi {
      * * `not_configured` - not_configured
      * * `waiting` - waiting
      * * `backfilling` - backfilling
-     * * `catching_up` - catching_up
      * * `up_to_date` - up_to_date
      * * `needs_attention` - needs_attention
-     * * `unknown` - unknown */
+     * * `sync_paused` - sync_paused */
     readiness_state: ManagedWarehouseReadinessStateEnumApi
     /** Human-readable explanation of the table's readiness state. */
     detail: string
@@ -260,17 +253,7 @@ export interface ManagedWarehouseSourceTableStatusApi {
      */
     total_chunks: number | null
     /**
-     * Imported batches waiting to be applied, or null when queue status is unavailable.
-     * @nullable
-     */
-    pending_batches: number | null
-    /**
-     * Creation time of the oldest unapplied imported batch.
-     * @nullable
-     */
-    oldest_pending_at: string | null
-    /**
-     * When an imported batch was most recently applied to the warehouse.
+     * When an imported batch was most recently applied to the warehouse, or null if no apply has been recorded for this table.
      * @nullable
      */
     last_applied_at: string | null
@@ -2012,6 +1995,103 @@ export interface CredentialApi {
  * * `Kickscale` - Kickscale
  * * `Zellify` - Zellify
  * * `RudderStack` - RudderStack
+ * * `DodoPayments` - DodoPayments
+ * * `Salestrics` - Salestrics
+ * * `Doppler` - Doppler
+ * * `Usersnap` - Usersnap
+ * * `Asknicely` - Asknicely
+ * * `Featurebase` - Featurebase
+ * * `Frill` - Frill
+ * * `Bettermode` - Bettermode
+ * * `Dynatrace` - Dynatrace
+ * * `Honeycomb` - Honeycomb
+ * * `SumoLogic` - SumoLogic
+ * * `LogzIO` - LogzIO
+ * * `Coralogix` - Coralogix
+ * * `BetterStack` - BetterStack
+ * * `Raygun` - Raygun
+ * * `Honeybadger` - Honeybadger
+ * * `Airbrake` - Airbrake
+ * * `Appsignal` - Appsignal
+ * * `Appdynamics` - Appdynamics
+ * * `Instana` - Instana
+ * * `SplunkObservabilityCloud` - SplunkObservabilityCloud
+ * * `Uptimerobot` - Uptimerobot
+ * * `Statuscake` - Statuscake
+ * * `Tailscale` - Tailscale
+ * * `Flagsmith` - Flagsmith
+ * * `Xmatters` - Xmatters
+ * * `Squadcast` - Squadcast
+ * * `Zenduty` - Zenduty
+ * * `Cronitor` - Cronitor
+ * * `Jenkins` - Jenkins
+ * * `Bitbucket` - Bitbucket
+ * * `Gitea` - Gitea
+ * * `Teamcity` - Teamcity
+ * * `TravisCI` - TravisCI
+ * * `Semaphore` - Semaphore
+ * * `CircleciInsights` - CircleciInsights
+ * * `OctopusDeploy` - OctopusDeploy
+ * * `Sourcegraph` - Sourcegraph
+ * * `Bitrise` - Bitrise
+ * * `Gerrit` - Gerrit
+ * * `TerraformCloud` - TerraformCloud
+ * * `PulumiCloud` - PulumiCloud
+ * * `Spacelift` - Spacelift
+ * * `Railway` - Railway
+ * * `Argocd` - Argocd
+ * * `PrefectCloud` - PrefectCloud
+ * * `DagsterCloud` - DagsterCloud
+ * * `Env0` - Env0
+ * * `Kubecost` - Kubecost
+ * * `Snyk` - Snyk
+ * * `Semgrep` - Semgrep
+ * * `Veracode` - Veracode
+ * * `Checkmarx` - Checkmarx
+ * * `Gitguardian` - Gitguardian
+ * * `QualysVmdr` - QualysVmdr
+ * * `Rapid7Insightvm` - Rapid7Insightvm
+ * * `TenableVulnerabilityManagement` - TenableVulnerabilityManagement
+ * * `Sentinelone` - Sentinelone
+ * * `Lacework` - Lacework
+ * * `OrcaSecurity` - OrcaSecurity
+ * * `Drata` - Drata
+ * * `Secureframe` - Secureframe
+ * * `CiscoDuo` - CiscoDuo
+ * * `Jumpcloud` - Jumpcloud
+ * * `OnePassword` - OnePassword
+ * * `Stytch` - Stytch
+ * * `Sonarqube` - Sonarqube
+ * * `Codecov` - Codecov
+ * * `Coveralls` - Coveralls
+ * * `Codacy` - Codacy
+ * * `Deepsource` - Deepsource
+ * * `Linearb` - Linearb
+ * * `Jellyfish` - Jellyfish
+ * * `Swarmia` - Swarmia
+ * * `Packagist` - Packagist
+ * * `Nuget` - Nuget
+ * * `CratesIO` - CratesIO
+ * * `SonatypeNexus` - SonatypeNexus
+ * * `JfrogArtifactory` - JfrogArtifactory
+ * * `Snowplow` - Snowplow
+ * * `WeightsAndBiases` - WeightsAndBiases
+ * * `MonteCarlo` - MonteCarlo
+ * * `Metaplane` - Metaplane
+ * * `Datahub` - Datahub
+ * * `ClickhouseCloud` - ClickhouseCloud
+ * * `ConfluentCloud` - ConfluentCloud
+ * * `KongKonnect` - KongKonnect
+ * * `Kandji` - Kandji
+ * * `Automox` - Automox
+ * * `Autumn` - Autumn
+ * * `GetStream` - GetStream
+ * * `Octolens` - Octolens
+ * * `Kajabi` - Kajabi
+ * * `Shopware` - Shopware
+ * * `Dubsado` - Dubsado
+ * * `Campfire` - Campfire
+ * * `PromptWatch` - PromptWatch
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2778,6 +2858,103 @@ export const ExternalDataSourceTypeEnumApi = {
     Kickscale: 'Kickscale',
     Zellify: 'Zellify',
     RudderStack: 'RudderStack',
+    DodoPayments: 'DodoPayments',
+    Salestrics: 'Salestrics',
+    Doppler: 'Doppler',
+    Usersnap: 'Usersnap',
+    Asknicely: 'Asknicely',
+    Featurebase: 'Featurebase',
+    Frill: 'Frill',
+    Bettermode: 'Bettermode',
+    Dynatrace: 'Dynatrace',
+    Honeycomb: 'Honeycomb',
+    SumoLogic: 'SumoLogic',
+    LogzIO: 'LogzIO',
+    Coralogix: 'Coralogix',
+    BetterStack: 'BetterStack',
+    Raygun: 'Raygun',
+    Honeybadger: 'Honeybadger',
+    Airbrake: 'Airbrake',
+    Appsignal: 'Appsignal',
+    Appdynamics: 'Appdynamics',
+    Instana: 'Instana',
+    SplunkObservabilityCloud: 'SplunkObservabilityCloud',
+    Uptimerobot: 'Uptimerobot',
+    Statuscake: 'Statuscake',
+    Tailscale: 'Tailscale',
+    Flagsmith: 'Flagsmith',
+    Xmatters: 'Xmatters',
+    Squadcast: 'Squadcast',
+    Zenduty: 'Zenduty',
+    Cronitor: 'Cronitor',
+    Jenkins: 'Jenkins',
+    Bitbucket: 'Bitbucket',
+    Gitea: 'Gitea',
+    Teamcity: 'Teamcity',
+    TravisCI: 'TravisCI',
+    Semaphore: 'Semaphore',
+    CircleciInsights: 'CircleciInsights',
+    OctopusDeploy: 'OctopusDeploy',
+    Sourcegraph: 'Sourcegraph',
+    Bitrise: 'Bitrise',
+    Gerrit: 'Gerrit',
+    TerraformCloud: 'TerraformCloud',
+    PulumiCloud: 'PulumiCloud',
+    Spacelift: 'Spacelift',
+    Railway: 'Railway',
+    Argocd: 'Argocd',
+    PrefectCloud: 'PrefectCloud',
+    DagsterCloud: 'DagsterCloud',
+    Env0: 'Env0',
+    Kubecost: 'Kubecost',
+    Snyk: 'Snyk',
+    Semgrep: 'Semgrep',
+    Veracode: 'Veracode',
+    Checkmarx: 'Checkmarx',
+    Gitguardian: 'Gitguardian',
+    QualysVmdr: 'QualysVmdr',
+    Rapid7Insightvm: 'Rapid7Insightvm',
+    TenableVulnerabilityManagement: 'TenableVulnerabilityManagement',
+    Sentinelone: 'Sentinelone',
+    Lacework: 'Lacework',
+    OrcaSecurity: 'OrcaSecurity',
+    Drata: 'Drata',
+    Secureframe: 'Secureframe',
+    CiscoDuo: 'CiscoDuo',
+    Jumpcloud: 'Jumpcloud',
+    OnePassword: 'OnePassword',
+    Stytch: 'Stytch',
+    Sonarqube: 'Sonarqube',
+    Codecov: 'Codecov',
+    Coveralls: 'Coveralls',
+    Codacy: 'Codacy',
+    Deepsource: 'Deepsource',
+    Linearb: 'Linearb',
+    Jellyfish: 'Jellyfish',
+    Swarmia: 'Swarmia',
+    Packagist: 'Packagist',
+    Nuget: 'Nuget',
+    CratesIO: 'CratesIO',
+    SonatypeNexus: 'SonatypeNexus',
+    JfrogArtifactory: 'JfrogArtifactory',
+    Snowplow: 'Snowplow',
+    WeightsAndBiases: 'WeightsAndBiases',
+    MonteCarlo: 'MonteCarlo',
+    Metaplane: 'Metaplane',
+    Datahub: 'Datahub',
+    ClickhouseCloud: 'ClickhouseCloud',
+    ConfluentCloud: 'ConfluentCloud',
+    KongKonnect: 'KongKonnect',
+    Kandji: 'Kandji',
+    Automox: 'Automox',
+    Autumn: 'Autumn',
+    GetStream: 'GetStream',
+    Octolens: 'Octolens',
+    Kajabi: 'Kajabi',
+    Shopware: 'Shopware',
+    Dubsado: 'Dubsado',
+    Campfire: 'Campfire',
+    PromptWatch: 'PromptWatch',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

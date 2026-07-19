@@ -3,10 +3,16 @@ import uuid
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pyarrow as pa
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import run_post_load_operations
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import (
+    IncrementalFieldMissingFromDataError,
+    get_incremental_field_value,
+    run_post_load_operations,
+)
 
 _LOAD_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load"
 _PIPELINE_SYNC_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync"
@@ -183,3 +189,31 @@ class TestRunPostLoadDeltaMaintenance:
 
         mock_capture.assert_called_once()
         prepare_s3.assert_awaited_once()
+
+
+class TestGetIncrementalFieldValue:
+    def _schema(self, incremental_field: str) -> MagicMock:
+        schema = MagicMock()
+        schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
+        schema.sync_type_config = {"incremental_field": incremental_field, "incremental_field_type": "integer"}
+        schema.incremental_field_type = "integer"
+        return schema
+
+    def test_returns_max_of_configured_column(self):
+        table = pa.table({"id": ["a", "b"], "created": [10, 20]})
+        assert get_incremental_field_value(self._schema("created"), table) == 20
+
+    def test_missing_column_raises_actionable_error_matched_by_non_retryable_map(self):
+        # A label like "created_at" persisted instead of the real field must fail with guidance
+        # (not a raw pyarrow KeyError), and the message must keep matching the Any_Source_Errors
+        # substring so the schema is paused instead of retrying the same failure forever.
+        table = pa.table({"id": ["a"], "created": [10]})
+
+        with pytest.raises(IncrementalFieldMissingFromDataError) as exc_info:
+            get_incremental_field_value(self._schema("created_at"), table)
+
+        message = str(exc_info.value)
+        assert '"created_at"' in message
+        assert "created" in message  # available columns are listed for self-service fixing
+        matching_keys = [key for key in Any_Source_Errors if key in message]
+        assert matching_keys, "exception message must stay matched by an Any_Source_Errors entry"

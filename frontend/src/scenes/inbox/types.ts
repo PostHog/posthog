@@ -32,10 +32,21 @@ export interface EnrichedReviewer {
     github_name: string | null
     relevant_commits: RelevantCommit[]
     user: SignalReviewerUserInfo | null
+    /** Why this reviewer was chosen. Absent on artefacts stored before the field existed. */
+    reason?: string | null
 }
 
 /** P0 (highest) – P4 (lowest). Mirrors desktop `SignalReportPriority`. */
 export type SignalReportPriority = 'P0' | 'P1' | 'P2' | 'P3' | 'P4'
+
+/** Threshold options over SignalReportPriority, strictest first. Shared by the auto-start and Slack min-priority selects. */
+export const PRIORITY_THRESHOLD_OPTIONS: { value: SignalReportPriority; label: string }[] = [
+    { value: 'P0', label: 'P0 only' },
+    { value: 'P1', label: 'P1 and above' },
+    { value: 'P2', label: 'P2 and above' },
+    { value: 'P3', label: 'P3 and above' },
+    { value: 'P4', label: 'P4 and above' },
+]
 
 /** Actionability judgment outcome. Mirrors desktop `SignalReportActionability`. */
 export type SignalReportActionability = 'immediately_actionable' | 'requires_human_input' | 'not_actionable'
@@ -210,14 +221,18 @@ export const INBOX_SCOPE_ENTIRE_PROJECT: InboxScope = 'entire-project'
 
 // ── SignalReport ↔ Task linkage ─────────────────────────────────────────────
 // The task↔report association is the `task_run` artefact log (see artefactTypes.ts). The
-// relationship vocabulary below is retained only for the task-creation kickoff path, where the
-// backend still accepts `signal_report_task_relationship` (implementation) when starting a PR run.
+// relationship vocabulary below is what a client may assert on the task-creation kickoff path via
+// `signal_report_task_relationship`: `implementation` starts a PR run (and opens the auto-start
+// spend gate), `discussion` links a discuss-the-report task. `research` is reserved for the
+// server-side research pipeline and is rejected by the tasks API.
 
-export const SIGNAL_REPORT_TASK_RELATIONSHIPS = ['repo_selection', 'research', 'implementation'] as const
+export const SIGNAL_REPORT_TASK_RELATIONSHIPS = ['implementation', 'discussion'] as const
 
 export type SignalReportTaskRelationship = (typeof SIGNAL_REPORT_TASK_RELATIONSHIPS)[number]
 
 export const SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP: SignalReportTaskRelationship = 'implementation'
+
+export const SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP: SignalReportTaskRelationship = 'discussion'
 
 // ── Autonomy config (per-user override; backend SignalUserAutonomyConfigView) ─
 
@@ -235,7 +250,9 @@ export interface SignalUserAutonomyConfig {
 
 export interface SignalTeamConfig {
     id?: string
-    /** Team-wide default PR auto-start threshold. null = never auto-start by default. */
+    /** Master switch for autonomous inbox PRs. Only an explicit false disables auto-start; null (never set) leaves it on. */
+    autostart_enabled?: boolean | null
+    /** Team-wide default PR auto-start threshold (P0–P4, non-null from the API). "Never" is expressed via autostart_enabled instead. */
     default_autostart_priority: SignalReportPriority | null
     /** Default Slack channel for this team's inbox notifications. */
     default_slack_notification_channel?: string | null
