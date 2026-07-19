@@ -174,7 +174,7 @@ class TestProcessRunDiffs:
             logic.complete_run(create_result.run_id)
 
         # Process - should skip unchanged snapshot
-        process_diffs(create_result.run_id)
+        assert process_diffs(create_result.run_id) == 0
 
         # Snapshot should remain unchanged
         snapshots = api.get_run_snapshots(create_result.run_id).snapshots
@@ -195,7 +195,7 @@ class TestProcessRunDiffs:
         )
 
         # Process - should skip new snapshot (no baseline to diff against)
-        process_diffs(create_result.run_id)
+        assert process_diffs(create_result.run_id) == 0
 
         snapshots = api.get_run_snapshots(create_result.run_id).snapshots
         assert len(snapshots) == 1
@@ -389,8 +389,6 @@ class TestPostApprovalCommentTask:
             post_approval_comment(repo.team_id, "00000000-0000-0000-0000-000000000002")
 
     def test_retries_on_rate_limit(self, repo):
-        from posthog.egress.github.transport import GitHubRateLimitError
-
         with (
             patch(
                 "products.visual_review.backend.logic.post_approval_comment_for_run",

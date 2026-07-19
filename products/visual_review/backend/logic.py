@@ -955,8 +955,10 @@ def complete_run(run_id: UUID) -> Run:
         except HashIntegrityError as e:
             logger.warning("visual_review.hash_integrity_failed", run_id=str(run_id), error=str(e))
             finish_processing(run_id, error_message=str(e))
+            capture_run_processing_metrics(run_id, outcome="hash_integrity_failed", diffed_count=0)
             return get_run(run_id)
         finish_processing(run_id)
+        capture_run_processing_metrics(run_id, outcome="completed", diffed_count=0)
         return get_run(run_id)
 
     mark_run_processing(run_id)
@@ -1251,7 +1253,7 @@ def capture_run_processing_metrics(run_id: UUID, *, outcome: str, diffed_count: 
     """
     try:
         try:
-            run = Run.objects.select_related("repo").get(id=run_id)
+            run = Run.objects.using(WRITER_DB).select_related("repo").get(id=run_id)
         except Run.DoesNotExist:
             return
 

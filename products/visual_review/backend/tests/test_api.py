@@ -294,10 +294,12 @@ class TestRunAPI:
             team_id=repo.team_id,
         )
 
-        result = api.complete_run(create_result.run_id)
+        with patch("products.visual_review.backend.logic.capture_run_processing_metrics") as capture:
+            result = api.complete_run(create_result.run_id)
 
         assert result.status == "completed"
         mock_delay.assert_not_called()
+        capture.assert_called_once_with(create_result.run_id, outcome="completed", diffed_count=0)
 
     @patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
     def test_complete_run_with_changes_triggers_task(self, mock_delay, repo):

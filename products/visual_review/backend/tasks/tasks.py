@@ -47,6 +47,7 @@ def process_run_diffs(self, team_id: int, run_id: str) -> None:
 
     run_uuid = UUID(run_id)
     outcome = "completed"
+    diffed_count = 0
     retrying = False
     diffed_count = 0
 
@@ -79,14 +80,13 @@ def process_run_diffs(self, team_id: int, run_id: str) -> None:
                 retry=self.request.retries,
                 max_retries=self.max_retries,
             )
-            try:
+            if self.max_retries is not None and self.request.retries >= self.max_retries:
+                outcome = "rate_limit_exhausted"
+                logic.finish_processing(run_uuid, error_message="GitHub API rate limit exceeded after retries")
+            else:
                 retrying = True
                 countdown = e.retry_after or 60
                 self.retry(countdown=min(countdown, 600), exc=e)
-            except self.MaxRetriesExceededError:
-                retrying = False
-                outcome = "rate_limit_exhausted"
-                logic.finish_processing(run_uuid, error_message="GitHub API rate limit exceeded after retries")
         except Exception as e:
             outcome = "failed"
             span.set_status(Status(StatusCode.ERROR, str(e)))
