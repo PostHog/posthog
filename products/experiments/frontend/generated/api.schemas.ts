@@ -1883,6 +1883,8 @@ export interface ExperimentMetricsRecalculationApi {
     readonly failed_metrics: number
     /** Map of metric_uuid to error details */
     readonly metric_errors: unknown
+    /** Transient retry state per metric_uuid: {attempt, max_attempts, error_type, next_retry_at}. Present only while a metric is between failed attempts; cleared when it succeeds or fails terminally, so treat entries for metrics that already have a result as stale. */
+    readonly metric_retries: unknown
     /** What triggered this recalculation
      *
      * * `manual` - Manual
