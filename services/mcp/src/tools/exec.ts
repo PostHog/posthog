@@ -13,6 +13,7 @@ import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-sear
 import type { ScopeGatedTool } from './toolDefinitions'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
+    POSTHOG_INFORMATIONAL_RESPONSE_KEY,
     POSTHOG_META_KEY,
     type Context,
     type Tool,
@@ -50,6 +51,12 @@ export type ExecInnerCallTracker = (toolName: string, properties: ExecInnerCallP
 export interface ExecToolOptions {
     requireDestructiveConfirmation?: boolean
     helpCatalog?: ExecHelpCatalog
+    /**
+     * Allows the standalone CLI to return raw JSON for informational responses.
+     * Never enable this for the MCP-exposed exec tool, where raw untrusted content
+     * would bypass the model-facing informational boundary.
+     */
+    allowRawInformationalJson?: boolean
     /**
      * Client is an inline-exec UI-app host that renders MCP UI apps on the exec
      * response (Claude Code, Cowork). Gets the same UI-app payload treatment as the
@@ -530,6 +537,32 @@ export function createExecTool(
                         throw err
                     }
                     const durationMs = Date.now() - startedAt
+                    const formattedOverride =
+                        result !== null && typeof result === 'object'
+                            ? (result as Record<string, unknown>)[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]
+                            : undefined
+                    const isInformationalResponse =
+                        result !== null &&
+                        typeof result === 'object' &&
+                        (result as Record<string, unknown>)[POSTHOG_INFORMATIONAL_RESPONSE_KEY] === true
+
+                    if (
+                        useJson &&
+                        isInformationalResponse &&
+                        typeof formattedOverride === 'string' &&
+                        !options.allowRawInformationalJson
+                    ) {
+                        const outputText = JSON.stringify({ content: formattedOverride })
+                        trackInnerCall?.(tool.name, {
+                            duration_ms: durationMs,
+                            success: true,
+                            output_format: 'json',
+                            input_tokens: estimateTokens(input),
+                            output_tokens: estimateTokens(outputText),
+                            input,
+                        })
+                        return outputText
+                    }
 
                     // If the inner tool has a UI app attached AND the caller self-identifies as
                     // PostHog Code (the UI-apps host), emit a full `CallToolResult` payload
@@ -581,10 +614,6 @@ export function createExecTool(
                         // `results`/`_posthogUrl` payload would otherwise duplicate the table
                         // and crowd it out — buildToolResultPayload makes the same choice for
                         // the non-exec path, this keeps exec consistent.
-                        const formattedOverride =
-                            result !== null && typeof result === 'object'
-                                ? (result as Record<string, unknown>)[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]
-                                : undefined
                         outputText = typeof formattedOverride === 'string' ? formattedOverride : formatResponse(result)
                     }
                     trackInnerCall?.(tool.name, {

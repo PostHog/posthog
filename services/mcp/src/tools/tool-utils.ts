@@ -1,4 +1,4 @@
-import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, type Context } from '@/tools/types'
+import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_INFORMATIONAL_RESPONSE_KEY, type Context } from '@/tools/types'
 
 /**
  * Adds a _posthogUrl field to a result. For object results it's a sibling field; for raw
@@ -45,6 +45,7 @@ const INFORMATIONAL_RESPONSE_NOTICE =
 
 export type WithInformationalResponse<T = unknown> = T & {
     [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: string
+    [POSTHOG_INFORMATIONAL_RESPONSE_KEY]: true
 }
 
 export function withInformationalResponse<T>(result: T, tag: string, purpose?: string): WithInformationalResponse<T> {
@@ -68,6 +69,10 @@ export function withInformationalResponse<T>(result: T, tag: string, purpose?: s
             }
             return formattedResult
         },
+    })
+    Object.defineProperty(wrappedResult, POSTHOG_INFORMATIONAL_RESPONSE_KEY, {
+        value: true,
+        enumerable: false,
     })
 
     return wrappedResult as WithInformationalResponse<T>

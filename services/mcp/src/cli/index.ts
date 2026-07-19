@@ -75,7 +75,7 @@ function buildStaticExec(): BuiltStaticExec {
         'posthog-cli',
         undefined,
         [],
-        { requireDestructiveConfirmation: true }
+        { requireDestructiveConfirmation: true, allowRawInformationalJson: true }
     )
 
     return { execTool, tools }
@@ -103,7 +103,7 @@ async function buildExec(config: CliConfig = resolveCliConfig()): Promise<BuiltE
             void context.trackEvent(AnalyticsEvent.MCP_TOOL_CALL, toolCallProperties)
         },
         [],
-        { requireDestructiveConfirmation: true }
+        { requireDestructiveConfirmation: true, allowRawInformationalJson: true }
     )
 
     return { context, execTool, tools }
