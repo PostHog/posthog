@@ -72,21 +72,28 @@ def process_run_diffs(self, team_id: int, run_id: str) -> None:
             logger.warning("visual_review.hash_integrity_failed", run_id=run_id, error=str(e))
             logic.finish_processing(run_uuid, error_message=str(e))
         except GitHubRateLimitError as e:
-            outcome = "rate_limited"
-            logger.warning(
-                "visual_review.diff_processing_rate_limited",
-                run_id=run_id,
-                retry=self.request.retries,
-                max_retries=self.max_retries,
-            )
-            try:
+            # Task.retry(exc=e) re-raises the original exception (not
+            # MaxRetriesExceededError) once retries are exhausted, so detect the
+            # final attempt explicitly to guarantee a terminal event is emitted.
+            if self.request.retries >= self.max_retries:
+                outcome = "rate_limit_exhausted"
+                logger.warning(
+                    "visual_review.diff_processing_rate_limit_exhausted",
+                    run_id=run_id,
+                    max_retries=self.max_retries,
+                )
+                logic.finish_processing(run_uuid, error_message="GitHub API rate limit exceeded after retries")
+            else:
+                outcome = "rate_limited"
                 retrying = True
+                logger.warning(
+                    "visual_review.diff_processing_rate_limited",
+                    run_id=run_id,
+                    retry=self.request.retries,
+                    max_retries=self.max_retries,
+                )
                 countdown = e.retry_after or 60
                 self.retry(countdown=min(countdown, 600), exc=e)
-            except self.MaxRetriesExceededError:
-                retrying = False
-                outcome = "rate_limit_exhausted"
-                logic.finish_processing(run_uuid, error_message="GitHub API rate limit exceeded after retries")
         except Exception as e:
             outcome = "failed"
             span.set_status(Status(StatusCode.ERROR, str(e)))

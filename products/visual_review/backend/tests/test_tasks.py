@@ -108,6 +108,40 @@ class TestProcessRunDiffs:
         assert capture.call_args.kwargs["outcome"] == "failed"
         assert capture.call_args.kwargs["diffed_count"] == 0
 
+    def test_emits_metrics_event_for_clean_run_fast_path(self, repo):
+        # A run with no changed/new snapshots finishes synchronously in complete_run
+        # and never queues process_run_diffs, so without explicit emission there it
+        # would leave clean runs out of the runs-per-day denominator.
+        logic.get_or_create_artifact(
+            repo_id=repo.id,
+            content_hash="same_hash",
+            storage_path="visual_review/same_hash",
+        )
+        create_result = api.create_run(
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="main",
+                snapshots=[SnapshotManifestItem(identifier="Button", content_hash="same_hash")],
+                baseline_hashes={"Button": "same_hash"},
+            ),
+            team_id=repo.team_id,
+        )
+
+        with (
+            patch(
+                "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+                return_value=({"Button": "same_hash"}, 0),
+            ),
+            patch("products.visual_review.backend.logic.capture_run_processing_metrics") as capture,
+        ):
+            logic.complete_run(create_result.run_id)
+
+        capture.assert_called_once()
+        assert capture.call_args.kwargs["outcome"] == "completed"
+        assert capture.call_args.kwargs["diffed_count"] == 0
+
     def testprocess_diffs_skips_unchanged(self, repo):
         # Create artifact that exists for both baseline and current
         logic.get_or_create_artifact(

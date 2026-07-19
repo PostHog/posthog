@@ -940,8 +940,11 @@ def complete_run(run_id: UUID) -> Run:
         except HashIntegrityError as e:
             logger.warning("visual_review.hash_integrity_failed", run_id=str(run_id), error=str(e))
             finish_processing(run_id, error_message=str(e))
+            capture_run_processing_metrics(run_id, outcome="hash_integrity_failed", diffed_count=0)
             return get_run(run_id)
         finish_processing(run_id)
+        # No snapshots to diff on this path, so diffed_count is 0.
+        capture_run_processing_metrics(run_id, outcome="completed", diffed_count=0)
         return get_run(run_id)
 
     mark_run_processing(run_id)
@@ -1230,13 +1233,20 @@ def capture_run_processing_metrics(run_id: UUID, *, outcome: str, diffed_count: 
     tolerance cache stop absorbing work — apart from plain run-volume growth.
     Where the time goes is captured separately as OTel spans in the task.
 
+    Fires on every terminal outcome, including the no-change fast path in
+    ``complete_run`` that never queues the task, so clean runs still count
+    toward runs-per-day.
+
     Best-effort: instrumentation must never fail or slow the task, so every
     error is swallowed — including so it can't mask a real exception when
     called from the task's ``finally``.
     """
     try:
         try:
-            run = Run.objects.select_related("repo").get(id=run_id)
+            # Read-after-write: finish_processing just wrote status + counts to
+            # the writer, so read from the writer to avoid replica lag emitting
+            # a stale PROCESSING row (or missing the row entirely).
+            run = Run.objects.select_related("repo").using(WRITER_DB).get(id=run_id)
         except Run.DoesNotExist:
             return
 
@@ -1257,6 +1267,10 @@ def capture_run_processing_metrics(run_id: UUID, *, outcome: str, diffed_count: 
             "tolerated_match_count": run.tolerated_match_count,
             "diffed_count": diffed_count,
             "reviewable_count": run.changed_count + run.new_count + run.removed_count,
+            # process_run_diffs uses acks_late, so a worker loss after capture
+            # but before ack redelivers the task. Dedupe redeliveries on the
+            # terminal (run, outcome) so runs-per-day isn't inflated.
+            "$insert_id": f"vr_run_processed:{run.id}:{outcome}",
         }
 
         with ph_scoped_capture() as capture_ph_event:
