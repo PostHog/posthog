@@ -146,6 +146,17 @@ describe('PieChart', () => {
             expect(onSliceClick.mock.calls[0][0].series.key).toBe('b')
         })
 
+        it('resolves the clicked slice from the cursor without a preceding hover', () => {
+            const onSliceClick = jest.fn<void, [RadialSlicePayload]>()
+            const { chart } = renderHogChart(<PieChart series={SERIES} theme={THEME} onSliceClick={onSliceClick} />)
+            const layout = layoutFor(SERIES)
+            // No mousemove first: a fast click (or one on a slice boundary) must still resolve the
+            // slice under the cursor rather than depend on a settled hover index.
+            fireEvent.click(chart.element, pointInSlice(layout, 0))
+            expect(onSliceClick).toHaveBeenCalledWith(expect.objectContaining({ sliceIndex: 0 }))
+            expect(onSliceClick.mock.calls[0][0].series.key).toBe('a')
+        })
+
         it('does not invoke onSliceClick when the click misses every slice', () => {
             const onSliceClick = jest.fn()
             const { chart } = renderHogChart(

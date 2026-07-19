@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 
 import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
@@ -62,5 +62,26 @@ describe('TrendsPieChart (ActionsPie)', () => {
             { timeout: 5000 }
         )
         expect([...sliceLabels()].sort()).toEqual([...expectedLabels].sort())
+    })
+
+    it('drills into all actors when the aggregation total is clicked', async () => {
+        // The prominent total invites clicks — it must be wired to a drill-down rather than sit
+        // inert (the reported dead click). Assert the drill-down fires with an unscoped payload
+        // (no breakdown/compare/day) so it targets everyone the sum represents, not one slice.
+        const onDataPointClick = jest.fn()
+        renderInsight({ query: pieByHedgehog(), context: { onDataPointClick } })
+        await screen.findByRole('img', { name: /pie chart with/i }, { timeout: 5000 })
+
+        const total = await screen.findByTestId('trend-pie-total')
+        expect(total).toHaveClass('cursor-pointer')
+        fireEvent.click(total)
+
+        await waitFor(
+            () => {
+                expect(onDataPointClick).toHaveBeenCalledTimes(1)
+            },
+            { timeout: 5000 }
+        )
+        expect(onDataPointClick.mock.calls[0][0]).toEqual({})
     })
 })
