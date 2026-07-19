@@ -530,6 +530,36 @@
                         }
                     },
                     "required": ["id"]
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "organizationId": {
+                            "type": "string",
+                            "description": "Alias for `orgId`. Accepts the `id` returned by `organizations-list` / `organization-get`."
+                        }
+                    },
+                    "required": ["organizationId"]
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "organization_id": {
+                            "type": "string",
+                            "description": "Alias for `orgId`. Accepts the `id` returned by `organizations-list` / `organization-get`."
+                        }
+                    },
+                    "required": ["organization_id"]
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "org_id": {
+                            "type": "string",
+                            "description": "Alias for `orgId`. Accepts the `id` returned by `organizations-list` / `organization-get`."
+                        }
+                    },
+                    "required": ["org_id"]
                 }
             ]
         },
