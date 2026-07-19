@@ -133,21 +133,27 @@ describe('scannerQualityLogic', () => {
         })
     })
 
-    it('assembles config from base plus field edits, defaulting to the suggested value', async () => {
+    const EDITABLE_SUGGESTION = {
+        ...PENDING_SUGGESTION,
+        base_config: { prompt: 'base', tags: ['a', 'b'] },
+        suggested_config: { prompt: 'new', tags: ['a', 'b', 'c'] },
+        changes: [
+            { field: 'prompt', kind: 'prompt', op: 'set', before: 'base', after: 'new' },
+            { field: 'tags', kind: 'tags', op: 'add', before: null, after: 'c' },
+        ],
+    }
+
+    const mockEditableCurrent = (): void => {
         ;(visionScannersPromptSuggestionsCurrentRetrieve as jest.Mock).mockResolvedValue({
-            suggestion: {
-                ...PENDING_SUGGESTION,
-                base_config: { prompt: 'base', tags: ['a', 'b'] },
-                suggested_config: { prompt: 'new', tags: ['a', 'b', 'c'] },
-                changes: [
-                    { field: 'prompt', kind: 'prompt', op: 'set', before: 'base', after: 'new' },
-                    { field: 'tags', kind: 'tags', op: 'add', before: null, after: 'c' },
-                ],
-            },
+            suggestion: EDITABLE_SUGGESTION,
             stale: false,
             rated_count: 3,
             evaluation_session_cap: 10,
         })
+    }
+
+    it('assembles config from base plus field edits, defaulting to the suggested value', async () => {
+        mockEditableCurrent()
         await mountLogic()
 
         expect(logic.values.assembledConfig).toEqual({ prompt: 'new', tags: ['a', 'b', 'c'] })
@@ -155,16 +161,33 @@ describe('scannerQualityLogic', () => {
         expect(logic.values.applyIsNoop).toBe(false)
 
         // Editing a field flows straight into what apply would write.
-        await expectLogic(logic, () => logic.actions.setFieldValue('tags', ['a', 'c'])).toMatchValues({
+        await expectLogic(logic, () => logic.actions.setFieldValue('sug-1', 'tags', ['a', 'c'])).toMatchValues({
             assembledConfig: { prompt: 'new', tags: ['a', 'c'] },
         })
 
         // Editing every field back to the current config makes applying a no-op.
-        logic.actions.setFieldValue('prompt', 'base')
-        await expectLogic(logic, () => logic.actions.setFieldValue('tags', ['a', 'b'])).toMatchValues({
+        logic.actions.setFieldValue('sug-1', 'prompt', 'base')
+        await expectLogic(logic, () => logic.actions.setFieldValue('sug-1', 'tags', ['a', 'b'])).toMatchValues({
             assembledConfig: { prompt: 'base', tags: ['a', 'b'] },
             applyIsNoop: true,
         })
+    })
+
+    it('a background suggestion refresh keeps in-flight edits and the last tested config', async () => {
+        mockEditableCurrent()
+        ;(visionScannersPromptSuggestionsEvaluateCreate as jest.Mock).mockResolvedValue(EDITABLE_SUGGESTION)
+        await mountLogic()
+
+        logic.actions.evaluateSuggestion('sug-1', logic.values.assembledConfig)
+        await expectLogic(logic).toDispatchActions(['evaluateSuggestionSuccess'])
+        logic.actions.setFieldValue('sug-1', 'prompt', 'my edit')
+
+        // A rating or an evaluation poll refreshes the current suggestion in the background.
+        logic.actions.loadCurrentSuggestion()
+        await expectLogic(logic).toDispatchActions(['loadCurrentSuggestionSuccess'])
+
+        expect(logic.values.assembledConfig).toEqual({ prompt: 'my edit', tags: ['a', 'b', 'c'] })
+        expect(logic.values.recommendationEditedSinceTest).toBe(true)
     })
 
     it('a stale current-suggestion read does not clobber a fresh generate', async () => {

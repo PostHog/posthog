@@ -2,6 +2,7 @@ import {
     buildAppliedConfig,
     changedFields,
     describeTagOp,
+    fieldEditor,
     formatChangeValue,
     parseConfigChanges,
 } from './configChanges'
@@ -75,6 +76,14 @@ describe('configChanges', () => {
         ['no edits leaves the base untouched', {}, { prompt: 'base', tags: ['a'] }],
     ])('buildAppliedConfig: %s', (_name, fieldValues, expected) => {
         expect(buildAppliedConfig({ prompt: 'base', tags: ['a'] }, fieldValues)).toEqual(expected)
+    })
+
+    it.each([
+        ['a mapped field', 'allow_inconclusive', true, 'flag'],
+        ['an unknown boolean falls back to a flag', 'some_new_flag', false, 'flag'],
+        ['an unknown string falls back to text', 'some_new_field', 'x', 'text'],
+    ])('fieldEditor resolves %s', (_name, field, value, expectedKind) => {
+        expect(fieldEditor(field, value).kind).toBe(expectedKind)
     })
 
     it('buildAppliedConfig only overlays the given fields, leaving the rest of base intact', () => {

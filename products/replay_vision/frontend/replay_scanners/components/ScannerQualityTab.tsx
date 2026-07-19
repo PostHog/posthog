@@ -375,7 +375,12 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
     } else {
         body = (
             <div className="space-y-3">
-                <SuggestionDetails suggestion={currentSuggestion} isDarkModeOn={isDarkModeOn} scannerId={scannerId} />
+                <SuggestionDetails
+                    suggestion={currentSuggestion}
+                    isDarkModeOn={isDarkModeOn}
+                    scannerId={scannerId}
+                    readOnly={currentSuggestion.status !== 'pending'}
+                />
                 {currentSuggestion.status === 'pending' && (
                     <SuggestionEvaluationPanel
                         suggestion={currentSuggestion}

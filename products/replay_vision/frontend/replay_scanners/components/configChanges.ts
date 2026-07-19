@@ -1,3 +1,5 @@
+import { identifierToHuman } from 'lib/utils/strings'
+
 export interface ScannerConfigChange {
     field: string
     kind: 'prompt' | 'tags' | 'scale' | 'length' | 'flag'
@@ -52,8 +54,29 @@ export function changedFields(changes: ScannerConfigChange[]): { field: string; 
     return fields
 }
 
-/** The config to write: the current config with the user's edited field values laid over it. A field edited
- *  back to its current value is a no-op. */
+export type FieldEditorKind = 'prompt' | 'tags' | 'scale' | 'length' | 'flag' | 'text'
+
+const FIELD_EDITORS: Record<string, { kind: FieldEditorKind; label: string }> = {
+    prompt: { kind: 'prompt', label: 'Prompt' },
+    tags: { kind: 'tags', label: 'Tags' },
+    scale: { kind: 'scale', label: 'Scale' },
+    length: { kind: 'length', label: 'Summary length' },
+    multi_label: { kind: 'flag', label: 'Multiple tags per session' },
+    allow_freeform_tags: { kind: 'flag', label: 'Freeform tags' },
+    allow_inconclusive: { kind: 'flag', label: 'Allow inconclusive verdicts' },
+}
+
+/** Editor kind and label for a config field, falling back on the value's type for unknown fields. */
+export function fieldEditor(field: string, value: unknown): { kind: FieldEditorKind; label: string } {
+    return (
+        FIELD_EDITORS[field] ?? {
+            kind: typeof value === 'boolean' ? 'flag' : 'text',
+            label: identifierToHuman(field),
+        }
+    )
+}
+
+/** The current config with the user's edited field values laid over it. */
 export function buildAppliedConfig(
     baseConfig: Record<string, unknown>,
     fieldValues: Record<string, unknown>

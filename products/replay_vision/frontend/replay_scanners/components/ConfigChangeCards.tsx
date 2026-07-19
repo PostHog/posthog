@@ -15,7 +15,7 @@ import {
 
 import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
-import { identifierToHuman } from 'lib/utils/strings'
+import { objectsEqual } from 'lib/utils/objects'
 
 import type { ReplayScannerPromptSuggestionApi } from '../../generated/api.schemas'
 import { scannerQualityLogic } from '../scannerQualityLogic'
@@ -23,22 +23,28 @@ import { SummarizerScannerConfig } from '../types'
 import {
     changedFields,
     describeTagOp,
+    fieldEditor,
+    FieldEditorKind,
     formatChangeValue,
     parseConfigChanges,
     ScannerConfigChange,
 } from './configChanges'
 import { SUMMARIZER_LENGTH_OPTIONS } from './ScannerTypeConfigEditor'
 
-/** The bordered side-by-side diff with labeled panes, rendered inline and inside the fullscreen modal. */
+/** The bordered side-by-side prompt diff. When editable, the right pane is the prompt editor. */
 function SuggestionDiffPanes({
     original,
     modified,
+    onChange,
+    editable,
     isDarkModeOn,
     editorHeight,
     onExpand,
 }: {
     original: string | null
     modified: string | null
+    onChange?: (value: string) => void
+    editable?: boolean
     isDarkModeOn: boolean
     editorHeight?: string
     onExpand?: () => void
@@ -48,7 +54,7 @@ function SuggestionDiffPanes({
             <div className="flex items-center border-b bg-surface-secondary text-xs font-medium">
                 <div className="flex-1 px-3 py-1.5 border-r">Current prompt</div>
                 <div className="flex-1 px-3 py-1.5 flex items-center justify-between">
-                    <span>New prompt</span>
+                    <span>{editable ? 'New prompt (edit directly)' : 'New prompt'}</span>
                     {onExpand && (
                         <LemonButton
                             size="xsmall"
@@ -63,11 +69,12 @@ function SuggestionDiffPanes({
             <MonacoDiffEditor
                 original={original}
                 modified={modified}
+                onChange={onChange ? (value) => onChange(value) : undefined}
+                modifiedEditable={editable}
                 language="markdown"
                 theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
                 height={editorHeight}
                 options={{
-                    readOnly: true,
                     renderSideBySide: true,
                     useInlineViewWhenSpaceIsLimited: false,
                     // Keep both panes at exactly half width on resize, in lockstep with the header row.
@@ -86,14 +93,18 @@ function SuggestionDiffPanes({
     )
 }
 
-/** The current-vs-new prompt diff, expandable to full screen. Its right pane reflects the edited value live. */
+/** The prompt diff, expandable to full screen. Edits in either instance flow through the same onChange. */
 function PromptDiff({
     original,
     modified,
+    onChange,
+    editable,
     isDarkModeOn,
 }: {
     original: string | null
     modified: string | null
+    onChange?: (value: string) => void
+    editable?: boolean
     isDarkModeOn: boolean
 }): JSX.Element {
     const [isExpanded, setIsExpanded] = useState(false)
@@ -102,6 +113,8 @@ function PromptDiff({
             <SuggestionDiffPanes
                 original={original}
                 modified={modified}
+                onChange={onChange}
+                editable={editable}
                 isDarkModeOn={isDarkModeOn}
                 onExpand={() => setIsExpanded(true)}
             />
@@ -109,6 +122,8 @@ function PromptDiff({
                 <SuggestionDiffPanes
                     original={original}
                     modified={modified}
+                    onChange={onChange}
+                    editable={editable}
                     isDarkModeOn={isDarkModeOn}
                     editorHeight="calc(100vh - 16rem)"
                 />
@@ -137,7 +152,7 @@ function TagChips({ changes }: { changes: ScannerConfigChange[] }): JSX.Element 
     )
 }
 
-/** The editable control for a field, by kind. */
+/** The editable control for a config field, by kind. */
 function FieldValueEditor({
     kind,
     value,
@@ -146,7 +161,7 @@ function FieldValueEditor({
     isDarkModeOn,
     tagChanges,
 }: {
-    kind: ScannerConfigChange['kind']
+    kind: FieldEditorKind
     value: unknown
     onChange: (value: unknown) => void
     basePrompt: string | null
@@ -154,20 +169,24 @@ function FieldValueEditor({
     tagChanges: ScannerConfigChange[]
 }): JSX.Element {
     if (kind === 'prompt') {
+        if (!basePrompt) {
+            return <LemonTextArea value={String(value ?? '')} onChange={onChange} minRows={6} />
+        }
         return (
-            <div className="space-y-2">
-                {basePrompt ? (
-                    <PromptDiff original={basePrompt} modified={String(value ?? '')} isDarkModeOn={isDarkModeOn} />
-                ) : null}
-                <LemonTextArea value={String(value ?? '')} onChange={onChange} minRows={6} />
-            </div>
+            <PromptDiff
+                original={basePrompt}
+                modified={String(value ?? '')}
+                onChange={onChange}
+                editable
+                isDarkModeOn={isDarkModeOn}
+            />
         )
     }
     if (kind === 'tags') {
         const tags = (value as string[]) ?? []
         return (
             <div className="space-y-2">
-                <TagChips changes={tagChanges} />
+                {tagChanges.length > 0 && <TagChips changes={tagChanges} />}
                 <LemonInputSelect
                     mode="multiple"
                     allowCustomValues
@@ -215,8 +234,10 @@ function FieldValueEditor({
             />
         )
     }
-    // flag: a plain on/off toggle for the boolean field.
-    return <LemonSwitch checked={!!value} onChange={onChange} label={value ? 'On' : 'Off'} />
+    if (kind === 'flag') {
+        return <LemonSwitch checked={!!value} onChange={onChange} label={value ? 'On' : 'Off'} />
+    }
+    return <LemonTextArea value={String(value ?? '')} onChange={onChange} minRows={2} />
 }
 
 /** The static before-to-after view of a field, used for past recommendations. */
@@ -255,8 +276,22 @@ function FieldValueReadOnly({
     )
 }
 
-/** One recommendation. For the current suggestion every changed field is editable, so the user controls the new
- *  version (a field edited back to its current value is a no-op). Past recommendations render read-only. */
+/** The rationales behind a field's changes, deduplicated (several tag ops often share one). */
+function FieldRationales({ fieldChanges }: { fieldChanges: ScannerConfigChange[] }): JSX.Element {
+    return (
+        <>
+            {[...new Set(fieldChanges.map((change) => change.rationale).filter(Boolean))].map((rationale) => (
+                <p key={rationale} className="text-xs text-muted m-0">
+                    {rationale}
+                </p>
+            ))}
+        </>
+    )
+}
+
+/** One recommendation. The current suggestion renders every configurable field as an editor seeded with the
+ *  AI's suggestion, so the user controls exactly what the new version will be (editing everything back to the
+ *  current config makes applying a no-op). Past recommendations render only their changes, read-only. */
 export function ConfigChangeCards({
     suggestion,
     isDarkModeOn,
@@ -271,12 +306,9 @@ export function ConfigChangeCards({
     const { fieldValues } = useValues(scannerQualityLogic({ scannerId }))
     const { setFieldValue } = useActions(scannerQualityLogic({ scannerId }))
     const changes = parseConfigChanges(suggestion.changes)
-    const fields = changedFields(changes)
-    const base = (suggestion.base_config ?? {}) as Record<string, unknown>
-    const suggested = (suggestion.suggested_config ?? {}) as Record<string, unknown>
 
-    // Rows written before changes[] existed carry no fields but may still rewrite the prompt.
-    if (fields.length === 0) {
+    // Rows written before changes[] existed only carry a prompt rewrite, with no full config to edit.
+    if (changes.length === 0) {
         return suggestion.base_prompt !== suggestion.suggested_prompt ? (
             <PromptDiff
                 original={suggestion.base_prompt}
@@ -288,23 +320,29 @@ export function ConfigChangeCards({
         )
     }
 
+    const base = (suggestion.base_config ?? {}) as Record<string, unknown>
+    const suggested = { ...base, ...((suggestion.suggested_config ?? {}) as Record<string, unknown>) }
+    const fieldNames = readOnly
+        ? changedFields(changes).map(({ field }) => field)
+        : Object.keys(suggested).sort((a, b) => (a === 'prompt' ? -1 : b === 'prompt' ? 1 : 0))
+
     return (
         <div className="space-y-3">
-            {fields.map(({ field, kind }) => {
+            {fieldNames.map((field) => {
                 const fieldChanges = changes.filter((change) => change.field === field)
-                const suggestedValue = suggested[field] ?? base[field]
-                const value = readOnly ? suggestedValue : fieldValues[field]
-                const edited = !readOnly && JSON.stringify(value) !== JSON.stringify(suggestedValue)
+                const value = readOnly ? suggested[field] : fieldValues[field]
+                const { kind, label } = fieldEditor(field, value)
+                const edited = !readOnly && !objectsEqual(value, suggested[field])
                 return (
                     <div key={field} className="border rounded p-2 space-y-2">
                         <div className="flex items-center justify-between">
-                            <span className="text-sm font-medium">{identifierToHuman(field)}</span>
+                            <span className="text-sm font-medium">{label}</span>
                             {edited && (
                                 <LemonButton
                                     size="xsmall"
                                     type="secondary"
                                     icon={<IconRevert />}
-                                    onClick={() => setFieldValue(field, suggestedValue)}
+                                    onClick={() => setFieldValue(suggestion.id, field, suggested[field])}
                                     tooltip="Revert to the suggested value"
                                     data-attr="vision-quality-revert-field"
                                 >
@@ -314,7 +352,7 @@ export function ConfigChangeCards({
                         </div>
                         {readOnly ? (
                             <FieldValueReadOnly
-                                kind={kind}
+                                kind={kind as ScannerConfigChange['kind']}
                                 suggestion={suggestion}
                                 isDarkModeOn={isDarkModeOn}
                                 fieldChanges={fieldChanges}
@@ -323,20 +361,13 @@ export function ConfigChangeCards({
                             <FieldValueEditor
                                 kind={kind}
                                 value={value}
-                                onChange={(newValue) => setFieldValue(field, newValue)}
+                                onChange={(newValue) => setFieldValue(suggestion.id, field, newValue)}
                                 basePrompt={suggestion.base_prompt}
                                 isDarkModeOn={isDarkModeOn}
                                 tagChanges={fieldChanges}
                             />
                         )}
-                        {fieldChanges.map(
-                            (change, index) =>
-                                change.rationale && (
-                                    <p key={index} className="text-xs text-muted m-0">
-                                        {change.rationale}
-                                    </p>
-                                )
-                        )}
+                        <FieldRationales fieldChanges={fieldChanges} />
                     </div>
                 )
             })}

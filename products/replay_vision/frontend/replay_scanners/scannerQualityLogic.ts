@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
@@ -23,7 +24,7 @@ import type {
     VisionScannersObservationsListParams,
 } from '../generated/api.schemas'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
-import { buildAppliedConfig, changedFields, parseConfigChanges } from './components/configChanges'
+import { buildAppliedConfig, parseConfigChanges } from './components/configChanges'
 import { ObservationsSorting, replayScannerLogic, resolveOrderByKey } from './replayScannerLogic'
 
 export type RatedFilterValue = 'all' | 'unrated' | 'rated'
@@ -47,13 +48,13 @@ export interface scannerQualityLogicValues {
     dismissing: boolean
     evaluating: boolean
     evaluationSessionCap: number
-    fieldValueOverrides: Record<string, unknown>
+    fieldValueOverrides: Record<string, Record<string, unknown>>
     fieldValues: Record<string, unknown>
     generating: boolean
     hasEditableFields: boolean
     labelStats: ObservationLabelStatsApi | null
     labelStatsLoading: boolean
-    lastTestedConfig: Record<string, unknown> | null
+    lastTestedConfigs: Record<string, Record<string, unknown>>
     observations: ReplayObservationApi[]
     observationsLoading: boolean
     page: number
@@ -105,9 +106,11 @@ export interface scannerQualityLogicActions {
         value: true
     }
     setFieldValue: (
+        suggestionId: string,
         field: string,
         value: unknown
     ) => {
+        suggestionId: string
         field: string
         value: unknown
     }
@@ -242,7 +245,7 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
         evaluateSuggestion: (suggestionId: string, config: Record<string, unknown>) => ({ suggestionId, config }),
         evaluateSuggestionSuccess: (suggestion: ReplayScannerPromptSuggestionApi) => ({ suggestion }),
         evaluateSuggestionFailure: true,
-        setFieldValue: (field: string, value: unknown) => ({ field, value }),
+        setFieldValue: (suggestionId: string, field: string, value: unknown) => ({ suggestionId, field, value }),
         setTestSessionLimit: (limit: number | null) => ({ limit }),
         loadSuggestionHistory: true,
         loadSuggestionHistorySuccess: (history: ReplayScannerPromptSuggestionApi[]) => ({ history }),
@@ -338,25 +341,22 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
                 generateSuggestionSuccess: () => false,
             },
         ],
-        // Per-field edits the user has made to the current recommendation. Any new or changed
-        // recommendation clears them so a stale edit is never applied.
+        // In-flight edits keyed by suggestion id, so a background refresh (evaluation poll, rating
+        // debounce) can never wipe them. A new recommendation has a new id, so old edits are unreachable.
         fieldValueOverrides: [
-            {} as Record<string, unknown>,
+            {} as Record<string, Record<string, unknown>>,
             {
-                setFieldValue: (state, { field, value }) => ({ ...state, [field]: value }),
-                loadCurrentSuggestionSuccess: () => ({}),
-                generateSuggestionSuccess: () => ({}),
-                applySuggestionSuccess: () => ({}),
-                dismissSuggestionSuccess: () => ({}),
+                setFieldValue: (state, { suggestionId, field, value }) => ({
+                    ...state,
+                    [suggestionId]: { ...state[suggestionId], [field]: value },
+                }),
             },
         ],
-        // The config sent to the last test, so the tab can flag edits made since then.
-        lastTestedConfig: [
-            null as Record<string, unknown> | null,
+        // The config each suggestion's last test ran with, keyed by suggestion id for the same reason.
+        lastTestedConfigs: [
+            {} as Record<string, Record<string, unknown>>,
             {
-                evaluateSuggestion: (_, { config }) => config,
-                loadCurrentSuggestionSuccess: () => null,
-                generateSuggestionSuccess: () => null,
+                evaluateSuggestion: (state, { suggestionId, config }) => ({ ...state, [suggestionId]: config }),
             },
         ],
         ratedCount: [
@@ -447,31 +447,29 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
                 return Math.max(1, Math.min(maxAllowed, testSessionLimit ?? maxAllowed))
             },
         ],
-        // The editable value per changed field, the user's edit falling back to the suggested value.
+        // Every configurable field's editable value: the full suggested config (current config plus the AI's
+        // changes) with the user's edits laid over it.
         fieldValues: [
             (s) => [s.currentSuggestion, s.fieldValueOverrides],
             (
                 suggestion: ReplayScannerPromptSuggestionApi | null,
-                overrides: Record<string, unknown>
+                overrides: Record<string, Record<string, unknown>>
             ): Record<string, unknown> => {
                 if (!suggestion) {
                     return {}
                 }
                 const base = (suggestion.base_config ?? {}) as Record<string, unknown>
                 const suggested = (suggestion.suggested_config ?? {}) as Record<string, unknown>
-                const values: Record<string, unknown> = {}
-                for (const { field } of changedFields(parseConfigChanges(suggestion.changes))) {
-                    values[field] = field in overrides ? overrides[field] : (suggested[field] ?? base[field])
-                }
-                return values
+                return { ...base, ...suggested, ...overrides[suggestion.id] }
             },
         ],
-        // False for legacy prompt-only rows: they carry no changes[], so there is nothing to assemble
-        // and apply/test must fall back to the stored suggestion rather than sending an empty config.
+        // False for legacy prompt-only rows: their base_config is just a prompt shim, so assembling a
+        // full config from it would clobber the rest of the scanner config. They apply the stored
+        // suggestion instead.
         hasEditableFields: [
             (s) => [s.currentSuggestion],
             (suggestion: ReplayScannerPromptSuggestionApi | null): boolean =>
-                !!suggestion && changedFields(parseConfigChanges(suggestion.changes)).length > 0,
+                !!suggestion && parseConfigChanges(suggestion.changes).length > 0,
         ],
         // What apply and test send: the current config with the user's field edits laid over it.
         assembledConfig: [
@@ -483,21 +481,24 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
                 buildAppliedConfig((suggestion?.base_config ?? {}) as Record<string, unknown>, fieldValues),
         ],
         recommendationEditedSinceTest: [
-            (s) => [s.assembledConfig, s.lastTestedConfig],
-            (assembled: Record<string, unknown>, lastTested: Record<string, unknown> | null): boolean =>
-                lastTested !== null && JSON.stringify(assembled) !== JSON.stringify(lastTested),
+            (s) => [s.currentSuggestion, s.assembledConfig, s.lastTestedConfigs],
+            (
+                suggestion: ReplayScannerPromptSuggestionApi | null,
+                assembled: Record<string, unknown>,
+                lastTestedConfigs: Record<string, Record<string, unknown>>
+            ): boolean => {
+                const lastTested = suggestion ? lastTestedConfigs[suggestion.id] : undefined
+                return lastTested !== undefined && !objectsEqual(assembled, lastTested)
+            },
         ],
         // True when the edits net out to the current config, so applying would create an identical version.
-        // Only meaningful for editable rows; legacy prompt-only rows apply the stored suggestion instead.
         applyIsNoop: [
             (s) => [s.currentSuggestion, s.hasEditableFields, s.assembledConfig],
             (
                 suggestion: ReplayScannerPromptSuggestionApi | null,
                 hasEditableFields: boolean,
                 assembledConfig: Record<string, unknown>
-            ): boolean =>
-                hasEditableFields &&
-                JSON.stringify(assembledConfig) === JSON.stringify((suggestion?.base_config ?? {}) as unknown),
+            ): boolean => hasEditableFields && objectsEqual(assembledConfig, suggestion?.base_config ?? {}),
         ],
     }),
 
