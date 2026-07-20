@@ -1900,6 +1900,35 @@ describe('generateToolCode with confirmed_action', () => {
         )
         expect(result.code).toContain('actionLabel: "Enforce 2FA"')
     })
+
+    it('binds the active project scope into prepare and re-checks it in execute (cross-project replay guard)', () => {
+        // A project-scoped confirmed action must sign the active project at
+        // prepare time (boundScope) and re-verify it at execute time
+        // (expectedScope). Without this, a confirmation prepared while one
+        // project was active could be replayed against another after
+        // switch-project.
+        const result = generateToolCode(
+            'metric-approve',
+            makeConfirmedConfig(),
+            makeResolved({
+                method: 'POST',
+                path: '/api/projects/{project_id}/metrics/{name}/approve/',
+                operation: {
+                    operationId: 'organizations_partial_update',
+                    parameters: [
+                        { in: 'path', name: 'project_id', required: true, schema: { type: 'string' } },
+                        { in: 'path', name: 'name', required: true, schema: { type: 'string' } },
+                    ],
+                },
+            }),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        expect(result.code).toContain('boundScope: { projectId: String(__scopeProjectId) }')
+        expect(result.code).toContain('expectedScope: { projectId: String(__scopeProjectId) }')
+    })
 })
 
 describe('optional param with state fallback', () => {

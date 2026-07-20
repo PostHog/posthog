@@ -216,6 +216,8 @@ tools:
 | `message`      | Yes      | Prompt shown to the user. Supports `{paramName}` placeholders interpolated from the validated tool args. |
 | `action_label` | No       | Short label for the action (e.g. "delete project"). Defaults to the tool's title.                        |
 
+The prepare step also signs the active project/organization scope into the hash, and execute refuses if the active scope has changed since prepare — so a confirmation prepared in one project can't be replayed against another after `switch-project`.
+
 Requirements:
 
 - The `MCP_SIGNED_STATE_KEY` environment variable (≥32 bytes) must be set on the MCP Hono server

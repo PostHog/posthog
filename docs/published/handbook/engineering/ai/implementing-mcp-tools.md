@@ -303,7 +303,7 @@ Product teams own their definitions and control which operations are exposed as 
    - `message` (required) – prompt text shown to the user. Supports `{paramName}` placeholders interpolated from the validated tool args at runtime.
    - `action_label` (optional) – short human-readable label for the action (e.g. "delete project"). Surfaced in refusal messages. Defaults to the tool's title.
 
-   **Security model:** the prepare step signs the validated args, user identity, tool purpose, a TTL, and a single-use nonce into an HMAC-SHA256 token. The execute step verifies the signature, burns the nonce, and only then runs the original handler with the signed payload. Args the model adds at execute time can't survive into the request.
+   **Security model:** the prepare step signs the validated args, user identity, tool purpose, the active project/organization scope, a TTL, and a single-use nonce into an HMAC-SHA256 token. The execute step verifies the signature, re-checks that the active scope still matches the one signed at prepare time, burns the nonce, and only then runs the original handler with the signed payload. Args the model adds at execute time can't survive into the request, and a confirmation prepared while one project was active can't be replayed against another after `switch-project`.
 
    **Constraints:**
    - Cannot combine `confirmed_action` with `ui_app` – the codegen doesn't wrap the execute factory with `withUiApp` yet.

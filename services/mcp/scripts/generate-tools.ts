@@ -1195,6 +1195,8 @@ function generateToolCode(
             schemaDecl,
             originalHandlerBody: handlerBody,
             resultType,
+            needsProjectId,
+            needsOrgId,
         })
         return {
             code: wrapped.code,
@@ -1265,8 +1267,11 @@ function buildConfirmedActionFactories(args: {
     schemaDecl: string
     originalHandlerBody: string
     resultType: string
+    needsProjectId: boolean
+    needsOrgId: boolean
 }): { code: string } {
-    const { toolName, config, schemaName, schemaDecl, originalHandlerBody, resultType } = args
+    const { toolName, config, schemaName, schemaDecl, originalHandlerBody, resultType, needsProjectId, needsOrgId } =
+        args
     const baseFactory = toCamelCase(toolName)
     const prepareName = `${toolName}-prepare`
     const executeName = `${toolName}-execute`
@@ -1287,17 +1292,37 @@ function buildConfirmedActionFactories(args: {
     confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
 })`
 
+    // Bound scope: the active project/org is signed at prepare time and
+    // re-checked at execute time so a confirmation can't be replayed against
+    // a different project after `switch-project`. Resolved into locally-named
+    // consts so the `-execute` variant never collides with the `projectId`
+    // the original handler body declares.
+    const scopeResolveLines: string[] = []
+    const scopeParts: string[] = []
+    if (needsOrgId) {
+        scopeResolveLines.push(`        const __scopeOrgId = await context.stateManager.getOrgID()`)
+        scopeParts.push('orgId: String(__scopeOrgId)')
+    }
+    if (needsProjectId) {
+        scopeResolveLines.push(`        const __scopeProjectId = await context.stateManager.getProjectId()`)
+        scopeParts.push('projectId: String(__scopeProjectId)')
+    }
+    const hasScope = scopeParts.length > 0
+    const scopeResolveBlock = hasScope ? scopeResolveLines.join('\n') + '\n' : ''
+    const prepareScopeField = hasScope ? `            boundScope: { ${scopeParts.join(', ')} },\n` : ''
+    const executeScopeField = hasScope ? `            expectedScope: { ${scopeParts.join(', ')} },\n` : ''
+
     // Prepare handler: validate args via the base schema (already happens
     // before our handler runs) and call into the runtime. Args are signed
-    // verbatim — bound to user identity + purpose.
+    // verbatim — bound to user identity + purpose (+ active scope).
     const prepareHandler = `        const __runtime = getConfirmedActionRuntime()
-        return await prepareConfirmedAction(context, {
+${scopeResolveBlock}        return await prepareConfirmedAction(context, {
             args: params,
             purpose: ${JSON.stringify(toolName)},
             actionLabel: ${JSON.stringify(actionLabel)},
             messageTemplate: ${JSON.stringify(messageTemplate)},
             codec: __runtime.codec,
-        })
+${prepareScopeField}        })
 `
 
     // Execute handler: guard, then re-run the original handler body with
@@ -1306,12 +1331,12 @@ function buildConfirmedActionFactories(args: {
     // works unchanged. The cast pins the type so TS knows the original
     // shape survives.
     const executeHandler = `        const __runtime = getConfirmedActionRuntime()
-        const __guard = await executeConfirmedAction(context, {
+${scopeResolveBlock}        const __guard = await executeConfirmedAction(context, {
             incomingArgs: params,
             purpose: ${JSON.stringify(toolName)},
             codec: __runtime.codec,
             ledger: __runtime.ledger,
-        })
+${executeScopeField}        })
         if (!__guard.ok) {
             return __guard.result as never
         }

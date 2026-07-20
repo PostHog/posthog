@@ -204,6 +204,63 @@ describe('executeConfirmedAction', () => {
         }
     })
 
+    it('refuses when the active scope no longer matches the scope bound at prepare time', async () => {
+        // Cross-project replay: prepare while project A is active, then run
+        // execute after switch-project made B active. The signed scope (A)
+        // must not authorize the action against B.
+        const { codec, ledger } = setup()
+        const prep = await prepareConfirmedAction(makeContext('did-1'), {
+            args: { name: 'mrr' },
+            purpose: 'metric-approve',
+            actionLabel: 'approve metric',
+            messageTemplate: 'msg',
+            codec,
+            boundScope: { projectId: '1' },
+        })
+        const outcome = await executeConfirmedAction(makeContext('did-1'), {
+            incomingArgs: {
+                [CONFIRMATION_HASH_ARG]: prep.confirmation_hash,
+                [CONFIRMATION_WORD_ARG]: 'confirm',
+                name: 'mrr',
+            },
+            purpose: 'metric-approve',
+            codec,
+            ledger,
+            expectedScope: { projectId: '2' },
+        })
+        expect(outcome.ok).toBe(false)
+        if (!outcome.ok) {
+            expect(outcome.result.content[0]!.text).toContain('different project or organization')
+        }
+    })
+
+    it('succeeds when the active scope still matches the scope bound at prepare time', async () => {
+        const { codec, ledger } = setup()
+        const prep = await prepareConfirmedAction(makeContext('did-1'), {
+            args: { name: 'mrr' },
+            purpose: 'metric-approve',
+            actionLabel: 'approve metric',
+            messageTemplate: 'msg',
+            codec,
+            boundScope: { projectId: '1' },
+        })
+        const outcome = await executeConfirmedAction(makeContext('did-1'), {
+            incomingArgs: {
+                [CONFIRMATION_HASH_ARG]: prep.confirmation_hash,
+                [CONFIRMATION_WORD_ARG]: 'confirm',
+                name: 'mrr',
+            },
+            purpose: 'metric-approve',
+            codec,
+            ledger,
+            expectedScope: { projectId: '1' },
+        })
+        expect(outcome.ok).toBe(true)
+        if (outcome.ok) {
+            expect(outcome.verifiedArgs).toEqual({ name: 'mrr' })
+        }
+    })
+
     it('refuses on tampered signature', async () => {
         const { codec, ledger } = setup()
         const hash = await mintToken(codec, 'did-1', 'p', {})

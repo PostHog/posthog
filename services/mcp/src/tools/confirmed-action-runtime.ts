@@ -55,6 +55,13 @@ export const CONFIRMATION_WORD = 'confirm'
 export const CONFIRMATION_HASH_ARG = 'confirmation_hash'
 export const CONFIRMATION_WORD_ARG = 'confirmation'
 
+/**
+ * Ambient scope (active project / organization) an action targets. Signed
+ * at prepare time and re-checked at execute time so a confirmation issued
+ * while one project was active can't be replayed against a different one.
+ */
+export type ConfirmedActionScope = Record<string, string>
+
 export interface PrepareConfirmedActionOptions<P extends Record<string, unknown>> {
     /** The validated tool args. Signed into the hash so they can't be tampered with between prepare and execute. */
     args: P
@@ -70,6 +77,23 @@ export interface PrepareConfirmedActionOptions<P extends Record<string, unknown>
     messageTemplate: string
     /** Codec — instantiated once at startup, reused across requests. */
     codec: SignedStateCodec
+    /**
+     * Ambient scope resolved from current state at prepare time (e.g. the
+     * active project the action targets). Signed into the hash; `execute`
+     * refuses if the scope active at execute time no longer matches. Omit
+     * for actions with no project/org scope.
+     */
+    boundScope?: ConfirmedActionScope
+}
+
+/**
+ * Shape of the signed payload. The runtime wraps the caller's args
+ * together with the bound scope so both travel — and are tamper-checked —
+ * inside the single opaque `payload` claim the codec signs.
+ */
+interface SignedConfirmedActionPayload {
+    args: Record<string, unknown>
+    scope: ConfirmedActionScope | null
 }
 
 export interface PrepareConfirmedActionResult {
@@ -90,10 +114,14 @@ export async function prepareConfirmedAction<P extends Record<string, unknown>>(
     options: PrepareConfirmedActionOptions<P>
 ): Promise<PrepareConfirmedActionResult> {
     const sub = await context.getDistinctId()
+    const payload: SignedConfirmedActionPayload = {
+        args: options.args,
+        scope: options.boundScope ?? null,
+    }
     const { token } = await options.codec.encode({
         sub,
         purpose: options.purpose,
-        payload: options.args,
+        payload,
     })
     confirmedActionPreparesTotal.inc({ tool: options.purpose, status: 'ok' })
     return {
@@ -117,6 +145,12 @@ export interface ExecuteConfirmedActionOptions<P extends Record<string, unknown>
     /** Codec + ledger; both single instances reused across requests. */
     codec: SignedStateCodec
     ledger: NonceLedger
+    /**
+     * Scope resolved from *current* state at execute time. Compared against
+     * the scope signed at prepare time; any mismatch refuses. Omit for
+     * actions prepared without a `boundScope`.
+     */
+    expectedScope?: ConfirmedActionScope
 }
 
 export type ExecuteConfirmedActionOutcome<P> = { ok: true; verifiedArgs: P } | { ok: false; result: ToolErrorResult }
@@ -179,8 +213,8 @@ export async function executeConfirmedAction<P extends Record<string, unknown>>(
     }
 
     // The payload was signed at prepare time; treat it as untrusted JSON
-    // and shape-check before returning. The caller already knows the
-    // expected shape via its tool schema.
+    // and shape-check before returning. The runtime wraps `{ args, scope }`,
+    // so validate the wrapper and the args object it carries.
     const verified = claims.payload
     if (verified === null || typeof verified !== 'object' || Array.isArray(verified)) {
         return refuse(
@@ -189,9 +223,47 @@ export async function executeConfirmedAction<P extends Record<string, unknown>>(
             `${options.purpose} was not executed — confirmation payload is malformed.`
         )
     }
+    const wrapper = verified as Partial<SignedConfirmedActionPayload>
+    const args = wrapper.args
+    if (args === null || typeof args !== 'object' || Array.isArray(args)) {
+        return refuse(
+            options.purpose,
+            'malformed_payload',
+            `${options.purpose} was not executed — confirmation payload is malformed.`
+        )
+    }
+
+    // Scope binding: the project/org that was active at prepare time is
+    // signed into the token. If the active scope has since changed (e.g. the
+    // agent ran `switch-project` after the user confirmed), the same
+    // confirmation must not authorize the action against a different target.
+    if (!scopesMatch(wrapper.scope ?? null, options.expectedScope ?? null)) {
+        return refuse(
+            options.purpose,
+            'scope_mismatch',
+            `${options.purpose} was not executed — the confirmation was issued for a different project or organization than the one currently active. Switch back to the project the action was prepared in, or run the prepare step again in the current one.`
+        )
+    }
 
     confirmedActionExecutesTotal.inc({ tool: options.purpose, status: 'ok' })
-    return { ok: true, verifiedArgs: verified as P }
+    return { ok: true, verifiedArgs: args as P }
+}
+
+/**
+ * Compare the scope signed at prepare time against the scope active at
+ * execute time. Both are shallow string maps (or `null` when the action is
+ * unscoped). A mismatch on any key — or a differing key set — fails closed.
+ */
+function scopesMatch(signed: ConfirmedActionScope | null, expected: ConfirmedActionScope | null): boolean {
+    const a = signed ?? {}
+    const b = expected ?? {}
+    const keys = new Set([...Object.keys(a), ...Object.keys(b)])
+    for (const key of keys) {
+        if (a[key] !== b[key]) {
+            return false
+        }
+    }
+    return true
 }
 
 function refuse(purpose: string, reason: string, message: string): { ok: false; result: ToolErrorResult } {

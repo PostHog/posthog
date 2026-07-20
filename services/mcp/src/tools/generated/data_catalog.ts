@@ -43,6 +43,7 @@ const dataCatalogCertificationCertifyPrepare = (): ToolBase<
     schema: DataCatalogCertificationCertifySchema,
     handler: async (context: Context, params: z.infer<typeof DataCatalogCertificationCertifySchema>) => {
         const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
         return await prepareConfirmedAction(context, {
             args: params,
             purpose: 'data-catalog-certification-certify',
@@ -50,6 +51,7 @@ const dataCatalogCertificationCertifyPrepare = (): ToolBase<
             messageTemplate:
                 "About to mark certification '{id}' as certified (agents should prefer this source). Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
+            boundScope: { projectId: String(__scopeProjectId) },
         })
     },
 })
@@ -62,11 +64,13 @@ const dataCatalogCertificationCertifyExecute = (): ToolBase<
     schema: DataCatalogCertificationCertifySchemaExecute,
     handler: async (context: Context, params: z.infer<typeof DataCatalogCertificationCertifySchemaExecute>) => {
         const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
         const __guard = await executeConfirmedAction(context, {
             incomingArgs: params,
             purpose: 'data-catalog-certification-certify',
             codec: __runtime.codec,
             ledger: __runtime.ledger,
+            expectedScope: { projectId: String(__scopeProjectId) },
         })
         if (!__guard.ok) {
             return __guard.result as never
@@ -105,6 +109,7 @@ const dataCatalogCertificationDeprecatePrepare = (): ToolBase<
     schema: DataCatalogCertificationDeprecateSchema,
     handler: async (context: Context, params: z.infer<typeof DataCatalogCertificationDeprecateSchema>) => {
         const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
         return await prepareConfirmedAction(context, {
             args: params,
             purpose: 'data-catalog-certification-deprecate',
@@ -112,6 +117,7 @@ const dataCatalogCertificationDeprecatePrepare = (): ToolBase<
             messageTemplate:
                 "About to mark certification '{id}' as deprecated (agents should avoid this source). Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
+            boundScope: { projectId: String(__scopeProjectId) },
         })
     },
 })
@@ -124,11 +130,13 @@ const dataCatalogCertificationDeprecateExecute = (): ToolBase<
     schema: DataCatalogCertificationDeprecateSchemaExecute,
     handler: async (context: Context, params: z.infer<typeof DataCatalogCertificationDeprecateSchemaExecute>) => {
         const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
         const __guard = await executeConfirmedAction(context, {
             incomingArgs: params,
             purpose: 'data-catalog-certification-deprecate',
             codec: __runtime.codec,
             ledger: __runtime.ledger,
+            expectedScope: { projectId: String(__scopeProjectId) },
         })
         if (!__guard.ok) {
             return __guard.result as never
@@ -200,6 +208,7 @@ const dataCatalogMetricApprovePrepare = (): ToolBase<
     schema: DataCatalogMetricApproveSchema,
     handler: async (context: Context, params: z.infer<typeof DataCatalogMetricApproveSchema>) => {
         const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
         return await prepareConfirmedAction(context, {
             args: params,
             purpose: 'data-catalog-metric-approve',
@@ -207,6 +216,7 @@ const dataCatalogMetricApprovePrepare = (): ToolBase<
             messageTemplate:
                 "About to approve metric '{name}' as a canonical, human-vouched metric. Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
+            boundScope: { projectId: String(__scopeProjectId) },
         })
     },
 })
@@ -219,11 +229,13 @@ const dataCatalogMetricApproveExecute = (): ToolBase<
     schema: DataCatalogMetricApproveSchemaExecute,
     handler: async (context: Context, params: z.infer<typeof DataCatalogMetricApproveSchemaExecute>) => {
         const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
         const __guard = await executeConfirmedAction(context, {
             incomingArgs: params,
             purpose: 'data-catalog-metric-approve',
             codec: __runtime.codec,
             ledger: __runtime.ledger,
+            expectedScope: { projectId: String(__scopeProjectId) },
         })
         if (!__guard.ok) {
             return __guard.result as never
@@ -392,6 +404,7 @@ const dataCatalogRelationshipAcceptPrepare = (): ToolBase<
     schema: DataCatalogRelationshipAcceptSchema,
     handler: async (context: Context, params: z.infer<typeof DataCatalogRelationshipAcceptSchema>) => {
         const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
         return await prepareConfirmedAction(context, {
             args: params,
             purpose: 'data-catalog-relationship-accept',
@@ -399,6 +412,7 @@ const dataCatalogRelationshipAcceptPrepare = (): ToolBase<
             messageTemplate:
                 "About to accept relationship proposal '{id}', promoting it to a real warehouse join. Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
+            boundScope: { projectId: String(__scopeProjectId) },
         })
     },
 })
@@ -411,11 +425,13 @@ const dataCatalogRelationshipAcceptExecute = (): ToolBase<
     schema: DataCatalogRelationshipAcceptSchemaExecute,
     handler: async (context: Context, params: z.infer<typeof DataCatalogRelationshipAcceptSchemaExecute>) => {
         const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
         const __guard = await executeConfirmedAction(context, {
             incomingArgs: params,
             purpose: 'data-catalog-relationship-accept',
             codec: __runtime.codec,
             ledger: __runtime.ledger,
+            expectedScope: { projectId: String(__scopeProjectId) },
         })
         if (!__guard.ok) {
             return __guard.result as never
@@ -501,6 +517,7 @@ const dataCatalogRelationshipRejectPrepare = (): ToolBase<
     schema: DataCatalogRelationshipRejectSchema,
     handler: async (context: Context, params: z.infer<typeof DataCatalogRelationshipRejectSchema>) => {
         const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
         return await prepareConfirmedAction(context, {
             args: params,
             purpose: 'data-catalog-relationship-reject',
@@ -508,6 +525,7 @@ const dataCatalogRelationshipRejectPrepare = (): ToolBase<
             messageTemplate:
                 "About to reject relationship proposal '{id}'. This permanently suppresses re-proposing the pair. Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
+            boundScope: { projectId: String(__scopeProjectId) },
         })
     },
 })
@@ -520,11 +538,13 @@ const dataCatalogRelationshipRejectExecute = (): ToolBase<
     schema: DataCatalogRelationshipRejectSchemaExecute,
     handler: async (context: Context, params: z.infer<typeof DataCatalogRelationshipRejectSchemaExecute>) => {
         const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
         const __guard = await executeConfirmedAction(context, {
             incomingArgs: params,
             purpose: 'data-catalog-relationship-reject',
             codec: __runtime.codec,
             ledger: __runtime.ledger,
+            expectedScope: { projectId: String(__scopeProjectId) },
         })
         if (!__guard.ok) {
             return __guard.result as never
