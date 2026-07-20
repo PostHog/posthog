@@ -331,8 +331,9 @@ export const CommentWithReplies = ({ commentWithReplies, composerLogicProps }: C
     const isReplyTarget = isTopLevel && replyingCommentId === commentWithReplies.id
     const isExpanded = expandedThreadIds.has(commentWithReplies.id)
     const showReplies = (replies.length > 0 && isExpanded) || isReplyTarget
-    const canToggle = isTopLevel && replies.length > 0 && editingComment?.id !== commentWithReplies.id
+    const canToggle = isTopLevel && editingComment?.id !== commentWithReplies.id
 
+    // Hidden only while the composer is open - the composer takes over as the reply affordance
     const replyButton =
         isTopLevel && !isReplyTarget ? (
             <LemonButton
@@ -362,7 +363,15 @@ export const CommentWithReplies = ({ commentWithReplies, composerLogicProps }: C
                               if (window.getSelection()?.toString()) {
                                   return
                               }
-                              setThreadExpanded(commentWithReplies.id, !isExpanded)
+                              // Open = replies visible with a focused composer; closing puts both away
+                              if (isExpanded) {
+                                  if (isReplyTarget) {
+                                      setReplyingComment(null)
+                                  }
+                                  setThreadExpanded(commentWithReplies.id, false)
+                              } else {
+                                  setReplyingComment(commentWithReplies.id)
+                              }
                           }
                         : undefined
                 }
@@ -381,8 +390,7 @@ export const CommentWithReplies = ({ commentWithReplies, composerLogicProps }: C
                                 className={clsx('size-3 shrink-0 transition-transform', isExpanded && 'rotate-90')}
                             />
                             <span>{replies.length === 1 ? '1 reply' : `${replies.length} replies`}</span>
-                            {/* While the thread is open the reply affordance lives at its bottom instead */}
-                            {!showReplies ? <div className="ml-auto">{replyButton}</div> : null}
+                            {replyButton ? <div className="ml-auto">{replyButton}</div> : null}
                         </div>
                     </>
                 ) : null}
@@ -397,7 +405,7 @@ export const CommentWithReplies = ({ commentWithReplies, composerLogicProps }: C
                         <InlineReplyComposer logicProps={composerLogicProps} />
                     </div>
                 </>
-            ) : replyButton && (replies.length === 0 || showReplies) ? (
+            ) : replies.length === 0 && replyButton ? (
                 <>
                     <LemonDivider className="my-0" />
                     <div className="flex justify-end px-2 py-1">{replyButton}</div>

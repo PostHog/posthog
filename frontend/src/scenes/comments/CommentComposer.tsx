@@ -18,13 +18,9 @@ export const CommentComposer = ({ variant = 'footer', ...props }: CommentCompose
     const { key, commentsLoading, replyingCommentId, itemContext, isEmpty, composerDraft } = useValues(
         commentsLogic(props)
     )
-    const {
-        sendComposedContent,
-        setReplyingComment,
-        clearItemContext,
-        setRichContentEditor,
-        onRichContentEditorUpdate,
-    } = useActions(commentsLogic(props))
+    const { sendComposedContent, clearItemContext, setRichContentEditor, onRichContentEditorUpdate } = useActions(
+        commentsLogic(props)
+    )
 
     const placeholder = replyingCommentId
         ? 'Reply...'
@@ -61,11 +57,6 @@ export const CommentComposer = ({ variant = 'footer', ...props }: CommentCompose
             />
             <div className="flex justify-between items-center gap-2">
                 <div className="flex-1" />
-                {replyingCommentId ? (
-                    <LemonButton size={buttonSize} type="secondary" onClick={() => setReplyingComment(null)}>
-                        Cancel reply
-                    </LemonButton>
-                ) : null}
                 {itemContext ? (
                     <LemonButton size={buttonSize} type="secondary" onClick={() => clearItemContext()}>
                         Cancel
