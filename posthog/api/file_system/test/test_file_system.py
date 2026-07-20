@@ -184,6 +184,34 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertFalse(FileSystem.objects.filter(pk=file1_obj.pk).exists())
         self.assertFalse(FileSystem.objects.filter(pk=file2_obj.pk).exists())
 
+    def test_moving_insight_out_of_folder_before_delete_keeps_it(self):
+        # Deleting a folder cascade-soft-deletes the backing object of every row still nested under it.
+        # An insight moved out of the folder before the delete must survive: the cascade may only sweep
+        # up what genuinely remains under the folder at delete time.
+        insight = Insight.objects.create(team=self.team, saved=True, name="Keep me", created_by=self.user)
+        folder = FileSystem.objects.create(team=self.team, path="Unfiled", type="folder", created_by=self.user)
+        insight_row = FileSystem.objects.create(
+            team=self.team,
+            path="Unfiled/Keep me",
+            type="insight",
+            ref=str(insight.short_id),
+            created_by=self.user,
+        )
+
+        move_response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/{insight_row.pk}/move",
+            {"new_path": "Product/Keep me"},
+        )
+        self.assertEqual(move_response.status_code, status.HTTP_200_OK, move_response.json())
+
+        delete_response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{folder.pk}/")
+        self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
+
+        insight.refresh_from_db()
+        self.assertFalse(insight.deleted)
+        self.assertTrue(FileSystem.objects.filter(pk=insight_row.pk).exists())
+        self.assertFalse(FileSystem.objects.filter(pk=folder.pk).exists())
+
     def test_delete_ref_less_registered_row_refused_on_web_surface(self):
         """
         On the default (web) surface every registered-type row points at a real object via `ref`.
