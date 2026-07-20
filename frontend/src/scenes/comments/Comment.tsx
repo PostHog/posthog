@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useRef } from 'react'
 
-import { IconEllipsis, IconEye, IconPencil, IconShare, IconTrash } from '@posthog/icons'
+import { IconChevronDown, IconChevronRight, IconEllipsis, IconEye, IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonMenu, LemonTag, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
@@ -32,9 +32,9 @@ export type CommentProps = {
     composerLogicProps?: CommentsLogicProps
 }
 
-const CommentBottomRow = ({ comment }: { comment: CommentType }): JSX.Element => {
+const CommentBottomRow = ({ comment }: { comment: CommentType }): JSX.Element | null => {
     const { emojiReactionsByComment, isMyComment } = useValues(commentsLogic)
-    const { deleteComment, sendEmojiReaction, setReplyingComment } = useActions(commentsLogic)
+    const { deleteComment, sendEmojiReaction } = useActions(commentsLogic)
 
     const reactions = emojiReactionsByComment[comment.id] || {}
     const recordingLinkInfo = getRecordingLinkInfo(comment)
@@ -53,6 +53,11 @@ const CommentBottomRow = ({ comment }: { comment: CommentType }): JSX.Element =>
     let timeInRecordingLabel: string | null = null
     if (comment.item_context?.milliseconds_into_recording !== undefined) {
         timeInRecordingLabel = colonDelimitedDuration(comment.item_context?.milliseconds_into_recording / 1000, null)
+    }
+
+    // Keep comment cards slim: skip the whole row when there is nothing to show in it
+    if (!recordingLinkInfo && !comment.version && !Object.keys(reactions).length) {
+        return null
     }
 
     return (
@@ -107,20 +112,7 @@ const CommentBottomRow = ({ comment }: { comment: CommentType }): JSX.Element =>
                             </div>
                         </LemonButton>
                     ))}
-                    <EmojiPickerPopover
-                        onSelect={(emoji: string): void => {
-                            sendEmojiReaction(emoji, comment.id)
-                        }}
-                    />
                 </div>
-                <LemonButton
-                    icon={<IconShare />}
-                    size="small"
-                    onClick={() => setReplyingComment(comment.source_comment ?? comment.id)}
-                    tooltip="Reply"
-                    aria-label="Reply"
-                    data-attr="comment-reply-button"
-                />
             </div>
         </div>
     )
@@ -182,7 +174,7 @@ const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element 
 
 const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
     const { disabledReasonFor } = useValues(commentsLogic)
-    const { deleteComment, setEditingComment } = useActions(commentsLogic)
+    const { deleteComment, setEditingComment, sendEmojiReaction } = useActions(commentsLogic)
 
     const isCompleted = !!comment.completed_at
 
@@ -204,6 +196,16 @@ const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
                         <TZLabel time={comment.created_at} />
                     </span>
                 ) : null}
+
+                <span className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                    <EmojiPickerPopover
+                        size="xsmall"
+                        onSelect={(emoji: string): void => {
+                            sendEmojiReaction(emoji, comment.id)
+                        }}
+                        data-attr="comment-react-button"
+                    />
+                </span>
 
                 <LemonMenu
                     items={[
@@ -236,7 +238,8 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
     const ref = useRef<HTMLDivElement | null>(null)
 
     const isEditing = editingComment?.id === comment.id
-    const isHighlighted = selectedCommentId === comment.id || replyingCommentId === comment.id || isEditing
+    // The reply target wins over selection so only one comment ever reads as focused
+    const isHighlighted = (replyingCommentId ?? selectedCommentId) === comment.id || isEditing
     const threadId = comment.source_comment ?? comment.id
 
     useEffect(() => {
@@ -249,7 +252,7 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
         <div
             ref={ref}
             className={clsx(
-                'Comment border rounded-lg bg-surface-primary px-2 py-1',
+                'Comment group border rounded-lg bg-surface-primary px-2 py-1',
                 isHighlighted && 'border-accent',
                 !isEditing && 'cursor-pointer'
             )}
@@ -281,7 +284,7 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
                 ) : null}
                 <div className="flex flex-col justify-start gap-2 flex-1 min-w-0">
                     <div className="flex-1 flex justify-start items-start gap-2">
-                        <ProfilePicture size="xl" user={comment.created_by} />
+                        <ProfilePicture size={comment.source_comment ? 'md' : 'xl'} user={comment.created_by} />
 
                         <div className="flex flex-col flex-1 min-w-0">
                             <CommentTopRow comment={comment} />
@@ -323,17 +326,31 @@ const InlineReplyComposer = ({ logicProps }: { logicProps: CommentsLogicProps })
 
 export const CommentWithReplies = ({ commentWithReplies, composerLogicProps }: CommentProps): JSX.Element => {
     const { comment, replies } = commentWithReplies
-    const { replyingCommentId, selectedCommentId } = useValues(commentsLogic)
+    const { replyingCommentId, activeThreadId, expandedThreadIds } = useValues(commentsLogic)
+    const { setReplyingComment, setThreadExpanded } = useActions(commentsLogic)
 
     // replyingCommentId always resolves to the thread root, so this only matches top-level threads
-    const isReplyTarget = !!composerLogicProps && replyingCommentId === commentWithReplies.id
-    const isActiveThread = selectedCommentId === commentWithReplies.id || replyingCommentId === commentWithReplies.id
-    const showRail = replies.length > 0 || isReplyTarget
+    const isTopLevel = !!composerLogicProps
+    const isReplyTarget = isTopLevel && replyingCommentId === commentWithReplies.id
+    const isActiveThread = activeThreadId === commentWithReplies.id
+    const isExpanded = expandedThreadIds.has(commentWithReplies.id)
+    const showRail = (replies.length > 0 && isExpanded) || isReplyTarget
+
+    const replyButton =
+        isTopLevel && !isReplyTarget ? (
+            <LemonButton
+                size="xsmall"
+                onClick={() => setReplyingComment(commentWithReplies.id)}
+                data-attr="comment-reply-button"
+            >
+                Reply
+            </LemonButton>
+        ) : null
 
     // TODO: Permissions
 
     return (
-        <div className="relative flex flex-col gap-2">
+        <div className="relative flex flex-col gap-1">
             {comment ? (
                 <Comment comment={comment} />
             ) : (
@@ -342,11 +359,28 @@ export const CommentWithReplies = ({ commentWithReplies, composerLogicProps }: C
                 </div>
             )}
 
+            {isTopLevel && (replies.length > 0 || !showRail) ? (
+                <div className="ml-4 flex items-center gap-1">
+                    {replies.length > 0 ? (
+                        <LemonButton
+                            size="xsmall"
+                            icon={isExpanded ? <IconChevronDown /> : <IconChevronRight />}
+                            onClick={() => setThreadExpanded(commentWithReplies.id, !isExpanded)}
+                            data-attr="comment-thread-toggle"
+                        >
+                            {replies.length === 1 ? '1 reply' : `${replies.length} replies`}
+                        </LemonButton>
+                    ) : null}
+                    {/* While the thread is open the reply affordance lives at its bottom instead */}
+                    {!showRail ? replyButton : null}
+                </div>
+            ) : null}
+
             {showRail ? (
                 <div
                     className={clsx(
                         'ml-4 flex flex-col gap-2 border-l-2 pl-3',
-                        isActiveThread ? 'border-accent' : 'border-border'
+                        isActiveThread ? 'border-accent' : 'border-bold'
                     )}
                 >
                     {replies.map((x) => (
@@ -361,7 +395,9 @@ export const CommentWithReplies = ({ commentWithReplies, composerLogicProps }: C
                     ))}
                     {isReplyTarget && composerLogicProps ? (
                         <InlineReplyComposer logicProps={composerLogicProps} />
-                    ) : null}
+                    ) : (
+                        <div className="flex">{replyButton}</div>
+                    )}
                 </div>
             ) : null}
         </div>

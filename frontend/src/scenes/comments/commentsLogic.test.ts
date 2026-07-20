@@ -14,6 +14,22 @@ const DRAFT_CONTENT: JSONContent = {
     content: [{ type: 'paragraph', content: [{ type: 'text', text: 'draft' }] }],
 }
 
+const makeComment = (id: string, sourceComment: string | null = null): Record<string, any> => ({
+    id,
+    content: id,
+    rich_content: null,
+    version: 0,
+    created_at: '2025-10-08T10:00:00.000Z',
+    created_by: null,
+    source_comment: sourceComment,
+    scope: 'Insight',
+    item_id: '1',
+    item_context: null,
+    is_task: false,
+    completed_at: null,
+    completed_by: null,
+})
+
 const createEditor = (content: JSONContent | null = null): RichContentEditorType =>
     ({
         isEmpty: () => content === null,
@@ -111,22 +127,7 @@ describe('commentsLogic', () => {
     })
 
     it('clears reply mode when the reply target stops rendering after a reload', async () => {
-        const rootComment = {
-            id: 'thread-1',
-            content: 'root',
-            rich_content: null,
-            version: 0,
-            created_at: '2025-10-08T10:00:00.000Z',
-            created_by: null,
-            source_comment: null,
-            scope: 'Insight',
-            item_id: '1',
-            item_context: null,
-            is_task: false,
-            completed_at: null,
-            completed_by: null,
-        }
-        useMocks({ get: { '/api/projects/:team_id/comments': { results: [rootComment] } } })
+        useMocks({ get: { '/api/projects/:team_id/comments': { results: [makeComment('thread-1')] } } })
         await expectLogic(logic, () => {
             logic.actions.loadComments()
         }).toDispatchActions(['loadCommentsSuccess'])
@@ -144,5 +145,38 @@ describe('commentsLogic', () => {
 
         expect(logic.values.replyingCommentId).toBeNull()
         expect(logic.values.composerDraft).toEqual(DRAFT_CONTENT)
+    })
+
+    it('keeps a replied-to thread expanded after the reply is sent', async () => {
+        logic.actions.setRichContentEditor(createEditor(DRAFT_CONTENT))
+        logic.actions.setReplyingComment('thread-1')
+        expect(logic.values.expandedThreadIds.has('thread-1')).toBe(true)
+
+        await expectLogic(logic, () => {
+            logic.actions.sendComposedContent(false)
+        }).toDispatchActions(['sendComposedContentSuccess'])
+
+        // Pinned open when the reply started, so the just-sent reply stays visible
+        expect(logic.values.replyingCommentId).toBeNull()
+        expect(logic.values.expandedThreadIds.has('thread-1')).toBe(true)
+    })
+
+    it('expands the thread containing a deep-linked reply', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/comments': {
+                    results: [makeComment('thread-1'), makeComment('reply-1', 'thread-1')],
+                },
+            },
+        })
+        await expectLogic(logic, () => {
+            logic.actions.loadComments()
+        }).toDispatchActions(['loadCommentsSuccess'])
+        expect(logic.values.expandedThreadIds.has('thread-1')).toBe(false)
+
+        logic.actions.setSelectedComment('reply-1')
+
+        expect(logic.values.activeThreadId).toBe('thread-1')
+        expect(logic.values.expandedThreadIds.has('thread-1')).toBe(true)
     })
 })
