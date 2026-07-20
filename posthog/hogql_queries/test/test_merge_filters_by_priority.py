@@ -3,6 +3,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from posthog.hogql_queries.apply_dashboard_filters import (
+    dashboard_filter_from_dict,
     merge_filters_by_priority,
     remove_query_properties_overridden_by,
     resolve_filter_layers_by_priority,
@@ -180,6 +181,30 @@ class TestMergeFiltersByPriority(SimpleTestCase):
             "tile": {"properties": {"type": "AND", "values": [tile_prop]}},
             "overridden_dashboard": {"properties": [dashboard_prop]},
         }
+
+
+class TestDashboardFilterFromDict(SimpleTestCase):
+    def test_flat_list_properties_pass_through(self):
+        built = dashboard_filter_from_dict({"properties": [{"key": "$browser", "value": "Chrome", "type": "event"}]})
+        assert built.properties is not None
+        assert [(p.key, p.value) for p in built.properties] == [("$browser", "Chrome")]
+
+    def test_property_group_dict_is_flattened_instead_of_raising(self):
+        # `DashboardFilter.properties` is typed as a flat list, so a property-group dict used to raise a
+        # pydantic ValidationError (500) at the construction sites in calculate_results and
+        # apply_dashboard_filters_to_dict. It must be flattened to leaves instead.
+        built = dashboard_filter_from_dict(
+            {
+                "date_from": "-7d",
+                "properties": {
+                    "type": "AND",
+                    "values": [{"type": "AND", "values": [{"key": "$browser", "value": "Chrome", "type": "event"}]}],
+                },
+            }
+        )
+        assert built.properties is not None
+        assert [(p.key, p.value) for p in built.properties] == [("$browser", "Chrome")]
+        assert built.date_from == "-7d"
 
 
 class TestRemoveQueryPropertiesOverriddenBy(SimpleTestCase):

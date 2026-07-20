@@ -4,14 +4,17 @@ import orjson
 import structlog
 from pydantic import BaseModel
 
-from posthog.schema import CacheMissResponse, DashboardFilter
+from posthog.schema import CacheMissResponse
 
 from posthog.hogql.constants import LimitContext
 
 from posthog.api.services.query import ExecutionMode, RawCachedQueryResponse, process_query_dict
 from posthog.clickhouse.query_tagging import get_team_query_tags, tag_queries
 from posthog.event_usage import AnalyticsProps
-from posthog.hogql_queries.apply_dashboard_filters import resolve_effective_dashboard_filters
+from posthog.hogql_queries.apply_dashboard_filters import (
+    dashboard_filter_from_dict,
+    resolve_effective_dashboard_filters,
+)
 from posthog.hogql_queries.query_runner import get_query_runner_or_none, response_results_contain_models
 from posthog.models import Team, User
 from posthog.schema_migrations.upgrade_manager import upgrade_query
@@ -66,7 +69,7 @@ def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
                 if query_runner is None:
                     return None  # Uncacheable query-based insight
                 if dashboard is not None and dashboard.filters:
-                    query_runner.apply_dashboard_filters(DashboardFilter(**dashboard.filters))
+                    query_runner.apply_dashboard_filters(dashboard_filter_from_dict(dashboard.filters))
                 return query_runner.get_cache_key()
 
             if insight.filters:

@@ -220,6 +220,16 @@ def resolve_effective_dashboard_filters(
     return query, effective_filters
 
 
+def dashboard_filter_from_dict(filters: dict) -> DashboardFilter:
+    """Build a `DashboardFilter` from a raw dashboard/tile filters dict, tolerating a `properties` value
+    stored as a property-group dict. `DashboardFilter.properties` is typed as a flat list, so passing a
+    `{"type": ..., "values": [...]}` dict straight in raises a pydantic ValidationError — flatten it to the
+    list the schema expects first. Filters are AND-combined, so flattening preserves their meaning."""
+    if isinstance(filters.get("properties"), dict):
+        filters = {**filters, "properties": _flatten_property_leaves(filters["properties"])}
+    return DashboardFilter(**filters)
+
+
 # Apply the filters from the django-style Dashboard object
 def apply_dashboard_filters_to_dict(query: dict, filters: dict, team: Team) -> dict:
     if not filters:
@@ -234,7 +244,7 @@ def apply_dashboard_filters_to_dict(query: dict, filters: dict, team: Team) -> d
     except ValueError:
         capture_exception()
         return query
-    query_runner.apply_dashboard_filters(DashboardFilter(**filters))
+    query_runner.apply_dashboard_filters(dashboard_filter_from_dict(filters))
     return query_runner.query.model_dump()
 
 
