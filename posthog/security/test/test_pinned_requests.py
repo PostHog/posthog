@@ -39,9 +39,37 @@ class TestPinnedIPAdapter:
         assert request.url == f"https://{expected_netloc}/path?q=1"
         assert request.headers["Host"] == "example.com:8443"
 
-    def test_unpinned_host_is_untouched(self):
+    def test_idn_host_still_matches_its_pin(self):
+        # requests IDNA-encodes the host before send(), so the pin must be stored
+        # under the same encoded form or the request silently re-resolves DNS —
+        # the rebinding bypass this adapter exists to prevent.
+        adapter = pr.PinnedIPAdapter()
+        adapter.pin("éxample.com", ipaddress.ip_address("93.184.216.34"))
+        request = requests.Request("GET", "https://éxample.com/path").prepare()
+        assert "xn--xample-9ua.com" in (request.url or "")  # requests already punycoded it
+
+        with patch.object(HTTPAdapter, "send", return_value=MagicMock()):
+            adapter.send(request)
+
+        assert request.url == "https://93.184.216.34/path"
+        assert request.headers["Host"] == "xn--xample-9ua.com"
+
+    def test_unmatched_host_is_refused(self):
+        # A pinned adapter that can't match the outgoing host must fail closed
+        # rather than let requests re-resolve DNS to an unvalidated address.
         adapter = pr.PinnedIPAdapter()
         adapter.pin("example.com", ipaddress.ip_address("93.184.216.34"))
+        request = requests.Request("GET", "https://other.example.org/path").prepare()
+
+        with patch.object(HTTPAdapter, "send", return_value=MagicMock()) as inner_send:
+            with pytest.raises(pr.SSRFBlockedError):
+                adapter.send(request)
+        inner_send.assert_not_called()
+
+    def test_no_pins_passes_through(self):
+        # Empty map means pinning was intentionally skipped (dev SSRF bypass);
+        # fail-closed must not fire there or local requests break.
+        adapter = pr.PinnedIPAdapter()
         request = requests.Request("GET", "https://other.example.org/path").prepare()
 
         with patch.object(HTTPAdapter, "send", return_value=MagicMock()):
