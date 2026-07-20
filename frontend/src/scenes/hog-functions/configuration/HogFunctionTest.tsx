@@ -153,7 +153,7 @@ export const HogFunctionTestEditor = ({
 }
 
 export function HogFunctionTest(): JSX.Element {
-    const { logicProps, canLoadSampleGlobals, hogFunction, template, configuration } =
+    const { logicProps, canLoadSampleGlobals, contextId, hogFunction, template, configuration } =
         useValues(hogFunctionConfigurationLogic)
     const isDataWarehouse = configuration?.filters?.source === 'data-warehouse-table'
     const {
@@ -324,10 +324,18 @@ export function HogFunctionTest(): JSX.Element {
                                                     loadSampleGlobals()
                                                 }
                                             }}
-                                            tooltip="Find the last event matching filters, and use it to populate the globals below."
+                                            tooltip={
+                                                contextId === 'error-tracking'
+                                                    ? 'Load a recent issue from this project, and use it to populate the globals below.'
+                                                    : 'Find the last event matching filters, and use it to populate the globals below.'
+                                            }
                                             icon={sampleGlobalsLoadingAndNotCancelled ? <Spinner /> : undefined}
                                         >
-                                            {sampleGlobalsLoadingAndNotCancelled ? 'Cancel loading' : 'Load new event'}
+                                            {sampleGlobalsLoadingAndNotCancelled
+                                                ? 'Cancel loading'
+                                                : contextId === 'error-tracking'
+                                                  ? 'Load real issue'
+                                                  : 'Load new event'}
                                         </LemonButton>
                                     ) : null}
                                     <LemonButton

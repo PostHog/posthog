@@ -81,6 +81,8 @@ import {
     SurveyEventProperties,
 } from '~/types'
 
+import { errorTrackingIssuesList } from 'products/error_tracking/frontend/generated/api'
+
 import type { GroupType, GroupTypeIndex, HogFunctionMappingTemplateType, ProjectType } from '../../../types'
 import type { TeamPublicType, TeamType } from '../../../types'
 import { performWideEventsQueryInTwoPhases } from '../sampleEventsQuery'
@@ -778,7 +780,10 @@ export interface hogFunctionConfigurationLogicMeta {
             newInputs: CyclotronJobInputSchemaType[]
             oldInputs: CyclotronJobInputSchemaType[]
         } | null
-        canLoadSampleGlobals: (lastEventQuery: EventsQuery | null) => boolean
+        canLoadSampleGlobals: (
+            lastEventQuery: EventsQuery | null,
+            contextId: HogFunctionConfigurationContextId
+        ) => boolean
         showFilters: (type: HogFunctionTypeType) => boolean
         showExpectedVolume: (type: HogFunctionTypeType, sourceUsesEvents: boolean) => boolean
         canEditSource: (
@@ -1105,6 +1110,40 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             null as CyclotronJobInvocationGlobals | null,
             {
                 loadSampleGlobals: async ({ eventId }, breakpoint) => {
+                    if (values.contextId === 'error-tracking') {
+                        const noIssuesMessage = 'No issues found in this project. Showing example data instead.'
+                        try {
+                            await breakpoint(values.sampleGlobals === null ? 10 : 1000)
+                            const response = await errorTrackingIssuesList(String(values.currentProject?.id), {
+                                limit: 20,
+                            })
+                            breakpoint()
+                            const issues = response.results
+                            if (!issues.length) {
+                                throw new Error(noIssuesMessage)
+                            }
+                            const issue = issues[Math.floor(Math.random() * issues.length)]
+                            const globals = values.exampleInvocationGlobals
+                            return {
+                                ...globals,
+                                event: {
+                                    ...globals.event,
+                                    // Real issue lifecycle events use the issue id as the distinct_id
+                                    distinct_id: issue.id,
+                                    properties: {
+                                        name: issue.name ?? 'Unnamed issue',
+                                        description: issue.description ?? '',
+                                        status: issue.status,
+                                    },
+                                },
+                            }
+                        } catch (e: any) {
+                            if (!isBreakpoint(e)) {
+                                actions.setSampleGlobalsError(e.message ?? noIssuesMessage)
+                            }
+                            return values.exampleInvocationGlobals
+                        }
+                    }
                     if (!values.lastEventQuery) {
                         return values.sampleGlobals
                     }
@@ -1791,9 +1830,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         ],
 
         canLoadSampleGlobals: [
-            (s) => [s.lastEventQuery],
-            (lastEventQuery: EventsQuery | null) => {
-                return !!lastEventQuery
+            (s) => [s.lastEventQuery, s.contextId],
+            (lastEventQuery: EventsQuery | null, contextId: HogFunctionConfigurationContextId) => {
+                return !!lastEventQuery || contextId === 'error-tracking'
             },
         ],
 
