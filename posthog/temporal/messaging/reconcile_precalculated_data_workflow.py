@@ -27,7 +27,7 @@ from posthog.temporal.messaging.backfill_precalculated_person_properties_workflo
     evaluate_combined_filters_with_fallback_sync,
     parse_person_properties,
 )
-from posthog.temporal.messaging.filter_storage import combine_filter_bytecodes
+from posthog.temporal.messaging.filter_storage import combine_filter_bytecodes, extract_person_property_filters
 from posthog.temporal.messaging.types import PersonPropertyFilter
 
 from products.cohorts.backend.models.cohort import Cohort, CohortType
@@ -69,7 +69,7 @@ def _positive_int_env(name: str, default: int, logger: structlog.BoundLogger) ->
 #
 # The override row written at merge time is the invalidation signal: each scheduled run
 # picks up distinct_ids whose override landed within the lookback window
-# (RECONCILE_EVENTS_OVERRIDES_LOOKBACK_HOURS) and repairs just their rows, so the schedule
+# (RECONCILE_PRECALCULATED_DATA_OVERRIDES_LOOKBACK_HOURS) and repairs just their rows, so the schedule
 # can run at the realtime calculation cadence and a merge is reconciled by the next
 # calculation run instead of hours later. A `full_scan` input ignores the window — use it
 # for first-deploy remediation or after the workflow was down longer than the lookback.
@@ -91,6 +91,7 @@ OVERRIDES_QUERY = """
     WHERE team_id = %(team_id)s
     GROUP BY distinct_id
     HAVING argMax(is_deleted, version) = 0
+    SETTINGS optimize_aggregation_in_order = 1
     FORMAT JSONEachRow
 """
 
@@ -104,6 +105,7 @@ RECENT_OVERRIDES_QUERY = """
     WHERE team_id = %(team_id)s
     GROUP BY distinct_id
     HAVING argMax(is_deleted, version) = 0 AND max(_timestamp) >= toDateTime(%(since)s)
+    SETTINGS optimize_aggregation_in_order = 1
     FORMAT JSONEachRow
 """
 
@@ -123,6 +125,7 @@ PRECALCULATED_EVENTS_BATCH_QUERY = """
     WHERE team_id = %(team_id)s
       AND distinct_id IN %(distinct_ids)s
     GROUP BY condition, date, distinct_id, uuid
+    SETTINGS optimize_aggregation_in_order = 1
     FORMAT JSONEachRow
 """
 
@@ -165,12 +168,13 @@ PERSON_PROPERTIES_QUERY = """
       AND id IN %(person_ids)s
     GROUP BY id
     HAVING argMax(is_deleted, version) = 0
+    SETTINGS optimize_aggregation_in_order = 1
     FORMAT JSONEachRow
 """
 
 
 @dataclasses.dataclass
-class ReconcilePrecalculatedEventsWorkflowInputs:
+class ReconcilePrecalculatedDataWorkflowInputs:
     """Inputs for the reconciliation workflow."""
 
     # Manual override for targeted runs; None reconciles every team with realtime cohorts.
@@ -192,7 +196,7 @@ class ReconcileTeamInputs:
     full_scan: bool = False
     # Overrides lookback boundary shared by every team in a run; computed once by the
     # workflow so a team queued behind slow/retrying teams doesn't get a narrower window
-    # than a team processed immediately (see reconcile_precalculated_events_activity).
+    # than a team processed immediately (see reconcile_team_precalculated_events_activity).
     since: Optional[dt.datetime] = None
 
     @property
@@ -255,8 +259,8 @@ class ReconciliationRunConfig:
 async def get_reconciliation_run_config_activity() -> ReconciliationRunConfig:
     """Compute the run-wide lookback boundary and concurrency once, before any team runs."""
     logger = LOGGER.bind()
-    overrides_lookback_hours = _positive_int_env("RECONCILE_EVENTS_OVERRIDES_LOOKBACK_HOURS", 48, logger)
-    team_concurrency = _positive_int_env("RECONCILE_EVENTS_TEAM_CONCURRENCY", 5, logger)
+    overrides_lookback_hours = _positive_int_env("RECONCILE_PRECALCULATED_DATA_OVERRIDES_LOOKBACK_HOURS", 48, logger)
+    team_concurrency = _positive_int_env("RECONCILE_PRECALCULATED_DATA_TEAM_CONCURRENCY", 5, logger)
     return ReconciliationRunConfig(
         since=dt.datetime.now(dt.UTC) - dt.timedelta(hours=overrides_lookback_hours),
         team_concurrency=team_concurrency,
@@ -283,45 +287,13 @@ async def get_reconciliation_team_ids_activity() -> ReconciliationTeamIdsResult:
     return ReconciliationTeamIdsResult(team_ids=await get_team_ids())
 
 
-def _extract_person_property_filters(cohort: Cohort) -> list[PersonPropertyFilter]:
-    """Extract person-property filters (conditionHash, bytecode, key) from a cohort's filter tree."""
-    filters: list[PersonPropertyFilter] = []
-    properties = (cohort.filters or {}).get("properties")
-    if not properties:
-        return filters
-
-    def traverse(node: Any) -> None:
-        if not isinstance(node, dict):
-            return
-        node_type = node.get("type")
-        if node_type in ("AND", "OR"):
-            for child in node.get("values", []):
-                traverse(child)
-            return
-        if node_type != "person":
-            return
-        condition_hash = node.get("conditionHash")
-        bytecode = node.get("bytecode")
-        property_key = node.get("key")
-        if not condition_hash or not bytecode or not property_key:
-            return
-        filters.append(
-            PersonPropertyFilter(
-                condition_hash=condition_hash, bytecode=bytecode, cohort_ids=[], property_key=property_key
-            )
-        )
-
-    traverse(properties)
-    return filters
-
-
 @database_sync_to_async
 def _get_realtime_person_property_filters(team_id: int) -> list[PersonPropertyFilter]:
     """Dedup person-property filters across a team's realtime cohorts, by condition_hash."""
     condition_map: dict[str, PersonPropertyFilter] = {}
     cohorts = Cohort.objects.filter(team_id=team_id, deleted=False, cohort_type=CohortType.REALTIME)
     for cohort in cohorts:
-        for extracted in _extract_person_property_filters(cohort):
+        for extracted in extract_person_property_filters(cohort):
             existing = condition_map.get(extracted.condition_hash)
             if existing is None:
                 extracted.cohort_ids = [cohort.id]
@@ -357,9 +329,9 @@ async def reconcile_team_precalculated_person_properties_activity(
     combined_bytecode = combine_filter_bytecodes(filters)
     active_condition_hashes = {f.condition_hash for f in filters}
 
-    distinct_id_batch_size = _positive_int_env("RECONCILE_EVENTS_DISTINCT_ID_BATCH_SIZE", 1000, logger)
-    kafka_flush_batch_size = _positive_int_env("RECONCILE_EVENTS_KAFKA_FLUSH_BATCH_SIZE", 1000, logger)
-    overrides_lookback_hours = _positive_int_env("RECONCILE_EVENTS_OVERRIDES_LOOKBACK_HOURS", 48, logger)
+    distinct_id_batch_size = _positive_int_env("RECONCILE_PRECALCULATED_DATA_DISTINCT_ID_BATCH_SIZE", 1000, logger)
+    kafka_flush_batch_size = _positive_int_env("RECONCILE_PRECALCULATED_DATA_KAFKA_FLUSH_BATCH_SIZE", 1000, logger)
+    overrides_lookback_hours = _positive_int_env("RECONCILE_PRECALCULATED_DATA_OVERRIDES_LOOKBACK_HOURS", 48, logger)
 
     if inputs.full_scan:
         overrides_query = OVERRIDES_QUERY
@@ -527,16 +499,16 @@ async def reconcile_team_precalculated_events_activity(inputs: ReconcileTeamInpu
     logger = LOGGER.bind(team_id=inputs.team_id)
     start_time = time.time()
 
-    distinct_id_batch_size = _positive_int_env("RECONCILE_EVENTS_DISTINCT_ID_BATCH_SIZE", 1000, logger)
-    kafka_flush_batch_size = _positive_int_env("RECONCILE_EVENTS_KAFKA_FLUSH_BATCH_SIZE", 1000, logger)
-    overrides_lookback_hours = _positive_int_env("RECONCILE_EVENTS_OVERRIDES_LOOKBACK_HOURS", 48, logger)
+    distinct_id_batch_size = _positive_int_env("RECONCILE_PRECALCULATED_DATA_DISTINCT_ID_BATCH_SIZE", 1000, logger)
+    kafka_flush_batch_size = _positive_int_env("RECONCILE_PRECALCULATED_DATA_KAFKA_FLUSH_BATCH_SIZE", 1000, logger)
+    overrides_lookback_hours = _positive_int_env("RECONCILE_PRECALCULATED_DATA_OVERRIDES_LOOKBACK_HOURS", 48, logger)
 
     if inputs.full_scan:
         overrides_query = OVERRIDES_QUERY
         overrides_params: dict[str, Any] = {"team_id": inputs.team_id}
     else:
         # The workflow computes and shares one `since` boundary across every team in a run
-        # (see ReconcilePrecalculatedEventsWorkflow.run); this per-activity fallback only
+        # (see ReconcilePrecalculatedDataWorkflow.run); this per-activity fallback only
         # covers direct/manual activity invocations that skip the workflow.
         since = inputs.since or (dt.datetime.now(dt.UTC) - dt.timedelta(hours=overrides_lookback_hours))
         overrides_query = RECENT_OVERRIDES_QUERY
@@ -642,17 +614,17 @@ async def reconcile_team_precalculated_events_activity(inputs: ReconcileTeamInpu
     )
 
 
-@temporalio.workflow.defn(name="reconcile-precalculated-events")
-class ReconcilePrecalculatedEventsWorkflow(PostHogWorkflow):
+@temporalio.workflow.defn(name="reconcile-precalculated-data")
+class ReconcilePrecalculatedDataWorkflow(PostHogWorkflow):
     """Scheduled workflow that repairs precalculated_events and precalculated_person_properties
     rows made stale by person merges."""
 
     # Default JSON parse_inputs, so manual runs can pass {"team_ids": [...], "full_scan": true}.
-    inputs_cls = ReconcilePrecalculatedEventsWorkflowInputs
+    inputs_cls = ReconcilePrecalculatedDataWorkflowInputs
     inputs_optional = True
 
     @temporalio.workflow.run
-    async def run(self, inputs: ReconcilePrecalculatedEventsWorkflowInputs) -> None:
+    async def run(self, inputs: ReconcilePrecalculatedDataWorkflowInputs) -> None:
         workflow_logger = temporalio.workflow.logger
 
         if inputs.team_ids is not None:

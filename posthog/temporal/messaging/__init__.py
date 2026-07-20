@@ -24,7 +24,7 @@ from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator
     get_realtime_cohort_selection_activity,
 )
 from posthog.temporal.messaging.reconcile_precalculated_data_workflow import (
-    ReconcilePrecalculatedEventsWorkflow,
+    ReconcilePrecalculatedDataWorkflow,
     get_reconciliation_run_config_activity,
     get_reconciliation_team_ids_activity,
     reconcile_team_precalculated_events_activity,
@@ -38,7 +38,7 @@ WORKFLOWS = [
     BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow,
     RealtimeCohortCalculationWorkflow,
     RealtimeCohortCalculationCoordinatorWorkflow,
-    ReconcilePrecalculatedEventsWorkflow,
+    ReconcilePrecalculatedDataWorkflow,
 ]
 ACTIVITIES = [
     backfill_precalculated_events_activity,

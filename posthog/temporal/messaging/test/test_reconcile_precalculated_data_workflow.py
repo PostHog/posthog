@@ -2,17 +2,24 @@ import uuid
 import datetime as dt
 
 import pytest
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, patch
 
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
-from temporalio.testing import ActivityEnvironment
+from temporalio import activity
+from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.team import Team
 from posthog.temporal.messaging.reconcile_precalculated_data_workflow import (
+    ReconcilePersonPropertiesResult,
+    ReconcilePrecalculatedDataWorkflow,
+    ReconcilePrecalculatedDataWorkflowInputs,
     ReconcileTeamInputs,
-    _extract_person_property_filters,
+    ReconcileTeamResult,
+    ReconciliationRunConfig,
+    ReconciliationTeamIdsResult,
     _get_realtime_person_property_filters,
     _positive_int_env,
     get_reconciliation_run_config_activity,
@@ -57,8 +64,8 @@ class TestGetReconciliationRunConfigActivity:
         # The workflow shares this config across every team in a run; a regression here
         # (e.g. reading env vars per-team instead) would silently reopen the queueing bug
         # this activity exists to fix.
-        monkeypatch.delenv("RECONCILE_EVENTS_OVERRIDES_LOOKBACK_HOURS", raising=False)
-        monkeypatch.delenv("RECONCILE_EVENTS_TEAM_CONCURRENCY", raising=False)
+        monkeypatch.delenv("RECONCILE_PRECALCULATED_DATA_OVERRIDES_LOOKBACK_HOURS", raising=False)
+        monkeypatch.delenv("RECONCILE_PRECALCULATED_DATA_TEAM_CONCURRENCY", raising=False)
 
         before = dt.datetime.now(dt.UTC)
         result = await ActivityEnvironment().run(get_reconciliation_run_config_activity)
@@ -241,53 +248,6 @@ class TestGetReconciliationTeamIdsActivity:
         result = await ActivityEnvironment().run(get_reconciliation_team_ids_activity)
 
         assert result.team_ids == [team.pk]
-
-
-class TestExtractPersonPropertyFilters:
-    def test_no_filters_returns_empty(self):
-        cohort = Mock(filters=None)
-        assert _extract_person_property_filters(cohort) == []
-
-    def test_traverses_and_or_groups(self):
-        cohort = Mock(
-            filters={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "type": "OR",
-                            "values": [
-                                {
-                                    "type": "person",
-                                    "key": "$browser",
-                                    "conditionHash": "hash-1",
-                                    "bytecode": _is_set_bytecode("$browser"),
-                                }
-                            ],
-                        }
-                    ],
-                }
-            }
-        )
-
-        result = _extract_person_property_filters(cohort)
-
-        assert [f.condition_hash for f in result] == ["hash-1"]
-
-    def test_leaf_missing_bytecode_is_skipped(self):
-        # A leaf without conditionHash/bytecode/key can't be evaluated later — skipping it
-        # here (rather than raising) avoids failing reconciliation for every other condition.
-        cohort = Mock(
-            filters={
-                "properties": {
-                    "type": "person",
-                    "key": "$browser",
-                    "conditionHash": "hash-1",
-                    # no bytecode
-                }
-            }
-        )
-        assert _extract_person_property_filters(cohort) == []
 
 
 @pytest.mark.asyncio
@@ -570,3 +530,154 @@ class TestReconcileTeamPrecalculatedPersonPropertiesActivity:
         assert result.verdicts_skipped_eval_failed == 1
         assert result.verdicts_corrected == 0
         mock_producer.produce.assert_not_called()
+
+    async def test_eval_failure_skips_only_omitted_conditions(self, team):
+        # A distinct_id with two stored verdicts where the evaluator returns one hash and omits
+        # the other: the returned one must still be corrected while only the omitted one is
+        # skipped. Guards against bailing on the whole distinct_id at the first missing hash.
+        await sync_to_async(Cohort.objects.create)(
+            team=team,
+            name="rt-two-conditions",
+            cohort_type=CohortType.REALTIME,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "person",
+                            "key": "$browser",
+                            "conditionHash": "hash-A",
+                            "bytecode": _is_set_bytecode("$browser"),
+                        },
+                        {
+                            "type": "person",
+                            "key": "$os",
+                            "conditionHash": "hash-B",
+                            "bytecode": _is_set_bytecode("$os"),
+                        },
+                    ],
+                }
+            },
+        )
+
+        old_person = await sync_to_async(create_person)(team=team, distinct_ids=[], properties={"$browser": "Chrome"})
+        new_person = await sync_to_async(create_person)(
+            team=team, distinct_ids=["did-merged"], properties={"$browser": "Chrome"}
+        )
+        _insert_person_properties_verdict(team.pk, "did-merged", old_person.uuid, "hash-A", matches=True)
+        _insert_person_properties_verdict(team.pk, "did-merged", old_person.uuid, "hash-B", matches=True)
+        _insert_override(team.pk, "did-merged", new_person.uuid)
+
+        mock_producer = MagicMock()
+        with (
+            patch(
+                "posthog.temporal.messaging.reconcile_precalculated_data_workflow.get_producer",
+                return_value=mock_producer,
+            ),
+            # hash-A evaluated (still True); hash-B omitted (bytecode failed this run).
+            patch(
+                "posthog.temporal.messaging.reconcile_precalculated_data_workflow.evaluate_combined_filters_with_fallback_sync",
+                return_value={"hash-A": True},
+            ),
+        ):
+            result = await ActivityEnvironment().run(
+                reconcile_team_precalculated_person_properties_activity, ReconcileTeamInputs(team_id=team.pk)
+            )
+
+        # hash-A: re-attributed to the surviving person (matches unchanged). hash-B: left alone.
+        assert result.verdicts_corrected == 1
+        assert result.verdicts_skipped_eval_failed == 1
+        produced = [call.kwargs["data"] for call in mock_producer.produce.call_args_list]
+        assert produced == [
+            {
+                "team_id": team.pk,
+                "distinct_id": "did-merged",
+                "person_id": str(new_person.uuid),
+                "condition": "hash-A",
+                "matches": True,
+                "source": "cohort_filter_hash-A",
+            }
+        ]
+
+
+def _empty_events_result(team_id: int) -> ReconcileTeamResult:
+    return ReconcileTeamResult(overridden_distinct_ids=0, rows_checked=0, rows_corrected=0, duration_seconds=0.0)
+
+
+def _empty_properties_result() -> ReconcilePersonPropertiesResult:
+    return ReconcilePersonPropertiesResult(
+        overridden_distinct_ids=0, verdicts_checked=0, verdicts_corrected=0, duration_seconds=0.0
+    )
+
+
+@pytest.mark.asyncio
+class TestReconcilePrecalculatedDataWorkflow:
+    async def _run(self, team_ids: list[int], events_activity, properties_activity) -> None:
+        @activity.defn(name="get_reconciliation_team_ids_activity")
+        async def mock_team_ids() -> ReconciliationTeamIdsResult:
+            return ReconciliationTeamIdsResult(team_ids=team_ids)
+
+        @activity.defn(name="get_reconciliation_run_config_activity")
+        async def mock_run_config() -> ReconciliationRunConfig:
+            return ReconciliationRunConfig(since=dt.datetime(2026, 1, 1, tzinfo=dt.UTC), team_concurrency=5)
+
+        task_queue = str(uuid.uuid4())
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[ReconcilePrecalculatedDataWorkflow],
+                activities=[mock_team_ids, mock_run_config, events_activity, properties_activity],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                await env.client.execute_workflow(
+                    ReconcilePrecalculatedDataWorkflow.run,
+                    ReconcilePrecalculatedDataWorkflowInputs(),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                )
+
+    async def test_run_isolates_failing_team(self):
+        # One team's events activity failing must not abort the others: the workflow gathers with
+        # return_exceptions=True, so surviving teams still run both activities and the run completes.
+        events_calls: list[int] = []
+        props_calls: list[int] = []
+
+        @activity.defn(name="reconcile_team_precalculated_events_activity")
+        async def events_activity(inputs: ReconcileTeamInputs) -> ReconcileTeamResult:
+            events_calls.append(inputs.team_id)
+            if inputs.team_id == 102:
+                raise RuntimeError("boom")
+            return _empty_events_result(inputs.team_id)
+
+        @activity.defn(name="reconcile_team_precalculated_person_properties_activity")
+        async def properties_activity(inputs: ReconcileTeamInputs) -> ReconcilePersonPropertiesResult:
+            props_calls.append(inputs.team_id)
+            return _empty_properties_result()
+
+        await self._run([101, 102, 103], events_activity, properties_activity)
+
+        # Every team's events activity was attempted (the failing one is retried, hence a set).
+        assert set(events_calls) == {101, 102, 103}
+        # Only the two surviving teams reach the properties activity; the failing team's chain stops.
+        assert set(props_calls) == {101, 103}
+
+    async def test_run_no_teams_is_noop(self):
+        # Empty team selection short-circuits before any reconcile activity runs.
+        events_calls: list[int] = []
+        props_calls: list[int] = []
+
+        @activity.defn(name="reconcile_team_precalculated_events_activity")
+        async def events_activity(inputs: ReconcileTeamInputs) -> ReconcileTeamResult:
+            events_calls.append(inputs.team_id)
+            return _empty_events_result(inputs.team_id)
+
+        @activity.defn(name="reconcile_team_precalculated_person_properties_activity")
+        async def properties_activity(inputs: ReconcileTeamInputs) -> ReconcilePersonPropertiesResult:
+            props_calls.append(inputs.team_id)
+            return _empty_properties_result()
+
+        await self._run([], events_activity, properties_activity)
+
+        assert events_calls == []
+        assert props_calls == []

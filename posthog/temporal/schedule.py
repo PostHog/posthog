@@ -58,7 +58,7 @@ from posthog.temporal.logs_alerting.schedule import create_logs_alert_check_sche
 from posthog.temporal.mcp_analytics.intent_clustering.schedule import create_intent_clustering_coordinator_schedule
 from posthog.temporal.messaging.schedule import (
     create_all_realtime_cohort_calculation_schedules,
-    create_reconcile_precalculated_events_schedule,
+    create_reconcile_precalculated_data_schedule,
 )
 from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
@@ -817,7 +817,7 @@ schedules = [
     create_experiment_saved_metrics_schedules,
     create_experiment_precompute_canary_schedule,
     create_all_realtime_cohort_calculation_schedules,
-    create_reconcile_precalculated_events_schedule,
+    create_reconcile_precalculated_data_schedule,
     create_ingestion_acceptance_test_schedule,
     create_warehouse_sources_queue_partition_management_schedule,
     create_health_check_schedules,
