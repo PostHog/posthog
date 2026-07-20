@@ -225,11 +225,12 @@ pub struct Config {
     #[envconfig(from = "INGESTION_ROUTING_STRATEGY", default = "binpack")]
     pub routing_strategy: RoutingStrategy,
 
-    /// Aperture width for `INGESTION_ROUTING_STRATEGY=aperture`: how many
-    /// workers this dispatcher's ring slice spans. The fleet's slices tile the
-    /// pool, so effective total coverage is `min_aperture x dispatchers`
-    /// (bounded by the pool). Small values maximize sub-batch consolidation;
-    /// the width becomes feedback-driven in a later stage.
+    /// Minimum aperture width for `INGESTION_ROUTING_STRATEGY=aperture`: how
+    /// many workers this dispatcher's ring slice spans. The effective width
+    /// is floored at `ceil(pool / dispatchers)` so the fleet's slices always
+    /// cover the whole pool, no matter the pool/dispatcher ratio. Small
+    /// values maximize sub-batch consolidation; the width becomes
+    /// feedback-driven in a later stage.
     #[envconfig(from = "INGESTION_MIN_APERTURE", default = "3")]
     pub min_aperture: usize,
 

@@ -6,8 +6,14 @@
 //! strategy). Because peers agree on both the ring order (same EndpointSlices,
 //! same sort) and their own indices ([`k8s_awareness::PeerTracker`]), the
 //! slices tile the ring without any coordination — each dispatcher talks to
-//! `width` workers instead of the whole pool, which is what keeps sub-batches
-//! consolidated. Modeled on Finagle's deterministic aperture.
+//! a handful of workers instead of the whole pool, which is what keeps
+//! sub-batches consolidated. Modeled on Finagle's deterministic aperture.
+//!
+//! The configured width is a *minimum*: it's floored at
+//! `ceil(ring_len / peer_count)` — the narrowest equal slices that can cover
+//! the ring — so the union of the fleet's slices covers every worker even
+//! when workers outnumber `width x dispatchers`. Every peer computes the same
+//! floor from the same inputs, so the property stays coordination-free.
 //!
 //! Unroutable ring positions (unhealthy or draining workers) are skipped and
 //! the slice extends further around the ring, so the *effective* width holds
@@ -18,8 +24,9 @@ use std::collections::HashSet;
 use crate::worker_registry::WorkerId;
 
 /// The candidate workers for one assignment round: walk the ring from this
-/// dispatcher's slice start, collecting healthy workers until `width` are
-/// found or the ring is exhausted. `ring` is the canonically sorted full
+/// dispatcher's slice start, collecting healthy workers until the effective
+/// width (`width` floored at `ceil(ring_len / peer_count)` for coverage) is
+/// reached or the ring is exhausted. `ring` is the canonically sorted full
 /// worker set; `healthy` the subset this dispatcher may route to.
 ///
 /// Returns `None` (caller falls back to the full healthy pool) when the
@@ -36,6 +43,13 @@ pub fn ring_slice(
     if ring.is_empty() || peer_count == 0 || index >= peer_count || width == 0 {
         return None;
     }
+
+    // Coverage floor: consecutive slice starts are at most `ceil(len/peers)`
+    // apart, so any narrower width would leave ring positions no dispatcher
+    // ever routes fresh keys to. Flooring the width there guarantees the
+    // union of the fleet's slices covers the whole ring for any pool/peer
+    // ratio, at the cost of slight slice overlap when the division is uneven.
+    let width = width.max(ring.len().div_ceil(peer_count));
 
     let healthy_set: HashSet<&WorkerId> = healthy.iter().collect();
     let start = index * ring.len() / peer_count;
@@ -95,21 +109,32 @@ mod tests {
     }
 
     #[test]
-    fn test_slices_leave_gaps_when_width_undershoots_ring() {
-        // 2 peers x width 3 over 8 workers: slice starts are spaced 4 apart,
-        // so ring positions 3 and 7 receive no unpinned traffic. Full-pool
-        // coverage requires `width x peer_count >= ring len` — an undersized
-        // static width idles the uncovered workers.
+    fn test_width_floored_so_slices_cover_an_oversized_ring() {
+        // 2 peers x configured width 3 over 8 workers: unfloored slices would
+        // be spaced 4 apart and leave positions 3 and 7 with zero unpinned
+        // traffic. The ceil(8/2)=4 floor widens each slice just enough that
+        // the union covers the whole ring.
         let ring = ring(8);
         let mut seen = HashSet::new();
         for index in 0..2 {
-            seen.extend(ring_slice(&ring, &ring, Some(index), 2, 3).unwrap());
+            let slice = ring_slice(&ring, &ring, Some(index), 2, 3).unwrap();
+            assert_eq!(slice.len(), 4, "peer {index} floored to ceil(8/2)");
+            seen.extend(slice);
         }
-        assert_eq!(seen.len(), 6, "only width x peers positions are covered");
-        assert!(
-            !seen.contains(&ring[3]) && !seen.contains(&ring[7]),
-            "positions between slice starts are never routed to"
-        );
+        assert_eq!(seen.len(), 8, "every ring position must be covered");
+    }
+
+    #[test]
+    fn test_width_floor_overlaps_slices_on_uneven_division() {
+        // 3 peers over 7 workers: starts 0, 2, 4 with floor ceil(7/3)=3 give
+        // slices {0,1,2}, {2,3,4}, {4,5,6} — full coverage, with boundary
+        // positions shared by two peers rather than left uncovered.
+        let ring = ring(7);
+        let mut seen = HashSet::new();
+        for index in 0..3 {
+            seen.extend(ring_slice(&ring, &ring, Some(index), 3, 1).unwrap());
+        }
+        assert_eq!(seen.len(), 7, "uneven division must still cover the ring");
     }
 
     #[test]

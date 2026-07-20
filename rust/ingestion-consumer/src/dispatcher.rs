@@ -1368,8 +1368,9 @@ mod tests {
 
     #[test]
     fn test_aperture_routes_unpinned_keys_within_ring_slice() {
-        // Peer 1 of 2 over a 6-worker ring with width 2 owns ring positions
-        // 3 and 4; every fresh key must land there, nowhere else.
+        // Peer 1 of 2 over a 6-worker ring, configured width 2 floored to
+        // ceil(6/2)=3 for coverage, owns ring positions 3-5; every fresh key
+        // must land there, nowhere else.
         let mut dispatcher =
             Dispatcher::with_strategy(healthy_registry(6), RoutingStrategy::Aperture);
         dispatcher.set_aperture(peer_tracker("10.0.0.2", &["10.0.0.1", "10.0.0.2"]), 2);
@@ -1382,7 +1383,7 @@ mod tests {
         assert!(
             sub_batches
                 .iter()
-                .all(|b| b.worker == wid(3) || b.worker == wid(4)),
+                .all(|b| b.worker == wid(3) || b.worker == wid(4) || b.worker == wid(5)),
             "all sub-batches must stay within the dispatcher's ring slice"
         );
     }
@@ -1434,10 +1435,10 @@ mod tests {
 
     #[test]
     fn test_aperture_honors_pin_outside_ring_slice() {
-        // Peer 1 of 2 over a 6-worker ring with width 2 owns ring positions
-        // 3 and 4. A key pinned to worker 0 — outside the slice — must keep
-        // routing there: the slice narrows candidates for *fresh* keys only,
-        // and rerouting a pinned key would break per-key ordering.
+        // Peer 1 of 2 over a 6-worker ring owns ring positions 3-5. A key
+        // pinned to worker 0 — outside the slice — must keep routing there:
+        // the slice narrows candidates for *fresh* keys only, and rerouting
+        // a pinned key would break per-key ordering.
         let mut dispatcher =
             Dispatcher::with_strategy(healthy_registry(6), RoutingStrategy::Aperture);
         dispatcher.set_aperture(peer_tracker("10.0.0.2", &["10.0.0.1", "10.0.0.2"]), 2);
