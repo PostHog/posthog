@@ -4,6 +4,7 @@ import {
     KAFKA_LOGS_INGESTION,
     KAFKA_LOGS_INGESTION_DLQ,
     KAFKA_LOGS_INGESTION_OVERFLOW,
+    KAFKA_LOG_ENTRIES,
     KAFKA_TRACES_CLICKHOUSE,
     KAFKA_TRACES_INGESTION,
     KAFKA_TRACES_INGESTION_DLQ,
@@ -16,6 +17,8 @@ import { LogsProducerName, WARPSTREAM_INGESTION_PRODUCER, WARPSTREAM_LOGS_PRODUC
 export type LogsIngestionOutputsConfig = {
     LOGS_INGESTION_OUTPUT_APP_METRICS_TOPIC: string
     LOGS_INGESTION_OUTPUT_APP_METRICS_PRODUCER: LogsProducerName
+    LOGS_INGESTION_OUTPUT_LOG_ENTRIES_TOPIC: string
+    LOGS_INGESTION_OUTPUT_LOG_ENTRIES_PRODUCER: LogsProducerName
     LOGS_INGESTION_OUTPUT_LOGS_PRODUCER: LogsProducerName
     LOGS_INGESTION_OUTPUT_DLQ_PRODUCER: LogsProducerName
 }
@@ -24,6 +27,8 @@ export function getDefaultLogsIngestionOutputsConfig(): LogsIngestionOutputsConf
     return {
         LOGS_INGESTION_OUTPUT_APP_METRICS_TOPIC: KAFKA_APP_METRICS_2,
         LOGS_INGESTION_OUTPUT_APP_METRICS_PRODUCER: WARPSTREAM_INGESTION_PRODUCER,
+        LOGS_INGESTION_OUTPUT_LOG_ENTRIES_TOPIC: KAFKA_LOG_ENTRIES,
+        LOGS_INGESTION_OUTPUT_LOG_ENTRIES_PRODUCER: WARPSTREAM_INGESTION_PRODUCER,
         LOGS_INGESTION_OUTPUT_LOGS_PRODUCER: WARPSTREAM_LOGS_PRODUCER,
         LOGS_INGESTION_OUTPUT_DLQ_PRODUCER: WARPSTREAM_LOGS_PRODUCER,
     }
@@ -57,6 +62,21 @@ export type LogsIngestionConsumerConfig = {
      * (shadow mode) — billing is unchanged.
      */
     LOGS_BILLING_PRORATE_ENABLED: boolean
+    /** Comma-separated team IDs, or `*` for all teams, or empty (default) to disable hog log transformations entirely. */
+    LOGS_TRANSFORMATIONS_ENABLED_TEAMS: string
+    /** When `true`, hog log transformations are skipped regardless of the allowlist. */
+    LOGS_TRANSFORMATIONS_KILLSWITCH: boolean
+    /** Hard per-record HogVM kill in milliseconds. */
+    LOGS_TRANSFORMATIONS_HOG_TIMEOUT_MS: number
+    /** Cumulative HogVM time budget per Kafka message; exhaustion skips remaining records (fail-open). */
+    LOGS_TRANSFORMATIONS_MESSAGE_BUDGET_MS: number
+    /** Cumulative HogVM time budget per consumer batch; bounds worst-case added batch latency. */
+    LOGS_TRANSFORMATIONS_BATCH_BUDGET_MS: number
+    /** Max failed invocations whose logs are captured, per function per message. */
+    LOGS_TRANSFORMATIONS_MAX_ERROR_LOGS_PER_FUNCTION: number
+    /** Fraction of messages (0–1) on which HogWatcher state is read and aggregate VM cost reported.
+     * 0 (default) keeps the watcher fully dormant — no Redis traffic. */
+    LOGS_TRANSFORMATIONS_HOG_WATCHER_SAMPLE_RATE: number
     REDIS_URL: string
     REDIS_POOL_MIN_SIZE: number
     REDIS_POOL_MAX_SIZE: number
@@ -84,6 +104,15 @@ export function getDefaultLogsIngestionConsumerConfig(): LogsIngestionConsumerCo
         LOGS_SAMPLING_ENABLED_TEAMS: '*',
         LOGS_SAMPLING_KILLSWITCH: false,
         LOGS_BILLING_PRORATE_ENABLED: false,
+        LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '',
+        LOGS_TRANSFORMATIONS_KILLSWITCH: false,
+        LOGS_TRANSFORMATIONS_HOG_TIMEOUT_MS: 10,
+        // A regex-heavy scrub measured ~95µs/record (see transformations/benchmarks/);
+        // 100ms covers one such function over a full ~1,100-record message.
+        LOGS_TRANSFORMATIONS_MESSAGE_BUDGET_MS: 100,
+        LOGS_TRANSFORMATIONS_BATCH_BUDGET_MS: 2000,
+        LOGS_TRANSFORMATIONS_MAX_ERROR_LOGS_PER_FUNCTION: 3,
+        LOGS_TRANSFORMATIONS_HOG_WATCHER_SAMPLE_RATE: 0,
         // Overlapping fields with CommonConfig, included for standalone usage
         // ok to connect to localhost over plaintext
         // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
