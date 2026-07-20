@@ -40,6 +40,7 @@ members = [
   "cyclotron-core",
   "cyclotron-node",
   "cyclotron-janitor",
+  "replay-anonymizer",
   "replay-anonymizer-node",
   "cymbal",
   "cymbal-proto",

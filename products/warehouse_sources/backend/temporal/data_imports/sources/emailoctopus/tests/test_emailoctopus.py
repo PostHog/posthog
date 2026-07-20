@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.emailoctop
 from products.warehouse_sources.backend.temporal.data_imports.sources.emailoctopus.emailoctopus import (
     EMAILOCTOPUS_BASE_URL as BASE,
     EmailOctopusResumeConfig,
+    _base_url_for_version,
     _build_contact_params,
     _format_incremental_value,
     _get_headers,
@@ -156,7 +157,12 @@ def _make_fake_fetch(pages: dict[str, Any], calls: list[tuple[str, Any]] | None 
 
 
 def _collect(
-    endpoint: str, manager: _FakeResumableManager, monkeypatch: Any, pages: dict[str, Any], **kwargs: Any
+    endpoint: str,
+    manager: _FakeResumableManager,
+    monkeypatch: Any,
+    pages: dict[str, Any],
+    api_version: str = "v2",
+    **kwargs: Any,
 ) -> list[dict]:
     monkeypatch.setattr(emailoctopus, "_fetch_page", _make_fake_fetch(pages))
     rows: list[dict] = []
@@ -165,6 +171,7 @@ def _collect(
         endpoint=endpoint,
         logger=MagicMock(),
         resumable_source_manager=manager,  # type: ignore[arg-type]
+        api_version=api_version,
         **kwargs,
     ):
         rows.extend(table.to_pylist())
@@ -221,6 +228,7 @@ class TestContactsFanOut:
                 endpoint="contacts",
                 logger=MagicMock(),
                 resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                api_version="v2",
                 should_use_incremental_field=True,
                 db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
                 incremental_field="last_updated_at",
@@ -244,6 +252,7 @@ class TestContactsFanOut:
                 endpoint="contacts",
                 logger=MagicMock(),
                 resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                api_version="v2",
                 should_use_incremental_field=True,
                 db_incremental_field_last_value=None,
                 incremental_field="last_updated_at",
@@ -302,6 +311,7 @@ class TestContactsFanOut:
             endpoint="contacts",
             logger=MagicMock(),
             resumable_source_manager=manager,  # type: ignore[arg-type]
+            api_version="v2",
         ):
             for row in table.to_pylist():
                 events.append(("row", row["id"]))
@@ -360,6 +370,7 @@ class TestResumeStateSaving:
                 endpoint="lists",
                 logger=MagicMock(),
                 resumable_source_manager=manager,  # type: ignore[arg-type]
+                api_version="v2",
             )
         )
         # The first page has a next URL, so its cursor is saved; the last page does not.
@@ -380,6 +391,7 @@ class TestSourceResponse:
             endpoint=endpoint,
             logger=MagicMock(),
             resumable_source_manager=MagicMock(),
+            api_version="v2",
         )
         assert response.name == endpoint
         assert response.primary_keys == expected_pks
@@ -387,3 +399,34 @@ class TestSourceResponse:
         assert response.partition_mode == "datetime"
         assert response.partition_keys == [EMAILOCTOPUS_ENDPOINTS[endpoint].partition_key]
         assert EMAILOCTOPUS_ENDPOINTS[endpoint].partition_key == "created_at"
+
+
+class TestApiVersionDispatch:
+    # EmailOctopus serves every version from the one REST host, so both supported labels — and any
+    # undeclared pin honored verbatim by resolve_api_version — must resolve to it.
+    @parameterized.expand([("v1",), ("v2",), ("some-undeclared-label",)])
+    def test_base_url_resolves_to_rest_host(self, api_version: str) -> None:
+        assert _base_url_for_version(api_version) == BASE
+
+    @parameterized.expand([("v1",), ("v2",)])
+    def test_get_rows_threads_version_into_request_host(self, api_version: str) -> None:
+        # Route each version to a distinct sentinel host so the assertion fails if get_rows stops
+        # threading api_version into the base-URL selection (e.g. reverts to a hardcoded host).
+        sentinel = f"https://host-{api_version}.test"
+        calls: list[tuple[str, Any]] = []
+        pages = {f"{sentinel}/lists": {"data": [{"id": "L1"}], "paging": {"next": None}}}
+        with (
+            patch.object(emailoctopus, "_base_url_for_version", lambda v: f"https://host-{v}.test"),
+            patch.object(emailoctopus, "_fetch_page", _make_fake_fetch(pages, calls)),
+        ):
+            list(
+                get_rows(
+                    api_key="eo_key",
+                    endpoint="lists",
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                    api_version=api_version,
+                )
+            )
+        assert calls
+        assert all(url.startswith(sentinel) for url, _ in calls)

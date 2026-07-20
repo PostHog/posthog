@@ -223,3 +223,115 @@ def test_paginate_dependent_resource_does_not_leak_params_across_parents() -> No
         assert params_snapshot["since"] == "2026-01-01"
         assert params_snapshot["until"] == "2026-03-01"
         assert "before" not in params_snapshot
+
+
+class _FakeResumableClient:
+    # paginate() simulates page-by-page pagination with resume: it honors
+    # initial_paginator_state["page"] as the start index and calls resume_hook after each page.
+    def __init__(self, pages_by_path: dict[str, list[list[dict[str, Any]]]]) -> None:
+        self.pages_by_path = pages_by_path
+
+    def paginate(
+        self,
+        *,
+        method,
+        path,
+        params,
+        paginator,
+        data_selector,
+        hooks,
+        resume_hook=None,
+        initial_paginator_state=None,
+        data_selector_required=False,
+    ):
+        pages = self.pages_by_path[path]
+        start = initial_paginator_state["page"] if initial_paginator_state else 0
+        for i in range(start, len(pages)):
+            yield pages[i]
+            if resume_hook is not None:
+                resume_hook({"page": i + 1} if i < len(pages) - 1 else None)
+
+
+_RESOLVED_PARAM = ResolvedParam(
+    param_name="parent_id",
+    resolve_config={"type": "resolve", "resource": "parents", "field": "id"},
+)
+
+
+def _dependent_fn(client, resume_hook=None, initial_state=None):
+    return _make_paginate_dependent_resource(
+        client=client,
+        resolved_param=_RESOLVED_PARAM,
+        include_from_parent=[],
+        default_columns_config=None,
+        incremental_object=None,
+        incremental_param=None,
+        incremental_cursor_transform=None,
+        db_incremental_field_last_value=None,
+        resume_hook=resume_hook,
+        initial_state=initial_state,
+    )
+
+
+def _drive(paginate_fn) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for page in paginate_fn(
+        items=[{"id": "a"}, {"id": "b"}],
+        method="get",
+        path="/parents/{parent_id}/children",
+        params={},
+        paginator=None,
+        data_selector=None,
+        hooks=None,
+    ):
+        rows.extend(page)
+    return rows
+
+
+def test_dependent_resume_checkpoints_completed_parents() -> None:
+    client = _FakeResumableClient(
+        {
+            "/parents/a/children": [[{"id": "a1"}], [{"id": "a2"}]],
+            "/parents/b/children": [[{"id": "b1"}]],
+        }
+    )
+    checkpoints: list[Any] = []
+    rows = _drive(_dependent_fn(client, resume_hook=checkpoints.append))
+
+    assert [r["id"] for r in rows] == ["a1", "a2", "b1"]
+    # Final checkpoint records both parents fully synced, nothing in progress.
+    assert checkpoints[-1] == {
+        "completed": ["/parents/a/children", "/parents/b/children"],
+        "current": None,
+        "child_state": None,
+    }
+
+
+def test_dependent_resume_skips_completed_and_resumes_current() -> None:
+    client = _FakeResumableClient(
+        {
+            "/parents/a/children": [[{"id": "a1"}], [{"id": "a2"}]],
+            "/parents/b/children": [[{"id": "b1"}], [{"id": "b2"}]],
+        }
+    )
+    # Parent a already fully synced; parent b was mid-way (its child cursor is at page index 1).
+    initial_state = {
+        "completed": ["/parents/a/children"],
+        "current": "/parents/b/children",
+        "child_state": {"page": 1},
+    }
+    rows = _drive(_dependent_fn(client, resume_hook=lambda _s: None, initial_state=initial_state))
+
+    # a is skipped entirely (no re-yield); b resumes from page 1, so only b2 (b1 already synced).
+    assert [r["id"] for r in rows] == ["b2"]
+
+
+def test_dependent_resume_disabled_without_hook_processes_all() -> None:
+    client = _FakeResumableClient(
+        {
+            "/parents/a/children": [[{"id": "a1"}]],
+            "/parents/b/children": [[{"id": "b1"}]],
+        }
+    )
+    rows = _drive(_dependent_fn(client, resume_hook=None))
+    assert [r["id"] for r in rows] == ["a1", "b1"]

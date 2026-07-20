@@ -450,13 +450,13 @@ def resume_task_in_cloud_workflow(run_id: str, workflow_id: str) -> None:
     )
 
 
-def execute_build_sandbox_image_workflow(image_id: str, team_id: int) -> None:
+def execute_build_sandbox_image_workflow(image_id: str, team_id: int, *, refresh: bool = False) -> None:
     """Start (or restart) the scan → build → publish workflow for a custom sandbox image."""
     client = sync_connect()
     asyncio.run(
         client.start_workflow(
             "build-sandbox-image",
-            BuildSandboxImageInput(image_id=image_id, team_id=team_id),
+            BuildSandboxImageInput(image_id=image_id, team_id=team_id, refresh=refresh),
             id=f"build-sandbox-image-{image_id}",
             id_reuse_policy=WorkflowIDReusePolicy.TERMINATE_IF_RUNNING,
             task_queue=settings.TASKS_TASK_QUEUE,
@@ -465,10 +465,21 @@ def execute_build_sandbox_image_workflow(image_id: str, team_id: int) -> None:
     )
 
 
-def signal_task_followup_message(workflow_id: str, message: str | None, artifact_ids: list[str]) -> None:
+def signal_task_followup_message(
+    workflow_id: str,
+    message: str | None,
+    artifact_ids: list[str],
+    message_id: str | None = None,
+    actor_user_id: int | None = None,
+    context: dict[str, Any] | None = None,
+) -> None:
+    """New per-message fields go in ``context`` — the positional signal args
+    are frozen for worker deploy compat."""
     client = sync_connect()
     handle = client.get_workflow_handle(workflow_id)
-    asyncio.run(handle.signal("send_followup_message", args=[message, artifact_ids]))
+    asyncio.run(
+        handle.signal("send_followup_message", args=[message, artifact_ids, message_id, actor_user_id, context])
+    )
 
 
 def signal_agent_text_delta(workflow_id: str, text: str) -> None:
@@ -478,31 +489,6 @@ def signal_agent_text_delta(workflow_id: str, text: str) -> None:
     asyncio.run(handle.signal("agent_text_delta", text))
 
 
-def signal_task_permission_response(
-    workflow_id: str,
-    *,
-    request_id: str,
-    option_id: str,
-    actor_user_id: int,
-    actor_slack_user_id: str | None = None,
-    is_denial: bool = False,
-    denial_message: str | None = None,
-    broker_reason: str | None = None,
-) -> None:
-    client = sync_connect()
-    handle = client.get_workflow_handle(workflow_id)
-    payload: dict[str, Any] = {
-        "request_id": request_id,
-        "option_id": option_id,
-        "actor_user_id": actor_user_id,
-        "actor_slack_user_id": actor_slack_user_id,
-        "is_denial": is_denial,
-        "denial_message": denial_message,
-        "broker_reason": broker_reason,
-    }
-    asyncio.run(handle.signal("send_permission_response", arg=payload))
-
-
 def execute_posthog_code_agent_relay_workflow(
     run_id: str,
     text: str,
@@ -510,6 +496,7 @@ def execute_posthog_code_agent_relay_workflow(
     user_message_ts: str | None = None,
     delete_progress: bool = True,
     reaction_emoji: str | None = None,
+    message_id: str | None = None,
 ) -> str:
     relay_id = relay_id or str(uuid.uuid4())
     workflow_id = f"posthog-code-agent-relay-{run_id}-{relay_id}"
@@ -525,6 +512,7 @@ def execute_posthog_code_agent_relay_workflow(
                 user_message_ts=user_message_ts,
                 delete_progress=delete_progress,
                 reaction_emoji=reaction_emoji,
+                message_id=message_id,
             ),
             id=workflow_id,
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,

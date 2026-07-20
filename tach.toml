@@ -598,6 +598,7 @@ depends_on = [
     "ee",
     "posthog",
     "products.cdp",
+    "products.cohorts",
     "products.exports",
     "products.signals",
 ]
