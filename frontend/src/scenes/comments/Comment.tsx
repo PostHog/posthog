@@ -2,7 +2,7 @@ import { generateText } from '@tiptap/core'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { Fragment, useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { IconChevronDown, IconChevronRight, IconEllipsis, IconEye, IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonMenu, LemonTag, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
@@ -377,14 +377,7 @@ export const CommentWithReplies = ({ commentWithReplies, composerLogicProps }: C
                 </>
             ) : null}
 
-            {showReplies
-                ? replies.map((reply) => (
-                      <Fragment key={reply.id}>
-                          <LemonDivider className="my-0" />
-                          <Comment comment={reply} />
-                      </Fragment>
-                  ))
-                : null}
+            {showReplies ? replies.map((reply) => <Comment key={reply.id} comment={reply} />) : null}
 
             {isReplyTarget && composerLogicProps ? (
                 <>
