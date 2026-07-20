@@ -199,5 +199,8 @@ def validate_credentials(app_secret_token: str, agreement_grant_token: str) -> b
             "X-AgreementGrantToken": agreement_grant_token,
             **_headers(),
         },
+        # Credentials ride in custom headers that requests won't strip on a cross-origin redirect,
+        # so a redirect from /self would replay both tokens to its Location — don't follow one.
+        allow_redirects=False,
     )
     return ok

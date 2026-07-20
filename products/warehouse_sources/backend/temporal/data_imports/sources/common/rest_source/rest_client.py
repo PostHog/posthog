@@ -358,8 +358,11 @@ class RESTClient:
             )
 
         if response.status_code == 429 or response.status_code >= 500:
+            # `_safe_url` drops the query string entirely: `_redact` only masks the raw secret, not
+            # the percent-encoded form an `api_key` query credential takes in the URL, so scheme/
+            # host/path-only is what keeps an encoded credential out of the persisted `latest_error`.
             raise RESTClientRetryableError(
-                self._redact(f"HTTP {response.status_code} for {response.url}"),
+                self._redact(f"HTTP {response.status_code} for {_safe_url(response.url)}"),
                 retry_after=_parse_retry_after(response),
             )
 
@@ -396,7 +399,9 @@ class RESTClient:
                 raise RESTClientNonRetryableError(
                     self._redact(f"Non-JSON response from {_safe_url(response.url)}")
                 ) from e
-            raise RESTClientRetryableError(self._redact(f"Malformed JSON response from {response.url}: {e}")) from e
+            raise RESTClientRetryableError(
+                self._redact(f"Malformed JSON response from {_safe_url(response.url)}: {e}")
+            ) from e
 
         # Runs inside the retry loop so an unexpected-but-parseable 200 body (wrong shape) can be
         # reissued as retryable rather than surfacing as a permanent error or a garbage row.

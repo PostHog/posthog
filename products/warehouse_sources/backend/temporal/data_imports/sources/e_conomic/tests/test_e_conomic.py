@@ -368,3 +368,15 @@ class TestValidateCredentials:
         session.get.side_effect = requests.ConnectionError()
         mock_session.return_value = session
         assert validate_credentials("app", "grant") is False
+
+    @mock.patch(E_CONOMIC_SESSION_PATCH)
+    def test_probe_does_not_follow_redirects(self, mock_session: mock.MagicMock) -> None:
+        # Credentials ride in X-AppSecretToken / X-AgreementGrantToken headers, which requests does
+        # not strip on a cross-origin redirect — so the probe must not follow one and replay them.
+        session = mock.MagicMock()
+        session.get.return_value = mock.MagicMock(status_code=200)
+        mock_session.return_value = session
+
+        validate_credentials("app", "grant")
+
+        assert session.get.call_args.kwargs["allow_redirects"] is False
