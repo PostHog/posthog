@@ -93,12 +93,14 @@ describe('billingProductLogic — confirm purchase modal', () => {
                 subscription_level: 'paid',
                 products: [],
                 discount_amount_usd: discountAmountUsd,
+                // Dayjs values serialize to ISO strings in the mocked JSON response, which
+                // billingLogic's parseBillingResponse turns back into Dayjs — same as the real API.
                 billing_period: {
-                    current_period_start: dayjs().subtract(12, 'hour').toISOString(),
-                    current_period_end: dayjs().add(12, 'hour').toISOString(),
+                    current_period_start: dayjs().subtract(12, 'hour'),
+                    current_period_end: dayjs().add(12, 'hour'),
                     interval: 'month',
                 },
-            } as Partial<BillingType>)
+            })
         }
 
         it('applies the credit balance against the amount due', async () => {
