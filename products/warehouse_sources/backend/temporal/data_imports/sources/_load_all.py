@@ -191,6 +191,7 @@ from .customerly.source import CustomerlySource
 from .dagster_cloud.source import DagsterCloudSource
 from .databricks.source import DatabricksSource
 from .datadog.source import DatadogSource
+from .dataforseo.source import DataForSEOSource
 from .datahub.source import DatahubSource
 from .datascope.source import DatascopeSource
 from .datorama.source import DatoramaSource
@@ -704,6 +705,7 @@ from .singular.source import SingularSource
 from .skyvern.source import SkyvernSource
 from .slack.source import SlackSource
 from .slash.source import SlashSource
+from .sleekplan.source import SleekplanSource
 from .smaily.source import SmailySource
 from .smartengage.source import SmartEngageSource
 from .smartreach.source import SmartreachSource

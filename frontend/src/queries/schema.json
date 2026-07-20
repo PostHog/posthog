@@ -23385,7 +23385,9 @@
                 "Crisp",
                 "Kommo",
                 "Axiom",
-                "Plivo"
+                "Plivo",
+                "DataForSEO",
+                "Sleekplan"
             ],
             "type": "string"
         },
