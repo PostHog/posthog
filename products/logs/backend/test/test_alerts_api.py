@@ -15,6 +15,7 @@ from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.microsoft_teams.template_microsoft_teams import template as template_microsoft_teams
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.clickhouse.client import sync_execute
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.models.team.team import Team
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
@@ -1576,6 +1577,27 @@ class TestLogsAlertAPI(APIBaseTest):
         assert data["resolve_count"] == 0
         for b in data["buckets"]:
             assert b["count"] == 0
+
+    @parameterized.expand(
+        [
+            ("timeout", ClickHouseQueryTimeOut(), status.HTTP_400_BAD_REQUEST, "query_performance"),
+            ("memory_limit", ClickHouseQueryMemoryLimitExceeded(), status.HTTP_400_BAD_REQUEST, "query_performance"),
+            ("at_capacity", ClickHouseAtCapacity(), status.HTTP_503_SERVICE_UNAVAILABLE, "server_busy"),
+        ]
+    )
+    @freeze_time("2025-12-16T10:30:00Z")
+    @patch("products.logs.backend.presentation.views.alerts_api.AlertCheckQuery")
+    def test_simulate_handles_clickhouse_query_failure(
+        self, _name, exc, expected_status, expected_code, mock_query_cls
+    ):
+        mock_query_cls.return_value.execute_bucketed.side_effect = exc
+
+        response = self.client.post(self._simulate_url(), self._simulate_payload(), format="json")
+
+        assert response.status_code == expected_status
+        data = response.json()
+        assert data["code"] == expected_code
+        assert data["detail"]
 
     def test_simulate_rejects_empty_filters(self):
         response = self.client.post(
