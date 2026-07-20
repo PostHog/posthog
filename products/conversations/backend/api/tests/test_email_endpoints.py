@@ -1587,6 +1587,7 @@ class TestEmailInboundTeamMemberDetection(BaseTest):
         assert ticket.unread_team_count == 1
 
         comment = Comment.objects.get(team=self.team, scope="conversations_ticket")
+        assert isinstance(comment.item_context, dict)
         assert comment.item_context["author_type"] == "customer"
         assert comment.created_by is None
 
