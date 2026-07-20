@@ -2,12 +2,13 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useCallback, useMemo } from 'react'
 
-import { SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonCheckbox, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { formatDate } from 'lib/utils/datetime'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -238,8 +239,14 @@ export function EditAlertModalV2({
         return null
     }, [alertForm.config, indexedResults, isTrendsFunnel])
 
+    const enabledToggle = (
+        <LemonField name="enabled" className="m-0">
+            <LemonCheckbox checked={alertForm.enabled} data-attr="alertForm-enabled" label="Enabled" />
+        </LemonField>
+    )
+
     const leadingActions = (
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
             {!creatingNewAlert ? (
                 <LemonButton type="secondary" status="danger" onClick={deleteAlert}>
                     Delete alert
@@ -258,6 +265,7 @@ export function EditAlertModalV2({
                     Clear snooze
                 </LemonButton>
             ) : null}
+            <div className="ml-auto">{enabledToggle}</div>
         </div>
     )
 
@@ -394,7 +402,6 @@ export function EditAlertModalV2({
                         >
                             <div className="space-y-3">
                                 <AlertEditorFormDetails
-                                    enabled={{ checked: alertForm.enabled, dataAttr: 'alertForm-enabled' }}
                                     activity={
                                         alert?.created_by ? (
                                             <UserActivityIndicator
