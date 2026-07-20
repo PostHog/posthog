@@ -10,7 +10,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
-import type { AppContext } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, type AppContext } from '~/types'
 
 import { sceneLogic } from './sceneLogic'
 import type { testLogicType } from './sceneLogic.testType'
@@ -28,6 +28,7 @@ const testLogic = kea<testLogicType>([path(['scenes', 'sceneLogic', 'test'])])
 const sceneImport = (): any => ({ scene: { component: Component, logic: testLogic } })
 
 const testScenes: Record<string, () => any> = {
+    [Scene.Alerts]: sceneImport,
     [Scene.DataManagement]: sceneImport,
     [Scene.Settings]: sceneImport,
 }
@@ -103,6 +104,28 @@ describe('sceneLogic', () => {
             [Scene.DataManagement]: expectedAnnotation,
             [Scene.Settings]: expectedSettings,
         })
+    })
+
+    it('denies the alerts scene without insight access', async () => {
+        const priorAppContext = window.POSTHOG_APP_CONTEXT
+        try {
+            window.POSTHOG_APP_CONTEXT = {
+                ...window.POSTHOG_APP_CONTEXT,
+                effective_resource_access_control: {
+                    ...window.POSTHOG_APP_CONTEXT?.effective_resource_access_control,
+                    [AccessControlResourceType.Insight]: AccessControlLevel.None,
+                },
+            } as AppContext
+
+            logic.actions.setScene(Scene.Alerts, 'alerts', { params: {}, searchParams: {}, hashParams: {} })
+
+            await expectLogic(logic).toMatchValues({
+                sceneId: Scene.Alerts,
+                activeSceneId: Scene.ErrorAccessDenied,
+            })
+        } finally {
+            window.POSTHOG_APP_CONTEXT = priorAppContext
+        }
     })
 
     describe('/home honors the configured homepage', () => {

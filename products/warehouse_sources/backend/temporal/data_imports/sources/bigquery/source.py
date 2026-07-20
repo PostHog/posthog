@@ -295,6 +295,10 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             category=DataWarehouseSourceCategory.DATABASES,
             featured=True,
             iconPath="/static/services/bigquery.png",
+            caption=(
+                "Enter your BigQuery credentials to automatically pull your BigQuery data into the PostHog Data "
+                "warehouse. To send PostHog data to BigQuery instead, set up a batch export."
+            ),
             docsUrl="https://posthog.com/docs/cdp/sources/bigquery",
             fields=cast(
                 list[FieldType],
