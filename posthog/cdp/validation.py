@@ -11,7 +11,7 @@ from posthog.hogql import ast
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.compiler.javascript import JavaScriptCompiler
 from posthog.hogql.parser import parse_program, parse_string_template
-from posthog.hogql.visitor import TraversingVisitor
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 from posthog.cdp.filters import compile_filters_bytecode, compile_filters_expr
 
@@ -149,6 +149,43 @@ class RecordAliasRewriter(TraversingVisitor):
             node.chain = ["event", "properties", *node.chain[1:]]
 
 
+class PlaceholderUnwrapper(CloningVisitor):
+    """Treat `{{ expr }}` in a Hog-templated input the same as the interpolation form `{ expr }`.
+
+    A full template string wraps a `{{ ... }}` segment in an `ast.Placeholder`, which the Hog
+    compiler rejects with "Placeholders are not allowed in this context". `{{ }}` is the Liquid /
+    Handlebars interpolation convention (Liquid is even a toggle on these same inputs), so users
+    reach for it naturally — and CDP/workflow inputs never substitute placeholders anyway. Unwrap
+    each placeholder to its inner expression so the value compiles instead of throwing.
+    """
+
+    def __init__(self) -> None:
+        # Keep source locations: HyphenatedPropertyDetector relies on node start/end.
+        super().__init__(clear_locations=False)
+
+    def visit_placeholder(self, node: ast.Placeholder) -> ast.Expr:
+        return self.visit(node.expr)
+
+
+class PlaceholderDetector(TraversingVisitor):
+    found: bool
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.found = False
+
+    def visit_placeholder(self, node: ast.Placeholder) -> None:
+        self.found = True
+
+
+def unwrap_template_placeholders(node: ast.Expr) -> ast.Expr:
+    detector = PlaceholderDetector()
+    detector.visit(node)
+    if not detector.found:
+        return node
+    return PlaceholderUnwrapper().visit(node)
+
+
 def collect_inputs(node: ast.Expr) -> set[str]:
     input_collector = InputCollector()
     input_collector.visit(node)
@@ -173,7 +210,7 @@ def generate_template_bytecode(
     elif isinstance(obj, list):
         return [generate_template_bytecode(item, input_collector, function_type, is_dwh_source) for item in obj]
     elif isinstance(obj, str):
-        node = parse_string_template(obj)
+        node = unwrap_template_placeholders(parse_string_template(obj))
         if is_dwh_source:
             RecordAliasRewriter().visit(node)
         input_collector.update(collect_inputs(node))
@@ -215,7 +252,7 @@ def transpile_template_code(obj: Any, compiler: JavaScriptCompiler, is_dwh_sourc
     elif isinstance(obj, list):
         return "[" + (", ".join([transpile_template_code(item, compiler, is_dwh_source) for item in obj])) + "]"
     elif isinstance(obj, str):
-        node = parse_string_template(obj)
+        node = unwrap_template_placeholders(parse_string_template(obj))
         if is_dwh_source:
             RecordAliasRewriter().visit(node)
         return compiler.visit(node)
