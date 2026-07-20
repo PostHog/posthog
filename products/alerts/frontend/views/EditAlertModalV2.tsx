@@ -421,9 +421,7 @@ export function EditAlertModalV2({
                                     <AlertEditorSection title="Schedule">{scheduleNode}</AlertEditorSection>
                                 </div>
 
-                                <div className="rounded border border-border p-3">
-                                    <AlertEditorSection title="Notifications">{notifyNode}</AlertEditorSection>
-                                </div>
+                                <div className="rounded border border-border p-3">{notifyNode}</div>
 
                                 {advancedNode}
 
