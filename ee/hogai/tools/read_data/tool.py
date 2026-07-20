@@ -1,12 +1,15 @@
 import re
-from collections.abc import Callable
+import asyncio
+from collections.abc import Awaitable, Callable
 from datetime import UTC
 from typing import ClassVar, Literal, Self, Union
 from uuid import UUID, uuid4
 
 from django.core.cache import cache as django_cache
+from django.db import OperationalError
 from django.utils import timezone
 
+import structlog
 from langchain_core.runnables import RunnableConfig
 from posthoganalytics import capture_exception
 from pydantic import BaseModel, Field, PrivateAttr, create_model
@@ -75,8 +78,33 @@ from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.query import validate_assistant_query
 from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantState, NodePath
 
+logger = structlog.get_logger(__name__)
+
 # Control chars except tab/newline/CR, which the whitespace collapse below handles.
 _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+# Each access check in create_tool_class opens a fresh Postgres connection (the default DB runs
+# CONN_MAX_AGE=0 and posthog/sync.py closes old connections on every thread entry), so a slow DB or
+# PgBouncer can make psycopg raise a transient OperationalError (e.g. connect_timeout). Retry a
+# couple of times, then fail closed to a safe default — one connection blip must not tear down the
+# whole agent stream.
+_ACCESS_CHECK_MAX_ATTEMPTS = 3
+_ACCESS_CHECK_RETRY_DELAY_SECONDS = 0.1
+
+
+async def _resilient_access_check(check: Callable[[], Awaitable[bool]], *, default: bool, name: str) -> bool:
+    """Run a DB-backed access check, degrading to `default` on transient connection errors."""
+    last_error: OperationalError | None = None
+    for attempt in range(_ACCESS_CHECK_MAX_ATTEMPTS):
+        try:
+            return await check()
+        except OperationalError as e:
+            last_error = e
+            if attempt < _ACCESS_CHECK_MAX_ATTEMPTS - 1:
+                await asyncio.sleep(_ACCESS_CHECK_RETRY_DELAY_SECONDS * (attempt + 1))
+    logger.warning("read_data_access_check_degraded", check=name, default=default, exc_info=last_error)
+    capture_exception(last_error)
+    return default
 
 
 def _sanitize_semantic_text(text: str) -> str:
@@ -304,20 +332,34 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         if not context_manager:
             context_manager = AssistantContextManager(team, user, config)
 
-        has_billing_access = await context_manager.check_user_has_billing_access()
+        # These checks each open a fresh DB connection; a transient OperationalError must degrade the
+        # affected tool gracefully rather than crash the whole agent stream (see _resilient_access_check).
+        has_billing_access = await _resilient_access_check(
+            context_manager.check_user_has_billing_access, default=False, name="billing"
+        )
 
         if has_billing_access:
             prompt_vars["billing_prompt"] = READ_DATA_BILLING_PROMPT
             kinds.append(ReadBillingInfo)
 
-        has_audit_logs_access = await context_manager.check_has_audit_logs_access()
+        has_audit_logs_access = await _resilient_access_check(
+            context_manager.check_has_audit_logs_access, default=False, name="audit_logs"
+        )
 
         if has_audit_logs_access:
             prompt_vars["activity_log_prompt"] = READ_DATA_ACTIVITY_LOG_PROMPT
             kinds.append(ReadActivityLog)
 
-        has_bk = await database_sync_to_async(has_business_knowledge_feature_flag)(team)
-        if has_bk and await database_sync_to_async(has_ready_sources)(team.id):
+        has_bk = await _resilient_access_check(
+            lambda: database_sync_to_async(has_business_knowledge_feature_flag)(team),
+            default=False,
+            name="business_knowledge_flag",
+        )
+        if has_bk and await _resilient_access_check(
+            lambda: database_sync_to_async(has_ready_sources)(team.id),
+            default=False,
+            name="business_knowledge_ready_sources",
+        ):
             prompt_vars["business_knowledge_prompt"] = READ_DATA_BK_PROMPT
             kinds.append(ReadBusinessKnowledgeDocument)
 

@@ -6,6 +6,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.apps import apps
+from django.db import OperationalError
 
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
@@ -141,6 +142,48 @@ class TestReadDataTool(BaseTest):
         assert "Billing information" not in tool.description
         assert "data_warehouse_schema" in tool.description
         assert "data_warehouse_table" in tool.description
+
+    async def test_create_tool_class_degrades_when_access_check_times_out(self):
+        team = MagicMock()
+        user = MagicMock()
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        # A transient connection timeout during setup must not crash the whole agent stream — the
+        # billing tool degrades to unavailable instead.
+        context_manager.check_user_has_billing_access = AsyncMock(side_effect=OperationalError("connection timeout"))
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+
+        with patch("ee.hogai.tools.read_data.tool._ACCESS_CHECK_RETRY_DELAY_SECONDS", 0):
+            tool = await ReadDataTool.create_tool_class(
+                team=team,
+                user=user,
+                state=state,
+                context_manager=context_manager,
+            )
+
+        assert "billing_info" not in tool.description
+        assert "data_warehouse_schema" in tool.description
+
+    async def test_create_tool_class_recovers_from_transient_access_check_error(self):
+        team = MagicMock()
+        user = MagicMock()
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        # First attempt fails transiently, retry succeeds — the billing tool stays available.
+        context_manager.check_user_has_billing_access = AsyncMock(
+            side_effect=[OperationalError("connection timeout"), True]
+        )
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+
+        with patch("ee.hogai.tools.read_data.tool._ACCESS_CHECK_RETRY_DELAY_SECONDS", 0):
+            tool = await ReadDataTool.create_tool_class(
+                team=team,
+                user=user,
+                state=state,
+                context_manager=context_manager,
+            )
+
+        assert "billing_info" in tool.description
 
     async def test_create_tool_class_without_context_manager(self):
         team = MagicMock()
