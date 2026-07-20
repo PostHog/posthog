@@ -51,7 +51,11 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
-from posthog.api.sharing_publish_gate import blocked_access_for_user, is_publicly_shared
+from posthog.api.sharing_publish_gate import (
+    blocked_access_for_user,
+    check_can_add_insight_to_shared_dashboard,
+    is_publicly_shared,
+)
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action, format_paginated_url
 from posthog.auth import (
@@ -743,6 +747,11 @@ class InsightSerializer(InsightBasicSerializer):
                 if dashboard.team_id != team_id:
                     raise serializers.ValidationError("Dashboard not found")
 
+                # The dashboard's public link must not expose a query the editor can't run.
+                check_can_add_insight_to_shared_dashboard(
+                    request.user, dashboard, validated_data.get("query"), self.user_access_control
+                )
+
             # Counts the field being accepted as write input (even an empty list), after
             # permission checks so rejected requests don't inflate the metric.
             _record_deprecated_dashboards_field_used(self.context, usage="write")
@@ -951,22 +960,10 @@ class InsightSerializer(InsightBasicSerializer):
             if dashboard.team != instance.team:
                 raise serializers.ValidationError("Dashboard not found")
 
-            # The dashboard's public link would expose this insight's query, so the editor adding
-            # it must be able to run it (see the publish gate for the enable-time counterpart).
-            if (
-                isinstance(instance.query, dict)
-                and instance.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
-                # org admins have full access, so skip the gate for a faster save
-                and not (self.user_access_control and self.user_access_control.is_organization_admin)
-                and is_publicly_shared(dashboard)
-            ):
-                blocked = blocked_access_for_user(self.context["request"].user, instance.team, [instance.query])
-                if blocked:
-                    blocked_list = ", ".join(f"`{name}`" for name in blocked)
-                    raise serializers.ValidationError(
-                        f"Can't add this insight: you don't have access to {blocked_list}, "
-                        "and this dashboard is publicly shared."
-                    )
+            # The dashboard's public link must not expose a query the editor can't run.
+            check_can_add_insight_to_shared_dashboard(
+                self.context["request"].user, dashboard, instance.query, self.user_access_control
+            )
 
             tile, _ = DashboardTile.objects_including_soft_deleted.get_or_create(insight=instance, dashboard=dashboard)
 

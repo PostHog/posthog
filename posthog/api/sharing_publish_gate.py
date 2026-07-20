@@ -11,20 +11,50 @@ from typing import Any
 
 from django.db.models import Q
 
+from rest_framework import serializers
+
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import TableAccessDeniedError
 from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import prepare_ast_for_printing
 
+from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import get_query_runner_or_none
 from posthog.models import Team, User
 from posthog.models.sharing_configuration import SharingConfiguration
-from posthog.rbac.user_access_control import UserAccessControlError
+from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlError
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.notebooks.backend.facade.content import extract_inline_query_nodes, extract_referenced_insight_short_ids
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.models.insight import Insight
+
+
+def check_can_add_insight_to_shared_dashboard(
+    user: User,
+    dashboard: Dashboard,
+    query: Any,
+    user_access_control: UserAccessControl | None = None,
+) -> None:
+    """Raise if binding an insight with this query to the dashboard would expose, through the
+    dashboard's public link, a query the editor can't run themselves. No-op when the dashboard
+    isn't shared, the org lacks the access control entitlement, or the editor is an org admin."""
+    if not isinstance(query, dict):
+        return
+    if not dashboard.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+        return
+    uac = user_access_control or UserAccessControl(user=user, team=dashboard.team)
+    # org admins have full access, so skip the gate for a faster write
+    if uac.is_organization_admin:
+        return
+    if not is_publicly_shared(dashboard):
+        return
+    blocked = blocked_access_for_user(user, dashboard.team, [query])
+    if blocked:
+        blocked_list = ", ".join(f"`{name}`" for name in blocked)
+        raise serializers.ValidationError(
+            f"Can't add this insight: you don't have access to {blocked_list}, and this dashboard is publicly shared."
+        )
 
 
 def blocked_access_for_publisher(user: User, team: Team, config: SharingConfiguration) -> list[str]:
