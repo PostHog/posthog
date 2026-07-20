@@ -24,6 +24,13 @@ function renderPartialUpdatePreview(record: PermissionRequestRecord): ReactNode 
         return null
     }
     const proposed = getPermissionRequestToolInput(record)
+    // An update aimed at a different function than the one on screen must not render a diff against
+    // the open form — that would preview the wrong change. Fall back to the raw payload.
+    const targetId = typeof proposed.id === 'string' ? proposed.id : null
+    const mountedId = typeof mounted.props.id === 'string' ? mounted.props.id : null
+    if (targetId && mountedId && targetId !== mountedId) {
+        return null
+    }
     const diffs = buildHogFunctionConfigDiff(current, proposed)
     if (diffs.length === 0) {
         return null
