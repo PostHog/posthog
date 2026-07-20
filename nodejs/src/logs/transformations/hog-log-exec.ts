@@ -322,7 +322,9 @@ export function resolveLogTransformationInputs(
             if (error || execResult?.error || !execResult?.finished) {
                 throw new Error(`Could not resolve input '${key}': ${error ?? execResult?.error}`)
             }
-            inputs[key] = execResult.result
+            // Hog objects surface as Maps; convert like the body's result so inputs
+            // hold plain JS values for globals, encoders, and redaction.
+            inputs[key] = convertHogToJS(execResult.result)
         } else {
             inputs[key] = input?.value
         }

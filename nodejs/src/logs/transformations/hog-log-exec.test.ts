@@ -75,6 +75,23 @@ describe('hog-log-exec', () => {
             expect(durationMs).toBeGreaterThan(0)
         })
 
+        it('converts complex template results to plain JS values', async () => {
+            // Hog objects come back as Maps; consumers of inputs (globals, encoders)
+            // expect plain JS, like the transformation body's converted result.
+            const record = createRecord()
+            const { inputs } = resolveLogTransformationInputs(
+                {
+                    inputs: {
+                        obj: { value: '', bytecode: await compileHog(`return {'k': 'v', 'list': [1, 2]}`), order: 0 },
+                    },
+                    encrypted_inputs: null,
+                } as any,
+                buildLogRecordGlobals(record, PROJECT, {}),
+                1000
+            )
+            expect(inputs.obj).toEqual({ k: 'v', list: [1, 2] })
+        })
+
         it('kills memory-hungry input templates via the memory limit', async () => {
             // Input templates are customer bytecode running once per record; they must
             // get the same 8MB cap as the body, not the VM's larger default. The
