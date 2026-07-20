@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import sys
+import argparse
 import importlib.util
 from pathlib import Path
 from types import ModuleType
 
 import unittest
+from unittest import mock
 
 SCRIPT_PATH = Path(__file__).with_name("playwright_spec_selection.py")
 
@@ -149,6 +151,20 @@ class TestPlaywrightSpecSelection(unittest.TestCase):
                         spec.startswith("playwright/e2e/") or "/frontend/e2e/" in spec,
                         msg=f"{target} -> {spec} is outside the spec roots",
                     )
+
+    def test_git_failure_tags_git_diff_failed_and_keeps_known_totals(self) -> None:
+        # A git environment failure (e.g. a missing binary) surfaces as OSError, not
+        # CalledProcessError. It must read as git_diff_failed — not map_load_failed — and
+        # must keep the spec count already discovered, so selector_error telemetry points
+        # at the real cause instead of reporting a false zero total.
+        args = argparse.Namespace(map=str(selection.MAP_PATH), base_ref="origin/master")
+        with mock.patch.object(selection, "changed_files_from_git", side_effect=FileNotFoundError("git missing")):
+            result = selection._compute_result(args)
+
+        self.assertEqual(result["mode"], "full")
+        self.assertEqual(result["full_run_reason_category"], "selector_error")
+        self.assertEqual(result["full_run_reason_detail"], "git_diff_failed")
+        self.assertGreater(result["total_spec_count"], 0)
 
     def test_every_spec_is_mapped_or_explicitly_full_suite_only(self) -> None:
         # Forces a conscious decision on every new spec: reachable by a map target
