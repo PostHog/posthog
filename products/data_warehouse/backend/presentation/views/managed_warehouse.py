@@ -190,6 +190,44 @@ def _request(
     return Response(body, status=resp.status_code)
 
 
+def configure_project_reader(
+    *, organization_id: UUID | str, team_id: int, table_suffix: str, password: str
+) -> dict[str, str]:
+    """Register a project's warehouse namespaces and apply its read-only credential."""
+    imports_schema = f"posthog_data_imports_{table_suffix}"
+    team_response = _request(
+        "POST",
+        organization_id,
+        "/teams",
+        json_body={
+            "team_id": team_id,
+            "schema_name": f"team_{team_id}",
+            "enabled": True,
+            "events_table_name": f"events_{table_suffix}",
+            "persons_table_name": f"persons_{table_suffix}",
+            "schema_data_imports_name": imports_schema,
+        },
+        require_enabled=False,
+    )
+    if not status.is_success(team_response.status_code):
+        raise RuntimeError("Failed to register the project's managed warehouse namespaces")
+
+    credential_response = _request(
+        "PUT",
+        organization_id,
+        f"/teams/{team_id}/project-reader",
+        json_body={"password": password},
+        require_enabled=False,
+    )
+    if not status.is_success(credential_response.status_code) or not isinstance(credential_response.data, dict):
+        raise RuntimeError("Failed to create the project's managed warehouse reader")
+    username = credential_response.data.get("username")
+    password = credential_response.data.get("password")
+    if not isinstance(username, str) or not username or not isinstance(password, str) or not password:
+        raise RuntimeError("Managed warehouse reader response did not include credentials")
+    return {"username": username, "password": password}
+
+
 def provision(
     organization_id: UUID | str,
     database_name: str | None,

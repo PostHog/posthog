@@ -648,9 +648,9 @@ def _ensure_managed_warehouse_direct_source(*, team_id: int, organization_id: st
     """Best-effort: register the org's managed warehouse as a restricted query connection.
 
     A managed warehouse speaks the Postgres wire protocol, so each member team gets an
-    ExternalDataSource pointed at the org server. Raw SQL stays disabled because the server
-    credential spans the organization. Isolated from backfill enablement: a failure here must
-    never block a team from joining the warehouse.
+    ExternalDataSource pointed at the org server. Duckgres scopes its credential to the project
+    and enforces read-only SQL. Isolated from backfill enablement: a failure here must never block
+    a team from joining the warehouse.
     """
     try:
         # Lazy import: keep the data_warehouse/warehouse_sources stack off this module's import

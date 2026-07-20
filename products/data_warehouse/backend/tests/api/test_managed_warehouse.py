@@ -1,7 +1,7 @@
 from uuid import uuid4
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from django.test import override_settings
 
@@ -12,6 +12,47 @@ from posthog.ducklake.models import DuckgresServer, DuckgresServerTeam
 from posthog.models import Organization, Team
 
 from products.data_warehouse.backend.presentation.views import managed_warehouse
+
+
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse._request")
+def test_configure_project_reader_registers_namespaces_before_rotating_credentials(mock_request: MagicMock) -> None:
+    organization_id = uuid4()
+    mock_request.side_effect = [
+        Response({"team_id": 42}, status=200),
+        Response({"username": "posthog_team_42", "password": "reader-password"}, status=200),
+    ]
+
+    credentials = managed_warehouse.configure_project_reader(
+        organization_id=organization_id,
+        team_id=42,
+        table_suffix="prod",
+        password="caller-managed-password-with-32-characters",
+    )
+
+    assert credentials == {"username": "posthog_team_42", "password": "reader-password"}
+    assert mock_request.call_args_list == [
+        call(
+            "POST",
+            organization_id,
+            "/teams",
+            json_body={
+                "team_id": 42,
+                "schema_name": "team_42",
+                "enabled": True,
+                "events_table_name": "events_prod",
+                "persons_table_name": "persons_prod",
+                "schema_data_imports_name": "posthog_data_imports_prod",
+            },
+            require_enabled=False,
+        ),
+        call(
+            "PUT",
+            organization_id,
+            "/teams/42/project-reader",
+            json_body={"password": "caller-managed-password-with-32-characters"},
+            require_enabled=False,
+        ),
+    ]
 
 
 @patch("products.data_warehouse.backend.presentation.views.managed_warehouse.posthoganalytics.feature_enabled")
@@ -100,7 +141,7 @@ def test_provision_sends_default_team_id_to_control_plane(mock_request: MagicMoc
 
     managed_warehouse.provision(org.id, "my-warehouse", team.id, "events")
 
-    json_body = mock_request.call_args.kwargs["json_body"]
+    json_body = mock_request.call_args_list[0].kwargs["json_body"]
     assert json_body["default_team_id"] == team.id
 
 

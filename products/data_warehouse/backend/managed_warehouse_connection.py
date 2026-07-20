@@ -1,13 +1,14 @@
-"""Expose a managed Duckgres warehouse in the SQL editor as a restricted Postgres connection.
+"""Expose a managed Duckgres warehouse in the SQL editor as a read-only Postgres connection.
 
 Each member team gets a Postgres ``ExternalDataSource`` pointed at the organization's
-``DuckgresServer``. It uses warehouse access mode with live querying enabled: HogQL can query
-only registered team tables, while unrestricted raw SQL is rejected. Setup happens in two steps:
+``DuckgresServer``. Duckgres issues a distinct database login for each project and enforces
+read-only access to the project's schemas, so both HogQL and raw SQL stay inside that boundary.
+Setup happens in two steps:
 
 1. ``ensure_managed_warehouse_direct_source`` creates the initially empty source row when a team
    joins, so the connection appears immediately.
-2. ``reconcile_managed_warehouse_tables`` runs once the warehouse is ready and records schema
-   metadata for the team's events and persons tables.
+2. ``reconcile_managed_warehouse_tables`` runs once the warehouse is ready and records every
+   table in the project's event/person, data-import, team, and modeled-data namespaces.
 
 This bypasses the user-facing create endpoint because the managed host is internal infrastructure
 and is not reachable for live schema validation during provisioning.
@@ -15,6 +16,7 @@ and is not reachable for live schema validation during provisioning.
 
 from __future__ import annotations
 
+import secrets
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
@@ -27,6 +29,7 @@ import structlog
 from posthog.models.team.team import Team
 
 from products.data_warehouse.backend.postgres_helpers import reconcile_postgres_schemas
+from products.data_warehouse.backend.presentation.views import managed_warehouse
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import (
@@ -44,9 +47,19 @@ logger = structlog.get_logger(__name__)
 MANAGED_WAREHOUSE_SOURCE_DESCRIPTION = "Managed warehouse (auto-provisioned)"
 
 
-def managed_warehouse_table_names(table_suffix: str) -> list[str]:
-    """Return the Duckgres tables owned by a team."""
-    return [f"events_{table_suffix}", f"persons_{table_suffix}"]
+def managed_warehouse_namespaces(team_id: int, table_suffix: str) -> tuple[set[str], set[tuple[str, str]]]:
+    """Return whole schemas and legacy exact tables owned by a project."""
+    return (
+        {
+            f"team_{team_id}",
+            f"posthog_data_imports_{table_suffix}",
+            f"shadow_{team_id}_models",
+        },
+        {
+            ("posthog", f"events_{table_suffix}"),
+            ("posthog", f"persons_{table_suffix}"),
+        },
+    )
 
 
 def _managed_source_queryset(team_id: int) -> QuerySet[ExternalDataSource]:
@@ -58,32 +71,40 @@ def _managed_source_queryset(team_id: int) -> QuerySet[ExternalDataSource]:
     )
 
 
-def _source_config(server: DuckgresServer) -> dict[str, object]:
+def _source_config(server: DuckgresServer, *, username: str, password: str) -> dict[str, object]:
     source_impl = SourceRegistry.get_source(ExternalDataSourceType.POSTGRES)
     return source_impl.parse_config(
         {
             "host": server.host,
             "port": server.port,
             "database": server.database,
-            "user": server.username,
-            "password": server.password,
+            "user": username,
+            "password": password,
         }
     ).to_dict()
 
 
 def _ensure_managed_source_locked(
-    *, team_id: int, server: DuckgresServer, reactivate_deleted: bool
+    *,
+    team_id: int,
+    server: DuckgresServer,
+    username: str,
+    password: str,
+    reader_configured: bool,
+    reactivate_deleted: bool,
 ) -> ExternalDataSource | None:
     existing = _managed_source_queryset(team_id).select_for_update().order_by("-created_at").first()
     if existing is not None and existing.deleted and not reactivate_deleted:
         # Deprovision leaves a tombstone so a queued status task cannot recreate the source.
         return None
 
-    config = _source_config(server)
+    config = _source_config(server, username=username, password=password)
     if existing is not None:
         update_fields: list[str] = []
-        if existing.access_method == ExternalDataSource.AccessMethod.DIRECT:
-            # Upgrade rows created by an earlier version that allowed unrestricted raw SQL.
+        connection_metadata = dict(existing.connection_metadata or {})
+        if connection_metadata.get("credential_kind") != "project_reader":
+            # Old managed sources used the org root credential, so discard any catalog
+            # entries discovered before Duckgres enforced the project boundary.
             now = timezone.now()
             DataWarehouseTable.raw_objects.filter(
                 team_id=team_id, external_data_source_id=existing.id, deleted=False
@@ -92,15 +113,27 @@ def _ensure_managed_source_locked(
         if existing.job_inputs != config:
             existing.job_inputs = config
             update_fields.append("job_inputs")
-        if existing.access_method != ExternalDataSource.AccessMethod.WAREHOUSE:
-            existing.access_method = ExternalDataSource.AccessMethod.WAREHOUSE
+        if existing.access_method != ExternalDataSource.AccessMethod.DIRECT:
+            existing.access_method = ExternalDataSource.AccessMethod.DIRECT
             update_fields.append("access_method")
-        if not existing.direct_query_enabled:
-            existing.direct_query_enabled = True
+        if existing.direct_query_enabled != reader_configured:
+            existing.direct_query_enabled = reader_configured
             update_fields.append("direct_query_enabled")
-        connection_metadata = dict(existing.connection_metadata or {})
-        if connection_metadata.get("engine") != "duckdb" or connection_metadata.get("system_managed") is not True:
-            existing.connection_metadata = {**connection_metadata, "engine": "duckdb", "system_managed": True}
+        if (
+            connection_metadata.get("engine") != "duckdb"
+            or connection_metadata.get("system_managed") is not True
+            or connection_metadata.get("credential_kind") != "project_reader"
+        ):
+            existing.connection_metadata = {
+                **connection_metadata,
+                "engine": "duckdb",
+                "system_managed": True,
+                "credential_kind": "project_reader",
+                "reader_configured": reader_configured,
+            }
+            update_fields.append("connection_metadata")
+        elif connection_metadata.get("reader_configured") is not reader_configured:
+            existing.connection_metadata = {**connection_metadata, "reader_configured": reader_configured}
             update_fields.append("connection_metadata")
         if existing.deleted:
             existing.deleted = False
@@ -120,10 +153,15 @@ def _ensure_managed_source_locked(
         job_inputs=config,
         prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,
         description=MANAGED_WAREHOUSE_SOURCE_DESCRIPTION,
-        access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+        access_method=ExternalDataSource.AccessMethod.DIRECT,
         created_via=ExternalDataSource.CreatedVia.WEB,
-        direct_query_enabled=True,
-        connection_metadata={"engine": "duckdb", "system_managed": True},
+        direct_query_enabled=reader_configured,
+        connection_metadata={
+            "engine": "duckdb",
+            "system_managed": True,
+            "credential_kind": "project_reader",
+            "reader_configured": reader_configured,
+        },
     )
 
 
@@ -132,8 +170,6 @@ def ensure_managed_warehouse_direct_source(*, team_id: int, organization_id: str
     from posthog.ducklake.models import DuckgresServer, DuckgresServerTeam  # noqa: PLC0415
 
     with transaction.atomic():
-        # All lifecycle mutations use server -> team -> source lock order. Password rotation
-        # therefore cannot commit between reading the server password and creating this row.
         server = DuckgresServer.objects.select_for_update().get(organization_id=organization_id)
         Team.objects.select_for_update().only("id").get(id=team_id, organization_id=organization_id)
         membership = (
@@ -144,33 +180,82 @@ def ensure_managed_warehouse_direct_source(*, team_id: int, organization_id: str
         )
         if membership is None:
             raise ValueError("The team has not joined this managed warehouse")
-        if not membership["table_suffix"]:
+        table_suffix = membership["table_suffix"]
+        if not table_suffix:
             raise ValueError("Legacy shared managed warehouse tables cannot be exposed as a query connection")
 
-        source = _ensure_managed_source_locked(team_id=team_id, server=server, reactivate_deleted=True)
+        existing = _managed_source_queryset(team_id).select_for_update().filter(deleted=False).first()
+        existing_metadata = existing.connection_metadata if existing is not None else None
+        has_reader_credentials = (
+            existing is not None
+            and isinstance(existing_metadata, dict)
+            and existing_metadata.get("credential_kind") == "project_reader"
+            and isinstance(existing.job_inputs, dict)
+            and existing.job_inputs.get("user")
+            and existing.job_inputs.get("password")
+        )
+        reader_configured = bool(has_reader_credentials and existing_metadata.get("reader_configured") is True)
+        if has_reader_credentials:
+            username = str(existing.job_inputs["user"])
+            password = str(existing.job_inputs["password"])
+        else:
+            username = f"posthog_team_{team_id}"
+            password = secrets.token_urlsafe(32)
+
+        source = _ensure_managed_source_locked(
+            team_id=team_id,
+            server=server,
+            username=username,
+            password=password,
+            reader_configured=reader_configured,
+            reactivate_deleted=True,
+        )
         if source is None:
             raise RuntimeError("Failed to create the managed warehouse query source")
-        return source
+        if reader_configured:
+            return source
+        source_id = source.id
 
-
-def _registered_managed_table_names(*, team_id: int, source_id: UUID) -> set[str]:
-    registered: set[str] = set()
-    rows = ExternalDataSchema.objects.filter(
+    credentials = managed_warehouse.configure_project_reader(
+        organization_id=organization_id,
         team_id=team_id,
-        source_id=source_id,
-        should_sync=True,
-        deleted=False,
-    ).values_list("name", "sync_type_config")
-    for name, sync_type_config in rows:
-        metadata = sync_type_config.get("schema_metadata") if isinstance(sync_type_config, dict) else None
-        source_table_name = metadata.get("source_table_name") if isinstance(metadata, dict) else None
-        registered.add(source_table_name if isinstance(source_table_name, str) else name.rsplit(".", 1)[-1])
-    return registered
+        table_suffix=table_suffix,
+        password=password,
+    )
+    if credentials != {"username": username, "password": password}:
+        raise RuntimeError("Managed warehouse reader credentials did not match the requested credentials")
+
+    with transaction.atomic():
+        server = DuckgresServer.objects.select_for_update().get(organization_id=organization_id)
+        Team.objects.select_for_update().only("id").get(id=team_id, organization_id=organization_id)
+        membership_exists = DuckgresServerTeam.objects.select_for_update().filter(
+            server=server,
+            team_id=team_id,
+            backfill_enabled=True,
+            table_suffix=table_suffix,
+        )
+        if not membership_exists.exists():
+            raise ValueError("The team has not joined this managed warehouse")
+        source = _managed_source_queryset(team_id).select_for_update().filter(id=source_id, deleted=False).first()
+        if source is None or not isinstance(source.job_inputs, dict):
+            raise RuntimeError("Managed warehouse query source changed while its reader was configured")
+        if source.job_inputs.get("user") != username or source.job_inputs.get("password") != password:
+            raise RuntimeError("Managed warehouse query source changed while its reader was configured")
+        connection_metadata = dict(source.connection_metadata or {})
+        source.connection_metadata = {**connection_metadata, "reader_configured": True}
+        source.direct_query_enabled = True
+        source.save(update_fields=["connection_metadata", "direct_query_enabled", "updated_at"])
+        return source
 
 
 def reconcile_managed_warehouse_tables(*, team_id: int, organization_id: str | UUID) -> None:
     """Discover and register only this team's managed-warehouse tables."""
     from posthog.ducklake.models import DuckgresServer, DuckgresServerTeam  # noqa: PLC0415
+
+    try:
+        ensure_managed_warehouse_direct_source(team_id=team_id, organization_id=organization_id)
+    except (DuckgresServer.DoesNotExist, Team.DoesNotExist, ValueError):
+        return
 
     with transaction.atomic():
         server = DuckgresServer.objects.select_for_update().filter(organization_id=organization_id).first()
@@ -196,21 +281,20 @@ def reconcile_managed_warehouse_tables(*, team_id: int, organization_id: str | U
         if not table_suffix:
             # Legacy tables are shared across teams and require a team_id predicate that direct HogQL cannot enforce.
             return
-        source = _ensure_managed_source_locked(team_id=team_id, server=server, reactivate_deleted=False)
+        source = _managed_source_queryset(team_id).select_for_update().filter(deleted=False).first()
         if source is None:
-            return
-        expected = managed_warehouse_table_names(table_suffix)
-        if set(expected) <= _registered_managed_table_names(team_id=team_id, source_id=source.id):
             return
         source_id = source.id
         source_config = dict(source.job_inputs or {})
 
     source_impl = SourceRegistry.get_source(ExternalDataSourceType.POSTGRES)
     config = source_impl.parse_config(source_config)
+    allowed_schemas, allowed_relations = managed_warehouse_namespaces(team_id, table_suffix)
     source_schemas = [
         schema
-        for schema in source_impl.get_schemas(config, team_id, names=expected)
-        if schema.source_table_name in expected or schema.name in expected
+        for schema in source_impl.get_schemas(config, team_id)
+        if (schema.source_schema or "", schema.source_table_name or schema.name.rsplit(".", 1)[-1]) in allowed_relations
+        or (schema.source_schema or "") in allowed_schemas
     ]
     if not source_schemas:
         return
@@ -238,7 +322,7 @@ def reconcile_managed_warehouse_tables(*, team_id: int, organization_id: str | U
             .filter(
                 id=source_id,
                 deleted=False,
-                access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+                access_method=ExternalDataSource.AccessMethod.DIRECT,
                 direct_query_enabled=True,
             )
             .first()
@@ -267,7 +351,7 @@ def _managed_sources_for_org(organization_id: str | UUID) -> QuerySet[ExternalDa
 
 
 def update_managed_warehouse_password(*, organization_id: str | UUID, password: str) -> None:
-    """Atomically refresh the authoritative password and every live query source."""
+    """Refresh the internal root writer without changing project reader credentials."""
     from posthog.ducklake.models import DuckgresServer  # noqa: PLC0415
 
     with transaction.atomic():
@@ -278,14 +362,8 @@ def update_managed_warehouse_password(*, organization_id: str | UUID, password: 
             .order_by("id")
             .values_list("id", flat=True)
         )
-        sources = list(_managed_sources_for_org(organization_id).select_for_update().order_by("team_id"))
         server.password = password
         server.save(update_fields=["password", "updated_at"])
-        for source in sources:
-            job_inputs = dict(source.job_inputs or {})
-            job_inputs["password"] = password
-            source.job_inputs = job_inputs
-            source.save(update_fields=["job_inputs", "updated_at"])
 
 
 def soft_delete_managed_warehouse_sources(*, organization_id: str | UUID) -> None:
