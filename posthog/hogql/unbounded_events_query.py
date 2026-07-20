@@ -9,7 +9,11 @@ Works on raw or resolved ASTs: it uses type info when available and falls back t
 otherwise, mirroring ``feature_extractor.py``. In production it runs on the unresolved AST, so the
 chain-matching paths are what actually decide.
 
-The rule errs toward precision for the alerting use case:
+This flags the *shape* — a timestamp-less events read — which is the signal; the emitted event
+carries enough context (dashboard, access method, insight id) for the alert / insight to segment by
+cost. We deliberately don't pre-judge cost here: a ``LIMIT``-only read is bounded rather than a full
+scan, but it's the same omitted-``timestamp`` pattern, so we surface it and let the consumer decide.
+The rule errs toward precision so a genuinely bounded query isn't mislabeled:
 - A ``timestamp`` bound counts only where it can prune the scan: WHERE / PREWHERE, respecting
   boolean structure (an ``OR`` bounds only if every branch does). HAVING runs after the full scan,
   so it never counts.
@@ -18,8 +22,6 @@ The rule errs toward precision for the alerting use case:
 - A bound on an *enclosing* SELECT counts too, because ClickHouse pushes such predicates down into
   the single subquery / CTE feeding it (the common "prefilter in a CTE, bound in the outer query"
   pattern) — but not across a join or into an independent WHERE/SELECT subquery.
-- A plain ``SELECT ... FROM events LIMIT n`` with no filter or aggregation only reads up to ``n``
-  rows, so it is not a full-history scan and is not flagged (this is the SQL editor's default).
 """
 
 from collections.abc import Iterator
@@ -27,16 +29,12 @@ from collections.abc import Iterator
 from posthog.hogql import ast
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.feature_extractor import resolves_to_events_column
-from posthog.hogql.functions.aggregations import HOGQL_AGGREGATIONS
 from posthog.hogql.visitor import TraversingVisitor
-
-# Lowercased for case-insensitive matching (HogQL accepts ``COUNT`` and ``count``).
-_AGGREGATE_NAMES: set[str] = {name.lower() for name in HOGQL_AGGREGATIONS}
 
 
 def query_reads_events_without_timestamp_filter(node: ast.Expr | None) -> bool:
     """``True`` iff some SELECT in the tree reads the events table with no timestamp bound able to
-    constrain its scan (its own filters, an enclosing SELECT's filters, or a LIMIT-only read)."""
+    constrain its scan — its own filters or an enclosing SELECT's (which push down into it)."""
     if node is None:
         return False
     detector = _UnboundedEventsQueryDetector(_collect_cte_names(node))
@@ -77,7 +75,7 @@ class _UnboundedEventsQueryDetector(TraversingVisitor):
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         events_ids = _events_table_identifiers(node, self.cte_names)
         bounded = self._from_bound or _has_events_timestamp_filter(node, events_ids)
-        if not self.found and events_ids and not bounded and not _is_bounded_row_read(node):
+        if not self.found and events_ids and not bounded:
             self.found = True
 
         outer_from_bound = self._from_bound
@@ -200,40 +198,3 @@ def _field_is_events_timestamp(expr: ast.Field, events_ids: set[str]) -> bool:
     if expr.chain[-1] != "timestamp":
         return False
     return len(expr.chain) == 1 or expr.chain[-2] in events_ids
-
-
-def _is_bounded_row_read(node: ast.SelectQuery) -> bool:
-    """A plain ``SELECT <cols> FROM events LIMIT n`` — no filter, grouping, aggregation, DISTINCT,
-    or ORDER BY — reads only up to ``n`` rows, so it is not a full-history scan. This is the SQL
-    editor's default (``select * from events limit 100``); top-level selects always get a LIMIT
-    injected before execution, so bare browsing reads land here too. A filter (``WHERE event = 'x'``)
-    can force scanning far back to fill the limit, so any filter disqualifies the read."""
-    if node.limit is None:
-        return False
-    if node.where or node.prewhere or node.having or node.group_by or node.distinct or node.order_by:
-        return False
-    return not _select_list_has_aggregate(node)
-
-
-def _select_list_has_aggregate(node: ast.SelectQuery) -> bool:
-    finder = _AggregateCallFinder()
-    for item in node.select or []:
-        finder.visit(item)
-        if finder.found:
-            return True
-    return False
-
-
-class _AggregateCallFinder(TraversingVisitor):
-    def __init__(self) -> None:
-        super().__init__()
-        self.found = False
-
-    def visit_call(self, node: ast.Call) -> None:
-        if bool(node.name) and node.name.lower() in _AGGREGATE_NAMES:
-            self.found = True
-            return
-        super().visit_call(node)
-
-    def visit_select_query(self, node: ast.SelectQuery) -> None:
-        pass

@@ -99,10 +99,9 @@ class TestUnboundedEventsQuery(SimpleTestCase):
             ),
             # A CTE named `events` shadows the real table.
             ("cte_named_events_shadow", "WITH events AS (SELECT 1 AS x) SELECT x FROM events", False),
-            # A plain LIMIT read is not a full-history scan; a filtered or aggregating one still is.
-            ("editor_default_limit", "SELECT * FROM events LIMIT 100", False),
-            ("count_with_limit", "SELECT count() FROM events LIMIT 100", True),
-            ("filtered_limit_can_scan", "SELECT * FROM events WHERE event = 'rare' LIMIT 100", True),
+            # A LIMIT doesn't exempt a timestamp-less read — same shape, surfaced for the consumer
+            # to weigh by cost/context.
+            ("limit_does_not_exempt", "SELECT * FROM events LIMIT 100", True),
             # No events table at all.
             ("no_events_table", "SELECT id FROM persons", False),
         ]
