@@ -361,23 +361,33 @@ GITHUB_USER_TOKEN_CACHE_TTL_SECONDS = 6 * 60 * 60
 MCP_TOKEN_REFRESH_INTERVAL_SECONDS = TOKEN_EXPIRATION_SECONDS / 2  # 3 hours
 
 
-def _mcp_token_issued_cache_key(run_id: str) -> str:
-    return f"posthog_ai:task-run-mcp-token-issued:{run_id}"
+def sandbox_identity_scope(run_id: str, state: dict[str, Any] | None) -> str:
+    """Cache scope for marks describing a run's live sandbox.
 
-
-def mark_mcp_token_issued(run_id: str) -> None:
-    """Record that a fresh MCP token was issued to the sandbox for this run.
-
-    The cache entry self-expires after MCP_TOKEN_REFRESH_INTERVAL_SECONDS, so
-    `should_refresh_mcp_token` returns True again past that window.
+    Keyed on the sandbox id so a replacement sandbox (fresh provision,
+    snapshot restore, workflow retry) starts unmarked — nothing ever needs
+    clearing. Falls back to the run id when state has no sandbox id yet.
     """
-    get_tasks_cache().set(_mcp_token_issued_cache_key(run_id), True, timeout=MCP_TOKEN_REFRESH_INTERVAL_SECONDS)
+    return (state or {}).get("sandbox_id") or run_id
 
 
-def should_refresh_mcp_token(run_id: str) -> bool:
-    """Return True if no MCP token has been issued for this run within the
-    last MCP_TOKEN_REFRESH_INTERVAL_SECONDS window."""
-    return get_tasks_cache().get(_mcp_token_issued_cache_key(run_id)) is None
+def _sandbox_mcp_session_cache_key(scope: str) -> str:
+    return f"tasks:sandbox-mcp-session:{scope}"
+
+
+def mark_sandbox_mcp_session(scope: str, user_id: int) -> None:
+    """Record whose OAuth token the sandbox's live MCP session holds.
+
+    Self-expires after MCP_TOKEN_REFRESH_INTERVAL_SECONDS, so an absent
+    entry always reads as "must refresh".
+    """
+    get_tasks_cache().set(_sandbox_mcp_session_cache_key(scope), user_id, timeout=MCP_TOKEN_REFRESH_INTERVAL_SECONDS)
+
+
+def get_sandbox_mcp_session_user(scope: str) -> int | None:
+    """User id the sandbox's MCP session was last bound to within the
+    freshness window, or None when unknown."""
+    return get_tasks_cache().get(_sandbox_mcp_session_cache_key(scope))
 
 
 @dataclass(frozen=True)
