@@ -125,17 +125,18 @@ describe('Resolved mode is preserved across pooled-transport vendor flips', () =
         expect(sessionId).toBeTruthy()
 
         // Client caches the tools payload at init. cli mode collapses the wire
-        // roster to the single `exec` umbrella tool (the sibling `render-ui` tool
-        // only advertises to MCP Apps hosts; Claude Code isn't one).
+        // roster to the `exec` (read-only) and `exec-write` umbrella tools (the
+        // sibling `render-ui` tool only advertises to MCP Apps hosts; Claude Code
+        // isn't one).
         const cachedTools = await clientA.listTools()
-        expect(cachedTools.tools.map((t) => t.name).sort()).toEqual(['exec'])
+        expect(cachedTools.tools.map((t) => t.name).sort()).toEqual(['exec', 'exec-write'])
 
         // headers_2 — pool member flipping to a different Anthropic vendor. The
         // vendor header never participates in tools-mode detection, so the request
         // stays in cli mode and the roster still collapses to the `exec` umbrella
-        // tool.
+        // tools.
         const pooledRoster = await listToolsOnSession(sessionId!, 'ClaudeAI')
-        expect(pooledRoster.map((t) => t.name).sort()).toEqual(['exec'])
+        expect(pooledRoster.map((t) => t.name).sort()).toEqual(['exec', 'exec-write'])
 
         await clientA.close()
     })

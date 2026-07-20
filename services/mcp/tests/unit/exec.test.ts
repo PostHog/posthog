@@ -294,6 +294,26 @@ describe('exec tool', () => {
             )
         })
 
+        it('refuses a write-capable call in read-only mode and points at the write dispatcher', async () => {
+            const writeTool = makeMockTool({
+                name: 'write-tool',
+                handler: async () => ({ mutated: true }),
+                annotations: {
+                    destructiveHint: false,
+                    idempotentHint: false,
+                    openWorldHint: false,
+                    readOnlyHint: false,
+                },
+            })
+            const readTool = makeMockTool({ name: 'read-tool' })
+            const exec = createExec([writeTool, readTool], undefined, { readOnly: true })
+
+            // The gate must fire before the handler runs — an "always allow" on the
+            // read-only dispatcher would otherwise silently execute the mutation.
+            await expect(exec.handler(mockContext, { command: 'call write-tool {}' })).rejects.toThrow('exec-write')
+            expect(await exec.handler(mockContext, { command: 'call read-tool {}' })).toContain('id: 1')
+        })
+
         it('propagates the UI resource URI and exec brand when the inner tool has a UI app and consumer is posthog-code', async () => {
             const tool = makeMockTool({
                 _meta: { ui: { resourceUri: 'ui://posthog/mock-app.html' } },

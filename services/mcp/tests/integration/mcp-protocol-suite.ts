@@ -1603,12 +1603,13 @@ export function defineExecModeTests(
             await safeClose(client)
         })
 
-        it('lists the exec umbrella tool in cli mode', async () => {
+        it('lists the exec umbrella tools in cli mode', async () => {
             const { tools } = await client.listTools()
-            // The sibling `render-ui` tool only advertises to MCP Apps hosts (Claude
-            // web/desktop); this generic test client isn't one, so the cli-mode roster
-            // collapses to just `exec`.
-            expect(tools.map((t) => t.name).sort()).toEqual(['exec'])
+            // Two exec dispatchers so the client can gate on `readOnlyHint`: `exec` is
+            // read-only (always-allowable) and `exec-write` is write-capable. The sibling
+            // `render-ui` tool only advertises to MCP Apps hosts (Claude web/desktop);
+            // this generic test client isn't one, so those two are the whole roster.
+            expect(tools.map((t) => t.name).sort()).toEqual(['exec', 'exec-write'])
         })
 
         it('exec "tools" lists available inner tools', async () => {
