@@ -14,7 +14,6 @@ from fastapi.responses import StreamingResponse
 from llm_gateway.api.handler import (
     ANTHROPIC_CONFIG,
     BEDROCK_CONFIG,
-    CLOUDFLARE_ANTHROPIC_CONFIG,
     ProviderError,
     _sanitize_request_data,
     handle_llm_request,
@@ -30,13 +29,12 @@ from llm_gateway.bedrock import (
 from llm_gateway.circuit_breaker import AnthropicCircuitBreaker
 from llm_gateway.cloudflare import (
     cloudflare_litellm_model,
-    ensure_cloudflare_configured,
     ensure_cloudflare_model_allowed,
     is_cloudflare_model,
-    make_cloudflare_anthropic_call,
 )
 from llm_gateway.config import get_settings
 from llm_gateway.dependencies import AnthropicCircuitBreakerDep, RateLimitedUser
+from llm_gateway.glm_routing import send_glm_anthropic_messages
 from llm_gateway.metrics.prometheus import (
     ANTHROPIC_CIRCUIT_BREAKER_BYPASSED,
     BEDROCK_COUNT_TOKENS_ERRORS,
@@ -357,31 +355,6 @@ def reconcile_tool_choice(data: dict[str, Any], *, model: str, product: str) -> 
         BEDROCK_PARAM_STRIPPED.labels(param="tool_choice", product=product).inc()
 
 
-async def _send_cloudflare_messages(
-    request_data: dict[str, Any],
-    user: RateLimitedUser,
-    is_streaming: bool,
-    product: str,
-) -> dict[str, Any] | StreamingResponse:
-    ensure_cloudflare_model_allowed(request_data["model"])
-    settings = get_settings()
-    api_base, api_key = ensure_cloudflare_configured(settings)
-
-    data = dict(request_data)
-    original_model = data["model"]
-    llm_call = make_cloudflare_anthropic_call(api_base, api_key)
-
-    return await handle_llm_request(
-        request_data=data,
-        user=user,
-        model=original_model,
-        is_streaming=is_streaming,
-        provider_config=CLOUDFLARE_ANTHROPIC_CONFIG,
-        llm_call=llm_call,
-        product=product,
-    )
-
-
 async def _send_bedrock_messages(
     request_data: dict[str, Any],
     user: RateLimitedUser,
@@ -549,15 +522,16 @@ async def _handle_anthropic_messages(
     provider = _get_provider_from_headers(request)
     use_bedrock_fallback = _get_use_bedrock_fallback_from_headers(request)
 
-    # `@cf/` models are Cloudflare-only, so route them to CF by model id — the same way the
-    # chat/completions and responses handlers do. The agent harness derives the provider header from
-    # the runtime (`claude`->anthropic, `codex`->openai) and never sends "cloudflare", so a
-    # claude-runtime scout on a CF-served model (e.g. GLM) arrives here as provider="anthropic".
-    # Without the id check it would fall through to the real Anthropic API and 404. Unlike the
-    # Responses path, this CF route serves tools fine: litellm's Anthropic->chat/completions adapter
-    # translates Anthropic tools into OpenAI function tools that CF's endpoint accepts.
+    # `@cf/` models are served by the GLM routing layer (Cloudflare, or Modal during the ramp), so
+    # route them by model id — the same way the chat/completions and responses handlers do. The
+    # agent harness derives the provider header from the runtime (`claude`->anthropic,
+    # `codex`->openai) and never sends "cloudflare", so a claude-runtime scout on a CF-served model
+    # (e.g. GLM) arrives here as provider="anthropic". Without the id check it would fall through to
+    # the real Anthropic API and 404. Unlike the Responses path, this route serves tools fine:
+    # litellm's Anthropic->chat/completions adapter translates Anthropic tools into OpenAI function
+    # tools that both backends' OpenAI-compatible endpoints accept.
     if provider == "cloudflare" or is_cloudflare_model(body.model):
-        return await _send_cloudflare_messages(data, user, body.stream or False, product)
+        return await send_glm_anthropic_messages(data, user, body.stream or False, product)
 
     if provider == "bedrock":
         return await _send_bedrock_messages(data, user, request, body.stream or False, product)
