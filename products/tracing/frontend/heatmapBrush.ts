@@ -22,21 +22,20 @@ export interface HeatmapBrushSelection {
     y: { startIndex: number; endIndex: number }
 }
 
-function isBrushDurationFilter(filter: unknown): boolean {
+function isDurationFilter(filter: unknown): boolean {
     const f = filter as Partial<SpanPropertyFilter> | null
-    return (
-        f?.type === PropertyFilterType.Span &&
-        f?.key === 'duration' &&
-        (f?.operator === PropertyOperator.GreaterThanOrEqual || f?.operator === PropertyOperator.LessThan)
-    )
+    return f?.type === PropertyFilterType.Span && f?.key === 'duration'
 }
 
 /** The current filter group with the brushed duration range applied as a >=min / <max pair of
- *  `duration` span filters (ms — the unit the chips and the backend translation use). Any prior
- *  >=/< duration pair is replaced, so successive brushes refine instead of stacking. */
+ *  `duration` span filters (ms — the unit the chips and the backend translation use). The brush
+ *  owns the duration axis: any existing `duration` filter (whatever its operator) is dropped and
+ *  replaced by the brushed pair, so successive brushes refine instead of stacking and no stale
+ *  bound can contradict the new range. The brushed range is always within the heatmap's rendered
+ *  duration extent, which already reflects the current filters, so this never widens the query. */
 function withDurationFilters(group: UniversalFiltersGroup, range: DurationRange): UniversalFiltersGroup {
     const inner = group.values[0] as UniversalFiltersGroup | undefined
-    const keptValues = (inner?.values ?? []).filter((filter) => !isBrushDurationFilter(filter))
+    const keptValues = (inner?.values ?? []).filter((filter) => !isDurationFilter(filter))
     const durationFilters: SpanPropertyFilter[] = [
         {
             type: PropertyFilterType.Span,

@@ -96,6 +96,37 @@ describe('heatmapBrushToFilters', () => {
         ])
     })
 
+    it('drops a duration filter with any operator so no stale bound contradicts the brushed range', () => {
+        const groupWithOtherOperator: UniversalFiltersGroup = {
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        // A > bound the old >=/< matcher missed — left in place it would AND with
+                        // the brushed pair and could empty the result set.
+                        {
+                            type: PropertyFilterType.Span,
+                            key: 'duration',
+                            operator: PropertyOperator.GreaterThan,
+                            value: 100,
+                        },
+                    ],
+                },
+            ],
+        }
+        const result = heatmapBrushToFilters(
+            DATA,
+            { x: { startIndex: 0, endIndex: 0 }, y: { startIndex: 0, endIndex: 1 } },
+            groupWithOtherOperator,
+            null
+        )
+        expect((result?.filterGroup?.values[0] as UniversalFiltersGroup).values).toEqual([
+            { type: PropertyFilterType.Span, key: 'duration', operator: PropertyOperator.GreaterThanOrEqual, value: 1 },
+            { type: PropertyFilterType.Span, key: 'duration', operator: PropertyOperator.LessThan, value: 5 },
+        ])
+    })
+
     it('returns null when the selection resolves to no start bucket', () => {
         expect(
             heatmapBrushToFilters(

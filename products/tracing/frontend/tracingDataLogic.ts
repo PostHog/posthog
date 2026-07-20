@@ -1403,6 +1403,12 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         // Bulk restores (URL params, saved views) re-query without an interaction capture.
         setFilters: () => actions.runQuery(),
         applyHeatmapBrush: ({ selection }) => {
+            // While a refetch is in flight the rendered heatmap still shows the previous query's
+            // buckets. Ignore brushes until it settles so the selection maps against the buckets
+            // actually on screen rather than a stale grid.
+            if (values.latencyHeatmapLoading) {
+                return
+            }
             const updates = heatmapBrushToFilters(
                 values.latencyHeatmapData,
                 selection,
