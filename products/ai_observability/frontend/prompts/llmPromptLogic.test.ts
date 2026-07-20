@@ -453,7 +453,7 @@ describe('llmPromptLogic', () => {
     })
 
     it('keeps labels unchanged and resyncs after losing a concurrent label write', async () => {
-        const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => {})
+        const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
         const logic = mountWithLabels()
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadPromptSuccess'])
@@ -474,7 +474,7 @@ describe('llmPromptLogic', () => {
 
     it('keeps a label visible when its delete request fails', async () => {
         const dialogSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
-        jest.spyOn(lemonToast, 'error').mockImplementation(() => {})
+        jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
         const logic = mountWithLabels()
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadPromptSuccess'])

@@ -41,6 +41,7 @@ import { CreatePromptExperimentModal } from './CreatePromptExperimentModal'
 import { createPromptExperimentModalLogic } from './createPromptExperimentModalLogic'
 import { PromptAnalyticsScope, isPrompt, llmPromptLogic } from './llmPromptLogic'
 import { promptExperimentsLogic } from './promptExperimentsLogic'
+import { PromptLabelChip } from './PromptLabelChip'
 import { PromptLabelPicker } from './PromptLabelPicker'
 import { PROMPT_NAME_MAX_LENGTH } from './utils'
 
@@ -877,16 +878,12 @@ export function PromptVersionSidebar({
                                         onClick={(e) => e.stopPropagation()}
                                     >
                                         {(labelsByVersion[versionPrompt.version] ?? []).map((label) => (
-                                            <LemonTag
+                                            <PromptLabelChip
                                                 key={label.name}
-                                                type="completion"
-                                                size="small"
-                                                closable={!readOnly}
-                                                onClose={readOnly ? undefined : () => requestRemoveLabel(label.name)}
+                                                label={label.name}
+                                                onRemove={readOnly ? undefined : () => requestRemoveLabel(label.name)}
                                                 data-attr={`llma-prompt-label-${label.name}`}
-                                            >
-                                                {label.name}
-                                            </LemonTag>
+                                            />
                                         ))}
                                         {!readOnly &&
                                             (labelPickerVersion === versionPrompt.version ? (

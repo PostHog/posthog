@@ -10,7 +10,6 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -25,6 +24,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, LLMPrompt } from '~/types'
 
 import { PROMPTS_PER_PAGE, llmPromptsLogic } from './llmPromptsLogic'
+import { PromptLabelChip } from './PromptLabelChip'
 import { openArchivePromptDialog, openDuplicatePromptDialog } from './utils'
 
 export const scene: SceneExport = {
@@ -103,9 +103,7 @@ export function LLMPromptsScene(): JSX.Element {
                           return (
                               <div className="flex flex-wrap gap-1">
                                   {prompt.all_labels.map((label) => (
-                                      <LemonTag key={label.name} type="completion" size="small">
-                                          {label.name}: v{label.version}
-                                      </LemonTag>
+                                      <PromptLabelChip key={label.name} label={`${label.name}: v${label.version}`} />
                                   ))}
                               </div>
                           )
