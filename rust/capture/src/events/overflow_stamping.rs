@@ -44,14 +44,20 @@ use crate::v0_request::{DataType, OverflowReason, ProcessedEvent};
 ///
 /// Behavior (matches the pre-refactor sink semantics byte-for-byte):
 /// * Events on non-overflowing lanes are skipped (heatmaps, exceptions,
-///   client-ingestion-warnings, etc. never overflow; nor do AI events when
-///   the AI limiter is absent).
+///   client-ingestion-warnings, etc. never overflow).
 /// * `force_overflow = true` (set upstream by event restrictions) emits the
 ///   `event_restriction` counter and short-circuits — the limiter is NOT
-///   consulted, matching the pre-refactor sink ordering.
-/// * If `analytics_limiter` is `None`, only the `event_restriction`
-///   short-circuit can stamp anything on the analytics lane; otherwise the
-///   event passes through untouched.
+///   consulted, matching the pre-refactor sink ordering. This runs on both
+///   overflowing lanes regardless of limiter presence: the sink honors
+///   `force_overflow` on its own (restriction rerouting must survive
+///   `OVERFLOW_ENABLED=false`). The counter can over-report in one corner —
+///   a forced AI event with the valve unarmed is counted here but ignored by
+///   the sink; only the sink knows the valve.
+/// * If the lane's limiter is `None`, only the `event_restriction`
+///   short-circuit can stamp anything; otherwise the event passes through
+///   untouched. The AI lane's limiter exists exactly when the AI overflow
+///   valve is armed and overflow is enabled, so absence keeps AI events out
+///   of rate-limit overflow.
 /// * If the lane's limiter is `Some`, `is_limited(event.key())` is consulted
 ///   and the resulting [`OverflowReason`] is stamped, plus the matching
 ///   counter. `ForceLimited` additionally sets `skip_person_processing =
@@ -69,7 +75,7 @@ pub fn stamp_overflow_reason(
     for event in events.iter_mut() {
         let lane_limiter = match event.metadata.data_type {
             DataType::AnalyticsMain => analytics_limiter,
-            DataType::AiEvents if ai_limiter.is_some() => ai_limiter,
+            DataType::AiEvents => ai_limiter,
             _ => continue,
         };
 
