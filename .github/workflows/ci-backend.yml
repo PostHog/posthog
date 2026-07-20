@@ -889,29 +889,12 @@ jobs:
                       exit $exit_code
                   fi
 
-            # Best-effort Trunk upload (continue-on-error); the "Fail on test failure" step below is
-            # the verdict, so a Trunk outage can't red a passing shard. Internal PRs only (needs the
-            # secret); cli-version pinned, not 'latest' (skips the release redirect).
-            # The TRUNK_UPLOAD_ENABLED repo variable is the kill-switch: when it is not 'true'
-            # this gate skips, so nothing uploads and no known flakes are quarantined.
-            - name: Quarantine gate
-              id: quarantine_gate
-              continue-on-error: true
-              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
-              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
-              with:
-                  junit-paths: products/*/junit-product.xml
-                  org-slug: posthog-inc
-                  cli-version: '0.13.7'
-                  quarantine: true
-                  previous-step-outcome: ${{ steps.run-product-tests.outcome }}
-                  token: ${{ secrets.TRUNK_API_TOKEN }}
-
-            # Verdict: red a real failure the gate didn't clear as a quarantined flake. != 'success'
-            # also covers the skipped gate on fork/Dependabot. Sits before the timing-data upload so
-            # a real failure still skips it, as it did before the test step got continue-on-error.
+            # Verdict: red a real failure the in-runner quarantine didn't neutralize (quarantined
+            # tests xfail via posthog/conftest.py, so they never fail the test step). Sits before
+            # the timing-data upload so a real failure still skips it, as it did before the test
+            # step got continue-on-error.
             - name: Fail on test failure
-              if: ${{ !cancelled() && steps.run-product-tests.outcome == 'failure' && steps.quarantine_gate.outcome != 'success' }}
+              if: ${{ !cancelled() && steps.run-product-tests.outcome == 'failure' }}
               shell: bash
               run: exit 1
 
@@ -2728,7 +2711,7 @@ jobs:
                       # No --splits/--group (no sharding), no --store-durations (don't pollute timing
                       # data with a partial run), and no --reruns (fail loud on the narrow subset).
                       # The full run below also runs without --reruns: retries mask the raw flake
-                      # signal Trunk needs, and the quarantine gate is the flake net instead.
+                      # signal the CI test spans need; .test_quarantine.json is the flake net instead.
                       if [[ "${{ matrix.person-on-events }}" == "true" ]]; then
                           targets="$POE_FILES"
                       else
@@ -2852,7 +2835,7 @@ jobs:
                   if [[ "$MODE" == "selected" ]]; then
                       # Selected mode: no sharding, no --store-durations (don't pollute
                       # timing data with a partial run), no --reruns. See the core selected branch;
-                      # the full run also skips --reruns so raw flake signal reaches Trunk.
+                      # the full run also skips --reruns so raw flake signal reaches the CI test spans.
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $TEMPORAL_FILES -m "not async_migrations" \
                           -r fEsxX \
@@ -2947,39 +2930,10 @@ jobs:
                   name: junit-results-backend-${{ matrix.artifact_key }}
                   path: junit-*.xml
 
-            # Best-effort Trunk upload (continue-on-error); the "Fail on test failure" step below is
-            # the verdict, so a Trunk outage can't red a passing shard. Internal PRs only (needs the
-            # secret); cli-version pinned, not 'latest' (skips the release redirect).
-            # The TRUNK_UPLOAD_ENABLED repo variable is the kill-switch: when it is not 'true'
-            # this gate skips, so nothing uploads and no known flakes are quarantined.
-            - name: Quarantine gate (Core)
-              id: quarantine_gate_core
-              continue-on-error: true
-              if: ${{ !cancelled() && matrix.segment == 'Core' && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
-              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
-              with:
-                  junit-paths: junit-core.xml
-                  org-slug: posthog-inc
-                  cli-version: '0.13.7'
-                  quarantine: true
-                  previous-step-outcome: ${{ steps.run-core-tests.outcome }}
-                  token: ${{ secrets.TRUNK_API_TOKEN }}
-            - name: Quarantine gate (Temporal)
-              id: quarantine_gate_temporal
-              continue-on-error: true
-              if: ${{ !cancelled() && matrix.segment == 'Temporal' && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
-              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
-              with:
-                  junit-paths: junit-temporal.xml
-                  org-slug: posthog-inc
-                  cli-version: '0.13.7'
-                  quarantine: true
-                  previous-step-outcome: ${{ steps.run-temporal-tests.outcome }}
-                  token: ${{ secrets.TRUNK_API_TOKEN }}
-            # Verdict: red a real failure the gate didn't clear as a quarantined flake. != 'success'
-            # also covers the skipped gate on fork/Dependabot. Passing shards never red here.
+            # Verdict: red a real failure the in-runner quarantine didn't neutralize (quarantined
+            # tests xfail via posthog/conftest.py). Passing shards never red here.
             - name: Fail on test failure
-              if: ${{ !cancelled() && ((steps.run-core-tests.outcome == 'failure' && steps.quarantine_gate_core.outcome != 'success') || (steps.run-temporal-tests.outcome == 'failure' && steps.quarantine_gate_temporal.outcome != 'success')) }}
+              if: ${{ !cancelled() && (steps.run-core-tests.outcome == 'failure' || steps.run-temporal-tests.outcome == 'failure') }}
               shell: bash
               run: exit 1
 

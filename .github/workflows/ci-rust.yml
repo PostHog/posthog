@@ -423,11 +423,11 @@ jobs:
                   PERSONS_READ_DATABASE_URL: ${{ contains(format(' {0} ', matrix.packages), ' feature-flags ') && 'postgres://posthog:posthog@localhost:5432/posthog_persons' || '' }}
                   PERSONS_WRITE_DATABASE_URL: ${{ contains(format(' {0} ', matrix.packages), ' feature-flags ') && 'postgres://posthog:posthog@localhost:5432/posthog_persons' || '' }}
               run: |
-                  # nextest (instead of plain `cargo test`) emits JUnit XML for the Trunk upload
-                  # below. It does not run doctests, so those keep running via `cargo test --doc`.
+                  # nextest (instead of plain `cargo test`) emits JUnit XML for the results
+                  # artifact. It does not run doctests, so those keep running via `cargo test --doc`.
                   # --no-tests=pass matches `cargo test` semantics for packages/filters with no tests.
                   # Each run overwrites target/nextest/ci/junit.xml, so stash it per package —
-                  # even on failure, so the failing results still reach Trunk before we exit.
+                  # even on failure, so the failing results are still stashed before we exit.
                   run_nextest() {
                       local junit_name=$1
                       shift
@@ -467,20 +467,6 @@ jobs:
                       fi
                       echo "::endgroup::"
                   done
-
-            # Upload results to Trunk for flaky-test detection. Non-gating (continue-on-error),
-            # so a Trunk outage never fails the job. Runs the token only on internal PRs,
-            # master, and the merge queue — never on fork PRs or Dependabot, which have no secret.
-            # The TRUNK_UPLOAD_ENABLED repo variable is the kill-switch: when it is not 'true'
-            # this upload skips.
-            - name: Upload test results to Trunk
-              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
-              continue-on-error: true
-              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
-              with:
-                  junit-paths: rust/junit-nextest-*.xml
-                  org-slug: posthog-inc
-                  token: ${{ secrets.TRUNK_API_TOKEN }}
 
     # Spawns a real personhog stack (replica, writer, leaders, leader-mode
     # routers) against dockerized Postgres/Kafka/etcd and asserts that every

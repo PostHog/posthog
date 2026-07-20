@@ -14,7 +14,7 @@ on:
     workflow_dispatch:
         inputs:
             playwright_retries:
-                description: 'Override Playwright retries (leave empty for default of 0 on CI so raw per-test signal reaches Trunk). Set to 1+ to add a retry net for a one-off run.'
+                description: 'Override Playwright retries (leave empty for default of 0 on CI so raw per-test flake signal stays visible). Set to 1+ to add a retry net for a one-off run.'
                 required: false
                 type: string
                 default: ''
@@ -819,14 +819,13 @@ jobs:
 
             - name: Run Playwright tests
               id: playwright-tests
-              # continue-on-error so a failure doesn't fail the job here; the quarantine gate
-              # below is the verdict — it passes when every failure is an already-quarantined
-              # flake, fails otherwise.
+              # continue-on-error so a failure doesn't fail the job here; the
+              # "Fail on Playwright failure" step below is the verdict.
               continue-on-error: true
               shell: bash
               env:
-                  # Retries default to 0 so raw per-test signal reaches Trunk — retries mask
-                  # the flake signal quarantining relies on; the quarantine gate below is the
+                  # Retries default to 0 so raw per-test flake signal stays visible — retries
+                  # mask the signal flaky-test detection relies on; .test_quarantine.json is the
                   # flake net instead. workflow_dispatch can override for a one-off run.
                   PLAYWRIGHT_RETRIES: ${{ inputs.playwright_retries || '0' }}
                   # Empty when select-specs was skipped (full-run events) or chose a full run.
@@ -960,27 +959,11 @@ jobs:
                   path: playwright/junit-results.xml
                   if-no-files-found: ignore
 
-            # Best-effort Trunk upload (continue-on-error); the "Fail on Playwright failure" step
-            # below is the verdict, so a Trunk outage can't red a passing job. Internal PRs only
-            # (needs the secret); cli-version pinned, not 'latest' (skips the release redirect).
-            # The TRUNK_UPLOAD_ENABLED repo variable is the kill-switch: when it is not 'true'
-            # this gate skips, so nothing uploads and no known flakes are quarantined.
-            - name: Quarantine gate
-              id: quarantine_gate
-              continue-on-error: true
-              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
-              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
-              with:
-                  junit-paths: playwright/junit-results.xml
-                  org-slug: posthog-inc
-                  cli-version: '0.13.7'
-                  quarantine: true
-                  previous-step-outcome: ${{ steps.playwright-tests.outcome }}
-                  token: ${{ secrets.TRUNK_API_TOKEN }}
-            # Verdict: red a real failure the gate didn't clear as a quarantined flake. != 'success'
-            # also covers the skipped gate on fork/Dependabot.
+            # Verdict: red a real failure the in-runner quarantine didn't neutralize (quarantined
+            # tests are tolerated by playwright/playwright.quarantine.reporter.ts, which flips the
+            # run verdict; run-level errors always stay red).
             - name: Fail on Playwright failure
-              if: ${{ !cancelled() && steps.playwright-tests.outcome == 'failure' && steps.quarantine_gate.outcome != 'success' }}
+              if: ${{ !cancelled() && steps.playwright-tests.outcome == 'failure' }}
               shell: bash
               run: exit 1
 
