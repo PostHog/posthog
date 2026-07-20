@@ -17,9 +17,13 @@ from typing import Any
 
 from django.core.management.base import BaseCommand, CommandParser
 
-from products.feature_flags.backend.api.filters_schema import LEGACY_UNKNOWN_FILTER_KEYS
-from products.feature_flags.backend.filters_validation import collect_filters_violations
+from products.feature_flags.backend.api.filters_schema import is_legacy_unknown_key
+from products.feature_flags.backend.filters_validation import Violation, collect_filters_violations
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+
+# Unknown keys come from user-controlled JSON, so the distinct-key space is unbounded; cap it
+# to keep a pathological prod scan from growing the aggregator without limit.
+MAX_TRACKED_UNKNOWN_KEYS = 1000
 
 
 @dataclass
@@ -38,6 +42,7 @@ class UnknownKeyAggregator:
         self.max_samples = max_samples
         self.flag_counts: dict[tuple[str, str], int] = {}
         self.sample_flag_ids: dict[tuple[str, str], list[int]] = {}
+        self.untracked_keys = 0
         self._current_flag_id: int | None = None
         self._seen_for_current_flag: set[tuple[str, str]] = set()
 
@@ -52,6 +57,9 @@ class UnknownKeyAggregator:
             if pair in self._seen_for_current_flag:
                 continue
             self._seen_for_current_flag.add(pair)
+            if pair not in self.flag_counts and len(self.flag_counts) >= MAX_TRACKED_UNKNOWN_KEYS:
+                self.untracked_keys += 1
+                continue
             self.flag_counts[pair] = self.flag_counts.get(pair, 0) + 1
             samples = self.sample_flag_ids.setdefault(pair, [])
             if flag_id is not None and len(samples) < self.max_samples:
@@ -81,9 +89,11 @@ class Command(BaseCommand):
         scanned = 0
         flags_with_violations = 0
 
-        # _base_manager: the default manager excludes soft-deleted flags, and a restored flag
-        # must not resurrect a violation.
-        queryset = FeatureFlag._base_manager.all()
+        # objects_including_soft_deleted: the default manager excludes soft-deleted flags, and
+        # a restored flag must not resurrect a violation. It is also a RootTeamManager, so
+        # --team-id with an environment's team id maps to the project root team instead of
+        # silently scanning zero flags.
+        queryset = FeatureFlag.objects_including_soft_deleted.all()
         if team_id is not None:
             queryset = queryset.filter(team_id=team_id)
         rows = queryset.order_by("id").values_list("id", "team_id", "filters")
@@ -91,12 +101,24 @@ class Command(BaseCommand):
             rows = rows[:limit]
 
         # collect_filters_violations runs CROSS_FIELD_CHECKS, which deliberately excludes
-        # check_groups_non_empty_for_create: non-empty groups is a POST-only rule (#50084,
-        # haacked, 2026-07-20) — stored flags with empty groups are valid state and must
-        # never show up in this report.
+        # check_groups_non_empty_for_create: non-empty groups is a POST-only rule (#50084) —
+        # stored flags with empty groups are valid state and must never show up in this report.
         for flag_id, flag_team_id, filters in rows.iterator(chunk_size=500):
             scanned += 1
-            violations = collect_filters_violations(filters, context={"unknown_keys_sink": sink, "flag_id": flag_id})
+            try:
+                violations = collect_filters_violations(
+                    filters, context={"unknown_keys_sink": sink, "flag_id": flag_id}
+                )
+            except Exception as exc:
+                # The whole point of this command is surviving wild-west data: one flag whose
+                # junk crashes a validator must become a reported violation, not a dead scan.
+                violations = [
+                    Violation(
+                        rule_id="structural.filters.internal_error",
+                        path="filters",
+                        message=f"{type(exc).__name__}: {exc}",
+                    )
+                ]
             if not violations:
                 continue
             flags_with_violations += 1
@@ -120,10 +142,6 @@ class Command(BaseCommand):
         else:
             self._emit_console(scanned, flags_with_violations, reports, sink)
 
-    @staticmethod
-    def _is_legacy(level: str, key: str) -> bool:
-        return level == "filters" and key in LEGACY_UNKNOWN_FILTER_KEYS
-
     def _emit_json(
         self, scanned: int, flags_with_violations: int, reports: list[RuleReport], sink: UnknownKeyAggregator
     ) -> None:
@@ -136,12 +154,13 @@ class Command(BaseCommand):
                 {
                     "level": level,
                     "key": key,
-                    "legacy": self._is_legacy(level, key),
+                    "legacy": is_legacy_unknown_key(level, key),
                     "flags_affected": count,
                     "sample_flag_ids": sink.sample_flag_ids.get((level, key), []),
                 }
                 for (level, key), count in sorted(sink.flag_counts.items())
             ],
+            "untracked_unknown_keys": sink.untracked_keys,
         }
         self.stdout.write(json.dumps(payload, indent=2))
 
@@ -173,6 +192,13 @@ class Command(BaseCommand):
             self.stdout.write("")
             self.stdout.write("Unknown keys dropped by enforcement (frequency):")
             for (level, key), count in sorted(sink.flag_counts.items(), key=lambda item: (-item[1], item[0])):
-                legacy_marker = "  [legacy]" if self._is_legacy(level, key) else ""
+                legacy_marker = "  [legacy]" if is_legacy_unknown_key(level, key) else ""
                 ids = ", ".join(str(flag_id) for flag_id in sink.sample_flag_ids.get((level, key), []))
                 self.stdout.write(f"  {level:<9} {key:<40} {count} flags  sample ids: {ids}{legacy_marker}")
+            if sink.untracked_keys:
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"  ... plus {sink.untracked_keys} occurrence(s) of keys beyond the "
+                        f"{MAX_TRACKED_UNKNOWN_KEYS} distinct-key tracking cap"
+                    )
+                )

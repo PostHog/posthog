@@ -265,7 +265,7 @@ CROSS_FIELD_CHECKS: tuple[Callable[[Mapping[str, Any]], list[Violation]], ...] =
 
 def check_groups_non_empty_for_create(filters: Mapping[str, Any]) -> list[Violation]:
     # Deliberately NOT in CROSS_FIELD_CHECKS. The POST/PATCH asymmetry is a locked decision
-    # on #50084 (haacked, 2026-07-20): POST requires at least one condition group, but
+    # on #50084: POST requires at least one condition group, but
     # PATCH {"filters": {"groups": []}} is a legitimate "clear targeting" under merged-state
     # validation, and stored flags with empty groups are valid state the audit must never
     # flag. Do not "unify" these in either direction.

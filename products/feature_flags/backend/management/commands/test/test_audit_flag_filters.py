@@ -9,6 +9,7 @@ from django.core.management import call_command
 
 from posthog.models import Team
 
+from products.feature_flags.backend.filters_validation import collect_filters_violations
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 INVALID_MULTIVARIATE_FILTERS: dict[str, Any] = {
@@ -46,7 +47,7 @@ class TestAuditFlagFilters(BaseTest):
         assert report["rules"] == []
 
     def test_violations_grouped_by_rule_with_samples(self) -> None:
-        structural = self._create_flag("structural", {"groups": [{"properties": [{"key": 123, "type": "person"}]}]})
+        structural = self._create_flag("structural", {"groups": [{"properties": [{"type": "person"}]}]})
         cross_field = self._create_flag("cross-field", INVALID_MULTIVARIATE_FILTERS)
         self._create_flag("clean", {"groups": []})
 
@@ -55,7 +56,7 @@ class TestAuditFlagFilters(BaseTest):
         assert report["clean"] is False
         assert report["flags_with_violations"] == 2
 
-        structural_rule = self._rule(report, "structural.groups[].properties[].key.invalid")
+        structural_rule = self._rule(report, "structural.groups[].properties[].key.required")
         assert structural_rule is not None
         assert structural_rule["flags_affected"] == 1
         assert structural_rule["sample_flag_ids"] == [structural.id]
@@ -135,6 +136,43 @@ class TestAuditFlagFilters(BaseTest):
 
         assert report["scanned"] == 1
         assert report["clean"] is True
+
+    def test_team_id_maps_environment_to_root_team(self) -> None:
+        env_team = Team.objects.create(
+            organization=self.organization, project=self.team.project, parent_team=self.team, name="env"
+        )
+        self._create_flag("root-team-flag", INVALID_MULTIVARIATE_FILTERS)
+
+        out = StringIO()
+        call_command("audit_flag_filters", "--json", "--team-id", str(env_team.id), stdout=out)
+        report = json.loads(out.getvalue())
+
+        # A false "0 flags scanned, clean" here means the manager stopped resolving
+        # environment team ids to the project root.
+        assert report["scanned"] == 1
+        assert report["clean"] is False
+
+    def test_validator_crash_becomes_violation_not_dead_scan(self) -> None:
+        crashing = self._create_flag("crashing", {"groups": []})
+        self._create_flag("clean", {"groups": []})
+
+        real = collect_filters_violations
+
+        def crash_on_first(filters: Any, **kwargs: Any) -> Any:
+            if kwargs.get("context", {}).get("flag_id") == crashing.id:
+                raise TypeError("unhashable type: 'list'")
+            return real(filters, **kwargs)
+
+        with patch(
+            "products.feature_flags.backend.management.commands.audit_flag_filters.collect_filters_violations",
+            side_effect=crash_on_first,
+        ):
+            report = self._run()
+
+        assert report["scanned"] == 2
+        rule = self._rule(report, "structural.filters.internal_error")
+        assert rule is not None
+        assert rule["sample_flag_ids"] == [crashing.id]
 
     def test_console_output_summarizes(self) -> None:
         self._create_flag("cross-field", INVALID_MULTIVARIATE_FILTERS)

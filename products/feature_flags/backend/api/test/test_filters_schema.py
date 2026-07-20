@@ -53,6 +53,7 @@ class TestFiltersSchema(SimpleTestCase):
             ("empty_groups", {"groups": []}),
             ("kitchen_sink", KITCHEN_SINK_FILTERS),
             ("null_optionals", {"groups": [], "multivariate": None, "holdout": None, "early_exit": None}),
+            ("null_payloads", {"payloads": None}),
         ]
     )
     def test_valid_filters_pass(self, _name: str, filters: dict[str, Any]) -> None:
@@ -71,8 +72,14 @@ class TestFiltersSchema(SimpleTestCase):
                 "blank",
             ),
             (
-                "property_key_numeric",
-                {"groups": [{"properties": [{"key": 123, "type": "person"}]}]},
+                "property_key_bool",
+                {"groups": [{"properties": [{"key": True, "type": "person"}]}]},
+                ["groups"],
+                "invalid",
+            ),
+            (
+                "property_key_list",
+                {"groups": [{"properties": [{"key": ["a"], "type": "person"}]}]},
                 ["groups"],
                 "invalid",
             ),
@@ -92,6 +99,18 @@ class TestFiltersSchema(SimpleTestCase):
             (
                 "property_operator_unknown",
                 {"groups": [{"properties": [{**VALID_PROPERTY, "operator": "bogus"}]}]},
+                ["groups"],
+                "invalid_choice",
+            ),
+            (
+                "property_operator_unhashable_list",
+                {"groups": [{"properties": [{**VALID_PROPERTY, "operator": []}]}]},
+                ["groups"],
+                "invalid_choice",
+            ),
+            (
+                "property_operator_unhashable_dict",
+                {"groups": [{"properties": [{**VALID_PROPERTY, "operator": {}}]}]},
                 ["groups"],
                 "invalid_choice",
             ),
@@ -126,6 +145,18 @@ class TestFiltersSchema(SimpleTestCase):
             ("group_rollout_nan", {"groups": [{"rollout_percentage": float("nan")}]}, ["groups"], "invalid"),
             ("group_variant_numeric", {"groups": [{"variant": 123}]}, ["groups"], "invalid"),
             ("group_aggregation_string", {"groups": [{"aggregation_group_type_index": "0"}]}, ["groups"], "invalid"),
+            (
+                "group_aggregation_i32_overflow",
+                {"groups": [{"aggregation_group_type_index": 2**31}]},
+                ["groups"],
+                "max_value",
+            ),
+            (
+                "property_group_type_index_i32_underflow",
+                {"groups": [{"properties": [{**VALID_PROPERTY, "group_type_index": -(2**31) - 1}]}]},
+                ["groups"],
+                "min_value",
+            ),
             ("multivariate_missing_variants", {"multivariate": {}}, ["multivariate"], "required"),
             ("multivariate_empty_variants", {"multivariate": {"variants": []}}, ["multivariate"], "empty"),
             (
@@ -156,6 +187,12 @@ class TestFiltersSchema(SimpleTestCase):
             ("holdout_missing_id", {"holdout": {"exclusion_percentage": 10}}, ["holdout"], "required"),
             ("holdout_id_string", {"holdout": {"id": "5", "exclusion_percentage": 10}}, ["holdout"], "invalid"),
             (
+                "holdout_id_i64_overflow",
+                {"holdout": {"id": 2**63, "exclusion_percentage": 10}},
+                ["holdout"],
+                "max_value",
+            ),
+            (
                 "holdout_exclusion_over_100",
                 {"holdout": {"id": 5, "exclusion_percentage": 150}},
                 ["holdout"],
@@ -169,9 +206,18 @@ class TestFiltersSchema(SimpleTestCase):
                 ["aggregation_group_type_index"],
                 "invalid",
             ),
+            (
+                "aggregation_group_type_index_i32_overflow",
+                {"aggregation_group_type_index": 2**31},
+                ["aggregation_group_type_index"],
+                "max_value",
+            ),
             ("payloads_not_a_dict", {"payloads": []}, ["payloads"], "not_a_dict"),
             ("payload_invalid_json_string", {"payloads": {"true": "not json"}}, ["payloads"], "invalid_payload_json"),
             ("payload_blank_string", {"payloads": {"true": ""}}, ["payloads"], "invalid_payload_json"),
+            ("payload_nan_float", {"payloads": {"true": float("nan")}}, ["payloads"], "invalid_payload_json"),
+            ("payload_nan_string", {"payloads": {"true": "NaN"}}, ["payloads"], "invalid_payload_json"),
+            ("payload_infinity_string", {"payloads": {"true": "Infinity"}}, ["payloads"], "invalid_payload_json"),
         ]
     )
     def test_invalid_filters_rejected(
@@ -190,6 +236,14 @@ class TestFiltersSchema(SimpleTestCase):
         serializer = FlagPropertySerializer(data={**VALID_PROPERTY, "operator": alias, "value": "5"})
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data["operator"] == canonical
+
+    @parameterized.expand([("int", 123, "123"), ("float", 1.5, "1.5")])
+    def test_numeric_property_keys_normalized_to_strings(self, _name: str, key: Any, expected: str) -> None:
+        # Mirrors Rust deserialize_key: stored numeric keys evaluate fine and must not be
+        # rejected (nor 400 a read-modify-write PATCH echoing them back).
+        serializer = FlagPropertySerializer(data={**VALID_PROPERTY, "key": key})
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["key"] == expected
 
     @parameterized.expand(
         [
@@ -237,6 +291,17 @@ class TestFiltersSchema(SimpleTestCase):
                 ],
             ),
             ("property", {"groups": [{"properties": [{**VALID_PROPERTY, "cohort_name": "x"}]}]}, ["cohort_name"]),
+            (
+                "multivariate",
+                {"multivariate": {"variants": [{"key": "a", "rollout_percentage": 100}], "junk_m": 1}},
+                ["junk_m"],
+            ),
+            (
+                "variant",
+                {"multivariate": {"variants": [{"key": "a", "rollout_percentage": 100, "junk_v": 1}]}},
+                ["junk_v"],
+            ),
+            ("holdout", {"holdout": {"id": 1, "exclusion_percentage": 0, "junk_h": 1}}, ["junk_h"]),
         ]
     )
     @patch("products.feature_flags.backend.api.filters_schema.logger")
