@@ -64,6 +64,7 @@ class TestRecentlySeenLookup:
             "rendering": "plain",
             "document_id": "abc",
         } in kwargs["json"]["documents"]
+        assert kwargs["timeout"] == 30.0
 
     @patch("posthog.api.embedding_worker.internal_requests")
     def test_empty_input_makes_no_request(self, mock_requests):

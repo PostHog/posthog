@@ -80,31 +80,35 @@ struct RecentlySeenResponse {
     results: Vec<RecentlySeenResult>,
 }
 
-async fn recently_seen_handler(
-    State(context): State<Arc<AppContext>>,
-    Json(request): Json<RecentlySeenRequest>,
-) -> Json<RecentlySeenResponse> {
-    let requested_count = request.documents.len();
-    let lookup = context
-        .recently_seen
-        .lookup(request.team_id, request.documents)
-        .await;
-
-    let results: Vec<_> = lookup
+fn recently_seen_results(
+    documents: Vec<DocumentKey>,
+    lookup: &HashMap<DocumentKey, Option<DateTime<Utc>>>,
+) -> Vec<RecentlySeenResult> {
+    documents
         .into_iter()
-        .map(|(key, emitted_at)| RecentlySeenResult {
+        .map(|key| RecentlySeenResult {
+            emitted_at: lookup.get(&key).cloned().flatten(),
             product: key.product,
             document_type: key.document_type,
             rendering: key.rendering,
             document_id: key.document_id,
-            emitted_at,
         })
-        .collect();
+        .collect()
+}
 
-    // We return a response for every key, even if the key was not found in the lookup.
-    assert_eq!(results.len(), requested_count);
+async fn recently_seen_handler(
+    State(context): State<Arc<AppContext>>,
+    Json(request): Json<RecentlySeenRequest>,
+) -> Json<RecentlySeenResponse> {
+    let documents = request.documents;
+    let lookup = context
+        .recently_seen
+        .lookup(request.team_id, documents.clone())
+        .await;
 
-    Json(RecentlySeenResponse { results })
+    Json(RecentlySeenResponse {
+        results: recently_seen_results(documents, &lookup),
+    })
 }
 
 fn start_health_liveness_server(config: &Config, context: Arc<AppContext>) -> JoinHandle<()> {
@@ -300,5 +304,38 @@ async fn main() {
         if !seen.is_empty() {
             context.recently_seen.record(&seen).await;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn document(document_id: &str) -> DocumentKey {
+        DocumentKey {
+            product: "signals".to_string(),
+            document_type: "signal".to_string(),
+            rendering: "plain".to_string(),
+            document_id: document_id.to_string(),
+        }
+    }
+
+    #[test]
+    fn recently_seen_results_preserve_request_order_and_duplicates() {
+        let first = document("first");
+        let second = document("second");
+        let emitted_at = Utc::now();
+        let lookup = HashMap::from([(first.clone(), Some(emitted_at)), (second.clone(), None)]);
+
+        let results =
+            recently_seen_results(vec![first.clone(), second.clone(), first.clone()], &lookup);
+
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].document_id, first.document_id);
+        assert_eq!(results[0].emitted_at, Some(emitted_at));
+        assert_eq!(results[1].document_id, second.document_id);
+        assert_eq!(results[1].emitted_at, None);
+        assert_eq!(results[2].document_id, first.document_id);
+        assert_eq!(results[2].emitted_at, Some(emitted_at));
     }
 }

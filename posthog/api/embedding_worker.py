@@ -211,7 +211,7 @@ def get_recently_seen_documents(
     documents: list[DocumentKey],
     *,
     team_id: int,
-    timeout: float | None = None,
+    timeout: float | None = 30.0,
 ) -> dict[DocumentKey, Optional[datetime]]:
     """Check whether documents were recently emitted to ClickHouse by the embedding worker.
 

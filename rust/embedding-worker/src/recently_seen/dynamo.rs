@@ -42,6 +42,9 @@ pub async fn build_dynamodb_store(config: &Config) -> Result<DynamoDbStore> {
     if let Some(region) = &config.aws_region {
         loader = loader.region(aws_sdk_dynamodb::config::Region::new(region.clone()));
     }
+    if let Some(endpoint) = &config.recent_ids_dynamodb_endpoint {
+        loader = loader.endpoint_url(endpoint.clone());
+    }
     let shared = loader.load().await;
     let client = aws_sdk_dynamodb::Client::new(&shared);
 
