@@ -961,7 +961,7 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "signal_scout"
-    # `list` returns a raw newest-first array (capped at limit=500 by the query serializer),
+    # `list` returns a raw newest-first array (capped at limit=1000 by the query serializer),
     # not a paginated wrapper. See SignalScoutRunViewSet for the same rationale.
     pagination_class = None
 
@@ -989,7 +989,7 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "`< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls "
             "to walk past the cap. Pass `keys_only=true` to scan keys without pulling entry bodies, or "
             "`content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan "
-            "from returning every entry's full prose. Results capped at 500."
+            "from returning every entry's full prose. Results capped at 1000."
         ),
         operation_id="signals_scout_scratchpad_search",
     )

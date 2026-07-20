@@ -432,8 +432,8 @@ class SearchMemoryQuerySerializer(serializers.Serializer):
     limit = serializers.IntegerField(
         required=False,
         min_value=1,
-        max_value=500,
-        help_text="Max rows to return (default 20, hard cap 500).",
+        max_value=1000,
+        help_text="Max rows to return (default 20, hard cap 1000).",
     )
 
 

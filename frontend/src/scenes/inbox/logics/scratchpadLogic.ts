@@ -15,11 +15,11 @@ export type ScratchpadGrouping = 'recent' | 'topic'
 // Search reruns the server-side ILIKE on every keystroke; debounce so typing doesn't
 // fire a request per character.
 const SEARCH_DEBOUNCE_MS = 300
-// `list` caps at 500 newest-first with no pagination wrapper — pull the whole window in
+// `list` caps at 1000 newest-first with no pagination wrapper — pull the whole window in
 // one read and group/search client-side. The endpoint exposes a `date_to` cursor for
-// walking past the cap; a team that routinely exceeds 500 wants that wired into a "load
+// walking past the cap; a team that routinely exceeds 1000 wants that wired into a "load
 // more" here, not a bigger single read.
-const SCRATCHPAD_FETCH_LIMIT = 500
+const SCRATCHPAD_FETCH_LIMIT = 1000
 
 /** One namespace cluster in the "By topic" view: the raw prefix, a friendly label, and its entries. */
 export interface ScratchpadNamespaceGroup {

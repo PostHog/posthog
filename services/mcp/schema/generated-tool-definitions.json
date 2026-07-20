@@ -7294,7 +7294,7 @@
         }
     },
     "scout-scratchpad-search": {
-        "description": "Return `SignalScratchpad` entries for this project, newest first. Pass `text` for a case-insensitive substring match on the entry's `content` and `key`. Pass `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `updated_at`) to scope to a window — set `date_to` to the `updated_at` of the oldest entry from the prior page to walk past the cap. Pass `keys_only=true` to scan which memories exist without pulling their (potentially large) bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation/dedupe scan from returning every entry's full prose. Results capped at 500.",
+        "description": "Return `SignalScratchpad` entries for this project, newest first. Pass `text` for a case-insensitive substring match on the entry's `content` and `key`. Pass `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `updated_at`) to scope to a window — set `date_to` to the `updated_at` of the oldest entry from the prior page to walk past the cap. Pass `keys_only=true` to scan which memories exist without pulling their (potentially large) bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation/dedupe scan from returning every entry's full prose. Results capped at 1000.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Search the scout scratchpad",

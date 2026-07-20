@@ -77076,9 +77076,9 @@ export namespace Schemas {
      */
     keys_only?: boolean;
     /**
-     * Max rows to return (default 20, hard cap 500).
+     * Max rows to return (default 20, hard cap 1000).
      * @minimum 1
-     * @maximum 500
+     * @maximum 1000
      */
     limit?: number;
     /**

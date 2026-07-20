@@ -22,7 +22,7 @@ from products.signals.backend.scout_harness.tools.runs import _build_task_url
 
 # Defensive cap on search results.
 DEFAULT_SCRATCHPAD_SEARCH_LIMIT = 20
-MAX_SCRATCHPAD_SEARCH_LIMIT = 500
+MAX_SCRATCHPAD_SEARCH_LIMIT = 1000
 
 # Keys/content are agent-chosen prose. Match the model's column lengths so callers
 # get a clean error before hitting the DB.

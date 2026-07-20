@@ -993,7 +993,7 @@ export const SignalsScoutRunsRecentEmissionsQueryParams = /* @__PURE__ */ zod.ob
 })
 
 /**
- * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Results capped at 500.
+ * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Results capped at 1000.
  * @summary Search the scout scratchpad
  */
 export const SignalsScoutScratchpadSearchParams = /* @__PURE__ */ zod.object({
@@ -1006,7 +1006,7 @@ export const SignalsScoutScratchpadSearchParams = /* @__PURE__ */ zod.object({
 
 export const signalsScoutScratchpadSearchQueryContentMaxCharsMin = 0
 
-export const signalsScoutScratchpadSearchQueryLimitMax = 500
+export const signalsScoutScratchpadSearchQueryLimitMax = 1000
 
 export const SignalsScoutScratchpadSearchQueryParams = /* @__PURE__ */ zod.object({
     content_max_chars: zod
@@ -1037,7 +1037,7 @@ export const SignalsScoutScratchpadSearchQueryParams = /* @__PURE__ */ zod.objec
         .min(1)
         .max(signalsScoutScratchpadSearchQueryLimitMax)
         .optional()
-        .describe('Max rows to return (default 20, hard cap 500).'),
+        .describe('Max rows to return (default 20, hard cap 1000).'),
     text: zod
         .string()
         .optional()
