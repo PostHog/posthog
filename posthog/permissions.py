@@ -554,14 +554,19 @@ def get_authenticator_scoped_orgs_teams(authenticator) -> tuple[list[str] | None
     - OAuth / personal API key: whatever restrictions the credential was created with.
     - ID-JAG: pinned to the single organization in the token's `org_id` claim (cross-org
       confused-deputy defense), org-wide within it (no team restriction).
-    - Session and any other non-scoped auth: unrestricted (`None`, `None`)."""
+    - Session auth: unrestricted (`None`, `None`).
+
+    Unknown authenticators fail closed so a newly introduced credential type cannot silently
+    inherit unrestricted organization and team access."""
     if isinstance(authenticator, OAuthAccessTokenAuthentication):
         return authenticator.access_token.scoped_organizations, authenticator.access_token.scoped_teams
     if isinstance(authenticator, PersonalAPIKeyAuthentication):
         return authenticator.personal_api_key.scoped_organizations, authenticator.personal_api_key.scoped_teams
     if isinstance(authenticator, IDJagAccessTokenAuthentication):
         return [authenticator.organization_id], None
-    return None, None
+    if isinstance(authenticator, SessionAuthentication):
+        return None, None
+    raise ValueError(f"Unexpected authentication type: {type(authenticator).__name__}")
 
 
 class APIScopePermission(ScopeBasePermission):

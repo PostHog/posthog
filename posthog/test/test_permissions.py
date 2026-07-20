@@ -16,7 +16,11 @@ from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
-from posthog.permissions import AccessControlPermission, PostHogFeatureFlagPermission
+from posthog.permissions import (
+    AccessControlPermission,
+    PostHogFeatureFlagPermission,
+    get_authenticator_scoped_orgs_teams,
+)
 from posthog.rbac.user_access_control import UserAccessControl
 
 try:
@@ -417,6 +421,12 @@ class TestTeamSecretTokenPermission(BaseTest):
 
         # None is not in the allowed endpoints tuple, so this should return False
         self.assertFalse(result)
+
+
+class TestAuthenticatorScopedOrgTeamResolution(SimpleTestCase):
+    def test_rejects_unknown_authenticator(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Unexpected authentication type"):
+            get_authenticator_scoped_orgs_teams(object())
 
 
 class TestProjectSecretAPIKeyAPIScopePermission(SimpleTestCase):

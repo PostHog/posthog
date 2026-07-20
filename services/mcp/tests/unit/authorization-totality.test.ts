@@ -5,7 +5,8 @@ import { MemoryCache } from '@/lib/cache/MemoryCache'
 import { ErrorCode } from '@/lib/errors'
 import { StateManager } from '@/lib/StateManager'
 import type { ApiEffectiveAuthorization } from '@/schema/api'
-import type { State } from '@/tools/types'
+import { getToolsFromContext } from '@/tools'
+import type { Context, State } from '@/tools/types'
 
 /**
  * Totality oracle for the authorization resolver.
@@ -33,6 +34,14 @@ interface TotalityCase {
 }
 
 const EXPECTED_SCOPES = ['insight:read', 'dashboard:read']
+const AGENT_BUILDER_SCOPES = [
+    'user:read',
+    'agents:read',
+    'agents:write',
+    'agent_session:read',
+    'query:read',
+    'insight:read',
+]
 
 // Single JWT segment → not ID-JAG, so it takes the personal-key/OAuth cascade.
 const NON_JAG_TOKEN = 'phx_personal_key'
@@ -128,4 +137,31 @@ describe('authorization totality oracle', () => {
             await expect(sm.getAuthorizationMetadata()).rejects.toThrow(ErrorCode.INVALID_API_KEY)
         }
     )
+
+    it('builds the Agent Builder authoring catalog from an ID-JAG bearer', async () => {
+        const stateManager = new StateManager(
+            cache,
+            fakeApi({
+                apiToken: idJagToken(),
+                effective: {
+                    success: true,
+                    data: {
+                        scopes: AGENT_BUILDER_SCOPES,
+                        scoped_teams: null,
+                        scoped_organizations: ['organization-id'],
+                        credential_type: 'id_jag',
+                    },
+                },
+            })
+        )
+        const context = { stateManager } as unknown as Context
+
+        const tools = await getToolsFromContext(context, { featureFlags: { 'agent-platform': true } })
+        const toolNames = tools.map((tool) => tool.name)
+
+        expect(toolNames).toEqual(
+            expect.arrayContaining(['agent-applications-list', 'agent-applications-create', 'insight-query'])
+        )
+        expect(toolNames).not.toContain('dashboard-create')
+    })
 })
