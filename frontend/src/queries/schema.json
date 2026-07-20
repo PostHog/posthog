@@ -13748,6 +13748,10 @@
                         "conversion_goal_name": {
                             "type": "string"
                         },
+                        "counts_as_customer": {
+                            "description": "Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false.",
+                            "type": "boolean"
+                        },
                         "custom_name": {
                             "type": "string"
                         },
@@ -13834,6 +13838,10 @@
                         "conversion_goal_name": {
                             "type": "string"
                         },
+                        "counts_as_customer": {
+                            "description": "Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false.",
+                            "type": "boolean"
+                        },
                         "custom_name": {
                             "type": "string"
                         },
@@ -13908,6 +13916,10 @@
                         },
                         "conversion_goal_name": {
                             "type": "string"
+                        },
+                        "counts_as_customer": {
+                            "description": "Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false.",
+                            "type": "boolean"
                         },
                         "custom_name": {
                             "type": "string"

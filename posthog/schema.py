@@ -13568,6 +13568,16 @@ class ConversionGoalFilter1(BaseModel):
     )
     conversion_goal_id: str
     conversion_goal_name: str
+    counts_as_customer: bool | None = Field(
+        default=None,
+        description=(
+            "Marks this goal as customer-defining: a conversion here means the person"
+            " became a customer (e.g. a payment or subscription), not an intermediate"
+            " step like a sign up. It gates customer-based metrics such as CAC and"
+            " LTV:CAC, whose denominator is new customers (counted once per person via"
+            " first_time_for_user) rather than every conversion. Defaults to false."
+        ),
+    )
     custom_name: str | None = None
     event: str | None = Field(default=None, description="The event or `null` for all events.")
     fixedProperties: (
@@ -13660,6 +13670,16 @@ class ConversionGoalFilter2(BaseModel):
     )
     conversion_goal_id: str
     conversion_goal_name: str
+    counts_as_customer: bool | None = Field(
+        default=None,
+        description=(
+            "Marks this goal as customer-defining: a conversion here means the person"
+            " became a customer (e.g. a payment or subscription), not an intermediate"
+            " step like a sign up. It gates customer-based metrics such as CAC and"
+            " LTV:CAC, whose denominator is new customers (counted once per person via"
+            " first_time_for_user) rather than every conversion. Defaults to false."
+        ),
+    )
     custom_name: str | None = None
     fixedProperties: (
         list[
@@ -13750,6 +13770,16 @@ class ConversionGoalFilter3(BaseModel):
     )
     conversion_goal_id: str
     conversion_goal_name: str
+    counts_as_customer: bool | None = Field(
+        default=None,
+        description=(
+            "Marks this goal as customer-defining: a conversion here means the person"
+            " became a customer (e.g. a payment or subscription), not an intermediate"
+            " step like a sign up. It gates customer-based metrics such as CAC and"
+            " LTV:CAC, whose denominator is new customers (counted once per person via"
+            " first_time_for_user) rather than every conversion. Defaults to false."
+        ),
+    )
     custom_name: str | None = None
     distinct_id_field: str
     dw_source_type: str | None = None
