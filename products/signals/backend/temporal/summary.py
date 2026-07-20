@@ -108,6 +108,24 @@ def _capture_report_event(
         )
 
 
+def _failure_label(exc: BaseException) -> str:
+    """Stable exception-class label for a workflow failure.
+
+    Temporal wraps activity failures in ActivityError with the real error on `.cause`; for
+    application failures that cause is an ApplicationError whose `.type` preserves the original
+    exception class name across the boundary. Unwrap so failures group by their true type
+    (timeout / sandbox / provider error) instead of all collapsing to "ActivityError".
+    """
+    cause = getattr(exc, "cause", None)
+    # ApplicationError.type is the original class name; TimeoutError.type is an enum, so guard on str.
+    app_type = getattr(cause, "type", None)
+    if isinstance(app_type, str) and app_type:
+        return app_type
+    if cause is not None:
+        return type(cause).__name__
+    return type(exc).__name__
+
+
 @dataclass
 class ReportDecision:
     title: str
@@ -398,10 +416,10 @@ class SignalReportSummaryWorkflow:
                     report_id=inputs.report_id,
                     error=str(e),
                     failure_reason="agentic_activity_error",
-                    # Capture the exception class so the agentic_activity_error catch-all can be
-                    # split into distinct failure modes (LLM rate-limit, sandbox, timeout, …)
-                    # from event data alone, without narrowing the except itself.
-                    error_type=type(e).__name__,
+                    # Capture the (unwrapped) exception class so the agentic_activity_error
+                    # catch-all can be split into distinct failure modes (LLM rate-limit, sandbox,
+                    # timeout, …) from event data alone, without narrowing the except itself.
+                    error_type=_failure_label(e),
                     signal_count=signal_count,
                     source_products=source_products,
                 ),

@@ -1,6 +1,8 @@
 import pytest
 from unittest.mock import patch
 
+import temporalio.exceptions as temporal_ex
+
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalReport
@@ -10,6 +12,7 @@ from products.signals.backend.temporal.summary import (
     MarkReportPendingInput,
     MarkReportReadyInput,
     ResetReportToPotentialInput,
+    _failure_label,
     mark_report_failed_activity,
     mark_report_in_progress_activity,
     mark_report_pending_input_activity,
@@ -19,6 +22,44 @@ from products.signals.backend.temporal.summary import (
 from products.signals.backend.temporal.types import RERESEARCH_MAX_SIGNALS
 
 PIPELINE_MODULE_PATH = "products.signals.backend.temporal.summary"
+
+
+def _activity_error(cause: BaseException) -> temporal_ex.ActivityError:
+    err = temporal_ex.ActivityError(
+        "Activity task failed",
+        scheduled_event_id=1,
+        started_event_id=2,
+        identity="worker",
+        activity_type="run_agentic_report_activity",
+        activity_id="1",
+        retry_state=None,
+    )
+    err.__cause__ = cause
+    return err
+
+
+@pytest.mark.parametrize(
+    "exc,expected",
+    [
+        # Temporal wraps activity failures in ActivityError; the label must reflect the real cause,
+        # not the "ActivityError" wrapper, or the failure-mode split is useless.
+        (
+            _activity_error(temporal_ex.ApplicationError("rate limited", type="AnthropicRateLimitError")),
+            "AnthropicRateLimitError",
+        ),
+        (
+            _activity_error(
+                temporal_ex.TimeoutError(
+                    "timed out", type=temporal_ex.TimeoutType.START_TO_CLOSE, last_heartbeat_details=None
+                )
+            ),
+            "TimeoutError",
+        ),
+        (ValueError("boom"), "ValueError"),
+    ],
+)
+def test_failure_label_unwraps_temporal_cause(exc, expected):
+    assert _failure_label(exc) == expected
 
 
 @pytest.mark.asyncio
