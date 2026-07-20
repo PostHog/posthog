@@ -491,6 +491,8 @@ jobs:
             changed_file_count: ${{ steps.classify.outputs.changed_file_count }}
             selected_test_count: ${{ steps.classify.outputs.selected_test_count }}
             full_run_reasons_count: ${{ steps.classify.outputs.full_run_reasons_count }}
+            run_legacy: ${{ steps.fallback.outputs.run_legacy }}
+            turbo_result: ${{ steps.fallback.outputs.turbo_result }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -521,6 +523,10 @@ jobs:
                       skip=true
                   fi
                   echo "skip=$skip" >> "$GITHUB_OUTPUT"
+                  # Surface the inputs behind an untrusted skip so the telemetry can
+                  # tell legacy-graph impact apart from a turbo-discover failure.
+                  echo "run_legacy=${RUN_LEGACY:-}" >> "$GITHUB_OUTPUT"
+                  echo "turbo_result=${TURBO_RESULT:-}" >> "$GITHUB_OUTPUT"
 
             - name: Run shadow selector
               id: select
@@ -3457,6 +3463,8 @@ jobs:
                         "changed_file_count": ${{ needs.select-tests.outputs.changed_file_count || 'null' }},
                         "selected_test_count": ${{ needs.select-tests.outputs.selected_test_count || 'null' }},
                         "full_run_reasons_count": ${{ needs.select-tests.outputs.full_run_reasons_count || 'null' }},
+                        "run_legacy": ${{ toJSON(needs.select-tests.outputs.run_legacy || '') }},
+                        "turbo_result": ${{ toJSON(needs.select-tests.outputs.turbo_result || '') }},
                         "event_type": ${{ toJSON(github.event_name) }},
                         "branch": ${{ toJSON(github.head_ref || github.ref_name) }},
                         "sha": ${{ toJSON(github.sha) }},
