@@ -720,18 +720,24 @@ class TestPropertyTypes(BaseTest):
         ]
     )
     def test_exception_array_property_extracted_for_array_membership_functions(self, fn_name: str, expr: str):
-        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            self.skipTest("Materialized column JSONExtract wrapping is not used on events_json schema")
         # $exception_* array properties are stored as a raw JSON String once materialized, so passing the
         # bare column to an array function raises ILLEGAL_TYPE_OF_ARGUMENT. It must first be extracted to
         # Array(String) — the same wrapping property_to_expr applies to typed exception filters.
         with materialized("events", "$exception_values"):
             printed = self._print_select(f"select uuid from events where {expr}")
-        # The membership function receives the property extracted to an array, not the bare String column.
-        # (The 'Array(String)' type literal is parameterized out by the printer, so match structure instead.)
-        assert f"{fn_name}(JSONExtract(ifNull(" in printed
-        assert "events.`mat_$exception_values`" in printed
-        assert f"{fn_name}(events.`mat_$exception_values`" not in printed
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            # On events_json, $exception_values is a declared Array(String) subcolumn, so the printer
+            # collapses the JSONExtract wrap to bare typed subcolumn access. If this starts failing,
+            # check the property is still declared in EVENTS_PROPERTIES_JSON_SUBCOLUMN_DECLARED_TYPES —
+            # on an undeclared Dynamic path the bare access breaks at runtime (ILLEGAL_TYPE_OF_ARGUMENT).
+            assert f"{fn_name}(events.properties.`$exception_values`" in printed
+            assert "JSONExtract" not in printed
+        else:
+            # The membership function receives the property extracted to an array, not the bare String column.
+            # (The 'Array(String)' type literal is parameterized out by the printer, so match structure instead.)
+            assert f"{fn_name}(JSONExtract(ifNull(" in printed
+            assert "events.`mat_$exception_values`" in printed
+            assert f"{fn_name}(events.`mat_$exception_values`" not in printed
 
     def test_non_exception_array_property_left_untouched(self):
         # Only the known $exception_* array properties get the wrapping; an ordinary property passed to an
