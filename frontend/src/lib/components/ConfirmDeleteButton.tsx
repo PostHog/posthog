@@ -11,6 +11,7 @@ interface ConfirmDeleteButtonProps {
     onDelete: () => void
     idleLabel?: string
     confirmLabel?: string
+    disabledReason?: string
     'data-attr'?: string
 }
 
@@ -18,6 +19,7 @@ export function ConfirmDeleteButton({
     onDelete,
     idleLabel = 'Delete',
     confirmLabel = 'Confirm?',
+    disabledReason,
     'data-attr': dataAttr,
 }: ConfirmDeleteButtonProps): JSX.Element {
     const [armed, setArmed] = useState(false)
@@ -57,7 +59,14 @@ export function ConfirmDeleteButton({
                     />
                 )}
             </AnimatePresence>
-            <LemonButton size="small" icon={<IconTrash />} status="danger" data-attr={dataAttr} onClick={handleClick}>
+            <LemonButton
+                size="small"
+                icon={<IconTrash />}
+                status="danger"
+                disabledReason={disabledReason}
+                data-attr={dataAttr}
+                onClick={handleClick}
+            >
                 {armed ? confirmLabel : idleLabel}
             </LemonButton>
             <span aria-live="polite" aria-atomic="true" className="sr-only">
