@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { useCallback, useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
-import { IconClock, IconPulse } from '@posthog/icons'
-import { LemonDialog, SpinnerOverlay } from '@posthog/lemon-ui'
+import { IconBell, IconClock, IconGraph, IconPulse } from '@posthog/icons'
+import { LemonDialog, LemonTabs, SpinnerOverlay } from '@posthog/lemon-ui'
+import type { LemonTab } from '@posthog/lemon-ui'
 
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { dayjs } from 'lib/dayjs'
@@ -26,11 +27,7 @@ import { FunnelVizType, InsightLogicProps, InsightShortId, QueryBasedInsightMode
 import { AlertAdvancedOptionsSection } from 'products/alerts/frontend/components/AlertAdvancedOptionsSection'
 import { AlertTimezoneNotice } from 'products/alerts/frontend/components/AlertDefinition'
 import { AlertDefinitionSection } from 'products/alerts/frontend/components/AlertDefinitionSection'
-import {
-    AlertEditor,
-    AlertEditorFormDetails,
-    AlertEditorSection,
-} from 'products/alerts/frontend/components/AlertEditor'
+import { AlertEditor, AlertEditorFormDetails } from 'products/alerts/frontend/components/AlertEditor'
 import { AlertIntervalRow } from 'products/alerts/frontend/components/AlertIntervalRow'
 import { AlertPreviewCard } from 'products/alerts/frontend/components/AlertPreviewCard'
 import { buildAlertSummary } from 'products/alerts/frontend/components/alertSummary'
@@ -418,7 +415,7 @@ export function EditAlertModalV2({
                             onSubmitAttempted={setAlertFormSubmitAttempted}
                             leadingActions={leadingActions}
                         >
-                            <div className="space-y-2.5">
+                            <div className="space-y-3">
                                 <AlertEditorFormDetails
                                     activity={
                                         alert?.created_by ? (
@@ -433,29 +430,14 @@ export function EditAlertModalV2({
 
                                 <SummaryBanner summary={summary} alertMode={alertMode} />
 
-                                <div className="rounded border border-border p-3">
-                                    <AlertEditorSection title="Monitor" icon={<IconPulse className="size-4" />}>
-                                        <div className="space-y-3">
-                                            {previewNode}
-                                            {definitionNode}
-                                        </div>
-                                    </AlertEditorSection>
-                                </div>
-
-                                <div className="rounded border border-border p-3">
-                                    <AlertEditorSection title="Schedule" icon={<IconClock className="size-4" />}>
-                                        {scheduleNode}
-                                        {advancedNode}
-                                    </AlertEditorSection>
-                                </div>
-
-                                <div className="rounded border border-border p-3">{notifyNode}</div>
-
-                                {alertId && alert ? (
-                                    <div className="rounded border border-border p-3">
-                                        <AlertHistorySection alertId={alert.id} />
-                                    </div>
-                                ) : null}
+                                <EditAlertTabs
+                                    previewNode={previewNode}
+                                    definitionNode={definitionNode}
+                                    scheduleNode={scheduleNode}
+                                    advancedNode={advancedNode}
+                                    notifyNode={notifyNode}
+                                    historyNode={alertId && alert ? <AlertHistorySection alertId={alert.id} /> : null}
+                                />
                             </div>
                         </AlertEditor>
                     )}
@@ -565,4 +547,81 @@ function SummaryBanner({
             <span className="font-medium">{notifies}</span>
         </div>
     )
+}
+
+interface EditAlertTabsProps {
+    previewNode: React.ReactNode
+    definitionNode: React.ReactNode
+    scheduleNode: React.ReactNode
+    advancedNode: React.ReactNode
+    notifyNode: React.ReactNode
+    historyNode: React.ReactNode | null
+}
+
+function EditAlertTabs({
+    previewNode,
+    definitionNode,
+    scheduleNode,
+    advancedNode,
+    notifyNode,
+    historyNode,
+}: EditAlertTabsProps): JSX.Element {
+    const [activeKey, setActiveKey] = useState<string>('monitor')
+
+    const tabs: (LemonTab<string> | null)[] = [
+        {
+            key: 'monitor',
+            label: (
+                <span className="flex items-center gap-1.5">
+                    <IconPulse className="size-4" />
+                    Monitor
+                </span>
+            ),
+            content: (
+                <div className="space-y-3 pt-3">
+                    {previewNode}
+                    {definitionNode}
+                </div>
+            ),
+        },
+        {
+            key: 'schedule',
+            label: (
+                <span className="flex items-center gap-1.5">
+                    <IconClock className="size-4" />
+                    Schedule
+                </span>
+            ),
+            content: (
+                <div className="space-y-3 pt-3">
+                    {scheduleNode}
+                    {advancedNode}
+                </div>
+            ),
+        },
+        {
+            key: 'notify',
+            label: (
+                <span className="flex items-center gap-1.5">
+                    <IconBell className="size-4" />
+                    Notify
+                </span>
+            ),
+            content: <div className="pt-3">{notifyNode}</div>,
+        },
+        historyNode
+            ? {
+                  key: 'history',
+                  label: (
+                      <span className="flex items-center gap-1.5">
+                          <IconGraph className="size-4" />
+                          History
+                      </span>
+                  ),
+                  content: <div className="pt-3">{historyNode}</div>,
+              }
+            : null,
+    ]
+
+    return <LemonTabs tabs={tabs} activeKey={activeKey} onChange={setActiveKey} className="flex-1 min-h-0" />
 }
