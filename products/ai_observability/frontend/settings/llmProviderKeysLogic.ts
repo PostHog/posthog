@@ -195,7 +195,6 @@ export interface llmProviderKeysLogicValues {
     evaluationConfigLoading: boolean
     keyToDelete: LLMProviderKey | null
     newKeyModalOpen: boolean
-    newlyCreatedKey: LLMProviderKey | null
     preValidationResult: KeyValidationResult | null
     preValidationResultLoading: boolean
     providerKeys: LLMProviderKey[]
@@ -208,13 +207,6 @@ export interface llmProviderKeysLogicValues {
 export interface llmProviderKeysLogicActions {
     clearPreValidation: () => {
         value: true
-    }
-    confirmAssignKey: (
-        evaluationIds: string[],
-        enable: boolean
-    ) => {
-        enable: boolean
-        evaluationIds: string[]
     }
     confirmDelete: (replacementKeyId?: string) => {
         replacementKeyId: string | undefined
@@ -263,9 +255,6 @@ export interface llmProviderKeysLogicActions {
             id: string
             replacementKeyId?: string
         }
-    }
-    dismissAssignKey: () => {
-        value: true
     }
     loadDependentConfigs: ({ keyId }: { keyId: string }) => {
         keyId: string
@@ -366,9 +355,6 @@ export interface llmProviderKeysLogicActions {
     }
     setNewKeyModalOpen: (open: boolean) => {
         open: boolean
-    }
-    setNewlyCreatedKey: (key: LLMProviderKey | null) => {
-        key: LLMProviderKey | null
     }
     updateProviderKey: ({ id, payload }: { id: string; payload: UpdateLLMProviderKeyPayload }) => {
         id: string
