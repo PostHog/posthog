@@ -128,8 +128,10 @@ jobs:
         steps:
             - name: Check all proto jobs
               run: |
-                  if [[ "${{ needs.changes.result }}" == "failure" ]]; then
-                    echo "Change detection job failed."
+                  # Must block on cancelled too: outputs are empty on a cancelled
+                  # job, so the "no relevant changes" exit below would report green.
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+                    echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
                     exit 1
                   fi
 

@@ -282,9 +282,10 @@ jobs:
         steps:
             - name: Check all sandbox image jobs
               run: |
-                  # Fail if change detection itself failed
-                  if [[ "${{ needs.changes.result }}" == "failure" ]]; then
-                    echo "Change detection job failed."
+                  # Must block on cancelled too: a cancelled `changes` leaves both
+                  # build jobs skipped, so the exit below would report green.
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+                    echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
                     exit 1
                   fi
 

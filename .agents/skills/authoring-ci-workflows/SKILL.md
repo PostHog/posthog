@@ -102,8 +102,10 @@ Measured on a live superseded run ([evidence](https://github.com/PostHog/posthog
 
 Three rules for the gate body:
 
-1. **Allowlist, never denylist.** Assert `success`/`skipped` and fail everything else.
-   A gate that only tests `== 'failure'` lets a `cancelled` dependency pass as green.
+1. **Allowlist every dependency, never denylist.** Assert `success`/`skipped` and fail everything else.
+   A dependency tested only against `== 'failure'` lets `cancelled` through, and one bad dependency is enough — a gate that clears four correctly and one with a bare `failure` test is still wrong.
+   The trap is the `changes` detector: clearing it with `== 'failure'` and then reading `needs.changes.outputs.*` reports green on cancellation, because those outputs are empty and the gate takes its "nothing to test" exit.
+   Four gates shipped exactly that.
 2. **`needs` every job that produces coverage.**
    If a job's failure would only cascade into a downstream job being _skipped_, the gate reads that as a pass and you get a green check with zero tests run.
    Name the upstream job explicitly.

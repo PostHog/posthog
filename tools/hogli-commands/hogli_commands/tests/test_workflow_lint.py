@@ -876,7 +876,81 @@ class TestRegistry:
             assert isinstance(result, CheckResult)
 
 
-ALLOWLIST_GATE = """
+# Fixtures mirror the real gate shapes in ci-oauth-proxy.yml, ci-proto.yml and
+# ci-rust.yml: a `changes` detector cleared with a bare `== "failure"`, then its
+# outputs read to decide "nothing to test". Those outputs are empty on a
+# cancelled job, so the gate exits 0 green with no tests run.
+def _gate(body: str, condition: str = "always()") -> str:
+    return f"""
+    name: ci-thing
+    on: pull_request
+    jobs:
+      changes:
+        timeout-minutes: 5
+        steps:
+          - run: echo detect
+      build:
+        timeout-minutes: 5
+        steps:
+          - run: echo build
+      thing_tests:
+        name: Thing Tests Pass
+        needs: [changes, build]
+        timeout-minutes: 5
+        if: {condition}
+        steps:
+          - run: |
+{textwrap.indent(textwrap.dedent(body).strip(), " " * 14)}
+"""
+
+
+SAFE_BODY = """
+    if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+      exit 1
+    fi
+    if [[ "${{ needs.changes.outputs.thing }}" != "true" ]]; then
+      exit 0
+    fi
+    if [[ "${{ needs.build.result }}" != "success" && "${{ needs.build.result }}" != "skipped" ]]; then
+      exit 1
+    fi
+"""
+
+# One dependency allowlisted, one denylisted — the shape a global scan for
+# result words calls clean.
+MIXED_BODY = SAFE_BODY.replace(
+    """if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then""",
+    """if [[ "${{ needs.changes.result }}" == "failure" ]]; then""",
+)
+
+# ci-rust.yml cleared two dependencies this way while allowlisting the rest.
+TWO_BAD_BODY = MIXED_BODY.replace(
+    """if [[ "${{ needs.changes.outputs.thing }}" != "true" ]]; then""",
+    """if [[ "${{ needs.affected.result }}" == "failure" ]]; then
+      exit 1
+    fi
+    if [[ "${{ needs.changes.outputs.thing }}" != "true" ]]; then""",
+)
+
+# ci-backend.yml / ci-mcp.yml route every result through one shell function, so
+# no literal sits next to `needs.<dep>.result`.
+HELPER_BODY = """
+    check() {
+      if [[ "$2" != "success" && "$2" != "skipped" ]]; then
+        exit 1
+      fi
+    }
+    check "Changes" "${{ needs.changes.result }}"
+    check "Build" "${{ needs.build.result }}"
+"""
+
+UNSAFE_HELPER_BODY = HELPER_BODY.replace(
+    """if [[ "$2" != "success" && "$2" != "skipped" ]]; then""",
+    """if [[ "$2" == "failure" ]]; then""",
+)
+
+# ci-agents.yml maps results into env and loops over the variable names.
+ENV_LOOP_GATE = """
     name: ci-thing
     on: pull_request
     jobs:
@@ -890,38 +964,53 @@ ALLOWLIST_GATE = """
         timeout-minutes: 5
         if: always()
         steps:
-          - run: |
-              if [[ "${{ needs.build.result }}" != "success" && "${{ needs.build.result }}" != "skipped" ]]; then
-                exit 1
-              fi
+          - name: Check outcomes
+            env:
+              BUILD: ${{ needs.build.result }}
+            run: |
+              for var in BUILD; do
+                val="${!var}"
+                if [[ "$val" != "success" && "$val" != "skipped" ]]; then
+                  exit 1
+                fi
+              done
 """
-
-DENYLIST_GATE = ALLOWLIST_GATE.replace(
-    """if [[ "${{ needs.build.result }}" != "success" && "${{ needs.build.result }}" != "skipped" ]]; then""",
-    """if [[ "${{ needs.build.result }}" == "failure" ]]; then""",
-)
-
-NOT_ALWAYS_GATE = ALLOWLIST_GATE.replace("if: always()", "if: ${{ !cancelled() }}")
 
 
 class TestRequiredGateCheck:
-    def test_passes_on_allowlist_gate(self, tmp_path: Path) -> None:
-        _write(tmp_path, "ci-thing.yml", ALLOWLIST_GATE)
+    @pytest.mark.parametrize(
+        "content",
+        [_gate(SAFE_BODY), _gate(HELPER_BODY), ENV_LOOP_GATE],
+        ids=["inline-allowlist", "shared-helper", "env-block-loop"],
+    )
+    def test_passes_when_every_dependency_is_allowlisted(self, tmp_path: Path, content: str) -> None:
+        _write(tmp_path, "ci-thing.yml", content)
         assert RequiredGateCheck().run(_read_all(tmp_path)).issues == []
+
+    def test_flags_only_the_denylisted_dependency(self, tmp_path: Path) -> None:
+        _write(tmp_path, "ci-thing.yml", _gate(MIXED_BODY))
+        issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
+        assert len(issues) == 1
+        assert "'changes'" in issues[0].message
+        assert "build" not in issues[0].message
+
+    def test_flags_every_denylisted_dependency(self, tmp_path: Path) -> None:
+        _write(tmp_path, "ci-thing.yml", _gate(TWO_BAD_BODY))
+        issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
+        assert sorted(i.message.split("'")[1] for i in issues) == ["affected", "changes"]
 
     @pytest.mark.parametrize(
         "content,expected",
         [
-            (DENYLIST_GATE, "success`/`skipped`"),
-            (NOT_ALWAYS_GATE, "always()"),
+            (_gate(SAFE_BODY, condition="${{ !cancelled() }}"), "always()"),
+            (_gate(UNSAFE_HELPER_BODY), "never tests a result"),
         ],
-        ids=["denylist-lets-cancelled-through", "gate-must-always-run"],
+        ids=["gate-must-always-run", "indirect-gate-without-allowlist"],
     )
     def test_flags_unsafe_gate(self, tmp_path: Path, content: str, expected: str) -> None:
         _write(tmp_path, "ci-thing.yml", content)
         issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
         assert len(issues) == 1
-        assert issues[0].job == "thing_tests"
         assert expected in issues[0].message
 
     def test_ignores_non_gate_jobs(self, tmp_path: Path) -> None:

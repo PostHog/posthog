@@ -733,9 +733,10 @@ jobs:
         steps:
             - name: Check all Rust jobs
               run: |
-                  # Fail if change detection or affected computation failed
-                  if [[ "${{ needs.changes.result }}" == "failure" ]]; then
-                    echo "Change detection job failed."
+                  # Must block on cancelled too: outputs are empty on a cancelled
+                  # job, so the "no relevant changes" exit below would report green.
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+                    echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
                     exit 1
                   fi
 
@@ -745,8 +746,8 @@ jobs:
                     exit 0
                   fi
 
-                  if [[ "${{ needs.affected.result }}" == "failure" ]]; then
-                    echo "Affected crate computation failed."
+                  if [[ "${{ needs.affected.result }}" != "success" && "${{ needs.affected.result }}" != "skipped" ]]; then
+                    echo "Affected crate computation did not succeed (result: ${{ needs.affected.result }})."
                     exit 1
                   fi
 
