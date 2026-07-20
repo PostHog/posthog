@@ -268,6 +268,11 @@ def _act_on_outcome(
     if status == SignalFixVerification.Status.INCONCLUSIVE:
         return
 
+    # These strings become durable, system-authored agent memory that future runs read
+    # verbatim, so only system-derived facts (IDs, PR URL, dates) may appear in them.
+    # Report title/summary are user-editable prose — interpolating them here would be a
+    # prompt-injection path into trusted context; agents that need the title can look the
+    # report up by ID and treat it as untrusted.
     report = verification.report
     if status == SignalFixVerification.Status.REGRESSED and regressed_report is not None:
         # The next research/fix agent reads this report's artefact log; without the note it
@@ -278,7 +283,7 @@ def _act_on_outcome(
             content=NoteArtefact(
                 note=(
                     f"Fix regression: this issue was previously resolved by {verification.pr_url} "
-                    f'(report "{report.title}"), but it recurred after the merge. The previous fix '
+                    f"(report {report.id}), but it recurred after the merge. The previous fix "
                     "did not hold, so understand why before attempting a similar fix."
                 ),
                 author="fix_verification",
@@ -286,13 +291,13 @@ def _act_on_outcome(
             attribution=ArtefactAttribution.system(),
         )
         memory = (
-            f'Fix outcome (regressed): "{report.title}" was resolved by {verification.pr_url}, '
+            f"Fix outcome (regressed): report {report.id} was resolved by {verification.pr_url}, "
             f"but the issue recurred and a new report was opened ({regressed_report.id}). "
             "A similar fix alone is not enough; find out why it did not hold before re-attempting."
         )
     else:
         memory = (
-            f'Fix outcome (verified): "{report.title}" was resolved by {verification.pr_url} '
+            f"Fix outcome (verified): report {report.id} was resolved by {verification.pr_url} "
             f"and stayed quiet through the {FIX_VERIFICATION_SOAK_WINDOW.days}-day soak window. "
             "This class of fix holds."
         )
