@@ -16,6 +16,12 @@ class OrganizationMemberInline(TabularInlinePaginated):
     autocomplete_fields = ("organization",)
     ordering = ("-level",)  # Order by level descending (Owner -> Admin -> Member)
 
+    def has_add_permission(self, request, obj=None):
+        # user/invited_by are read-only here, so Django strips them from the POST body and a new
+        # row would insert with user_id=NULL, violating the non-nullable FK. Members are added
+        # through the invite flow, not this inline, so disable adding rows outright.
+        return False
+
 
 class OrganizationMemberForUserInline(OrganizationMemberInline):
     """Variant used under UserAdmin — disambiguates the two FKs from OrganizationMembership
