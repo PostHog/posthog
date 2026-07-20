@@ -67,7 +67,7 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
             width: 140,
             align: 'right',
             tooltip:
-                'Owned tests an in-job retry recovered in this window, vs the previous one. Trunk detects flakes across every suite; this only counts the ones proven here.',
+                'Owned tests an in-job retry recovered in this window, vs the previous one. Only tests with that recovery proof count as flaky.',
             sorter: (a, b) => a.flakyTestCount - b.flakyTestCount,
             render: (_, row) => <CountWithDelta current={row.flakyTestCount} prior={row.flakyTestCountPrior} />,
         },
@@ -77,7 +77,7 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
             width: 140,
             align: 'right',
             tooltip:
-                'Owned tests that failed with no recorded recovery and still hit several PRs or master. Treat as real breaks; check Trunk before calling them flaky.',
+                'Owned tests that failed with no recorded recovery and still hit several PRs or master. Treat as real breaks until a recovery proves otherwise.',
             sorter: (a, b) => a.regressionTestCount - b.regressionTestCount,
             render: (_, row) => (
                 <CountWithDelta current={row.regressionTestCount} prior={row.regressionTestCountPrior} />

@@ -28787,13 +28787,13 @@ export namespace Schemas {
       nodeid: string;
       /** Runnable pytest selector, e.g. 'posthog/api/test/test_event.py::TestEvents::test_x'. Exact when the CI reporter emitted it; otherwise reconstructed from the nodeid, where the file/class boundary is a best-effort guess. */
       selector: string;
-      /** confirmed_flake: an in-job retry recovered the test in the same run, so it is provably nondeterministic. quarantined: it fails while masked as xfail. suspected_regression: only failures were recorded, which is absence of proof, not proof that it is a real break. Trunk, not this queue, is the authority on which tests are flaky.
+      /** confirmed_flake: an in-job retry recovered the test in the same run, so it is provably nondeterministic. quarantined: it fails while masked as xfail. suspected_regression: only failures were recorded, which is absence of proof, not proof that it is a real break.
        *
        * * `confirmed_flake` - CONFIRMED_FLAKE
        * * `suspected_regression` - SUSPECTED_REGRESSION
        * * `quarantined` - QUARANTINED */
       classification: FlakyTestItemClassificationEnum;
-      /** Runs where an in-job pytest retry recovered the test after it failed. Above zero is the only proof of flakiness this data carries, and it reaches only tests hand-marked @pytest.mark.flaky(reruns=N), since Backend CI runs without --reruns so failures reach Trunk raw. */
+      /** Runs where an in-job pytest retry recovered the test after it failed. Above zero is the only proof of flakiness this data carries, and it reaches only tests hand-marked @pytest.mark.flaky(reruns=N), since Backend CI runs without --reruns so failures stay visible. */
       rerun_passed_run_count: number;
       /** Distinct CI runs whose recorded outcome was failed or error. A run counts once however many matrix legs it failed in. */
       failed_run_count: number;
@@ -62434,7 +62434,7 @@ export namespace Schemas {
       flaky_test_count: number;
       /** Same count over the equal-length window immediately before date_from. */
       flaky_test_count_prior: number;
-      /** Owned tests that failed with no recorded same-commit recovery and still hit the blast-radius bar (a master/main failure, or min_failed_prs distinct PRs). Not flakes: absence of proof, not proof. */
+      /** Owned tests that failed with no recorded in-run recovery and still hit the blast-radius bar (a master/main failure, or min_failed_prs distinct PRs). Not flakes: absence of proof, not proof. */
       regression_test_count: number;
       /** Same count over the prior window. */
       regression_test_count_prior: number;

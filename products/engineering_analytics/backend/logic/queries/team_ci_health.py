@@ -11,8 +11,8 @@ Teams are organizational owners of code surfaces; nothing here aggregates by aut
 grain: sub-threshold passing runs are not emitted, so every figure is an absolute count over
 signal spans, never a rate.
 
-This is the ownership dimension Trunk does not have. Trunk knows which tests are flaky; only these
-spans know which team owns them and what a failing test costs the fleet.
+This is the ownership dimension of the test-health data: only these spans know which team owns a
+test and what its failures cost the fleet.
 
 Reads the ``posthog.trace_spans`` table on the LOGS ClickHouse cluster, not the warehouse.
 """

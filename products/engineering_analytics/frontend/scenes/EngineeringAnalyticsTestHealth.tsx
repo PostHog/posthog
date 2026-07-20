@@ -349,7 +349,7 @@ const FLAKY_CLASSIFICATION: Record<FlakyTestClassification, { label: string; typ
         label: 'Suspected regression',
         type: 'danger',
         tooltip:
-            'Only failures recorded, so nothing here proves the test is flaky. Treat it as a real break, and check Trunk if you think it flakes.',
+            'Only failures recorded, so nothing here proves the test is flaky. Treat it as a real break until a recovery proves otherwise.',
     },
     quarantined: {
         label: 'Quarantined, still failing',
@@ -464,11 +464,7 @@ function ActiveTestHealthQueue(): JSX.Element {
                     <h3 className="m-0 text-base font-semibold">Active test health queue</h3>
                     <p className="m-0 text-xs text-tertiary">
                         Backend tests worth acting on now, ranked by blast radius: how many PRs they broke and how often
-                        they broke master. For flake detection across every suite, see{' '}
-                        <Link to="https://app.trunk.io/posthog-inc/flaky-tests" target="_blank">
-                            Trunk
-                        </Link>
-                        .
+                        they broke master.
                     </p>
                 </div>
                 <LemonSegmentedButton

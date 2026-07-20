@@ -16,10 +16,9 @@ What this signal can and cannot prove:
 
 - ``rerun_passed`` is proof of nondeterminism: the test failed and passed within one run. It reaches
   only the handful of tests hand-marked ``@pytest.mark.flaky(reruns=N)``, because Backend CI runs
-  pytest without ``--reruns`` deliberately, so raw failures reach Trunk unmasked.
-- Everything else proves nothing about determinism. Trunk is the flake authority here: it sees every
-  suite and quarantines automatically. This surface answers what Trunk does not, which is how much a
-  failing test costs us, so unproven failures are ranked by blast radius and never called flaky.
+  pytest without ``--reruns`` deliberately, so failures stay visible instead of being retried away.
+- Everything else proves nothing about determinism. This surface answers how much a failing test
+  costs us, so unproven failures are ranked by blast radius and never called flaky.
 """
 
 from datetime import datetime
