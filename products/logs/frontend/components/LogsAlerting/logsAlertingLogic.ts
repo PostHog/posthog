@@ -168,12 +168,13 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
         alerts: [
             [] as LogsAlertConfigurationApi[],
             {
-                loadAlerts: async () => {
+                loadAlerts: async (_ = null, breakpoint) => {
                     const projectId = String(values.currentTeamId)
                     const response = await logsAlertsList(projectId, {
                         limit: 500,
                         ...(values.createdByFilter ? { created_by: values.createdByFilter } : {}),
                     })
+                    breakpoint()
                     return response.results
                 },
             },
