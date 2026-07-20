@@ -228,3 +228,14 @@ Common errors to handle:
 - **401 Unauthorized**: Invalid or expired API keys
 - **403 Forbidden**: Missing required scopes or permissions
 - **Invalid/Expired tokens**: OAuth tokens that need re-authentication
+
+## Retryable Errors
+
+Sources that retry transient failures internally (rate limits, transient 5xx) can re-raise once their own retries are exhausted. Temporal then retries the whole activity, so the error is self-recovering — but by default it is logged as an exception and shows up as error-tracking noise.
+
+Override `get_retryable_errors()` to return a set of partial error messages the source already retries. Matching errors are logged at `warning` instead of `exception` before being re-raised for Temporal's retry:
+
+```python
+def get_retryable_errors(self) -> set[str]:
+    return {"Example API error (retryable)"}
+```
