@@ -21,6 +21,22 @@ class FilterLayerResolution(TypedDict):
     overridden_dashboard: dict
 
 
+def _flatten_property_leaves(properties: Any) -> list[dict]:
+    """Flatten a `properties` value into a flat list of its leaf filter dicts. Stored `properties` come in
+    two shapes: a flat list of leaves, or a `PropertyGroupFilter` dict (`{"type": ..., "values": [...]}`)
+    whose values are leaves or arbitrarily nested subgroups. The override side of a contradiction check only
+    needs the individual leaves — whether a single base leaf is contradicted doesn't depend on the AND/OR
+    grouping around the override leaves — so both shapes collapse to the same flat list here. Non-dict stray
+    elements are dropped rather than compared."""
+    if isinstance(properties, list):
+        return [leaf for item in properties for leaf in _flatten_property_leaves(item)]
+    if isinstance(properties, dict):
+        if isinstance(properties.get("values"), list):
+            return [leaf for value in properties["values"] for leaf in _flatten_property_leaves(value)]
+        return [properties]
+    return []
+
+
 def resolve_filter_layers_by_priority(
     base_filters: dict | None, override_filters: dict | None
 ) -> FilterLayerResolution:
@@ -45,8 +61,8 @@ def resolve_filter_layers_by_priority(
         effective_base.pop("date_to", None)
         effective_base.pop("explicitDate", None)
 
-    override_props = override.get("properties") or []
-    base_props = base.get("properties") or []
+    override_props = _flatten_property_leaves(override.get("properties"))
+    base_props = _flatten_property_leaves(base.get("properties"))
     contradicted_base = []
     surviving_base = []
     for base_property in base_props:
@@ -106,7 +122,7 @@ def merge_filters_by_priority(base_filters: dict | None, override_filters: dict 
         if override_filters.get("explicitDate") is not None:
             merged["explicitDate"] = override_filters["explicitDate"]
 
-    override_props = override_filters.get("properties") or []
+    override_props = _flatten_property_leaves(override_filters.get("properties"))
     combined_properties = (resolved_layers["dashboard"].get("properties") or []) + override_props
     if combined_properties:
         merged["properties"] = combined_properties
@@ -172,7 +188,7 @@ def remove_query_properties_overridden_by(query: dict, overriding_filters: dict 
     contradiction into an empty result. Compatible filters on the same key are left in place to stack.
     Callers pass the effective dashboard + tile filter set, so both layers can override the insight's own
     filter."""
-    overriding_props = (overriding_filters or {}).get("properties") or []
+    overriding_props = _flatten_property_leaves((overriding_filters or {}).get("properties"))
     if not overriding_props:
         return query
     return _strip_query_properties(query, overriding_props)

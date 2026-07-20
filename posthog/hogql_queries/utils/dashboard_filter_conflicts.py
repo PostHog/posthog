@@ -30,8 +30,13 @@ def filters_contradict(filter_a: dict, filter_b: dict) -> bool:
     return _contradicts_one_way(op_a, values_a, op_b, values_b) or _contradicts_one_way(op_b, values_b, op_a, values_a)
 
 
-def _same_property(filter_a: dict, filter_b: dict) -> bool:
+def _same_property(filter_a: Any, filter_b: Any) -> bool:
     for f in (filter_a, filter_b):
+        # `properties` can arrive as a PropertyGroupFilter dict rather than a flat leaf list; callers should
+        # flatten it to leaves first, but guard here so a stray non-dict element is treated as "not the same
+        # property" (hence not contradictory) instead of blowing up on `.get`.
+        if not isinstance(f, dict):
+            return False
         if f.get("key") is None:
             return False
         if f.get("type") in _INCOMPARABLE_FILTER_TYPES:

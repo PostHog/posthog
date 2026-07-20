@@ -132,6 +132,33 @@ class TestMergeFiltersByPriority(SimpleTestCase):
 
         assert merged["properties"] == [dashboard_prop, tile_prop]
 
+    def test_property_group_shape_on_either_layer_is_flattened_and_merged(self):
+        # Stored `properties` can be a PropertyGroupFilter dict (`{"type", "values"}`) rather than a flat
+        # list. Merging one used to crash on iterating the dict's string keys. The disjoint `$browser` leaf
+        # from the tile group must still contradict-and-replace the dashboard's, while `$country` stacks.
+        dashboard = {
+            "properties": {
+                "type": "AND",
+                "values": [
+                    {"key": "$country", "value": "US", "type": "event"},
+                    {"key": "$browser", "value": ["Chrome"], "type": "event", "operator": "exact"},
+                ],
+            }
+        }
+        tile = {
+            "properties": {
+                "type": "OR",
+                "values": [{"key": "$browser", "value": ["Firefox"], "type": "event", "operator": "exact"}],
+            }
+        }
+
+        merged = merge_filters_by_priority(dashboard, tile)
+
+        assert merged["properties"] == [
+            {"key": "$country", "value": "US", "type": "event"},
+            {"key": "$browser", "value": ["Firefox"], "type": "event", "operator": "exact"},
+        ]
+
     def test_tile_property_with_non_string_key_does_not_raise(self):
         # `key` comes from unvalidated client JSON and can be a list; contradiction detection must not crash.
         merged = merge_filters_by_priority(
@@ -194,6 +221,27 @@ class TestRemoveQueryPropertiesOverriddenBy(SimpleTestCase):
         query = self._query([{"key": "$browser", "value": "Chrome", "type": "event"}])
 
         assert remove_query_properties_overridden_by(query, {"date_from": "-7d"}) == query
+
+    def test_overriding_filters_property_group_shape_does_not_raise(self):
+        # `overriding_filters.properties` can be a PropertyGroupFilter dict, not a flat leaf list. Iterating
+        # it as if it were a list used to raise `AttributeError: 'str' object has no attribute 'get'` — the
+        # 500 on the dashboard tile retrieve path. Leaves are flattened out of the group before comparing.
+        query = self._query(
+            [
+                {"key": "$browser", "value": "Chrome", "type": "event"},
+                {"key": "$country", "value": "US", "type": "event"},
+            ]
+        )
+        overriding = {
+            "properties": {
+                "type": "AND",
+                "values": [{"type": "AND", "values": [{"key": "$browser", "value": "Firefox", "type": "event"}]}],
+            }
+        }
+
+        stripped = remove_query_properties_overridden_by(query, overriding)
+
+        assert stripped["source"]["properties"] == [{"key": "$country", "value": "US", "type": "event"}]
 
     def test_prunes_matching_leaf_from_property_group(self):
         query = self._query(
