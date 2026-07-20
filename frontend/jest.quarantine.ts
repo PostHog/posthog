@@ -117,6 +117,20 @@ export function parseQuarantine(text: string): RawEntry[] {
     return data.entries.filter(isRawEntry)
 }
 
+/**
+ * Expiry compares lexicographically, so a malformed date (e.g. `2026-9-05` or free
+ * text) would sort after today and quarantine a test forever. The contract's
+ * `date.fromisoformat` rejects those, and this guard keeps the reader in step
+ * (fail-safe: an unparseable expiry drops the entry rather than activating it).
+ */
+export function isIsoDate(value: string): boolean {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        return false
+    }
+    const parsed = new Date(`${value}T00:00:00Z`)
+    return !isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value
+}
+
 /** Unexpired `runner: "jest"` entries only; other runners and expired entries are excluded. */
 export function activeJestEntries(entries: RawEntry[], todayIso: string): QuarantineEntry[] {
     const active: QuarantineEntry[] = []
@@ -124,7 +138,7 @@ export function activeJestEntries(entries: RawEntry[], todayIso: string): Quaran
         if ((entry.runner ?? DEFAULT_RUNNER) !== RUNNER) {
             continue
         }
-        if (typeof entry.expires !== 'string' || entry.expires < todayIso) {
+        if (typeof entry.expires !== 'string' || !isIsoDate(entry.expires) || entry.expires < todayIso) {
             continue
         }
         if (entry.mode !== undefined && entry.mode !== 'run' && entry.mode !== 'skip') {

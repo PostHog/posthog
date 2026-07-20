@@ -70,6 +70,8 @@ describe('jest.quarantine', () => {
                 { id: 'd', runner: 'pytest', expires: '2026-06-20' },
                 { id: 'e', runner: 'jest', mode: 'pause', expires: '2026-06-20' }, // invalid mode dropped
                 { id: 'f', runner: 'jest', mode: 'skip', expires: '2026-06-20' },
+                { id: 'g', runner: 'jest', expires: 'not-a-date' }, // malformed expiry would sort after today and mask forever
+                { id: 'h', runner: 'jest', expires: '2026-9-05' }, // non-canonical ISO, same trap
             ]
             expect(activeJestEntries(raw, TODAY).map((e) => e.id)).toEqual(['a', 'f'])
         })
