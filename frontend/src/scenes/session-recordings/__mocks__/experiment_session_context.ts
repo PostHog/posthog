@@ -18,7 +18,8 @@ export const makeExperimentSessionContextItem = (
     ...overrides,
 })
 
-/** One of each interesting state: single variant, multi-variant warning, no in-session exposure event. */
+/** One of each interesting state: seen-and-jumpable, multi-variant warning, seen-but-out-of-window,
+ * carried-over assignment. The recording window is 14:46:20–14:46:32 (see recording_meta mock). */
 export const experimentSessionContextResponse: ExperimentSessionContextResponseApi = {
     session_id: 'experiment-context-session',
     results: [
@@ -30,6 +31,15 @@ export const experimentSessionContextResponse: ExperimentSessionContextResponseA
             variant: 'control',
             variants_seen: ['control', 'test'],
             multiple_variants: true,
+        }),
+        makeExperimentSessionContextItem({
+            experiment_id: 104,
+            experiment_name: 'Search bar placement',
+            flag_key: 'search-bar-placement',
+            variant: 'control',
+            variants_seen: ['control'],
+            // Exposure captured just before the recording's playable range — seen, but nothing to jump to.
+            first_exposure_timestamp: '2023-05-01T14:45:00.000000Z',
         }),
         makeExperimentSessionContextItem({
             experiment_id: 103,
