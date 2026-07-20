@@ -61,9 +61,8 @@ export const isPlottable = (run: ActivityRun): run is ActivityRun & { startedAt:
 export function hasEnoughRunActivity(runs: ActivityRun[]): boolean {
     return runs.filter(isPlottable).length >= MIN_POINTS
 }
-// The focus lens defaults to the most recent day — the "live" view — over a window that's wider than that.
-// Below this much total span there's nothing to pan over, so the brush is hidden and the chart shows it all.
-const LENS_MS = 24 * 60 * 60 * 1000
+// Below this total span the chart is already readable without a zoom brush.
+const BRUSH_THRESHOLD_MS = 24 * 60 * 60 * 1000
 // The lens never narrows below 15 min, so it stays grabbable and the zoomed axis keeps a readable span.
 const MIN_LENS_MS = 15 * 60 * 1000
 // A run with no final duration counts as in flight up to now, capped here: one that started longer ago
@@ -237,11 +236,11 @@ export function RunActivityChart({
     noun = 'run',
     className,
 }: RunActivityChartProps): JSX.Element | null {
-    // The lens sub-range the scatter/band zoom into; null = the default (most recent day). Declared before
+    // The lens sub-range the scatter/band zoom into; null = the full loaded window. Declared before
     // the early return so the hook order is stable when there aren't enough points to draw.
     const [focus, setFocus] = useState<TimeRange | null>(null)
     // Drop a manual pan when the runs change (e.g. the shared window changed and reloaded) so the lens
-    // returns to the live default instead of clamping a stale range onto an unrelated slice of new data.
+    // returns to the full window instead of clamping a stale range onto an unrelated slice of new data.
     useEffect(() => {
         setFocus(null)
     }, [runs])
@@ -276,8 +275,8 @@ export function RunActivityChart({
     // y (duration) scale and median stay over the full set, so panning never jumps the vertical axis.
     const fullMin = Math.min(...intervals.map((iv) => iv.start))
     const fullMax = Math.max(...intervals.map((iv) => iv.end))
-    const brushable = fullMax - fullMin > LENS_MS
-    const view = clampFocus(focus ?? defaultFocus(fullMin, fullMax, LENS_MS), fullMin, fullMax, MIN_LENS_MS)
+    const brushable = fullMax - fullMin > BRUSH_THRESHOLD_MS
+    const view = clampFocus(focus ?? defaultFocus(fullMin, fullMax), fullMin, fullMax, MIN_LENS_MS)
     const tMin = view.start
     const tMax = view.end
     const tSpan = Math.max(1, tMax - tMin)

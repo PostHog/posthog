@@ -32,9 +32,11 @@ class SignalScoutRunSummary(BaseModel):
 # in its skill's `allowed_tools`) has already done the research and authors a full `SignalReport`
 # directly. The bootstrap, scratchpad, recency, business-knowledge, friction, and output sections are
 # identical for both; only the channel-specific sections differ. `build_run_prompt` composes the right
-# set from the constants below. Orthogonal to the channel fork, a *custom* (team-authored) scout on
-# either channel additionally gets the self-improvement section (`_self_improvement_section`), which
-# on the report channel also invites escalating strong suggestions as inbox reports about the scout.
+# set from the constants below. Orthogonal to the channel fork, every scout gets an origin-matched
+# improvement channel: a *custom* (team-authored) scout gets the self-improvement section
+# (`_self_improvement_section`), which on the report channel also invites escalating strong suggestions
+# as inbox reports about the scout; a *canonical* scout gets `_CANONICAL_IMPROVEMENT`, routing
+# generalized skill-content gaps upstream to the PostHog team via `agent-feedback`.
 
 _BASE_PROMPT_INTRO = """You are a Signals scout agent for PostHog.
 
@@ -243,7 +245,8 @@ _GROUND_RULES = """# Ground rules
 # Appended only for a *custom* (team-authored) scout — see `build_run_prompt`. A canonical scout
 # never sees this section: its skill body is a seeded row that upstream sync keeps current, and
 # nudging a team to edit it would mark the row diverged and cut it off from canonical updates.
-# Canonical-skill defects route upstream via the operational-friction section instead.
+# Canonical scouts get the _CANONICAL_IMPROVEMENT section instead, routing skill-content gaps
+# upstream via `agent-feedback` `feedback_type="scout"`.
 _SELF_IMPROVEMENT_HEAD = """# Suggest improvements to your own skill
 
 This scout's skill was authored by your team, and you are the only one who sees where its instructions steer a real run wrong. When THIS run produced concrete evidence that the skill misdirected you or wasted your budget — it pointed you at a tool, event, or surface that doesn't exist on this project, a default threshold or window you had to correct again, a recurring pitfall it never warns about — record the suggestion so the humans who own this scout can review it:
@@ -280,6 +283,25 @@ def _self_improvement_section(*, can_emit_report: bool, can_edit_report: bool) -
         parts.append(_SELF_IMPROVEMENT_ESCALATE_BOTH if can_edit_report else _SELF_IMPROVEMENT_ESCALATE_EMIT_ONLY)
     parts.append(_SELF_IMPROVEMENT_TAIL)
     return "\n".join(parts)
+
+
+# The canonical counterpart of the self-improvement section: a *canonical* scout's skill body is
+# PostHog-owned and kept current by upstream sync, so its improvement channel points upstream —
+# `agent-feedback` with `feedback_type: "scout"` plus the structured skill fields — never at the
+# team-local `improve:` scratchpad flow (which would nudge the team into diverging the seeded row).
+# The feedback leaves the customer's project (it reaches the PostHog team's telemetry), which is why
+# the generalization rules below are the load-bearing part: the pattern travels, the instance never
+# does. Channel-agnostic on purpose — `agent-feedback` is an always-available MCP tool, so no
+# per-tool fail-closed gating is needed.
+_CANONICAL_IMPROVEMENT = """# Suggest improvements to your canonical skill
+
+Your skill is a canonical PostHog-authored skill that runs on many projects, and your runs are the only place its real-world gaps show up. When THIS run produced concrete evidence that the skill itself has a gap — its detection rules produced a false positive, its instructions steered you past a real issue, its discriminator doesn't hold for this kind of project, an investigation pattern it mandates wasted most of your budget, or an instruction is ambiguous in practice — report it upstream via the `agent-feedback` MCP tool so the PostHog team can improve the skill for every project it runs on:
+
+- Set `feedback_type` = `"scout"`, `scout_skill_name` exactly as listed under *Your run identity*, `scout_skill_version` as a bare number — the numeric part of the version there (`7` for `v7`, never the `v` prefix) — and `scout_category` to the closest match (`false_positive`, `missed_detection`, `discriminator_gap`, `wasted_investigation`, `instruction_ambiguity`, or `other`). All three are required or the submission is rejected. Put the specific skill change you'd suggest in `suggested_improvement`.
+- **Generalize — this project's data must not travel.** The feedback leaves this project, so describe the *pattern*, never the *instance*: no person, account, or company data; no property values, URLs, or project-specific numbers; not even this project's custom event or property names — they are the customer's schema, so describe their shape instead ("a project whose 404 event is custom-named", not the name itself). If you can't state the improvement without project specifics, keep it as a scratchpad note instead of submitting it.
+- **Don't re-report a known gap.** Keep a `reported:<your-skill-name>:<topic>` scratchpad entry for each gap you've submitted (stable key; the dates AND the skill version you reported against go in the content — same rules as your other keys). Your step-1 scratchpad search surfaces them: only re-submit when you have materially new evidence, appending a fresh dated line when you do. A skill version bump where the gap still reproduces IS materially new evidence — feedback is aggregated per version, so re-submit against the current version and update the entry rather than staying quiet on a stale one. When a later skill version fixes the gap, `forget` the entry.
+- Routing: this channel is only for the content of your canonical skill body. A problem with the tools, the harness, or these shared instructions goes through the operational-friction section above, like any other run.
+- The bar is a concrete failure or waste observed this run — generic polish ("the wording could be clearer") is noise, don't send it. At most one submission per run, near close-out, and mention it in your summary. It is never a substitute for finishing the run."""
 
 
 _OPERATIONAL_FRICTION = """# Report operational friction
@@ -418,7 +440,9 @@ def build_run_prompt(skill: LoadedSkill, *, run_id: str, team_id: int, started_a
     (team-authored) scout gets the self-improvement section inviting evidence-backed `improve:`
     scratchpad suggestions for its own skill body — and, when it holds report tools, escalating
     recurring or material suggestions as inbox reports about the scout itself; a canonical scout
-    gets neither, so the harness never nudges a team into diverging a seeded row from upstream sync.
+    instead gets the canonical-improvement section routing generalized skill-content gaps upstream
+    via `agent-feedback` (`feedback_type="scout"`), so the harness never nudges a team into
+    diverging a seeded row from upstream sync.
 
     `run_id` is the UUID of the `SignalScoutRun` row the harness inserted before
     spawning the sandbox. The agent passes it back when it calls
@@ -453,11 +477,15 @@ def build_run_prompt(skill: LoadedSkill, *, run_id: str, team_id: int, started_a
         intro = _BASE_PROMPT_INTRO
         sections = _SIGNAL_TAIL_SECTIONS
         emit_tool = "scout-emit-signal"
+    # Slot the origin-matched improvement channel between friction reporting and the output format
+    # (the last element of every tail): a custom scout suggests changes to its team-owned body via
+    # `improve:` entries (see the note on _SELF_IMPROVEMENT_HEAD); a canonical scout routes skill-content
+    # gaps upstream via `agent-feedback` `feedback_type="scout"` (see the note on _CANONICAL_IMPROVEMENT).
     if skill.origin == "custom":
-        # Slot the self-improvement invitation between friction reporting and the output format
-        # (the last element of every tail). Custom scouts only — see the note on _SELF_IMPROVEMENT_HEAD.
-        self_improvement = _self_improvement_section(can_emit_report=can_emit_report, can_edit_report=can_edit_report)
-        sections = [*sections[:-1], self_improvement, sections[-1]]
+        improvement = _self_improvement_section(can_emit_report=can_emit_report, can_edit_report=can_edit_report)
+    else:
+        improvement = _CANONICAL_IMPROVEMENT
+    sections = [*sections[:-1], improvement, sections[-1]]
     tail = _render_tail(sections, schema_json=schema_json)
     # Report-channel scouts only: the authors line exists to steer `suggested_reviewers`, and a
     # signal-channel scout has no reviewers field — member names/emails are PII that shouldn't
