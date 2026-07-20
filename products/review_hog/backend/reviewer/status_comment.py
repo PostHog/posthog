@@ -11,6 +11,7 @@ Every entry point here is best-effort by construction: a status comment must nev
 retry a review, so all exceptions are swallowed after logging.
 """
 
+import hashlib
 import logging
 from datetime import timedelta
 from typing import Any
@@ -68,6 +69,27 @@ _PRIORITY_LABELS = {
     IssuePriority.CONSIDER: "consider",
 }
 
+# A clean review deserves a reward, not a bare "nothing here". When a run finds nothing worth
+# raising we still post the comment (so "no comment" can never be mistaken for "the run broke"),
+# but we swap the flat sign-off for a calming gif. All hand-verified as wholesome nature/animal
+# loops; picked deterministically per report so the in-place-edited comment never flickers.
+CALMING_GIFS: tuple[tuple[str, str], ...] = (
+    ("https://media.tenor.com/isp84OorcycAAAAM/hanzero.gif", "A lone tree by a lake at sunset"),
+    ("https://media.tenor.com/bsXZ73A8EKQAAAAM/beach-vacation.gif", "Calm water at sunset"),
+    ("https://media.tenor.com/ws2O3uBihokAAAAM/zen-candles.gif", "A bamboo water fountain and a candle"),
+    ("https://media.tenor.com/7hKg_qwM48YAAAAM/otters-clapping.gif", "A raft of sea otters"),
+    ("https://media.tenor.com/qofqL6CtWz4AAAAM/animal-goat.gif", "A baby goat being petted"),
+    ("https://media.tenor.com/aRhLpjBnWSkAAAAM/inner-peace-po.gif", "A panda finding its inner peace"),
+    ("https://media.tenor.com/qMR829Mi6uwAAAAM/panda-adorable.gif", "A baby panda"),
+    ("https://media.tenor.com/P-Bw6WVxh7QAAAAM/fox-excited.gif", "A fox trotting across a deck"),
+)
+
+
+def _calming_gif(report_id: str) -> tuple[str, str]:
+    """A stable (url, alt) pick for the report — same report always gets the same gif."""
+    digest = hashlib.sha256(report_id.encode()).digest()
+    return CALMING_GIFS[digest[0] % len(CALMING_GIFS)]
+
 
 def status_marker(report_id: str) -> str:
     """The hidden marker identifying the report's status comment across turns and crashed runs."""
@@ -121,7 +143,16 @@ def render_final_body(
     )
     lines = ["### \U0001f994 ReviewHog reviewed this pull request", ""]
     if found_total == 0:
-        lines.append("Found no issues worth raising, so no review was posted.")
+        gif_url, gif_alt = _calming_gif(report_id)
+        lines.extend(
+            [
+                "No issues found, so you're all clear.",
+                "",
+                "Nothing worth raising this time, so here's a calming gif instead:",
+                "",
+                f"![{gif_alt}]({gif_url})",
+            ]
+        )
     else:
         lines.append(found_line + ".")
         lines.append("")
