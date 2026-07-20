@@ -11,7 +11,7 @@ import {
     normalizeColumns,
 } from 'products/logs/frontend/components/LogsViewer/config/columns'
 import { LogsViewerConfig, LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
-import type { GroupBySourceEnumApi } from 'products/logs/frontend/generated/api.schemas'
+import type { LogsGroupBySourceEnumApi } from 'products/logs/frontend/generated/api.schemas'
 import { AttributeColumnConfig, LogsOrderBy } from 'products/logs/frontend/types'
 
 import type { DateRange, LogSeverityLevel } from '../../../../../../frontend/src/queries/schema/schema-general'
@@ -43,7 +43,7 @@ export interface LogsViewerGroupBy {
     key: string
     // Where the key lives, in the group-by endpoint's vocabulary: "log" / "resource"
     // attribute maps, or "column" for top-level log fields (severity_level, trace_id, span_id).
-    source: GroupBySourceEnumApi
+    source: LogsGroupBySourceEnumApi
 }
 
 export interface LogsViewerConfigProps {

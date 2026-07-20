@@ -707,6 +707,16 @@ class SuggestedReviewerEntryWriteSerializer(serializers.Serializer):
         max_length=200,
         help_text="Optional human-readable display name. Not backfilled from GitHub by the server.",
     )
+    reason = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        max_length=500,
+        help_text=(
+            "Optional short evidence for why this reviewer was chosen. Omitted entries keep the "
+            "prior reason for reviewers already on the report."
+        ),
+    )
 
     def validate(self, attrs: dict) -> dict:
         if not attrs.get("github_login") and not attrs.get("user_uuid"):

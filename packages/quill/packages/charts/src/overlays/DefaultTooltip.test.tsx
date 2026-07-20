@@ -235,6 +235,17 @@ describe('DefaultTooltip', () => {
             expect(onRowClick.mock.calls[0][0].series.key).toBe('b')
         })
 
+        it('onRowClick does not fire when the click completes a text selection', () => {
+            const onRowClick = jest.fn()
+            renderTooltip({ onRowClick }, TWO_SERIES)
+            const spy = jest
+                .spyOn(window, 'getSelection')
+                .mockReturnValue({ toString: () => 'copied text' } as Selection)
+            fireEvent.click(document.querySelectorAll<HTMLElement>('[data-attr="hog-chart-tooltip-row"]')[1])
+            expect(onRowClick).not.toHaveBeenCalled()
+            spy.mockRestore()
+        })
+
         it('sorts rows by yPixel ascending (visual top-to-bottom) when not sortedByValue', () => {
             const withYPixel: TooltipContext['seriesData'] = [
                 { series: { key: 'low', label: 'Low', data: [] }, value: 5, color: '#000', yPixel: 300 },

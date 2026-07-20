@@ -30,6 +30,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isNodeWithSource, isTrendsQuery, isValidQueryForExperiment } from '~/queries/utils'
 import {
+    AnyPropertyFilter,
     ChartDisplayType,
     Experiment,
     ExperimentMetricGoal,
@@ -214,10 +215,35 @@ function seriesToFilter(series: AnyEntityNode | ExperimentMetricSource): Univers
     return null
 }
 
+/**
+ * Mirrors the backend's exposure semantics (`build_common_exposure_conditions`, also behind the
+ * replay player's experiment session context): the variant property must be IN the experiment's
+ * variant keys. Matching only on the event would include sessions of users who evaluated the flag
+ * but were never enrolled, e.g. `$feature_flag_called` with a `false` response on a partial rollout.
+ */
+function variantPropertyFilter(propertyKey: string, variantKeys: string[]): AnyPropertyFilter {
+    if (variantKeys.length === 0) {
+        // Variants unknown (flag not loaded) — the variant property being stamped at all is the
+        // closest available enrollment marker.
+        return {
+            key: propertyKey,
+            type: PropertyFilterType.Event,
+            value: PropertyOperator.IsSet,
+            operator: PropertyOperator.IsSet,
+        }
+    }
+    return {
+        key: propertyKey,
+        type: PropertyFilterType.Event,
+        value: variantKeys,
+        operator: PropertyOperator.Exact,
+    }
+}
+
 function createExposureFilter(
     exposureConfig: ExperimentExposureConfig,
     featureFlagKey: string,
-    variantKey: string
+    variantKeys: string[]
 ): UniversalFiltersGroupValue {
     const isEvent = isEventExposureConfig(exposureConfig)
     return {
@@ -226,14 +252,44 @@ function createExposureFilter(
         type: isEvent ? 'events' : 'actions',
         properties: [
             ...(exposureConfig.properties || []),
-            {
-                key: featureFlagVariantProperty(featureFlagKey),
-                type: PropertyFilterType.Event,
-                value: [variantKey],
-                operator: PropertyOperator.Exact,
-            },
+            variantPropertyFilter(featureFlagVariantProperty(featureFlagKey), variantKeys),
         ],
     }
+}
+
+/**
+ * Exposure filter for an experiment's recordings: one variant, or every enrolled session (variant
+ * property IN the experiment's variants) when `variantKey` is omitted. Exposure-only — metric
+ * steps are never added, so a metric event captured without a `$session_id` can't zero out the
+ * result.
+ */
+export function getViewRecordingFiltersForVariant(
+    experiment: Experiment,
+    variantKey?: string
+): UniversalFiltersGroupValue[] {
+    const variantKeys =
+        variantKey !== undefined ? [variantKey] : getExperimentVariants(experiment).map((variant) => variant.key)
+    const exposureConfig = experiment.exposure_criteria?.exposure_config
+    if (exposureConfig && !(isEventExposureConfig(exposureConfig) && exposureConfig.event === EXPOSURE_DEFAULT_EVENT)) {
+        return [createExposureFilter(exposureConfig, experiment.feature_flag_key, variantKeys)]
+    }
+
+    return [
+        {
+            id: EXPOSURE_DEFAULT_EVENT,
+            name: EXPOSURE_DEFAULT_EVENT,
+            type: 'events',
+            properties: [
+                variantPropertyFilter(EXPOSURE_FEATURE_FLAG_RESPONSE_PROPERTY, variantKeys),
+                {
+                    key: EXPOSURE_FEATURE_FLAG_PROPERTY,
+                    type: PropertyFilterType.Event,
+                    value: experiment.feature_flag_key,
+                    operator: PropertyOperator.Exact,
+                },
+            ],
+        },
+    ]
 }
 
 /**
@@ -247,37 +303,10 @@ export function getViewRecordingFilters(
     metric: ExperimentMetric,
     variantKey: string
 ): UniversalFiltersGroupValue[] {
-    const filters: UniversalFiltersGroupValue[] = []
     /**
-     * We need to check the exposure criteria as the first on the filter chain.
+     * The exposure criteria is always the first link in the filter chain.
      */
-    const exposureCriteria = experiment.exposure_criteria?.exposure_config
-    if (
-        exposureCriteria &&
-        !(isEventExposureConfig(exposureCriteria) && exposureCriteria.event === EXPOSURE_DEFAULT_EVENT)
-    ) {
-        filters.push(createExposureFilter(exposureCriteria, experiment.feature_flag_key, variantKey))
-    } else {
-        filters.push({
-            id: EXPOSURE_DEFAULT_EVENT,
-            name: EXPOSURE_DEFAULT_EVENT,
-            type: 'events',
-            properties: [
-                {
-                    key: EXPOSURE_FEATURE_FLAG_RESPONSE_PROPERTY,
-                    type: PropertyFilterType.Event,
-                    value: [variantKey],
-                    operator: PropertyOperator.Exact,
-                },
-                {
-                    key: EXPOSURE_FEATURE_FLAG_PROPERTY,
-                    type: PropertyFilterType.Event,
-                    value: experiment.feature_flag_key,
-                    operator: PropertyOperator.Exact,
-                },
-            ],
-        })
-    }
+    const filters: UniversalFiltersGroupValue[] = getViewRecordingFiltersForVariant(experiment, variantKey)
 
     /**
      * for mean metrics, we add the single action/event to the filters

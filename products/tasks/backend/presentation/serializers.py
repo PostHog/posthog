@@ -647,6 +647,20 @@ class TaskWriteSerializer(serializers.Serializer):
 
 
 class TaskCreateSerializer(TaskWriteSerializer):
+    sandbox_environment_id = serializers.UUIDField(
+        required=False,
+        default=None,
+        allow_null=True,
+        write_only=True,
+        help_text="Sandbox environment selected for matching a pre-warmed cloud run. Not persisted on the task.",
+    )
+    custom_image_id = serializers.UUIDField(
+        required=False,
+        default=None,
+        allow_null=True,
+        write_only=True,
+        help_text="Custom image selected for matching a pre-warmed cloud run. Not persisted on the task.",
+    )
     runtime = serializers.ChoiceField(
         choices=tasks_facade.TaskRuntime.choices,
         required=False,
@@ -712,6 +726,12 @@ class TaskRunRelayMessageRequestSerializer(serializers.Serializer):
     text = serializers.CharField(
         max_length=10000,
         help_text="Joined message body. Used when text_parts is absent.",
+    )
+    message_id = serializers.CharField(
+        max_length=128,
+        required=False,
+        allow_null=True,
+        help_text="Id of the user message this turn answers, when the agent-server echoes it.",
     )
     # Kept optional for forward/backward compatibility during rollout; will be aligned once deployed.
     text_parts = serializers.ListField(
@@ -2064,6 +2084,18 @@ class WarmTaskRequestSerializer(serializers.Serializer):
         default=None,
         allow_null=True,
         help_text="Reasoning effort to warm the sandbox on for models that expose an effort control.",
+    )
+    sandbox_environment_id = serializers.UUIDField(
+        required=False,
+        default=None,
+        allow_null=True,
+        help_text="Optional sandbox environment to provision before the task is submitted.",
+    )
+    custom_image_id = serializers.UUIDField(
+        required=False,
+        default=None,
+        allow_null=True,
+        help_text="Optional custom base image to provision before the task is submitted; takes precedence over the environment's image.",
     )
 
     def validate_repository(self, value: str) -> str:

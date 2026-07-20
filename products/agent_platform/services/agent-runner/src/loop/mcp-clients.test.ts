@@ -291,6 +291,7 @@ describe('openMcpClients', () => {
             secrets: {},
             transportFactory: factory,
             identity: { resolve },
+            linkableProviders: new Set(['github']),
         })
         expect(clients).toEqual([])
         expect(failures[0].category).toBe('auth')
@@ -298,6 +299,37 @@ describe('openMcpClients', () => {
         expect(failures[0].devReason).toMatch(/mcp_identity_unavailable: github \(identity_not_connected\)/)
         expect(failures[0]).not.toHaveProperty('authorizeUrl')
         expect(resolve).toHaveBeenCalledWith('github', [], { initiate: false })
+        await close()
+        await closePairs(pairs)
+    })
+
+    it('does not advertise a seed-only provider auth failure as reconnectable', async () => {
+        const { factory, pairs } = await buildEchoFactory()
+        const refs: McpRef[] = [
+            {
+                kind: 'principal',
+                default_tool_approval: 'allow',
+                id: 'posthog',
+                url: 'https://example.com/mcp',
+                secrets: [],
+                auth: { provider: 'posthog' },
+            },
+        ]
+        const { clients, failures, close } = await openMcpClients(refs, {
+            secrets: {},
+            transportFactory: factory,
+            identity: {
+                resolve: async () => ({
+                    kind: 'unavailable',
+                    provider: 'posthog',
+                    reason: 'identity_not_connected',
+                }),
+            },
+            linkableProviders: new Set(),
+        })
+        expect(clients).toEqual([])
+        expect(failures[0].category).toBe('auth')
+        expect(failures[0].provider).toBeUndefined()
         await close()
         await closePairs(pairs)
     })
@@ -326,6 +358,7 @@ describe('openMcpClients', () => {
         const { clients, failures } = await openMcpClients(refs, {
             secrets: {},
             transportFactory: failingFactory,
+            linkableProviders: new Set(['posthog']),
             identity: {
                 resolve: async () => ({
                     kind: 'ok',
