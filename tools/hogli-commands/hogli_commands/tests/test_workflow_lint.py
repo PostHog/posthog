@@ -26,6 +26,7 @@ from hogli_commands.workflow_lint.checks.checkout_full_depth import CheckoutFull
 from hogli_commands.workflow_lint.checks.dorny_negation import DornyNegationCheck
 from hogli_commands.workflow_lint.checks.job_timeouts import JobTimeoutsCheck
 from hogli_commands.workflow_lint.checks.pr_concurrency import PrConcurrencyCheck
+from hogli_commands.workflow_lint.checks.required_gates import RequiredGateCheck
 from hogli_commands.workflow_lint.checks.semgrep_services_coverage import SemgrepServicesCoverageCheck
 from hogli_commands.workflow_lint.model import PR_TRIGGERS, Workflow, WorkflowParseError, read_workflows
 
@@ -873,6 +874,74 @@ class TestRegistry:
         for check in CHECKS:
             result = check.run(wfs)
             assert isinstance(result, CheckResult)
+
+
+ALLOWLIST_GATE = """
+    name: ci-thing
+    on: pull_request
+    jobs:
+      build:
+        timeout-minutes: 5
+        steps:
+          - run: echo build
+      thing_tests:
+        name: Thing Tests Pass
+        needs: [build]
+        timeout-minutes: 5
+        if: always()
+        steps:
+          - run: |
+              if [[ "${{ needs.build.result }}" != "success" && "${{ needs.build.result }}" != "skipped" ]]; then
+                exit 1
+              fi
+"""
+
+DENYLIST_GATE = ALLOWLIST_GATE.replace(
+    """if [[ "${{ needs.build.result }}" != "success" && "${{ needs.build.result }}" != "skipped" ]]; then""",
+    """if [[ "${{ needs.build.result }}" == "failure" ]]; then""",
+)
+
+NOT_ALWAYS_GATE = ALLOWLIST_GATE.replace("if: always()", "if: ${{ !cancelled() }}")
+
+
+class TestRequiredGateCheck:
+    def test_passes_on_allowlist_gate(self, tmp_path: Path) -> None:
+        _write(tmp_path, "ci-thing.yml", ALLOWLIST_GATE)
+        assert RequiredGateCheck().run(_read_all(tmp_path)).issues == []
+
+    @pytest.mark.parametrize(
+        "content,expected",
+        [
+            (DENYLIST_GATE, "success`/`skipped`"),
+            (NOT_ALWAYS_GATE, "always()"),
+        ],
+        ids=["denylist-lets-cancelled-through", "gate-must-always-run"],
+    )
+    def test_flags_unsafe_gate(self, tmp_path: Path, content: str, expected: str) -> None:
+        _write(tmp_path, "ci-thing.yml", content)
+        issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
+        assert len(issues) == 1
+        assert issues[0].job == "thing_tests"
+        assert expected in issues[0].message
+
+    def test_ignores_non_gate_jobs(self, tmp_path: Path) -> None:
+        # Worker jobs *should* use !cancelled() so they stop when superseded;
+        # only the collate gate is held to always().
+        _write(
+            tmp_path,
+            "ci-thing.yml",
+            """
+            name: ci-thing
+            on: pull_request
+            jobs:
+              shards:
+                timeout-minutes: 5
+                if: ${{ !cancelled() }}
+                steps:
+                  - run: echo test
+            """,
+        )
+        assert RequiredGateCheck().run(_read_all(tmp_path)).issues == []
 
 
 class TestLiveTreeSmoke:
