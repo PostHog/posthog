@@ -651,7 +651,7 @@ jobs:
         name: Build product test matrix
         needs: [turbo-discover]
         if: >-
-            always() &&
+            !cancelled() &&
             needs.turbo-discover.result == 'success' &&
             needs.turbo-discover.outputs.matrix != '[]' &&
             needs.turbo-discover.outputs.matrix != ''
@@ -689,10 +689,12 @@ jobs:
     # Runs product tests in parallel — one matrix job per group
     # Each job gets its own runner + Docker stack, so no shared DB conflicts
     # Small products (< 50 tests) are grouped into a single job to avoid setup overhead
+    # A status function is required to inspect dependency results after failures.
+    # Use !cancelled(), not always(), so superseded matrix jobs still receive cancellation.
     turbo-tests:
         needs: [changes, turbo-discover, detect-snapshot-mode, build-product-test-matrix, get_clickhouse_versions]
         if: >-
-            always() &&
+            !cancelled() &&
             (github.event.pull_request.draft != true ||
              contains(github.event.pull_request.labels.*.name, 'run-ci-backend')) &&
             needs.turbo-discover.result == 'success' &&
@@ -2069,7 +2071,7 @@ jobs:
         name: Build Django matrix
         needs: [changes, get_clickhouse_versions, turbo-discover, select-tests]
         if: |
-            always() &&
+            !cancelled() &&
             needs.changes.outputs.backend == 'true' &&
             needs.get_clickhouse_versions.result == 'success'
         runs-on: depot-ubuntu-latest
@@ -2355,8 +2357,10 @@ jobs:
         # 3. OR turbo-discover itself failed (conservative: run Django on detection failure)
         # The non-empty include guard covers drafts in skip mode and selected runs
         # that chose zero files — an empty matrix would otherwise fail the job.
+        # A status function is required to inspect dependency results after failures.
+        # Use !cancelled(), not always(), so superseded matrix jobs still receive cancellation.
         if: |
-            always() &&
+            !cancelled() &&
             needs.changes.outputs.backend == 'true' &&
             needs.build_django_matrix.result == 'success' &&
             needs.build_django_matrix.outputs.include != '[]' &&
@@ -3079,7 +3083,7 @@ jobs:
         needs: [changes, detect-snapshot-mode, django, turbo-tests]
         # Only in UPDATE mode - CHECK mode verifies snapshots match exactly
         # Run even if some matrix jobs failed (to commit snapshots from passing jobs)
-        if: ${{ always() && needs.detect-snapshot-mode.outputs.mode == 'update' && needs.changes.outputs.backend == 'true' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
+        if: ${{ !cancelled() && needs.detect-snapshot-mode.outputs.mode == 'update' && needs.changes.outputs.backend == 'true' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
         runs-on: ubuntu-latest
         timeout-minutes: 5
         permissions:
@@ -3164,6 +3168,8 @@ jobs:
         runs-on: ubuntu-latest
         # Headroom for downloading every shard's JUnit for the failure rollup.
         timeout-minutes: 8
+        # Intentional always(): this required gate must inspect failed and cancelled
+        # dependencies and fail closed.
         if: always()
         steps:
             - name: Summarize dependency results
@@ -3334,7 +3340,7 @@ jobs:
     test-selection-verdict:
         needs: [django, turbo-tests, changes, select-tests]
         name: Test selection verdict
-        if: always() && github.event_name == 'pull_request'
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
         runs-on: ubuntu-latest
         timeout-minutes: 10
         permissions:
@@ -3412,8 +3418,9 @@ jobs:
         needs: [django_tests]
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
-            always() && github.actor != 'dependabot[bot]' && (
+        # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
+        if: >-
+            !cancelled() && github.actor != 'dependabot[bot]' && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
             (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
         steps:
@@ -3459,7 +3466,7 @@ jobs:
         # continue-on-error so telemetry never reds CI. Skipped on forks/Dependabot,
         # which never have the secret (and where select-tests didn't run anyway).
         if: |
-            always() && github.run_attempt == '1'
+            !cancelled() && github.run_attempt == '1'
             && github.actor != 'dependabot[bot]'
             && github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
             && needs.select-tests.result == 'success'
@@ -3494,7 +3501,7 @@ jobs:
         timeout-minutes: 10
         # Master pushes and all in-repo PRs. Skip forks (no secrets access).
         if: >-
-            always() &&
+            !cancelled() &&
             github.repository == 'PostHog/posthog' &&
             (
             (github.event_name != 'pull_request' && github.ref == 'refs/heads/master') ||
@@ -3560,7 +3567,7 @@ jobs:
         # post-coverage-section.mjs) — never add secrets beyond github.token to this job
         # (report-test-timings checks out the base ref for exactly this reason).
         if: >-
-            always() &&
+            !cancelled() &&
             github.event_name == 'pull_request' &&
             github.event.pull_request.draft == false &&
             github.event.pull_request.head.repo.full_name == 'PostHog/posthog' &&

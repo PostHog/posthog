@@ -721,7 +721,7 @@ jobs:
         name: Build product test matrix
         needs: [turbo-discover]
         if: >-
-            always() && needs.turbo-discover.result == 'success' && needs.turbo-discover.outputs.matrix != '[]' && needs.turbo-discover.outputs.matrix != ''
+            !cancelled() && needs.turbo-discover.result == 'success' && needs.turbo-discover.outputs.matrix != '[]' && needs.turbo-discover.outputs.matrix != ''
         runs-on: depot-ubuntu-latest
         timeout-minutes: 5
         outputs:
@@ -745,10 +745,12 @@ jobs:
     # Runs product tests in parallel — one matrix job per group
     # Each job gets its own runner + Docker stack, so no shared DB conflicts
     # Small products (< 50 tests) are grouped into a single job to avoid setup overhead
+    # A status function is required to inspect dependency results after failures.
+    # Use !cancelled(), not always(), so superseded matrix jobs still receive cancellation.
     turbo-tests:
         needs: [changes, turbo-discover, detect-snapshot-mode, build-product-test-matrix, get_clickhouse_versions]
         if: >-
-            always() && (github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'run-ci-backend')) && needs.turbo-discover.result == 'success' && needs.build-product-test-matrix.result == 'success' && needs.build-product-test-matrix.outputs.include != '[]' && needs.build-product-test-matrix.outputs.include != ''
+            !cancelled() && (github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'run-ci-backend')) && needs.turbo-discover.result == 'success' && needs.build-product-test-matrix.result == 'success' && needs.build-product-test-matrix.outputs.include != '[]' && needs.build-product-test-matrix.outputs.include != ''
         runs-on: depot-ubuntu-latest
         timeout-minutes: 40
         name: Product tests (${{ matrix.group }}, events schema ${{ matrix.new-events-schema && 'json' || 'legacy' }})
@@ -1233,7 +1235,7 @@ jobs:
         name: Build Django matrix
         needs: [changes, get_clickhouse_versions, turbo-discover, select-tests]
         if: |
-            always() &&
+            !cancelled() &&
             needs.changes.outputs.backend == 'true' &&
             needs.get_clickhouse_versions.result == 'success'
         runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
@@ -1499,8 +1501,10 @@ jobs:
         # 3. OR turbo-discover itself failed (conservative: run Django on detection failure)
         # The non-empty include guard covers drafts in skip mode and selected runs
         # that chose zero files — an empty matrix would otherwise fail the job.
+        # A status function is required to inspect dependency results after failures.
+        # Use !cancelled(), not always(), so superseded matrix jobs still receive cancellation.
         if: |
-            always() &&
+            !cancelled() &&
             needs.changes.outputs.backend == 'true' &&
             needs.build_django_matrix.result == 'success' &&
             needs.build_django_matrix.outputs.include != '[]' &&
