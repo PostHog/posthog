@@ -3,7 +3,7 @@ from typing import Optional
 
 import structlog
 
-from posthog.email import EmailMessage
+from posthog.email import EmailDeliveryError, EmailMessage, was_email_delivered
 from posthog.utils import absolute_uri
 
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -112,3 +112,9 @@ def send_email_subscription_report(
     )
     message.add_recipient(email=email)
     message.send(send_async=send_async)
+
+    # `send()` swallows permanent provider failures, so a synchronous send that recorded no
+    # delivery must raise — otherwise `deliver_email` marks the recipient a phantom success and
+    # never emits `subscription_delivery_failed`. Skipped for async sends (fire-and-forget).
+    if not send_async and not was_email_delivered(campaign_key, email):
+        raise EmailDeliveryError("subscription report send recorded no delivery")
