@@ -92,6 +92,9 @@ export interface HeatmapBrushData {
 // pinning the brush to one sliver of a bucket.
 const FULL_HEIGHT_MIN_Y_DRAG_PX = 8
 
+// Half-pixel inset applied to each brush edge before snapping it to a row (see handleAreaSelect).
+const BRUSH_EDGE_EPSILON_PX = 0.5
+
 export interface HeatmapCellDatum {
     /** Column index into `xLabels`. */
     xIndex: number
@@ -320,8 +323,12 @@ function HeatmapInner({
             let endRow = layout.rows - 1
             if (Math.abs(data.yPixel1 - data.yPixel0) >= FULL_HEIGHT_MIN_Y_DRAG_PX) {
                 // yPixel0 is the top of the drag → the higher row index (rows count bottom-up).
-                const top = rowAtYClamped(layout, data.yPixel0)
-                const bottom = rowAtYClamped(layout, data.yPixel1)
+                // Shrink the span half a pixel on each edge before snapping to rows: an edge landing
+                // exactly on a row boundary otherwise floors into the neighbouring row and reports a
+                // row the rect only touches. The FULL_HEIGHT_MIN_Y_DRAG_PX guard keeps the span far
+                // thicker than the nudge, so it can't invert.
+                const top = rowAtYClamped(layout, data.yPixel0 + BRUSH_EDGE_EPSILON_PX)
+                const bottom = rowAtYClamped(layout, data.yPixel1 - BRUSH_EDGE_EPSILON_PX)
                 startRow = Math.min(top, bottom)
                 endRow = Math.max(top, bottom)
             }
