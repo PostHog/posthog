@@ -66,19 +66,23 @@ If you sample fewer than the full set, say so in the report and offer to walk th
 
 ### 4. Extract the deletion event from each response
 
-In each response, find the entry where `activity == "deleted"`. That entry's `created_at` is the actual deletion time, and `user.email` / `user.first_name` identify the deleter.
-
-The deletion event's `detail.changes` array typically contains:
-
-- `{field: "deleted", before: false, after: true}` — the actual delete
-- `{field: "key", before: "<original>", after: "<original>:deleted:<id>"}` — Django renames the key on delete to free up the unique constraint
-- `{field: "name", ...}` — the name sometimes gets reset
+In each response, find the entry where `activity == "deleted"`. That entry's `created_at` is the actual deletion time, and `user.email` / `user.first_name` identify the deleter. These fields are reliable on every delete path.
 
 For most flags there's exactly one delete event. If a flag has been deleted-and-restored multiple times, take the most recent `activity: deleted` event within the window.
 
-### 5. Filter and report
+### 5. Recover the original key and report
 
-Filter the collected deletion events to those whose `created_at` falls inside the requested window. Present as a table:
+Feature flags are renamed to `<original>:deleted:<flag_id>` when soft-deleted while still referenced elsewhere (e.g. a stopped experiment) — the id-based suffix frees the original key for reuse. Don't try to recover the original from the activity log's own fields: `detail.changes` only carries the rename on UI/ORM deletes (and is often empty, or missing the `key` entry, on API/MCP/programmatic deletes), and `detail.name` just mirrors whatever the current key is — tombstoned or not.
+
+Instead, strip the suffix deterministically with [`scripts/strip_deleted_suffix.py`](./scripts/strip_deleted_suffix.py). Pass it the whole step 2 candidate list as JSON in one call — not one invocation per flag:
+
+```bash
+echo '[{"id": 687432, "key": "high_frequency_alerts:deleted:687432"}]' | python3 scripts/strip_deleted_suffix.py
+# prints the same array back (pretty-printed), each object gaining an "original_key" field:
+# "original_key": "high_frequency_alerts"
+```
+
+Filter the collected deletion events to those whose `created_at` falls inside the requested window. Present as a table, using each row's recovered original key (not the raw tombstoned form) for the "Key" column:
 
 | Flag ID | Key | Deleted at (UTC) | Deleted by |
 
@@ -88,7 +92,7 @@ State your methodology in the report (how many candidates you walked vs. how man
 
 - **Borderline cases**: if a deletion is within ~1 hour of the window cutoff, surface it as borderline rather than silently dropping it.
 - **Don't trust `created_at` as a proxy for deletion time**: a flag created in 2024 can still have been deleted last week. The activity log is the only authority.
-- **Renamed keys are normal**: a flag with key `foo:deleted:12345` was the flag originally keyed `foo`. The original key/name appears in the delete event's `detail.changes` array — surface that to the user, not the renamed form.
+- **Renamed keys are normal**: a flag with key `foo:deleted:12345` was the flag originally keyed `foo` — see step 5 for how to recover it.
 - **Walking all candidates is possible but slow**: ~100 parallel activity-log calls is doable. Offer it as a follow-up rather than the default for short windows.
 
 ## Example interaction
@@ -99,7 +103,7 @@ User: "what flags got deleted in the last week?"
 2. Run the SQL enumeration to get up to 100 soft-deleted candidates ordered by `created_at DESC`
 3. Fan out activity-log lookups in parallel across the top ~25 candidates
 4. Extract `activity: deleted` entries; filter to those whose `created_at >= now - 7 days`
-5. Report:
+5. Recover original keys with `scripts/strip_deleted_suffix.py` and report:
 
    ```text
    Found 2 feature flags deleted in the last 7 days (rolling, ending 2026-05-22 19:04 UTC):
@@ -119,3 +123,7 @@ User: "what flags got deleted in the last week?"
 - `posthog:execute-sql`: Used in step 2 to enumerate soft-deleted candidates against `system.feature_flags`
 - `posthog:feature-flags-activity-retrieve`: Used in step 3 to find the actual deletion event for each candidate
 - `posthog:feature-flag-get-definition`: Useful if the user then wants to inspect what the deleted flag looked like
+
+## Scripts
+
+- [`scripts/strip_deleted_suffix.py`](./scripts/strip_deleted_suffix.py): recovers original flag keys — see step 5.

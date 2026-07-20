@@ -1,11 +1,15 @@
+# syntax=docker/dockerfile:1.7
 #
 # Dockerfile.ml-mirror-image-scrub - Session Replay ML-mirror image-scrub sidecar
 #
-# An HTTP service that turns raw image bytes into scrubbed bytes (Stage 1 = sharp-only blur). The
-# plugin-server consumer owns Kafka + S3 and calls this over loopback; it runs as a sidecar container.
+# An HTTP service that turns raw image bytes into scrubbed bytes (NSFW gate + solid-fill of detected
+# faces, text, and QR/barcodes). The plugin-server consumer owns Kafka + S3 and calls this over
+# loopback; it runs as a sidecar container. The ML runtime ships in the image: the ONNX Runtime
+# (onnxruntime-node) native binary lands via its install script, zxing is wasm, and the three ONNX
+# models are baked in below — the sidecar makes no network fetches at startup.
 #
-# Deliberately NOT the plugin-server workspace build: standalone so its (Stage-2) heavy ML deps stay out
-# of the main image. sharp ships prebuilt libvips; there is no Kafka/S3/ML runtime here in Stage 1.
+# Deliberately NOT the plugin-server workspace build: standalone so the heavy ML deps stay out of the
+# main image. sharp ships prebuilt libvips.
 #
 # Exact node version pinned to .nvmrc (24.13.0), matching the main Dockerfile's node stages, so the
 # build is reproducible instead of drifting with the floating major tag; renovate bumps it. -bookworm-slim
@@ -17,8 +21,9 @@ SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ARG COMMIT_HASH
 RUN echo ${COMMIT_HASH:-unknown} > /code/commit.txt
 
-# Production deps only (sharp ships libvips prebuilt; prom-client/tsx are pure JS). Only this package is
-# copied (no root pnpm-workspace.yaml), so pnpm treats this dir as its own project root.
+# Production deps only (sharp/libvips and the ML natives ship prebuilt; prom-client/tsx are pure JS).
+# Only this package is copied (no root pnpm-workspace.yaml), so pnpm treats this dir as its own
+# project root.
 COPY nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/package.json nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/pnpm-lock.yaml ./
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
     corepack enable && \
@@ -29,11 +34,37 @@ COPY nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/
 # Tests co-locate in src/ but must not ship in the runtime image.
 RUN rm -f src/*.test.ts
 
+# The ONNX models (safety gate, face, text), pinned to immutable upstream refs and checksum-verified
+# by BuildKit; loadModels() reads them from WORKDIR-relative models/. Keep URLs + digests in sync
+# with dev/setup.ts (the dev-machine download path).
+ADD --checksum=sha256:f139598bc2af4e4b6fe98dec11574e30edfdd91fc94ac1425c18ace3bd5a866b \
+    https://huggingface.co/SWHL/RapidOCR/resolve/1cfba2e90fc938db55889873735088de210cc173/PP-OCRv4/en_PP-OCRv3_det_infer.onnx \
+    models/dbnet_det.onnx
+ADD --checksum=sha256:8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4 \
+    https://github.com/opencv/opencv_zoo/raw/47534e27c9851bb1128ccc0102f1145e27f23f98/models/face_detection_yunet/face_detection_yunet_2023mar.onnx \
+    models/yunet.onnx
+ADD --checksum=sha256:8c28c49d9075f3ad15ebdc2961f02d5b3f99be944815b848b49c9f0e6f3fb689 \
+    https://huggingface.co/OwenElliott/image-safety-classifier-xs/resolve/54f4560bd9c5ee92d45dc30418a8f8680e80de6d/onnx/image-safety-classifier-xs.onnx \
+    models/safety.onnx
+
 RUN groupadd -g 10001 posthog && \
     useradd -u 10001 -g posthog -m -d /home/posthog posthog && \
     chown -R posthog:posthog /code
+
+# One thread per native pool: the sidecar bounds parallelism by its request-concurrency ceiling
+# (IMAGE_SCRUB_CONCURRENCY), so per-op pools sized to host cores would oversubscribe a CPU-limited
+# pod. sharp is pinned at module load in src/blur.ts (sharp.concurrency(1) + cache(false), imported
+# by every scrub path); ORT is pinned per-session (ORT_THREADS).
+ENV OMP_NUM_THREADS=1
+
+# Prove at build time that the models parse, the native/wasm runtimes load, and a scrub runs end to
+# end — a broken model download or prebuilt-binary mismatch fails the image build, not the deploy.
+# --network=none doubles as a guarantee that startup has no network dependency, which is also why
+# tsx is invoked directly: `pnpm` goes through corepack, which wants to fetch pnpm per-user.
+RUN --network=none su posthog -c "node_modules/.bin/tsx src/smoke.ts"
+
 USER posthog
 
 ENV NODE_ENV=production
 
-CMD ["pnpm", "start"]
+CMD ["node_modules/.bin/tsx", "src/main.ts"]

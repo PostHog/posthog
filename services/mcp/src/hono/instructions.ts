@@ -1,18 +1,17 @@
 import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
 
+import { PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
 import type { QueryToolInfo } from '@/lib/instructions'
-import {
-    type InstructionsContext,
-    InstructionsFormatter,
-    schemaDiscoveryViaSqlEnabled,
-} from '@/lib/instructions-formatter'
+import { type InstructionsContext, InstructionsFormatter } from '@/lib/instructions-formatter'
 import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import { formatPrompt } from '@/lib/utils'
 import { RENDER_UI_RESOURCE_URI } from '@/resources/ui-apps.generated'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
-import SCHEMA_DISCOVERY_INFOSCHEMA from '@/templates/sections/schema-discovery-infoschema.md'
-import SCHEMA_DISCOVERY_LEGACY from '@/templates/sections/schema-discovery-legacy.md'
+import CATALOG_TRUST_DISCOVERY from '@/templates/sections/catalog-trust-discovery.md'
+import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
+import SCHEMA_DISCOVERY from '@/templates/sections/schema-discovery.md'
+import { ExecHelpCatalog } from '@/tools/exec-help'
 import {
     getRenderableToolNames,
     makeRenderUiSchema,
@@ -64,10 +63,10 @@ export class InstructionsBuilder {
                         ...(def.system_prompt_hint ? { systemPromptHint: def.system_prompt_hint } : {}),
                     } as QueryToolInfo
                 }),
-            featureFlags: state.toolFeatureFlags,
             renderUiEnabled: state.renderUiEnabled,
             metadata: state.metadata,
             groupTypes: state.groupTypes,
+            dataCatalogEnabled: state.toolFeatureFlags?.[PRODUCT_DATA_CATALOG_FLAG] === true,
         }
     }
 
@@ -110,14 +109,25 @@ export class InstructionsBuilder {
         // Claude web/desktop report `supportsInstructions` but never surface the
         // `instructions` payload to the model, so its env-context (tool domains,
         // project metadata, group types) would be lost. Keep it on the exec command
-        // description for those hosts. (Codex, which reports `supportsInstructions:
-        // false`, already gets the full env-context via the un-stripped path.)
-        const keepEnvContext = state.clientProfile.isClaudeUiHost()
+        // description for those chat hosts only — Cowork surfaces instructions
+        // normally and gets env-context through them. (Codex, which reports
+        // `supportsInstructions: false`, already gets the full env-context via the
+        // un-stripped path.)
+        const keepEnvContext = state.clientProfile.isClaudeChatHost()
         const ctx = this.buildContext(state)
+        if (keepEnvContext) {
+            return this.formatter.buildClaudeExecCommandReference(ctx)
+        }
         return this.formatter.buildExecCommandReference(ctx, {
             stripEnvContext: supportsInstructions,
-            keepEnvContext,
         })
+    }
+
+    buildExecHelpCatalog(state: ResolvedState): ExecHelpCatalog | undefined {
+        if (!state.clientProfile.isClaudeChatHost()) {
+            return undefined
+        }
+        return new ExecHelpCatalog(this.formatter.buildClaudeExecHelpEntries(this.buildContext(state)))
     }
 
     buildExecToolDescription(): string {
@@ -128,13 +138,16 @@ export class InstructionsBuilder {
         return this.guidelines
     }
 
-    formatExecuteSqlDescription(featureFlags?: EvaluatedFlags): string {
-        const schemaDiscovery = schemaDiscoveryViaSqlEnabled(featureFlags)
-            ? SCHEMA_DISCOVERY_INFOSCHEMA
-            : SCHEMA_DISCOVERY_LEGACY
+    formatExecuteSqlDescription(toolFeatureFlags?: EvaluatedFlags): string {
+        // Data-catalog discovery is spliced into the same section so a flag-off render stays
+        // byte-identical to the un-gated prompt (no stray placeholder gaps).
+        const dataCatalogEnabled = toolFeatureFlags?.[PRODUCT_DATA_CATALOG_FLAG] === true
+        const schemaDiscovery = dataCatalogEnabled
+            ? `${SCHEMA_DISCOVERY.trim()}\n\n${CATALOG_TRUST_DISCOVERY.trim()}\n\n${METRIC_DISCOVERY.trim()}`
+            : SCHEMA_DISCOVERY.trim()
         return formatPrompt(EXECUTE_SQL_PROMPT, {
             guidelines: this.guidelines.trim(),
-            schema_discovery: schemaDiscovery.trim(),
+            schema_discovery: schemaDiscovery,
         })
     }
 }

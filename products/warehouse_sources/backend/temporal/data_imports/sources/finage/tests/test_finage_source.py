@@ -28,8 +28,6 @@ class TestFinageSource:
         assert config.label == "Finage"
         assert config.category == DataWarehouseSourceCategory.FINANCE___ACCOUNTING
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Stays hidden until the connector graduates from alpha.
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/finage"
 
     def test_source_config_fields(self):

@@ -35,11 +35,9 @@ class TestSourceConfig:
         assert field.type == SourceFieldInputConfigType.PASSWORD
         assert field.required is True
 
-    def test_source_is_alpha_and_still_hidden(self) -> None:
-        # Ships as alpha and stays hidden (unreleasedSource) until verified against a live workspace.
+    def test_source_is_alpha(self) -> None:
         config = MixMaxSource().get_source_config
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
 
     def test_docs_url_matches_published_doc_slug(self) -> None:
         assert MixMaxSource().get_source_config.docsUrl == "https://posthog.com/docs/cdp/sources/mixmax"

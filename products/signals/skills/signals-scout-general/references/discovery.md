@@ -70,7 +70,7 @@ directly when the breadth pass hints they might be present, one cheap read each:
 - **Revenue** — revenue events in the taxonomy, or warehouse Stripe sources in the
   profile.
 - **Data warehouse** — the profile's `external_data_sources`; deeper structure via
-  `read-data-warehouse-schema`.
+  `execute-sql` over `system.information_schema.*`.
 
 When you hit a surface no tool seems to cover, that's worth a `mcp-gap:` scratchpad
 note (see [conventions.md](conventions.md)) — a capability the fleet may want later.

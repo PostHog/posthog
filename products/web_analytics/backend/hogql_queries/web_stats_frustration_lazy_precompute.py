@@ -35,6 +35,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     ceil_utc_day,
     check_common_eligibility,
     floor_utc_day,
+    handle_stale_served,
     host_filter_expr,
     log_eligibility_outcome,
     test_account_filter_expr,
@@ -45,6 +46,8 @@ if TYPE_CHECKING:
     from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 
 logger = structlog.get_logger(__name__)
+
+_FAMILY = "web_stats_frustration"
 
 
 # Allowlist of exception class names we expect on the lazy path. Anything
@@ -485,6 +488,8 @@ def execute_lazy_precomputed_read(
             job_count=len(result.job_ids),
             ensure_duration_ms=ensure_duration_ms,
         )
+        if result.stale:
+            handle_stale_served(runner=runner, family=_FAMILY)
 
         if not result.job_ids or not result.ready:
             return None
@@ -517,6 +522,10 @@ def execute_lazy_precomputed_read(
                         time_range_end=prev_range_end,
                     )
                     ensure_duration_ms += int((time.perf_counter() - prev_ensure_started) * 1000)
+                    if prev_result.stale:
+                        # handle_stale_served enqueues at most once per request; one
+                        # revalidation re-runs the whole query, covering both periods.
+                        handle_stale_served(runner=runner, family=_FAMILY)
                     if not prev_result.ready:
                         logger.info(
                             "web_stats_frustration_lazy_precompute_previous_not_ready",

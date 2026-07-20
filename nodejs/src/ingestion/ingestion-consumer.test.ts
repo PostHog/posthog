@@ -21,6 +21,7 @@ import {
 } from '~/ingestion/common/cookieless/cookieless-manager'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { createPrepareEventStep } from '~/ingestion/common/steps/event-processing/prepare-event-step'
+import { createProcessGroupsStep } from '~/ingestion/common/steps/event-processing/process-groups-step'
 import { createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
 import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
@@ -41,9 +42,14 @@ jest.mock('~/common/utils/posthog', () => {
     }
 })
 
-// Mock the prepare event step for error testing
+// Mock the prepare event step for error testing (a step without a retry option)
 jest.mock('~/ingestion/common/steps/event-processing/prepare-event-step', () => ({
     createPrepareEventStep: jest.fn(),
+}))
+
+// Mock the process groups step for error testing (a step with a retry option)
+jest.mock('~/ingestion/common/steps/event-processing/process-groups-step', () => ({
+    createProcessGroupsStep: jest.fn(),
 }))
 
 // Mock the IngestionWarningLimiter to always allow warnings (prevents rate limiting between tests)
@@ -187,6 +193,11 @@ describe('IngestionConsumer', () => {
         jest.mocked(createPrepareEventStep).mockImplementation((...args) => {
             const original = jest.requireActual('~/ingestion/common/steps/event-processing/prepare-event-step')
             return original.createPrepareEventStep(...args)
+        })
+
+        jest.mocked(createProcessGroupsStep).mockImplementation((...args) => {
+            const original = jest.requireActual('~/ingestion/common/steps/event-processing/process-groups-step')
+            return original.createProcessGroupsStep(...args)
         })
 
         ingester = await createIngestionConsumer(infra)
@@ -977,15 +988,14 @@ describe('IngestionConsumer', () => {
         })
 
         it('should handle explicitly non retriable errors by sending to DLQ', async () => {
-            // NOTE: I don't think this makes a lot of sense but currently is just mimicing existing behavior for the migration
-            // We should figure this out better and have more explictly named errors
-
+            // Non-retriable errors are converted to DLQ results by the retry wrapper,
+            // so the throwing step must be one that carries a retry option.
             const error: any = new Error('test')
             error.isRetriable = false
 
-            // Mock the prepare event step to throw the error
-            jest.mocked(createPrepareEventStep).mockImplementation(() => {
-                return async function prepareEventStepWrapper() {
+            // Mock the process groups step (retry-wrapped) to throw the error
+            jest.mocked(createProcessGroupsStep).mockImplementation(() => {
+                return async function processGroupsStepWrapper() {
                     return Promise.reject(error)
                 }
             })
@@ -993,7 +1003,11 @@ describe('IngestionConsumer', () => {
             const ingester = await createIngestionConsumer(infra)
             await ingester.handleKafkaBatch(messages)
 
-            expect(jest.mocked(logger.error)).toHaveBeenCalledWith('🔥', 'Error processing message', expect.any(Object))
+            expect(jest.mocked(logger.error)).toHaveBeenCalledWith(
+                '🔥',
+                'Step process_groups failed',
+                expect.any(Object)
+            )
 
             expect(forSnapshot(mockProducerObserver.getProducedKafkaMessages())).toMatchSnapshot()
         })
@@ -1013,14 +1027,31 @@ describe('IngestionConsumer', () => {
             await expect(ingester.handleKafkaBatch(messages)).rejects.toThrow()
         })
 
+        it('should throw non retriable errors from steps without a retry option', async () => {
+            // Steps without a retry option have no error classification: an
+            // explicitly non-retriable error crashes the batch instead of DLQing.
+            const error: any = new Error('test')
+            error.isRetriable = false
+
+            // Mock the prepare event step (no retry option) to throw the error
+            jest.mocked(createPrepareEventStep).mockImplementation(() => {
+                return async function prepareEventStepWrapper() {
+                    return Promise.reject(error)
+                }
+            })
+
+            const ingester = await createIngestionConsumer(infra)
+            await expect(ingester.handleKafkaBatch(messages)).rejects.toThrow()
+        })
+
         it('should emit failures to dead letter queue for non-retriable errors', async () => {
             const error = new Error('Non-retriable processing error')
             const errorAny = error as any
             errorAny.isRetriable = false
 
-            // Mock the prepare event step to throw the error
-            jest.mocked(createPrepareEventStep).mockImplementation(() => {
-                return async function prepareEventStepWrapper() {
+            // Mock the process groups step (retry-wrapped) to throw the error
+            jest.mocked(createProcessGroupsStep).mockImplementation(() => {
+                return async function processGroupsStepWrapper() {
                     return Promise.reject(error)
                 }
             })

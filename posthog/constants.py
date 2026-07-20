@@ -52,6 +52,7 @@ class AvailableFeature(StrEnum):
     AUDIT_LOGS = "audit_logs"
     APPROVALS = "approvals"
     XAA_AUTHENTICATION = "xaa_authentication"
+    POSTHOG_CODE_USAGE = "posthog_code_usage"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"

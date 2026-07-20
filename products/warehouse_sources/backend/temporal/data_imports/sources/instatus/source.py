@@ -38,6 +38,7 @@ class InstatusSource(ResumableSource[InstatusSourceConfig, InstatusResumeConfig]
     # get_schemas iterates a static endpoint catalog with no I/O, so the table list is safe to
     # render in the public docs without credentials.
     lists_tables_without_credentials = True
+    api_docs_url = "https://instatus.com/help/api"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -57,7 +58,6 @@ class InstatusSource(ResumableSource[InstatusSourceConfig, InstatusResumeConfig]
             iconPath="/static/services/instatus.png",
             docsUrl="https://posthog.com/docs/cdp/sources/instatus",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

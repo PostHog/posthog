@@ -607,6 +607,7 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
                         {"url": "https://cdn2.posthog.com/array/phc_12345/config.js"},
                     ]
                 },
+                timeout=10,
             )
 
 

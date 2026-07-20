@@ -1,0 +1,30 @@
+[package]
+name = "posthog-replay-anonymizer"
+version = "0.1.0"
+edition = "2021"
+description = "PII scrubber for rrweb session-replay events: text/URL redaction, native image blur, and canvas/cv neutralization"
+license = "MIT"
+homepage = "https://posthog.com"
+repository = "https://github.com/PostHog/posthog"
+
+[lints]
+workspace = true
+
+[dependencies]
+ahash = { workspace = true }
+anyhow = { workspace = true }
+base64 = { workspace = true }
+libdeflater = { workspace = true }
+lz4 = { workspace = true }
+memchr = "2"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+simd-json = { version = "0.15", features = ["serde_impl"] }
+zstd = { workspace = true }
+
+[dev-dependencies]
+# flate2: tests verify reference gzip streams with an independent codec (not libdeflate), so a
+# codec regression can't hide by round-tripping through itself.
+flate2 = { workspace = true }
+serde_json = { workspace = true }

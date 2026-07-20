@@ -16,6 +16,10 @@ ui_apps:
         type: custom
         app_name: Query Results
         description: Interactive visualization for PostHog query results
+        render_ui:
+            component_import: ../components/Component
+            view_component: Component
+            view_prop: data
     render-ui:
         type: custom
         app_name: PostHog Render UI
@@ -255,9 +259,6 @@ tools:
         enabled: false
     domains-scim-logs-retrieve:
         operation: domains_scim_logs_retrieve
-        enabled: false
-    domains-scim-token-create:
-        operation: domains_scim_token_create
         enabled: false
     domains-update:
         operation: domains_update

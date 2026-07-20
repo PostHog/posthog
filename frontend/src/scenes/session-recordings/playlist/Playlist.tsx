@@ -261,17 +261,20 @@ export function Playlist({
                 </div>
             )}
             {!!filters?.session_ids?.length && (
-                <LemonBanner
-                    type="info"
-                    className="mb-2"
-                    action={{
-                        children: 'Show all recordings',
-                        onClick: () => setFilters({ session_ids: undefined }),
-                        loading: !!sessionRecordingsResponseLoading,
-                    }}
-                >
-                    Only showing {pluralize(filters.session_ids.length, 'selected recording')}
-                </LemonBanner>
+                <div className="mb-2 flex items-center justify-between gap-2 rounded border bg-fill-primary px-2 py-1">
+                    <span className="min-w-0 truncate text-xs text-secondary">
+                        Showing {pluralize(filters.session_ids.length, 'selected recording')}
+                    </span>
+                    <LemonButton
+                        className="shrink-0"
+                        size="xsmall"
+                        type="tertiary"
+                        onClick={() => setFilters({ session_ids: undefined })}
+                        loading={!!sessionRecordingsResponseLoading}
+                    >
+                        Show all
+                    </LemonButton>
+                </div>
             )}
             <div
                 ref={playlistRef}

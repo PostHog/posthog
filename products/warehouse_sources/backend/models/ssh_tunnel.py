@@ -169,7 +169,16 @@ class SSHTunnel:
         return False, ""  # type: ignore
 
     def has_valid_port(self) -> tuple[bool, str]:
-        port = int(self.port)
+        try:
+            port = int(self.port)
+        except (TypeError, ValueError):
+            return False, "Port must be a number between 1 and 65535"
+
+        # Out-of-range ports otherwise slip through to sshtunnel, which asserts `0 <= port <= 65535`
+        # and raises a bare AssertionError ("PORT < 0 (...)") that surfaces as error-tracking noise.
+        if port < 1 or port > 65535:
+            return False, "Port must be between 1 and 65535"
+
         if port == 80 or port == 443:
             return False, f"Port {port} is not allowed"
 

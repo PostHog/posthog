@@ -44,7 +44,6 @@ class TestIP2WhoisSource:
         assert config.name.value == "IP2Whois"
         assert config.label == "IP2WHOIS"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.iconPath == "/static/services/ip2whois.png"
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/ip2whois"
 

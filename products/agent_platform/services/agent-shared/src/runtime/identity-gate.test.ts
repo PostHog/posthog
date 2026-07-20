@@ -4,7 +4,7 @@ import type { IdentityProviderConfig } from '../spec/spec'
 import type { Credential } from './credential-broker'
 import type { HttpFetcher } from './http-client'
 import type { IdentityCredentialStore } from './identity-credential-store'
-import { buildIdentityRegistry, createToolIdentity } from './identity-gate'
+import { buildIdentityRegistry, createToolIdentity, jwtPrincipalSubject } from './identity-gate'
 import type { IdentityLinkStateStore } from './identity-link-state-store'
 import type { IdentityProvider } from './identity-provider'
 import { MapIdentityProviderRegistry } from './identity-provider'
@@ -20,6 +20,7 @@ function fakeProvider(over: Partial<IdentityProvider> = {}): IdentityProvider {
         allowedHosts: () => ['app.posthog.test'],
         resolve: vi.fn(async () => null),
         initiate: vi.fn(async () => ({ authorizeUrl: 'https://app.posthog.test/oauth/authorize/?x=1', stateId: 's' })),
+        exchange: vi.fn(),
         complete: vi.fn(),
         ...over,
     }
@@ -47,6 +48,17 @@ function deps(over: Over = {}): { provider: IdentityProvider; toolIdentity: Retu
     })
     return { provider, toolIdentity }
 }
+
+describe('jwtPrincipalSubject', () => {
+    it('is injective — a delimiter-style collision must yield distinct subjects', () => {
+        // ('A:B', 'C') vs ('A', 'B:C') both flatten to 'A:B:C' under naive
+        // `${issuer}:${sub}` concatenation; two configured issuers would then
+        // resolve each other's transport binding and canonical identity.
+        expect(jwtPrincipalSubject({ issuer_secret_ref: 'A:B', sub: 'C' })).not.toBe(
+            jwtPrincipalSubject({ issuer_secret_ref: 'A', sub: 'B:C' })
+        )
+    })
+})
 
 describe('buildIdentityRegistry', () => {
     const regDeps = (posthogBaseUrl?: string): Parameters<typeof buildIdentityRegistry>[1] => ({
@@ -97,6 +109,16 @@ describe('createToolIdentity.resolve', () => {
             provider: 'posthog',
             authorizeUrl: 'https://app.posthog.test/oauth/authorize/?x=1',
         })
+    })
+
+    it('does not initiate authorization when resolution is lookup-only', async () => {
+        const provider = fakeProvider()
+        const { toolIdentity } = deps({ provider })
+
+        const res = await toolIdentity.resolve('posthog', [], { initiate: false })
+
+        expect(res).toEqual({ kind: 'unavailable', provider: 'posthog', reason: 'identity_not_connected' })
+        expect(provider.initiate).not.toHaveBeenCalled()
     })
 
     it('fails closed in a shared session WITHOUT consulting the seed (T1 confused-deputy guard)', async () => {

@@ -7,6 +7,7 @@ export function isDashboardFilterEmpty(filter: DashboardFilter | TileFilters | n
         (filter.date_from == null &&
             filter.date_to == null &&
             (filter.properties == null || (Array.isArray(filter.properties) && filter.properties.length === 0)) &&
-            filter.breakdown_filter == null)
+            filter.breakdown_filter == null &&
+            filter.interval == null)
     )
 }

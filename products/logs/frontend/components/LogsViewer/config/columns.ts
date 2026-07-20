@@ -45,6 +45,29 @@ export const DEFAULT_LOGS_COLUMNS: LogsColumnConfig[] = [
     { id: 'message', type: 'message' },
 ]
 
+/**
+ * Message is pinned to the end: it's the flex fill column, and the row FAB (whose scroll
+ * buttons drive the message cell) anchors to the row's right edge.
+ */
+export function isPinnedColumn(column: LogsColumnConfig): boolean {
+    return column.type === 'message'
+}
+
+/** Sort pinned columns last, stable otherwise. Returns the input untouched when already normalized. */
+export function normalizeColumns(columns: LogsColumnConfig[]): LogsColumnConfig[] {
+    const firstPinnedIndex = columns.findIndex(isPinnedColumn)
+    if (firstPinnedIndex === -1 || columns.slice(firstPinnedIndex).every(isPinnedColumn)) {
+        return columns
+    }
+    const rest = columns.filter((column) => !isPinnedColumn(column))
+    return [...rest, ...columns.filter(isPinnedColumn)]
+}
+
+/** The one validation rule shared by the add-form and the draft: custom columns need an expression. */
+export function customColumnExpressionError(type: LogsColumnType, expression: string | undefined): string | null {
+    return type === 'custom' && !expression?.trim() ? 'Custom columns need an expression' : null
+}
+
 export function columnLabel(column: LogsColumnConfig): string {
     if (column.name) {
         return column.name

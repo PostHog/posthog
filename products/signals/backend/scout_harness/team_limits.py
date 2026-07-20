@@ -337,7 +337,7 @@ def withheld_skills_for_team(canonical_team_id: int) -> set[str]:
     """Resolve the holdback denylist for one (canonical) team in a single flag-payload read.
 
     The coordinator resolves withholding from a payload it already read for the tick; this is the
-    one-shot equivalent for request-context callers (the on-demand `signals-scout-config-sync`
+    one-shot equivalent for request-context callers (the on-demand `scout-config-sync`
     endpoint), so the HTTP path enforces the same holdback as the scheduled path and a held-back
     scout can't be seeded/enabled by a manual fleet materialization. `canonical_team_id` must be
     the parent/project id; `team_configs` keys are canonicalized so a child-keyed override still

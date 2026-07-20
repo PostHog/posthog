@@ -34,6 +34,14 @@ export interface ChatViewProps {
     onPrivateChange?: (isPrivate: boolean) => void
     /** Extra actions rendered next to the send button in MessageInput */
     extraActions?: React.ReactNode
+    /** Blocks sending customer-facing messages (private notes stay available) */
+    replyDisabledReason?: string | JSX.Element
+    /** Whether draft mode is on: tints the composer green and confirms the recipient before sending */
+    draftMode?: boolean
+    /** Called when the draft-mode toggle changes */
+    onDraftModeChange?: (enabled: boolean) => void
+    /** Recipient description shown in the draft-mode send confirmation */
+    sendConfirmationMessage?: string
     latestAiMessageId?: string | null
     feedbackByMessageId?: Record<string, AiReplyFeedbackRating>
     showAiReplyFeedback?: boolean
@@ -59,6 +67,10 @@ export function ChatView({
     isPrivate,
     onPrivateChange,
     extraActions,
+    replyDisabledReason,
+    draftMode,
+    onDraftModeChange,
+    sendConfirmationMessage,
     latestAiMessageId,
     feedbackByMessageId,
     showAiReplyFeedback,
@@ -96,6 +108,10 @@ export function ChatView({
                     isPrivate={isPrivate}
                     onPrivateChange={onPrivateChange}
                     extraActions={extraActions}
+                    replyDisabledReason={replyDisabledReason}
+                    draftMode={draftMode}
+                    onDraftModeChange={onDraftModeChange}
+                    sendConfirmationMessage={sendConfirmationMessage}
                 />
             </div>
         </LemonCard>

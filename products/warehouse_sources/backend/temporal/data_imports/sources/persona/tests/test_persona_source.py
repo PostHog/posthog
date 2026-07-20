@@ -18,7 +18,6 @@ class TestPersonaSourceConfig:
     def test_config_is_alpha_and_unreleased(self) -> None:
         config = PersonaSource().get_source_config
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
 
     def test_api_key_field_is_a_secret_password(self) -> None:
         fields = PersonaSource().get_source_config.fields

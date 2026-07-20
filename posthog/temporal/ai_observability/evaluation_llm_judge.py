@@ -33,6 +33,7 @@ from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER, Cli
 from products.ai_observability.backend.llm.config import get_eval_config
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
+    ContextWindowExceededError,
     ModelNotFoundError,
     ModelPermissionError,
     QuotaExceededError,
@@ -170,6 +171,28 @@ def _build_errored_trace_result(allows_na: bool) -> EvaluationActivityResult:
         "allows_na": allows_na,
         "skipped": True,
         "skip_reason": "trace_errored",
+    }
+    if allows_na:
+        result["applicable"] = False
+    return result
+
+
+def _build_context_window_skip_result(
+    allows_na: bool, *, is_byok: bool, key_id: str | None
+) -> EvaluationActivityResult:
+    """Per-item skip, not a terminal user error that disables the eval."""
+    result: EvaluationActivityResult = {
+        "result_type": "boolean",
+        "verdict": None if allows_na else False,
+        "reasoning": "Evaluation input exceeded the model's context window; evaluation skipped.",
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "is_byok": is_byok,
+        "key_id": key_id,
+        "allows_na": allows_na,
+        "skipped": True,
+        "skip_reason": "context_window_exceeded",
     }
     if allows_na:
         result["applicable"] = False
@@ -380,6 +403,11 @@ def call_llm_judge(
             {"error_type": "parse_error"},
             non_retryable=True,
         ) from e
+
+    except ContextWindowExceededError:
+        # Skip rather than raise: retrying can't fix an over-window prompt and just spams error tracking.
+        increment_errors("context_window_exceeded", provider=provider)
+        return _build_context_window_skip_result(allows_na, is_byok=is_byok, key_id=key_id)
 
     except Exception as e:
         logger.exception(

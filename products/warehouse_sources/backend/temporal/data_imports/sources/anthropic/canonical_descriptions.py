@@ -1,0 +1,111 @@
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+
+_ADMIN_API_DOCS = "https://platform.claude.com/docs/en/api/admin-api"
+
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "users": {
+        "description": "Members of your Anthropic organization.",
+        "docs_url": f"{_ADMIN_API_DOCS}/users/list-users",
+        "columns": {
+            "id": "Unique identifier for the user.",
+            "type": 'Object type, always "user".',
+            "email": "Email address of the user.",
+            "name": "Display name of the user.",
+            "role": "Organization role: admin, billing, claude_code_user, developer, or user.",
+            "added_at": "RFC 3339 timestamp of when the user joined the organization.",
+        },
+    },
+    "invites": {
+        "description": "Pending and historical invitations to join your Anthropic organization.",
+        "docs_url": f"{_ADMIN_API_DOCS}/invites/list-invites",
+        "columns": {
+            "id": "Unique identifier for the invite.",
+            "type": 'Object type, always "invite".',
+            "email": "Email address the invite was sent to.",
+            "role": "Organization role the invited user will receive.",
+            "invited_at": "RFC 3339 timestamp of when the invite was created.",
+            "expires_at": "RFC 3339 timestamp of when the invite expires.",
+            "status": "Invite status: accepted, deleted, expired, or pending.",
+        },
+    },
+    "workspaces": {
+        "description": "Workspaces in your Anthropic organization (includes archived workspaces).",
+        "docs_url": f"{_ADMIN_API_DOCS}/workspaces/list-workspaces",
+        "columns": {
+            "id": "Unique identifier for the workspace.",
+            "type": 'Object type, always "workspace".',
+            "name": "Display name of the workspace.",
+            "created_at": "RFC 3339 timestamp of when the workspace was created.",
+            "archived_at": "RFC 3339 timestamp of when the workspace was archived, or null if active.",
+            "display_color": "Hex color code representing the workspace in the Anthropic Console.",
+        },
+    },
+    "api_keys": {
+        "description": "API keys provisioned across your Anthropic organization's workspaces.",
+        "docs_url": f"{_ADMIN_API_DOCS}/apikeys/list-api-keys",
+        "columns": {
+            "id": "Unique identifier for the API key.",
+            "type": 'Object type, always "api_key".',
+            "name": "Display name of the API key.",
+            "workspace_id": "ID of the workspace the key belongs to, or null for the default workspace.",
+            "created_at": "RFC 3339 timestamp of when the API key was created.",
+            "created_by_id": "ID of the actor that created the API key.",
+            "created_by_type": "Type of the actor that created the API key.",
+            "partial_key_hint": "Partially redacted hint for the API key value.",
+            "status": "Key status: active, archived, expired, or inactive.",
+        },
+    },
+    "workspace_members": {
+        "description": "Membership rows mapping users to the workspaces they belong to, one row per (workspace, user).",
+        "docs_url": f"{_ADMIN_API_DOCS}/workspace_members/list-workspace-members",
+        "columns": {
+            "type": 'Object type, always "workspace_member".',
+            "user_id": "ID of the member user.",
+            "workspace_id": "ID of the workspace the user is a member of.",
+            "workspace_role": "Role within the workspace (workspace_admin, workspace_developer, ...).",
+        },
+    },
+    "usage_report": {
+        "description": "Claude Messages API token usage aggregated into daily buckets, broken down by model, workspace, API key, service tier, context window, and inference geo.",
+        "docs_url": f"{_ADMIN_API_DOCS}/usage-cost/get-messages-usage-report",
+        "columns": {
+            "id": "Synthesized surrogate key: a hash of the bucket start and every grouping dimension.",
+            "starting_at": "Start of the time bucket (inclusive) in RFC 3339 format.",
+            "ending_at": "End of the time bucket (exclusive) in RFC 3339 format.",
+            "account_id": "ID of the user account that made the requests, or null.",
+            "api_key_id": "ID of the API key used, or null.",
+            "service_account_id": "ID of the service account that made the requests, or null.",
+            "workspace_id": "ID of the workspace, or null for the default workspace.",
+            "model": "Model used, or null.",
+            "service_tier": "Service tier used (standard, batch, priority, ...), or null.",
+            "context_window": "Context window bucket used (0-200k or 200k-1M), or null.",
+            "inference_geo": "Inference geo used (global, us, not_available), or null.",
+            "uncached_input_tokens": "Number of uncached input tokens processed.",
+            "cache_read_input_tokens": "Number of input tokens read from the cache.",
+            "cache_creation_ephemeral_1h_input_tokens": "Input tokens used to create the 1-hour cache entry.",
+            "cache_creation_ephemeral_5m_input_tokens": "Input tokens used to create the 5-minute cache entry.",
+            "output_tokens": "Number of output tokens generated.",
+            "web_search_requests": "Number of server-side web search requests made.",
+        },
+    },
+    "cost_report": {
+        "description": "Daily cost in USD for your Anthropic organization, broken down by workspace and cost description.",
+        "docs_url": f"{_ADMIN_API_DOCS}/usage-cost/get-cost-report",
+        "columns": {
+            "id": "Synthesized surrogate key: a hash of the bucket start and every grouping dimension.",
+            "starting_at": "Start of the time bucket (inclusive) in RFC 3339 format.",
+            "ending_at": "End of the time bucket (exclusive) in RFC 3339 format.",
+            "workspace_id": "ID of the workspace the cost is associated with, or null for the default workspace.",
+            "description": "Human-readable description of the cost item.",
+            "cost_type": "Type of cost: tokens, web_search, code_execution, or session_usage.",
+            "model": "Model the cost is attributed to, or null for non-token costs.",
+            "service_tier": "Service tier the cost is attributed to (standard or batch), or null.",
+            "token_type": "Token type the cost is attributed to (e.g. output_tokens), or null.",
+            "context_window": "Input context window the cost is attributed to, or null.",
+            "currency": 'Currency code for the amount, currently always "USD".',
+            "amount": 'Cost amount in the lowest currency unit (cents) as a decimal string, e.g. "123.45".',
+        },
+    },
+}

@@ -11,10 +11,14 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AppMetricsResponseApi,
     AppMetricsTotalsResponseApi,
+    MetricsAttributeValuesRetrieveParams,
+    MetricsAttributesRetrieveParams,
     MetricsValuesRetrieveParams,
     _HasMetricsResponseApi,
     _MetricAnomalyReportApi,
     _MetricAnomalyRequestApi,
+    _MetricAttributeKeysResponseApi,
+    _MetricAttributeValuesResponseApi,
     _MetricNamesResponseApi,
     _MetricQueryRequestApi,
     _MetricQueryResponseApi,
@@ -59,6 +63,72 @@ export const eventFilterMetricsTotalsRetrieve = async (
     options?: RequestInit
 ): Promise<AppMetricsTotalsResponseApi> => {
     return apiMutator<AppMetricsTotalsResponseApi>(getEventFilterMetricsTotalsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMetricsAttributeValuesRetrieveUrl = (
+    projectId: string,
+    params: MetricsAttributeValuesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/metrics/attribute_values/?${stringifiedParams}`
+        : `/api/projects/${projectId}/metrics/attribute_values/`
+}
+
+/**
+ * Observed values for one metric attribute key, most frequent first.
+ * Backs the filter bar's value autocomplete.
+ */
+export const metricsAttributeValuesRetrieve = async (
+    projectId: string,
+    params: MetricsAttributeValuesRetrieveParams,
+    options?: RequestInit
+): Promise<_MetricAttributeValuesResponseApi> => {
+    return apiMutator<_MetricAttributeValuesResponseApi>(getMetricsAttributeValuesRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMetricsAttributesRetrieveUrl = (projectId: string, params?: MetricsAttributesRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/metrics/attributes/?${stringifiedParams}`
+        : `/api/projects/${projectId}/metrics/attributes/`
+}
+
+/**
+ * Distinct attribute keys seen on the team's metrics (datapoint and
+ * resource attributes merged), most frequent first. Backs the filter
+ * bar's key autocomplete.
+ */
+export const metricsAttributesRetrieve = async (
+    projectId: string,
+    params?: MetricsAttributesRetrieveParams,
+    options?: RequestInit
+): Promise<_MetricAttributeKeysResponseApi> => {
+    return apiMutator<_MetricAttributeKeysResponseApi>(getMetricsAttributesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

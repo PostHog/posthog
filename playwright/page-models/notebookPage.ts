@@ -15,8 +15,8 @@ export class NotebookPage {
         this.newNotebookButton = page.getByTestId('new-notebook')
         this.notebooksTable = page.getByTestId('notebooks-table')
         this.searchInput = page.getByTestId('notebooks-search')
-        this.editor = page.getByRole('textbox')
-        this.titleHeading = page.getByRole('heading', { level: 1 })
+        this.editor = page.locator('[data-markdown-notebook-editor]')
+        this.titleHeading = page.locator('.MarkdownNotebook__text-block--title')
     }
 
     async goToList(): Promise<void> {
@@ -36,48 +36,50 @@ export class NotebookPage {
     }
 
     async editTitle(name: string): Promise<void> {
-        const savePromise = this.page.waitForResponse(
-            (response) =>
-                response.url().includes('/api/projects/') &&
-                response.url().includes('/notebooks/') &&
-                response.request().method() === 'PATCH' &&
-                response.status() === 200,
-            { timeout: 15000 }
-        )
-        await this.editor.fill(name)
+        const savePromise = this.waitForSave()
+        await this.titleHeading.click()
+        await this.page.keyboard.press('ControlOrMeta+a')
+        await this.page.keyboard.type(name)
         await expect(this.page).toHaveTitle(new RegExp(name), { timeout: 10000 })
         await savePromise
     }
 
+    /**
+     * Markdown notebooks save through the realtime endpoint
+     * (POST .../collab/markdown_save), not a plain PATCH.
+     */
     async waitForSave(): Promise<void> {
         await this.page.waitForResponse(
             (response) =>
-                response.url().includes('/api/projects/') &&
                 response.url().includes('/notebooks/') &&
-                response.request().method() === 'PATCH' &&
+                response.url().includes('/collab/markdown_save') &&
+                response.request().method() === 'POST' &&
                 response.status() === 200,
             { timeout: 15000 }
         )
+    }
+
+    /** Place the caret in a fresh empty paragraph at the end of the notebook. */
+    async focusNewParagraphAtEnd(): Promise<void> {
+        // Click a text block directly: clicking the canvas itself can land on hover
+        // affordances (add-block boundaries) instead of placing the caret.
+        await this.page.locator('.MarkdownNotebook__text-block').last().click()
+        await this.page.keyboard.press('End')
+        await this.page.keyboard.press('Enter')
     }
 
     async addInsightViaSlashCommand(
         type: 'Trend' | 'Funnel' | 'Retention' | 'Paths' | 'Stickiness' | 'Lifecycle' | 'SQL'
     ): Promise<void> {
         const currentCount = await this.insightNodes.count()
-        const savePromise = this.page.waitForResponse(
-            (response) =>
-                response.url().includes('/api/projects/') &&
-                response.url().includes('/notebooks/') &&
-                response.request().method() === 'PATCH' &&
-                response.status() === 200,
-            { timeout: 30000 }
-        )
-        await this.editor.click()
-        await this.page.keyboard.press('ControlOrMeta+End')
-        await this.page.keyboard.press('Enter')
-        await this.page.keyboard.type(`/${type}`)
-        await expect(this.page.getByRole('button', { name: type, exact: true })).toBeVisible()
-        await this.page.getByRole('button', { name: type, exact: true }).click()
+        const savePromise = this.waitForSave()
+        await this.focusNewParagraphAtEnd()
+        await this.page.keyboard.type('/')
+        await expect(this.page.locator('.MarkdownNotebook__insert-menu')).toBeVisible()
+        await this.page.keyboard.type(type)
+        const menuItem = this.page.getByRole('option', { name: type, exact: true })
+        await expect(menuItem).toBeVisible()
+        await menuItem.click()
         await expect(this.insightNodes).toHaveCount(currentCount + 1, { timeout: 15000 })
         await savePromise
     }
@@ -86,11 +88,15 @@ export class NotebookPage {
         return this.page.getByTestId('notebook-node-query')
     }
 
+    get componentShells(): Locator {
+        return this.page.locator('.MarkdownNotebook__component-shell')
+    }
+
+    /** Open the block's filters/settings panel via its toolbar. */
     async expandInsightNode(index: number = 0): Promise<void> {
-        const node = this.insightNodes.nth(index)
-        await node.hover()
-        const editButton = this.page.getByTestId('notebook-node-edit-settings').nth(index)
-        await editButton.click()
+        const shell = this.componentShells.nth(index)
+        await shell.hover()
+        await shell.getByLabel('Show filters').click()
     }
 
     async waitForInsightLoad(): Promise<void> {
@@ -120,27 +126,10 @@ export class NotebookPage {
         await this.waitForInsightLoad()
     }
 
-    async removeInsightNode(): Promise<void> {
-        const node = this.insightNodes.first()
-        // Click the top-left corner of the node to ensure ProseMirror treats it
-        // as a NodeSelection (not a content selection inside the node)
-        await node.click({ position: { x: 2, y: 2 } })
-        await this.page.keyboard.press('Backspace')
-        await this.page.keyboard.press('Backspace')
-
-        // Wait briefly for ProseMirror to flush the DOM update before checking.
-        // Without this, Locator.count() can see a stale snapshot and trigger
-        // the fallback spuriously.
-        await this.insightNodes.first().waitFor({ state: 'detached', timeout: 2000 }).catch(() => {})
-
-        // If the node wasn't removed (click landed inside content), retry by
-        // clicking the node and pressing Backspace again (avoids selectAll which
-        // could wipe other notebook content)
-        if ((await this.insightNodes.count()) > 0) {
-            await this.insightNodes.first().click({ position: { x: 2, y: 2 } })
-            await this.page.keyboard.press('Backspace')
-            await this.page.keyboard.press('Backspace')
-        }
+    async removeInsightNode(index: number = 0): Promise<void> {
+        const shell = this.componentShells.nth(index)
+        await shell.hover()
+        await shell.getByLabel('Delete component').click()
     }
 
     async deleteFromList(notebookName: string): Promise<void> {

@@ -65,6 +65,7 @@ from posthog.exceptions import (
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.permissions import is_authenticated_via_project_secret_api_key
+from posthog.schema_migrations.upgrade import upgrade
 from posthog.synthetic_user import SyntheticUser
 
 from products.data_modeling.backend.facade.api import saved_query_materialized_at
@@ -888,6 +889,8 @@ class EndpointExecutionService(PydanticModelMixin):
         try:
             strategy = strategy_for(endpoint, version, self.team)
 
+            # Stored snapshots may predate the current query schema
+            query = upgrade(query)
             query = strategy.prepare_inline_query(query)
 
             pagination: EndpointPagination | None = None

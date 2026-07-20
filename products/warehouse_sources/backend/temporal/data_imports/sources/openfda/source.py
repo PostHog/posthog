@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class OpenFDASource(ResumableSource[OpenFDASourceConfig, OpenFDAResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://open.fda.gov/apis/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -68,7 +69,6 @@ An API key is optional but recommended. Without one, openFDA limits you to 1,000
                 ],
             ),
             keywords=["fda", "openfda", "drug", "device", "food"],
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

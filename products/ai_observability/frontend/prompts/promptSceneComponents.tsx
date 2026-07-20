@@ -1,11 +1,21 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
-import { lazy, Suspense, useRef } from 'react'
+import { Suspense, useRef } from 'react'
 
 import { IconColumns, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonModal, LemonSelect, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonModal,
+    LemonSelect,
+    LemonTabs,
+    LemonTag,
+    LemonTextArea,
+    Link,
+} from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -13,6 +23,9 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { lazyWithRetry } from 'lib/utils/retryImport'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
@@ -28,7 +41,7 @@ import { PromptAnalyticsScope, isPrompt, llmPromptLogic } from './llmPromptLogic
 import { promptExperimentsLogic } from './promptExperimentsLogic'
 import { PROMPT_NAME_MAX_LENGTH } from './utils'
 
-const MonacoDiffEditor = lazy(() => import('lib/components/MonacoDiffEditor'))
+const MonacoDiffEditor = lazyWithRetry(() => import('lib/components/MonacoDiffEditor'))
 
 function PromptOutline({
     promptText,
@@ -158,7 +171,14 @@ export function PromptViewDetails(): JSX.Element {
             </div>
 
             <div className="grid max-w-3xl gap-3 text-sm text-secondary sm:grid-cols-2">
-                <div>Published {dayjs(prompt.created_at).format('MMM D, YYYY h:mm A')}</div>
+                <div className="flex flex-wrap items-center gap-1">
+                    Published {dayjs(prompt.created_at).format('MMM D, YYYY h:mm A')}
+                    {prompt.created_by ? (
+                        <span className="flex items-center gap-1">
+                            by <ProfilePicture user={prompt.created_by} showName size="sm" />
+                        </span>
+                    ) : null}
+                </div>
                 <div>First version created {dayjs(prompt.first_version_created_at).format('MMM D, YYYY h:mm A')}</div>
             </div>
 
@@ -386,12 +406,111 @@ export function PromptRelatedTraces(): JSX.Element {
     )
 }
 
+function extractPromptVariables(promptText: string): string[] {
+    const matches = promptText.match(/\{\{([^}]+)\}\}/g)
+    return matches ? [...new Set(matches.map((match) => match.slice(2, -2).trim()))] : []
+}
+
+function buildPythonSnippet(promptName: string, host: string, projectApiKey: string, variables: string[]): string {
+    const compileLines = variables.length
+        ? `\nsystem_prompt = prompts.compile(result.prompt, {${variables.map((v) => `${JSON.stringify(v)}: '...'`).join(', ')}})`
+        : ''
+    return `from posthog import Posthog
+from posthog.ai.prompts import Prompts
+
+posthog = Posthog(
+    '${projectApiKey}',
+    host='${host}',
+    personal_api_key='<personal_api_key>',  # scope: llm_prompt:read
+)
+prompts = Prompts(posthog)
+
+result = prompts.get(${JSON.stringify(promptName)}, with_metadata=True, fallback='You are a helpful assistant.')${compileLines}
+# result.name / result.version -> send as $ai_prompt_name / $ai_prompt_version on your LLM events`
+}
+
+function buildNodeSnippet(promptName: string, host: string, projectApiKey: string, variables: string[]): string {
+    const compileLines = variables.length
+        ? `\nconst systemPrompt = prompts.compile(result.prompt, {${variables.map((v) => ` ${JSON.stringify(v)}: '...'`).join(',')} })`
+        : ''
+    return `import { Prompts } from '@posthog/ai'
+import { PostHog } from 'posthog-node'
+
+const posthog = new PostHog('${projectApiKey}', {
+    host: '${host}',
+    personalApiKey: '<personal_api_key>', // scope: llm_prompt:read
+})
+const prompts = new Prompts({ posthog })
+
+const result = await prompts.get(${JSON.stringify(promptName)}, { fallback: 'You are a helpful assistant.' })${compileLines}
+// result.name / result.version -> send as $ai_prompt_name / $ai_prompt_version on your LLM events`
+}
+
+export function PromptCodeSnippets({ prompt }: { prompt: LLMPrompt }): JSX.Element {
+    const { snippetLanguage } = useValues(llmPromptLogic)
+    const { setSnippetLanguage } = useActions(llmPromptLogic)
+    const { currentTeam } = useValues(teamLogic)
+
+    const host = window.location.origin
+    const projectApiKey = currentTeam?.api_token ?? '<project_api_key>'
+    const variables = extractPromptVariables(prompt.prompt)
+
+    return (
+        <div className="mb-6" data-attr="llma-prompt-code-snippets">
+            <div className="mb-2 flex items-center justify-between gap-2">
+                <div>
+                    <b>Use this prompt in your code</b>
+                    <div className="text-secondary text-sm">
+                        Fetch the latest version at runtime — publish new versions without deploying.
+                    </div>
+                </div>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    to="https://posthog.com/docs/prompt-management"
+                    targetBlank
+                    data-attr="llma-prompt-snippet-docs-link"
+                >
+                    Read the docs
+                </LemonButton>
+            </div>
+            <LemonTabs
+                activeKey={snippetLanguage}
+                onChange={(key) => setSnippetLanguage(key)}
+                size="small"
+                tabs={[
+                    {
+                        key: 'python' as const,
+                        label: 'Python',
+                        content: (
+                            <CodeSnippet language={Language.Python}>
+                                {buildPythonSnippet(prompt.name, host, projectApiKey, variables)}
+                            </CodeSnippet>
+                        ),
+                    },
+                    {
+                        key: 'node' as const,
+                        label: 'Node.js',
+                        content: (
+                            <CodeSnippet language={Language.JavaScript}>
+                                {buildNodeSnippet(prompt.name, host, projectApiKey, variables)}
+                            </CodeSnippet>
+                        ),
+                    },
+                ]}
+            />
+        </div>
+    )
+}
+
 export function PromptUsage({ prompt }: { prompt: LLMPrompt }): JSX.Element {
     const { promptUsageLogQuery, promptUsageTrendQuery, analyticsScope } = useValues(llmPromptLogic)
     const { setAnalyticsScope } = useActions(llmPromptLogic)
 
     return (
         <div data-attr="llma-prompt-usage-container">
+            <PromptCodeSnippets prompt={prompt} />
+
             <LemonBanner type="info" className="mb-4">
                 During the beta period, each prompt fetch is currently charged as a Product analytics event. See the{' '}
                 <Link to="https://posthog.com/pricing" target="_blank">
@@ -595,7 +714,7 @@ export function PromptEditForm({
                 help={
                     isNewPrompt
                         ? `This name is used to fetch the prompt from your code. It must be unique and cannot be changed later. Maximum ${PROMPT_NAME_MAX_LENGTH} characters. Only letters, numbers, hyphens (-), and underscores (_) are allowed.`
-                        : 'This name is used to fetch the prompt from your code.'
+                        : 'This name is used to fetch the prompt from your code. To use a different name, duplicate the prompt.'
                 }
             >
                 <LemonInput

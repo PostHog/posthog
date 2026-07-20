@@ -15,7 +15,9 @@ import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
+import { buildToolDomainsCompact } from '@/lib/instructions'
 import { RENDER_UI_RESOURCE_URI, URI_MAP } from '@/resources/ui-apps.generated'
+import { getToolDefinition } from '@/tools/toolDefinitions'
 
 // A tool with a renderable (dispatchable) UI app — used to exercise the render-ui path.
 const uiAppTool = {
@@ -50,6 +52,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
             isCliModeEnabled: vi.fn(() => false),
             isClaudeUiHost: vi.fn(() => false),
             isInlineExecUiHost: vi.fn(() => false),
+            isClaudeChatHost: vi.fn(() => false),
         } as any,
         requestContext: {
             sessionId: 'sess-1',
@@ -186,30 +189,30 @@ describe('ToolExecutor', () => {
         // Env-context (active project metadata + tool-domain index) must reach the model
         // on the exec `command` for clients that don't otherwise receive the `instructions`
         // payload: Codex reports `supportsInstructions: false` so never gets it, and Claude
-        // web/desktop report `true` but silently ignore it. Claude Code strips it here
-        // because it arrives via `instructions` instead.
+        // web/desktop report `true` but silently ignore it. Claude Code and Cowork strip
+        // it here because it arrives via `instructions` instead.
         it.each([
             {
                 label: 'Claude web/desktop (ignores instructions)',
                 supportsInstructions: true,
-                isClaudeUiHost: true,
+                isClaudeChatHost: true,
                 expectEnv: true,
             },
             {
                 label: 'Codex (supportsInstructions: false)',
                 supportsInstructions: false,
-                isClaudeUiHost: false,
+                isClaudeChatHost: false,
                 expectEnv: true,
             },
             {
-                label: 'Claude Code (consumes instructions)',
+                label: 'Claude Code / Cowork (consume instructions)',
                 supportsInstructions: true,
-                isClaudeUiHost: false,
+                isClaudeChatHost: false,
                 expectEnv: false,
             },
         ])(
             'injects project metadata into the exec command for $label → $expectEnv',
-            async ({ supportsInstructions, isClaudeUiHost, expectEnv }) => {
+            async ({ supportsInstructions, isClaudeChatHost, expectEnv }) => {
                 const tools = catalog
                     .getPreBuiltEntries()
                     .slice(0, 5)
@@ -222,14 +225,23 @@ describe('ToolExecutor', () => {
                     clientProfile: {
                         capabilities: { supportsInstructions },
                         isCliModeEnabled: vi.fn(() => true),
-                        isClaudeUiHost: vi.fn(() => isClaudeUiHost),
+                        isClaudeUiHost: vi.fn(() => false),
+                        isInlineExecUiHost: vi.fn(() => false),
+                        isClaudeChatHost: vi.fn(() => isClaudeChatHost),
                     } as any,
                 })
 
                 const result = await executor.handleToolsList(state)
                 const commandDesc = (result.tools[0]!.inputSchema.properties as any).command.description as string
+                const compactDomains = buildToolDomainsCompact(
+                    tools.map(({ name }) => ({ name, category: getToolDefinition(name).category }))
+                )
 
                 expect(commandDesc).toContain('PostHog tools have lowercase kebab-case naming')
+                expect(commandDesc.includes('**LEARN FIRST: HARD REQUIREMENT**')).toBe(isClaudeChatHost)
+                expect(commandDesc.includes('- analytics:')).toBe(isClaudeChatHost)
+                expect(commandDesc.includes('### Retrieving data')).toBe(!isClaudeChatHost)
+                expect(commandDesc.includes(compactDomains)).toBe(isClaudeChatHost)
                 if (expectEnv) {
                     expect(commandDesc).toContain(metadataMarker)
                 } else {
@@ -237,6 +249,37 @@ describe('ToolExecutor', () => {
                 }
             }
         )
+
+        it('serves multiple optional guidance topics through exec learn for Claude web/desktop', async () => {
+            const state = makeState(
+                catalog
+                    .getPreBuiltEntries()
+                    .slice(0, 5)
+                    .map(({ name }) => ({ name })),
+                {
+                    useSingleExec: true,
+                    renderUiEnabled: true,
+                    clientProfile: {
+                        capabilities: { supportsInstructions: true },
+                        isCliModeEnabled: vi.fn(() => true),
+                        isClaudeUiHost: vi.fn(() => false),
+                        isInlineExecUiHost: vi.fn(() => false),
+                        isClaudeChatHost: vi.fn(() => true),
+                    } as any,
+                }
+            )
+
+            const result = (await executor.handleToolCall(
+                { name: 'exec', arguments: { command: 'learn analytics visualizations' } },
+                state
+            )) as { content: { text: string }[] }
+
+            expect(result.content[0]!.text).toContain('## Analytics')
+            expect(result.content[0]!.text).toContain('### Retrieving data')
+            expect(result.content[0]!.text).toContain('### Examples')
+            expect(result.content[0]!.text).toContain('## Visualizations')
+            expect(result.content[0]!.text).toContain('### Rendering visualizations')
+        })
 
         it('lists render-ui alongside exec when render-ui is enabled and a UI-app tool is available', async () => {
             const state = makeState([uiAppTool], { useSingleExec: true, renderUiEnabled: true })
@@ -254,7 +297,7 @@ describe('ToolExecutor', () => {
             expect(renderUiEntry.inputSchema.required).toEqual(['tool_name'])
         })
 
-        it('omits render-ui when the flag is off, even with a UI-app tool available', async () => {
+        it('omits render-ui when render-ui is disabled, even with a UI-app tool available', async () => {
             const state = makeState([uiAppTool], { useSingleExec: true, renderUiEnabled: false })
 
             const result = await executor.handleToolsList(state)
@@ -263,7 +306,7 @@ describe('ToolExecutor', () => {
     })
 
     describe('render-ui', () => {
-        it('dispatches to the render-ui payload when the flag is on', async () => {
+        it('dispatches to the render-ui payload when render-ui is enabled', async () => {
             const state = makeState([uiAppTool], { useSingleExec: true, renderUiEnabled: true })
 
             const result = (await executor.handleToolCall(
@@ -276,7 +319,7 @@ describe('ToolExecutor', () => {
             expect(result.structuredContent.app_key).toBe('survey')
         })
 
-        it('rejects a render-ui call when the flag is off', async () => {
+        it('rejects a render-ui call when render-ui is disabled', async () => {
             const state = makeState([uiAppTool], { useSingleExec: true, renderUiEnabled: false })
 
             const result = (await executor.handleToolCall(

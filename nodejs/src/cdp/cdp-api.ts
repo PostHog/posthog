@@ -25,6 +25,7 @@ import {
 import { HogTransformerService, createHogTransformerService } from './hog-transformations/hog-transformer.service'
 import { RerunJobManager } from './rerun/rerun-job.manager'
 import { RerunRequest } from './rerun/rerun-job.types'
+import { HogFlowAction } from './schema/hogflow'
 import { BatchExportHogFunctionService, NotFoundError, ParseError } from './services/batch-export-hog-function.service'
 import type { CyclotronV2JobProducer } from './services/cyclotron-v2'
 import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
@@ -35,6 +36,7 @@ import {
 } from './services/hogflows/batch-resolver.types'
 import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
+import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
 import { InvocationResultsService } from './services/invocation-results.service'
 import { JobQueue } from './services/job-queue/job-queue.interface'
 import { GroupsManagerService } from './services/managers/groups-manager.service'
@@ -54,6 +56,7 @@ import {
     sanitizeLogMessage,
 } from './utils'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
+import { JWT, PosthogJwtAudience } from './utils/jwt-utils'
 
 // Allowlist of safe content types for webhook responses to prevent XSS
 const SAFE_CONTENT_TYPES = new Set([
@@ -77,6 +80,25 @@ function sanitizeContentType(contentType: string | undefined, fallback: string):
         return normalized
     }
     return fallback
+}
+
+// Matches the default email template's `to.email` value: `{{ person.properties.email }}`, whitespace-tolerant.
+// Anything else (custom property, computed Liquid, static address) makes the dedupe key diverge from the
+// actual send target — see `canDedupeByEmail`.
+const DEFAULT_EMAIL_TO_TEMPLATE_RE = /^\s*\{\{\s*person\.properties\.email\s*\}\}\s*$/
+
+function canDedupeByEmail(hogFlow: { actions?: unknown }): boolean {
+    if (!Array.isArray(hogFlow.actions)) {
+        return false
+    }
+    const emailActions = hogFlow.actions.filter((action: any) => action?.type === 'function_email')
+    if (emailActions.length === 0) {
+        return false
+    }
+    return emailActions.every((action: any) => {
+        const toEmail = action?.config?.inputs?.email?.value?.to?.email
+        return typeof toEmail === 'string' && DEFAULT_EMAIL_TO_TEMPLATE_RE.test(toEmail)
+    })
 }
 
 export type CdpApiConfig = PluginsServerConfig
@@ -103,6 +125,10 @@ export class CdpApi {
     private batchExportHogFunctionService: BatchExportHogFunctionService
     private groupsManager: GroupsManagerService
     private batchResolverProducer: CyclotronV2JobProducer | null
+    // Scoped auth for the reschedule_parked route (exempted from the shared internal-secret
+    // middleware): Django mints per-call JWTs pinned to a team + workflow. Null when the key
+    // isn't provisioned — the route then fails closed.
+    private rescheduleJwt: JWT | null
 
     constructor(
         private config: PluginsServerConfig,
@@ -138,7 +164,8 @@ export class CdpApi {
             services.capturedEventsService,
             services.teamWorkflowsConfigService,
             services.recipientsManager,
-            new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL)
+            new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL),
+            services.emailSuppressionService
         )
         this.groupsManager = new GroupsManagerService(deps.teamManager, deps.groupRepository)
         this.batchExportHogFunctionService = new BatchExportHogFunctionService(
@@ -151,6 +178,9 @@ export class CdpApi {
             this.invocationResultsService
         )
         this.batchResolverProducer = batchResolverProducer
+        this.rescheduleJwt = config.WORKFLOWS_RESCHEDULE_JWT_SECRET
+            ? new JWT(config.WORKFLOWS_RESCHEDULE_JWT_SECRET)
+            : null
     }
 
     public get service(): PluginServerService {
@@ -217,6 +247,11 @@ export class CdpApi {
             asyncHandler(this.postRerunInvocations('hog_function'))
         )
         router.post('/api/projects/:team_id/hog_flows/:id/rerun', asyncHandler(this.postRerunInvocations('hog_flow')))
+        router.get('/api/projects/:team_id/hog_flows/:id/in_flight_count', asyncHandler(this.getHogFlowInFlightCount))
+        router.post(
+            '/api/projects/:team_id/hog_flows/:id/reschedule_parked',
+            asyncHandler(this.postHogFlowRescheduleParked)
+        )
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
         router.get('/api/hog_functions/states', asyncHandler(this.getFunctionStates()))
@@ -340,7 +375,12 @@ export class CdpApi {
             const { clickhouse_event, mock_async_functions, configuration, invocation_id } = req.body
             let { globals } = req.body
 
-            logger.info('⚡️', 'Received invocation', { id, team_id, body: req.body })
+            // Redact configuration: it carries function inputs (auth headers, API keys) that must not land in logs
+            logger.info('⚡️', 'Received invocation', {
+                id,
+                team_id,
+                body: { ...req.body, configuration: configuration ? '[redacted]' : undefined },
+            })
 
             const invocationID = invocation_id ?? new UUIDT().toString()
 
@@ -507,7 +547,12 @@ export class CdpApi {
             const { id, team_id } = req.params
             const { clickhouse_event, configuration, invocation_id, current_action_id, mock_async_functions } = req.body
 
-            logger.info('⚡️', 'Received hogflow invocation', { id, team_id, body: req.body })
+            // Redact configuration: it carries action inputs (auth headers, API keys) that must not land in logs
+            logger.info('⚡️', 'Received hogflow invocation', {
+                id,
+                team_id,
+                body: { ...req.body, configuration: configuration ? '[redacted]' : undefined },
+            })
 
             const invocationID = invocation_id ?? new UUIDT().toString()
 
@@ -588,6 +633,35 @@ export class CdpApi {
                 : undefined
 
             const logs: MinimalLogEntry[] = []
+
+            // In production a wait_until_condition step's "events to wait for" are evaluated by the
+            // subscription matcher against incoming events (never by the executor), so a plain
+            // executeCurrentAction could not advance past one. Simulate the matcher here: when the
+            // supplied test event matches, tag the invocation the same way a real match would, and
+            // the handler advances to the next step.
+            const currentAction: HogFlowAction | undefined = current_action_id
+                ? compoundConfiguration.actions?.find((a: HogFlowAction) => a.id === current_action_id)
+                : undefined
+            if (currentAction?.type === 'wait_until_condition' && invocation.state.currentAction) {
+                const matched = await matchesWaitUntilCondition(currentAction, filterGlobals, {
+                    hogFlowId: isNewHogFlow ? 'new' : id,
+                    actionId: currentAction.id,
+                })
+                if (matched) {
+                    invocation.state.currentAction.eventMatched = true
+                    invocation.state.currentAction.eventMatchedEvent = globals.event.event
+                    invocation.state.currentAction.eventMatchedEventUuid = globals.event.uuid
+                    invocation.state.currentAction.eventMatchedEventTimestamp = globals.event.timestamp
+                }
+                logs.push({
+                    level: 'info',
+                    timestamp: DateTime.now(),
+                    message: matched
+                        ? `Test event '${globals.event.event}' matched the wait conditions`
+                        : `Test event '${globals.event.event}' did not match the wait conditions - the workflow would continue waiting`,
+                })
+            }
+
             const options: HogExecutorExecuteAsyncOptions = buildHogExecutorAsyncOptions(mock_async_functions, logs)
             options.sendEmailsInline = true
             const result = await this.hogFlowExecutor.executeCurrentAction(invocation, { hogExecutorOptions: options })
@@ -749,6 +823,129 @@ export class CdpApi {
             }
         }
 
+    // How many of this workflow's runs are still in flight (parked on waits/delays or actively
+    // executing). Django calls this to show publish/edit impact before a live workflow changes.
+    private getHogFlowInFlightCount = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+        try {
+            if (!this.batchResolverProducer) {
+                return res.status(503).json({
+                    error: 'Cyclotron producer not initialized (CYCLOTRON_NODE_DATABASE_URL unset)',
+                })
+            }
+
+            const { team_id, id } = req.params
+            const team = await this.deps.teamManager.getTeam(parseInt(team_id)).catch(() => null)
+            if (!team) {
+                return res.status(404).json({ error: 'Team not found' })
+            }
+
+            const hogFlow = await this.hogFlowManager.getHogFlow(id)
+            if (!hogFlow || hogFlow.team_id !== team.id) {
+                return res.status(404).json({ error: 'Workflow not found' })
+            }
+
+            const count = await this.batchResolverProducer.countInFlightJobs(team.id, id)
+            return res.json({ count })
+        } catch (e) {
+            logger.error('Error counting in-flight hog flow jobs', {
+                error: e instanceof Error ? e.message : String(e),
+            })
+            return res.status(500).json({ error: e instanceof Error ? e.message : String(e) })
+        }
+    }
+
+    // Pull forward the wake times of this workflow's parked jobs after a timing edit. Django
+    // calls this (via a Celery task) when a published/saved change shortened a delay or moved a
+    // wait window; one call is one slice, and the caller loops with the returned bounds until
+    // `done`. See CyclotronV2Manager.rescheduleParkedJobs for the sweep semantics.
+    //
+    // Auth: a scoped JWT minted by Django per call, pinned to this team + workflow — NOT the
+    // fleet-wide internal secret (the route is exempted from that middleware). Fails closed when
+    // the key isn't provisioned.
+    private postHogFlowRescheduleParked = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+        try {
+            if (!this.batchResolverProducer) {
+                return res.status(503).json({
+                    error: 'Cyclotron producer not initialized (CYCLOTRON_NODE_DATABASE_URL unset)',
+                })
+            }
+            if (!this.rescheduleJwt) {
+                return res.status(503).json({
+                    error: 'Reschedule auth not configured (WORKFLOWS_RESCHEDULE_JWT_SECRET unset)',
+                })
+            }
+
+            const { team_id, id } = req.params
+
+            const authHeader = req.headers['authorization']
+            const token =
+                typeof authHeader === 'string' && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : undefined
+            const claims = token
+                ? (this.rescheduleJwt.verify(token, PosthogJwtAudience.WORKFLOWS_RESCHEDULE_PARKED, {
+                      ignoreVerificationErrors: true,
+                  }) as { team_id?: number; hog_flow_id?: string } | undefined)
+                : undefined
+            // The claims pin the token to one team + workflow, so a leaked token can't sweep anything else.
+            if (!claims || claims.team_id !== parseInt(team_id) || claims.hog_flow_id !== id) {
+                return res.status(401).json({ error: 'Unauthorized: Invalid reschedule token' })
+            }
+
+            const team = await this.deps.teamManager.getTeam(parseInt(team_id)).catch(() => null)
+            if (!team) {
+                return res.status(404).json({ error: 'Team not found' })
+            }
+
+            const hogFlow = await this.hogFlowManager.getHogFlow(id)
+            if (!hogFlow || hogFlow.team_id !== team.id) {
+                return res.status(404).json({ error: 'Workflow not found' })
+            }
+
+            const body = req.body ?? {}
+            const actionIds = body.action_ids
+            if (
+                !Array.isArray(actionIds) ||
+                actionIds.length === 0 ||
+                actionIds.length > 100 ||
+                !actionIds.every((a: unknown) => typeof a === 'string' && a.length > 0)
+            ) {
+                return res.status(400).json({ error: 'action_ids must be a non-empty array of up to 100 strings' })
+            }
+            const sweepFloor = body.sweep_floor ? new Date(body.sweep_floor) : undefined
+            const sweepUntil = body.sweep_until ? new Date(body.sweep_until) : undefined
+            if ((sweepFloor && isNaN(sweepFloor.getTime())) || (sweepUntil && isNaN(sweepUntil.getTime()))) {
+                return res.status(400).json({ error: 'sweep_floor and sweep_until must be ISO datetimes' })
+            }
+            if (
+                (sweepFloor === undefined) !== (sweepUntil === undefined) ||
+                (sweepFloor && sweepUntil && sweepFloor >= sweepUntil)
+            ) {
+                return res
+                    .status(400)
+                    .json({ error: 'sweep_floor and sweep_until must be passed together, with floor before until' })
+            }
+
+            const result = await this.batchResolverProducer.rescheduleParkedJobs({
+                teamId: team.id,
+                functionId: id,
+                actionIds,
+                sweepFloor,
+                sweepUntil,
+            })
+            return res.json({
+                swept: result.swept,
+                remaining: result.remaining,
+                done: result.done,
+                sweep_floor: result.sweepFloor.toISOString(),
+                sweep_until: result.sweepUntil.toISOString(),
+            })
+        } catch (e) {
+            logger.error('Error rescheduling parked hog flow jobs', {
+                error: e instanceof Error ? e.message : String(e),
+            })
+            return res.status(500).json({ error: e instanceof Error ? e.message : String(e) })
+        }
+    }
+
     private postHogFlowBatchInvocation = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
         try {
             const { id, team_id, parent_run_id } = req.params
@@ -788,6 +985,11 @@ export class CdpApi {
                 },
                 variables: req.body.variables ?? {},
                 groupTypeIndex: typeof req.body.group_type_index === 'number' ? req.body.group_type_index : undefined,
+                // Only dedupe by email when every email action's `to` template is exactly the default
+                // `{{ person.properties.email }}`. Custom recipients (work_email, computed Liquid, static
+                // strings) would make the dedupe key diverge from the actual send target — better to skip
+                // dedupe than dedupe wrongly. Also skip when the flow has no email action at all.
+                dedupeKey: canDedupeByEmail(hogFlow) ? ('email' as const) : undefined,
                 maxAudienceSize: maxAudienceSize ?? this.config.CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE,
                 cursor: null,
                 totalEnqueued: 0,

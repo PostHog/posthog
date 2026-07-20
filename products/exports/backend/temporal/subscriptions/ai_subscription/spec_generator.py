@@ -87,7 +87,7 @@ WINDOW_PLACEHOLDERS = (
 )
 # Bumping invalidates every frozen plan (they lazily re-plan on next delivery), so prompt/harness
 # improvements reach existing subscriptions instead of only new ones.
-AI_QUERY_PLAN_VERSION = 1
+AI_QUERY_PLAN_VERSION = 3
 
 
 DEFAULT_PLANNER_MODEL = "gpt-4.1"
@@ -504,8 +504,9 @@ def build_context_blob(team: Team, window: ReportWindow, relevant_events: Sequen
     group_labels = _group_type_labels(team)
     if group_labels:
         lines.append(
-            "- Group/account types (reference as group_<index>.properties.<name>, no JOIN needed): "
-            + ", ".join(group_labels)
+            "- Group/account types (properties via group_<index>.properties.<name>; count/aggregate "
+            "the account itself via the raw key $group_<index>, e.g. uniq($group_2), never bare "
+            "group_<index>; no JOIN needed): " + ", ".join(group_labels)
         )
     return "\n".join(lines)
 
@@ -561,7 +562,9 @@ def build_enriched_prompt(
         user=user,
         trace_correlation_id=trace_correlation_id,
     )
-    return EnrichedPromptSpec(cleaned_prompt=cleaned, context_blob=context_blob, plan=plan)
+    return EnrichedPromptSpec(
+        cleaned_prompt=cleaned, context_blob=context_blob, plan=plan, relevant_events=relevant_events
+    )
 
 
 def build_frozen_prompt(
@@ -584,5 +587,12 @@ def build_frozen_prompt(
         plan = QueryPlan.model_validate(ai_query_plan.get("plan"))
     except ValidationError as exc:
         raise StoredPlanInvalidError("Stored query plan is malformed.") from exc
-    context_blob = build_context_blob(team, window)
-    return EnrichedPromptSpec(cleaned_prompt=cleaned, context_blob=context_blob, plan=plan)
+    # Rebuild the property-aware blob from the events the plan was built against — without them the
+    # frozen fixer would only see event names, not the per-event properties it needs to repair a
+    # wrong field. The version bump guarantees pre-relevant_events envelopes re-plan rather than
+    # silently running with an empty list.
+    relevant_events = ai_query_plan.get("relevant_events") or []
+    context_blob = build_context_blob(team, window, relevant_events=relevant_events)
+    return EnrichedPromptSpec(
+        cleaned_prompt=cleaned, context_blob=context_blob, plan=plan, relevant_events=relevant_events
+    )

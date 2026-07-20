@@ -101,3 +101,61 @@ class ProductPushCampaign(UUIDModel, UpdatedMetaFields):
 
     def __str__(self) -> str:
         return f"{self.organization_id} - {self.product_key} ({self.status})"
+
+
+class OrganizationEnrichment(UUIDModel):
+    # db_constraint=False keeps CreateModel off posthog_organization's lock path (hot table)
+    organization = models.OneToOneField(
+        "posthog.Organization", on_delete=models.CASCADE, db_constraint=False, related_name="enrichment_record"
+    )
+    # Namespaced deterministic enrichment signals, e.g. company_type_deterministic
+    data = models.JSONField(default=dict)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class OrganizationEnrichmentFetch(UUIDModel):
+    """Append-only archive of raw provider responses, one row per fetch.
+
+    The signup attempt and any later recheck are separate rows on purpose: provider
+    responses are time-varying, so each fetch is a distinct observation kept verbatim —
+    including a not-found, which is evidence too.
+    """
+
+    # db_constraint=False keeps CreateModel off posthog_organization's lock path (hot table)
+    organization = models.ForeignKey(
+        "posthog.Organization",
+        on_delete=models.CASCADE,
+        db_constraint=False,
+        related_name="enrichment_fetches",
+    )
+    provider = models.CharField(max_length=64)
+    fetched_at = models.DateTimeField(auto_now_add=True)
+    is_recheck = models.BooleanField(default=False)
+    # The provider response verbatim, before any transform into the field registry.
+    payload = models.JSONField(default=dict)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["organization", "fetched_at"], name="growth_enrich_fetch_org_time"),
+        ]
+
+
+class EnrichmentSignupSnapshot(UUIDModel):
+    """Write-once marker that the at-signup enrichment snapshot has been emitted for an org.
+
+    Stores no firmographic values (those live only on the person-scoped snapshot event); this
+    row is purely the idempotency guard and provenance timestamp. The OneToOne unique constraint
+    lets concurrent runs make at most one row per org.
+    """
+
+    # db_constraint=False keeps CreateModel off posthog_organization's lock path (hot table);
+    # the OneToOne still gives the write-once uniqueness guarantee.
+    organization = models.OneToOneField(
+        "posthog.Organization",
+        on_delete=models.CASCADE,
+        db_constraint=False,
+        related_name="enrichment_signup_snapshot",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)

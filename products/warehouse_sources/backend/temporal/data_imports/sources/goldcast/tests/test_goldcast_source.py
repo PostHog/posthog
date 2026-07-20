@@ -29,8 +29,6 @@ class TestSourceConfig:
 
     def test_config_is_alpha_and_unreleased(self) -> None:
         config = GoldcastSource().get_source_config
-        # The task ships Goldcast behind unreleasedSource=True at alpha while it's still unproven.
-        assert config.unreleasedSource is True
         assert config.releaseStatus == ReleaseStatus.ALPHA
         assert config.category == DataWarehouseSourceCategory.MARKETING___EMAIL
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/goldcast"

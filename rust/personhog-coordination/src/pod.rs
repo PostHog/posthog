@@ -26,8 +26,12 @@ use crate::util;
 /// crash-restart inside its lease TTL, which preserves its registration
 /// and assignments but wipes its cache and fences) is repaired by
 /// re-deriving rather than by replaying remembered events.
+/// Public because the stateright model (`personhog-stateright`) drives
+/// its pod transitions through this exact function — the model checks
+/// the code production runs, so the pod state machine cannot drift from
+/// its verified form.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DesiredState {
+pub enum DesiredState {
     /// This pod owns the partition and no handoff constrains it: cache
     /// warm, writes admitted. Also the old owner's state during Freezing
     /// (routers are still collecting the freeze quorum; writes keep
@@ -56,7 +60,7 @@ enum DesiredState {
 /// when it involves this pod, takes precedence over the assignment: the
 /// assignment names the *old* owner (or nobody) for the whole life of a
 /// handoff and only flips to the new owner atomically at Complete.
-fn desired_state(
+pub fn desired_state(
     pod: &str,
     assignment: Option<&PartitionAssignment>,
     handoff: Option<&HandoffState>,
