@@ -326,4 +326,33 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
         expect(ticketUpdateMock).not.toHaveBeenCalled()
         expect(logic.values.status).toBe('open')
     })
+
+    // Overlapping updates must serialize: the second PATCH waits for the first and carries the
+    // newest local edits, and the first (stale) response must not clobber them via setTicket.
+    it('serializes overlapping updates so the newest status wins', async () => {
+        let resolveFirst: (() => void) | undefined
+        ticketUpdateMock.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    resolveFirst = () => resolve({ ...loadedTicket(), status: 'resolved' })
+                })
+        )
+        ticketUpdateMock.mockImplementationOnce((_id: string, data: Record<string, unknown>) =>
+            Promise.resolve({ ...loadedTicket(), ...data })
+        )
+
+        logic.actions.setStatus('resolved')
+        logic.actions.updateTicket()
+        logic.actions.setStatus('pending')
+        logic.actions.updateTicket()
+
+        expect(ticketUpdateMock).toHaveBeenCalledTimes(1)
+        resolveFirst?.()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(ticketUpdateMock).toHaveBeenCalledTimes(2)
+        expect(ticketUpdateMock).toHaveBeenLastCalledWith('42', expect.objectContaining({ status: 'pending' }))
+        expect(logic.values.status).toBe('pending')
+        expect(logic.values.ticketUpdating).toBe(false)
+    })
 })

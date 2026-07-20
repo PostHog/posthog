@@ -85,6 +85,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         exceptionsQuery,
         chatPanelWidth,
         hasUnsavedChanges,
+        ticketUpdating,
         draftContent,
         draftIsPrivate,
         draftModeEnabled,
@@ -453,6 +454,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                 type="primary"
                                 size="small"
                                 onClick={() => updateTicket()}
+                                loading={ticketUpdating}
                                 disabledReason={!hasUnsavedChanges ? 'No changes to save' : undefined}
                             >
                                 Save changes
