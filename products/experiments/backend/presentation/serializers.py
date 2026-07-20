@@ -1227,9 +1227,9 @@ class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
         required=False,
         help_text=(
             "Transient retry state per metric_uuid: {attempt, max_attempts, error_type, message, "
-            "next_retry_at}. message is the server error that triggered the retry. Present only while a "
-            "metric is between failed attempts; cleared when it succeeds or fails terminally, so treat "
-            "entries for metrics that already have a result as stale."
+            "next_retry_at}. message is a user-safe description of the error that triggered the retry. "
+            "Present only while a metric is between failed attempts; cleared when it succeeds or "
+            "fails terminally, so treat entries for metrics that already have a result as stale."
         ),
     )
     trigger = serializers.ChoiceField(
