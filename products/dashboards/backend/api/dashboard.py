@@ -854,8 +854,6 @@ class DashboardTileErrorSerializer(DashboardTileSerializer):
     def to_representation(self, instance: DashboardTile):
         representation = super().to_representation(instance)
 
-        # Mirror InsightSerializer.to_representation's dashboard-context access redaction so a user
-        # denied the insight can't read its name/query/filters via the error fallback.
         insight = instance.insight
         if insight is not None and self.context.get("dashboard"):
             insight_representation = representation.get("insight") or {}
@@ -2093,9 +2091,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 try:
                     tile_data = reused_serializer.to_representation(tile)
                 except Exception:
-                    # Match serialize_tile_with_context's broad catch so a non-validation failure
-                    # (e.g. RuntimeError from get_result) degrades to an error tile instead of
-                    # 500-ing the whole non-streaming dashboard.
                     order, tile_data = serialize_tile_with_context(tile, order, self.context)
                 serialized_tiles.append(cast(ReturnDict, tile_data))
 
@@ -2487,9 +2482,8 @@ class DashboardsViewSet(
                         tile_json = renderer.render({"type": "tile", "order": order, "tile": tile_data}).decode()
                         yield f"data: {tile_json}\n\n".encode()
                     except Exception:
-                        # Emit a tile-shaped error (not {type:"error"}) so the frontend appends it via
-                        # receiveTileFromStream and renders the error tile, instead of routing to
-                        # onError which only shows a transient toast and drops the tile.
+                        # Tile-shaped, not {type:"error"}: the frontend's streamTiles routes
+                        # {type:"error"} to onError (a transient toast) and drops the tile.
                         logger.exception("Error serializing dashboard tile", tile_id=tile.id)
                         error_tile_json = renderer.render(
                             {

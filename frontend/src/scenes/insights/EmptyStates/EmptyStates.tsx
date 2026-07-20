@@ -678,7 +678,6 @@ export function InsightErrorState({
         excludeDetail = true // We don't provide support for self-hosted instances
     }
 
-    // A support-only error has no retry guidance, so the retry/debug buttons are pointless too.
     if (supportOnly) {
         excludeActions = true
     }
@@ -719,8 +718,8 @@ export function InsightErrorState({
                 </div>
             )}
 
-            {/* supportOnly's only next step is the bug-report link; render it even when excludeDetail
-                hides the retry guidance (e.g. self-hosted), so it doesn't dead-end. */}
+            {/* Outside the excludeDetail gate: self-hosted sets excludeDetail=true, but
+                supportOnly still needs the bug-report path or it dead-ends. */}
             {supportOnly && <div className="mt-4">{bugReportLink}</div>}
 
             {!excludeActions && (
