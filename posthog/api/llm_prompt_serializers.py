@@ -362,16 +362,28 @@ class LLMPromptSerializer(serializers.ModelSerializer):
         )
 
 
+class LLMPromptLabelSummarySerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Label name, e.g. 'production'.")
+    version = serializers.IntegerField(help_text="Prompt version this label currently points to.")
+
+
 class LLMPromptListSerializer(LLMPromptSerializer):
     prompt_size_bytes = serializers.SerializerMethodField()
     prompt_preview = serializers.SerializerMethodField()
+    all_labels = serializers.SerializerMethodField()
 
     class Meta(LLMPromptSerializer.Meta):
-        fields = [*LLMPromptSerializer.Meta.fields, "prompt_preview", "prompt_size_bytes"]
+        fields = [*LLMPromptSerializer.Meta.fields, "prompt_preview", "prompt_size_bytes", "all_labels"]
         read_only_fields = fields
 
     def get_prompt_size_bytes(self, instance: LLMPrompt) -> int:
         return int(getattr(instance, "prompt_size_bytes", 0))
+
+    @extend_schema_field(LLMPromptLabelSummarySerializer(many=True))
+    def get_all_labels(self, instance: LLMPrompt) -> list[dict[str, Any]]:
+        # The list queryset holds latest-version rows, whose own `labels` miss labels
+        # pointing at older versions; the viewset injects the full per-prompt map.
+        return self.context.get("prompt_labels_by_name", {}).get(instance.name, [])
 
     def get_prompt_preview(self, instance: LLMPrompt) -> str:
         prompt = instance.prompt
@@ -457,12 +469,6 @@ class LLMPromptDuplicateSerializer(serializers.Serializer):
         return validate_prompt_name_value(value)
 
 
-class LLMPromptResolveResponseSerializer(serializers.Serializer):
-    prompt = LLMPromptSerializer()
-    versions = LLMPromptVersionSummarySerializer(many=True)
-    has_more = serializers.BooleanField()
-
-
 class LLMPromptSetLabelSerializer(serializers.Serializer):
     version = serializers.IntegerField(
         min_value=1,
@@ -496,3 +502,13 @@ class LLMPromptLabelSerializer(serializers.ModelSerializer):
 
     def get_version(self, instance: LLMPromptLabel) -> int:
         return instance.prompt.version
+
+
+class LLMPromptResolveResponseSerializer(serializers.Serializer):
+    prompt = LLMPromptSerializer()
+    versions = LLMPromptVersionSummarySerializer(many=True)
+    has_more = serializers.BooleanField()
+    labels = LLMPromptLabelSerializer(
+        many=True,
+        help_text="All labels on this prompt with the version each one currently points to, across all versions (not just the returned page).",
+    )

@@ -158,6 +158,14 @@ def resolve_versions_page(
     return versions[:limit], has_more
 
 
+def get_prompt_labels(team: Team, prompt_name: str) -> QuerySet[LLMPromptLabel]:
+    return (
+        LLMPromptLabel.objects.filter(team=team, prompt_name=prompt_name)
+        .select_related("prompt", "created_by")
+        .order_by("name")
+    )
+
+
 def publish_prompt_version(
     team: Team,
     *,

@@ -3,7 +3,9 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.db import connection
 from django.test import SimpleTestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from rest_framework import status
@@ -1065,6 +1067,39 @@ class TestLLMPromptLabelsAPI(APIBaseTest):
 
         response = self.client.delete(self._label_url("my-prompt", "production"))
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_resolve_returns_all_labels_including_versions_beyond_loaded_page(self):
+        self.create_prompt_version(version=1, is_latest=False)
+        self.create_prompt_version(version=2, is_latest=False)
+        self.create_prompt_version(version=3)
+        assert self._set_label("my-prompt", "production", 1).status_code == status.HTTP_201_CREATED
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/resolve/name/my-prompt/?limit=1")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert [entry["version"] for entry in data["versions"]] == [3]
+        assert [(label["name"], label["version"]) for label in data["labels"]] == [("production", 1)]
+
+    def test_list_all_labels_includes_labels_on_non_latest_versions_in_one_query(self):
+        self.create_prompt_version(name="prompt-a", version=1, is_latest=False)
+        self.create_prompt_version(name="prompt-a", version=2)
+        self.create_prompt_version(name="prompt-b", version=1)
+        assert self._set_label("prompt-a", "production", 1).status_code == status.HTTP_201_CREATED
+        assert self._set_label("prompt-b", "staging", 1).status_code == status.HTTP_201_CREATED
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/")
+
+        assert response.status_code == status.HTTP_200_OK
+        labels_by_prompt = {entry["name"]: entry["all_labels"] for entry in response.json()["results"]}
+        assert labels_by_prompt == {
+            "prompt-a": [{"name": "production", "version": 1}],
+            "prompt-b": [{"name": "staging", "version": 1}],
+        }
+        # One batched all_labels query + one prefetch_related("labels") query — must not scale with prompt count.
+        label_queries = [q for q in queries.captured_queries if "llmpromptlabel" in q["sql"].lower()]
+        assert len(label_queries) == 2
 
     def test_archive_prompt_deletes_its_labels(self):
         self.create_prompt_version(version=1)

@@ -2143,6 +2143,13 @@ export interface LLMPromptOutlineEntryApi {
     text: string
 }
 
+export interface LLMPromptLabelSummaryApi {
+    /** Label name, e.g. 'production'. */
+    name: string
+    /** Prompt version this label currently points to. */
+    version: number
+}
+
 export interface LLMPromptListApi {
     readonly id: string
     /** Unique prompt name using letters, numbers, hyphens, and underscores only. */
@@ -2168,6 +2175,7 @@ export interface LLMPromptListApi {
     readonly labels: readonly string[]
     readonly prompt_preview: string
     readonly prompt_size_bytes: number
+    readonly all_labels: readonly LLMPromptLabelSummaryApi[]
 }
 
 export interface PaginatedLLMPromptListListApi {
@@ -2297,6 +2305,8 @@ export interface LLMPromptResolveResponseApi {
     prompt: LLMPromptApi
     versions: LLMPromptVersionSummaryApi[]
     has_more: boolean
+    /** All labels on this prompt with the version each one currently points to, across all versions (not just the returned page). */
+    labels: LLMPromptLabelApi[]
 }
 
 /**

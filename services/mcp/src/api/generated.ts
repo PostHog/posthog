@@ -33422,6 +33422,13 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    export interface LLMPromptLabelSummary {
+      /** Label name, e.g. 'production'. */
+      name: string;
+      /** Prompt version this label currently points to. */
+      version: number;
+    }
+
     export interface LLMPromptList {
       readonly id: string;
       /** Unique prompt name using letters, numbers, hyphens, and underscores only. */
@@ -33447,6 +33454,7 @@ export namespace Schemas {
       readonly labels: readonly string[];
       readonly prompt_preview: string;
       readonly prompt_size_bytes: number;
+      readonly all_labels: readonly LLMPromptLabelSummary[];
     }
 
     export interface LLMPromptPublic {
@@ -33486,6 +33494,8 @@ export namespace Schemas {
       prompt: LLMPrompt;
       versions: LLMPromptVersionSummary[];
       has_more: boolean;
+      /** All labels on this prompt with the version each one currently points to, across all versions (not just the returned page). */
+      labels: LLMPromptLabel[];
     }
 
     export interface LLMPromptSetLabel {
