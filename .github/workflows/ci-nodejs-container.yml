@@ -112,7 +112,7 @@ jobs:
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
-                  push-to-dockerhub: ${{ vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}
+                  push-to-dockerhub: ${{ vars.CD_DEPLOY_ENABLED == 'true' && vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}
                   # Prod deploys from private ECR; pause public registry pushes during an embargo.
                   push-to-ghcr: ${{ vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}
 
