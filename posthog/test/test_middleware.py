@@ -2,6 +2,7 @@ import json
 import uuid
 from datetime import datetime, timedelta
 from typing import Any, cast
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from freezegun import freeze_time
@@ -2417,6 +2418,10 @@ class TestLoginAsFromTicket(APIBaseTest):
         data = res.json()
         assert data["redirect_region"] == "EU"
         assert data["redirect_url"].startswith("https://eu.posthog.com/admin/posthog/user/")
+        query = parse_qs(urlparse(data["redirect_url"]).query)
+        assert query["q"] == ["customer@posthog.com"]
+        # The other region's admin pre-fills the login-as reason from this ticket URL.
+        assert query["ticket"] == [f"{settings.SITE_URL}/support/tickets/{ticket.ticket_number}"]
         # Staff stay themselves — impersonation must not start for another region.
         assert self.client.get("/api/users/@me").json()["email"] == self.user.email
 
