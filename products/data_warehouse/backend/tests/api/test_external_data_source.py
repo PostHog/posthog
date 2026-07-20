@@ -282,6 +282,7 @@ class TestExternalDataSource(APIBaseTest):
         source_mock.supported_versions = ("2024-10-15", "2026-07-15")
         source_mock.default_version = "2026-07-15"
         source_mock.get_version_deprecation.return_value = None
+        source_mock.max_instances_per_team = None
         source_mock.validate_config.return_value = (True, [])
         parsed_config = Mock()
         parsed_config.to_dict.return_value = {"api_key": "x"}
