@@ -681,7 +681,7 @@ export function InsightErrorState({
             data-attr="insight-empty-state"
             className="flex flex-col items-center gap-2 justify-center rounded px-4 py-6 h-full w-full"
         >
-            <IconErrorOutline className="text-5xl shrink-0" />
+            <IconErrorOutline className="text-4xl shrink-0 text-danger" />
 
             <h2 className="text-xl text-danger leading-tight mb-6" data-attr="insight-loading-too-long">
                 {/* Note that this default phrasing signals the issue is intermittent, */}
