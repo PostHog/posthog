@@ -154,6 +154,74 @@ def build_status_dual_write_sql(*, with_batch_created_at: bool) -> str:
     """
 
 
+def build_status_dual_write_unless_failed_sql(*, with_batch_created_at: bool) -> str:
+    """Guarded variant of :func:`build_status_dual_write_sql`: writes nothing when
+    the batch's ``latest_state`` is already terminal ``'failed'``.
+
+    'failed' is absorbing for consumer lifecycle writes: ``fail_run`` (a dead
+    job, a sibling batch exhausting retries, the reconcile sweep) can retire a
+    batch at any point while a consumer holds it, and an unconditional
+    executing/succeeded write afterwards would be newer — the monotonic
+    ``state_changed_at`` guard would let it supersede the terminal state,
+    un-retiring a cancelled run's batches. The one designed exception is lock
+    takeover: its bulk-fail rows carry the takeover sentinel as their error, and
+    an in-flight consumer is deliberately allowed to finish the batch and write
+    'succeeded' over that provisional 'failed' (``update_external_job_status``
+    unseals the matching Failed -> Completed job transition on the same
+    sentinel) — so a 'failed' whose latest status row's error matches
+    ``%(supersedable_failed_error)s`` stays writable.
+
+    ``FOR UPDATE OF b`` serializes the guard read against a concurrent bulk-fail
+    UPDATE of the same row: whichever statement locks the row first wins, and
+    the loser re-evaluates against the winner's committed state. A residual
+    mutual-invisibility window remains when two statements overlap before either
+    takes the row lock — the same accepted class as the duckgres sink's
+    ``update_status_unless_failed``, converged by the periodic sweeps.
+
+    The statement's single result row is the number of status rows inserted:
+    0 means the guard refused. The column UPDATE's rowcount is deliberately not
+    the signal — a heartbeat re-insert of the same (state, attempt) is a
+    designed 0-row column no-op but a legitimate write.
+    """
+    created_at_predicate = (
+        "b.created_at = %(batch_created_at)s"
+        if with_batch_created_at
+        else f"b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'"
+    )
+    return f"""
+        WITH target AS (
+            SELECT b.id
+            FROM {BATCH_TABLE} b
+            {latest_status_lateral("b", "s")}
+            WHERE b.id = %(batch_id)s
+              AND {created_at_predicate}
+              AND (
+                  b.latest_state IS DISTINCT FROM 'failed'
+                  OR s.error_response->>'error' = %(supersedable_failed_error)s
+              )
+            FOR UPDATE OF b
+        ),
+        ins AS (
+            INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
+            SELECT t.id, %(job_state)s, %(attempt)s, now(), %(error_response)s, now()
+            FROM target t
+            RETURNING batch_id, job_state, attempt, created_at
+        ),
+        upd AS (
+            UPDATE {BATCH_TABLE} b
+            SET latest_state = ins.job_state, latest_attempt = ins.attempt, state_changed_at = ins.created_at
+            FROM ins
+            WHERE b.id = ins.batch_id
+              AND {created_at_predicate}
+              AND ((b.latest_state, b.latest_attempt) IS DISTINCT FROM (ins.job_state, ins.attempt)
+                   OR b.state_changed_at IS NULL)
+              AND (b.state_changed_at IS NULL OR b.state_changed_at <= ins.created_at)
+            RETURNING b.id
+        )
+        SELECT count(*) FROM ins
+    """
+
+
 def _bulk_fail_dual_write_sql(where_sql: str) -> str:
     """Bulk 'failed' status inserts plus the denormalized-state UPDATE, one statement.
 
@@ -651,6 +719,41 @@ class BatchQueue:
             build_status_dual_write_sql(with_batch_created_at=batch_created_at is not None),
             params,
         )
+
+    @staticmethod
+    async def update_status_unless_failed(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        batch_id: str,
+        job_state: str,
+        attempt: int = 0,
+        error_response: dict[str, Any] | None = None,
+        batch_created_at: datetime | None = None,
+        supersedable_failed_error: str | None = None,
+    ) -> bool:
+        """Guarded twin of :meth:`update_status`: refuses (returning False, writing
+        nothing) when the batch's latest state is terminal ``'failed'``.
+
+        A 'failed' whose latest status row's error equals
+        ``supersedable_failed_error`` (the lock-takeover sentinel) stays
+        writable, preserving the designed in-flight takeover recovery window —
+        see :func:`build_status_dual_write_unless_failed_sql`.
+        """
+        params: dict[str, Any] = {
+            "batch_id": batch_id,
+            "job_state": job_state,
+            "attempt": attempt,
+            "error_response": json.dumps(error_response) if error_response else None,
+            "supersedable_failed_error": supersedable_failed_error,
+        }
+        if batch_created_at is not None:
+            params["batch_created_at"] = batch_created_at
+        cursor = await conn.execute(
+            build_status_dual_write_unless_failed_sql(with_batch_created_at=batch_created_at is not None),
+            params,
+        )
+        row = await cursor.fetchone()
+        return bool(row and row[0])
 
     @staticmethod
     async def renew_lease(

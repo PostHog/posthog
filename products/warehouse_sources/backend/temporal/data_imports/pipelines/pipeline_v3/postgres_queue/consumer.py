@@ -95,6 +95,10 @@ class DeltaBatchConsumerAdapter:
     succeeded_state: str = SourceBatchStatus.State.SUCCEEDED.value
     waiting_retry_state: str = SourceBatchStatus.State.WAITING_RETRY.value
     per_group_connections: bool = True
+    # A should_process_batch skip means the job is dead and fail_run already
+    # marked the run's batches 'failed' — the engine must record nothing, or its
+    # newer executing/succeeded rows would supersede those terminal states.
+    record_skip_as_success: bool = False
 
     def __init__(
         self,
@@ -155,14 +159,26 @@ class DeltaBatchConsumerAdapter:
         error_response: dict[str, Any] | None = None,
         batch_created_at: datetime | None = None,
     ) -> None:
-        await BatchQueue.update_status(
+        # Never write over a terminal 'failed': fail_run (dead job, sibling batch
+        # exhausting retries, reconcile) can retire a claimed batch at any point,
+        # and a newer executing/succeeded row would supersede it via the monotonic
+        # dual-write guard — un-failing a cancelled run whose parquet the duckgres
+        # sink would then apply. The takeover sentinel is the designed exception:
+        # its provisional 'failed' stays supersedable so an in-flight batch can
+        # finish and complete the job (see _is_job_dead's matching exemption).
+        # A refused write means the batch is dead — abandon the group instead of
+        # stamping over it.
+        inserted = await BatchQueue.update_status_unless_failed(
             conn,
             batch_id=batch_id,
             job_state=job_state,
             attempt=attempt,
             error_response=error_response,
             batch_created_at=batch_created_at,
+            supersedable_failed_error=LOCK_TAKEOVER_LATEST_ERROR,
         )
+        if not inserted:
+            raise OwnershipLostError(f"batch {batch_id} is already failed; refusing to write '{job_state}' over it")
 
     async def fail_run(
         self,

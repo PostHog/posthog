@@ -127,6 +127,13 @@ class BatchConsumerAdapter(Protocol):
     # Advisory-lock-based adapters set False (lock is session-scoped, must stay
     # on the poll connection that acquired it).
     per_group_connections: bool
+    # What a should_process_batch() == False skip means. True: the batch's work
+    # is already done (e.g. the duckgres apply marker) and the engine must still
+    # record executing -> succeeded to retire it. False: the adapter already
+    # drove the batch to a terminal state (e.g. fail_run for a dead job) and the
+    # engine must write NO status at all — a newer executing/succeeded row would
+    # supersede the terminal 'failed' in the latest-status views.
+    record_skip_as_success: bool
 
     async def fetch_and_lock(
         self,
@@ -769,6 +776,21 @@ class BatchConsumer:
             # status written while the batch waited in this claim.
             should_process = await self._adapter.should_process_batch(status_conn, batch=batch)
 
+            if not should_process and not self._adapter.record_skip_as_success:
+                # The adapter drove this batch to a terminal state (fail_run for
+                # a dead job): there is nothing to record, and an executing or
+                # succeeded write here would be newer than the 'failed' rows and
+                # supersede them via the monotonic status guard.
+                logger.info(
+                    self._event("batch_skipped_no_status_written"),
+                    batch_id=batch.id,
+                    run_uuid=batch.run_uuid,
+                )
+                self._metrics.batches_processed_total.labels(
+                    team_id=team_id, schema_id=schema_id, status="skipped"
+                ).inc()
+                return False
+
             # Pre-increment: if we OOM during processing, recovery sees attempt=N+1
             # and knows this attempt was consumed.
             await self._adapter.update_status(
@@ -1074,14 +1096,21 @@ class BatchConsumer:
                         await self._fail_run(batch, reason="max retries exceeded (likely OOM)", conn=conn)
                     else:
                         logger.warning(self._event("batch_recovered_for_retry"), attempt=batch.latest_attempt)
-                        await self._adapter.update_status(
-                            conn,
-                            batch_id=batch.id,
-                            job_state=self._adapter.waiting_retry_state,
-                            attempt=batch.latest_attempt,
-                            error_response={"error": "executing timed out - pod restart or OOM"},
-                            batch_created_at=batch.created_at,
-                        )
+                        try:
+                            await self._adapter.update_status(
+                                conn,
+                                batch_id=batch.id,
+                                job_state=self._adapter.waiting_retry_state,
+                                attempt=batch.latest_attempt,
+                                error_response={"error": "executing timed out - pod restart or OOM"},
+                                batch_created_at=batch.created_at,
+                            )
+                        except OwnershipLostError:
+                            # The batch went terminal (fail_run / takeover) between
+                            # the stale scan and this requeue — nothing left to
+                            # recover, and one retired batch must not abort the
+                            # sweep for the rest of the stale list.
+                            logger.info(self._event("batch_recovery_skipped_terminal"), batch_id=batch.id)
                 finally:
                     structlog.contextvars.unbind_contextvars(*recovery_bound_keys)
         finally:
