@@ -209,17 +209,7 @@ pub async fn send_issue_spiking_internal_event<I: NotificationIssue>(
         .expect("insert_prop for exception_timestamp should never fail");
     event.insert_prop("exception_props", processed_properties)?;
 
-    let iter = [InternalEvent {
-        team_id: issue.team_id(),
-        event,
-        person: None,
-    }];
-
-    send_iter_to_kafka(producer, internal_events_topic, &iter)
-        .await
-        .into_iter()
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(())
+    send_internal_event_with_fallback(producer, internal_events_topic, issue.team_id(), event).await
 }
 
 async fn send_internal_event_with_producer<I: NotificationIssue>(
@@ -257,13 +247,22 @@ async fn send_internal_event_with_producer<I: NotificationIssue>(
             .expect("Strings are serializable");
     }
 
-    let iter = [InternalEvent {
-        team_id: issue.team_id(),
+    send_internal_event_with_fallback(producer, internal_events_topic, issue.team_id(), event).await
+}
+
+async fn send_internal_event_with_fallback(
+    producer: &FutureProducer<KafkaContext>,
+    internal_events_topic: &str,
+    team_id: i32,
+    event: InternalEventEvent,
+) -> Result<(), UnhandledError> {
+    let mut events = [InternalEvent {
+        team_id,
         event,
         person: None,
     }];
 
-    let res = send_iter_to_kafka(producer, internal_events_topic, &iter)
+    let res = send_iter_to_kafka(producer, internal_events_topic, &events)
         .await
         .into_iter()
         .collect::<Result<Vec<_>, _>>();
@@ -276,10 +275,8 @@ async fn send_internal_event_with_producer<I: NotificationIssue>(
                 Some(RDKafkaErrorCode::MessageSizeTooLarge)
             ) =>
         {
-            let mut iter = iter;
-            iter[0].event.properties.remove("exception_props");
-            iter[0].event.insert_prop("message_was_too_large", true)?;
-            send_iter_to_kafka(producer, internal_events_topic, &iter)
+            remove_oversized_exception_props(&mut events[0].event)?;
+            send_iter_to_kafka(producer, internal_events_topic, &events)
                 .await
                 .into_iter()
                 .collect::<Result<Vec<_>, _>>()?;
@@ -287,6 +284,12 @@ async fn send_internal_event_with_producer<I: NotificationIssue>(
         }
         Err(e) => Err(e.into()),
     }
+}
+
+fn remove_oversized_exception_props(event: &mut InternalEventEvent) -> Result<(), UnhandledError> {
+    event.properties.remove("exception_props");
+    event.insert_prop("message_was_too_large", true)?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -364,6 +367,34 @@ mod tests {
         assert_eq!(
             skip_fingerprint_embedding_reason(&props),
             Some("disabled_sdk")
+        );
+    }
+
+    #[test]
+    fn oversized_internal_event_fallback_removes_only_exception_properties() {
+        let mut event = InternalEventEvent::new(
+            "$error_tracking_issue_spiking",
+            Uuid::nil(),
+            Utc::now(),
+            None,
+        );
+        event
+            .insert_prop("fingerprint", "server-fingerprint")
+            .unwrap();
+        event
+            .insert_prop("exception_props", serde_json::json!({"large": "payload"}))
+            .unwrap();
+
+        remove_oversized_exception_props(&mut event).unwrap();
+
+        assert!(!event.properties.contains_key("exception_props"));
+        assert_eq!(
+            event.properties.get("fingerprint"),
+            Some(&Value::String("server-fingerprint".to_string()))
+        );
+        assert_eq!(
+            event.properties.get("message_was_too_large"),
+            Some(&Value::Bool(true))
         );
     }
 }

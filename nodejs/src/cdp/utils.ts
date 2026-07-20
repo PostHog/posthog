@@ -155,7 +155,7 @@ export function convertInternalEventToHogFunctionInvocationGlobals(
         'exception_props' in properties &&
         typeof properties.exception_props === 'object'
     ) {
-        properties = { ...properties, ...properties.exception_props }
+        properties = { ...properties.exception_props, ...properties }
         delete properties.exception_props
     }
 

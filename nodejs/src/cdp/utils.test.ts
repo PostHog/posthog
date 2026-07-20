@@ -26,7 +26,12 @@ describe('Utils', () => {
                         issue_description: 'Test description',
                         first_seen: '2026-07-20T09:00:00Z',
                         assignee: '{"type":"user","id":42}',
-                        exception_props: { $exception_types: ['TypeError'] },
+                        fingerprint: 'server-fingerprint',
+                        exception_props: {
+                            $exception_types: ['TypeError'],
+                            assignee: 'untrusted-assignee',
+                            fingerprint: 'untrusted-fingerprint',
+                        },
                     },
                     timestamp: '2026-07-20T10:00:00Z',
                 },
@@ -43,6 +48,7 @@ describe('Utils', () => {
                 issue_description: 'Test description',
                 first_seen: '2026-07-20T09:00:00Z',
                 assignee: '{"type":"user","id":42}',
+                fingerprint: 'server-fingerprint',
                 $exception_types: ['TypeError'],
             })
         }
