@@ -183,5 +183,36 @@ describe('sceneLogic', () => {
             expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectHomepage())
             expect(router.values.searchParams).toEqual({ modal: 'feature' })
         })
+
+        // Regression guard: `/#panel=max:<prompt>` pre-fills the Max side panel, but only if the
+        // hash survives the `/` → homepage redirect. It used to be dropped, so the prompt was lost
+        // on the Home scene (yet worked everywhere else, which have no such redirect).
+        it.each([
+            ['no homepage is configured', null, urls.projectHomepage()],
+            ['a dashboard homepage is configured', dashboardHomepage, urls.dashboard(42)],
+        ])('preserves the #panel hash across the / redirect when %s', async (_desc, homepage, expectedPathname) => {
+            logic.actions.setHomepage(homepage)
+            router.actions.push('/', {}, { panel: 'max:what is my dau' })
+            await expectLogic(logic).delay(1)
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedPathname)
+            expect(router.values.hashParams).toEqual({ panel: 'max:what is my dau' })
+        })
+
+        // A configured homepage can carry its own hash (e.g. a dashboard tab). Forwarding the
+        // incoming hash must merge over that, not replace it — so an empty incoming hash keeps the
+        // configured one, and a `#panel` hash is added alongside it.
+        it.each([
+            ['no incoming hash', {}, { tab: 'configured' }],
+            ['an incoming #panel hash', { panel: 'max:hi' }, { tab: 'configured', panel: 'max:hi' }],
+        ])(
+            'keeps a configured homepage hash across the / redirect with %s',
+            async (_desc, incomingHash, expectedHash) => {
+                logic.actions.setHomepage({ ...dashboardHomepage, hash: '#tab=configured' })
+                router.actions.push('/', {}, incomingHash)
+                await expectLogic(logic).delay(1)
+                expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dashboard(42))
+                expect(router.values.hashParams).toEqual(expectedHash)
+            }
+        )
     })
 })
