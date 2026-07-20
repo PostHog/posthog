@@ -1,4 +1,4 @@
-import { useEffect, useState, type HTMLAttributes } from 'react'
+import { forwardRef, useEffect, useState, type HTMLAttributes } from 'react'
 
 import { IconPause, IconShield, IconUnlock } from '@posthog/icons'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@posthog/quill-primitives'
@@ -19,22 +19,27 @@ const MODE_STYLES: Record<PermissionMode, ModeStyle> = {
 
 interface ModeItemRowProps extends HTMLAttributes<HTMLDivElement> {
     highlighted: boolean
-    onHighlight: () => void
+    mode: PermissionMode
+    onHighlight: (mode: PermissionMode) => void
 }
 
 /**
  * Row body for a mode option. Rendered through the item's `render` prop so it can watch Base UI's
  * `highlighted` state — both pointer hover and keyboard navigation — and report it up for the
- * description footer.
+ * description footer. Must forward the ref: Base UI registers the element into its item list through
+ * it, and an unregistered item is invisible to hover highlighting.
  */
-function ModeItemRow({ highlighted, onHighlight, ...divProps }: ModeItemRowProps): JSX.Element {
+const ModeItemRow = forwardRef<HTMLDivElement, ModeItemRowProps>(function ModeItemRow(
+    { highlighted, mode, onHighlight, ...divProps },
+    ref
+): JSX.Element {
     useEffect(() => {
         if (highlighted) {
-            onHighlight()
+            onHighlight(mode)
         }
-    }, [highlighted, onHighlight])
-    return <div {...divProps} />
-}
+    }, [highlighted, mode, onHighlight])
+    return <div ref={ref} {...divProps} />
+})
 
 export interface ComposerModePickerProps {
     selectedMode: PermissionMode
@@ -57,7 +62,12 @@ export function ComposerModePicker({ selectedMode, onModeChange, modes }: Compos
     // The mode whose description the footer shows. Base UI highlights the selected item on open, which
     // seeds this; reset on open so a hover from the previous open can't leak into the next one.
     const [highlightedMode, setHighlightedMode] = useState<PermissionMode | null>(null)
-    const footerOption = getModeOption(highlightedMode) ?? selectedOption
+    // Resolve against `options`, not all modes: when `modes` narrows the menu, the footer must never
+    // describe a mode that isn't offered (e.g. a selected mode the plan-approval card filtered out).
+    const footerOption =
+        options.find((option) => option.value === highlightedMode) ??
+        options.find((option) => option.value === selectedMode) ??
+        options[0]
 
     return (
         <Select
@@ -88,7 +98,8 @@ export function ComposerModePicker({ selectedMode, onModeChange, modes }: Compos
                             <ModeItemRow
                                 {...props}
                                 highlighted={state.highlighted}
-                                onHighlight={() => setHighlightedMode(option.value)}
+                                mode={option.value}
+                                onHighlight={setHighlightedMode}
                             />
                         )}
                     >
