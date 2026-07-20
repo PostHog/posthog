@@ -48,12 +48,18 @@ export type NotebookNodeSQLV2Attributes = {
 // Matches the SQL editor output pane's default so charts land at v1-node size.
 const VIZ_MIN_HEIGHT = 350
 
-// The dataframe name becomes a CTE alias in referencing queries, so it must be a plain
-// SQL identifier. Empty is fine — the cell is then display-only.
-const returnVariableValidationError = (returnVariable: string): string | null =>
-    returnVariable && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(returnVariable)
-        ? 'Use letters, numbers, and underscores. The name cannot start with a number.'
-        : null
+// The dataframe name is referenced as a bare SQL table name and becomes a Python variable
+// when a python cell reads the frame, so it must be a plain identifier. Empty is fine —
+// the cell is then display-only.
+const VALID_RETURN_VARIABLE = /^[A-Za-z_][A-Za-z0-9_]*$/
+const returnVariableValidationError = (returnVariable: string): string | null => {
+    if (!returnVariable || VALID_RETURN_VARIABLE.test(returnVariable)) {
+        return null
+    }
+    const suggestion = returnVariable.replace(/[^A-Za-z0-9_]/g, '_').replace(/^(?=\d)/, '_')
+    const hint = VALID_RETURN_VARIABLE.test(suggestion) ? ` Try ${suggestion}.` : ''
+    return `Use letters, numbers, and underscores. The name cannot start with a number.${hint}`
+}
 
 const toDataframeResult = (result: NotebookNodeSQLV2Result): NotebookDataframeResult => {
     const columns = result.columns ?? []
