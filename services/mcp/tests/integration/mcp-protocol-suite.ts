@@ -1755,8 +1755,11 @@ export function defineStatelessProtocolTests(
             expect((result.instructions as string).length).toBeGreaterThan(0)
 
             // DiscoverResult is a CacheableResult in the 2026-07-28 schema.
+            // Outside production the TTL must be 0 (spec-compliant "don't
+            // cache") so SDK client response caches never serve stale results
+            // against a locally iterating server.
             expect(result.resultType).toBe('complete')
-            expect(typeof result.ttlMs).toBe('number')
+            expect(result.ttlMs).toBe(0)
             expect(result.cacheScope).toBe('private')
             expect(serverInfoOf(json)?.name).toBe('PostHog')
 
@@ -1809,7 +1812,7 @@ export function defineStatelessProtocolTests(
             const result = json.result!
             expect((result.tools as unknown[]).length).toBeGreaterThan(0)
             expect(result.resultType).toBe('complete')
-            expect(result.ttlMs).toBeGreaterThanOrEqual(0)
+            expect(result.ttlMs).toBe(0)
             expect(result.cacheScope).toBe('private')
         })
 

@@ -72,7 +72,12 @@ const CACHEABLE_METHODS: Set<string> = new Set([
     Method.ResourcesRead,
     Method.PromptsList,
 ])
-const CACHEABLE_RESULT_TTL_MS = 60_000
+// ttlMs: 0 is the spec-compliant "don't serve from cache" (both fields are
+// required on CacheableResult). Nonzero TTLs are production-only: SDK clients
+// honor the hint with a built-in response cache, so locally it would serve a
+// stale tools/list while iterating on tool definitions — and with
+// listChanged: false the TTL is the client's only freshness signal.
+const CACHEABLE_RESULT_TTL_MS = process.env.NODE_ENV === 'production' ? 60_000 : 0
 
 const METHOD_NOT_FOUND = Symbol('method-not-found')
 
