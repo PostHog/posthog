@@ -5769,6 +5769,7 @@ export const API_SCOPE_OBJECTS = [
     'tagger',
     'ticket',
     'task',
+    'toolbar',
     'tracing',
     'toolbar',
     'field_note',

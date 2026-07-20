@@ -84,6 +84,8 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
         return 'toolbar'
     } else if (resource === AccessControlResourceType.Workflow) {
         return 'workflows'
+    } else if (resource === AccessControlResourceType.Toolbar) {
+        return 'toolbar'
     }
 
     return resource.replace(/_/g, ' ') + 's'

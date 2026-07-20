@@ -190,6 +190,7 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
                     AccessControlResourceType.Toolbar,
                     AccessControlResourceType.Workflow,
                     AccessControlResourceType.Tracing,
+                    AccessControlResourceType.Toolbar,
                 ]
 
                 return allResources.filter((resource) => {
