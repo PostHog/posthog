@@ -28,6 +28,13 @@ pub enum RoutingStrategy {
     /// resistant when many consumers share a worker pool, because each consumer
     /// samples a different random pair instead of converging on one global best.
     P2c,
+    /// Deterministic aperture: each dispatcher routes unpinned keys only within
+    /// its slice of the worker ring (see [`crate::aperture`]), with P2C
+    /// selection inside the slice. Consolidates small batches onto few workers
+    /// while the fleet's slices still tile the whole pool. Requires peer
+    /// awareness (`PEER_SERVICE_NAME`); behaves as plain P2C over the full
+    /// pool while the peer set is unknown.
+    Aperture,
 }
 
 impl FromStr for RoutingStrategy {
@@ -37,8 +44,9 @@ impl FromStr for RoutingStrategy {
         match s.trim().to_lowercase().as_str() {
             "binpack" | "bin_pack" | "bin-pack" => Ok(RoutingStrategy::BinPack),
             "p2c" | "power_of_two" | "power-of-two" => Ok(RoutingStrategy::P2c),
+            "aperture" => Ok(RoutingStrategy::Aperture),
             other => Err(format!(
-                "unknown routing strategy '{other}' (expected 'binpack' or 'p2c')"
+                "unknown routing strategy '{other}' (expected 'binpack', 'p2c', or 'aperture')"
             )),
         }
     }
@@ -96,7 +104,11 @@ impl Router {
     pub fn select(&mut self, healthy: &[WorkerId], load: &WorkerLoad) -> Option<WorkerId> {
         match self.strategy {
             RoutingStrategy::BinPack => select_least_loaded(healthy, load),
-            RoutingStrategy::P2c => select_p2c(healthy, load, &mut self.rng),
+            // Aperture narrows the candidate slice upstream (in the
+            // dispatcher); within the slice it selects exactly like P2C.
+            RoutingStrategy::P2c | RoutingStrategy::Aperture => {
+                select_p2c(healthy, load, &mut self.rng)
+            }
         }
     }
 }
@@ -154,6 +166,7 @@ mod tests {
         assert_eq!("bin-pack".parse(), Ok(RoutingStrategy::BinPack));
         assert_eq!("p2c".parse(), Ok(RoutingStrategy::P2c));
         assert_eq!("power-of-two".parse(), Ok(RoutingStrategy::P2c));
+        assert_eq!("aperture".parse(), Ok(RoutingStrategy::Aperture));
     }
 
     #[test]

@@ -1,6 +1,6 @@
 import json
 import asyncio
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Any, Optional
@@ -138,6 +138,13 @@ class ProcessTaskInput:
 class PendingFollowup:
     message: str | None
     artifact_ids: list[str]
+    actor_user_id: int | None = None
+    # Sender-supplied idempotency key (stable across the sender's retries);
+    # None falls back to a workflow-generated id.
+    message_id: str | None = None
+    # Signal context carried verbatim (e.g. actor_slack_user_id for reply
+    # tagging); consumers validate the keys they read.
+    context: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -690,6 +697,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                             await self._send_followup_to_sandbox(
                                 message=message,
                                 artifact_ids=artifact_ids,
+                                actor_user_id=pending_followup.actor_user_id,
+                                message_id=pending_followup.message_id,
+                                context=pending_followup.context,
                             )
                             continue
 
@@ -1832,7 +1842,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "artifact_count": len(artifact_ids or []),
             },
         )
-        pending_followup = PendingFollowup(message=message, artifact_ids=artifact_ids or [])
+        pending_followup = PendingFollowup(
+            message=message,
+            artifact_ids=artifact_ids or [],
+            actor_user_id=actor_user_id,
+            message_id=message_id,
+            context=message_context if isinstance(message_context, dict) else {},
+        )
         # Always queue. `deprecate_patch` accepts existing non-deprecated
         # markers from workflows that ran the prior `workflow.patched(...)`
         # gate, so this is safe to deploy alongside in-flight workflows. The
@@ -1887,7 +1903,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             },
         )
 
-    async def _send_followup_to_sandbox(self, message: str | None, artifact_ids: list[str]) -> None:
+    async def _send_followup_to_sandbox(
+        self,
+        message: str | None,
+        artifact_ids: list[str],
+        actor_user_id: int | None = None,
+        message_id: str | None = None,
+        context: dict[str, Any] | None = None,
+    ) -> None:
         workflow.logger.info(
             "send_followup_dispatch_begin",
             extra={
@@ -1904,7 +1927,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     message=message,
                     posthog_mcp_scopes=self._posthog_mcp_scopes,
                     artifact_ids=artifact_ids,
-                    message_id=str(workflow.uuid4()),
+                    message_id=message_id or str(workflow.uuid4()),
+                    actor_user_id=actor_user_id,
+                    context=context,
                 ),
                 start_to_close_timeout=timedelta(minutes=35),
                 # The activity heartbeats while blocked on the sync delivery

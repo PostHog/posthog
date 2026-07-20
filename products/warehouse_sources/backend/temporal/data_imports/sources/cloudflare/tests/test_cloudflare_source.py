@@ -23,7 +23,7 @@ class TestCloudflareSource:
 
         assert config.name.value == "Cloudflare"
         assert config.label == "Cloudflare"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.releaseStatus == ReleaseStatus.BETA
         assert config.unreleasedSource is None
         assert config.iconPath == "/static/services/cloudflare.svg"
 

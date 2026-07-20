@@ -27,6 +27,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysq
     _is_bad_plan_error,
     _is_transient_connect_dns_failure,
     _is_transient_connect_drop,
+    _is_transient_connect_gone_away,
+    _is_transient_connect_reset,
     _is_transient_connect_timeout,
     _is_transient_packet_sequence_error,
     _is_transient_tablet_unavailable,
@@ -841,6 +843,33 @@ class TestStreamingCursorTeardown:
         assert ss_cursor.connection is None
 
 
+class TestStreamingReopensDroppedConnection:
+    """A transient drop during the best-effort pre-stream setup (SET SESSION / EXPLAIN)
+    force-closes the socket. The streaming query must reopen it, otherwise the execute
+    runs on a dead socket and surfaces pymysql's opaque, unactionable
+    `InterfaceError(0, '')` instead of recovering from the blip."""
+
+    def test_reopens_when_preamble_dropped_the_connection(self, build_pipeline_mocks):
+        mock_connect, _, ss_cursor = build_pipeline_mocks
+        mock_connection = mock_connect.return_value
+        mock_connection.open = False
+
+        _drain_source()
+
+        mock_connection.connect.assert_called_once()
+        assert ss_cursor.execute.called
+
+    def test_does_not_reopen_a_live_connection(self, build_pipeline_mocks):
+        mock_connect, _, ss_cursor = build_pipeline_mocks
+        mock_connection = mock_connect.return_value
+        mock_connection.open = True
+
+        _drain_source()
+
+        mock_connection.connect.assert_not_called()
+        assert ss_cursor.execute.called
+
+
 class TestIsBadPlanError:
     def test_matches_error_2013(self):
         assert _is_bad_plan_error(pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query"))
@@ -920,6 +949,34 @@ class TestIsTransientConnectDrop:
         assert not _is_transient_connect_drop(pymysql.err.OperationalError())
 
 
+class TestIsTransientConnectGoneAway:
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "MySQL server has gone away (ConnectionResetError(104, 'Connection reset by peer'))",
+            "MySQL server has gone away (BrokenPipeError(32, 'Broken pipe'))",
+        ],
+    )
+    def test_matches_server_gone_away(self, message):
+        # The server reset the socket mid-handshake — the write-side sibling of the 2013 read-side
+        # drop, transient, so the in-process retry must catch it instead of surfacing it as noise.
+        assert _is_transient_connect_gone_away(pymysql.err.OperationalError(2006, message))
+
+    @pytest.mark.parametrize(
+        "code,message",
+        [
+            (2013, "Lost connection to MySQL server during query"),
+            (2003, "Can't connect to MySQL server on 'db.example.com'"),
+            (1045, "Access denied for user"),
+        ],
+    )
+    def test_does_not_match_other_error_codes(self, code, message):
+        assert not _is_transient_connect_gone_away(pymysql.err.OperationalError(code, message))
+
+    def test_does_not_match_error_without_args(self):
+        assert not _is_transient_connect_gone_away(pymysql.err.OperationalError())
+
+
 class TestIsTransientConnectTimeout:
     @pytest.mark.parametrize(
         "message",
@@ -992,6 +1049,43 @@ class TestIsTransientConnectDnsFailure:
 
     def test_does_not_match_error_without_args(self):
         assert not _is_transient_connect_dns_failure(pymysql.err.OperationalError())
+
+
+class TestIsTransientConnectReset:
+    def test_matches_connection_reset_on_connect(self):
+        # ECONNRESET at connect time — the peer sent a RST mid-connect (an overloaded server, or a
+        # TCP proxy that accepts then resets while its backend is down). A transient blip that must
+        # be retried in-process rather than surfacing as the non-retryable "Can't connect" config error.
+        assert _is_transient_connect_reset(
+            pymysql.err.OperationalError(
+                2003, "Can't connect to MySQL server on 'db.example.com' ([Errno 104] Connection reset by peer)"
+            )
+        )
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            # Refused connection and failed DNS lookup are also 2003 but deterministic host/port
+            # misconfig — they must stay non-retryable, not be absorbed here.
+            "Can't connect to MySQL server on 'db.example.com' ([Errno 111] Connection refused)",
+            "Can't connect to MySQL server on 'nope.example.com' ([Errno -2] Name or service not known)",
+        ],
+    )
+    def test_does_not_match_permanent_connect_errors(self, message):
+        assert not _is_transient_connect_reset(pymysql.err.OperationalError(2003, message))
+
+    @pytest.mark.parametrize(
+        "code,message",
+        [
+            (2013, "Lost connection to MySQL server during query"),
+            (1045, "Access denied for user"),
+        ],
+    )
+    def test_does_not_match_other_error_codes(self, code, message):
+        assert not _is_transient_connect_reset(pymysql.err.OperationalError(code, message))
+
+    def test_does_not_match_error_without_args(self):
+        assert not _is_transient_connect_reset(pymysql.err.OperationalError())
 
 
 class TestIsTransientPacketSequenceError:
@@ -1094,6 +1188,46 @@ class TestConnectTransientRetry:
         mock_connect = mocker.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
             side_effect=[drop, conn],
+        )
+
+        with MySQLImplementation().connect(_make_config()) as yielded:
+            assert yielded is conn
+
+        assert mock_connect.call_count == 2
+        sleep.assert_called_once_with(2)
+
+    def test_retries_connection_reset_then_succeeds(self, mocker):
+        sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        conn = MagicMock()
+        conn.__enter__.return_value = conn
+        mock_connect = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            side_effect=[
+                pymysql.err.OperationalError(
+                    2003, "Can't connect to MySQL server on 'db.example.com' ([Errno 104] Connection reset by peer)"
+                ),
+                conn,
+            ],
+        )
+
+        with MySQLImplementation().connect(_make_config()) as yielded:
+            assert yielded is conn
+
+        assert mock_connect.call_count == 2
+        sleep.assert_called_once_with(2)
+
+    def test_retries_server_gone_away_then_succeeds(self, mocker):
+        sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        conn = MagicMock()
+        conn.__enter__.return_value = conn
+        mock_connect = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            side_effect=[
+                pymysql.err.OperationalError(
+                    2006, "MySQL server has gone away (ConnectionResetError(104, 'Connection reset by peer'))"
+                ),
+                conn,
+            ],
         )
 
         with MySQLImplementation().connect(_make_config()) as yielded:
