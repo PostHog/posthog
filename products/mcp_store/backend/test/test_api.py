@@ -61,6 +61,10 @@ class TestMCPServerTemplateIconKeyNormalization(TestCase):
             ("uppercase_with_scheme", "HTTPS://Linear.APP/", "linear.app"),
             ("whitespace", "  notion.com ", "notion.com"),
             ("empty", "", ""),
+            ("scheme_with_path", "https://linear.app/brand/assets", "linear.app"),
+            ("bare_with_path", "linear.app/brand", "linear.app"),
+            ("query_string", "linear.app?token=x", "linear.app"),
+            ("port_and_trailing_dot", "linear.app.:8443", "linear.app"),
         ]
     )
     def test_save_normalizes_icon_domain(self, _name, raw, expected):
@@ -132,6 +136,7 @@ class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ("query_injection", "linear.app?token=steal"),
             ("empty", ""),
             ("single_label", "localhost"),
+            ("overlong_hostname", "a." * 127 + "com"),
         ]
     )
     def test_icon_rejects_non_hostname_domains(self, _name, bad_domain):
@@ -142,19 +147,19 @@ class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("no_theme", {}, None),
-            ("dark_theme", {"theme": "dark"}, "dark"),
-            ("unknown_theme_dropped", {"theme": "neon"}, None),
+            ("no_theme", {"domain": "linear.app"}, None),
+            ("dark_theme", {"domain": "linear.app", "theme": "dark"}, "dark"),
+            ("unknown_theme_dropped", {"domain": "linear.app", "theme": "neon"}, None),
+            ("case_and_fqdn_dot_canonicalized", {"domain": "LINEAR.APP."}, None),
         ]
     )
-    def test_icon_proxies_valid_domain(self, _name, extra_params, expected_theme):
-        # The theme lands in the icon cache key, so the view must sanitize it — known values
-        # pass through, anything else is dropped rather than forwarded.
+    def test_icon_proxies_valid_domain(self, _name, params, expected_theme):
+        # Both halves of the icon cache key must stay canonical: unknown themes are dropped
+        # rather than forwarded, and the domain is lowercased with any FQDN trailing dot
+        # stripped so case variants can't mint separate cache entries.
         with patch("products.mcp_store.backend.presentation.views.CDPIconsService") as service:
             service.return_value.get_icon_http_response.return_value = HttpResponse(b"png", content_type="image/png")
-            response = self.client.get(
-                f"/api/environments/{self.team.id}/mcp_servers/icon/", data={"domain": "linear.app", **extra_params}
-            )
+            response = self.client.get(f"/api/environments/{self.team.id}/mcp_servers/icon/", data=params)
         assert response.status_code == status.HTTP_200_OK
         service.return_value.get_icon_http_response.assert_called_once_with(
             "linear.app", theme=expected_theme, fallback="404"

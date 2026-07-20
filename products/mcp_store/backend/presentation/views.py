@@ -1,4 +1,3 @@
-import re
 import time
 import hashlib
 import secrets
@@ -8,6 +7,8 @@ from typing import Any, cast
 from urllib.parse import urlencode, urlparse
 
 from django.conf import settings
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import DomainNameValidator
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Q, QuerySet
 from django.http import HttpResponse
@@ -161,9 +162,11 @@ def _template_uses_dcr(template: MCPServerTemplate) -> bool:
     return not credentials.get("client_id")
 
 
-# A bare hostname (logo.dev's icon id) — rejects paths, schemes, and query junk so the icon
-# endpoint can't be steered anywhere but img.logo.dev/{domain}.
-_ICON_DOMAIN_RE = re.compile(r"[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?)+")
+# The domain becomes a path segment of img.logo.dev/{domain} and part of the icon cache key.
+# Django's validator enforces real hostname grammar (label lengths, total length cap, no
+# schemes/paths/query junk), so the endpoint can't be steered off the logo host and callers
+# can't mint oversized cache keys.
+_ICON_DOMAIN_VALIDATOR = DomainNameValidator(accept_idna=False)
 
 
 class MCPServerTemplateSerializer(serializers.ModelSerializer):
@@ -201,8 +204,12 @@ class MCPServerViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.G
     @extend_schema(exclude=True)
     @action(methods=["GET"], detail=False)
     def icon(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
-        domain = request.GET.get("domain", "")
-        if not _ICON_DOMAIN_RE.fullmatch(domain):
+        # Canonicalized (lowercase, no FQDN trailing dot) before validation so case variants
+        # share one cache entry downstream.
+        domain = request.GET.get("domain", "").strip().lower().rstrip(".")
+        try:
+            _ICON_DOMAIN_VALIDATOR(domain)
+        except DjangoValidationError:
             raise serializers.ValidationError("domain must be a bare hostname, e.g. linear.app")
         theme = request.GET.get("theme")
         return CDPIconsService().get_icon_http_response(

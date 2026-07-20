@@ -1,4 +1,5 @@
 from typing import Literal, TypedDict
+from urllib.parse import urlparse
 
 from django.db import models
 from django.db.models import Q
@@ -67,8 +68,14 @@ def normalize_mcp_template_icon_key(value: str) -> str:
 
 
 def normalize_mcp_icon_domain(value: str) -> str:
-    """Lowercase hostname, no scheme/path — the id logo.dev keys brand icons on."""
-    return (value or "").strip().lower().removeprefix("https://").removeprefix("http://").strip("/")
+    """Lowercase hostname, no scheme/path/query/port — the id logo.dev keys brand icons on."""
+    value = (value or "").strip().lower()
+    if not value:
+        return ""
+    # urlparse only treats the leading segment as a host when a netloc separator is present.
+    if "//" not in value:
+        value = f"//{value}"
+    return (urlparse(value).hostname or "").rstrip(".")
 
 
 class MCPServerTemplate(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
