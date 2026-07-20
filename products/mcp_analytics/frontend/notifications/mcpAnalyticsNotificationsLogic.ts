@@ -11,8 +11,7 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { CyclotronJobFiltersType, HogFunctionSubTemplateIdType, HogFunctionType } from '~/types'
 
-const MCP_NOTIFICATION_PAGE_LIMIT = 200
-const MCP_NOTIFICATION_MAX_PAGES = 10
+const MCP_NOTIFICATION_LIST_LIMIT = 500
 const MCP_NOTIFICATION_SUB_TEMPLATE_IDS: HogFunctionSubTemplateIdType[] = ['mcp-missing-capability', 'mcp-tool-error']
 
 function getMCPNotificationFilterGroups(): CyclotronJobFiltersType[] {
@@ -141,38 +140,30 @@ export const mcpAnalyticsNotificationsLogic = kea<mcpAnalyticsNotificationsLogic
             [] as HogFunctionType[],
             {
                 loadNotifications: async (): Promise<HogFunctionType[]> => {
-                    const notifications: HogFunctionType[] = []
+                    const response = await api.hogFunctions.list({
+                        filter_groups: getMCPNotificationFilterGroups(),
+                        types: ['destination'],
+                        full: true,
+                        limit: MCP_NOTIFICATION_LIST_LIMIT,
+                    })
+                    if (response.next) {
+                        lemonToast.warning(
+                            `Showing the first ${MCP_NOTIFICATION_LIST_LIMIT} notifications — manage the rest from the data pipelines page.`
+                        )
+                    }
 
                     // A reload can race in-flight mutations: a GET that read the DB before a
                     // toggle/delete landed would otherwise revert the toggle or resurrect the
                     // deleted row. Keep the local value for rows with a pending mutation.
-                    const reconcile = (fetched: HogFunctionType[]): HogFunctionType[] =>
-                        fetched
-                            .filter((notification) => !values.pendingDeleteIds[notification.id])
-                            .map((notification) => {
-                                if (!values.pendingToggleIds[notification.id]) {
-                                    return notification
-                                }
-                                const local = values.notifications.find((item) => item.id === notification.id)
-                                return local ? { ...notification, enabled: local.enabled } : notification
-                            })
-
-                    for (let page = 0; page < MCP_NOTIFICATION_MAX_PAGES; page++) {
-                        const response = await api.hogFunctions.list({
-                            filter_groups: getMCPNotificationFilterGroups(),
-                            types: ['destination'],
-                            full: true,
-                            limit: MCP_NOTIFICATION_PAGE_LIMIT,
-                            offset: page * MCP_NOTIFICATION_PAGE_LIMIT,
+                    return response.results
+                        .filter((notification) => !notification.deleted && !values.pendingDeleteIds[notification.id])
+                        .map((notification) => {
+                            if (!values.pendingToggleIds[notification.id]) {
+                                return notification
+                            }
+                            const local = values.notifications.find((item) => item.id === notification.id)
+                            return local ? { ...notification, enabled: local.enabled } : notification
                         })
-                        notifications.push(...response.results.filter((notification) => !notification.deleted))
-
-                        if (!response.next) {
-                            return reconcile(notifications)
-                        }
-                    }
-
-                    throw new Error(`MCP notification list exceeded ${MCP_NOTIFICATION_MAX_PAGES} pages`)
                 },
             },
         ],

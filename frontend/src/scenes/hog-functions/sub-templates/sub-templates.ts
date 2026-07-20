@@ -318,7 +318,7 @@ function markdownEscapeExpr(expression: string, maxLength: number = MCP_FIELD_MA
     // Breaking the `](` adjacency is enough to neutralize masked links [text](url) in
     // Discord and Teams; Discord mass mentions are already suppressed by the destination
     // template's allowed_mentions, and Teams mentions can't be triggered from text.
-    return `replaceAll(substring(concat(${expression}), 1, ${maxLength}), '](', '] (')`
+    return `substring(replaceAll(concat(${expression}), '](', '] ('), 1, ${maxLength})`
 }
 
 // In single-exec mode $mcp_tool_name is always the 'exec' dispatcher; the inner tool the agent
