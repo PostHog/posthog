@@ -103,6 +103,13 @@ Note: DataForSEO bills per API request, so every sync consumes account credits. 
             ),
         )
 
+    @property
+    def connection_host_fields(self) -> list[str]:
+        # `targets` selects which domains the stored credential runs paid requests against, so
+        # retargeting it must re-require the secret — a preserved credential can't be pointed at
+        # attacker-chosen domains without re-entering the password.
+        return ["targets"]
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         invalid_credentials_message = (
             "Your DataForSEO API credentials are invalid. Find your API login and password at "

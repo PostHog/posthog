@@ -65,6 +65,11 @@ class TestDataForSEOSource:
         assert input_field("location_name").required is False
         assert input_field("language_name").required is False
 
+    def test_connection_host_fields_includes_targets(self) -> None:
+        # targets selects which domains the stored credential runs paid requests against, so
+        # changing it must force re-entry of the secret.
+        assert DataForSEOSource().connection_host_fields == ["targets"]
+
     def test_source_config_is_released_alpha(self) -> None:
         config = DataForSEOSource().get_source_config
         assert config.releaseStatus == "alpha"
