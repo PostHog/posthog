@@ -70,6 +70,7 @@ class TestMetricsExport:
             pytest.param(b"llm_gateway_active_streams", id="active_streams"),
             pytest.param(b"llm_gateway_concurrent_requests", id="concurrent_requests"),
             pytest.param(b"llm_gateway_streaming_client_disconnect_total", id="streaming_client_disconnect"),
+            pytest.param(b"llm_gateway_anthropic_bridge_invalid_stream_total", id="anthropic_bridge_invalid_stream"),
             pytest.param(b"llm_gateway_db_pool_size", id="db_pool_size"),
             pytest.param(b"llm_gateway_llm_response_time_seconds", id="llm_response_time"),
             pytest.param(b"llm_gateway_llm_ttft_seconds", id="llm_time_to_first_token"),

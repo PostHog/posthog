@@ -1543,6 +1543,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     content=command_params.get("content"),
                     artifact_ids=artifact_ids,
                     actor_user_id=request.user.id,
+                    steer=command_params.get("steer", False),
                 )
             except Exception:
                 # A synchronous web request can't retry the way the Temporal
