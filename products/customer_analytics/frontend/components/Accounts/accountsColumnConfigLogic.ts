@@ -322,7 +322,12 @@ export interface accountsColumnConfigLogicValues {
     aliasToRelationshipDefinition: Record<string, AccountRelationshipDefinitionApi>
     columnConfiguratorVisible: boolean
     customPropertyDefinitions: CustomPropertyDefinitionApi[]
+    customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>
     customPropertyDefinitionsLoading: boolean
+    customPropertyTaxonomicOptions: (SimpleOption & {
+        id: string
+        property_type: PropertyType
+    })[]
     defaultSelectColumns: string[]
     querySelectColumns: string[]
     relationshipDefinitions: AccountRelationshipDefinitionApi[]
@@ -422,9 +427,16 @@ export interface accountsColumnConfigLogicMeta {
             customPropertyDefinitions: CustomPropertyDefinitionApi[],
             relationshipDefinitions: AccountRelationshipDefinitionApi[]
         ) => AccountColumnGroup[]
-        aliasToDefinition: (
+        customPropertyDefinitionsById: (
             customPropertyDefinitions: CustomPropertyDefinitionApi[]
         ) => Record<string, CustomPropertyDefinitionApi>
+        aliasToDefinition: (
+            customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>
+        ) => Record<string, CustomPropertyDefinitionApi>
+        customPropertyTaxonomicOptions: (customPropertyDefinitions: CustomPropertyDefinitionApi[]) => (SimpleOption & {
+            id: string
+            property_type: PropertyType
+        })[]
         aliasToRelationshipDefinition: (
             relationshipDefinitions: AccountRelationshipDefinitionApi[],
             roleKeyToDefinition: Partial<

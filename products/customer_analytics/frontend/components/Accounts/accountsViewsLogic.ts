@@ -15,6 +15,7 @@ import { userLogic } from 'scenes/userLogic'
 import { ColumnConfigurationApi } from 'products/product_analytics/frontend/generated/api.schemas'
 
 import type { UserType } from '../../../../../frontend/src/types'
+import type { AccountCustomPropertyFilter } from '../../../../../frontend/src/types'
 import { ACCOUNTS_COLUMN_CONFIG_KEY, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import { accountsLogic } from './accountsLogic'
 import type { AccountSortOrder, RoleFilterValue } from './accountsLogic'
@@ -35,6 +36,7 @@ export interface accountsViewsLogicValues {
     selectColumns: string[] // accountsColumnConfigLogic
     allRolesUnassigned: boolean // accountsLogic
     assignedToFilter: RoleFilterValue // accountsLogic
+    customPropertyFilters: AccountCustomPropertyFilter[] // accountsLogic
     searchQuery: string // accountsLogic
     sortOrder: AccountSortOrder // accountsLogic
     tagsFilter: string[] // accountsLogic
@@ -115,6 +117,9 @@ export interface accountsViewsLogicActions {
     } // accountsLogic
     setAssignedToFilter: (value: RoleFilterValue) => {
         value: RoleFilterValue
+    } // accountsLogic
+    setCustomPropertyFilters: (filters: AccountCustomPropertyFilter[]) => {
+        filters: AccountCustomPropertyFilter[]
     } // accountsLogic
     setSearchQuery: (query: string) => {
         query: string
@@ -345,7 +350,8 @@ export interface accountsViewsLogicMeta {
             assignedToFilter: RoleFilterValue,
             sortOrder: AccountSortOrder,
             tileFilter: TileFilter | null,
-            tiles: AccountsOverviewTile[]
+            tiles: AccountsOverviewTile[],
+            customPropertyFilters: AccountCustomPropertyFilter[]
         ) => AccountsViewState
         currentView: (views: ColumnConfigurationApi[], currentViewId: string | null) => ColumnConfigurationApi | null
         isDirty: (currentView: ColumnConfigurationApi | null, liveViewState: AccountsViewState) => boolean

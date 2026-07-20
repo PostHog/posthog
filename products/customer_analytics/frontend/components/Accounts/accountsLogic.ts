@@ -163,6 +163,7 @@ export interface AccountsViewUrlState {
 export interface accountsLogicValues {
     aliasToDefinition: Record<string, CustomPropertyDefinitionApi> // accountsColumnConfigLogic
     aliasToRelationshipDefinition: Record<string, AccountRelationshipDefinitionApi> // accountsColumnConfigLogic
+    customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi> // accountsColumnConfigLogic
     defaultSelectColumns: string[] // accountsColumnConfigLogic
     querySelectColumns: string[] // accountsColumnConfigLogic
     relationshipDefinitionsLoaded: boolean // accountsColumnConfigLogic
@@ -180,6 +181,7 @@ export interface accountsLogicValues {
     assignedToCurrentUser: boolean
     assignedToFilter: RoleFilterValue
     currentUserId: number | null
+    customPropertyFilters: AccountCustomPropertyFilter[]
     hogqlQuery: DataTableNode
     isRoleSaving: (accountId: string, column: string) => boolean
     metricsQuery: AccountsQuery | null
@@ -285,6 +287,9 @@ export interface accountsLogicActions {
     setAssignedToFilter: (value: RoleFilterValue) => {
         value: RoleFilterValue
     }
+    setCustomPropertyFilters: (filters: AccountCustomPropertyFilter[]) => {
+        filters: AccountCustomPropertyFilter[]
+    }
     setRelationshipOverride: (
         accountId: string,
         column: string,
@@ -330,7 +335,8 @@ export interface accountsLogicMeta {
             searchQuery: string,
             tagsFilter: string[],
             allRolesUnassigned: boolean,
-            assignedToFilter: RoleFilterValue
+            assignedToFilter: RoleFilterValue,
+            customPropertyFilters: AccountCustomPropertyFilter[]
         ) => number
         viewUrlState: (
             searchQuery: string,
@@ -340,7 +346,8 @@ export interface accountsLogicMeta {
             sortOrder: AccountSortOrder,
             selectColumns: string[],
             defaultSelectColumns: string[],
-            tileFilter: TileFilter | null
+            tileFilter: TileFilter | null,
+            customPropertyFilters: AccountCustomPropertyFilter[]
         ) => AccountsViewUrlState
         hogqlQuery: (
             searchQuery: string,
@@ -352,6 +359,8 @@ export interface accountsLogicMeta {
             sortOrder: AccountSortOrder,
             querySelectColumns: string[],
             visibleColumnNames: string[],
+            customPropertyFilters: AccountCustomPropertyFilter[],
+            customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>,
             aliasToDefinition: Record<string, CustomPropertyDefinitionApi>
         ) => DataTableNode
         accountsQuerySource: (hogqlQuery: DataTableNode, relationshipDefinitionsLoaded: boolean) => AccountsQuery | null
@@ -363,6 +372,8 @@ export interface accountsLogicMeta {
             assignedToFilter: RoleFilterValue,
             accountIdFilter: string | null,
             tileFilter: TileFilter | null,
+            customPropertyFilters: AccountCustomPropertyFilter[],
+            customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>,
             relationshipDefinitionsLoaded: boolean
         ) => AccountsQuery | null
     }
