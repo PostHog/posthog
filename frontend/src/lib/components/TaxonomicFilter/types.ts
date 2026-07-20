@@ -2,14 +2,15 @@ import Fuse from 'fuse.js'
 import { LogicWrapper } from 'kea'
 import { ReactNode } from 'react'
 
-import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 // eslint-disable-next-line import/no-cycle
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 
 import { AnyDataNode, DatabaseSchemaField, DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 import {
+    ActionFilter,
     ActionType,
     CohortType,
+    EntityFilter,
     EventDefinition,
     EventPropertyFilter,
     PersonProperty,
@@ -123,7 +124,9 @@ export interface TaxonomicFilterProps {
     onChange?: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void
     onEnter?: (query: string) => void
     onClose?: () => void
-    filter?: LocalFilter
+    /** The series/entity filter the picker is editing — lets the list surface
+     *  the committed selection with its rename (`custom_name`) applied. */
+    filter?: EntityFilter | ActionFilter
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
     taxonomicFilterLogicKey?: string
     optionsFromProp?: Partial<Record<TaxonomicFilterGroupType, SimpleOption[]>>
@@ -338,6 +341,7 @@ export enum TaxonomicFilterGroupType {
     Replay = 'replay',
     ReplaySavedFilters = 'replay_saved_filters',
     RevenueAnalyticsProperties = 'revenue_analytics_properties',
+    AccountCustomProperties = 'account_custom_properties',
     Resources = 'resources',
     ErrorTrackingProperties = 'error_tracking_properties',
     ActivityLogProperties = 'activity_log_properties',

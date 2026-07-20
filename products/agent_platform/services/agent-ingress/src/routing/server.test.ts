@@ -171,6 +171,7 @@ describe('ingress HTTP server (path mode)', () => {
         revisions: PgRevisionStore
         queue: PgSessionQueue
         approvals: PgApprovalStore
+        credentialBroker: PgCredentialBroker
         bus: RedisSessionEventBus
         app: ReturnType<typeof buildApp>
     } {
@@ -210,7 +211,7 @@ describe('ingress HTTP server (path mode)', () => {
                 },
             },
         })
-        return { revisions, queue, approvals, bus, app }
+        return { revisions, queue, approvals, credentialBroker, bus, app }
     }
 
     it('GET /healthz returns ok', async () => {
@@ -234,6 +235,72 @@ describe('ingress HTTP server (path mode)', () => {
         expect(res.body.session_id).not.toBeUndefined()
         const session = await queue.get(res.body.session_id)
         expect(session!.conversation[0]).toMatchObject({ role: 'user', content: 'hi' })
+    })
+
+    it('makes credentials available before a chat session becomes claimable', async () => {
+        const { revisions, queue, credentialBroker, app } = mk(undefined, { withAuth: true })
+        await seedPosthogApp(revisions, 'credential-ordering')
+
+        const enqueue = queue.enqueue.bind(queue)
+        vi.spyOn(queue, 'enqueue').mockImplementation(async (session) => {
+            await expect(credentialBroker.resolve(session.id, 'posthog_api')).resolves.toEqual({
+                kind: 'posthog_bearer',
+                token: OWNER_TOKEN,
+            })
+            await enqueue(session)
+        })
+
+        const run = await request(app)
+            .post('/agents/credential-ordering/run')
+            .set('Authorization', `Bearer ${OWNER_TOKEN}`)
+            .send({ message: 'first' })
+        expect(run.status).toBe(200)
+
+        const sessionId = run.body.session_id
+        await credentialBroker.clear(sessionId)
+        const update = queue.update.bind(queue)
+        vi.spyOn(queue, 'update').mockImplementation(async (id, patch) => {
+            if (patch.state === 'queued') {
+                await expect(credentialBroker.resolve(id, 'posthog_api')).resolves.toEqual({
+                    kind: 'posthog_bearer',
+                    token: OWNER_TOKEN,
+                })
+            }
+            await update(id, patch)
+        })
+
+        const send = await request(app)
+            .post('/agents/credential-ordering/send')
+            .set('Authorization', `Bearer ${OWNER_TOKEN}`)
+            .send({ session_id: sessionId, message: 'second' })
+        expect(send.status).toBe(200)
+    })
+
+    it('restores prior credentials when a send fails before requeue', async () => {
+        const { revisions, queue, credentialBroker, app } = mk(undefined, { withAuth: true })
+        await seedPosthogApp(revisions, 'credential-rollback')
+
+        const run = await request(app)
+            .post('/agents/credential-rollback/run')
+            .set('Authorization', `Bearer ${OWNER_TOKEN}`)
+            .send({ message: 'first' })
+        expect(run.status).toBe(200)
+        const sessionId = run.body.session_id
+        await credentialBroker.write(sessionId, {
+            posthog_api: { kind: 'posthog_bearer', token: 'prior-token' },
+        })
+
+        vi.spyOn(queue, 'update').mockRejectedValueOnce(new Error('queue update failed'))
+        const send = await request(app)
+            .post('/agents/credential-rollback/send')
+            .set('Authorization', `Bearer ${OWNER_TOKEN}`)
+            .send({ session_id: sessionId, message: 'second' })
+
+        expect(send.status).toBe(500)
+        await expect(credentialBroker.resolve(sessionId, 'posthog_api')).resolves.toEqual({
+            kind: 'posthog_bearer',
+            token: 'prior-token',
+        })
     })
 
     it('POST /send buffers into pending_inputs (drained by runner at next turn)', async () => {

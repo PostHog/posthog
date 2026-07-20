@@ -30,12 +30,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssq
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
+_FIREWALL_BLOCKED_ERROR = (
+    "Your SQL Server's firewall is blocking PostHog. Add a firewall rule allowing PostHog's IP "
+    "addresses to reach the server (on Azure SQL, use the portal or sp_set_firewall_rule), then "
+    "try again. New rules can take a few minutes to take effect."
+)
+
 MSSQLErrors = {
     # SQL Server error 18456 is an authentication failure (wrong username/password, or the login is
     # disabled), not a problem with the database field. Surface the same wording the sibling SQL
     # sources use and match the stable prefix, not the volatile "'<username>'." that follows it.
     "Login failed for user": "Invalid user or password",
     "Adaptive Server is unavailable or does not exist": "Could not connect to SQL server - check server host and port",
+    # Azure SQL error 40615 — the server-level firewall rejected the connecting client IP. The full
+    # message echoes the server name and client IP, so match the stable, distinctive phrase instead.
+    "is not allowed to access the server": _FIREWALL_BLOCKED_ERROR,
     "connection timed out": "Could not connect to SQL server - check server firewall settings",
 }
 
@@ -54,6 +63,11 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            # Azure SQL error 40615 — the server-level firewall rejected PostHog's client IP. This
+            # also surfaces "Adaptive Server connection failed" below, but that generic entry has no
+            # message; keep this first so the actionable firewall guidance wins. Match the stable
+            # phrase, not the volatile server name / client IP the rest of the message echoes.
+            "is not allowed to access the server": _FIREWALL_BLOCKED_ERROR,
             "Adaptive Server connection failed": None,
             # pymssql DB-Lib error 20009 — the server host can't be reached for the whole
             # connection attempt. On a managed instance this is a persistent connectivity issue

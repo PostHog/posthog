@@ -19,7 +19,12 @@ from products.tasks.backend.temporal.metrics import increment_snapshot_create, r
 
 logger = structlog.get_logger(__name__)
 
-PENDING_USER_STATE_KEYS = ["pending_user_message", "pending_user_artifact_ids", "pending_user_message_ts"]
+PENDING_USER_STATE_KEYS = [
+    "pending_user_message",
+    "pending_user_artifact_ids",
+    "pending_user_message_id",
+    "pending_user_message_ts",
+]
 
 
 @dataclass

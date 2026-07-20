@@ -403,6 +403,50 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         assert by_id[custom_experiment.id]["first_exposure_timestamp"] == "2026-01-01T10:05:00Z"
         assert all(result["variant"] == "test" for result in results)
 
+    def test_multiple_custom_criteria_experiments_resolve_in_one_request(self) -> None:
+        self._create_recording()
+        # Two custom-criteria experiments force a real multi-branch UNION ALL — a single branch
+        # collapses to a plain SelectQuery, so only this shape proves the set query compiles
+        # (a set-level LIMIT after the last branch's LIMIT 500ed the endpoint in production).
+        first = self._create_experiment(
+            exposure_criteria={
+                "exposure_config": {
+                    "kind": "ExperimentEventExposureConfig",
+                    "event": "checkout started",
+                    "properties": [],
+                }
+            }
+        )
+        second = self._create_experiment(
+            key="pricing-banner",
+            name="Pricing banner",
+            exposure_criteria={
+                "exposure_config": {
+                    "kind": "ExperimentEventExposureConfig",
+                    "event": "pricing viewed",
+                    "properties": [],
+                }
+            },
+        )
+        self._create_session_event(
+            event="checkout started",
+            timestamp="2026-01-01T10:05:00Z",
+            properties={"$feature/checkout-cta": "test"},
+        )
+        self._create_session_event(
+            event="pricing viewed",
+            timestamp="2026-01-01T10:07:00Z",
+            properties={"$feature/pricing-banner": "control"},
+        )
+        flush_persons_and_events()
+
+        response = self._get_session_context()
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        by_id = {result["experiment_id"]: result for result in results}
+        assert by_id[first.id]["first_exposure_timestamp"] == "2026-01-01T10:05:00Z"
+        assert by_id[second.id]["first_exposure_timestamp"] == "2026-01-01T10:07:00Z"
+
     def test_action_exposure_criteria_defines_exposure_timestamp(self) -> None:
         self._create_recording()
         action = Action.objects.create(team=self.team, name="Purchased", steps_json=[{"event": "purchase"}])

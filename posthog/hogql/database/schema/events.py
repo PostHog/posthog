@@ -22,11 +22,10 @@ from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdsT
 from posthog.hogql.database.schema.persons_revenue_analytics import PersonsRevenueAnalyticsTable
 from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1
 
+from posthog.clickhouse.events_json import DISTRIBUTED_EVENTS_JSON_TABLE
+
 
 def events_table_clickhouse_table_ref(context) -> str:
-    # lazy import keeps the events SQL module (Django ORM) off this module's import path
-    from posthog.models.event.sql import DISTRIBUTED_EVENTS_JSON_TABLE  # noqa: PLC0415
-
     return DISTRIBUTED_EVENTS_JSON_TABLE if context.uses_new_events_schema() else "events"
 
 
