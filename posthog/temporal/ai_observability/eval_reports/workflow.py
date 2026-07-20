@@ -29,7 +29,7 @@ from posthog.temporal.ai_observability.eval_reports.constants import (
     CHECK_COUNT_TRIGGERED_REPORTS_WORKFLOW_NAME,
     COUNT_TRIGGER_CHECK_ACTIVITY_TIMEOUT,
     COUNT_TRIGGER_CHECK_BATCH_SIZE,
-    COUNT_TRIGGER_REPORTS_PER_ACTIVITY,
+    COUNT_TRIGGER_MAX_CONCURRENT_CHECKS,
     DELIVER_ACTIVITY_TIMEOUT,
     DELIVER_HEARTBEAT_TIMEOUT,
     DELIVER_RETRY_POLICY,
@@ -126,11 +126,13 @@ class CheckCountTriggeredReportsWorkflow(PostHogWorkflow):
             start_to_close_timeout=FETCH_ACTIVITY_TIMEOUT,
             retry_policy=FETCH_RETRY_POLICY,
         )
-        # Batched path shares one ClickHouse count query per team instead of firing one per
-        # report. Gated by patched() so a coordinator started before this deployed replays
-        # its original per-report command sequence and doesn't hit a nondeterminism error.
-        if temporalio.workflow.patched("eval-report-batched-count-check-2026-07"):
-            report_ids = await _check_count_triggered_eval_report_candidates_batched(result.report_ids)
+        # Batched path: one check activity per team-group, each sharing one ClickHouse
+        # count query, instead of one activity per report. Gated on the fetch output so
+        # the decision is replay-deterministic: histories recorded before batching (and
+        # fetch results produced by a pre-batching worker mid-deploy) decode
+        # report_id_groups as None and keep their per-report command sequence.
+        if result.report_id_groups is not None:
+            report_ids = await _check_count_triggered_eval_report_candidates_batched(result.report_id_groups)
         else:
             report_ids = await _check_count_triggered_eval_report_candidates(result.report_ids)
 
@@ -199,41 +201,43 @@ async def _check_count_triggered_eval_report_candidates(report_ids: list[str]) -
     return due_report_ids
 
 
-async def _check_count_triggered_eval_report_candidates_batched(report_ids: list[str]) -> list[str]:
+async def _check_count_triggered_eval_report_candidates_batched(report_id_groups: list[list[str]]) -> list[str]:
     due_report_ids: list[str] = []
     failed: list[tuple[str, str]] = []
     skipped_counts = {
         "cooldown": 0,
         "daily_cap": 0,
         "not_deliverable": 0,
-        # A team's count query failed inside the batch; the report is re-checked next tick.
-        "count_query_error": 0,
     }
 
-    batches = _batch_report_ids(report_ids, COUNT_TRIGGER_REPORTS_PER_ACTIVITY)
-    tasks = [
-        temporalio.workflow.execute_activity(
-            check_count_triggered_eval_reports_activity,
-            CheckCountTriggeredEvalReportsBatchInput(report_ids=batch),
-            start_to_close_timeout=COUNT_TRIGGER_CHECK_ACTIVITY_TIMEOUT,
-            retry_policy=FETCH_RETRY_POLICY,
-        )
-        for batch in batches
-    ]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-
-    for batch, result in zip(batches, results):
-        if isinstance(result, BaseException):
-            # A whole batch failed — attribute every report in it so the failure is visible,
-            # while other batches still contribute their due reports.
-            for report_id in batch:
-                failed.append((report_id, f"{type(result).__name__}: {result}"))
-            continue
-        for output in result.results:
-            if output.due:
-                due_report_ids.append(output.report_id)
-            elif output.skipped_reason is not None:
-                skipped_counts[output.skipped_reason] = skipped_counts.get(output.skipped_reason, 0) + 1
+    # Each group holds one team's reports capped at COUNT_TRIGGER_QUERY_WIDTH, so one
+    # activity runs one count query under its own timeout and Temporal retry policy, and
+    # a ClickHouse failure is contained to that group. The window keeps at most
+    # COUNT_TRIGGER_MAX_CONCURRENT_CHECKS count queries in flight — the legacy path's ceiling.
+    for index in range(0, len(report_id_groups), COUNT_TRIGGER_MAX_CONCURRENT_CHECKS):
+        window = report_id_groups[index : index + COUNT_TRIGGER_MAX_CONCURRENT_CHECKS]
+        tasks = [
+            temporalio.workflow.execute_activity(
+                check_count_triggered_eval_reports_activity,
+                CheckCountTriggeredEvalReportsBatchInput(report_ids=group),
+                start_to_close_timeout=COUNT_TRIGGER_CHECK_ACTIVITY_TIMEOUT,
+                retry_policy=FETCH_RETRY_POLICY,
+            )
+            for group in window
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for group, group_result in zip(window, results):
+            if isinstance(group_result, BaseException):
+                # A group's activity exhausted its retries — attribute every report in it so
+                # the failure is visible, while other groups still contribute their results.
+                for report_id in group:
+                    failed.append((report_id, f"{type(group_result).__name__}: {group_result}"))
+                continue
+            for output in group_result.results:
+                if output.due:
+                    due_report_ids.append(output.report_id)
+                elif output.skipped_reason is not None:
+                    skipped_counts[output.skipped_reason] = skipped_counts.get(output.skipped_reason, 0) + 1
 
     if failed:
         temporalio.workflow.logger.warning(
@@ -245,11 +249,10 @@ async def _check_count_triggered_eval_report_candidates_batched(report_ids: list
         "llma_eval_reports_coordinator_count_triggered_poll",
         extra={
             "reports_found": len(due_report_ids),
-            "total_checked": len(report_ids),
+            "total_checked": sum(len(group) for group in report_id_groups),
             "skipped_cooldown": skipped_counts["cooldown"],
             "skipped_daily_cap": skipped_counts["daily_cap"],
             "skipped_not_deliverable": skipped_counts["not_deliverable"],
-            "skipped_count_query_error": skipped_counts["count_query_error"],
         },
     )
     record_coordinator_reports_found(len(due_report_ids), "count_triggered")

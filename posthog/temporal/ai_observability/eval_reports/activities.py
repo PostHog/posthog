@@ -78,13 +78,15 @@ async def fetch_due_eval_reports_activity(
 async def fetch_count_triggered_eval_report_candidates_activity(
     inputs: CheckCountTriggeredReportsWorkflowInputs,
 ) -> FetchDueEvalReportsOutput:
-    """Return count-triggered report IDs that need an independent count check."""
+    """Return count-triggered report IDs that need an independent count check, grouped
+    one team per group so each check activity runs a single shared count query."""
 
     @database_sync_to_async(thread_sensitive=False)
-    def get_report_ids() -> list[str]:
-        return _fetch_count_triggered_eval_report_candidate_ids()
+    def get_report_id_groups() -> list[list[str]]:
+        return _fetch_count_triggered_eval_report_candidate_groups()
 
-    report_ids = await get_report_ids()
+    report_id_groups = await get_report_id_groups()
+    report_ids = [report_id for group in report_id_groups for report_id in group]
     await logger.ainfo(
         "llma_eval_reports_coordinator_count_triggered_candidates_poll",
         total_checked=len(report_ids),
@@ -92,7 +94,7 @@ async def fetch_count_triggered_eval_report_candidates_activity(
     from posthog.temporal.ai_observability.eval_reports.metrics import record_coordinator_check_count
 
     record_coordinator_check_count(len(report_ids), "count_triggered")
-    return FetchDueEvalReportsOutput(report_ids=report_ids)
+    return FetchDueEvalReportsOutput(report_ids=report_ids, report_id_groups=report_id_groups)
 
 
 @temporalio.activity.defn
@@ -126,21 +128,24 @@ async def check_count_triggered_eval_reports_activity(
     return CheckCountTriggeredEvalReportsBatchOutput(results=results)
 
 
-def _fetch_count_triggered_eval_report_candidate_ids() -> list[str]:
+def _fetch_count_triggered_eval_report_candidate_groups() -> list[list[str]]:
+    """Return candidate report ids grouped one team per group, each group at most
+    COUNT_TRIGGER_QUERY_WIDTH wide, so one check activity runs exactly one ClickHouse
+    count query under its own timeout and retry policy."""
     from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
 
-    return [
-        str(pk)
-        for pk in EvaluationReport.objects.deliverable()
+    ids_by_team: dict[int, list[str]] = defaultdict(list)
+    for pk, team_id in (
+        EvaluationReport.objects.deliverable()
         .filter(
             frequency=EvaluationReport.Frequency.EVERY_N,
             trigger_threshold__isnull=False,
         )
-        # Order by team so same-team reports land in the same activity batch and share
-        # one ClickHouse count query. Ordering only affects grouping, not which reports run.
         .order_by("team_id", "id")
-        .values_list("id", flat=True)
-    ]
+        .values_list("id", "team_id")
+    ):
+        ids_by_team[team_id].append(str(pk))
+    return [chunk for ids in ids_by_team.values() for chunk in _chunk(ids, COUNT_TRIGGER_QUERY_WIDTH)]
 
 
 def _load_count_triggered_report(report_id: str) -> "EvaluationReport | None":
@@ -214,11 +219,15 @@ def _check_count_triggered_eval_reports_batch(
     report_ids: list[str],
     now: dt.datetime | None = None,
 ) -> list[CheckCountTriggeredEvalReportOutput]:
-    """Check many count-triggered reports, batching the ClickHouse count into one query
-    per team so the coordinator stops firing one events scan per report every tick.
+    """Check a group of count-triggered reports, sharing one ClickHouse count query per team.
 
-    The Postgres gating (deliverability, cooldown, daily cap) and the `count >= threshold`
-    decision are identical to the single-report path — only the count query is shared.
+    The input is normally one team's reports (the fetch activity groups candidates that way),
+    but multi-team input is handled by grouping — one query per team-chunk. The Postgres
+    gating (deliverability, cooldown, daily cap) and the `count >= threshold` decision are
+    identical to the single-report path — only the count query is shared.
+
+    A ClickHouse failure propagates and fails the whole activity, which normally spans just
+    one team's chunk — Temporal retries it under the activity's retry policy.
     """
     from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
 
@@ -231,7 +240,6 @@ def _check_count_triggered_eval_reports_batch(
             id__in=report_ids,
             frequency=EvaluationReport.Frequency.EVERY_N,
             trigger_threshold__isnull=False,
-            evaluation__output_type="boolean",
         )
         .select_related("evaluation", "team")
     }
@@ -260,34 +268,18 @@ def _check_count_triggered_eval_reports_batch(
         team = entries[0][1].team
         # Cap the per-query width so a team with many reports doesn't build one giant query.
         for chunk in _chunk(entries, COUNT_TRIGGER_QUERY_WIDTH):
-            try:
-                counts = _count_eval_results_for_reports(
-                    team,
-                    [
-                        (
-                            report_id,
-                            str(report.evaluation_id),
-                            since,
-                            get_outcome_definition(report.evaluation.output_type).event_predicate,
-                        )
-                        for report_id, report, since in chunk
-                    ],
-                )
-            except Exception:
-                # Keep one team's ClickHouse failure (capacity, timeout, transient) from sinking
-                # the whole batch: mark just this chunk's reports and carry on with other teams.
-                # They resolve not-due now and get re-checked on the next 5-minute tick, matching
-                # the pre-batching blast radius of a single failing count query.
-                logger.exception(
-                    "llma_eval_reports_count_query_failed",
-                    team_id=team.pk,
-                    report_count=len(chunk),
-                )
-                for report_id, _report, _since in chunk:
-                    outputs[report_id] = CheckCountTriggeredEvalReportOutput(
-                        report_id=report_id, due=False, skipped_reason="count_query_error"
+            counts = _count_eval_results_for_reports(
+                team,
+                [
+                    (
+                        report_id,
+                        str(report.evaluation_id),
+                        since,
+                        get_outcome_definition(report.evaluation.output_type).event_predicate,
                     )
-                continue
+                    for report_id, report, since in chunk
+                ],
+            )
             for report_id, report, _since in chunk:
                 assert report.trigger_threshold is not None
                 outputs[report_id] = CheckCountTriggeredEvalReportOutput(
@@ -380,6 +372,7 @@ def _count_eval_results_for_reports(
             "min_since": ast.Constant(value=min(since for _key, _evaluation_id, since, _pred in entries)),
         },
     )
+    assert isinstance(query, ast.SelectQuery)
     # Replace the placeholder projection with the per-entry count columns.
     query.select = select_columns
 

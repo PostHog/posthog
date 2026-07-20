@@ -39,6 +39,10 @@ class CheckCountTriggeredEvalReportsBatchOutput:
 @dataclasses.dataclass
 class FetchDueEvalReportsOutput:
     report_ids: list[str]
+    # Count-triggered candidates grouped one team per group, each group at most
+    # COUNT_TRIGGER_QUERY_WIDTH wide. None when emitted by a pre-batching worker;
+    # the workflow then keeps the legacy per-report path.
+    report_id_groups: list[list[str]] | None = None
 
 
 @dataclasses.dataclass

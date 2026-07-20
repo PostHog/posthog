@@ -8,12 +8,11 @@ from unittest.mock import MagicMock, Mock, patch
 from django.utils import timezone
 
 from posthog.models import Team
-from posthog.temporal.ai_observability.eval_reports import activities
 from posthog.temporal.ai_observability.eval_reports.activities import (
     _check_count_triggered_eval_report_sync,
     _check_count_triggered_eval_reports_batch,
     _count_eval_results_for_report,
-    _fetch_count_triggered_eval_report_candidate_ids,
+    _fetch_count_triggered_eval_report_candidate_groups,
     _find_nth_eval_timestamp,
     _period_for_scheduled_report,
     run_eval_report_agent_activity,
@@ -312,9 +311,10 @@ class TestPrepareReportContext(BaseTest):
 
 
 class TestCountTriggeredReportChecks(BaseTest):
-    def _create_report(self, **kwargs) -> EvaluationReport:
+    def _create_report(self, team: Team | None = None, **kwargs) -> EvaluationReport:
+        team = team or self.team
         evaluation = Evaluation.objects.create(
-            team=self.team,
+            team=team,
             name="Test Eval",
             evaluation_type="llm_judge",
             evaluation_config={"prompt": "test prompt"},
@@ -325,7 +325,7 @@ class TestCountTriggeredReportChecks(BaseTest):
             conditions=[{"id": "c1", "rollout_percentage": 100, "properties": []}],
         )
         defaults = {
-            "team": self.team,
+            "team": team,
             "evaluation": evaluation,
             "frequency": EvaluationReport.Frequency.EVERY_N,
             "rrule": "",
@@ -346,10 +346,22 @@ class TestCountTriggeredReportChecks(BaseTest):
         )
 
         with patch("posthog.hogql.query.execute_hogql_query") as execute_hogql_query:
-            report_ids = _fetch_count_triggered_eval_report_candidate_ids()
+            groups = _fetch_count_triggered_eval_report_candidate_groups()
 
-        self.assertEqual(report_ids, [str(count_triggered_report.id)])
+        self.assertEqual(groups, [[str(count_triggered_report.id)]])
         execute_hogql_query.assert_not_called()
+
+    def test_fetch_candidates_groups_by_team_and_chunks_by_width(self):
+        # One check activity handles one group, so a group must never span teams (its counts
+        # would run against the wrong team's data) nor exceed the per-query width cap.
+        team_a_report_ids = sorted(str(self._create_report().id) for _ in range(3))
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        team_b_report = self._create_report(team=other_team)
+
+        with patch("posthog.temporal.ai_observability.eval_reports.activities.COUNT_TRIGGER_QUERY_WIDTH", 2):
+            groups = _fetch_count_triggered_eval_report_candidate_groups()
+
+        self.assertEqual(groups, [team_a_report_ids[:2], team_a_report_ids[2:], [str(team_b_report.id)]])
 
     def test_check_report_returns_due_when_threshold_is_crossed(self):
         report = self._create_report(trigger_threshold=100)
@@ -479,13 +491,19 @@ class TestBatchedCountTriggeredQuery(ClickhouseTestMixin, BaseTest):
     T0 = dt.datetime(2026, 6, 1, 9, 0, tzinfo=dt.UTC)
     NOW = dt.datetime(2026, 6, 1, 12, 0, tzinfo=dt.UTC)
 
-    def _create_report(self, team: Team, *, threshold: int, since: dt.datetime, name: str) -> EvaluationReport:
+    def _create_report(
+        self, team: Team, *, threshold: int, since: dt.datetime, name: str, output_type: str = "boolean"
+    ) -> EvaluationReport:
+        if output_type == "sentiment":
+            evaluation_type, evaluation_config = "sentiment", {"source": "user_messages"}
+        else:
+            evaluation_type, evaluation_config = "llm_judge", {"prompt": "test prompt"}
         evaluation = Evaluation.objects.create(
             team=team,
             name=name,
-            evaluation_type="llm_judge",
-            evaluation_config={"prompt": "test prompt"},
-            output_type="boolean",
+            evaluation_type=evaluation_type,
+            evaluation_config=evaluation_config,
+            output_type=output_type,
             output_config={},
             enabled=True,
             conditions=[{"id": "c1", "rollout_percentage": 100, "properties": []}],
@@ -572,35 +590,37 @@ class TestBatchedCountTriggeredQuery(ClickhouseTestMixin, BaseTest):
         self.assertEqual([r.report_id for r in results], report_ids)
         self.assertTrue(all(r.due for r in results))
 
-    def test_one_teams_query_failure_is_isolated_from_other_teams(self):
-        # A healthy team (one in-window event, threshold 1 -> due) alongside a team whose count
-        # query raises. Without per-team isolation the exception fails the whole batch and
-        # discards the healthy team's already-computed result; with it, the blast radius is the
-        # failing team only — it comes back skipped, the healthy team still resolves due.
-        healthy = self._create_report(self.team, threshold=1, since=self.T0, name="healthy")
-        self._emit_eval_events(self.team, str(healthy.evaluation_id), [self.T0 + dt.timedelta(hours=1)])
+    def test_sentiment_reports_are_checked_with_their_own_predicate(self):
+        # The loader must not restrict to boolean output types — a count-triggered sentiment
+        # report would silently resolve not_deliverable forever — and sentiment events must be
+        # counted with the sentiment predicate, not the boolean one.
+        boolean_report = self._create_report(self.team, threshold=1, since=self.T0, name="bool")
+        self._emit_eval_events(self.team, str(boolean_report.evaluation_id), [self.T0 + dt.timedelta(hours=1)])
 
-        failing_team = Team.objects.create(organization=self.organization, name="failing")
-        failing = self._create_report(failing_team, threshold=1, since=self.T0, name="failing")
-        self._emit_eval_events(failing_team, str(failing.evaluation_id), [self.T0 + dt.timedelta(hours=1)])
+        sentiment_report = self._create_report(
+            self.team, threshold=2, since=self.T0, name="sent", output_type="sentiment"
+        )
+        for index, ts in enumerate([self.T0 + dt.timedelta(hours=1), self.T0 + dt.timedelta(hours=2)]):
+            _create_event(
+                team=self.team,
+                event="$ai_evaluation",
+                distinct_id=f"sent-{index}",
+                timestamp=ts,
+                properties={
+                    "$ai_evaluation_id": str(sentiment_report.evaluation_id),
+                    "$ai_evaluation_result_type": "sentiment",
+                    "$ai_sentiment_label": "negative",
+                },
+            )
 
-        real_count = activities._count_eval_results_for_reports
-
-        def flaky(team, entries):
-            if team.pk == failing_team.pk:
-                raise Exception("ClickHouseAtCapacity: too many simultaneous queries")
-            return real_count(team, entries)
-
-        report_ids = [str(healthy.id), str(failing.id)]
-        with patch.object(activities, "_count_eval_results_for_reports", side_effect=flaky):
-            results = _check_count_triggered_eval_reports_batch(report_ids, self.NOW)
+        results = _check_count_triggered_eval_reports_batch(
+            [str(boolean_report.id), str(sentiment_report.id)], self.NOW
+        )
 
         by_id = {r.report_id: r for r in results}
-        self.assertEqual([r.report_id for r in results], report_ids)
-        self.assertTrue(by_id[str(healthy.id)].due)
-        self.assertIsNone(by_id[str(healthy.id)].skipped_reason)
-        self.assertFalse(by_id[str(failing.id)].due)
-        self.assertEqual(by_id[str(failing.id)].skipped_reason, "count_query_error")
+        self.assertIsNone(by_id[str(sentiment_report.id)].skipped_reason)
+        self.assertTrue(by_id[str(sentiment_report.id)].due)
+        self.assertTrue(by_id[str(boolean_report.id)].due)
 
     def test_since_boundary_respects_non_utc_team_timezone(self):
         # `since` is passed as an ast.Constant datetime so ClickHouse compares the same absolute
