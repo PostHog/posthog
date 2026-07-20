@@ -29,9 +29,7 @@ if (not match(inputs.webhookUrl, '^https://discord.com/api/webhooks/.*')) {
 let res := fetch(inputs.webhookUrl, {
     'body': {
         'content': inputs.content,
-        'allowed_mentions': {
-            'parse': []
-        }
+        'allowed_mentions': inputs.allowedMentions
     },
     'method': 'POST',
     'headers': {
@@ -60,6 +58,15 @@ if (res.status >= 400) {
             "default": "**{person.name}** triggered event: '{event.event}'",
             "secret": False,
             "required": True,
+        },
+        {
+            "key": "allowedMentions",
+            "type": "json",
+            "label": "Allowed mentions",
+            "description": "Controls which mentions in the content actually ping people. By default roles, users, and @everyone are allowed. Set 'parse' to an empty list to suppress all pings (see https://discord.com/developers/docs/resources/message#allowed-mentions-object).",
+            "default": {"parse": ["roles", "users", "everyone"]},
+            "secret": False,
+            "required": False,
         },
     ],
 )
