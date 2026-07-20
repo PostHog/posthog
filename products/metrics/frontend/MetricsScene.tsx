@@ -6,6 +6,7 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 
+import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePreviewSceneGate'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -15,6 +16,7 @@ import { MetricsSetupPrompt } from './components/MetricsSetupPrompt'
 import { MetricsSqlEditor } from './components/MetricsSqlEditor'
 import { metricsUsageTrackingLogic } from './components/metricsUsageTrackingLogic'
 import { MetricsViewer } from './components/MetricsViewer'
+import { metricsFeaturePreviewGate } from './featurePreviewGate'
 import { metricsIngestionLogic } from './metricsIngestionLogic'
 import { MetricsSceneActiveTab, metricsSceneLogic } from './metricsSceneLogic'
 
@@ -33,9 +35,11 @@ export const scene: SceneExport = {
 
 export function MetricsScene(): JSX.Element {
     return (
-        <SceneContent className="h-[calc(var(--scene-layout-rect-height,_100vh)_-_1rem)]">
-            <MetricsSceneContent />
-        </SceneContent>
+        <FeaturePreviewSceneGate config={metricsFeaturePreviewGate}>
+            <SceneContent className="h-[calc(var(--scene-layout-rect-height,_100vh)_-_1rem)]">
+                <MetricsSceneContent />
+            </SceneContent>
+        </FeaturePreviewSceneGate>
     )
 }
 

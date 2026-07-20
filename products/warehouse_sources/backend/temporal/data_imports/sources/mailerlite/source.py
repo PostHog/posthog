@@ -27,8 +27,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite
     validate_credentials as validate_mailerlite_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite.settings import (
+    DEFAULT_VERSION,
     ENDPOINTS,
     MAILERLITE_ENDPOINTS,
+    SUPPORTED_VERSIONS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -36,6 +38,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class MailerLiteSource(ResumableSource[MailerLiteSourceConfig, MailerLiteResumeConfig]):
     api_docs_url = "https://developers.mailerlite.com"
+
+    supported_versions = SUPPORTED_VERSIONS
+    default_version = DEFAULT_VERSION
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
@@ -130,4 +135,5 @@ You can create an API key in your [MailerLite integrations settings](https://das
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
         )

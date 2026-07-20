@@ -305,9 +305,9 @@ def _is_sandbox_event_ingest_enabled(
     state: dict | None = None,
 ) -> bool:
     # Slack runs must stay on the relay path regardless of the flag or any
-    # override: permission brokering and the Slack approval-card escalation only
-    # run in relay_sandbox_events, so a Slack run in ingest mode would stall
-    # forever on its first gated tool call.
+    # override: the permission auto-responder only runs in relay_sandbox_events,
+    # so a legacy Slack run in ingest mode would stall forever on its first
+    # gated tool call.
     if is_slack_interaction_state(state):
         return False
 

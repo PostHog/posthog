@@ -22,6 +22,20 @@ EMAILOCTOPUS_BASE_URL = "https://api.emailoctopus.com"
 # The v2 API caps a page at 100 results.
 PAGE_SIZE = 100
 
+# EmailOctopus serves every API version from the same host with the same resource paths, bearer
+# auth, and cursor pagination — the version isn't carried in the request (no path segment, header,
+# or query param). Both supported labels therefore resolve to the one REST host the source has
+# always used; the seam exists so a genuinely divergent future version can branch here, and pinned
+# instances keep hitting the same host regardless of the default.
+_BASE_URL_BY_VERSION = {
+    "v1": EMAILOCTOPUS_BASE_URL,
+    "v2": EMAILOCTOPUS_BASE_URL,
+}
+
+
+def _base_url_for_version(api_version: str) -> str:
+    return _BASE_URL_BY_VERSION.get(api_version, EMAILOCTOPUS_BASE_URL)
+
 
 class EmailOctopusRetryableError(Exception):
     pass
@@ -109,9 +123,11 @@ def _fetch_page(
     return response.json()
 
 
-def _iter_list_ids(session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger) -> Iterator[str]:
+def _iter_list_ids(
+    session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger, base_url: str
+) -> Iterator[str]:
     """Page through /lists and yield each list's id, following the cursor links."""
-    url = f"{EMAILOCTOPUS_BASE_URL}/lists"
+    url = f"{base_url}/lists"
     params: dict[str, Any] | None = {"limit": PAGE_SIZE}
     while True:
         data = _fetch_page(session, url, headers, logger, params)
@@ -141,6 +157,7 @@ def _get_top_level_rows(
     logger: FilteringBoundLogger,
     batcher: Batcher,
     manager: ResumableSourceManager[EmailOctopusResumeConfig],
+    base_url: str,
 ) -> Iterator[Any]:
     resume = manager.load_state() if manager.can_resume() else None
     if resume is not None and resume.next_url:
@@ -148,7 +165,7 @@ def _get_top_level_rows(
         params: dict[str, Any] | None = None
         logger.debug(f"EmailOctopus: resuming {config.name} from URL: {url}")
     else:
-        url = f"{EMAILOCTOPUS_BASE_URL}{config.path}"
+        url = f"{base_url}{config.path}"
         params = {"limit": PAGE_SIZE}
 
     while True:
@@ -180,13 +197,14 @@ def _get_contact_rows(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
     incremental_field: str | None,
+    base_url: str,
 ) -> Iterator[Any]:
     """Fan out over every list and contact status, yielding each contact with its `list_id` attached.
 
     Contacts are nested under lists and the API returns only one status at a time, so we walk every
     (list, status) pair. The [list_id, id] primary key keeps a single row per contact across statuses.
     """
-    list_ids = list(_iter_list_ids(session, headers, logger))
+    list_ids = list(_iter_list_ids(session, headers, logger, base_url))
     pairs = [(list_id, status) for list_id in list_ids for status in CONTACT_STATUSES]
 
     resume = manager.load_state() if manager.can_resume() else None
@@ -221,7 +239,7 @@ def _get_contact_rows(
             url = resume_url
             params: dict[str, Any] | None = None
         else:
-            url = f"{EMAILOCTOPUS_BASE_URL}/lists/{list_id}/contacts"
+            url = f"{base_url}/lists/{list_id}/contacts"
             params = _build_contact_params(status, filter_field, filter_value)
 
         try:
@@ -284,11 +302,13 @@ def get_rows(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[EmailOctopusResumeConfig],
+    api_version: str,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
     incremental_field: str | None = None,
 ) -> Iterator[Any]:
     config = EMAILOCTOPUS_ENDPOINTS[endpoint]
+    base_url = _base_url_for_version(api_version)
     headers = _get_headers(api_key)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
     # One session reused across every page (and, for fan-out, every list) so urllib3 keeps the
@@ -306,9 +326,10 @@ def get_rows(
             should_use_incremental_field,
             db_incremental_field_last_value,
             incremental_field,
+            base_url,
         )
     else:
-        yield from _get_top_level_rows(session, config, headers, logger, batcher, resumable_source_manager)
+        yield from _get_top_level_rows(session, config, headers, logger, batcher, resumable_source_manager, base_url)
 
     if batcher.should_yield(include_incomplete_chunk=True):
         yield batcher.get_table()
@@ -319,6 +340,7 @@ def emailoctopus_source(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[EmailOctopusResumeConfig],
+    api_version: str,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
@@ -332,6 +354,7 @@ def emailoctopus_source(
             endpoint=endpoint,
             logger=logger,
             resumable_source_manager=resumable_source_manager,
+            api_version=api_version,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
             incremental_field=incremental_field,

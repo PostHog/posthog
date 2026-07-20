@@ -513,6 +513,42 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Save the users this scanner matched as a static cohort, for surveys, funnels, and retention analysis.
+ */
+export const visionScannersAffectedCohortCreateBodyWindowDaysDefault = 30
+export const visionScannersAffectedCohortCreateBodyWindowDaysMax = 90
+
+export const visionScannersAffectedCohortCreateBodyTagMax = 100
+
+export const VisionScannersAffectedCohortCreateBody = /* @__PURE__ */ zod
+    .object({
+        window_days: zod
+            .number()
+            .min(1)
+            .max(visionScannersAffectedCohortCreateBodyWindowDaysMax)
+            .default(visionScannersAffectedCohortCreateBodyWindowDaysDefault)
+            .describe('Trailing window of observations to count. Defaults to 30 days.'),
+        tag: zod
+            .string()
+            .max(visionScannersAffectedCohortCreateBodyTagMax)
+            .nullish()
+            .describe(
+                'Classifier scanners only, required for them: count sessions carrying this tag (fixed or freeform). Not applicable to other scanner types.'
+            ),
+        min_score: zod
+            .number()
+            .nullish()
+            .describe(
+                'Scorer scanners only: count sessions scoring at or above this value. Scorers require `min_score` and\/or `max_score`. Not applicable to other scanner types.'
+            ),
+        max_score: zod
+            .number()
+            .nullish()
+            .describe('Scorer scanners only: count sessions scoring at or below this value.'),
+    })
+    .describe('Body of POST \/vision\/scanners\/:id\/affected_cohort\/. Same qualifiers as the impact GET.')
+
+/**
  * Apply this scanner to one specific session, on demand. Returns 202 with the workflow handle.
  */
 export const visionScannersObserveCreateBodySessionIdMax = 128

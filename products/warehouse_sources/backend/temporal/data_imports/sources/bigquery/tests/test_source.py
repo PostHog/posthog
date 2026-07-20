@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.b
     BIGQUERY_INVALID_IDENTIFIER_ERROR,
     BIGQUERY_INVALID_KEY_FILE_ERROR,
     BIGQUERY_MISSING_KEY_FILE_FIELDS_ERROR,
+    BIGQUERY_QUERY_CREATE_RETRY,
     BIGQUERY_QUERY_JOB_RETRY,
     BIGQUERY_READ_ROWS_RETRY,
     BIGQUERY_TOKEN_RESPONSE_ERROR,
@@ -1344,6 +1345,14 @@ def test_has_duplicate_primary_keys_captures_unexpected_errors():
             "exceeded quota for tabledata.list bytes per second per project. For more information, "
             "see https://cloud.google.com/bigquery/docs/troubleshoot-quotas"
         ),
+        # The queued-jobs quota (reason `quotaExceeded`, location `max_queued_jobs`) is transient —
+        # the queue drains as running jobs finish — so it must be retried rather than crashing the
+        # sync. Volatile ids redacted.
+        Forbidden(
+            "Quota exceeded: Your project_and_region exceeded quota for max number of jobs that can "
+            "be queued per project. For more information, see "
+            "https://cloud.google.com/bigquery/docs/troubleshoot-quotas"
+        ),
     ],
 )
 def test_bigquery_query_job_retry_retries_transient_job_errors(exc):
@@ -1366,6 +1375,22 @@ def test_bigquery_query_job_retry_retries_transient_job_errors(exc):
 )
 def test_bigquery_query_job_retry_does_not_retry_deterministic_errors(exc):
     assert BIGQUERY_QUERY_JOB_RETRY._predicate(exc) is False
+
+
+def test_bigquery_query_create_retry_retries_queued_jobs_quota():
+    """The queued-jobs quota is rejected at `jobs.insert`, which `job_retry` never wraps — only the
+    `retry` on `client.query()` can wait it out — so the create retry must cover it while still
+    leaving the administrator-set daily cost cap to surface non-retryably."""
+    queued_jobs = Forbidden(
+        "Quota exceeded: Your project_and_region exceeded quota for max number of jobs that can be "
+        "queued per project. For more information, see https://cloud.google.com/bigquery/docs/troubleshoot-quotas"
+    )
+    custom_quota = Forbidden(
+        "Custom quota exceeded: Your usage exceeded the custom quota for QueryUsagePerDay, "
+        "which is set by your administrator.; reason: quotaExceeded"
+    )
+    assert BIGQUERY_QUERY_CREATE_RETRY._predicate(queued_jobs) is True
+    assert BIGQUERY_QUERY_CREATE_RETRY._predicate(custom_quota) is False
 
 
 @pytest.mark.parametrize(
@@ -1408,6 +1433,7 @@ def test_bigquery_get_primary_keys_for_table_passes_job_retry():
     _get_primary_keys_for_table(table, client)
 
     assert client.query.return_value.result.call_args.kwargs["job_retry"] is BIGQUERY_QUERY_JOB_RETRY
+    assert client.query.call_args.kwargs["retry"] is BIGQUERY_QUERY_CREATE_RETRY
 
 
 def test_run_destination_query_passes_job_retry():
@@ -1421,6 +1447,7 @@ def test_run_destination_query_passes_job_retry():
     )
 
     assert client.query.return_value.result.call_args.kwargs["job_retry"] is BIGQUERY_QUERY_JOB_RETRY
+    assert client.query.call_args.kwargs["retry"] is BIGQUERY_QUERY_CREATE_RETRY
 
 
 def test_query_result_passes_job_retry():
@@ -1431,6 +1458,7 @@ def test_query_result_passes_job_retry():
     _query_result_with_job_retry(client, "SELECT COUNT(*)", job_config=mock.MagicMock(), project="prj")
 
     assert client.query.return_value.result.call_args.kwargs["job_retry"] is BIGQUERY_QUERY_JOB_RETRY
+    assert client.query.call_args.kwargs["retry"] is BIGQUERY_QUERY_CREATE_RETRY
 
 
 @pytest.mark.parametrize(
@@ -1714,3 +1742,40 @@ def test_bigquery_resources_exceeded_is_non_retryable():
 
     assert matching, "resourcesExceeded query failure should be recognised as non-retryable"
     assert all(non_retryable_errors[key] is not None for key in matching)
+
+
+def test_bigquery_source_declares_v2_as_default():
+    # The core of this PR: v2 is a supported version and the default for new sources, while the
+    # legacy label stays supported so existing pins keep resolving. Guards a revert of the default
+    # bump or an accidental drop of a supported label (base-class pin resolution itself is already
+    # covered by the registry-invariant suite).
+    source = BigQuerySource()
+    assert source.supported_versions == ("v1", "v2")
+    assert source.default_version == "v2"
+
+
+@pytest.mark.parametrize("pin,expected_segment", [("v1", "v2"), ("v2", "v2"), (None, "v2"), ("v99", "v2")])
+def test_bigquery_rest_api_version_maps_labels_to_v2(pin, expected_segment):
+    # Both supported labels (and any fallback) resolve to BigQuery's single stable REST path
+    # segment — a wrong mapping would point the client at a nonexistent /bigquery/<x>/ endpoint.
+    assert bq_module._bigquery_rest_api_version(pin) == expected_segment
+
+
+@pytest.mark.parametrize("pin", ["v1", "v2"])
+def test_bigquery_build_pipeline_threads_resolved_rest_api_version(pin):
+    # The source's version pin must reach the request layer (the REST segment the read/query
+    # clients run under); dropping it would stop a future version from dispatching.
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.delete_all_temp_destination_tables",
+        ),
+        mock.patch.object(
+            BigQueryImplementation, "_build_source_response", return_value=mock.MagicMock()
+        ) as mock_build,
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.delete_table",
+        ),
+    ):
+        BigQuerySource().source_for_pipeline(_make_config(), _make_inputs(api_version=pin))
+
+    assert mock_build.call_args.kwargs["rest_api_version"] == "v2"

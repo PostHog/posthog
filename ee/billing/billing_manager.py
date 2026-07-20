@@ -169,10 +169,12 @@ def handle_billing_service_error(res: requests.Response, valid_codes=(200, 201, 
 class BillingManager:
     license: License | None
     user: User | None
+    ip_address: str | None
 
-    def __init__(self, license, user: User | None = None):
+    def __init__(self, license, user: User | None = None, ip_address: str | None = None):
         self.license = license or get_cached_instance_license()
         self.user = user
+        self.ip_address = ip_address
 
     def get_billing(
         self,
@@ -534,7 +536,12 @@ class BillingManager:
             billing_provider=billing_provider,
             service_action=service_action,
         )
-        return {"Authorization": f"Bearer {billing_service_token}"}
+        headers = {"Authorization": f"Bearer {billing_service_token}"}
+        if self.ip_address:
+            # Billing is called server-to-server, so it only ever sees PostHog's egress IP.
+            # Forward the end-user's IP so billing can attach it to activity-log records.
+            headers["X-PostHog-Actor-IP"] = self.ip_address
+        return headers
 
     def get_invoices(self, organization: Organization, status: str | None):
         res = requests.get(

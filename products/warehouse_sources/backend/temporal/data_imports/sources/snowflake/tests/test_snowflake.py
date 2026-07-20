@@ -775,6 +775,20 @@ class TestSnowflakeSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            "HTTP 403: Forbidden",
+            # The real shape from production: the errno prefix and host vary, but the status
+            # text is stable. Newlines are normalized to spaces upstream.
+            "290403: 290403: HTTP 403: Forbidden",
+        ],
+    )
+    def test_forbidden_403_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Persistent HTTP 403 should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             "JWT token is invalid",
             # The real shape from production: codes, host, and request id vary, but the substring is stable.
             "250001 (08001): None: Failed to connect to DB: novjltn-acme.snowflakecomputing.com:443. "
