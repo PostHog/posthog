@@ -53,6 +53,7 @@ pub struct StackConfig {
     /// Leader in-memory cache capacity (entries). Lower it below the seeded
     /// person count to put the cache under eviction pressure.
     pub cache_memory_capacity: usize,
+    pub recovery_pool_size: usize,
     /// etcd lease TTL for leaders, in seconds. Bounds how long a crashed
     /// (unrevoked) leader stays the registered owner.
     pub leader_lease_ttl: i64,
@@ -253,6 +254,10 @@ impl Stack {
                 (
                     "CACHE_MEMORY_CAPACITY",
                     self.config.cache_memory_capacity.to_string(),
+                ),
+                (
+                    "RECOVERY_POOL_SIZE",
+                    self.config.recovery_pool_size.to_string(),
                 ),
                 ("ETCD_ENDPOINTS", self.config.etcd_endpoints.clone()),
                 ("ETCD_PREFIX", ETCD_PREFIX.to_string()),

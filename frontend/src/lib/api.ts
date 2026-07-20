@@ -2976,6 +2976,24 @@ const api = {
         }> {
             return new ApiRequest().tracingSpans().withAction('duration-histogram').create({ signal, data: { query } })
         },
+        async latencyHeatmap(
+            query: {
+                dateRange?: { date_from?: string | null; date_to?: string | null }
+                serviceNames?: string[]
+                statusCodes?: number[]
+                filterGroup?: PropertyGroupFilter
+                // true (default) buckets root spans only (a distribution of traces); false buckets
+                // every matching span — pair with a span name filter for operation-scoped pages.
+                rootSpans?: boolean
+            },
+            signal?: AbortSignal
+        ): Promise<{
+            // Sparse cells ordered by time then bucket. Every time bucket appears at least once —
+            // empty buckets come back as a {time, bucket_ns: 0, count: 0} sentinel row.
+            results: { time: string; bucket_ns: number; count: number }[]
+        }> {
+            return new ApiRequest().tracingSpans().withAction('latency-heatmap').create({ signal, data: { query } })
+        },
         async aggregate(
             query: {
                 dateRange?: { date_from?: string | null; date_to?: string | null }
@@ -5914,6 +5932,7 @@ const api = {
         async refreshSchemas(sourceId: ExternalDataSource['id']): Promise<{
             added: number
             deleted: number
+            auto_enabled: number
             total_tables_seen: number
         }> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('refresh_schemas').create()
@@ -5922,7 +5941,10 @@ const api = {
             sourceId: ExternalDataSource['id'],
             // Callers send a minimal diff — only `id` is required; the backend writes just the fields
             // present and leaves the rest untouched. (Matches `externalDataSchemas.update`'s shape.)
-            schemas: (Partial<ExternalDataSourceSchema> & Pick<ExternalDataSourceSchema, 'id'>)[]
+            // `apply_sync_defaults` asks the backend to discover and fill in default sync settings
+            // for schemas that have no sync method configured yet.
+            schemas: (Partial<ExternalDataSourceSchema> &
+                Pick<ExternalDataSourceSchema, 'id'> & { apply_sync_defaults?: boolean })[]
         ): Promise<ExternalDataSourceSchema[]> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('bulk_update_schemas').update({
                 data: { schemas },
@@ -6014,6 +6036,7 @@ const api = {
             publication_exists?: boolean
             lag_bytes?: number | null
             published_tables?: string[]
+            schedule_paused?: boolean
         }> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('cdc_status').get()
         },

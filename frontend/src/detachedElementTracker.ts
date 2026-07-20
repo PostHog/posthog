@@ -10,6 +10,51 @@ interface Capturable {
     capture: (event: string, properties?: Record<string, unknown>) => void
 }
 
+export interface DetachedElementTrackingState {
+    currentPath: string | null
+    previousDetachedCount: number | null
+    routeBaselineDetachedCount: number | null
+}
+
+interface DetachedElementTrackingContext {
+    detachedElementsDelta: number | null
+    nextState: DetachedElementTrackingState
+    pathChanged: boolean
+    routeBaselineDetachedElements: number
+    routeDetachedElementsDelta: number
+}
+
+export function createDetachedElementTrackingState(): DetachedElementTrackingState {
+    return {
+        currentPath: null,
+        previousDetachedCount: null,
+        routeBaselineDetachedCount: null,
+    }
+}
+
+export function getDetachedElementTrackingContext(
+    state: DetachedElementTrackingState,
+    currentCount: number,
+    currentPath: string
+): DetachedElementTrackingContext {
+    const pathChanged = state.currentPath !== null && state.currentPath !== currentPath
+    const routeBaselineDetachedElements = pathChanged
+        ? currentCount
+        : (state.routeBaselineDetachedCount ?? currentCount)
+
+    return {
+        detachedElementsDelta: state.previousDetachedCount === null ? null : currentCount - state.previousDetachedCount,
+        pathChanged,
+        routeBaselineDetachedElements,
+        routeDetachedElementsDelta: currentCount - routeBaselineDetachedElements,
+        nextState: {
+            currentPath,
+            previousDetachedCount: currentCount,
+            routeBaselineDetachedCount: routeBaselineDetachedElements,
+        },
+    }
+}
+
 export function shouldCaptureDetachedElements(currentCount: number, previousCount: number | null): boolean {
     if (currentCount === 0) {
         return false
@@ -63,22 +108,33 @@ export function startDetachedElementTracking(posthog: Capturable): void {
                 trackEventListenerLeaks: false,
             })
 
-            let previousDetachedCount: number | null = null
+            let trackingState = createDetachedElementTrackingState()
 
             scan.subscribe((result) => {
-                if (!shouldCaptureDetachedElements(result.totalDetachedElements, previousDetachedCount)) {
-                    previousDetachedCount = result.totalDetachedElements
+                const currentPath = window.location.pathname
+                const trackingContext = getDetachedElementTrackingContext(
+                    trackingState,
+                    result.totalDetachedElements,
+                    currentPath
+                )
+
+                if (!shouldCaptureDetachedElements(result.totalDetachedElements, trackingState.previousDetachedCount)) {
+                    trackingState = trackingContext.nextState
                     return
                 }
-                previousDetachedCount = result.totalDetachedElements
+                trackingState = trackingContext.nextState
 
                 posthog.capture('detached_elements', {
                     total_elements: result.totalElements,
                     detached_elements: result.totalDetachedElements,
+                    detached_elements_delta: trackingContext.detachedElementsDelta,
                     detached_components: mapToTopN(result.detachedComponentToFiberNodeCount, TOP_N),
                     all_components: mapToTopN(result.componentToFiberNodeCount, TOP_N),
                     scan_duration_ms: Math.round(result.end - result.start),
-                    current_path: window.location.pathname,
+                    current_path: currentPath,
+                    path_changed_at_scan: trackingContext.pathChanged,
+                    path_change_baseline_detached_elements: trackingContext.routeBaselineDetachedElements,
+                    detached_elements_delta_since_path_change: trackingContext.routeDetachedElementsDelta,
                 })
             })
 
@@ -86,7 +142,7 @@ export function startDetachedElementTracking(posthog: Capturable): void {
                 if (document.hidden) {
                     scan.stop()
                 } else {
-                    previousDetachedCount = null
+                    trackingState = { ...trackingState, previousDetachedCount: null }
                     scan.start()
                 }
             }

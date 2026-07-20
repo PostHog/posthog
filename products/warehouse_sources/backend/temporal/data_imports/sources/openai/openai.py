@@ -350,14 +350,24 @@ def _iter_project_fan_out_rows(
         after = resume_after
         resume_after = None  # only the resumed-into project uses the saved cursor
 
-        for items, last_id in _iter_cursor_pages(session, headers, logger, path, {}, after):
-            for item in items:
-                row = {**_normalize_entity(config.name, item), "project_id": project_id}
-                batcher.batch(row)
-                while batcher.should_yield():
-                    yield batcher.get_table()
-                    if last_id:
-                        resumable_source_manager.save_state(OpenAIResumeConfig(cursor=last_id, project_id=project_id))
+        try:
+            for items, last_id in _iter_cursor_pages(session, headers, logger, path, {}, after):
+                for item in items:
+                    row = {**_normalize_entity(config.name, item), "project_id": project_id}
+                    batcher.batch(row)
+                    while batcher.should_yield():
+                        yield batcher.get_table()
+                        if last_id:
+                            resumable_source_manager.save_state(
+                                OpenAIResumeConfig(cursor=last_id, project_id=project_id)
+                            )
+        except requests.HTTPError as e:
+            # Some projects reject listing their project-scoped sub-resources with a 400 even for a
+            # valid admin key (e.g. the org's default project). Skip just that project so the rest of
+            # the endpoint still syncs, rather than failing the whole run on one bad project.
+            if e.response is None or e.response.status_code != 400:
+                raise
+            logger.warning(f"OpenAI: skipping {config.name} for project {project_id} after a 400 from the API")
 
         # Flush any incomplete batch before checkpointing to the next project, otherwise a crash
         # between the state save and the final flush would drop this project's buffered rows.
