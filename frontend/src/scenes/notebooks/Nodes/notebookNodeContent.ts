@@ -488,27 +488,33 @@ export const collectNotebookFrameNodes = (content?: JSONContent | null): Noteboo
         if (node.type === NotebookNodeType.SQLV2 || node.type === NotebookNodeType.PythonV2) {
             const attrs = node.attrs ?? {}
             const isSql = node.type === NotebookNodeType.SQLV2
-            const rawReturnVariable = typeof attrs.returnVariable === 'string' ? attrs.returnVariable : ''
-            let name: string
+            // A missing SQL attribute predates the optional name (legacy 'sql_df' default);
+            // an explicit blank means the cell binds no dataframe — nothing to browse.
+            const rawReturnVariable =
+                typeof attrs.returnVariable === 'string' ? attrs.returnVariable : isSql ? 'sql_df' : ''
+            let name: string | null
             if (isSql) {
-                name = buildUniqueSqlV2ReturnVariable(
-                    resolveSqlV2ReturnVariable(rawReturnVariable),
-                    usedReturnVariables
-                )
-                usedReturnVariables.add(normalizeSqlIdentifier(name))
+                name = rawReturnVariable.trim()
+                    ? buildUniqueSqlV2ReturnVariable(resolveSqlV2ReturnVariable(rawReturnVariable), usedReturnVariables)
+                    : null
+                if (name) {
+                    usedReturnVariables.add(normalizeSqlIdentifier(name))
+                }
             } else {
                 name = rawReturnVariable.trim() || 'df'
             }
-            const result = attrs.result ?? null
-            nodes.push({
-                nodeId: attrs.nodeId ?? '',
-                name,
-                nodeType: isSql ? 'sql' : 'python',
-                columns: frameNodeColumns(result),
-                rowCount: typeof result?.row_count === 'number' ? result.row_count : null,
-                hasRun: Boolean(result),
-                code: typeof attrs.code === 'string' ? attrs.code : '',
-            })
+            if (name) {
+                const result = attrs.result ?? null
+                nodes.push({
+                    nodeId: attrs.nodeId ?? '',
+                    name,
+                    nodeType: isSql ? 'sql' : 'python',
+                    columns: frameNodeColumns(result),
+                    rowCount: typeof result?.row_count === 'number' ? result.row_count : null,
+                    hasRun: Boolean(result),
+                    code: typeof attrs.code === 'string' ? attrs.code : '',
+                })
+            }
         }
         if (node.type === NotebookNodeType.MarkdownNotebook) {
             expandMarkdownNotebookNodesOfTypes(node, [NotebookNodeType.SQLV2, NotebookNodeType.PythonV2]).forEach(walk)

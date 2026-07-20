@@ -1,6 +1,10 @@
 import { buildMarkdownNotebookContent, serializeMarkdownNotebookComponent } from '../Notebook/markdownNotebookV2'
 import { NotebookNodeType } from '../types'
-import { buildNotebookDependencyGraph, extractPythonIdentifiers } from './notebookNodeContent'
+import {
+    buildNotebookDependencyGraph,
+    collectNotebookFrameNodes,
+    extractPythonIdentifiers,
+} from './notebookNodeContent'
 
 describe('buildNotebookDependencyGraph', () => {
     const sqlV2Node = (nodeId: string, returnVariable: string, code: string): Record<string, unknown> => ({
@@ -39,6 +43,18 @@ describe('buildNotebookDependencyGraph', () => {
         expect(graph.nodesById['b'].exports).toEqual(['sql_df_2'])
         expect(graph.downstreamUsageByNode['a'].sql_df.map((usage) => usage.nodeId)).toEqual(['c'])
         expect(graph.upstreamSourcesByNode['c'].sql_df.nodeId).toEqual('a')
+    })
+
+    it('an unnamed SQL cell is not browsable as a dataframe', () => {
+        // The schema browser lists document-derived frames; a blank-name cell binds no
+        // dataframe, so it must not appear (nor push a real 'sql_df' cell to 'sql_df_2').
+        const content = {
+            type: 'doc',
+            content: [sqlV2Node('blank', '', 'select 1'), sqlV2Node('named', 'sql_df', 'select id from events')],
+        }
+        const frames = collectNotebookFrameNodes(content)
+        expect(frames.map((frame) => frame.name)).toEqual(['sql_df'])
+        expect(frames[0].nodeId).toEqual('named')
     })
 
     it('an unnamed SQL cell exports nothing and reserves no name', () => {
