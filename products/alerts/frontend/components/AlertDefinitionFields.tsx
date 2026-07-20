@@ -71,7 +71,7 @@ export function TrendsDefinitionFields({
 const FUNNEL_BREACH_PREVIEW_CAP = 5
 
 /** Conversion-rate read-out + breach/ok status (mirrors the SQL alert's preview). */
-function FunnelAlertPreviewBanner({ preview }: { preview: FunnelAlertPreview | null }): JSX.Element | null {
+export function FunnelAlertPreviewBanner({ preview }: { preview: FunnelAlertPreview | null }): JSX.Element | null {
     if (preview === null) {
         return (
             <LemonBanner type="info" className="w-full">

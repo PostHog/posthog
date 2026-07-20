@@ -41,6 +41,7 @@ import { insightAlertsLogic } from '../logic/insightAlertsLogic'
 import { supportsAnomalyDetection, supportsOngoingInterval } from '../types'
 import type { AlertType } from '../types'
 import { AlertHistorySection } from './AlertHistorySection'
+import { EditAlertModalV2 } from './EditAlertModalV2'
 
 interface EditAlertModalProps {
     isOpen: boolean | undefined
@@ -54,7 +55,17 @@ interface EditAlertModalProps {
     insightName?: string | null
 }
 
-export function EditAlertModal({
+export function EditAlertModal(props: EditAlertModalProps): JSX.Element {
+    // Redesigned modal (wizard for new alerts, sectioned layout + live preview for edits). The flag
+    // is the single switch: off = legacy modal below, on = V2. Consumers don't change.
+    const redesigned = useFeatureFlag('ALERTS_REDESIGNED_EDIT_MODAL')
+    if (redesigned) {
+        return <EditAlertModalV2 {...props} />
+    }
+    return <LegacyEditAlertModal {...props} />
+}
+
+function LegacyEditAlertModal({
     isOpen,
     alertId,
     insightId,
