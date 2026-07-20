@@ -39,7 +39,11 @@ from posthog.temporal.ai_observability.evaluation_errors import (
     require_user_error_spec,
     status_reason_detail_for_terminal_user_error,
 )
-from posthog.temporal.ai_observability.evaluation_hog import build_hog_event_global, execute_hog_eval_bytecode
+from posthog.temporal.ai_observability.evaluation_hog import (
+    build_hog_event_global,
+    execute_hog_eval_bytecode,
+    hog_bytecode_references_global,
+)
 from posthog.temporal.ai_observability.evaluation_llm_judge import (
     LLM_JUDGE_RETRY_POLICY,
     call_llm_judge,
@@ -245,37 +249,53 @@ def format_trace_for_judge(trace: LLMTrace) -> str:
     return text
 
 
-def build_trace_hog_globals(trace: LLMTrace, trace_id: str) -> dict[str, Any]:
+def build_trace_hog_globals(trace: LLMTrace, trace_id: str, *, bytecode: list[Any] | None = None) -> dict[str, Any]:
     """Build Hog globals for a trace-level eval.
 
-    `events` and `trace` are compatibility globals kept for saved trace Hog source. Each event also has
-    best-effort readable text projections, while `target` contains metadata shared with generation evaluations.
+    `events` and `trace` keep their original shapes for saved trace Hog source. New target-independent
+    source uses `evaluation_events`, which adds readable text projections, and `target`.
 
-    `events` carries every trace event in chronological order with raw stringified I/O and best-effort text.
-    Sources read per-event io off `events`; there is no trace-level `input`/`output` because
-    a single synthesized pair isn't meaningful across a whole trace and wouldn't match what
-    the trace view shows.
+    Existing bytecode receives the original globals. Bytecode that uses a new shared global only
+    builds the event collections it references, avoiding duplicate HogVM and worker memory cost.
     """
-    events_globals: list[dict[str, Any]] = []
-    for event in trace.events or []:
-        events_globals.append(
+    trace_events = trace.events or []
+    references_target = bytecode is not None and hog_bytecode_references_global(bytecode, "target")
+    references_events = bytecode is not None and hog_bytecode_references_global(bytecode, "events")
+    references_evaluation_events = bytecode is not None and hog_bytecode_references_global(
+        bytecode, "evaluation_events"
+    )
+    globals_dict: dict[str, Any] = {
+        "trace": {"id": trace_id, "event_count": len(trace_events)},
+    }
+    if bytecode is None or references_target:
+        globals_dict["target"] = {
+            "type": "trace",
+            "id": trace_id,
+            "total_cost_usd": trace.totalCost,
+            "total_latency_seconds": trace.totalLatency,
+        }
+    if bytecode is None or references_events or not (references_target or references_evaluation_events):
+        globals_dict["events"] = [
+            build_hog_event_global(
+                event.event,
+                event.properties,
+                event_uuid=event.id,
+                timestamp=event.createdAt,
+                include_text=False,
+            )
+            for event in trace_events
+        ]
+    if bytecode is None or references_evaluation_events:
+        globals_dict["evaluation_events"] = [
             build_hog_event_global(
                 event.event,
                 event.properties,
                 event_uuid=event.id,
                 timestamp=event.createdAt,
             )
-        )
-    return {
-        "events": events_globals,
-        "trace": {"id": trace_id, "event_count": len(events_globals)},
-        "target": {
-            "type": "trace",
-            "id": trace_id,
-            "total_cost_usd": trace.totalCost,
-            "total_latency_seconds": trace.totalLatency,
-        },
-    }
+            for event in trace_events
+        ]
+    return globals_dict
 
 
 @temporalio.activity.defn
@@ -342,7 +362,7 @@ async def execute_trace_hog_eval_activity(inputs: ExecuteTraceEvaluationInputs) 
         )
         if outcome.skip_reason or outcome.trace is None:
             return None, outcome.skip_reason or "trace_not_found"
-        globals_dict = build_trace_hog_globals(outcome.trace, inputs.trace_id)
+        globals_dict = build_trace_hog_globals(outcome.trace, inputs.trace_id, bytecode=bytecode)
         return execute_hog_eval_bytecode(bytecode, globals_dict, allows_na=allows_na), None
 
     result, skip_reason = await database_sync_to_async(_execute, thread_sensitive=False)()

@@ -115,7 +115,7 @@ and sample volume with `rollout_percentage`.
 {
   "name": "Reply is under 2,000 characters",
   "evaluation_type": "hog",
-  "evaluation_config": { "source": "for (let i, item in events) { if (item.event == '$ai_generation' and length(item.output_text) >= 2000) { return false } } return true" },
+  "evaluation_config": { "source": "for (let i, item in evaluation_events) { if (item.event == '$ai_generation' and length(item.output_text) >= 2000) { return false } } return true" },
   "output_type": "boolean",
   "output_config": { "allows_na": false },
   "target": "generation",
@@ -134,10 +134,11 @@ The same Hog source works for a whole trace. Change only the target fields:
 }
 ```
 
-New Hog source should use the shared `events` and `target` globals. Top-level generation globals such as
-`input`, `output`, `properties`, and `event`, plus the trace-only `trace` global, remain available for
-compatibility with saved evaluators. `item.input_text` and `item.output_text` are best-effort readable
-projections of common provider payloads; use raw `item.input` and `item.output` when exact structure matters.
+New Hog source should use the shared `evaluation_events` and `target` globals. Top-level generation globals
+such as `input`, `output`, `properties`, and `event`, plus the trace-only `events` and `trace` globals, remain
+available for compatibility with saved evaluators. `item.input_text` and `item.output_text` are best-effort
+readable projections of common provider payloads; use raw `item.input` and `item.output` when exact structure
+matters.
 
 ### LLM judge
 

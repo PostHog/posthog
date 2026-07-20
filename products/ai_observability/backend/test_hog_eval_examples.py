@@ -84,7 +84,7 @@ CLEAN_EVENT = _make_event(
 CLEAN_EVENT["properties"]["$ai_tools_called"] = "get_weather,get_news"
 
 
-def _make_clean_trace_globals() -> dict[str, Any]:
+def _make_clean_trace_globals(bytecode: list[Any]) -> dict[str, Any]:
     trace = LLMTrace(
         id="trace-123",
         createdAt=CLEAN_EVENT["timestamp"],
@@ -106,7 +106,7 @@ def _make_clean_trace_globals() -> dict[str, Any]:
             ),
         ],
     )
-    return build_trace_hog_globals(trace, "trace-123")
+    return build_trace_hog_globals(trace, "trace-123", bytecode=bytecode)
 
 
 class TestHogEvalExamplesCompile:
@@ -130,7 +130,7 @@ class TestHogEvalExamplesRun:
     @parameterized.expand(EXAMPLE_LABELS)
     def test_returns_bool_without_error_for_trace(self, label):
         bytecode = compile_hog(_get_source(label), "destination")
-        result = execute_hog_eval_bytecode(bytecode, _make_clean_trace_globals(), allows_na=False)
+        result = execute_hog_eval_bytecode(bytecode, _make_clean_trace_globals(bytecode), allows_na=False)
 
         assert result["error"] is None, f"'{label}' errored for a trace: {result['error']}"
         assert isinstance(result["verdict"], bool), f"'{label}' returned non-bool for a trace: {result['verdict']}"
@@ -334,7 +334,9 @@ class TestHogEvalExamplesBehavior:
             ],
         )
 
-        result = execute_hog_eval_bytecode(bytecode, build_trace_hog_globals(trace, trace.id), allows_na=False)
+        result = execute_hog_eval_bytecode(
+            bytecode, build_trace_hog_globals(trace, trace.id, bytecode=bytecode), allows_na=False
+        )
 
         assert result["error"] is None
         assert len(json.dumps(result["reasoning"]).encode()) < 2 * 1024 * 1024

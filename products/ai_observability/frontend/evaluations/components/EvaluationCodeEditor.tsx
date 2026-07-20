@@ -13,7 +13,7 @@ import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import { HogTestResult } from '../types'
 
 const HOG_EVAL_COMMON_GLOBALS = {
-    events: [
+    evaluation_events: [
         {
             uuid: { type: 'string' },
             event: { type: 'string' },
@@ -48,7 +48,17 @@ const HOG_EVAL_GLOBALS_BY_TARGET = {
     },
     trace: {
         ...HOG_EVAL_COMMON_GLOBALS,
-        // Compatibility global kept for saved trace Hog source.
+        // Compatibility globals kept for saved trace Hog source.
+        events: [
+            {
+                uuid: { type: 'string' },
+                event: { type: 'string' },
+                timestamp: { type: 'string' },
+                input: { type: 'string' },
+                output: { type: 'string' },
+                properties: { type: 'object' },
+            },
+        ],
         trace: {
             id: { type: 'string' },
             event_count: { type: 'number' },
@@ -289,10 +299,10 @@ export function EvaluationCodeEditor(): JSX.Element {
                 <h4 className="text-sm font-semibold mb-2">Available globals</h4>
                 <div className="text-sm text-muted space-y-1">
                     <div>
-                        <code>events</code>: one event for a generation evaluation, or every event in a trace. Each item
-                        has raw <code>input</code> and <code>output</code>, best-effort readable <code>input_text</code>{' '}
-                        and <code>output_text</code>, and <code>properties</code>. Use the raw fields when the exact
-                        captured structure matters.
+                        <code>evaluation_events</code>: one event for a generation evaluation, or every event in a
+                        trace. Each item has raw <code>input</code> and <code>output</code>, best-effort readable{' '}
+                        <code>input_text</code> and <code>output_text</code>, and <code>properties</code>. Use the raw
+                        fields when the exact captured structure matters.
                     </div>
                     <div>
                         <code>target</code>: details about the generation or trace, including its ID, total cost, and
@@ -305,13 +315,13 @@ export function EvaluationCodeEditor(): JSX.Element {
                         </div>
                     ) : (
                         <div>
-                            For compatibility with saved trace code, this target also exposes <code>trace.id</code> and{' '}
-                            <code>trace.event_count</code>.
+                            For compatibility with saved trace code, this target also exposes the original{' '}
+                            <code>events</code> shape, <code>trace.id</code>, and <code>trace.event_count</code>.
                         </div>
                     )}
                     <div>
-                        New code should use <code>events</code> and <code>target</code> when it needs to work with
-                        either target.
+                        New code should use <code>evaluation_events</code> and <code>target</code> when it needs to work
+                        with either target.
                     </div>
                 </div>
                 <h4 className="text-sm font-semibold mt-3 mb-2">Tips</h4>

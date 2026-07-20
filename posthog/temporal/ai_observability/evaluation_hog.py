@@ -16,6 +16,7 @@ from posthog.temporal.ai_observability.evaluation_types import EvaluationActivit
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 
 from common.hogvm.python.execute import execute_bytecode
+from common.hogvm.python.operation import Operation
 from common.hogvm.python.utils import HogVMException, HogVMMemoryExceededException, HogVMRuntimeExceededException
 
 logger = structlog.get_logger(__name__)
@@ -78,30 +79,41 @@ def _extract_hog_output_text(output: Any) -> str:
     return _extract_hog_message_text(messages)
 
 
+def hog_bytecode_references_global(bytecode: list[Any], global_name: str) -> bool:
+    """Return whether compiled Hog bytecode reads a specific global."""
+    return any(
+        operation == Operation.GET_GLOBAL and index > 0 and bytecode[index - 1] == global_name
+        for index, operation in enumerate(bytecode)
+    )
+
+
 def build_hog_event_global(
     event_type: str,
     properties: dict[str, Any],
     *,
     event_uuid: Any,
     timestamp: Any,
+    include_text: bool = True,
 ) -> dict[str, Any]:
     """Build the per-event global shared by generation and trace evaluations.
 
-    The raw `input`/`output` fields are the compatibility contract for saved trace Hog source.
-    `input_text`/`output_text` are best-effort readable projections for cross-target source.
-    Use the raw fields when exact payload structure matters.
+    With text projections enabled, this is the target-independent event shape exposed through
+    `evaluation_events`. The trace-only `events` compatibility global disables them so saved
+    source keeps its original shape and memory cost.
     """
     input_raw, output_raw = extract_event_io(event_type, properties)
-    return {
+    event_global: dict[str, Any] = {
         "uuid": event_uuid,
         "event": event_type,
         "timestamp": timestamp,
         "input": coerce_hog_io_value(input_raw),
         "output": coerce_hog_io_value(output_raw),
-        "input_text": _extract_hog_message_text(input_raw),
-        "output_text": _extract_hog_output_text(output_raw),
         "properties": {key: value for key, value in properties.items() if key not in HOG_EVENT_HEAVY_PROPERTY_KEYS},
     }
+    if include_text:
+        event_global["input_text"] = _extract_hog_message_text(input_raw)
+        event_global["output_text"] = _extract_hog_output_text(output_raw)
+    return event_global
 
 
 def execute_hog_eval_bytecode(bytecode: list, globals_dict: dict[str, Any], allows_na: bool) -> dict[str, Any]:
@@ -167,33 +179,35 @@ def run_hog_eval(bytecode: list, event_data: dict[str, Any], allows_na: bool = F
         properties = json.loads(properties)
 
     event_type = event_data["event"]
-    event_global = build_hog_event_global(
-        event_type,
-        properties,
-        event_uuid=event_data.get("uuid", ""),
-        timestamp=event_data.get("timestamp"),
-    )
+    input_raw, output_raw = extract_event_io(event_type, properties)
 
     globals_dict: dict[str, Any] = {
         # Generation-only compatibility globals kept for saved Hog source.
-        # New source that must work for generations and traces should use `events` and `target` below.
-        "input": event_global["input"],
-        "output": event_global["output"],
+        "input": coerce_hog_io_value(input_raw),
+        "output": coerce_hog_io_value(output_raw),
         "properties": properties,
         "event": {
             "uuid": event_data.get("uuid", ""),
             "event": event_type,
             "distinct_id": event_data.get("distinct_id", ""),
         },
-        # Common globals shared with trace evaluations.
-        "events": [event_global],
-        "target": {
+    }
+    if hog_bytecode_references_global(bytecode, "target"):
+        globals_dict["target"] = {
             "type": "generation",
             "id": event_data.get("uuid", ""),
             "total_cost_usd": properties.get("$ai_total_cost_usd"),
             "total_latency_seconds": properties.get("$ai_latency"),
-        },
-    }
+        }
+    if hog_bytecode_references_global(bytecode, "evaluation_events"):
+        globals_dict["evaluation_events"] = [
+            build_hog_event_global(
+                event_type,
+                properties,
+                event_uuid=event_data.get("uuid", ""),
+                timestamp=event_data.get("timestamp"),
+            )
+        ]
 
     return execute_hog_eval_bytecode(bytecode, globals_dict, allows_na=allows_na)
 

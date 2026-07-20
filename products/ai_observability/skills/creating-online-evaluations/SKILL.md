@@ -84,15 +84,16 @@ New Hog source should use the globals shared by both targets:
 
 | Global                                 | Meaning                                                                                           |
 | -------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `events`                               | One generation event for a generation target, or every captured event for a trace target.         |
+| `evaluation_events`                    | One generation event for a generation target, or every captured event for a trace target.         |
 | `target`                               | The target's `type`, `id`, `total_cost_usd`, and `total_latency_seconds`.                         |
 | `item.input_text` / `item.output_text` | Best-effort readable projections; use these for length, keyword, and regex checks.                |
 | `item.input` / `item.output`           | Original serialized values; use these when the evaluator needs to parse the captured JSON itself. |
 
-Generation evaluations still expose top-level `input`, `output`, `properties`, and `event`, and trace
-evaluations still expose `trace`. Those globals are kept for compatibility with saved evaluators. Do not use
-the generation-only globals in new source that needs to work for both targets. The text projections recognize
-common provider payloads but are not authoritative; use `item.input` / `item.output` when exact structure matters.
+Generation evaluations still expose top-level `input`, `output`, `properties`, and `event`. Trace evaluations
+still expose their original `events` and `trace` globals. Those globals are kept for compatibility with saved
+evaluators. Do not use target-specific globals in new source that needs to work for both targets. The text
+projections recognize common provider payloads but are not authoritative; use `item.input` / `item.output` when
+exact structure matters.
 
 ### 2.3 — Gate (llm_judge only)
 
@@ -119,7 +120,7 @@ posthog:llma-evaluation-create
   "name": "Output is not empty",
   "description": "Fails when a generation has no readable output",
   "evaluation_type": "hog",
-  "evaluation_config": { "source": "let count := 0\nfor (let i, item in events) {\n    if (item.event == '$ai_generation') {\n        count := count + 1\n        if (length(trim(item.output_text)) == 0) { return false }\n    }\n}\nreturn count > 0" },
+  "evaluation_config": { "source": "let count := 0\nfor (let i, item in evaluation_events) {\n    if (item.event == '$ai_generation') {\n        count := count + 1\n        if (length(trim(item.output_text)) == 0) { return false }\n    }\n}\nreturn count > 0" },
   "output_type": "boolean",
   "output_config": { "allows_na": false },
   "target": "generation",
