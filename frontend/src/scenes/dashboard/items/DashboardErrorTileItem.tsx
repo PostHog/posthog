@@ -52,11 +52,7 @@ function DashboardErrorTileItemInternal(
                     ) : undefined
                 }
             />
-            <InsightErrorState
-                title="This tile couldn't be loaded. Refresh the dashboard to try again."
-                excludeDetail
-                excludeActions
-            />
+            <InsightErrorState title="There is a problem with this tile." excludeDetail excludeActions />
             {canEnterEditModeFromEdge && !showResizeHandles && onEnterEditModeFromEdge && (
                 <EditModeEdgeOverlay onEnterEditMode={onEnterEditModeFromEdge} />
             )}

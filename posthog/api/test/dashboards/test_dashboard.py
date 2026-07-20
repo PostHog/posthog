@@ -3432,7 +3432,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             streamed_tile["error"],
             {
                 "type": "DashboardTileError",
-                "message": "This tile couldn't be loaded. Refresh the dashboard to try again.",
+                "message": "There is a problem with this query.",
             },
         )
         self.assertNotIn("secret_customer_property", json.dumps(streamed_tile))
