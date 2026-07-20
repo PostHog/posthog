@@ -69,4 +69,4 @@ bin/dev-sandbox* @PostHog/team-security
 # becomes (probe permitting) an active server template in every environment on the next
 # deploy — installable by all tenants and feeding tool results into their LLM agents. The
 # probe only verifies liveness, so PR review is the vendor-identity gate.
-products/mcp_store/backend/catalog.py @cvolzer3
+products/mcp_store/backend/catalog.py @PostHog/team-self-driving @cvolzer3
