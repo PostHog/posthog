@@ -659,10 +659,14 @@ def get_readonly_github_token(team_id: int) -> Optional[str]:
     """Mint an ephemeral read-only GitHub token for a repo-less sandbox, or None.
 
     Resolves the same integration the repo-selection agent would use for this team, then mints an
-    installation token downscoped to read-only permissions. The scoped token is never persisted —
-    the integration's cached token stays the full-permission credential other flows share. Returns
-    None (never raises) when the team has no usable integration or the mint fails: read access is
-    an evidence-gathering nicety, and its absence must not fail the run.
+    installation token downscoped to read-only permissions. Team-level installations only: the
+    resolver's org-owner fallback returns a *personal* integration whose installation can span
+    repositories never connected to this team, and an unpinned mint against it would read them
+    all — a scheduled scout must never widen its reach beyond what the team itself connected.
+    The scoped token is never persisted — the integration's cached token stays the
+    full-permission credential other flows share. Returns None (never raises) when the team has
+    no usable team-level integration or the mint fails: read access is an evidence-gathering
+    nicety, and its absence must not fail the run.
     """
     # noqa: deferred to break a circular import — repo_selection.agent transitively imports the
     # process-task workflow, which imports this module.
@@ -670,8 +674,8 @@ def get_readonly_github_token(team_id: int) -> Optional[str]:
 
     try:
         integration = resolve_team_github_integration(team_id)
-        if integration is None:
-            logger.info("No GitHub integration for team %d, skipping read-only token mint", team_id)
+        if not isinstance(integration, GitHubIntegration):
+            logger.info("No team-level GitHub integration for team %d, skipping read-only token mint", team_id)
             return None
         return integration.mint_scoped_installation_token(READONLY_SANDBOX_GITHUB_PERMISSIONS)
     except Exception:
