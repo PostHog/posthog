@@ -114,6 +114,9 @@ class TestTransientRPCRetry:
             # A mid-stream HTTP/2 transport interruption surfaces as UNKNOWN, not one of the
             # transient statuses above — it must still be ridden out in-process.
             ("h2 protocol error: error reading a body from connection", RPCStatusCode.UNKNOWN),
+            # A lapsed client-side per-call deadline surfaces as CANCELLED with "Timeout expired" —
+            # a transient blip, matched by message rather than the broad CANCELLED status.
+            ("Timeout expired", RPCStatusCode.CANCELLED),
         ],
     )
     @patch(
@@ -163,6 +166,9 @@ class TestTransientRPCRetry:
             ("workflow execution not found for", RPCStatusCode.NOT_FOUND),
             # UNKNOWN alone must not be retried — only UNKNOWN carrying a transport signature is.
             ("internal server error", RPCStatusCode.UNKNOWN),
+            # CANCELLED alone must not be retried — only CANCELLED carrying the "Timeout expired"
+            # deadline message is, so a genuine call cancellation still surfaces.
+            ("call cancelled by caller", RPCStatusCode.CANCELLED),
         ],
     )
     @patch(

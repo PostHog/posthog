@@ -70,7 +70,13 @@ _RETRYABLE_RPC_STATUSES = frozenset({RPCStatusCode.RESOURCE_EXHAUSTED, RPCStatus
 # rather than one of the transient statuses above. It's a connection blip, not the server
 # rejecting the request, so ride it out the same way. Match the stable transport phrase, not the
 # whole UNKNOWN status, so genuine server-side UNKNOWN failures still surface.
-_RETRYABLE_RPC_MESSAGES = ("h2 protocol error",)
+#
+# The Temporal core enforces a per-call gRPC deadline and, when it lapses, surfaces the aborted
+# call as an RPCError with status CANCELLED and the message "Timeout expired" — a client-side
+# timeout rather than the server-side DEADLINE_EXCEEDED above. It's the same transient blip, so
+# ride it out too. Match the stable message, not the whole CANCELLED status, so a genuine call
+# cancellation still surfaces.
+_RETRYABLE_RPC_MESSAGES = ("h2 protocol error", "Timeout expired")
 
 
 def _is_retryable_rpc_error(error: RPCError) -> bool:
