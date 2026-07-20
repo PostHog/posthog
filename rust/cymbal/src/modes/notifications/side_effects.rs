@@ -163,6 +163,7 @@ pub async fn send_issue_spiking_internal_event<I: NotificationIssue>(
     internal_events_topic: &str,
     notification_id: Uuid,
     issue: &I,
+    assignee: Option<String>,
     processed_properties: &ProcessedExceptionProperties,
     detected_at: DateTime<Utc>,
     computed_baseline: f64,
@@ -181,6 +182,17 @@ pub async fn send_issue_spiking_internal_event<I: NotificationIssue>(
     event
         .insert_prop("description", issue.description())
         .expect("insert_prop for description should never fail");
+    event
+        .insert_prop("issue_description", issue.description())
+        .expect("insert_prop for issue_description should never fail");
+    event
+        .insert_prop("first_seen", issue.created_at())
+        .expect("insert_prop for first_seen should never fail");
+    if let Some(assignee) = assignee {
+        event
+            .insert_prop("assignee", assignee)
+            .expect("insert_prop for assignee should never fail");
+    }
     event
         .insert_prop("computed_baseline", computed_baseline)
         .expect("insert_prop for computed_baseline should never fail");
@@ -232,6 +244,8 @@ async fn send_internal_event_with_producer<I: NotificationIssue>(
     event
         .insert_prop("description", issue.description())
         .expect("Strings are serializable");
+    event.insert_prop("issue_description", issue.description())?;
+    event.insert_prop("first_seen", issue.created_at())?;
     event.insert_prop("status", issue.status())?;
     event.insert_prop("fingerprint", processed_properties.fingerprint())?;
     event.insert_prop("exception_timestamp", event_timestamp)?;

@@ -23,6 +23,9 @@ describe('Utils', () => {
                     distinct_id: '018f0000-0000-7000-8000-000000000001',
                     properties: {
                         name: 'Test issue',
+                        issue_description: 'Test description',
+                        first_seen: '2026-07-20T09:00:00Z',
+                        assignee: '{"type":"user","id":42}',
                         exception_props: { $exception_types: ['TypeError'] },
                     },
                     timestamp: '2026-07-20T10:00:00Z',
@@ -37,6 +40,9 @@ describe('Utils', () => {
 
             expect(globals.event.properties).toEqual({
                 name: 'Test issue',
+                issue_description: 'Test description',
+                first_seen: '2026-07-20T09:00:00Z',
+                assignee: '{"type":"user","id":42}',
                 $exception_types: ['TypeError'],
             })
         }
