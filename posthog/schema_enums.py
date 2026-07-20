@@ -2044,6 +2044,10 @@ class ExternalDataSourceType(StrEnum):
     CAMPFIRE = "Campfire"
     CRISP = "Crisp"
     KOMMO = "Kommo"
+    AXIOM = "Axiom"
+    PLIVO = "Plivo"
+    DATA_FOR_SEO = "DataForSEO"
+    SLEEKPLAN = "Sleekplan"
 
 
 class ExternalQueryErrorCode(StrEnum):

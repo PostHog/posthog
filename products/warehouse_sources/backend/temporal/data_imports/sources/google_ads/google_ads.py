@@ -8,6 +8,7 @@ from django.db import OperationalError, close_old_connections
 
 import grpc
 import pyarrow as pa
+from dateutil import parser as dateutil_parser
 from google.ads.googleads import client as google_ads_client_module
 from google.ads.googleads.client import GoogleAdsClient
 from google.ads.googleads.errors import GoogleAdsException
@@ -48,6 +49,18 @@ from products.warehouse_sources.backend.types import IncrementalFieldType
 # Host used to label the tracked gRPC transport's logs/metrics. Matches
 # `GoogleAdsServiceClient.DEFAULT_ENDPOINT`.
 GOOGLE_ADS_HOST = "googleads.googleapis.com"
+
+# Incremental report tables (segments.date-partitioned) are drained in bounded ascending date
+# windows instead of a single open-ended `segments.date >= cursor` scan. A months-long backlog in
+# one run never finishes before the activity heartbeat times out — frequently as collateral when a
+# co-tenant OOM-kills the shared multi-tenant worker pod — so the cursor never advances and every
+# run re-extracts the same window forever (the stuck-cursor death spiral). Bounded windows keep
+# each run short enough to complete and durably advance the cursor a step at a time; empty windows
+# are traversed for free so a gap in the data can never stall the drain. Once caught up to today a
+# single small window covers the tail, so this is a no-op for healthy tables. Tune to trade
+# catch-up speed against per-run size.
+GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS = 7
+GOOGLE_ADS_MAX_DATA_WINDOWS_PER_RUN = 5
 
 # The Google Ads SDK hardcodes `grpc.max_receive_message_length` to 64 MiB. A single
 # `GoogleAdsService.Search` page can carry up to 10,000 rows, and wide resources routinely
@@ -452,6 +465,19 @@ def get_schemas(config: GoogleAdsSourceConfigUnion, team_id: int) -> TableSchema
     return table_schemas
 
 
+def _incremental_value_as_date(value: dt.date | dt.datetime | str) -> dt.date:
+    """Coerce a stored incremental cursor value to a plain date for window arithmetic.
+
+    `process_incremental_value` normalizes a Date cursor to a `datetime.date`, but a raw string is
+    handled too so a value read straight from `sync_type_config` never breaks the windowed drain.
+    """
+    if isinstance(value, dt.datetime):
+        return value.date()
+    if isinstance(value, dt.date):
+        return value
+    return dateutil_parser.parse(value).date()
+
+
 def google_ads_source(
     config: GoogleAdsSourceConfigUnion,
     resource_name: str,
@@ -480,32 +506,19 @@ def google_ads_source(
         incremental_field = "segments.date"
         incremental_field_type = IncrementalFieldType.Date
 
-    def get_rows() -> collections.abc.Iterator[pa.Table]:
+    def compose_query(lower_literal: str | None, upper_literal: str | None) -> str:
         query = f"SELECT {','.join(f'{field.qualified_name}' for field in table)} FROM {table.name}"
 
-        if should_use_incremental_field:
-            if incremental_field is None or incremental_field_type is None:
-                raise ValueError("incremental_field and incremental_field_type can't be None")
-
-            if db_incremental_field_last_value is None:
-                last_value: int | dt.datetime | dt.date | str = incremental_type_to_initial_value(
-                    incremental_field_type
-                )
-            else:
-                last_value = db_incremental_field_last_value
-
-            if isinstance(last_value, dt.datetime) or isinstance(last_value, dt.date):
-                last_value = f"'{last_value.isoformat()}'"
-
-            query += f" WHERE {incremental_field} >= {last_value}"
-
-            if incremental_field_type == IncrementalFieldType.Date:
-                # Dates require an upper bound too, so we pick something very in the future.
-                # TODO: Make sure to bump this before 2100-01-01.
-                query += f" AND {incremental_field} < '2100-01-01'"
-
+        conditions: list[str] = []
+        if should_use_incremental_field and lower_literal is not None:
+            conditions.append(f"{incremental_field} >= {lower_literal}")
+            if upper_literal is not None:
+                conditions.append(f"{incremental_field} < {upper_literal}")
         if table.extra_where:
-            query += f" {'AND' if 'WHERE' in query else 'WHERE'} {table.extra_where}"
+            conditions.append(table.extra_where)
+
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
 
         if should_use_incremental_field:
             # Ascending cursor order is load-bearing, not cosmetic. The pipeline advances
@@ -518,18 +531,76 @@ def google_ads_source(
             # also let the per-chunk watermark skip past older rows Google hadn't returned yet.
             query += f" ORDER BY {incremental_field} ASC"
 
+        return query
+
+    def get_rows() -> collections.abc.Iterator[pa.Table]:
         client = google_ads_client(config, team_id)
         service: GoogleAdsServiceClient = client.get_service(
             "GoogleAdsService", version="v23", interceptors=tracked_interceptors(GOOGLE_ADS_HOST)
         )
         customer_id = clean_customer_id(config.customer_id)
 
+        if not should_use_incremental_field:
+            yield from _search_as_arrow_tables(
+                service, customer_id, compose_query(None, None), table, resumable_source_manager
+            )
+            return
+
+        if incremental_field is None or incremental_field_type is None:
+            raise ValueError("incremental_field and incremental_field_type can't be None")
+
+        # Bounded windowed drain: only date-partitioned report tables (`requires_filter`) with an
+        # established cursor. A first sync (sentinel value) keeps the open-ended scan below so it
+        # doesn't crawl a window at a time from the 1970 initial value.
+        if (
+            table.requires_filter
+            and incremental_field_type == IncrementalFieldType.Date
+            and db_incremental_field_last_value is not None
+        ):
+            start = _incremental_value_as_date(db_incremental_field_last_value)
+            # Exclusive upper bound of today+1 keeps today in range, matching the open-ended scan.
+            end = dt.date.today() + dt.timedelta(days=1)
+            windows_with_data = 0
+            first_window = True
+
+            while start < end and windows_with_data < GOOGLE_ADS_MAX_DATA_WINDOWS_PER_RUN:
+                window_end = min(start + dt.timedelta(days=GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS), end)
+                window_query = compose_query(f"'{start.isoformat()}'", f"'{window_end.isoformat()}'")
+
+                had_data = False
+                for pa_table in _search_as_arrow_tables(
+                    service, customer_id, window_query, table, resumable_source_manager, use_saved_state=first_window
+                ):
+                    had_data = True
+                    yield pa_table
+
+                # Empty windows don't count toward the per-run budget and don't stop the loop, so a
+                # gap in the data is crossed within a single run instead of stalling the cursor on it.
+                if had_data:
+                    windows_with_data += 1
+                first_window = False
+                start = window_end
+
+            # The run walked its bounded set of windows; drop the checkpoint so the next job restarts
+            # cleanly from the (now-advanced) DB cursor rather than a stale mid-window page token.
+            resumable_source_manager.clear_state()
+            return
+
+        # First-ever sync (initial sentinel) or a non-date cursor: single open-ended ascending scan.
+        if db_incremental_field_last_value is None:
+            last_value: int | dt.datetime | dt.date | str = incremental_type_to_initial_value(incremental_field_type)
+        else:
+            last_value = db_incremental_field_last_value
+
+        lower_literal = (
+            f"'{last_value.isoformat()}'" if isinstance(last_value, dt.datetime | dt.date) else str(last_value)
+        )
+        # Dates require an upper bound too, so we pick something very in the future.
+        # TODO: Make sure to bump this before 2100-01-01.
+        upper_literal = "'2100-01-01'" if incremental_field_type == IncrementalFieldType.Date else None
+
         yield from _search_as_arrow_tables(
-            service=service,
-            customer_id=customer_id,
-            query=query,
-            table=table,
-            resumable_source_manager=resumable_source_manager,
+            service, customer_id, compose_query(lower_literal, upper_literal), table, resumable_source_manager
         )
 
     return SourceResponse(
@@ -700,6 +771,7 @@ def _search_as_arrow_tables(
     query: str,
     table: GoogleAdsTable,
     resumable_source_manager: ResumableSourceManager[GoogleAdsResumeConfig],
+    use_saved_state: bool = True,
 ) -> collections.abc.Generator[pa.Table]:
     """Paginate ``GoogleAdsService.search`` and yield each page as a ``pyarrow.Table``.
 
@@ -716,8 +788,11 @@ def _search_as_arrow_tables(
       discard the saved token and restart pagination from the first page. The
       same merge semantics make re-yielding already-synced rows safe.
     """
+    # `use_saved_state=False` is passed for every window after the first in a windowed drain: the
+    # saved page token belongs to whichever window was in flight last time and is meaningless for a
+    # later window's distinct query, so those windows always start their own pagination fresh.
     page_token = ""
-    if resumable_source_manager.can_resume():
+    if use_saved_state and resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
         if resume is not None:
             page_token = resume.page_token

@@ -615,6 +615,20 @@ def test_validate_credentials_maps_api_error_to_friendly_message(api_message, ex
     assert "APIError" not in (error_message or "")
 
 
+def test_validate_credentials_permission_denied_names_service_account(settings):
+    settings.GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL = "svc@posthog.iam.gserviceaccount.com"
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.source.google_sheets_client"
+    ) as mock_client:
+        mock_client.return_value.open_by_url.side_effect = PermissionError()
+        config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
+        is_valid, error_message = GoogleSheetsSource().validate_credentials(config, team_id=1)
+
+    assert is_valid is False
+    # The user needs the exact address to share the sheet with — not just a docs link.
+    assert "svc@posthog.iam.gserviceaccount.com" in (error_message or "")
+
+
 @pytest.mark.parametrize(
     "auth_error,expect_retry_hint",
     [

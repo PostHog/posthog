@@ -1192,7 +1192,10 @@ jobs:
             - name: Validate owners.yaml identities against GitHub
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
-              run: ./bin/hogli owners:lint --live
+                  CHANGED_FILES: ${{ needs.changes.outputs.product_yamls_files }}
+              # Scoped to the diff: unscoped, one stale slug fails every owners.yaml PR.
+              # xargs re-parses the paths-filter escape format, keeping escaped paths whole.
+              run: printf '%s' "$CHANGED_FILES" | xargs -r ./bin/hogli owners:lint --live
 
     # Migration validation.
     # This job needs Docker + DB — it checks out master first to run baseline

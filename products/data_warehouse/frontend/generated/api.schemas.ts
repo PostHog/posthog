@@ -2094,6 +2094,10 @@ export interface CredentialApi {
  * * `PromptWatch` - PromptWatch
  * * `Crisp` - Crisp
  * * `Kommo` - Kommo
+ * * `Axiom` - Axiom
+ * * `Plivo` - Plivo
+ * * `DataForSEO` - DataForSEO
+ * * `Sleekplan` - Sleekplan
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2959,6 +2963,10 @@ export const ExternalDataSourceTypeEnumApi = {
     PromptWatch: 'PromptWatch',
     Crisp: 'Crisp',
     Kommo: 'Kommo',
+    Axiom: 'Axiom',
+    Plivo: 'Plivo',
+    DataForSEO: 'DataForSEO',
+    Sleekplan: 'Sleekplan',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
