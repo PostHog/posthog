@@ -16,18 +16,52 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress.settings import (
+    WORDPRESS_COM_AUTH_REQUIRED_ENDPOINTS,
     WORDPRESS_ENDPOINTS,
     WordpressEndpointConfig,
 )
 
 REQUEST_TIMEOUT_SECONDS = 60
+VALIDATION_TIMEOUT_SECONDS = 10
 MAX_RETRIES = 5
 MAX_RETRY_AFTER_SECONDS = 60
 
 API_PREFIX = "/wp-json/wp/v2"
 
+# Some WordPress hosts and WAFs reject the default python-requests User-Agent with a 403, so we
+# identify ourselves explicitly (same convention as other sources, e.g. squarespace/cimis).
+USER_AGENT = "PostHog-DataWarehouse/1.0 (+https://posthog.com)"
+
+# Simple-plan wordpress.com sites don't serve /wp-json on the site host (verified live: it 404s, and
+# ?rest_route= isn't processed either, despite wp.com docs claiming otherwise). Their core REST API is
+# only reachable through this fixed proxy, and only anonymously: wp.com "application passwords" are
+# account-level OAuth credentials, not core Application Passwords, so Basic auth can never work there.
+WPCOM_PROXY_ORIGIN = "https://public-api.wordpress.com"
+# Response header wordpress.com-served sites carry on every response, including 404s.
+WPCOM_HOST_HEADER = "WordPress.com"
+
 HOST_NOT_ALLOWED_ERROR = "WordPress site URL is not allowed"
 HTTP_NOT_ALLOWED_ERROR = "WordPress site URL must use HTTPS when credentials are provided"
+WPCOM_PRIVATE_SITE_ERROR = (
+    "This WordPress.com site is private or not yet launched. Launch the site and set its privacy to "
+    "Public. Private WordPress.com sites are not supported yet"
+)
+WPCOM_SITE_NOT_FOUND_ERROR = "No WordPress.com site exists at this address"
+WPCOM_AUTH_REQUIRED_TABLE_ERROR = "WordPress.com does not expose this table without OAuth"
+CREDENTIALS_IGNORED_ERROR = (
+    "The site ignored the provided credentials. Application passwords may be unavailable on this site "
+    "(they require HTTPS and WordPress 5.6+)"
+)
+INVALID_CREDENTIALS_ERROR = "Invalid WordPress username or application password"
+ANONYMOUS_FORBIDDEN_ERROR = (
+    "This WordPress site blocked anonymous API access (HTTP 403). A security plugin, firewall, or the "
+    "site's privacy settings may be blocking the REST API. Try providing a username and application password"
+)
+AUTH_REQUIRED_ERROR = "This WordPress site requires authentication. Provide a username and application password"
+FORBIDDEN_WITH_CREDENTIALS_ERROR = (
+    "These credentials lack permission to read this WordPress site. Check the user's role"
+)
+REST_NOT_FOUND_ERROR = "WordPress REST API not found at this URL. Confirm the site URL and that the REST API is enabled"
 
 # WordPress `after`/`modified_after` filter on the site-LOCAL post_date/post_modified columns, which
 # can be non-monotonic across a DST transition. We re-request a small overlap on each incremental run
@@ -44,6 +78,16 @@ class WordpressRetryableError(Exception):
 
 class WordpressHostNotAllowedError(Exception):
     pass
+
+
+class WordpressComAccessError(Exception):
+    """Non-retryable wordpress.com proxy access failure (private site / OAuth-only table).
+
+    Matched by substring in get_non_retryable_errors(), so it must carry one of the WPCOM_* messages."""
+
+
+class _WordpressComProxyRequired(Exception):
+    """Control-flow signal: the direct REST probe hit a wordpress.com-served 403/404, retry via the proxy."""
 
 
 @dataclasses.dataclass
@@ -86,7 +130,7 @@ def normalize_host(site_url: str | None) -> str:
     return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}{path}"
 
 
-def _base_url(site_url: str | None) -> str:
+def _direct_api_base(site_url: str | None) -> str:
     return f"{normalize_host(site_url)}{API_PREFIX}"
 
 
@@ -98,6 +142,63 @@ def _scheme(site_url: str | None) -> str:
     return urlparse(normalize_host(site_url)).scheme
 
 
+def _is_wpcom_host(host: str) -> bool:
+    # Leading-dot suffix match so evil-wordpress.com doesn't count as wordpress.com-hosted.
+    return host == "wordpress.com" or host.endswith(".wordpress.com")
+
+
+def _proxy_api_base(host: str) -> str:
+    return f"{WPCOM_PROXY_ORIGIN}/wp/v2/sites/{host}"
+
+
+def uses_wordpress_com_proxy(site_url: str | None) -> bool:
+    """Whether this site's REST API is only reachable via the wordpress.com proxy (see WPCOM_PROXY_ORIGIN)."""
+    return _is_wpcom_host(_host_only(site_url))
+
+
+def _is_wpcom_served(response: requests.Response) -> bool:
+    return response.headers.get("host-header") == WPCOM_HOST_HEADER
+
+
+def _json_error_code(response: requests.Response) -> str:
+    """The ``code`` of a WP REST error body ({"code": ..., "message": ...}), or "" when absent."""
+    try:
+        body = response.json()
+    except Exception:
+        return ""
+    if isinstance(body, dict):
+        code = body.get("code")
+        return code if isinstance(code, str) else ""
+    return ""
+
+
+def _response_error_message(response: requests.Response) -> str:
+    try:
+        body = response.json()
+    except Exception:
+        return response.text
+    if isinstance(body, dict):
+        message = body.get("message")
+        if isinstance(message, str) and message:
+            return message
+    return response.text
+
+
+def _redirect_error(response: requests.Response) -> str:
+    """Actionable message for a refused redirect. We never follow redirects (SSRF), but the Location
+    target usually IS the correct site URL (www canonicalization, wp.com Business subdomain pointing
+    at the custom domain), so surface it. Location is server-controlled and shown verbatim in the UI,
+    so rebuild scheme://host/path only and drop anything unparseable."""
+    location = (response.headers.get("Location") or "").strip()
+    if location.startswith("https://wordpress.com/typo"):
+        # wordpress.com 302s nonexistent subdomains to its typo page.
+        return WPCOM_SITE_NOT_FOUND_ERROR
+    parsed = urlparse(location)
+    if parsed.scheme in ("http", "https") and parsed.hostname:
+        return f"The site redirected to {parsed.scheme}://{parsed.netloc}{parsed.path}. Enter that as the site URL"
+    return HOST_NOT_ALLOWED_ERROR
+
+
 def _has_credentials(username: str | None, application_password: str | None) -> bool:
     return bool((username or "").strip()) and bool((application_password or "").strip())
 
@@ -105,7 +206,7 @@ def _has_credentials(username: str | None, application_password: str | None) -> 
 def _get_headers(username: str | None, application_password: str | None) -> dict[str, str]:
     """Application Passwords authenticate via HTTP Basic. Public read endpoints work unauthenticated,
     so the Authorization header is only added when both credentials are present."""
-    headers = {"Accept": "application/json"}
+    headers = {"Accept": "application/json", "User-Agent": USER_AGENT}
     if _has_credentials(username, application_password):
         # Application passwords are shown with spaces for readability; WordPress accepts them verbatim.
         token = base64.b64encode(f"{username}:{application_password}".encode()).decode()
@@ -172,8 +273,8 @@ def _build_initial_params(
     return params
 
 
-def _build_initial_url(site_url: str | None, config: WordpressEndpointConfig, params: dict[str, Any]) -> str:
-    url = f"{_base_url(site_url)}{config.path}"
+def _build_initial_url(api_base: str, config: WordpressEndpointConfig, params: dict[str, Any]) -> str:
+    url = f"{api_base}{config.path}"
     if not params:
         return url
     return f"{url}?{urlencode(params)}"
@@ -191,19 +292,21 @@ def _parse_next_url(link_header: str) -> str | None:
     return None
 
 
-def _is_same_host(url: str, site_url: str | None) -> bool:
-    """Whether ``url`` points at the configured WordPress host with the configured scheme.
+def _is_within_api_base(url: str, api_base: str) -> bool:
+    """Whether ``url`` points inside the effective API base: same scheme, host, port, and path prefix.
 
-    Pagination/resume URLs are server-controlled (Link header / Redis), so we pin them to the
-    validated host and scheme to avoid being redirected at an arbitrary internal address (SSRF) or
-    downgraded from https to http (which would expose Basic-auth credentials)."""
+    Pagination/resume URLs are server-controlled (Link header / Redis), so we pin them to the base we
+    validated to avoid being pointed at an arbitrary internal address (SSRF) or downgraded from https
+    to http (which would expose Basic-auth credentials). The path-prefix check matters on the shared
+    wordpress.com proxy host, where the path is what scopes a request to the configured site."""
     try:
         parsed = urlparse(url)
-        configured = urlparse(normalize_host(site_url))
+        base = urlparse(api_base)
         return (
-            parsed.scheme == configured.scheme
-            and (parsed.hostname or "").lower() == (configured.hostname or "").lower()
-            and (parsed.port or _default_port(parsed.scheme)) == (configured.port or _default_port(configured.scheme))
+            parsed.scheme == base.scheme
+            and (parsed.hostname or "").lower() == (base.hostname or "").lower()
+            and (parsed.port or _default_port(parsed.scheme)) == (base.port or _default_port(base.scheme))
+            and (parsed.path == base.path or parsed.path.startswith(f"{base.path}/"))
         )
     except Exception:
         return False
@@ -213,16 +316,50 @@ def _default_port(scheme: str) -> int:
     return 443 if scheme == "https" else 80
 
 
+def _validation_get(url: str, headers: dict[str, str]) -> requests.Response:
+    return make_tracked_session().get(url, headers=headers, timeout=VALIDATION_TIMEOUT_SECONDS, allow_redirects=False)
+
+
+def _validate_via_wpcom_proxy(host: str) -> tuple[bool, str | None]:
+    """Anonymous readability probe through the wordpress.com proxy (see WPCOM_PROXY_ORIGIN).
+
+    Always anonymous: wp.com auth is OAuth, which we don't support, so any provided credentials are
+    intentionally unused. Requests go only to the fixed public proxy host, so the per-host SSRF check
+    doesn't apply here."""
+    try:
+        response = _validation_get(f"{_proxy_api_base(host)}/posts?per_page=1", _get_headers(None, None))
+    except requests.exceptions.RequestException as e:
+        return False, str(e)
+
+    if response.is_redirect or response.is_permanent_redirect:
+        return False, _redirect_error(response)
+
+    if response.status_code == 200:
+        return True, None
+
+    if response.status_code in (401, 403):
+        # Anonymous reads only work on launched, public sites.
+        return False, WPCOM_PRIVATE_SITE_ERROR
+
+    if response.status_code == 404:
+        return False, WPCOM_SITE_NOT_FOUND_ERROR
+
+    return False, _response_error_message(response)
+
+
 def validate_credentials(
     site_url: str | None,
     username: str | None,
     application_password: str | None,
     team_id: Optional[int] = None,
 ) -> tuple[bool, str | None]:
-    """Probe the site's REST root to confirm it's reachable and any credentials are genuine."""
+    """Probe the site's REST API to confirm it's reachable and any credentials are genuine."""
     host_only = _host_only(site_url)
     if not host_only:
         return False, "Invalid WordPress site URL"
+
+    if _is_wpcom_host(host_only):
+        return _validate_via_wpcom_proxy(host_only)
 
     has_credentials = _has_credentials(username, application_password)
 
@@ -238,38 +375,51 @@ def validate_credentials(
         if not host_ok:
             return False, host_err or HOST_NOT_ALLOWED_ERROR
 
-    # A cheap, always-present collection that exercises auth when credentials are set.
-    url = f"{_base_url(site_url)}/posts?per_page=1"
+    headers = _get_headers(username, application_password)
+
+    # /users/me exercises authentication for real: WordPress silently ignores a bad Authorization
+    # header when Application Passwords are unavailable on the site, so a public-collection probe
+    # would happily validate garbage credentials. Anonymous validation keeps the cheap posts probe.
+    probe_path = "/users/me" if has_credentials else "/posts?per_page=1"
     try:
-        response = make_tracked_session().get(
-            url,
-            headers=_get_headers(username, application_password),
-            timeout=10,
-            allow_redirects=False,
-        )
+        response = _validation_get(f"{_direct_api_base(site_url)}{probe_path}", headers)
     except requests.exceptions.RequestException as e:
         return False, str(e)
 
+    if has_credentials and response.status_code == 404 and _json_error_code(response) == "rest_no_route":
+        # The REST API is up but a security plugin hides the users routes; fall back to confirming the
+        # posts collection is readable. Credentials stay unverified on such sites.
+        try:
+            response = _validation_get(f"{_direct_api_base(site_url)}/posts?per_page=1", headers)
+        except requests.exceptions.RequestException as e:
+            return False, str(e)
+
     if response.is_redirect or response.is_permanent_redirect:
-        return False, HOST_NOT_ALLOWED_ERROR
+        return False, _redirect_error(response)
 
     if response.status_code == 200:
         return True, None
 
+    # Custom-domain simple wp.com sites (Personal/Premium plans) 404 or 403 the direct REST path but
+    # stamp the wp.com host header; their content is served by the wp.com proxy instead.
+    if response.status_code in (403, 404) and _is_wpcom_served(response):
+        return _validate_via_wpcom_proxy(host_only)
+
     if response.status_code == 401:
-        return False, "Invalid WordPress username or application password"
+        if not has_credentials:
+            return False, AUTH_REQUIRED_ERROR
+        if _json_error_code(response) == "rest_not_logged_in":
+            # The site processed the request anonymously: the Authorization header was ignored, not rejected.
+            return False, CREDENTIALS_IGNORED_ERROR
+        return False, INVALID_CREDENTIALS_ERROR
 
     if response.status_code == 403:
-        return False, "These credentials lack permission to read this WordPress site"
+        return False, FORBIDDEN_WITH_CREDENTIALS_ERROR if has_credentials else ANONYMOUS_FORBIDDEN_ERROR
 
     if response.status_code == 404:
-        return False, "WordPress REST API not found at this URL — confirm the site URL and that the REST API is enabled"
+        return False, REST_NOT_FOUND_ERROR
 
-    try:
-        body = response.json()
-        return False, body.get("message", response.text)
-    except Exception:
-        return False, response.text
+    return False, _response_error_message(response)
 
 
 def _parse_retry_after(response: requests.Response) -> float | None:
@@ -300,34 +450,41 @@ def get_rows(
     incremental_field: str | None = None,
 ) -> Iterator[Any]:
     config = WORDPRESS_ENDPOINTS[endpoint]
-    headers = _get_headers(username, application_password)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
 
-    # Re-check HTTPS at run time (host could have been edited after source creation) before any
-    # credential-bearing request goes out. Non-retryable — see get_non_retryable_errors().
-    if _has_credentials(username, application_password) and _scheme(site_url) != "https":
-        raise WordpressHostNotAllowedError(HTTP_NOT_ALLOWED_ERROR)
+    host_only = _host_only(site_url)
+    is_proxied = _is_wpcom_host(host_only)
+    # Credentials never accompany proxied requests: wp.com auth is OAuth, not Basic (see WPCOM_PROXY_ORIGIN).
+    headers = _get_headers(None, None) if is_proxied else _get_headers(username, application_password)
 
-    # Re-check at run time (not just at source-create) in case the host now resolves to an internal
-    # address (SSRF / DNS rebinding). Only enforced on cloud.
-    host_ok, host_err = _is_host_safe(_host_only(site_url), team_id)
-    if not host_ok:
-        raise WordpressHostNotAllowedError(
-            f"{HOST_NOT_ALLOWED_ERROR}: {host_err}" if host_err else HOST_NOT_ALLOWED_ERROR
-        )
+    if not is_proxied:
+        # Re-check HTTPS at run time (host could have been edited after source creation) before any
+        # credential-bearing request goes out. Non-retryable — see get_non_retryable_errors().
+        if _has_credentials(username, application_password) and _scheme(site_url) != "https":
+            raise WordpressHostNotAllowedError(HTTP_NOT_ALLOWED_ERROR)
 
+        # Re-check at run time (not just at source-create) in case the host now resolves to an internal
+        # address (SSRF / DNS rebinding). Only enforced on cloud. The proxied path skips this: its
+        # requests only ever reach the fixed public proxy host, never the customer-controlled one.
+        host_ok, host_err = _is_host_safe(host_only, team_id)
+        if not host_ok:
+            raise WordpressHostNotAllowedError(
+                f"{HOST_NOT_ALLOWED_ERROR}: {host_err}" if host_err else HOST_NOT_ALLOWED_ERROR
+            )
+
+    api_base = _proxy_api_base(host_only) if is_proxied else _direct_api_base(site_url)
     params = _build_initial_params(
         config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
     )
-    initial_url = _build_initial_url(site_url, config, params)
+    initial_url = _build_initial_url(api_base, config, params)
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume_config is not None and _is_same_host(resume_config.next_url, site_url):
+    if resume_config is not None and _is_within_api_base(resume_config.next_url, api_base):
         url: str = resume_config.next_url
         logger.debug(f"WordPress: resuming from URL: {url}")
     else:
         if resume_config is not None:
-            logger.warning("WordPress: ignoring resume URL whose host does not match the configured host")
+            logger.warning("WordPress: ignoring resume URL that is outside the configured API base")
         url = initial_url
 
     @retry(
@@ -336,10 +493,10 @@ def get_rows(
         wait=_retry_wait,
         reraise=True,
     )
-    def fetch_page(page_url: str) -> requests.Response:
+    def fetch_page(page_url: str, page_headers: dict[str, str], proxied: bool) -> requests.Response:
         # Don't follow redirects: an attacker-controlled host could 3xx to an internal address (SSRF).
         response = make_tracked_session().get(
-            page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False
+            page_url, headers=page_headers, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False
         )
 
         if response.status_code == 429 or response.status_code >= 500:
@@ -350,9 +507,17 @@ def get_rows(
             )
 
         if response.is_redirect or response.is_permanent_redirect:
-            raise WordpressHostNotAllowedError(
-                f"{HOST_NOT_ALLOWED_ERROR}: WordPress API returned an unexpected redirect "
-                f"(status={response.status_code}); refusing to follow it"
+            raise WordpressHostNotAllowedError(f"{HOST_NOT_ALLOWED_ERROR}: {_redirect_error(response)}")
+
+        if not proxied and response.status_code in (403, 404) and _is_wpcom_served(response):
+            # Custom-domain simple wp.com sites don't serve /wp-json; retry via the proxy.
+            raise _WordpressComProxyRequired()
+
+        if proxied and response.status_code in (401, 403):
+            raise WordpressComAccessError(
+                WPCOM_AUTH_REQUIRED_TABLE_ERROR
+                if endpoint in WORDPRESS_COM_AUTH_REQUIRED_ENDPOINTS
+                else WPCOM_PRIVATE_SITE_ERROR
             )
 
         if not response.ok:
@@ -361,9 +526,26 @@ def get_rows(
 
         return response
 
+    pages_fetched = 0
     while True:
-        response = fetch_page(url)
+        try:
+            response = fetch_page(url, headers, is_proxied)
+        except _WordpressComProxyRequired:
+            if pages_fetched > 0:
+                # The direct API vanished mid-pagination (site migrated or flipped private); restarting
+                # on the proxy inside the same run would mix bases, so fail with the actionable message.
+                raise WordpressComAccessError(WPCOM_PRIVATE_SITE_ERROR) from None
+            is_proxied = True
+            api_base = _proxy_api_base(host_only)
+            headers = _get_headers(None, None)
+            url = _build_initial_url(api_base, config, params)
+            logger.info(
+                "WordPress: direct REST API unavailable and the response is WordPress.com-served; "
+                "retrying via the public-api proxy"
+            )
+            continue
 
+        pages_fetched += 1
         data = response.json()
         if not isinstance(data, list) or not data:
             break
@@ -385,9 +567,9 @@ def get_rows(
         if not next_url:
             break
 
-        # The next-page URL is server-controlled; only follow it if it stays on the configured host.
-        if not _is_same_host(next_url, site_url):
-            logger.warning("WordPress: stopping pagination, next URL host does not match the configured host")
+        # The next-page URL is server-controlled; only follow it if it stays inside the API base.
+        if not _is_within_api_base(next_url, api_base):
+            logger.warning("WordPress: stopping pagination, next URL is outside the configured API base")
             break
 
         url = next_url

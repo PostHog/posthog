@@ -4,9 +4,16 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress.settings import (
+    ENDPOINTS,
+    WORDPRESS_COM_AUTH_REQUIRED_ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress.source import WordpressSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress.wordpress import WordpressResumeConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress.wordpress import (
+    WPCOM_AUTH_REQUIRED_TABLE_ERROR,
+    WPCOM_PRIVATE_SITE_ERROR,
+    WordpressResumeConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -51,13 +58,33 @@ class TestWordpressSource:
         assert pass_field.required is False
         assert pass_field.secret is True
 
-    @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error", "404 Client Error"])
+    @pytest.mark.parametrize(
+        "expected_key",
+        [
+            "401 Client Error",
+            "403 Client Error",
+            "404 Client Error",
+            WPCOM_PRIVATE_SITE_ERROR,
+            WPCOM_AUTH_REQUIRED_TABLE_ERROR,
+        ],
+    )
     def test_non_retryable_errors(self, expected_key):
         assert expected_key in self.source.get_non_retryable_errors()
 
     def test_get_schemas_returns_all_endpoints(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
         assert {s.name for s in schemas} == set(ENDPOINTS)
+
+    def test_get_schemas_excludes_oauth_only_tables_for_wpcom_sites(self):
+        # The wp.com proxy withholds media/users without OAuth; the wizard must not offer tables
+        # that can never sync.
+        self.config.site_url = "https://example.wordpress.com"
+        schemas = self.source.get_schemas(self.config, self.team_id)
+        assert {s.name for s in schemas} == set(ENDPOINTS) - WORDPRESS_COM_AUTH_REQUIRED_ENDPOINTS
+
+    def test_get_schemas_wpcom_names_filter_cannot_reintroduce_excluded_tables(self):
+        self.config.site_url = "https://example.wordpress.com"
+        assert self.source.get_schemas(self.config, self.team_id, names=["media"]) == []
 
     @pytest.mark.parametrize(
         "endpoint, incremental",
