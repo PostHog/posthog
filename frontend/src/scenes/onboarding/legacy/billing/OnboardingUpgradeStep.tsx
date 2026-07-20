@@ -58,9 +58,10 @@ export const OnboardingUpgradeStep: OnboardingStepComponentType<OnboardingUpgrad
         <OnboardingStep
             title="Select a plan"
             stepKey={OnboardingStepKey.PLANS}
-            // The packages screen carries its own heading and its own Skip/Next nav (below the cards),
-            // so the "Select a plan" title (misleading once subscribed) and the bottom Next are dropped there.
-            hideTitle={showPlatformPackages}
+            // Once subscribed there's no plan left to select — both the celebration screen and the
+            // packages screen (which carries its own heading) contradict the "Select a plan" title,
+            // so drop it. The packages screen also brings its own Skip/Next nav below the cards.
+            hideTitle={!!product.subscribed}
             showContinue={!!product.subscribed && !showPlatformPackages}
         >
             {!product.subscribed && <PlanCards product={product} />}
