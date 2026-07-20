@@ -14,7 +14,12 @@ from posthog.api.capture import capture_internal
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
-from posthog.temporal.ai_observability.evaluation_workflow_activities import update_key_state_activity
+from posthog.temporal.ai_observability.evaluation_workflow_activities import (
+    SendTrialUsageEmailInputs,
+    increment_trial_eval_count_activity,
+    send_trial_usage_email_activity,
+    update_key_state_activity,
+)
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.model_resolution import model_spec
 from posthog.temporal.common.base import PostHogWorkflow
@@ -610,15 +615,24 @@ class RunTaggerWorkflow(PostHogWorkflow):
                     details = e.cause.details[0]
                     error_type = details.get("error_type")
 
+                    # Replay-only compatibility for runs started before trial evals were removed:
+                    # reproduce the commands the old code scheduled for trial-era errors.
+                    # workflow.patched returns False only when replaying pre-patch histories, so
+                    # fresh runs never take the legacy branches. Remove in the follow-up PR.
+                    legacy_trial_era = not temporalio.workflow.patched("remove-trial-evals")
+                    legacy_trial_error_types = ("trial_limit_reached", "model_not_allowed") if legacy_trial_era else ()
+
                     if error_type in (
                         "provider_key_required",
                         "key_invalid",
                         "parse_error",
                         "no_default_model",
+                        *legacy_trial_error_types,
                     ):
                         if error_type in (
                             "provider_key_required",
                             "no_default_model",
+                            *legacy_trial_error_types,
                         ):
                             await temporalio.workflow.execute_activity(
                                 disable_tagger_activity,
@@ -626,6 +640,24 @@ class RunTaggerWorkflow(PostHogWorkflow):
                                 schedule_to_close_timeout=timedelta(seconds=30),
                                 retry_policy=RetryPolicy(maximum_attempts=2),
                             )
+                            if (
+                                legacy_trial_era
+                                and error_type in ("provider_key_required", "trial_limit_reached", "model_not_allowed")
+                                and temporalio.workflow.patched("trial-usage-email")
+                            ):
+                                try:
+                                    await temporalio.workflow.execute_activity(
+                                        send_trial_usage_email_activity,
+                                        SendTrialUsageEmailInputs(team_id=tagger["team_id"], threshold_pct=100),
+                                        activity_id=f"send-trial-usage-email-100pct-tagger-{tagger['team_id']}",
+                                        schedule_to_close_timeout=timedelta(seconds=30),
+                                        retry_policy=RetryPolicy(maximum_attempts=2),
+                                    )
+                                except Exception:
+                                    temporalio.workflow.logger.exception(
+                                        "Failed to send trial exhausted email",
+                                        team_id=tagger["team_id"],
+                                    )
                         return {
                             "tags": [],
                             "skipped": True,
@@ -647,6 +679,33 @@ class RunTaggerWorkflow(PostHogWorkflow):
                             retry_policy=RetryPolicy(maximum_attempts=2),
                         )
                 raise
+
+        # Replay-only trial counting for runs started before trial evals were removed; the
+        # activities are no-op stubs. Remove in the follow-up PR.
+        if not temporalio.workflow.patched("remove-trial-evals") and tagger_type != "hog" and not result.get("is_byok"):
+            threshold_pct = await temporalio.workflow.execute_activity(
+                increment_trial_eval_count_activity,
+                tagger["team_id"],
+                activity_id=f"increment-trial-tagger-{tagger['id']}",
+                schedule_to_close_timeout=timedelta(seconds=10),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+
+            if threshold_pct is not None and temporalio.workflow.patched("trial-usage-email"):
+                try:
+                    await temporalio.workflow.execute_activity(
+                        send_trial_usage_email_activity,
+                        SendTrialUsageEmailInputs(team_id=tagger["team_id"], threshold_pct=threshold_pct),
+                        activity_id=f"send-trial-usage-email-{threshold_pct}pct-tagger-{tagger['team_id']}",
+                        schedule_to_close_timeout=timedelta(seconds=30),
+                        retry_policy=RetryPolicy(maximum_attempts=2),
+                    )
+                except Exception:
+                    temporalio.workflow.logger.exception(
+                        "Failed to send trial usage email",
+                        team_id=tagger["team_id"],
+                        threshold_pct=threshold_pct,
+                    )
 
         # Activity 3: Emit tagger event
         await temporalio.workflow.execute_activity(

@@ -1,3 +1,4 @@
+import type { LLMProviderKey } from '../settings/llmProviderKeysLogic'
 import type { EvaluationConfig, EvaluationOutputType, EvaluationType, LLMJudgeEvaluation } from './types'
 
 const REPORTABLE_OUTPUT_TYPES: ReadonlySet<EvaluationOutputType> = new Set(['boolean', 'sentiment'])
@@ -37,7 +38,9 @@ export function evaluationTypeUsesProviderKey(evaluationType: EvaluationType | n
 
 export function evaluationCanResolveModel(
     evaluation: Pick<EvaluationConfig, 'evaluation_type' | 'model_configuration'>,
-    requiresProviderKey: boolean
+    // undefined = the team's evaluation config hasn't loaded yet — stay permissive rather than
+    // flashing a disabled state; null = loaded, and there is no active key.
+    activeProviderKey: Pick<LLMProviderKey, 'provider' | 'state'> | null | undefined
 ): boolean {
     if (!evaluationTypeUsesProviderKey(evaluation.evaluation_type)) {
         return true
@@ -45,7 +48,16 @@ export function evaluationCanResolveModel(
     if (evaluation.model_configuration?.provider_key_id) {
         return true
     }
-    return !requiresProviderKey
+    if (activeProviderKey === undefined) {
+        return true
+    }
+    // No pinned key: the eval falls back to the team's active key, which must be healthy and —
+    // when the eval has an explicit model configuration — belong to the same provider (mirrors
+    // `active_key_fallback` in model_resolution.py).
+    if (activeProviderKey === null || activeProviderKey.state !== 'ok') {
+        return false
+    }
+    return !evaluation.model_configuration || evaluation.model_configuration.provider === activeProviderKey.provider
 }
 
 export function evaluationTypeDefaultsToBooleanOutput(evaluationType: EvaluationType | null | undefined): boolean {

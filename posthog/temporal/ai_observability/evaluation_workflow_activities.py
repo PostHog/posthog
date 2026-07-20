@@ -94,6 +94,27 @@ async def update_key_state_activity(key_id: str, state: str, error_message: str 
     await database_sync_to_async(_update)()
 
 
+@dataclass
+class SendTrialUsageEmailInputs:
+    team_id: int
+    threshold_pct: int
+
+
+@temporalio.activity.defn
+async def increment_trial_eval_count_activity(team_id: int) -> int | None:
+    """No-op stub kept registered so evaluation runs started on the previous release can finish
+    during the rollout. Returning None means no usage email follows. The follow-up column-drop PR
+    deletes it."""
+    return None
+
+
+@temporalio.activity.defn
+async def send_trial_usage_email_activity(inputs: SendTrialUsageEmailInputs) -> None:
+    """No-op stub kept registered so evaluation runs started on the previous release can finish
+    during the rollout. The follow-up column-drop PR deletes it."""
+    return None
+
+
 @temporalio.activity.defn
 async def disable_evaluation_activity(
     evaluation_id: str, team_id: int, status_reason: str = "", status_reason_detail: str | None = None

@@ -701,7 +701,7 @@ describe('Evaluation Scheduler', () => {
             expect(temporalService.startEvaluationRunWorkflow).not.toHaveBeenCalled()
         })
 
-        it('still starts evaluation workflows for evaluations with no pinned provider key', async () => {
+        it('still starts evaluation workflows for trial mode evaluations', async () => {
             const event = createAiGenerationEvent(teamId)
             const evaluation = createEvaluation({
                 team_id: teamId,

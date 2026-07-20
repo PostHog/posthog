@@ -34,11 +34,14 @@ from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     EmitInternalTelemetryInputs,
     RunEvaluationInputs,
     SendEvaluationDisabledEmailInputs,
+    SendTrialUsageEmailInputs,
     disable_evaluation_activity,
     emit_evaluation_event_activity,
     emit_internal_telemetry_activity,
     fetch_evaluation_activity,
+    increment_trial_eval_count_activity,
     send_evaluation_disabled_email_activity,
+    send_trial_usage_email_activity,
     update_key_state_activity,
 )
 from posthog.temporal.ai_observability.metrics import increment_errors
@@ -62,6 +65,7 @@ __all__ = [
     "RunEvaluationInputs",
     "RunEvaluationWorkflow",
     "SendEvaluationDisabledEmailInputs",
+    "SendTrialUsageEmailInputs",
     "WorkflowResult",
     "build_system_prompt",
     "disable_evaluation_activity",
@@ -76,8 +80,11 @@ __all__ = [
     "get_output_type_config",
     "handle_llm_judge_activity_error",
     "handle_terminal_user_error_result",
+    "increment_trial_eval_count_activity",
+    "increment_trial_usage_and_notify",
     "run_hog_eval",
     "send_evaluation_disabled_email_activity",
+    "send_trial_usage_email_activity",
     "update_key_state_activity",
 ]
 
@@ -191,16 +198,43 @@ async def handle_terminal_user_error_result(
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
 
+    # Replay-only compatibility for runs started before trial evals were removed: reproduce the
+    # commands the old code scheduled for trial-era errors, without resurrecting their specs.
+    # workflow.patched returns False only when replaying pre-patch histories, so fresh runs never
+    # take the legacy branches. Remove together with the columns in the follow-up PR.
+    legacy_trial_era = not temporalio.workflow.patched("remove-trial-evals")
+    skip_reason_str = str(skip_reason) if skip_reason else None
+    if (
+        legacy_trial_era
+        and skip_reason_str == "trial_limit_reached"
+        and temporalio.workflow.patched("trial-usage-email")
+    ):
+        try:
+            await temporalio.workflow.execute_activity(
+                send_trial_usage_email_activity,
+                SendTrialUsageEmailInputs(team_id=evaluation["team_id"], threshold_pct=100),
+                activity_id=f"send-trial-usage-email-100pct-{evaluation['team_id']}",
+                schedule_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+        except Exception:
+            temporalio.workflow.logger.exception(
+                "Failed to send trial exhausted email",
+                team_id=evaluation["team_id"],
+            )
+
     dedupe_disabled_email = temporalio.workflow.patched("eval-disabled-email-on-disable-transition")
+    legacy_model_not_allowed = legacy_trial_era and skip_reason_str == "model_not_allowed"
     should_send_disabled_email = (
-        spec is not None
-        and spec.disables_evaluation
+        ((spec is not None and spec.disables_evaluation) or legacy_model_not_allowed)
         and bool(status_reason)
         and (disabled_evaluation or not dedupe_disabled_email)
         and temporalio.workflow.patched("eval-disabled-email")
     )
     if should_send_disabled_email:
-        assert spec is not None
+        human_readable_reason = (
+            spec.safe_message if spec is not None else "The selected model is not available on the trial plan."
+        )
         email_status_reason = str(status_reason)
         try:
             await temporalio.workflow.execute_activity(
@@ -210,7 +244,7 @@ async def handle_terminal_user_error_result(
                     evaluation_id=evaluation["id"],
                     evaluation_name=evaluation.get("name", "Unknown evaluation"),
                     status_reason=email_status_reason,
-                    human_readable_reason=spec.safe_message,
+                    human_readable_reason=human_readable_reason,
                     disabled_at=temporalio.workflow.now(),
                 ),
                 activity_id=f"send-eval-disabled-email-{evaluation['id']}-{email_status_reason}",
@@ -233,6 +267,36 @@ async def handle_terminal_user_error_result(
         "evaluation_type": evaluation_type,
     }
     return workflow_result
+
+
+async def increment_trial_usage_and_notify(evaluation: dict[str, Any]) -> None:
+    """Replay-only compatibility for runs started before trial evals were removed: reproduces the
+    activity commands the old code scheduled after a PostHog-key LLM judge run. Callers gate on
+    `workflow.patched("remove-trial-evals")`, so fresh runs never reach this. Must run inside a
+    workflow context. Remove together with the columns in the follow-up PR."""
+    threshold_pct = await temporalio.workflow.execute_activity(
+        increment_trial_eval_count_activity,
+        evaluation["team_id"],
+        activity_id=f"increment-trial-{evaluation['id']}",
+        schedule_to_close_timeout=timedelta(seconds=10),
+        retry_policy=RetryPolicy(maximum_attempts=2),
+    )
+
+    if threshold_pct is not None and temporalio.workflow.patched("trial-usage-email"):
+        try:
+            await temporalio.workflow.execute_activity(
+                send_trial_usage_email_activity,
+                SendTrialUsageEmailInputs(team_id=evaluation["team_id"], threshold_pct=threshold_pct),
+                activity_id=f"send-trial-usage-email-{threshold_pct}pct-{evaluation['team_id']}",
+                schedule_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+        except Exception:
+            temporalio.workflow.logger.exception(
+                "Failed to send trial usage email",
+                team_id=evaluation["team_id"],
+                threshold_pct=threshold_pct,
+            )
 
 
 @temporalio.workflow.defn(name="run-evaluation")
@@ -283,6 +347,14 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                 if handled is not None:
                     return handled
                 raise
+
+            # Replay-only; see increment_trial_usage_and_notify.
+            if (
+                not temporalio.workflow.patched("remove-trial-evals")
+                and not result.get("is_byok")
+                and not result.get("skipped")
+            ):
+                await increment_trial_usage_and_notify(evaluation)
         else:
             raise ApplicationError(
                 f"Unsupported evaluation type: {evaluation_type}",

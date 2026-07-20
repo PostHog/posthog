@@ -59,6 +59,7 @@ from posthog.temporal.ai_observability.run_evaluation import (
     WorkflowResult,
     handle_llm_judge_activity_error,
     handle_terminal_user_error_result,
+    increment_trial_usage_and_notify,
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.utils import close_db_connections
@@ -527,6 +528,14 @@ class RunTraceEvaluationWorkflow(PostHogWorkflow):
                 if handled is not None:
                     return handled
                 raise
+
+            # Replay-only; see increment_trial_usage_and_notify.
+            if (
+                not temporalio.workflow.patched("remove-trial-evals")
+                and not result.get("is_byok")
+                and not result.get("skipped")
+            ):
+                await increment_trial_usage_and_notify(evaluation)
 
         if is_terminal_user_error_result(result):
             return await handle_terminal_user_error_result(

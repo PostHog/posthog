@@ -5,6 +5,8 @@ export type EvaluationStatus = 'active' | 'paused' | 'error'
 // Keep in sync with EvaluationStatusReason in products/ai_observability/backend/models/evaluations.py
 export type EvaluationStatusReason =
     | 'provider_key_required'
+    | 'trial_limit_reached'
+    | 'model_not_allowed'
     | 'provider_key_deleted'
     | 'no_default_model'
     | 'provider_key_invalid'
