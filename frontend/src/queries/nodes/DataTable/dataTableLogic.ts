@@ -71,6 +71,11 @@ export interface DataTableRow {
 export const loadingColumn = Symbol('...')
 export const errorColumn = Symbol('Error!')
 
+/** Label rows (date dividers etc.) have no result and can't expand. */
+export function isExpandableRow(row: DataTableRow): boolean {
+    return !!row.result
+}
+
 /**
  * A stable identifier for an event-like object: its `uuid`, falling back to `id`. Shared with
  * `EventDetails`'s `getEventId`, which needs the same fallback to key per-event UI state.
@@ -527,8 +532,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                 const keys: ExpandedRowKey[] = []
                 for (let i = 0; i < dataTableRows.length; i++) {
                     const row = dataTableRows[i]
-                    // Label rows (date dividers etc.) have no result and can't expand.
-                    if (row.label === undefined || row.label === null) {
+                    if (isExpandableRow(row)) {
                         keys.push(getExpandedRowKey(row, i))
                     }
                 }

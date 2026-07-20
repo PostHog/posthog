@@ -132,9 +132,11 @@ export const tabUiStateLogic = kea<tabUiStateLogicType>([
                         return state
                     }
                     if (next.length === 0) {
-                        // Drop the empty slot rather than keeping `[vizKey]: []` forever — ad-hoc
-                        // tables get a fresh vizKey every mount, so an emptied slot will never be
-                        // reused and would otherwise grow this bucket unboundedly per session.
+                        // Drop the emptied slot rather than keeping `[vizKey]: []`. Ad-hoc tables
+                        // get a fresh vizKey every mount, so an emptied slot is never reused and
+                        // would otherwise grow this bucket per session. (Partial — the toggle
+                        // collapse path keeps a `[]` slot, but that path can't fire for a vizKey
+                        // whose table has unmounted, so this bounds the unbounded-growth case.)
                         const nextTabState = { ...tabState }
                         delete nextTabState[vizKey]
                         return { ...state, [tabId]: nextTabState }

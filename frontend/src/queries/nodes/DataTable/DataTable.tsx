@@ -31,7 +31,12 @@ import { BackToSource } from '~/queries/nodes/DataTable/BackToSource'
 import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator/ColumnConfigurator'
 import { DataTableCount } from '~/queries/nodes/DataTable/DataTableCount'
 import { DataTableExport } from '~/queries/nodes/DataTable/DataTableExport'
-import { DataTableLogicProps, DataTableRow, dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
+import {
+    DataTableLogicProps,
+    DataTableRow,
+    dataTableLogic,
+    isExpandableRow,
+} from '~/queries/nodes/DataTable/dataTableLogic'
 import { DataTableSavedFilters } from '~/queries/nodes/DataTable/DataTableSavedFilters'
 import { DataTableSavedFiltersButton } from '~/queries/nodes/DataTable/DataTableSavedFiltersButton'
 import { EventRowActions } from '~/queries/nodes/DataTable/EventRowActions'
@@ -769,7 +774,7 @@ export function DataTable({
                                 )
                             }
                         },
-                        rowExpandable: ({ result }: DataTableRow) => !!result,
+                        rowExpandable: isExpandableRow,
                         noIndent: true,
                     }
                   : undefined,
