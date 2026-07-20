@@ -117,6 +117,9 @@ export function EditAlertModalV2({
         alertForm,
         isAlertFormSubmitting,
         alertFormChanged,
+        alertFormHasErrors,
+        alertFormErrors,
+        alertFormSubmitAttempted,
         simulationResult,
         simulationResultLoading,
         simulationDateFrom,
@@ -388,7 +391,12 @@ export function EditAlertModalV2({
                             isSubmitting={isAlertFormSubmitting}
                             hasChanges={alertFormChanged}
                             onBack={handleClose}
-                            onSubmitAttempted={setAlertFormSubmitAttempted}
+                            onSubmitAttempted={() => {
+                                setAlertFormSubmitAttempted()
+                                if (!alertFormHasErrors) {
+                                    handleClose()
+                                }
+                            }}
                             steps={buildWizardSteps({
                                 nameNode: (
                                     <AlertEditorFormDetails
@@ -402,6 +410,9 @@ export function EditAlertModalV2({
                                 advancedNode,
                                 summary,
                                 thresholdBoundsFormError,
+                                alertFormHasErrors,
+                                alertFormErrors,
+                                alertFormSubmitAttempted,
                             })}
                         />
                     ) : (
@@ -458,10 +469,13 @@ interface WizardStepInput {
     advancedNode: React.ReactNode
     summary: { fires: string; cadence: string; notifies: string }
     thresholdBoundsFormError?: string
+    alertFormHasErrors: boolean
+    alertFormErrors: Record<string, unknown>
+    alertFormSubmitAttempted: boolean
 }
 
 function buildWizardSteps(input: WizardStepInput): AlertWizardStep[] {
-    const { summary } = input
+    const { summary, alertFormHasErrors } = input
     const reviewFires = summary.fires || 'a configured threshold'
     const reviewCadence = summary.cadence || 'a cadence'
     const reviewNotifies = summary.notifies || 'no one yet'
@@ -471,6 +485,8 @@ function buildWizardSteps(input: WizardStepInput): AlertWizardStep[] {
             key: 'monitor',
             title: 'Monitor',
             description: 'Pick what this alert watches and when it should fire.',
+            canAdvance: !alertFormHasErrors,
+            cannotAdvanceReason: alertFormHasErrors ? 'Fix the errors above before continuing.' : undefined,
             content: (
                 <div className="space-y-4">
                     {input.nameNode}
@@ -483,6 +499,7 @@ function buildWizardSteps(input: WizardStepInput): AlertWizardStep[] {
             key: 'schedule',
             title: 'Schedule',
             description: 'How often this alert runs.',
+            canAdvance: true,
             content: (
                 <div className="space-y-3">
                     {input.scheduleNode}
@@ -494,13 +511,15 @@ function buildWizardSteps(input: WizardStepInput): AlertWizardStep[] {
             key: 'notify',
             title: 'Notify',
             description: 'Who gets told when this alert fires.',
+            canAdvance: true,
             content: <div className="space-y-4">{input.notifyNode}</div>,
         },
         {
             key: 'review',
             title: 'Review',
             description: 'Confirm what this alert will do, then create it.',
-            canAdvance: true,
+            canAdvance: !alertFormHasErrors,
+            cannotAdvanceReason: alertFormHasErrors ? 'Fix the errors in previous steps before creating.' : undefined,
             content: (
                 <div className="space-y-3">
                     <div className="rounded border border-border bg-bg-light p-3 space-y-1.5 text-sm">

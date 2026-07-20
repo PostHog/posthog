@@ -47,7 +47,13 @@ export function AlertWizard({
     const canAdvance = step?.canAdvance !== false
     const cannotAdvanceReason = step?.cannotAdvanceReason
 
-    const goNext = (): void => setCurrent((i) => Math.min(i + 1, steps.length - 1))
+    const goNext = (): void => {
+        if (!canAdvance) {
+            onSubmitAttempted?.()
+            return
+        }
+        setCurrent((i) => Math.min(i + 1, steps.length - 1))
+    }
     const goPrev = (): void => setCurrent((i) => Math.max(i - 1, 0))
 
     return (
