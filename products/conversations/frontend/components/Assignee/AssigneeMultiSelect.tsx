@@ -151,6 +151,34 @@ function TriggerLabel({ value }: { value: AssigneeFilterEntry[] }): JSX.Element 
     )
 }
 
+const AssigneeFilterItem = ({
+    item,
+    isSelected,
+    onToggle,
+    selectionCapReason,
+}: {
+    item: NonNullable<Assignee>
+    isSelected: (entry: AssigneeFilterEntry) => boolean
+    onToggle: (entry: AssigneeFilterEntry) => void
+    selectionCapReason?: string
+}): JSX.Element => {
+    return (
+        <LemonButton
+            fullWidth
+            role="menuitem"
+            size="small"
+            icon={<LemonCheckbox checked={isSelected(item)} className="pointer-events-none" />}
+            disabledReason={isSelected(item) ? undefined : selectionCapReason}
+            onClick={() => onToggle({ type: item.type, id: item.id })}
+        >
+            <span className="flex items-center gap-1">
+                <AssigneeIconDisplay assignee={item} size="small" />
+                <AssigneeLabelDisplay assignee={item} />
+            </span>
+        </LemonButton>
+    )
+}
+
 const Section = ({
     title,
     loading,
@@ -176,19 +204,12 @@ const Section = ({
                 <h5 className="mx-2 my-0.5">{title}</h5>
                 {items.map((item) => (
                     <li key={item.id}>
-                        <LemonButton
-                            fullWidth
-                            role="menuitem"
-                            size="small"
-                            icon={<LemonCheckbox checked={isSelected(item)} className="pointer-events-none" />}
-                            disabledReason={isSelected(item) ? undefined : selectionCapReason}
-                            onClick={() => onToggle({ type: item.type, id: item.id })}
-                        >
-                            <span className="flex items-center gap-1">
-                                <AssigneeIconDisplay assignee={item} size="small" />
-                                <AssigneeLabelDisplay assignee={item} />
-                            </span>
-                        </LemonButton>
+                        <AssigneeFilterItem
+                            item={item}
+                            isSelected={isSelected}
+                            onToggle={onToggle}
+                            selectionCapReason={selectionCapReason}
+                        />
                     </li>
                 ))}
 
