@@ -45,8 +45,8 @@ def resolve_filter_layers_by_priority(
         effective_base.pop("date_to", None)
         effective_base.pop("explicitDate", None)
 
-    override_props = _flatten_property_leaves(override.get("properties"))
-    base_props = _flatten_property_leaves(base.get("properties"))
+    override_props = flatten_property_leaves(override.get("properties"))
+    base_props = flatten_property_leaves(base.get("properties"))
     contradicted_base = []
     surviving_base = []
     for base_property in base_props:
@@ -108,7 +108,7 @@ def merge_filters_by_priority(base_filters: dict | None, override_filters: dict 
         if override_filters.get("explicitDate") is not None:
             merged["explicitDate"] = override_filters["explicitDate"]
 
-    override_props = _flatten_property_leaves(override_filters.get("properties"))
+    override_props = flatten_property_leaves(override_filters.get("properties"))
     combined_properties = (resolved_layers["dashboard"].get("properties") or []) + override_props
     if combined_properties:
         merged["properties"] = combined_properties
@@ -116,7 +116,7 @@ def merge_filters_by_priority(base_filters: dict | None, override_filters: dict 
     return merged
 
 
-def _flatten_property_leaves(properties: Any) -> list[dict]:
+def flatten_property_leaves(properties: Any) -> list[dict]:
     """Flatten a `properties` value into a flat list of leaf property-filter dicts. The value is either a
     flat list of leaves or a (possibly nested) `PropertyGroupFilter` dict (`{"type": ..., "values": [...]}`),
     since dashboard/tile filter layers can be stored in either form. Non-dict entries are dropped so a
@@ -129,10 +129,26 @@ def _flatten_property_leaves(properties: Any) -> list[dict]:
     leaves: list[dict] = []
     for item in properties:
         if isinstance(item, dict) and isinstance(item.get("values"), list):
-            leaves.extend(_flatten_property_leaves(item))
+            leaves.extend(flatten_property_leaves(item))
         elif isinstance(item, dict):
             leaves.append(item)
     return leaves
+
+
+def normalize_dashboard_filters_properties(filters: dict) -> dict:
+    """Return a copy of `filters` whose `properties` is a flat list of leaf filter dicts. Dashboard filters
+    can be persisted (or supplied via `?filters_override=`) with `properties` as a `PropertyGroupFilter`
+    dict, but the contract (`DashboardFilter.properties`) is a flat list — normalize on write so the stored
+    shape matches, rather than leaving every reader to tolerate both forms. A non-list, non-group-dict
+    `properties` is dropped as malformed. Only touches `properties`; other fields pass through."""
+    properties = filters.get("properties")
+    if isinstance(properties, list):
+        return filters
+    flattened = flatten_property_leaves(properties)
+    if not flattened:
+        result = {k: v for k, v in filters.items() if k != "properties"}
+        return result
+    return {**filters, "properties": flattened}
 
 
 def _without_contradicted(properties: Any, overriding_props: list[dict]) -> Any:
@@ -193,7 +209,7 @@ def remove_query_properties_overridden_by(query: dict, overriding_filters: dict 
     contradiction into an empty result. Compatible filters on the same key are left in place to stack.
     Callers pass the effective dashboard + tile filter set, so both layers can override the insight's own
     filter."""
-    overriding_props = _flatten_property_leaves((overriding_filters or {}).get("properties"))
+    overriding_props = flatten_property_leaves((overriding_filters or {}).get("properties"))
     if not overriding_props:
         return query
     return _strip_query_properties(query, overriding_props)
@@ -226,7 +242,7 @@ def dashboard_filter_from_dict(filters: dict) -> DashboardFilter:
     `{"type": ..., "values": [...]}` dict straight in raises a pydantic ValidationError — flatten it to the
     list the schema expects first. Filters are AND-combined, so flattening preserves their meaning."""
     if isinstance(filters.get("properties"), dict):
-        filters = {**filters, "properties": _flatten_property_leaves(filters["properties"])}
+        filters = {**filters, "properties": flatten_property_leaves(filters["properties"])}
     return DashboardFilter(**filters)
 
 

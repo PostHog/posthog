@@ -69,6 +69,7 @@ from posthog.helpers.trigram_search import (
     apply_trigram_search,
     drop_similar_when_exact_exists,
 )
+from posthog.hogql_queries.apply_dashboard_filters import normalize_dashboard_filters_properties
 from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
 from posthog.models.file_system.file_system import FileSystem, create_or_update_file, delete_file, join_path, split_path
 from posthog.models.quick_filter import QuickFilter
@@ -1268,7 +1269,14 @@ class DashboardSerializer(DashboardMetadataSerializer):
         if not isinstance(value, dict):
             raise serializers.ValidationError("Filters must be a dictionary")
 
-        return value
+        # `properties` is contracted as a flat list of leaf filters (DashboardFilter.properties),
+        # but the UI / templates historically also accept a PropertyGroupFilter dict
+        # ({"type": ..., "values": [...]}). Normalize to the flat list on write so every reader
+        # can assume the contract shape — a malformed (non-list, non-group-dict) value is rejected.
+        properties = value.get("properties")
+        if properties is not None and not isinstance(properties, (list, dict)):
+            raise serializers.ValidationError({"properties": "Must be a list of filters or a property group"})
+        return normalize_dashboard_filters_properties(value)
 
     def validate_variables(self, value) -> dict:
         if not isinstance(value, dict):
