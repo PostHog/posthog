@@ -2,10 +2,10 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
-#     "claude-agent-sdk",
-#     "anthropic",
-#     "posthoganalytics",
-#     "pyyaml",
+#     "claude-agent-sdk==0.2.113",
+#     "anthropic==0.80.0",
+#     "posthoganalytics==7.20.4",
+#     "pyyaml==6.0.3",
 # ]
 # ///
 # ruff: noqa: T201
@@ -52,6 +52,7 @@ from gates import (
     t1_risk_subclass,
     test_only,
 )
+from gateway import analytics_extra_properties
 from github import TRUSTED_REACTOR_BOTS, PRData, check_team_membership, fetch_pr, write_pr_diff
 from manifest_risk import manifest_script_changes
 from migration_risk import migration_check_pending, safe_migration_files
@@ -67,6 +68,17 @@ try:
     _POSTHOG_AVAILABLE = bool(posthoganalytics.api_key)
 except ImportError:
     _POSTHOG_AVAILABLE = False
+
+
+def flush_analytics() -> None:
+    """Flush buffered capture events; a no-op without a configured client.
+
+    The capture client batches in a background thread — without an explicit flush,
+    events queued near process exit are silently dropped.
+    """
+    if _POSTHOG_AVAILABLE:
+        posthoganalytics.flush()
+
 
 # ── Repo root detection ──────────────────────────────────────────
 
@@ -771,7 +783,11 @@ class Pipeline:
         posthoganalytics.capture(
             distinct_id=pr.author,
             event="stamphog_review_completed",
+            # Extras first so the base props win on collision: the hosted server stamps its
+            # runtime/team context through this hook; absent in the Action, so Action events
+            # are unchanged (no prop = action runtime).
             properties={
+                **analytics_extra_properties(),
                 "ai_product": "stamphog",
                 "stamphog_version": STAMPHOG_VERSION,
                 "stamphog_commit": _head_commit_sha(),
@@ -938,8 +954,7 @@ def main() -> None:
     if args.output_json:
         pipeline.save_json(args.output_json)
 
-    if _POSTHOG_AVAILABLE:
-        posthoganalytics.flush()
+    flush_analytics()
 
 
 if __name__ == "__main__":

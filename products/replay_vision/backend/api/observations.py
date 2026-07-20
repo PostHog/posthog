@@ -5,7 +5,7 @@ from django.conf import settings
 from django.db.models import Case, CharField, FloatField, Func, IntegerField, Q, QuerySet, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
-from django.http import StreamingHttpResponse
+from django.http.response import HttpResponseBase
 
 import structlog
 import django_filters
@@ -485,7 +485,7 @@ class ReplayObservationFilter(django_filters.FilterSet):
     recording_subject = django_filters.CharFilter(
         field_name="recording_subject_email",
         lookup_expr="icontains",
-        help_text="Filter to observations whose recording subject email contains this value (case-insensitive).",
+        help_text="Filter to observations whose person email contains this value (case-insensitive).",
     )
     labeled = django_filters.BooleanFilter(
         method="_filter_labeled",
@@ -847,7 +847,7 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
 
     @extend_schema(exclude=True)
     @action(detail=True, methods=["GET"], url_path="progress", renderer_classes=[ServerSentEventRenderer])
-    def progress(self, request: Request, **kwargs: Any) -> StreamingHttpResponse:
+    def progress(self, request: Request, **kwargs: Any) -> HttpResponseBase:
         """Stream live progress (phase + rendering frame counts) for one in-flight observation as SSE.
 
         `get_object()` applies the same RBAC scoping as retrieve, so this can't leak observations the caller

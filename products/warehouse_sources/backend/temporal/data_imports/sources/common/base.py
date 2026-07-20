@@ -140,6 +140,12 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # `get_schemas` with a placeholder config could connect, hang, or close the DB session.
     lists_tables_without_credentials: bool = False
 
+    # `True` only for sources whose engine supports xmin-based incremental replication
+    # (Postgres). Gates the xmin sync type at the source-type level; per-table availability is
+    # still decided by `SourceSchema.supports_xmin` at discovery. The API branches on this flag
+    # instead of naming the source type.
+    supports_xmin: bool = False
+
     # Vendor API versions this source implements, as opaque vendor labels (Stripe date
     # versions, semver, names) — never parsed or ordered by the framework. Sources whose
     # vendor has no meaningful API versioning keep the `UNVERSIONED_API_VERSION` default.
@@ -195,6 +201,19 @@ class _BaseSource(ABC, Generic[ConfigType]):
         """
 
         return {}
+
+    def get_retryable_errors(self) -> set[str]:
+        """Returns partial error messages the source already retries internally.
+
+        A source that exhausts its own retries (rate limits, transient 5xx) and re-raises still
+        lets Temporal retry the whole activity, so the failure is transient and self-recovering.
+        Matching errors are logged at `warning` rather than `exception`, keeping benign,
+        recoverable failures out of error tracking as noise.
+
+        Each entry is a partial error message matched against `str(error)`.
+        """
+
+        return set()
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         """Curated, documentation-sourced descriptions for this source's well-known tables/endpoints.
@@ -297,6 +316,41 @@ class _BaseSource(ABC, Generic[ConfigType]):
         the SSH tunnel target are handled separately, so sources whose connection target lives in
         a differently named field (e.g. Okta's ``okta_domain``) should list it here."""
         return []
+
+    def server_managed_job_input_fields(
+        self, incoming_job_inputs: dict[str, Any], existing_job_inputs: dict[str, Any]
+    ) -> list[str]:
+        """``job_inputs`` fields the client may not set/repoint on update — the server pins them
+        to the stored value (or drops them when unset). Used for server-owned markers and pointers
+        (Custom's ``auth_oauth2_integration_id``, GitHub's legacy ``repository``). Given both the
+        incoming and existing inputs so a source can gate on context. Default: none."""
+        return []
+
+    # Cap on how many active sources of this type a team may have (``None`` = unlimited). Custom
+    # sources are capped; everything else is open. The API enforces this at create.
+    max_instances_per_team: int | None = None
+
+    def job_inputs_add_connection_host(
+        self, incoming_job_inputs: dict[str, Any], existing_job_inputs: dict[str, Any]
+    ) -> bool:
+        """Whether an update introduces a new outbound connection host that isn't a named
+        ``connection_host_fields`` change — e.g. Custom's target lives inside its manifest. When
+        ``True`` the API requires credential re-entry (same exfiltration gate as a host change).
+        Default: no such field."""
+        return False
+
+    def has_preserved_row_backed_credentials(
+        self, source_model: "ExternalDataSource", incoming_job_inputs: dict[str, Any]
+    ) -> bool:
+        """For sources whose secrets live in a bound row (not ``job_inputs``) — Custom's
+        ``CustomOAuth2Integration``: whether the row still holds secrets the editor did NOT re-enter
+        on this update. ``has_preserved_credentials`` can't see those, so a host change would still
+        redirect the row's injected token. Default: no row-backed credentials."""
+        return False
+
+    def on_source_created(self, source_model: "ExternalDataSource", team_id: int) -> None:
+        """Post-create hook. Custom claims its OAuth2 integration row here. No-op by default."""
+        return None
 
     def cleanup_cdc_resources_on_deletion(self, source: "ExternalDataSource") -> None:
         """Best-effort teardown of CDC resources tied to the source. No-op by default."""
@@ -417,6 +471,21 @@ class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
         In most cases this will likely just be the table name -> table name. But in the case of Stripe, it's the
         table name mapped to the Stripe object type"""
         raise NotImplementedError()
+
+    def webhook_mapping_key(self, schema_name: str) -> str:
+        """The `schema_mapping` key incoming webhooks are routed by for one schema row.
+
+        Defaults to the `webhook_resource_map` translation (schema name -> provider event type).
+        Sources whose schema names carry a namespace (e.g. GitHub's `owner/repo.workflow_runs`)
+        override this to emit namespace-qualified keys, so two namespaces' rows for the same
+        event type don't collide in the mapping."""
+        return self.webhook_resource_map.get(schema_name, schema_name)
+
+    def webhook_template_inputs(self, config: ConfigType) -> dict[str, Any]:
+        """Extra static `inputs` to persist on the webhook HogFunction beyond `schema_mapping` and
+        `source_id`. None by default; GitHub uses it to pin the legacy repository so the template's
+        bare-event-key fallback can't route a secondary repo's events into the legacy repo's schema."""
+        return {}
 
     def get_external_webhook_info(
         self, config: ConfigType, webhook_url: str, team_id: int

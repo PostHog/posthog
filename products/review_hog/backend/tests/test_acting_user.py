@@ -33,12 +33,12 @@ class TestResolveActingUser(BaseTest):
 
     def test_settings_default_when_user_has_no_row(self) -> None:
         # No settings row → the resolve result carries the defaults (labeled reviews on, inbox
-        # reviews off, should_fix), so the gates and publish behave as before this feature for
-        # users who never opened the UI.
+        # reviews off, consider), so every validated finding publishes for users who never opened
+        # the UI.
         result = _resolve_acting_user(self.team.id, "octocat", None)
         assert result.review_labeled_prs is True
         assert result.review_inbox_prs is False
-        assert result.urgency_threshold == "should_fix"
+        assert result.urgency_threshold == "consider"
 
     def test_settings_row_flows_into_the_result(self) -> None:
         # The user's saved settings must reach the workflow — if resolve stops loading any of them,

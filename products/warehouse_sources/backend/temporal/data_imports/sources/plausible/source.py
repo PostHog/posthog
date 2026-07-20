@@ -38,6 +38,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PlausibleSource(ResumableSource[PlausibleSourceConfig, PlausibleResumeConfig], ValidateDatabaseHostMixin):
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://plausible.io/docs/stats-api"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.PLAUSIBLE
@@ -51,6 +55,10 @@ class PlausibleSource(ResumableSource[PlausibleSourceConfig, PlausibleResumeConf
         return {
             "401 Client Error": "Your Plausible API key is invalid or has been revoked. Create a new key in your Plausible account settings, then reconnect.",
             "403 Client Error": "Your Plausible API key is missing the stats read scope needed to sync this data. Grant it in your Plausible account settings, then reconnect.",
+            # Plausible rejects the query as malformed for this site (a permanent 400 — auth and
+            # missing-site cases are 401/403/404 and handled above). Retrying resends the same
+            # request, so stop. Match the status text, not the self-hosted URL, which varies.
+            "400 Client Error": "Plausible rejected the request for this site. Check that the site domain is correct and that your Plausible account can access its stats, then reconnect.",
         }
 
     @property

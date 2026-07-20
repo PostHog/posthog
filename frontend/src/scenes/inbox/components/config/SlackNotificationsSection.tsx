@@ -13,30 +13,25 @@ import { IntegrationType } from '~/types'
 
 import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { userAutonomyLogic } from '../../logics/userAutonomyLogic'
-import { SignalReportPriority } from '../../types'
+import { PRIORITY_THRESHOLD_OPTIONS, SignalReportPriority } from '../../types'
+import { ConfigCardHeader } from './ConfigCardHeader'
 
 const NOTIFY_ALL_VALUE = '__all__'
 
 /** Minimum report priority that triggers a Slack ping. "All priorities" maps to a null min-priority. */
 const MIN_PRIORITY_OPTIONS: { value: SignalReportPriority | typeof NOTIFY_ALL_VALUE; label: string }[] = [
     { value: NOTIFY_ALL_VALUE, label: 'All priorities' },
-    { value: 'P0', label: 'P0 only' },
-    { value: 'P1', label: 'P1 and above' },
-    { value: 'P2', label: 'P2 and above' },
-    { value: 'P3', label: 'P3 and above' },
-    { value: 'P4', label: 'P4 and above' },
+    ...PRIORITY_THRESHOLD_OPTIONS,
 ]
 
 /** Icon + title + description header shared by all the Slack cards in this section. */
 function SlackCardHeader({ title, description }: { title: string; description: ReactNode }): JSX.Element {
     return (
-        <div className="flex items-start gap-3 min-w-0">
-            <IconSlack className="size-5 shrink-0 mt-0.5 grayscale" />
-            <div className="min-w-0">
-                <div className="font-medium text-sm text-default">{title}</div>
-                <p className="text-xs text-secondary mt-0.5 mb-0 max-w-xl">{description}</p>
-            </div>
-        </div>
+        <ConfigCardHeader
+            icon={<IconSlack className="size-5 shrink-0 mt-0.5 grayscale" />}
+            title={title}
+            description={description}
+        />
     )
 }
 

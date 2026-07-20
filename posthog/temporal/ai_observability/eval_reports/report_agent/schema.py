@@ -1,11 +1,12 @@
 """Dataclasses for evaluation report content, metrics, and citations.
 
 The v2 schema splits the report into:
+- `evaluation_target`: the evaluated unit (`generation` or `trace`)
 - `metrics`: structured numeric data computed mechanically from ClickHouse,
   the agent cannot fabricate these
 - `title`: the agent's punchline headline (required, one line)
 - `sections`: 1-6 agent-chosen titled markdown sections
-- `citations`: structured trace references (generation_id + trace_id + reason)
+- `citations`: structured target references (generation_id + trace_id + reason)
 
 This separation lets downstream consumers (signals, inbox, coding agents) query
 `metrics` and `citations` without parsing prose, and lets the agent focus on
@@ -16,6 +17,7 @@ from dataclasses import dataclass, field
 from typing import Literal, overload
 
 from posthog.temporal.ai_observability.eval_reports.output_types import get_outcome_definition
+from posthog.temporal.ai_observability.eval_reports.targets import GENERATION_TARGET, resolve_evaluation_target
 
 # Hard cap on the number of agent-chosen sections. Prevents section sprawl and
 # keeps reports scannable. The agent is also instructed to lean lean — quality
@@ -65,12 +67,12 @@ def calculate_boolean_pass_rate(counts: dict[str, int], *, empty_as_none: bool =
 
 @dataclass
 class Citation:
-    """A trace reference cited by the agent to ground a specific finding.
+    """An inspected example cited by the agent to ground a specific finding.
 
-    Stores both generation_id and trace_id up front so the viewer can construct
-    correct trace URLs without a runtime lookup. `reason` is short free-form
-    text (e.g. "high_cost", "refusal", "regression_14:00") the agent uses to
-    categorize why the trace is interesting.
+    Generation reports store both IDs so viewers can link to the generation
+    without a runtime lookup. Trace reports leave `generation_id` empty and use
+    `trace_id` as the reference. `reason` is a short free-form category for why
+    the example is interesting.
     """
 
     generation_id: str
@@ -285,13 +287,18 @@ def normalize_report_content_payload(data: dict) -> dict:
 class EvalReportContent:
     """Top-level report content. Stored in EvaluationReportRun.content JSONField."""
 
+    evaluation_target: str = GENERATION_TARGET
     title: str = ""
     sections: list[ReportSection] = field(default_factory=list)
     citations: list[Citation] = field(default_factory=list)
     metrics: EvalReportMetrics = field(default_factory=EvalReportMetrics)
 
+    def __post_init__(self) -> None:
+        self.evaluation_target = resolve_evaluation_target(self.evaluation_target)
+
     def to_dict(self) -> dict:
         return {
+            "evaluation_target": self.evaluation_target,
             "title": self.title,
             "sections": [s.to_dict() for s in self.sections],
             "citations": [c.to_dict() for c in self.citations],
@@ -301,6 +308,7 @@ class EvalReportContent:
     @staticmethod
     def from_dict(data: dict) -> "EvalReportContent":
         return EvalReportContent(
+            evaluation_target=data.get("evaluation_target", GENERATION_TARGET),
             title=data.get("title", ""),
             sections=[ReportSection.from_dict(s) for s in data.get("sections", [])],
             citations=[Citation.from_dict(c) for c in data.get("citations", [])],

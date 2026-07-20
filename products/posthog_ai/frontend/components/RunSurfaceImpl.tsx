@@ -1,11 +1,11 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { createContext, type ReactNode, useContext, useEffect } from 'react'
 
-import { LemonDivider } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { isTerminalRunStatus, runStreamLogic } from '../logics/runStreamLogic'
 import { taskLogic } from '../logics/taskLogic'
-import { OriginProduct } from '../types/taskTypes'
+import { isPiTaskRuntime, OriginProduct } from '../types/taskTypes'
 import { ContextUsageBar } from './ContextUsageBar'
 import { PermissionInput } from './PermissionInput'
 import { QuestionInput } from './QuestionInput'
@@ -87,17 +87,35 @@ function RunSurfaceRoot({
     // A pending surface (no run id) must supply `streamKey` to key on; `runId` is the key otherwise.
     const logicKey = streamKey ?? runId ?? ''
 
-    // The scout flag lives on the task (not the run), so the surface owns loading it once and exposing it
-    // to the slots — the runner already has the task loaded, a live embed fetches it here. Only the
-    // context-usage line consumes this, and only in live mode, so a read-only embed never fetches.
-    const { task, taskLoading } = useValues(taskLogic({ taskId }))
+    // The runtime and scout flag live on the task (not the run), so the surface owns loading it once and
+    // exposing it to the slots. The runner already has the task loaded; an embed fetches it here.
+    const { task, taskLoading, taskError, taskNotFound } = useValues(taskLogic({ taskId }))
     const { loadTask } = useActions(taskLogic({ taskId }))
     useEffect(() => {
-        // `taskId &&`: a pending surface (optimistic create) has no task yet — don't fetch an empty id.
-        if (interaction === 'live' && taskId && !task && !taskLoading) {
+        // A pending surface (optimistic create) has no task yet, so don't fetch an empty id.
+        if (taskId && !task && !taskLoading && !taskError && !taskNotFound) {
             loadTask()
         }
-    }, [interaction, taskId, task, taskLoading, loadTask])
+    }, [taskId, task, taskLoading, taskError, taskNotFound, loadTask])
+
+    if (taskId && !task) {
+        if (taskNotFound) {
+            return <LemonBanner type="error">Task not found.</LemonBanner>
+        }
+        if (taskError) {
+            return (
+                <LemonBanner type="error">
+                    Couldn't load this task. <LemonButton onClick={loadTask}>Try again</LemonButton>
+                </LemonBanner>
+            )
+        }
+        return <RunLogSkeleton />
+    }
+
+    if (task && isPiTaskRuntime(task.runtime)) {
+        return <LemonBanner type="info">Pi session logs aren't available in PostHog yet.</LemonBanner>
+    }
+
     const isScout = task?.origin_product === OriginProduct.SIGNALS_SCOUT
 
     return (

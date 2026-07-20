@@ -59,6 +59,10 @@ class SandboxTemplate(str, Enum):
     VM_BASE = "vm_base"
 
     STREAMLIT_BASE = "streamlit_base"
+    # Minimal template (git, node, uv — no agent server, no skills). For review/exec
+    # sandboxes like stamphog that never run the agent server. See
+    # Dockerfile.sandbox-slim and modal_sandbox.py's SLIM_BASE image definition.
+    SLIM_BASE = "slim_base"
 
 
 class ExecutionResult(BaseModel):
@@ -246,7 +250,13 @@ class SandboxBase(ABC):
         result = self.execute("grep -q autoPublish /scripts/node_modules/.bin/agent-server", timeout_seconds=10)
         return result.exit_code == 0
 
-    def clone_repository(self, repository: str, github_token: str | None = "", shallow: bool = True) -> ExecutionResult:
+    def clone_repository(
+        self,
+        repository: str,
+        github_token: str | None = "",
+        shallow: bool = True,
+        branch: str | None = None,
+    ) -> ExecutionResult:
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
 
@@ -261,6 +271,7 @@ class SandboxBase(ABC):
         org_path = f"{WORKING_DIR}/repos/{org}"
 
         depth_flag = f" --depth {shlex.quote('1')}" if shallow else ""
+        branch_flag = f" --branch {shlex.quote(branch)}" if branch else ""
         # Skip blobs over 128kB during full clones — large test snapshots and auto-generated
         # files get fetched on demand. Shallow clones are already small enough.
         blob_filter = "" if shallow else " --filter=blob:limit=128k"
@@ -268,7 +279,8 @@ class SandboxBase(ABC):
             f"rm -rf {shlex.quote(target_path)} && "
             f"mkdir -p {shlex.quote(org_path)} && "
             f"cd {shlex.quote(org_path)} && "
-            f"git clone --single-branch{blob_filter}{depth_flag} {shlex.quote(repo_url)} {shlex.quote(repo)}"
+            f"git clone --single-branch{blob_filter}{depth_flag}{branch_flag} "
+            f"{shlex.quote(repo_url)} {shlex.quote(repo)}"
         )
         _logger.info(f"Cloning repository {repository} to {target_path} in sandbox {self.id} (shallow={shallow})")
         return self.execute(clone_command, timeout_seconds=5 * 60)

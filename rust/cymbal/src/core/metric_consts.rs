@@ -108,6 +108,9 @@ pub const SIGNAL_EMITTED: &str = "cymbal_signal_emitted";
 pub const SIGNAL_EMIT_FAILED: &str = "cymbal_signal_emit_failed";
 pub const SIGNAL_EMIT_RESPONSE: &str = "cymbal_signal_emit_response";
 
+// Fingerprint embedding metrics
+pub const FINGERPRINT_EMBEDDING_SKIPPED: &str = "cymbal_fingerprint_embedding_skipped";
+
 // Stages Name.
 // We want to keep previous value for comparison, can be changed later on
 pub const HTTP_EXCEPTION_PIPELINE: &str = "cymbal_http_exception_pipeline";
@@ -127,7 +130,6 @@ pub const SPIKE_ALERT_STAGE: &str = "cymbal_spike_detection_time";
 // Operators
 pub const FRAME_RESOLVER_OPERATOR: &str = "cymbal_frame_batch_time";
 pub const EXCEPTION_RESOLVER_OPERATOR: &str = "cymbal_exception_exception_resolver_operator";
-pub const PROPERTIES_RESOLVER_OPERATOR: &str = "cymbal_exception_properties_resolver_operator";
 pub const LEGACY_ORDER_RESOLVER_OPERATOR: &str = "cymbal_exception_legacy_order_resolver_operator";
 pub const LEGACY_ORDER_RESOLVE_FAILED: &str = "cymbal_exception_legacy_order_resolve_failed";
 pub const FINGERPRINT_LEGACY_VERSION_USED: &str = "cymbal_fingerprint_legacy_version_used";

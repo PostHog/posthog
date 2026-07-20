@@ -79,6 +79,7 @@ logger = logging.getLogger(__name__)
 TaskRunStatus = TaskRun.Status
 TaskRunEnvironment = TaskRun.Environment
 TaskOriginProduct = Task.OriginProduct
+TaskRuntime = Task.Runtime
 SandboxNetworkAccessLevel = SandboxEnvironment.NetworkAccessLevel
 SandboxSnapshotStatus = SandboxSnapshot.Status
 
@@ -113,6 +114,7 @@ __all__ = [
     "SandboxNetworkAccessLevel",
     "SandboxSnapshotStatus",
     "TaskOriginProduct",
+    "TaskRuntime",
     "TaskRunEnvironment",
     "TaskRunStatus",
     "append_task_run_log",
@@ -191,18 +193,16 @@ __all__ = [
     "relay_task_run_message",
     "reset_code_workflow_bindings",
     "resolve_slack_thread_context",
-    "respond_to_permission_request",
     "resume_task_run_in_cloud",
     "run_task",
     "run_task_automation_now",
     "save_code_workflow_bindings",
     "send_cancel",
-    "send_user_message",
     "select_repository_for_message",
     "set_task_run_output",
     "set_task_title",
+    "slack_actor_state_updates",
     "signal_report_queryset",
-    "signal_task_run_permission_response",
     "signal_task_run_user_message",
     "signal_workflow_completion",
     "soft_delete_task",
@@ -212,6 +212,7 @@ __all__ = [
     "task_ids_with_pr_url_subquery",
     "task_run_has_slack_mapping",
     "task_run_is_terminal",
+    "task_runtime",
     "task_visible",
     "update_sandbox_environment",
     "update_task",
@@ -403,6 +404,7 @@ def _task_detail_to_dto(
         title_manually_set=task.title_manually_set,
         description=task.description,
         origin_product=task.origin_product,
+        runtime=task.runtime,
         repository=task.repository,
         github_integration=task.github_integration_id,
         github_user_integration=task.github_user_integration_id,
@@ -928,6 +930,19 @@ def update_task_run_state(
     return TaskRun.update_state_atomic(run_id, updates=updates, remove_keys=remove_keys)
 
 
+def slack_actor_state_updates(*, user_id: int, slack_user_id: str | None = None) -> dict[str, Any]:
+    """Run-state updates recording the Slack user currently steering a run.
+
+    Credential resolution and reply tagging read the keys this builds, so every
+    writer must go through here rather than assembling the dict inline.
+    """
+    from products.tasks.backend.logic.services.run_actor import (  # noqa: PLC0415 — keep tasks internals off the api import path
+        slack_actor_state_updates as _slack_actor_state_updates,
+    )
+
+    return _slack_actor_state_updates(user_id=user_id, slack_user_id=slack_user_id)
+
+
 def set_task_run_created_at_for_seeding(
     run_id: str | UUID, task_id: str | UUID, team_id: int, *, created_at: datetime
 ) -> None:
@@ -1379,10 +1394,19 @@ def build_sandbox_custom_image(
         raise ValueError("The image spec is empty; add packages, commands, or env vars before building")
     validate_spec_buildable(spec, image.repository)
 
-    image.spec = spec.model_dump()
-    image.status = SandboxCustomImage.Status.SCANNING
-    image.error = ""
-    image.save(update_fields=["spec", "status", "error", "updated_at"])
+    updated = (
+        _accessible_custom_images(team_id, user_id)
+        .filter(id=image.id)
+        .exclude(status__in=(SandboxCustomImage.Status.SCANNING, SandboxCustomImage.Status.BUILDING))
+        .update(
+            spec=spec.model_dump(),
+            status=SandboxCustomImage.Status.SCANNING,
+            error="",
+            updated_at=django_timezone.now(),
+        )
+    )
+    if not updated:
+        raise ValueError("A build is already in progress for this image")
 
     observe_custom_image_build("started")
     execute_build_sandbox_image_workflow(str(image.id), team_id)
@@ -2535,12 +2559,26 @@ def validate_task_run_artifact_ids(
 
 
 def signal_task_run_user_message(
-    run_id: str | UUID, task_id: str | UUID, team_id: int, *, content: str | None, artifact_ids: list[str]
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    content: str | None,
+    artifact_ids: list[str],
+    actor_user_id: int | None = None,
+    message_id: str | None = None,
+    actor_slack_user_id: str | None = None,
+    steer: bool = False,
 ) -> bool | None:
     """Queue a user_message follow-up signal on the run's workflow.
 
-    Returns ``True`` on success, ``False`` if signalling failed, ``None`` if the run isn't found.
+    Returns ``True`` on success, ``False`` when the target workflow is gone
+    (completed or evicted — a terminal outcome), ``None`` when the run isn't
+    found. Transient signalling failures propagate so a calling Temporal
+    activity retries rather than reporting a dead end to the user.
     """
+    from temporalio.service import RPCError, RPCStatusCode  # noqa: PLC0415 — keep temporalio off the api import path
+
     from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
         signal_task_followup_message,
     )
@@ -2549,51 +2587,21 @@ def signal_task_run_user_message(
     if run is None:
         return None
     try:
-        signal_task_followup_message(run.workflow_id, content, artifact_ids)
-    except Exception:
-        logger.exception("Failed to signal follow-up message for task run %s", run.id)
-        return False
-    return True
-
-
-def signal_task_run_permission_response(
-    run_id: str | UUID,
-    task_id: str | UUID,
-    team_id: int,
-    *,
-    request_id: str,
-    option_id: str,
-    actor_user_id: int,
-    actor_slack_user_id: str | None = None,
-    is_denial: bool = False,
-    denial_message: str | None = None,
-    broker_reason: str | None = None,
-) -> bool | None:
-    """Queue an agent permission response signal on the run's workflow.
-
-    Returns ``True`` on success, ``False`` if signalling failed, ``None`` if the run isn't found.
-    """
-    from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
-        signal_task_permission_response,
-    )
-
-    run = _get_visible_run(run_id, task_id, team_id)
-    if run is None:
-        return None
-    try:
-        signal_task_permission_response(
+        context = {"actor_slack_user_id": actor_slack_user_id} if actor_slack_user_id else None
+        signal_task_followup_message(
             run.workflow_id,
-            request_id=request_id,
-            option_id=option_id,
-            actor_user_id=actor_user_id,
-            actor_slack_user_id=actor_slack_user_id,
-            is_denial=is_denial,
-            denial_message=denial_message,
-            broker_reason=broker_reason,
+            content,
+            artifact_ids,
+            message_id,
+            actor_user_id,
+            context,
+            steer=steer,
         )
-    except Exception:
-        logger.exception("Failed to signal permission response for task run %s", run.id)
-        return False
+    except RPCError as e:
+        if e.status == RPCStatusCode.NOT_FOUND:
+            logger.warning("Follow-up signal target workflow gone for task run %s", run.id)
+            return False
+        raise
     return True
 
 
@@ -2707,6 +2715,7 @@ def relay_task_run_message(
     *,
     text: str,
     text_parts: list[str] | None = None,
+    message_id: str | None = None,
 ) -> tuple[str, str | None]:
     """Queue a Slack relay workflow for a run message, or under the agent-design
     flag signal the running task workflow to stream the text inline.
@@ -2750,7 +2759,12 @@ def relay_task_run_message(
         return "skipped", None
 
     try:
-        relay_id = execute_posthog_code_agent_relay_workflow(run_id=str(run.id), text=trimmed, delete_progress=True)
+        relay_id = execute_posthog_code_agent_relay_workflow(
+            run_id=str(run.id),
+            text=trimmed,
+            delete_progress=True,
+            message_id=message_id,
+        )
     except Exception:
         logger.exception("task_run_relay_message_enqueue_failed", extra={"run_id": str(run.id)})
         return "failed", None
@@ -3039,6 +3053,8 @@ def check_task_run_startable(run_id: str | UUID, task_id: str | UUID, team_id: i
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return "not_found"
+    if run.task.runtime == Task.Runtime.PI:
+        return "unsupported_runtime"
     if run.environment != TaskRun.Environment.CLOUD:
         return "not_cloud"
     if run.status not in _STARTABLE_TASK_RUN_STATUSES:
@@ -3118,6 +3134,8 @@ def resume_task_run_in_cloud(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return "not_found", None, None
+    if run.task.runtime == Task.Runtime.PI:
+        return "unsupported_runtime", None, None
 
     logger.info(
         "resume_in_cloud_called",
@@ -3288,6 +3306,15 @@ def get_conversation_task_dtos(task_ids: Sequence[str | UUID], team_id: int) -> 
         .annotate(_latest_run_id=Subquery(latest_run_id_sq))
     )
     return {task.id: _task_detail_to_dto(task, include_latest_run=False) for task in tasks}
+
+
+def task_runtime(task_id: str | UUID, team_id: int, user_id: int | None, *, for_control: bool = False) -> str | None:
+    return (
+        _visible_task_qs(team_id, user_id, for_control=for_control)
+        .filter(id=task_id)
+        .values_list("runtime", flat=True)
+        .first()
+    )
 
 
 def task_visible(task_id: str | UUID, team_id: int, user_id: int | None, *, for_control: bool = False) -> bool:
@@ -3514,6 +3541,8 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
     warm_runtime_adapter = validated_data.pop("runtime_adapter", None)
     warm_model = validated_data.pop("model", None)
     warm_reasoning_effort = validated_data.pop("reasoning_effort", None)
+    warm_sandbox_environment_id = validated_data.pop("sandbox_environment_id", None)
+    warm_custom_image_id = validated_data.pop("custom_image_id", None)
     pending_user_message = (validated_data.pop("pending_user_message", None) or "").strip() or None
     pending_user_artifact_ids = validated_data.pop("pending_user_artifact_ids", None) or []
     warm_auto_publish = validated_data.pop("auto_publish", None)
@@ -3535,7 +3564,16 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
             runtime_adapter=warm_runtime_adapter,
             model=warm_model,
             reasoning_effort=warm_reasoning_effort,
+            sandbox_environment_id=warm_sandbox_environment_id,
+            custom_image_id=warm_custom_image_id,
         )
+        if warm_run is not None and not _warm_sandbox_selection_is_accessible(
+            team_id=team_id,
+            task_created_by_id=user_id,
+            sandbox_environment_id=warm_sandbox_environment_id,
+            custom_image_id=warm_custom_image_id,
+        ):
+            warm_run = None
         if warm_run is not None and pending_user_artifact_ids:
             from products.tasks.backend.logic.services.staged_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
                 get_task_run_artifacts_by_id,
@@ -3825,6 +3863,8 @@ def _find_idling_warm_run(
     runtime_adapter: str | None = None,
     model: str | None = None,
     reasoning_effort: str | None = None,
+    sandbox_environment_id: str | UUID | None = None,
+    custom_image_id: str | UUID | None = None,
 ) -> TaskRun | None:
     """Most-recent idling pre-warmed Run matching this user's cloud composing selection, or ``None``.
 
@@ -3834,10 +3874,10 @@ def _find_idling_warm_run(
     live Run instead of spawning a second) and lets the normal create+run path transparently reuse a
     warm Run on submit. Team + user scoped; branch compared as ``None``-normalized exact match.
 
-    Reuse also requires the warm Run's ``runtime_adapter``/``model``/``reasoning_effort`` to match the
-    requested selection (each ``None``-normalized); a mismatch returns ``None`` so the caller cold-creates
-    on the correct runtime. The repo/branch/``await_user_message`` predicates stay in the query; the
-    runtime selection is matched in Python over the small candidate set.
+    Reuse also requires the warm Run's runtime, sandbox environment, and custom image selections to
+    match the request. A mismatch returns ``None`` so the caller cold-creates on the correct sandbox.
+    The repo/branch/``await_user_message`` predicates stay in the query; the remaining selection is
+    matched in Python over the small candidate set.
     """
     if user_id is None or not repository:
         return None
@@ -3855,13 +3895,53 @@ def _find_idling_warm_run(
         .select_related("task")
         .order_by("-created_at")[:20]
     )
-    wanted = (runtime_adapter or None, model or None, reasoning_effort or None)
+    wanted = (
+        runtime_adapter or None,
+        model or None,
+        reasoning_effort or None,
+        str(sandbox_environment_id) if sandbox_environment_id else None,
+        str(custom_image_id) if custom_image_id else None,
+    )
     for run in candidates:
         state = run.state or {}
-        have = (state.get("runtime_adapter") or None, state.get("model") or None, state.get("reasoning_effort") or None)
+        have = (
+            state.get("runtime_adapter") or None,
+            state.get("model") or None,
+            state.get("reasoning_effort") or None,
+            state.get("sandbox_environment_id") or None,
+            state.get("custom_image_id") or None,
+        )
         if have == wanted:
             return run
     return None
+
+
+def _warm_sandbox_selection_is_accessible(
+    *,
+    team_id: int,
+    task_created_by_id: int | None,
+    sandbox_environment_id: str | UUID | None,
+    custom_image_id: str | UUID | None,
+) -> bool:
+    if sandbox_environment_id is not None:
+        sandbox_environment = SandboxEnvironment.get_accessible_for_task(
+            environment_id=sandbox_environment_id,
+            team_id=team_id,
+            task_created_by_id=task_created_by_id,
+        )
+        if sandbox_environment is None:
+            return False
+
+    if custom_image_id is not None:
+        custom_image = SandboxCustomImage.get_accessible_for_task(
+            image_id=custom_image_id,
+            team_id=team_id,
+            task_created_by_id=task_created_by_id,
+        )
+        if custom_image is None or not custom_image.is_ready:
+            return False
+
+    return True
 
 
 def _idling_warm_run_for_task(task: Task) -> TaskRun | None:
@@ -3946,6 +4026,8 @@ def warm_task_sandbox(
     runtime_adapter: str | None = None,
     model: str | None = None,
     reasoning_effort: str | None = None,
+    sandbox_environment_id: str | UUID | None = None,
+    custom_image_id: str | UUID | None = None,
 ) -> contracts.WarmTaskDTO | None:
     """Warm a full idling Run for a Code-app cloud task while the user composes.
 
@@ -3979,6 +4061,31 @@ def warm_task_sandbox(
         get_provider_for_runtime_adapter,
     )
 
+    team = Team.objects.get(id=team_id)
+    github_integration = Integration.objects.filter(id=github_integration_id, team_id=team_id, kind="github").first()
+    if github_integration is None:
+        return None
+
+    sandbox_environment = None
+    if sandbox_environment_id is not None:
+        sandbox_environment = SandboxEnvironment.get_accessible_for_task(
+            environment_id=sandbox_environment_id,
+            team_id=team_id,
+            task_created_by_id=user_id,
+        )
+        if sandbox_environment is None:
+            return None
+
+    custom_image = None
+    if custom_image_id is not None:
+        custom_image = SandboxCustomImage.get_accessible_for_task(
+            image_id=custom_image_id,
+            team_id=team_id,
+            task_created_by_id=user_id,
+        )
+        if custom_image is None or not custom_image.is_ready:
+            return None
+
     existing = _find_idling_warm_run(
         team_id,
         user_id,
@@ -3987,14 +4094,11 @@ def warm_task_sandbox(
         runtime_adapter=runtime_adapter,
         model=model,
         reasoning_effort=reasoning_effort,
+        sandbox_environment_id=sandbox_environment_id,
+        custom_image_id=custom_image_id,
     )
     if existing is not None:
         return contracts.WarmTaskDTO(task_id=existing.task_id, run_id=existing.id)
-
-    team = Team.objects.get(id=team_id)
-    github_integration = Integration.objects.filter(id=github_integration_id, team_id=team_id, kind="github").first()
-    if github_integration is None:
-        return None
 
     task = Task.create_without_run(
         team=team,
@@ -4013,6 +4117,10 @@ def warm_task_sandbox(
         "initial_permission_mode": initial_permission_mode,
         "use_modal_network_allowlist": False,
     }
+    if sandbox_environment is not None:
+        extra_state["sandbox_environment_id"] = str(sandbox_environment.id)
+    if custom_image is not None:
+        extra_state["custom_image_id"] = str(custom_image.id)
     for key, value in {
         "runtime_adapter": runtime_adapter,
         "provider": provider.value if provider is not None else None,
@@ -4060,6 +4168,12 @@ def run_task(
     task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
     if task is None:
         return None
+    if task.runtime == Task.Runtime.PI:
+        return contracts.TaskRunResult(
+            error=contracts.TaskValidationError(
+                kind="detail", detail="Pi tasks cannot be run through the ACP task workflow."
+            )
+        )
 
     mode = validated_data.get("mode", "background")
     branch = validated_data.get("branch")
@@ -4075,12 +4189,21 @@ def run_task(
                 warm_state.get("runtime_adapter") or None,
                 warm_state.get("model") or None,
                 warm_state.get("reasoning_effort") or None,
+                warm_state.get("sandbox_environment_id") or None,
+                warm_state.get("custom_image_id") or None,
             ) == (
                 validated_data.get("runtime_adapter") or None,
                 validated_data.get("model") or None,
                 validated_data.get("reasoning_effort") or None,
+                str(validated_data["sandbox_environment_id"]) if validated_data.get("sandbox_environment_id") else None,
+                str(validated_data["custom_image_id"]) if validated_data.get("custom_image_id") else None,
             )
-            if warm_runtime_matches:
+            if warm_runtime_matches and _warm_sandbox_selection_is_accessible(
+                team_id=team_id,
+                task_created_by_id=task.created_by_id,
+                sandbox_environment_id=warm_state.get("sandbox_environment_id"),
+                custom_image_id=warm_state.get("custom_image_id"),
+            ):
                 warm_staged_artifacts, warm_missing_artifact_ids = (
                     get_task_staged_artifacts(task, pending_user_artifact_ids)
                     if pending_user_artifact_ids
@@ -4734,36 +4857,6 @@ def create_sandbox_connection_token(run_id: str | UUID, user_id: int, distinct_i
     return _create(run, user_id, distinct_id)
 
 
-def send_user_message(
-    run_id: str | UUID,
-    message: str | None = None,
-    *,
-    artifacts: list[dict] | None = None,
-    auth_token: str | None = None,
-    timeout: int | None = None,
-    message_id: str | None = None,
-):
-    """Push a follow-up user message (and/or artifacts) into a run's live sandbox.
-
-    ``message_id`` is the agent-server idempotency key — pass a deterministic id when the
-    caller may retry delivery so a redelivered message isn't applied twice.
-    """
-    from products.tasks.backend.logic.services.agent_command import (  # noqa: PLC0415 — keep sandbox deps off the api import path
-        send_user_message as _send,
-    )
-
-    run = TaskRun.objects.select_related("task").get(id=run_id)
-    # Forward only explicitly-provided optionals so the underlying call shape is unchanged.
-    extra: dict = {}
-    if artifacts is not None:
-        extra["artifacts"] = artifacts
-    if timeout is not None:
-        extra["timeout"] = timeout
-    if message_id is not None:
-        extra["message_id"] = message_id
-    return _send(run, message, auth_token=auth_token, **extra)
-
-
 def send_cancel(run_id: str | UUID, *, auth_token: str | None = None):
     """Cancel the agent running in a run's live sandbox."""
     from products.tasks.backend.logic.services.agent_command import (  # noqa: PLC0415 — keep sandbox deps off the api import path
@@ -5273,33 +5366,3 @@ def post_turn_complete_thread_update(
         )
     except Exception:
         logger.exception("Failed to post turn-complete thread update", extra={"task_id": str(task_id)})
-
-
-def respond_to_permission_request(
-    run_id: str | UUID,
-    task_id: str | UUID,
-    team_id: int,
-    *,
-    request_id: str,
-    option_id: str,
-) -> contracts.PermissionResponseResult:
-    """Deliver a human permission decision (from an origin surface like a Slack approval
-    card) to a run's sandbox agent, authenticated as the task creator."""
-    from products.tasks.backend.logic.services.permission_broker import (  # noqa: PLC0415 — keep sandbox deps off the api import path
-        send_permission_response,
-    )
-
-    run = (
-        TaskRun.objects.select_related("task", "task__created_by")
-        .filter(id=run_id, task_id=task_id, team_id=team_id)
-        .first()
-    )
-    if run is None:
-        return contracts.PermissionResponseResult(outcome="not_found")
-    if run.is_terminal:
-        return contracts.PermissionResponseResult(outcome="terminal", run_status=run.status)
-
-    result = send_permission_response(run, request_id=request_id, option_id=option_id)
-    if not result.success:
-        return contracts.PermissionResponseResult(outcome="failed", status_code=result.status_code, error=result.error)
-    return contracts.PermissionResponseResult(outcome="sent")

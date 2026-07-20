@@ -33,18 +33,13 @@ rules:
               - '**/migrations/**'
               # Baseline: pre-existing offenders being migrated behind the flag
               # facade. Shrink this list — never grow it.
-              - '/ee/hogai/context/experiment/context.py'
               - '/posthog/api/web_experiment.py'
-              - '/posthog/management/commands/fix_invalid_flag_property_types.py'
-              - '/posthog/models/product_intent/product_intent.py'
               - '/posthog/tasks/update_survey_adaptive_sampling.py'
               - '/posthog/tasks/update_survey_iteration.py'
               - '/products/early_access_features/backend/api.py'
               - '/products/early_access_features/backend/apps.py'
               - '/products/experiments/backend/experiment_service.py'
               - '/products/experiments/backend/experiment_summary_data_service.py'
-              - '/products/experiments/backend/hogql_queries/experiment_query_runner.py'
-              - '/products/experiments/backend/max_tools.py'
               - '/products/product_tours/backend/api/product_tour.py'
       patterns:
           - pattern-either:

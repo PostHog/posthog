@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class QualarooSource(ResumableSource[QualarooSourceConfig, QualarooResumeConfig]):
     supported_versions = ("v1",)
     default_version = "v1"
+    api_docs_url = "https://help.qualaroo.com/hc/en-us/sections/200469946-API-Documentation"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

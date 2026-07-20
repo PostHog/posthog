@@ -4,6 +4,7 @@ import uuid
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
 from django.utils import timezone
 
 import httpx
@@ -13,6 +14,7 @@ from rest_framework import status
 from posthog.models import Organization, Team, User
 
 from products.mcp_store.backend.models import MCPServerInstallation, MCPServerInstallationTool
+from products.mcp_store.backend.proxy import _build_sse_response
 
 
 class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -895,3 +897,17 @@ class TestMCPProxyAccessControl(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED, (
                 f"Expected 405 for {method.upper()}, got {response.status_code}"
             )
+
+
+class TestBuildSSEResponseOverCap:
+    def test_over_cap_rejection_closes_upstream_resources(self):
+        # The generator that owns these resources never starts on the 503
+        # path; without the explicit close a rejected admission leaks the
+        # upstream connection and client until the upstream timeout.
+        upstream_response = MagicMock(spec=httpx.Response)
+        client = MagicMock(spec=httpx.Client)
+        with override_settings(SSE_MAX_CONCURRENT_STREAMS_PER_PROCESS=0):
+            response = _build_sse_response(upstream_response, client)
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        upstream_response.close.assert_called_once()
+        client.close.assert_called_once()

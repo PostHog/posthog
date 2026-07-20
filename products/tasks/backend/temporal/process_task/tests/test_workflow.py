@@ -4,7 +4,7 @@ import uuid
 import random
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from unittest.mock import AsyncMock, Mock
@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, Mock
 from django.conf import settings
 
 from asgiref.sync import sync_to_async
+from parameterized import parameterized
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, ApplicationError, RetryState
 from temporalio.testing import WorkflowEnvironment
@@ -1386,3 +1387,101 @@ class TestProcessTaskWorkflowUnit:
         await workflow._get_sandbox_for_repository()
 
         assert inject_fresh_tokens_on_resume in activity_calls
+
+
+class TestContinueAsNew:
+    """continue_as_new must only fire from a clean idle point and only when enabled, and the
+    loop state it carries must survive the hand-off."""
+
+    def _idle_enabled_workflow(self, *, threshold: int = 0) -> ProcessTaskWorkflow:
+        wf = ProcessTaskWorkflow()
+        ctx = _build_context(github_integration_id=123)
+        ctx.continue_as_new_enabled = True
+        ctx.continue_as_new_history_threshold = threshold
+        wf._context = ctx
+        return wf
+
+    def test_build_and_restore_round_trips_loop_state(self) -> None:
+        wf = self._idle_enabled_workflow()
+        wf._sandbox_url = "https://sandbox.example"
+        wf._sandbox_connect_token = "tok"
+        wf._ci_repetitions = 2
+        wf._pr_fingerprint = "fp-1"
+        wf._pr_progress_emitted = True
+        wf._first_user_message_received = True
+        wf._is_agent_design_enabled = True
+        wf._last_active_time = datetime(2026, 7, 16, 10, 30, tzinfo=UTC)
+        wf._slack_thread_context = {"channel": "C1"}
+        wf._posthog_mcp_scopes = "full"
+
+        resumed_input = wf._build_resumed_input(ProcessTaskInput(run_id="run-id", create_pr=False), sandbox_id="sb-1")
+
+        assert resumed_input.prewarmed is False
+        assert resumed_input.slack_thread_context == {"channel": "C1"}
+        assert resumed_input.posthog_mcp_scopes == "full"
+        rs = resumed_input.resumed_sandbox
+        assert rs is not None
+        assert (rs.sandbox_id, rs.sandbox_url, rs.connect_token) == ("sb-1", "https://sandbox.example", "tok")
+
+        restored = ProcessTaskWorkflow()
+        restored._restore_resumed_state(rs)
+
+        assert restored._ci_repetitions == 2
+        assert restored._pr_fingerprint == "fp-1"
+        assert restored._pr_progress_emitted is True
+        assert restored._first_user_message_received is True
+        assert restored._is_agent_design_enabled is True
+        # The datetime survives the ISO round-trip.
+        assert restored._last_active_time == datetime(2026, 7, 16, 10, 30, tzinfo=UTC)
+
+    @parameterized.expand(
+        [
+            ("task_completed", lambda wf: setattr(wf, "_task_completed", True)),
+            ("sandbox_gone", lambda wf: setattr(wf, "_sandbox_gone", True)),
+            (
+                "pending_followup",
+                lambda wf: setattr(wf, "_pending_followup", PendingFollowup(message="m", artifact_ids=[])),
+            ),
+            (
+                "pending_followups",
+                lambda wf: wf._pending_followups.append(PendingFollowup(message="m", artifact_ids=[])),
+            ),
+            (
+                "pending_permission",
+                lambda wf: wf._pending_permission_responses.append(
+                    PendingPermissionResponse(request_id="r", option_id="o", actor_user_id=1)
+                ),
+            ),
+            ("heartbeat_pending", lambda wf: setattr(wf, "_heartbeat_received", True)),
+            ("slack_relay_active", lambda wf: setattr(wf, "_current_slack_relay_workflow_id", "relay-1")),
+        ]
+    )
+    def test_does_not_continue_when_not_idle(self, _name: str, mutate) -> None:
+        wf = self._idle_enabled_workflow(threshold=1)
+        mutate(wf)
+        # Each of these short-circuits before workflow.info(), so no workflow env is needed.
+        assert wf._should_continue_as_new("sb-1") is False
+
+    def test_does_not_continue_when_disabled(self) -> None:
+        wf = self._idle_enabled_workflow(threshold=1)
+        wf.context.continue_as_new_enabled = False
+        assert wf._should_continue_as_new("sb-1") is False
+
+    def test_does_not_continue_without_sandbox(self) -> None:
+        wf = self._idle_enabled_workflow(threshold=1)
+        assert wf._should_continue_as_new(None) is False
+
+    def test_continues_when_history_over_threshold(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        wf = self._idle_enabled_workflow(threshold=100)
+        fake_info = Mock()
+        fake_info.get_current_history_length.return_value = 100
+        fake_info.is_continue_as_new_suggested.return_value = False
+        monkeypatch.setattr(process_task_workflow_module.workflow, "info", lambda: fake_info)
+        assert wf._should_continue_as_new("sb-1") is True
+
+    def test_continues_when_temporal_suggests(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        wf = self._idle_enabled_workflow(threshold=0)  # threshold off — fall back to the SDK signal
+        fake_info = Mock()
+        fake_info.is_continue_as_new_suggested.return_value = True
+        monkeypatch.setattr(process_task_workflow_module.workflow, "info", lambda: fake_info)
+        assert wf._should_continue_as_new("sb-1") is True

@@ -39,6 +39,9 @@ class GooglePageSpeedInsightsSource(SimpleSource[GooglePageSpeedInsightsSourceCo
     # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to render
     # in public docs without credentials.
     lists_tables_without_credentials = True
+    supported_versions = ("v5",)
+    default_version = "v5"
+    api_docs_url = "https://developers.google.com/speed/docs/insights/v5/get-started"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
