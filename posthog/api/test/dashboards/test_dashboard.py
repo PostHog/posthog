@@ -3382,7 +3382,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(regular_response["persisted_variables"], dashboard_variables)
         self.assertEqual(sse_dashboard["persisted_variables"], dashboard_variables)
 
-    def test_streamed_tile_error_preserves_insight_metadata(self):
+    def test_streamed_tile_error_preserves_insight_metadata_without_exception_detail(self):
         dashboard = Dashboard.objects.create(
             team=self.team,
             name="Test Dashboard",
@@ -3419,7 +3419,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             "raw_results_supported": True,
             "user_access_control": UserAccessControl(self.user, team=self.team),
         }
-        with patch.object(InsightSerializer, "get_result", side_effect=RuntimeError("broken tile")):
+        with patch.object(InsightSerializer, "get_result", side_effect=RuntimeError("select secret_customer_property")):
             order, streamed_tile = serialize_tile_with_context(tile, 0, context)
 
         self.assertEqual(order, 0)
@@ -3428,7 +3428,14 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(streamed_tile["insight"]["id"], insight.id)
         self.assertEqual(streamed_tile["insight"]["name"], "Browser usage")
         self.assertEqual(streamed_tile["insight"]["query"], insight.query)
-        self.assertEqual(streamed_tile["error"], {"type": "RuntimeError", "message": "broken tile"})
+        self.assertEqual(
+            streamed_tile["error"],
+            {
+                "type": "DashboardTileError",
+                "message": "This tile couldn't be loaded. Refresh the dashboard to try again.",
+            },
+        )
+        self.assertNotIn("secret_customer_property", json.dumps(streamed_tile))
 
     def test_create_unlisted_dashboard_creates_tags(self):
         """Test that unlisted dashboards get tags"""

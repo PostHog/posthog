@@ -156,6 +156,10 @@ from ee.hogai.utils.aio import async_to_sync
 
 logger = structlog.get_logger(__name__)
 
+DASHBOARD_TILE_ERROR_TYPE = "DashboardTileError"
+DASHBOARD_TILE_ERROR_MESSAGE = "This tile couldn't be loaded. Refresh the dashboard to try again."
+DASHBOARD_STREAM_ERROR_MESSAGE = "Dashboard tiles couldn't be loaded. Refresh the dashboard to try again."
+
 DASHBOARD_SHARED_FIELDS = [
     "id",
     "name",
@@ -331,11 +335,12 @@ def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, d
     try:
         tile_data = DashboardTileSerializer(tile, many=False, context=tile_context).data
         return order, tile_data
-    except Exception as e:
+    except Exception:
         if not tile.insight:
             raise
+        logger.exception("Error serializing dashboard tile", tile_id=tile.id)
         tile_data = DashboardTileErrorSerializer(tile, context=tile_context).data
-        tile_data["error"] = {"type": type(e).__name__, "message": str(e)}
+        tile_data["error"] = {"type": DASHBOARD_TILE_ERROR_TYPE, "message": DASHBOARD_TILE_ERROR_MESSAGE}
         return order, tile_data
 
 
@@ -2430,13 +2435,13 @@ class DashboardsViewSet(
                             serialize_tile_with_context, thread_sensitive=True
                         )(tile, order, context)
                         initial_tiles.append(tile_data)
-                    except Exception as e:
-                        logger.exception(f"Error serializing initial tile {tile.id}: {e}")
+                    except Exception:
+                        logger.exception("Error serializing initial dashboard tile", tile_id=tile.id)
                         # Add error tile to initial tiles
                         initial_tiles.append(
                             {
                                 "id": tile.id,
-                                "error": {"type": type(e).__name__, "message": str(e)},
+                                "error": {"type": DASHBOARD_TILE_ERROR_TYPE, "message": DASHBOARD_TILE_ERROR_MESSAGE},
                             }
                         )
 
@@ -2454,18 +2459,20 @@ class DashboardsViewSet(
                         )(tile, order, context)
                         tile_json = renderer.render({"type": "tile", "order": order, "tile": tile_data}).decode()
                         yield f"data: {tile_json}\n\n".encode()
-                    except Exception as e:
-                        logger.exception(f"Error serializing tile {tile.id}: {e}")
-                        error_json = renderer.render({"type": "error", "tile_id": tile.id, "error": str(e)}).decode()
+                    except Exception:
+                        logger.exception("Error serializing dashboard tile", tile_id=tile.id)
+                        error_json = renderer.render(
+                            {"type": "error", "tile_id": tile.id, "error": DASHBOARD_TILE_ERROR_MESSAGE}
+                        ).decode()
                         yield f"data: {error_json}\n\n".encode()
 
                 # Send completion signal
                 complete_json = renderer.render({"type": "complete"}).decode()
                 yield f"data: {complete_json}\n\n".encode()
 
-            except Exception as e:
-                logger.exception(f"Error in tile streaming: {e}")
-                error_json = renderer.render({"type": "error", "error": str(e)}).decode()
+            except Exception:
+                logger.exception("Error streaming dashboard tiles")
+                error_json = renderer.render({"type": "error", "error": DASHBOARD_STREAM_ERROR_MESSAGE}).decode()
                 yield f"data: {error_json}\n\n".encode()
 
         return sse_streaming_response(
