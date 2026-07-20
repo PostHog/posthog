@@ -564,6 +564,8 @@ jobs:
             changed_file_count: ${{ steps.classify.outputs.changed_file_count }}
             selected_test_count: ${{ steps.classify.outputs.selected_test_count }}
             full_run_reasons_count: ${{ steps.classify.outputs.full_run_reasons_count }}
+            selected_test_seconds: ${{ steps.classify.outputs.selected_test_seconds }}
+            skipped_test_seconds: ${{ steps.classify.outputs.skipped_test_seconds }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -624,11 +626,13 @@ jobs:
                   # Selection telemetry, kept apples-to-apples with canonical (the shadow
                   # strips the capture job that consumes these, per the header).
                   emit_metrics() {
-                      local changed="" selected="" reasons=""
+                      local changed="" selected="" reasons="" selected_seconds="" skipped_seconds=""
                       if [[ -s /tmp/selection.json ]]; then
                           changed=$(jq -r '.changed_file_count // empty' /tmp/selection.json)
                           selected=$(jq -r '.combined.count // empty' /tmp/selection.json)
                           reasons=$(jq -r '.ast.full_run_reasons | length' /tmp/selection.json)
+                          selected_seconds=$(jq -r '.durations.selected_seconds // empty' /tmp/selection.json)
+                          skipped_seconds=$(jq -r '.durations.skipped_seconds // empty' /tmp/selection.json)
                       fi
                       {
                           echo "narrowed=$1"
@@ -636,6 +640,8 @@ jobs:
                           echo "changed_file_count=$changed"
                           echo "selected_test_count=$selected"
                           echo "full_run_reasons_count=$reasons"
+                          echo "selected_test_seconds=$selected_seconds"
+                          echo "skipped_test_seconds=$skipped_seconds"
                       } >> "$GITHUB_OUTPUT"
                   }
 
