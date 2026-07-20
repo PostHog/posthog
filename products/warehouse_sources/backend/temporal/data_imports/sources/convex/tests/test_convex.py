@@ -405,6 +405,13 @@ class TestComponentSupport:
                 {"users": {"type": "object"}, "messages": {"type": "object"}},
                 [("", "users"), ("", "messages")],
             ),
+            # `type`/`properties` are valid Convex table names: the "" root key must classify the
+            # response as grouped, not a schema-key inspection that misfires on such a table.
+            (
+                "grouped_with_table_named_type",
+                {"": {"type": {"type": "object"}}, "betterAuth": {"users": {"type": "object"}}},
+                [("", "type"), ("betterAuth", "users")],
+            ),
             ("empty", {}, []),
         ]
     )
