@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { MAX_ASSIGNEE_FILTER_ENTRIES } from '../../components/Assignee'
 import { normalizeAssigneeFilter } from '../../types'
 import { supportTicketsSceneLogic } from './supportTicketsSceneLogic'
 
@@ -22,6 +23,14 @@ describe('supportTicketsSceneLogic', () => {
             ],
         ])('normalizes %s', (_label, input, expected) => {
             expect(normalizeAssigneeFilter(input)).toEqual(expected)
+        })
+
+        it('caps oversized arrays at the API entry limit', () => {
+            const oversized = Array.from({ length: MAX_ASSIGNEE_FILTER_ENTRIES + 50 }, (_, i) => ({
+                type: 'user' as const,
+                id: i,
+            }))
+            expect(normalizeAssigneeFilter(oversized)).toHaveLength(MAX_ASSIGNEE_FILTER_ENTRIES)
         })
     })
 

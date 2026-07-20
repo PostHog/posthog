@@ -8,7 +8,7 @@ import { urls } from 'scenes/urls'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeResolver } from './AssigneeDisplay'
 import { assigneeSelectLogic } from './assigneeSelectLogic'
-import { Assignee, AssigneeFilterEntry } from './types'
+import { Assignee, AssigneeFilterEntry, MAX_ASSIGNEE_FILTER_ENTRIES } from './types'
 
 function isSameEntry(a: AssigneeFilterEntry, b: AssigneeFilterEntry): boolean {
     if (a === 'unassigned' || b === 'unassigned') {
@@ -36,6 +36,10 @@ export function AssigneeMultiSelect({
     const toggleEntry = (entry: AssigneeFilterEntry): void => {
         onChange(isSelected(entry) ? value.filter((selected) => !isSameEntry(selected, entry)) : [...value, entry])
     }
+    const selectionCapReason =
+        value.length >= MAX_ASSIGNEE_FILTER_ENTRIES
+            ? `You can select up to ${MAX_ASSIGNEE_FILTER_ENTRIES} assignees`
+            : undefined
 
     return (
         <LemonDropdown
@@ -67,6 +71,7 @@ export function AssigneeMultiSelect({
                                 icon={
                                     <LemonCheckbox checked={isSelected('unassigned')} className="pointer-events-none" />
                                 }
+                                disabledReason={isSelected('unassigned') ? undefined : selectionCapReason}
                                 onClick={() => toggleEntry('unassigned')}
                             >
                                 <span className="flex items-center gap-1">
@@ -82,6 +87,7 @@ export function AssigneeMultiSelect({
                             items={filteredRoles.map((role) => ({ id: role.id, type: 'role' as const, role }))}
                             isSelected={isSelected}
                             onToggle={toggleEntry}
+                            selectionCapReason={selectionCapReason}
                             emptyState={
                                 <LemonButton
                                     fullWidth
@@ -104,6 +110,7 @@ export function AssigneeMultiSelect({
                             }))}
                             isSelected={isSelected}
                             onToggle={toggleEntry}
+                            selectionCapReason={selectionCapReason}
                         />
                     </ul>
                 </div>
@@ -151,6 +158,7 @@ const Section = ({
     items,
     isSelected,
     onToggle,
+    selectionCapReason,
     emptyState,
 }: {
     title: string
@@ -159,6 +167,7 @@ const Section = ({
     items: NonNullable<Assignee>[]
     isSelected: (entry: AssigneeFilterEntry) => boolean
     onToggle: (entry: AssigneeFilterEntry) => void
+    selectionCapReason?: string
     emptyState?: JSX.Element
 }): JSX.Element => {
     return (
@@ -172,6 +181,7 @@ const Section = ({
                             role="menuitem"
                             size="small"
                             icon={<LemonCheckbox checked={isSelected(item)} className="pointer-events-none" />}
+                            disabledReason={isSelected(item) ? undefined : selectionCapReason}
                             onClick={() => onToggle({ type: item.type, id: item.id })}
                         >
                             <span className="flex items-center gap-1">

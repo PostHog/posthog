@@ -1,5 +1,6 @@
 import type { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 
+import { MAX_ASSIGNEE_FILTER_ENTRIES } from './components/Assignee'
 import type { AssigneeFilterEntry, TicketAssignee } from './components/Assignee'
 
 export type { AssigneeFilterEntry }
@@ -42,7 +43,7 @@ function isAssigneeFilterEntry(value: unknown): value is AssigneeFilterEntry {
 
 export function normalizeAssigneeFilter(value: unknown): AssigneeFilterEntry[] {
     if (Array.isArray(value)) {
-        return value.filter(isAssigneeFilterEntry)
+        return value.filter(isAssigneeFilterEntry).slice(0, MAX_ASSIGNEE_FILTER_ENTRIES)
     }
     return isAssigneeFilterEntry(value) ? [value] : []
 }
