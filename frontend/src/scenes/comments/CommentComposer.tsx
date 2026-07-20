@@ -15,7 +15,7 @@ export type CommentComposerProps = CommentsLogicProps & {
 }
 
 export const CommentComposer = ({ variant = 'footer', ...props }: CommentComposerProps): JSX.Element => {
-    const { key, commentsLoading, replyingCommentId, itemContext, isEmpty, composerDraft } = useValues(
+    const { key, isSendingComment, replyingCommentId, itemContext, isEmpty, currentComposerDraft } = useValues(
         commentsLogic(props)
     )
     const { sendComposedContent, clearItemContext, setRichContentEditor, onRichContentEditorUpdate, startNewComment } =
@@ -59,11 +59,11 @@ export const CommentComposer = ({ variant = 'footer', ...props }: CommentCompose
                 key={key}
                 logicKey="discussions"
                 placeholder={placeholder}
-                initialContent={composerDraft}
+                initialContent={currentComposerDraft}
                 onCreate={setRichContentEditor}
                 onUpdate={onRichContentEditorUpdate}
                 onPressCmdEnter={() => sendComposedContent(false)}
-                disabled={commentsLoading}
+                disabled={isSendingComment}
             />
             <div className="flex justify-between items-center gap-2">
                 <div className="flex-1" />
@@ -77,7 +77,7 @@ export const CommentComposer = ({ variant = 'footer', ...props }: CommentCompose
                         size={buttonSize}
                         type="secondary"
                         onClick={() => sendComposedContent(true)}
-                        loading={commentsLoading}
+                        loading={isSendingComment}
                         disabledReason={isEmpty ? 'No message' : null}
                         data-attr="discussions-comment-task"
                     >
@@ -88,7 +88,7 @@ export const CommentComposer = ({ variant = 'footer', ...props }: CommentCompose
                     size={buttonSize}
                     type="primary"
                     onClick={() => sendComposedContent(false)}
-                    loading={commentsLoading}
+                    loading={isSendingComment}
                     disabledReason={isEmpty ? 'No message' : null}
                     sideIcon={<KeyboardShortcut command enter />}
                     data-attr="discussions-comment"

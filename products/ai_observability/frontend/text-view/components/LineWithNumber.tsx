@@ -39,7 +39,7 @@ export function LineWithNumber({
         item_id: traceId || '',
     }
     const commentsLogicInstance = commentsLogic(commentsLogicProps)
-    const { maybeLoadComments } = useActions(commentsLogicInstance)
+    const { maybeLoadComments, startNewComment } = useActions(commentsLogicInstance)
 
     const lineText = `L${padding > 0 ? lineNumber.toString().padStart(padding, '0') : lineNumber}:${content}`
     const logic = messageActionsMenuLogic({ content: lineText })
@@ -79,6 +79,9 @@ export function LineWithNumber({
             return
         }
         maybeLoadComments()
+        // Exit any in-progress reply and deregister its editor, so the retry loop below
+        // waits for the footer composer instead of pasting into a thread's reply composer
+        startNewComment()
         openSidePanel(SidePanelTab.Discussion)
 
         const quotedContent = `> L${lineNumber}: ${content.trim()}`

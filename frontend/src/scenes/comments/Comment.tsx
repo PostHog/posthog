@@ -134,7 +134,8 @@ const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element 
         <div className="deprecated-space-y-2">
             <LemonRichContentEditor
                 placeholder="Edit comment"
-                initialContent={comment.rich_content}
+                // Seed from the in-progress edit so collapsing/expanding the thread mid-edit loses nothing
+                initialContent={editingComment?.rich_content ?? comment.rich_content}
                 onCreate={setEditingCommentRichContentEditor}
                 onUpdate={(isEmpty) => {
                     if (editingCommentRichContentEditor && editingComment) {
@@ -232,7 +233,7 @@ const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
 }
 
 const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
-    const { editingComment, replyingCommentId, selectedCommentId, commentContexts } = useValues(commentsLogic)
+    const { editingComment, selectedCommentId, commentContexts } = useValues(commentsLogic)
     const { setSelectedComment, completeComment, reopenComment } = useActions(commentsLogic)
     const contextText = commentContexts[comment.id]
     const isInlineComment = comment.item_context?.type === 'mark'
@@ -240,8 +241,9 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
     const ref = useRef<HTMLDivElement | null>(null)
 
     const isEditing = editingComment?.id === comment.id
-    // The reply target wins over selection so only one comment ever reads as focused
-    const isHighlighted = (replyingCommentId ?? selectedCommentId) === comment.id || isEditing
+    // Selection-driven so deep links can highlight their target even while a reply is open;
+    // the reply target already shows via the card's accent border
+    const isHighlighted = selectedCommentId === comment.id || isEditing
     const threadId = comment.source_comment ?? comment.id
     // Rendering markdown from tiptap JSON is not free - skip it on unrelated re-renders
     const text = useMemo(() => getText(comment), [comment])
@@ -327,7 +329,7 @@ const InlineReplyComposer = ({ logicProps }: { logicProps: CommentsLogicProps })
 
 export const CommentWithReplies = ({ commentWithReplies, composerLogicProps }: CommentProps): JSX.Element => {
     const { comment, replies } = commentWithReplies
-    const { replyingCommentId, expandedThreadIds, editingComment } = useValues(commentsLogic)
+    const { replyingCommentId, expandedThreadIds, editingComment, itemContext } = useValues(commentsLogic)
     const { setReplyingComment, setThreadExpanded } = useActions(commentsLogic)
 
     // replyingCommentId always resolves to the thread root, so this only matches top-level threads
@@ -357,8 +359,13 @@ export const CommentWithReplies = ({ commentWithReplies, composerLogicProps }: C
                 onClick={
                     canToggle
                         ? (e) => {
-                              // Leave clicks on inner controls and text selections alone
                               const target = e.target as HTMLElement
+                              // Popover content (emoji picker etc.) bubbles clicks here through its
+                              // portal without being a DOM descendant of the card - never toggle on those
+                              if (!e.currentTarget.contains(target)) {
+                                  return
+                              }
+                              // Leave clicks on inner controls and text selections alone
                               if (target.closest('button, a, label, input, textarea, [contenteditable="true"]')) {
                                   return
                               }
@@ -371,6 +378,10 @@ export const CommentWithReplies = ({ commentWithReplies, composerLogicProps }: C
                                       setReplyingComment(null)
                                   }
                                   setThreadExpanded(commentWithReplies.id, false)
+                              } else if (itemContext) {
+                                  // An in-progress anchored comment survives a peek - only the
+                                  // explicit Reply button trades the anchor for a reply
+                                  setThreadExpanded(commentWithReplies.id, true)
                               } else {
                                   setReplyingComment(commentWithReplies.id)
                               }
@@ -387,7 +398,19 @@ export const CommentWithReplies = ({ commentWithReplies, composerLogicProps }: C
                 {replies.length > 0 ? (
                     <>
                         <LemonDivider className="my-0" />
-                        <div className="flex items-center gap-1 px-2 py-1 text-xs text-secondary">
+                        {/* Keyboard path to the toggle - Enter/Space expands or collapses without composing */}
+                        <div
+                            className="flex items-center gap-1 px-2 py-1 text-xs text-secondary"
+                            role="button"
+                            tabIndex={0}
+                            aria-expanded={isExpanded}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault()
+                                    setThreadExpanded(commentWithReplies.id, !isExpanded)
+                                }
+                            }}
+                        >
                             <IconChevronRight
                                 className={clsx('size-3 shrink-0 transition-transform', isExpanded && 'rotate-90')}
                             />

@@ -77,7 +77,8 @@ describe('commentsLogic', () => {
             logic.actions.setItemContext({ type: 'mark', id: 'ctx' })
             logic.actions.setReplyingComment('thread-1')
         }).toMatchValues({
-            composerDraft: DRAFT_CONTENT,
+            composerDrafts: { footer: DRAFT_CONTENT },
+            currentComposerDraft: null,
             replyingCommentId: 'thread-1',
             itemContext: null,
         })
@@ -116,7 +117,7 @@ describe('commentsLogic', () => {
             .toDispatchActions(['sendComposedContentSuccess'])
             .toNotHaveDispatchedActions([sidePanelDiscussionLogic.actionTypes.scrollToLastComment])
             // Reply mode persists so the user can send a follow-up reply straight away
-            .toMatchValues({ replyingCommentId: 'thread-1', composerDraft: null })
+            .toMatchValues({ replyingCommentId: 'thread-1', currentComposerDraft: null })
         expect(lastCreateBody?.source_comment).toBe('thread-1')
         expect(editor.clear).toHaveBeenCalled()
         expect(editor.focus).toHaveBeenCalledWith('end')
@@ -148,7 +149,7 @@ describe('commentsLogic', () => {
         }).toDispatchActions(['loadCommentsSuccess'])
 
         expect(logic.values.replyingCommentId).toBeNull()
-        expect(logic.values.composerDraft).toEqual(DRAFT_CONTENT)
+        expect(logic.values.composerDrafts['thread-1']).toEqual(DRAFT_CONTENT)
     })
 
     it('keeps a replied-to thread expanded after the reply flow ends', async () => {
@@ -197,6 +198,8 @@ describe('commentsLogic', () => {
 
         logic.actions.startNewComment()
         expect(logic.values.replyingCommentId).toBeNull()
+        // Deregistered so callers waiting for the footer editor never grab the outgoing one
+        expect(logic.values.richContentEditor).toBeNull()
 
         const footerEditor = createEditor(null)
         logic.actions.setRichContentEditor(footerEditor)
@@ -208,7 +211,7 @@ describe('commentsLogic', () => {
         expect(remountedEditor.focus).not.toHaveBeenCalled()
     })
 
-    it('expands the thread containing a deep-linked reply', async () => {
+    it('expands the thread containing a deep-linked comment', async () => {
         useMocks({
             get: {
                 '/api/projects/:team_id/comments': {
@@ -221,8 +224,54 @@ describe('commentsLogic', () => {
         }).toDispatchActions(['loadCommentsSuccess'])
         expect(logic.values.expandedThreadIds.has('thread-1')).toBe(false)
 
+        // Deep link to a reply reveals its thread
         logic.actions.setSelectedComment('reply-1')
-
         expect(logic.values.expandedThreadIds.has('thread-1')).toBe(true)
+
+        // Deep link to a thread root reveals its replies too
+        logic.actions.setThreadExpanded('thread-1', false)
+        logic.actions.setSelectedComment('thread-1')
+        expect(logic.values.expandedThreadIds.has('thread-1')).toBe(true)
+    })
+
+    it('keeps a separate draft per thread', () => {
+        const OTHER_DRAFT: JSONContent = {
+            type: 'doc',
+            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'other' }] }],
+        }
+        logic.actions.setRichContentEditor(createEditor(DRAFT_CONTENT))
+        logic.actions.setReplyingComment('thread-1')
+
+        // Simulate typing in thread-1's inline composer, then switching to thread-2
+        logic.actions.setRichContentEditor(createEditor(OTHER_DRAFT))
+        logic.actions.setReplyingComment('thread-2')
+
+        // thread-1's text stays in its own slot instead of following into thread-2's composer
+        expect(logic.values.composerDrafts['thread-1']).toEqual(OTHER_DRAFT)
+        expect(logic.values.currentComposerDraft).toBeNull()
+
+        // Returning to thread-1 restores its own draft
+        logic.actions.setReplyingComment('thread-1')
+        expect(logic.values.currentComposerDraft).toEqual(OTHER_DRAFT)
+    })
+
+    it('does not clear a composer that replaced the sender mid-flight', async () => {
+        const replyEditor = createEditor(DRAFT_CONTENT)
+        logic.actions.setRichContentEditor(replyEditor)
+        logic.actions.setReplyingComment('thread-1')
+
+        const footerEditor = createEditor(DRAFT_CONTENT)
+        await expectLogic(logic, () => {
+            logic.actions.sendComposedContent(false)
+            // The user bails to a new comment while the POST is in flight
+            logic.actions.startNewComment()
+            logic.actions.setRichContentEditor(footerEditor)
+        })
+            .toDispatchActions(['sendComposedContentSuccess'])
+            .toNotHaveDispatchedActions([sidePanelDiscussionLogic.actionTypes.scrollToLastComment])
+
+        // The reply that sent is classified from send-time state, and the footer composer is untouched
+        expect(footerEditor.clear).not.toHaveBeenCalled()
+        expect(logic.values.composerDrafts['thread-1']).toBeNull()
     })
 })

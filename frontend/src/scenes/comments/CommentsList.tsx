@@ -17,12 +17,22 @@ export interface CommentsListProps extends CommentsLogicProps {
 
 export const CommentsList = ({ noun = 'page', ...props }: CommentsListProps): JSX.Element => {
     const { key, commentsWithReplies, commentsLoading } = useValues(commentsLogic(props))
-    const { loadComments } = useActions(commentsLogic(props))
+    const { loadComments, setReplyingComment, clearRichContentEditor } = useActions(commentsLogic(props))
 
     // If the comment list focus changes we should load the comments
     useEffect(() => {
         loadComments()
     }, [key]) // oxlint-disable-line react-hooks/exhaustive-deps
+
+    useEffect(() => {
+        return () => {
+            // Closing the surface ends any reply flow so reopening starts fresh everywhere (the
+            // reply text survives in its thread's draft slot), and deregisters the dying editor
+            // so nothing waiting for a composer grabs it
+            setReplyingComment(null)
+            clearRichContentEditor()
+        }
+    }, []) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <BindLogic logic={commentsLogic} props={props}>

@@ -30,7 +30,7 @@ export const MessageActionsMenu = ({ content, traceId }: MessageActionsMenuProps
         item_id: traceId || '',
     }
     const commentsLogicInstance = commentsLogic(commentsLogicProps)
-    const { maybeLoadComments } = useActions(commentsLogicInstance)
+    const { maybeLoadComments, startNewComment } = useActions(commentsLogicInstance)
 
     const logic = messageActionsMenuLogic({ content })
     const { showConsentPopover, dataProcessingAccepted } = useValues(logic)
@@ -54,6 +54,9 @@ export const MessageActionsMenu = ({ content, traceId }: MessageActionsMenuProps
 
     const handleStartDiscussion = (): void => {
         maybeLoadComments()
+        // Exit any in-progress reply and deregister its editor, so the retry loop below
+        // waits for the footer composer instead of pasting into a thread's reply composer
+        startNewComment()
         openSidePanel(SidePanelTab.Discussion)
 
         const truncatedContent =
