@@ -30,6 +30,7 @@ import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -356,6 +357,7 @@ function EditSubscriptionForm({
     const { applyDefaultSelectedInsights, generatePreview } = useActions(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
+    const { currentTeam } = useValues(teamLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
     const { slackIntegrations, integrations } = useValues(integrationsLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
@@ -393,10 +395,8 @@ function EditSubscriptionForm({
         }
     }
 
-    const formatter = new Intl.DateTimeFormat('en-US', { timeZoneName: 'shortGeneric' })
-    const parts = formatter.formatToParts(new Date())
-    const currentTimezone = parts?.find((part) => part.type === 'timeZoneName')?.value
-    const nextDeliveryDate = subscription ? getNextDeliveryDate(subscription) : null
+    const currentTimezone = currentTeam?.timezone ?? 'UTC'
+    const nextDeliveryDate = subscription ? getNextDeliveryDate(subscription, currentTimezone) : null
 
     return (
         <Form
@@ -736,6 +736,16 @@ function EditSubscriptionForm({
                                     )}
                                 </LemonField>
                             </div>
+                            <LemonField name="skip_weekend" className="mt-2">
+                                <LemonCheckbox
+                                    label="Skip weekend deliveries"
+                                    disabledReason={
+                                        subscription.frequency !== 'daily'
+                                            ? 'Only available for daily subscriptions'
+                                            : undefined
+                                    }
+                                />
+                            </LemonField>
                             {nextDeliveryDate && (
                                 <div className="text-xs text-secondary mt-1">
                                     Next delivery: {formatNextDeliveryDate(nextDeliveryDate)}

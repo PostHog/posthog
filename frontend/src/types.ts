@@ -81,7 +81,7 @@ import { QueryContext } from '~/queries/types'
 import { AlertType } from 'products/alerts/frontend/types'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
-import type { AIPromptConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
+import type { AIPromptConfigApi, SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
 import type { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
@@ -5383,6 +5383,7 @@ export interface SubscriptionType {
     summary_prompt_guide?: string
     /** Write-only. When false, creating the subscription skips the immediate confirmation send (the schedule is unaffected). */
     send_test_now?: boolean
+    skip_weekend?: SubscriptionApi['skip_weekend']
 }
 
 export type SmallTimeUnit = 'hours' | 'minutes' | 'seconds'

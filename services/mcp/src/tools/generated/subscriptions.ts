@@ -74,6 +74,9 @@ const subscriptionsCreate = (): ToolBase<typeof SubscriptionsCreateSchema, Schem
         if (params.title !== undefined) {
             body['title'] = params.title
         }
+        if (params.skip_weekend !== undefined) {
+            body['skip_weekend'] = params.skip_weekend
+        }
         if (params.integration_id !== undefined) {
             body['integration_id'] = params.integration_id
         }
@@ -266,6 +269,9 @@ const subscriptionsPartialUpdate = (): ToolBase<typeof SubscriptionsPartialUpdat
         }
         if (params.title !== undefined) {
             body['title'] = params.title
+        }
+        if (params.skip_weekend !== undefined) {
+            body['skip_weekend'] = params.skip_weekend
         }
         if (params.integration_id !== undefined) {
             body['integration_id'] = params.integration_id

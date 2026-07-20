@@ -25,6 +25,22 @@ describe('getNextDeliveryDate', () => {
         expect(getNextDeliveryDate(subscription)).toEqual(new Date('2024-01-16T09:00:00Z'))
     })
 
+    it('skips weekend deliveries in the project timezone', () => {
+        jest.setSystemTime(new Date('2024-01-05T23:00:00Z'))
+
+        expect(
+            getNextDeliveryDate(
+                {
+                    frequency: 'daily',
+                    interval: 1,
+                    start_date: '2024-01-01T23:30:00Z',
+                    skip_weekend: true,
+                },
+                'Asia/Tokyo'
+            )
+        ).toEqual(new Date('2024-01-07T23:30:00Z'))
+    })
+
     it('computes next weekly delivery', () => {
         const result = getNextDeliveryDate({
             frequency: 'weekly',

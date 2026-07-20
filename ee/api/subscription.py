@@ -284,6 +284,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "title",
             "summary",
             "next_delivery_date",
+            "skip_weekend",
             "integration_id",
             "invite_message",
             "send_test_now",
@@ -330,6 +331,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "count": {"help_text": "Total number of deliveries before the subscription stops. Null for unlimited."},
             "start_date": {"help_text": "When to start delivering (ISO 8601 datetime)."},
             "until_date": {"help_text": "When to stop delivering (ISO 8601 datetime). Null for indefinite."},
+            "skip_weekend": {
+                "help_text": "Whether to skip scheduled deliveries that fall on Saturday or Sunday. Only supported for daily subscriptions."
+            },
             "title": {"help_text": "Human-readable name for this subscription."},
             "deleted": {"help_text": "Set to true to soft-delete. Subscriptions cannot be hard-deleted."},
             "enabled": {
@@ -451,6 +455,11 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         self._validate_dashboard_export_subscription(attrs)
 
+        frequency = attrs.get("frequency") or (self.instance.frequency if self.instance else None)
+        skip_weekend = attrs.get("skip_weekend", self.instance.skip_weekend if self.instance else False)
+        if skip_weekend and frequency != Subscription.SubscriptionFrequency.DAILY:
+            raise ValidationError({"skip_weekend": ["Weekend skipping is only available for daily subscriptions."]})
+
         target_type = attrs.get("target_type") or (self.instance.target_type if self.instance else None)
         # Use explicit-key check for integration_id so a deliberate `null` in the PATCH
         # body falls through to the validation below — `or` would silently coalesce
@@ -494,9 +503,21 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         check_schedule = (
             is_re_enabling
             or self.instance is None
-            or (self.instance is not None and self.instance.enabled and bool(Subscription.RRULE_FIELDS & attrs.keys()))
+            or (
+                self.instance is not None
+                and self.instance.enabled
+                and bool(Subscription.SCHEDULE_FIELDS & attrs.keys())
+            )
         )
-        if check_schedule and Subscription.project_next_delivery_date(instance=self.instance, **attrs) is None:
+        if (
+            check_schedule
+            and Subscription.project_next_delivery_date(
+                instance=self.instance,
+                timezone_name=self.context["get_team"]().timezone,
+                **attrs,
+            )
+            is None
+        ):
             base = "Subscription schedule has reached its end date. Extend until_date or remove count"
             if is_re_enabling:
                 raise ValidationError({"enabled": [f"{base} before re-enabling."]})

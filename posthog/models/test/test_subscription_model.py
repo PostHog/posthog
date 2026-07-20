@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from django.conf import settings
 from django.db import IntegrityError
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 import jwt
@@ -27,6 +28,57 @@ from products.exports.backend.models.subscription import (
     unsubscribe_using_token,
 )
 from products.product_analytics.backend.models.insight import Insight
+
+
+class TestSubscriptionScheduling(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "utc_weekend",
+                "UTC",
+                1,
+                datetime(2024, 1, 1, 9, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2024, 1, 5, 9, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2024, 1, 8, 9, 0, tzinfo=ZoneInfo("UTC")),
+            ),
+            (
+                "project_timezone_weekend",
+                "Asia/Tokyo",
+                1,
+                datetime(2024, 1, 1, 23, 30, tzinfo=ZoneInfo("UTC")),
+                datetime(2024, 1, 4, 23, 30, tzinfo=ZoneInfo("UTC")),
+                datetime(2024, 1, 7, 23, 30, tzinfo=ZoneInfo("UTC")),
+            ),
+            (
+                "multi_day_cadence",
+                "UTC",
+                2,
+                datetime(2024, 1, 4, 9, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2024, 1, 4, 9, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2024, 1, 8, 9, 0, tzinfo=ZoneInfo("UTC")),
+            ),
+        ]
+    )
+    @freeze_time("2024-01-04 08:00:00")
+    def test_skip_weekend_advances_to_next_weekday(
+        self,
+        _name: str,
+        timezone_name: str,
+        interval: int,
+        start_date: datetime,
+        from_dt: datetime,
+        expected_next_delivery: datetime,
+    ) -> None:
+        next_delivery_date = Subscription._compute_next_delivery_date(
+            frequency="daily",
+            interval=interval,
+            start_date=start_date,
+            from_dt=from_dt,
+            skip_weekend=True,
+            timezone_name=timezone_name,
+        )
+
+        assert next_delivery_date == expected_next_delivery
 
 
 @patch.object(settings, "JWT_SIGNING_KEY", "not-so-secret")

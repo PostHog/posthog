@@ -183,6 +183,12 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .max(subscriptionsCreateBodyTitleMax)
             .nullish()
             .describe('Human-readable name for this subscription.'),
+        skip_weekend: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether to skip scheduled deliveries that fall on Saturday or Sunday. Only supported for daily subscriptions.'
+            ),
         integration_id: zod
             .number()
             .nullish()
@@ -373,6 +379,12 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .max(subscriptionsPartialUpdateBodyTitleMax)
             .nullish()
             .describe('Human-readable name for this subscription.'),
+        skip_weekend: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether to skip scheduled deliveries that fall on Saturday or Sunday. Only supported for daily subscriptions.'
+            ),
         integration_id: zod
             .number()
             .nullish()

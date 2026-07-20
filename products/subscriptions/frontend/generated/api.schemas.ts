@@ -263,6 +263,8 @@ export interface SubscriptionApi {
     readonly summary: string
     /** @nullable */
     readonly next_delivery_date: string | null
+    /** Whether to skip scheduled deliveries that fall on Saturday or Sunday. Only supported for daily subscriptions. */
+    skip_weekend?: boolean
     /**
      * ID of a connected Slack integration. Required when target_type is slack.
      * @nullable
@@ -411,6 +413,8 @@ export interface PatchedSubscriptionApi {
     readonly summary?: string
     /** @nullable */
     readonly next_delivery_date?: string | null
+    /** Whether to skip scheduled deliveries that fall on Saturday or Sunday. Only supported for daily subscriptions. */
+    skip_weekend?: boolean
     /**
      * ID of a connected Slack integration. Required when target_type is slack.
      * @nullable

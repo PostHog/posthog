@@ -124,6 +124,7 @@ const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
     dashboard_export_insights: [],
     integration_id: null,
     enabled: true,
+    skip_weekend: false,
     summary_enabled: false,
     summary_prompt_guide: '',
     ai_prompt_config: { window: { mode: 'since_last_sent' } },
@@ -202,6 +203,7 @@ export interface subscriptionLogicActions {
             resource_name?: string | null | undefined
             resource_type?: SubscriptionResourceType | undefined
             send_test_now?: boolean | undefined
+            skip_weekend?: boolean | undefined
             start_date?: string | undefined
             summary?: string | undefined
             summary_enabled?: boolean | undefined
@@ -234,6 +236,7 @@ export interface subscriptionLogicActions {
             resource_name?: string | null | undefined
             resource_type?: SubscriptionResourceType | undefined
             send_test_now?: boolean | undefined
+            skip_weekend?: boolean | undefined
             start_date?: string | undefined
             summary?: string | undefined
             summary_enabled?: boolean | undefined
@@ -563,6 +566,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     actions.setSubscriptionValues({
                         bysetpos: NEW_SUBSCRIPTION.bysetpos,
                         byweekday: NEW_SUBSCRIPTION.byweekday,
+                        skip_weekend: false,
                     })
                 }
             }

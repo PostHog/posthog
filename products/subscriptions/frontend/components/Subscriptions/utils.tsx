@@ -131,7 +131,10 @@ const RRULE_FREQ_MAP: Record<string, number> = {
 
 // Client-side preview only — the authoritative next delivery date is computed
 // server-side in posthog/models/subscription.py (Subscription.set_next_delivery_date)
-export function getNextDeliveryDate(subscription: Partial<SubscriptionType>): Date | null {
+export function getNextDeliveryDate(
+    subscription: Partial<SubscriptionType>,
+    timezoneName: string = 'UTC'
+): Date | null {
     if (!subscription.frequency || !subscription.start_date) {
         return null
     }
@@ -143,7 +146,15 @@ export function getNextDeliveryDate(subscription: Partial<SubscriptionType>): Da
             byweekday: subscription.byweekday?.map((d) => RRULE_WEEKDAY_MAP[d]) ?? null,
             bysetpos: subscription.bysetpos ?? null,
         })
-        return rule.after(new Date())
+        let nextDeliveryDate = rule.after(new Date())
+        while (
+            nextDeliveryDate &&
+            subscription.skip_weekend &&
+            [0, 6].includes(dayjs(nextDeliveryDate).tz(timezoneName).day())
+        ) {
+            nextDeliveryDate = rule.after(nextDeliveryDate)
+        }
+        return nextDeliveryDate
     } catch {
         return null
     }
