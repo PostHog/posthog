@@ -92,6 +92,9 @@ export interface warehouseProvisioningLogicActions {
     checkDatabaseName: (name: string) => {
         name: string
     }
+    checkSchemaName: (name: string) => {
+        name: string
+    }
     clearInitialPassword: () => {
         value: true
     }
@@ -106,9 +109,6 @@ export interface warehouseProvisioningLogicActions {
     }
     deprovisionWarehouseComplete: () => {
         value: true
-    }
-    checkSchemaName: (name: string) => {
-        name: string
     }
     loadWarehouseStatus: () => any
     loadWarehouseStatusFailure: (
