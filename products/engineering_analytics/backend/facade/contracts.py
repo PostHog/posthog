@@ -897,6 +897,10 @@ class WorkflowHealthItem:
     rerun_cycles: int = 0
     # Success rate over the equal-length window before date_from; None when it had no completed runs.
     success_rate_prev: float | None = None
+    # Successful runs that did real work — the exact population p50/p95 are computed over (no-op gate
+    # runs excluded). Distinct from `successful_run_count`, which counts those no-op successes too, so
+    # a duration comparison should size its min-sample gate on this, not on `successful_run_count`.
+    percentile_run_count: int = 0
 
 
 @dataclass(frozen=True)

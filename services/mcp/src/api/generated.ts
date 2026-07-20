@@ -63849,6 +63849,7 @@ export namespace Schemas {
          * @nullable
          */
       success_rate_prev?: number | null;
+      percentile_run_count?: number;
     }
 
     export interface WorkflowJob {

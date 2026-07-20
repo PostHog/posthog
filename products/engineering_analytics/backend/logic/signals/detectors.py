@@ -245,7 +245,11 @@ def detect_ci_duration_regressions(
     findings: list[CISignalFinding] = []
     for key, cur in current.items():
         base = baseline.get(key)
-        if base is None or cur.successful_run_count < min_runs or base.successful_run_count < min_runs:
+        # Gate on the population p95 is actually computed over — real (non-no-op) successful runs.
+        # successful_run_count counts no-op gate successes too, so gating on it would let a window of
+        # mostly no-ops with a handful of real runs pass min_runs while the p95 is a 3-sample figure a
+        # single slow run swings past the threshold, firing a false regression.
+        if base is None or cur.percentile_run_count < min_runs or base.percentile_run_count < min_runs:
             continue
         if cur.p95_seconds is None or base.p95_seconds is None or base.p95_seconds <= 0:
             continue

@@ -37,6 +37,7 @@ from products.engineering_analytics.backend.logic.queries._buckets import (
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, opt_float
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
     LATEST_COMPLETED_RUN_FAILED,
+    RUN_DURATION_PERCENTILE_CONDITION,
     branch_filter_clause,
     date_to_filter_clause,
     run_duration_percentile_expr,
@@ -57,6 +58,7 @@ _SELECT = f"""
         count() AS run_count,
         countIf(status = 'completed' AND conclusion = 'success') AS successful_run_count,
         countIf(status = 'completed' AND conclusion IN ('success', 'failure', 'timed_out')) AS conclusive_run_count,
+        countIf({RUN_DURATION_PERCENTILE_CONDITION}) AS percentile_run_count,
         countIf(status = 'completed' AND conclusion = 'success') / nullIf(countIf(status = 'completed'), 0) AS success_rate,
         {run_duration_percentile_expr(0.5)} AS p50_seconds,
         {run_duration_percentile_expr(0.95)} AS p95_seconds,
@@ -229,6 +231,7 @@ def query_workflow_health(
             run_count=run_count,
             successful_run_count=successful_run_count,
             conclusive_run_count=conclusive_run_count,
+            percentile_run_count=percentile_run_count,
             success_rate=opt_float(success_rate),
             p50_seconds=opt_float(p50_seconds),
             p95_seconds=opt_float(p95_seconds),
@@ -257,5 +260,5 @@ def query_workflow_health(
             rerun_cycles=rerun_cycles,
             success_rate_prev=prev_rate_by_workflow.get((repo_owner, repo_name, workflow_name)),
         )
-        for repo_owner, repo_name, workflow_name, run_count, successful_run_count, conclusive_run_count, success_rate, p50_seconds, p95_seconds, last_failure_at, completed_count, latest_failed, latest_conclusion, latest_run_id, latest_run_attempt, rerun_cycles in response.results
+        for repo_owner, repo_name, workflow_name, run_count, successful_run_count, conclusive_run_count, percentile_run_count, success_rate, p50_seconds, p95_seconds, last_failure_at, completed_count, latest_failed, latest_conclusion, latest_run_id, latest_run_attempt, rerun_cycles in response.results
     ]

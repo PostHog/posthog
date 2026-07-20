@@ -252,6 +252,62 @@ class TestDetectForSourceMultiRepo(BaseTest):
             )
         assert {finding.source_id for finding in findings} == {"acme/one:ci:flaky", "acme/two:ci:flaky"}
 
+    def _two_synced_repo_source(self) -> ExternalDataSource:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="gh-sib",
+            connection_id="gh-sib",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.GITHUB,
+            prefix="sib_",
+            job_inputs={"repositories": ["Acme/one", "Acme/two"]},
+        )
+        for repo in ("Acme/one", "Acme/two"):
+            slug = repo.replace("/", "_").lower()
+            for endpoint in ("pull_requests", "workflow_runs"):
+                ExternalDataSchema.objects.create(
+                    team=self.team,
+                    source=source,
+                    name=f"{repo}.{endpoint}",
+                    table=create_warehouse_table_row(self.team, name=f"sib_github_{slug}_{endpoint}", source=source),
+                    should_sync=True,
+                    sync_type_config={
+                        "schema_metadata": {"source_repository": repo.lower(), "source_endpoint": endpoint}
+                    },
+                )
+        return source
+
+    def test_one_repos_total_failure_does_not_abort_sibling_repos(self) -> None:
+        # detect_all raises when every detector fails for a repo; that must not discard a healthy
+        # sibling's findings — otherwise one repo's transient warehouse error blinds the whole source.
+        source = self._two_synced_repo_source()
+        uac = UserAccessControl(user=self.user, team=self.team)
+
+        def one_repo_fails(curated: CuratedGitHubSource) -> list[CISignalFinding]:
+            if curated.repository.casefold() == "acme/one":
+                raise RuntimeError("clickhouse down for this repo")
+            return [
+                CISignalFinding(
+                    source_type=SOURCE_TYPE_FLAKY_CHECK,
+                    source_id=f"{curated.repository}:ci:flaky",
+                    description=f"{curated.repository} finding",
+                    weight=1.0,
+                    remediation=SignalRemediation(human="h", agent="a"),
+                )
+            ]
+
+        with mock.patch(f"{_DETECT}.detect_all", side_effect=one_repo_fails):
+            findings = detect_for_source(self.team, str(source.id), user_access_control=uac)
+        assert {finding.source_id for finding in findings} == {"acme/two:ci:flaky"}
+
+    def test_all_repos_failing_re_raises_so_the_activity_retries(self) -> None:
+        # But if every scanned repo fails, surface it — a swallowed all-fail would read as healthy CI.
+        source = self._two_synced_repo_source()
+        uac = UserAccessControl(user=self.user, team=self.team)
+        with mock.patch(f"{_DETECT}.detect_all", side_effect=RuntimeError("clickhouse down")):
+            with pytest.raises(RuntimeError):
+                detect_for_source(self.team, str(source.id), user_access_control=uac)
+
 
 class TestCISignalSourceAuthorization(BaseTest):
     def test_sweep_scans_only_the_snapshot_the_enabling_user_authorized(self) -> None:
@@ -611,3 +667,23 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
         assert {f.extra["workflow_name"] for f in findings} == {"slow-ci"}
         assert findings[0].source_type == SOURCE_TYPE_DURATION_REGRESSION
         _assert_emittable(findings[0])
+
+    def test_duration_regression_ignores_no_op_dominated_windows(self) -> None:
+        # A window of mostly sub-10s no-op gate successes plus one real run passes a
+        # successful_run_count gate, but its p95 is a 1-sample figure. Gating on the non-no-op
+        # percentile population instead must suppress the false regression the thin sample would fire.
+        now = datetime.now(UTC).replace(tzinfo=None)
+        current = now - timedelta(days=1)
+        baseline = now - timedelta(days=8)
+        rows = [
+            _run_row(1, "gated-ci", "c1", "success", current, 120),  # the one real run
+            _run_row(2, "gated-ci", "c2", "success", current - timedelta(hours=1), 5),  # no-op gate
+            _run_row(3, "gated-ci", "c3", "success", current - timedelta(hours=2), 5),  # no-op gate
+            _run_row(4, "gated-ci", "b1", "success", baseline, 10),  # the one real baseline run
+            _run_row(5, "gated-ci", "b2", "success", baseline - timedelta(hours=1), 5),  # no-op gate
+            _run_row(6, "gated-ci", "b3", "success", baseline - timedelta(hours=2), 5),  # no-op gate
+        ]
+        # successful_run_count is 3 per window (passes min_runs=2), but only 1 non-no-op run each →
+        # percentile_run_count is 1 < 2, so no regression fires despite the 10s→120s p95 jump.
+        findings = detect_ci_duration_regressions(self._curated_over_runs(rows), min_runs=2)
+        assert findings == []

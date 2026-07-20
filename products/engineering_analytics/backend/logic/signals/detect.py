@@ -4,6 +4,8 @@ The enabling user's ``UserAccessControl`` is the userless sweep's only read auth
 Synchronous (HogQL reads) — the activity wraps it in ``database_sync_to_async``.
 """
 
+import structlog
+
 from posthog.models.team import Team
 from posthog.rbac.user_access_control import UserAccessControl
 
@@ -12,6 +14,8 @@ from products.engineering_analytics.backend.logic.queries._curated import Curate
 from products.engineering_analytics.backend.logic.signals.contracts import CISignalFinding
 from products.engineering_analytics.backend.logic.signals.detectors import detect_all
 from products.engineering_analytics.backend.logic.sources import list_github_sources
+
+logger = structlog.get_logger(__name__)
 
 
 def detect_for_source(team: Team, source_id: str, *, user_access_control: UserAccessControl) -> list[CISignalFinding]:
@@ -25,6 +29,8 @@ def detect_for_source(team: Team, source_id: str, *, user_access_control: UserAc
         if source.id == source_id and source.synced
     ]
     findings: list[CISignalFinding] = []
+    errors: list[Exception] = []
+    attempted = 0
     for repo in synced_repos:
         try:
             curated = CuratedGitHubSource.for_team(
@@ -32,5 +38,16 @@ def detect_for_source(team: Team, source_id: str, *, user_access_control: UserAc
             )
         except GitHubSourceNotConnectedError:
             continue
-        findings.extend(detect_all(curated))
+        attempted += 1
+        # detect_all raises only when every detector failed for this repo (a warehouse outage, say).
+        # Isolate that per repo so one repo's failure doesn't abort healthy siblings of a multi-repo
+        # source; if every scanned repo failed, re-raise so the activity retries rather than emitting
+        # nothing that reads as healthy CI.
+        try:
+            findings.extend(detect_all(curated))
+        except Exception as err:
+            logger.exception("ci_signal_detect_repo_failed", source_id=source_id, repo=repo)
+            errors.append(err)
+    if attempted and len(errors) == attempted:
+        raise errors[-1]
     return findings

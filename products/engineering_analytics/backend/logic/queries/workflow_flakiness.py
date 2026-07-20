@@ -6,6 +6,7 @@ from datetime import datetime
 from posthog.hogql import ast
 
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries._workflow_filters import run_started_floor_constant
 
 # A job that failed in under this many seconds did no real work: it's a required-check aggregator
 # echoing a dependency's failure, which double-counts every real flake. Measured on PostHog/posthog,
@@ -25,7 +26,9 @@ _SELECT = """
         maxIf(j.duration_seconds, j.conclusion IN ('failure', 'timed_out')) AS failed_duration_seconds
     FROM __JOBS_SOURCE__ AS j
     INNER JOIN __RUNS_SOURCE__ AS r ON r.id = j.run_id
-    WHERE j.created_at >= {date_from} AND j.head_sha != ''
+    -- created_at_raw is the unparsed string the scan can prune on; the parsed j.created_at filter
+    -- alone can't push down, so both floors keep the sweep off a full jobs+runs scan each hour.
+    WHERE j.created_at >= {date_from} AND j.created_at_raw >= {job_created_floor} AND j.head_sha != ''
     GROUP BY r.repo_owner, r.repo_name, j.workflow_name, j.name, j.run_id, j.head_sha
     HAVING failed_attempt > 0
        AND passed_attempt > failed_attempt
@@ -57,11 +60,17 @@ def query_workflow_flakiness(
     if jobs_source is None:
         return []
     response = curated.run(
-        _SELECT.replace("__JOBS_SOURCE__", jobs_source).replace("__RUNS_SOURCE__", curated.run_source()),
+        _SELECT.replace("__JOBS_SOURCE__", jobs_source).replace(
+            "__RUNS_SOURCE__", curated.run_source(started_floor=True)
+        ),
         query_type="engineering_analytics.workflow_flakiness",
         placeholders={
             "date_from": ast.Constant(value=date_from),
             "min_failed_duration_seconds": ast.Constant(value=min_failed_duration_seconds),
+            # Same date-only floor for both tables: prunes the runs subquery (run_started_floor) and
+            # the jobs scan (job_created_floor via created_at_raw).
+            "run_started_floor": run_started_floor_constant(date_from),
+            "job_created_floor": run_started_floor_constant(date_from),
         },
     )
     return [
