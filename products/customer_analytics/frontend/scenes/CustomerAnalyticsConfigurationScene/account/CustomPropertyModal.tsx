@@ -18,8 +18,10 @@ import {
 } from '@posthog/lemon-ui'
 
 import type { DataColorToken } from 'lib/colors'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import type { CustomPropertyOptionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
@@ -244,8 +246,12 @@ export function CustomPropertyModal(): JSX.Element {
         createWorkflowForProperty,
     } = useActions(customPropertyDefinitionsLogic)
 
+    const { featureFlags } = useValues(featureFlagLogic)
     const showBigNumberSwitch = isNumericDisplayType(customPropertyForm.displayType)
     const { sourceMode, targetType } = customPropertyForm
+    // Person-target properties are gated behind the rollout flag; an existing person property
+    // stays editable so a rollback doesn't strand its configuration.
+    const personTargetAvailable = !!featureFlags[FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES] || targetType === 'person'
     const hasExistingSource = !!editingDefinition?.source
     const noViews = !savedQueriesLoading && materializedViews.length === 0
 
@@ -313,25 +319,27 @@ export function CustomPropertyModal(): JSX.Element {
                 <LemonField name="description" label="Description">
                     <LemonTextArea placeholder="Optional description" minRows={2} />
                 </LemonField>
-                <LemonField
-                    name="targetType"
-                    label="Attach to"
-                    help="Account properties describe a customer; person properties attach to individual people and are usable in feature flags, cohorts and insights."
-                >
-                    {({ value, onChange }) => (
-                        <LemonSegmentedButton
-                            value={value}
-                            onChange={onChange}
-                            options={TARGET_TYPE_OPTIONS.map((option) => ({
-                                ...option,
-                                disabledReason: editingDefinition
-                                    ? "A property's target can't change after it's created"
-                                    : undefined,
-                            }))}
-                            fullWidth
-                        />
-                    )}
-                </LemonField>
+                {personTargetAvailable && (
+                    <LemonField
+                        name="targetType"
+                        label="Attach to"
+                        help="Account properties describe a customer; person properties attach to individual people and are usable in feature flags, cohorts and insights."
+                    >
+                        {({ value, onChange }) => (
+                            <LemonSegmentedButton
+                                value={value}
+                                onChange={onChange}
+                                options={TARGET_TYPE_OPTIONS.map((option) => ({
+                                    ...option,
+                                    disabledReason: editingDefinition
+                                        ? "A property's target can't change after it's created"
+                                        : undefined,
+                                }))}
+                                fullWidth
+                            />
+                        )}
+                    </LemonField>
+                )}
                 <LemonField name="displayType" label="Type">
                     <LemonSelect options={DISPLAY_TYPE_OPTIONS} fullWidth />
                 </LemonField>

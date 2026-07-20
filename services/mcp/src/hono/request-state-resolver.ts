@@ -1,7 +1,7 @@
 import type { GroupType } from '@/api/client'
 import { hasScope } from '@/lib/api'
 import { MCPClientProfile } from '@/lib/client-detection'
-import { isCloudApi, isLocalApi } from '@/lib/constants'
+import { isCloudApi, isLocalApi, PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
 import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
 import {
     type EvaluatedFlags,
@@ -10,6 +10,7 @@ import {
     resolveFeatureFlagOverrides,
 } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
+import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 import type { McpMode } from '@/lib/utils'
 import { getRequiredFeatureFlags, getScopeGatedTools, type ScopeGatedTool } from '@/tools/toolDefinitions'
 import type { Context, Tool, Env, State, ZodObjectAny } from '@/tools/types'
@@ -105,7 +106,9 @@ export class RequestStateResolver {
             cachedProjectId = (await reqCtx.tokenCache.get('projectId')) ?? undefined
         }
 
-        const allFlagKeys = [...new Set(getRequiredFeatureFlags())]
+        // PRODUCT_DATA_CATALOG_FLAG gates instructions content (the metric-discovery prompt
+        // section), not a tool, so the tool-definition scan can't discover it.
+        const allFlagKeys = [...new Set([...getRequiredFeatureFlags(), PRODUCT_DATA_CATALOG_FLAG])]
 
         const flagAnalyticsContext = await reqCtx.safelyGetAnalyticsContext(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
@@ -174,7 +177,13 @@ export class RequestStateResolver {
             availableFeatures,
             isCloud,
         }
-        const allTools = this.catalog.getFilteredTools({ ...filterOptions, scopes: apiKeyScopes })
+        // Staff-only tools (OAuth-hidden scopes) need the extra explicit-scope +
+        // is_staff gate on top of the catalog's plain scope filter.
+        const allTools = await filterStaffOnlyTools(
+            this.catalog.getFilteredTools({ ...filterOptions, scopes: apiKeyScopes }),
+            _apiKey ?? { scopes: [] },
+            () => context.stateManager.getUser()
+        )
         // Scope-gated hints are only consumed by the exec `search` command, which
         // only exists in single-exec mode — skip the extra scan otherwise.
         const scopeGatedTools = useSingleExec ? getScopeGatedTools(apiKeyScopes, filterOptions) : []

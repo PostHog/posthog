@@ -11,7 +11,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
@@ -24,39 +24,9 @@ from products.error_tracking.backend.temporal.fingerprint_embedding_result.types
     FingerprintEmbeddingMergeResult,
     FingerprintEmbeddingResultInputs,
     SimilarFingerprintDistance,
-    select_model_name,
 )
 
 AUTO_MERGE_DISTANCE_THRESHOLD = 0.019
-
-TARGET_EMBEDDING_QUERY_BY_MODEL = {
-    "text-embedding-3-large-3072": """
-        SELECT embedding
-        FROM document_embeddings_text_embedding_3_large_3072
-        WHERE document_type = 'fingerprint'
-        AND rendering = {rendering}
-        AND document_id = {fingerprint}
-        AND product = 'error_tracking'
-        AND team_id = {team_id}
-        AND timestamp >= {min_timestamp}
-        AND timestamp <= {max_timestamp}
-        ORDER BY inserted_at DESC
-        LIMIT 1
-        """,
-    "text-embedding-3-small-1536": """
-        SELECT embedding
-        FROM document_embeddings_text_embedding_3_small_1536
-        WHERE document_type = 'fingerprint'
-        AND rendering = {rendering}
-        AND document_id = {fingerprint}
-        AND product = 'error_tracking'
-        AND team_id = {team_id}
-        AND timestamp >= {min_timestamp}
-        AND timestamp <= {max_timestamp}
-        ORDER BY inserted_at DESC
-        LIMIT 1
-        """,
-}
 
 CLOSEST_FINGERPRINTS_QUERY_BY_MODEL = {
     "text-embedding-3-large-3072": """
@@ -101,7 +71,6 @@ class StaleAutoMergeStateError(RuntimeError):
 def _capture_activity_exception(
     error: Exception,
     inputs: FingerprintEmbeddingResultInputs,
-    model_name: str | None,
 ) -> None:
     properties: dict[str, object] = {
         "activity": "merge_similar_fingerprints_activity",
@@ -110,16 +79,10 @@ def _capture_activity_exception(
         "fingerprint": inputs.fingerprint,
         "rendering": inputs.rendering,
         "embedding_timestamp": inputs.timestamp,
-        "model_names": inputs.model_names,
+        "model_name": inputs.model_name,
     }
-    if model_name is not None:
-        properties["model_name"] = model_name
 
     capture_exception(error, additional_properties=properties)
-
-
-def _input_model_name(inputs: FingerprintEmbeddingResultInputs) -> str:
-    return inputs.model_name or select_model_name(inputs.model_names)
 
 
 def _model_specific_embeddings_table_name(model_name: str) -> str:
@@ -144,23 +107,6 @@ def _parse_timestamp(timestamp: str) -> datetime:
     return parsed
 
 
-def _target_embedding_query(
-    inputs: FingerprintEmbeddingResultInputs,
-    model_name: str,
-    embedding_timestamp: datetime,
-) -> ast.SelectQuery | ast.SelectSetQuery:
-    return parse_select(
-        _model_specific_query(TARGET_EMBEDDING_QUERY_BY_MODEL, model_name),
-        placeholders={
-            "fingerprint": ast.Constant(value=inputs.fingerprint),
-            "rendering": ast.Constant(value=inputs.rendering),
-            "team_id": ast.Constant(value=inputs.team_id),
-            "min_timestamp": ast.Constant(value=embedding_timestamp - timedelta(hours=1)),
-            "max_timestamp": ast.Constant(value=embedding_timestamp + timedelta(hours=1)),
-        },
-    )
-
-
 def _closest_fingerprints_query(
     inputs: FingerprintEmbeddingResultInputs,
     model_name: str,
@@ -179,52 +125,17 @@ def _closest_fingerprints_query(
     )
 
 
-def _query_target_embedding(
-    team: Team,
-    inputs: FingerprintEmbeddingResultInputs,
-    model_name: str,
-) -> list[float]:
-    query = _target_embedding_query(
-        inputs=inputs,
-        model_name=model_name,
-        embedding_timestamp=_parse_timestamp(inputs.timestamp),
-    )
-    response = execute_hogql_query(
-        query=query,
-        team=team,
-        query_type="ErrorTrackingFingerprintEmbeddingResultTargetEmbedding",
-        ch_user=ClickHouseUser.ERROR_TRACKING,
-    )
-    if not response.results:
-        raise TargetFingerprintEmbeddingNotFoundError(
-            f"Target embedding not found for fingerprint {inputs.fingerprint} with model {model_name}"
-        )
-    target_embedding = response.results[0][0]
-    if not isinstance(target_embedding, list) or not target_embedding:
-        raise TargetFingerprintEmbeddingNotFoundError(
-            f"Target embedding is invalid for fingerprint {inputs.fingerprint} with model {model_name}"
-        )
-    try:
-        return [float(value) for value in target_embedding]
-    except (TypeError, ValueError) as err:
-        raise TargetFingerprintEmbeddingNotFoundError(
-            f"Target embedding contains non-numeric values for fingerprint {inputs.fingerprint} with model {model_name}"
-        ) from err
-
-
-def _target_embedding_from_inputs(inputs: FingerprintEmbeddingResultInputs, model_name: str) -> list[float] | None:
-    if model_name != _input_model_name(inputs) or inputs.embedding is None:
-        return None
+def _target_embedding_from_inputs(inputs: FingerprintEmbeddingResultInputs) -> list[float]:
     target_embedding = inputs.embedding
     if not target_embedding:
         raise TargetFingerprintEmbeddingNotFoundError(
-            f"Target embedding is empty for fingerprint {inputs.fingerprint} with model {model_name}"
+            f"Target embedding is empty for fingerprint {inputs.fingerprint} with model {inputs.model_name}"
         )
     try:
         return [float(value) for value in target_embedding]
     except (TypeError, ValueError) as err:
         raise TargetFingerprintEmbeddingNotFoundError(
-            f"Target embedding contains non-numeric values for fingerprint {inputs.fingerprint} with model {model_name}"
+            f"Target embedding contains non-numeric values for fingerprint {inputs.fingerprint} with model {inputs.model_name}"
         ) from err
 
 
@@ -233,19 +144,16 @@ def _query_closest_fingerprints(
     inputs: FingerprintEmbeddingResultInputs,
     model_name: str,
 ) -> list[SimilarFingerprintDistance]:
-    target_embedding = _target_embedding_from_inputs(inputs, model_name)
-    if target_embedding is None:
-        target_embedding = _query_target_embedding(team, inputs, model_name)
-
     query = _closest_fingerprints_query(
         inputs=inputs,
         model_name=model_name,
-        target_embedding=target_embedding,
+        target_embedding=_target_embedding_from_inputs(inputs),
     )
     response = execute_hogql_query(
         query=query,
         team=team,
         query_type="ErrorTrackingFingerprintEmbeddingResultClosestFingerprints",
+        workload=Workload.OFFLINE,
         ch_user=ClickHouseUser.ERROR_TRACKING,
     )
     return [SimilarFingerprintDistance(fingerprint=row[0], distance=float(row[1])) for row in response.results]
@@ -347,18 +255,20 @@ def _merge_fingerprint_into_closest_issue(
 def merge_similar_fingerprints_activity(
     inputs: FingerprintEmbeddingResultInputs,
 ) -> FingerprintEmbeddingMergeResult:
-    model_name: str | None = None
     try:
-        team = Team.objects.get(id=inputs.team_id)
-        model_name = _input_model_name(inputs)
+        try:
+            team = Team.objects.get(id=inputs.team_id)
+        except Team.DoesNotExist:
+            # The team can be deleted while the workflow waits to invoke this activity.
+            return FingerprintEmbeddingMergeResult()
 
         start = time.monotonic()
-        closest_fingerprints = _query_closest_fingerprints(team, inputs, model_name)
+        closest_fingerprints = _query_closest_fingerprints(team, inputs, inputs.model_name)
         query_duration_seconds = time.monotonic() - start
         query_duration_ms = query_duration_seconds * 1000
 
         # Keep emitting candidate metrics for every run; merging is gated separately by configuration.
-        _report_closest_fingerprint_metrics(team, inputs, closest_fingerprints, model_name, query_duration_ms)
+        _report_closest_fingerprint_metrics(team, inputs, closest_fingerprints, inputs.model_name, query_duration_ms)
         merged_count = _merge_fingerprint_into_closest_issue(
             team,
             inputs.fingerprint,
@@ -371,5 +281,5 @@ def merge_similar_fingerprints_activity(
             closest_fingerprints=closest_fingerprints,
         )
     except Exception as err:
-        _capture_activity_exception(err, inputs, model_name)
+        _capture_activity_exception(err, inputs)
         raise

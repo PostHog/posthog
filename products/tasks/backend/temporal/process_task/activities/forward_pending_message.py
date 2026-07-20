@@ -1,8 +1,10 @@
 import json
+import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
@@ -79,11 +81,22 @@ def forward_pending_user_message(run_id: str) -> None:
         activity_failure=activity_failure,
         **_task_run_log_context(task_run),
     ):
-        state = task_run.state or {}
+
+        def _ensure_pending_message_id(state: dict[str, Any]) -> None:
+            if not state.get("pending_user_message") and not state.get("pending_user_artifact_ids"):
+                return
+            pending_message_id = state.get("pending_user_message_id")
+            if not isinstance(pending_message_id, str) or not pending_message_id:
+                state["pending_user_message_id"] = str(uuid.uuid4())
+
+        state = TaskRun.mutate_state_atomic(run_id, _ensure_pending_message_id)
         pending_message = state.get("pending_user_message")
         pending_user_artifact_ids = state.get("pending_user_artifact_ids") or []
         if not pending_message and not pending_user_artifact_ids:
             return
+
+        pending_message_id = state.get("pending_user_message_id")
+        assert isinstance(pending_message_id, str) and pending_message_id
 
         pending_artifacts: list[dict[str, Any]] = []
         if pending_user_artifact_ids:
@@ -112,6 +125,7 @@ def forward_pending_user_message(run_id: str) -> None:
             artifacts=pending_artifacts or None,
             auth_token=auth_token,
             timeout=90,
+            message_id=pending_message_id,
         )
         logger.info(
             "forward_pending_message_attempted",
@@ -126,9 +140,12 @@ def forward_pending_user_message(run_id: str) -> None:
                 artifacts=pending_artifacts or None,
                 auth_token=auth_token,
                 timeout=90,
+                message_id=pending_message_id,
             )
 
         if not result.success and result.retryable:
+            from products.tasks.backend.logic.services.agent_command import user_facing_agent_error
+
             retryable_delivery_error = result.error or "Retryable pending message delivery failed"
             observe_followup_delivery_failed(task_run, retryable=True)
             logger.warning(
@@ -136,7 +153,12 @@ def forward_pending_user_message(run_id: str) -> None:
                 run_id=run_id,
                 error=result.error,
             )
-            return
+            if state.get("interaction_origin") == "slack":
+                _enqueue_pending_delivery_failure_relay(task_run, state.get("pending_user_message_ts"), result.error)
+            raise ApplicationError(
+                f"forward pending message failed: {user_facing_agent_error(result.error)}",
+                non_retryable=True,
+            )
 
         pending_message_ts = state.get("pending_user_message_ts")
 
@@ -148,7 +170,12 @@ def forward_pending_user_message(run_id: str) -> None:
 
         TaskRun.update_state_atomic(
             run_id,
-            remove_keys=["pending_user_message", "pending_user_artifact_ids", "pending_user_message_ts"],
+            remove_keys=[
+                "pending_user_message",
+                "pending_user_artifact_ids",
+                "pending_user_message_id",
+                "pending_user_message_ts",
+            ],
         )
 
         if result.success:
@@ -163,9 +190,10 @@ def forward_pending_user_message(run_id: str) -> None:
 
 
 def _enqueue_pending_delivery_failure_relay(task_run: Any, user_message_ts: str | None, error: str | None) -> None:
+    from products.tasks.backend.logic.services.agent_command import user_facing_agent_error
     from products.tasks.backend.temporal.client import execute_posthog_code_agent_relay_workflow
 
-    error_suffix = f" ({error})" if error else ""
+    error_suffix = f" ({user_facing_agent_error(error)})" if error else ""
     try:
         execute_posthog_code_agent_relay_workflow(
             run_id=str(task_run.id),

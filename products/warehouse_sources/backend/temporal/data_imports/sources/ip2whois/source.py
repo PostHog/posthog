@@ -33,6 +33,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class IP2WhoisSource(SimpleSource[IP2WhoisSourceConfig]):
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://www.ip2whois.com/developers-api"
     # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to render
     # in public docs without credentials.
     lists_tables_without_credentials = True

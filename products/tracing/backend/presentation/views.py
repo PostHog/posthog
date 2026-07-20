@@ -39,6 +39,7 @@ from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.event_usage import report_user_action
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 
 from ..facade.api import (
@@ -47,6 +48,7 @@ from ..facade.api import (
     run_attribute_breakdown_query,
     run_count_query,
     run_duration_histogram_query,
+    run_latency_heatmap_query,
     run_symbol_stats_query,
 )
 from ..has_spans_query_runner import team_has_spans
@@ -211,10 +213,6 @@ class _TracingTimeseriesQueryBodySerializer(serializers.Serializer):
     )
 
 
-class _TracingTimeseriesRequestSerializer(serializers.Serializer):
-    query = _TracingTimeseriesQueryBodySerializer(help_text="The sparkline / duration-histogram query to execute.")
-
-
 class _TracingDurationHistogramQueryBodySerializer(_TracingTimeseriesQueryBodySerializer):
     rootSpans = serializers.BooleanField(
         required=False,
@@ -229,6 +227,33 @@ class _TracingDurationHistogramQueryBodySerializer(_TracingTimeseriesQueryBodySe
 
 class _TracingDurationHistogramRequestSerializer(serializers.Serializer):
     query = _TracingDurationHistogramQueryBodySerializer(help_text="The duration-histogram query to execute.")
+
+
+class _TracingLatencyHeatmapRequestSerializer(serializers.Serializer):
+    query = _TracingDurationHistogramQueryBodySerializer(help_text="The latency-heatmap query to execute.")
+
+
+class _TracingLatencyHeatmapCellSerializer(serializers.Serializer):
+    time = serializers.CharField(help_text="ISO 8601 UTC start of the time bucket.")
+    bucket_ns = serializers.IntegerField(
+        help_text=(
+            "Lower edge of the 1-2-5 series duration bucket in nanoseconds (1ms, 2ms, 5ms, 10ms, ...). "
+            "0 on the sentinel row that enumerates a time bucket with no matching spans."
+        ),
+    )
+    count = serializers.IntegerField(
+        help_text="Spans (or traces when rootSpans is true) in this cell. 0 only on sentinel rows.",
+    )
+
+
+class _TracingLatencyHeatmapResponseSerializer(serializers.Serializer):
+    results = _TracingLatencyHeatmapCellSerializer(
+        many=True,
+        help_text=(
+            "Sparse heatmap cells ordered by time then duration bucket. Every time bucket in the "
+            "window appears in at least one row, so the full x axis can be derived from the response."
+        ),
+    )
 
 
 class _TracingSparklineQueryBodySerializer(_TracingTimeseriesQueryBodySerializer):
@@ -376,6 +401,12 @@ class _TracingAttributeBreakdownQueryBodySerializer(serializers.Serializer):
         required=False,
         default=False,
         help_text="Drop filters targeting the breakdown key itself (including serviceNames for a service_name breakdown), so a facet's value list stays complete while one of its values is selected.",
+    )
+    facetSearch = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Type-ahead filter over the breakdown field's own values (case-insensitive substring match). "
+        "An empty string means no filter. Lets a facet's value search reach past the row limit.",
     )
     orderBy = serializers.ChoiceField(
         choices=["count", "error_count"],
@@ -637,6 +668,13 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         if isinstance(filter_group, dict):
             return filter_group
         return {"type": "AND", "values": []}
+
+    def _report_usage(self, request: Request, event: str, properties: dict) -> None:
+        # Usage telemetry must never turn a successful read into a 5xx, so swallow and record any failure.
+        try:
+            report_user_action(request.user, event, properties, team=self.team, request=request)
+        except Exception as e:
+            capture_exception(e)
 
     @extend_schema(parameters=[_TracingServiceNamesQuerySerializer])
     @action(detail=False, methods=["GET"], url_path="service-names", required_scopes=["tracing:read"])
@@ -938,7 +976,50 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except (ValidationError, ValueError, ParseError):
             filter_group = None
 
+        root_spans = query_data.get("rootSpans", True)
         response = run_duration_histogram_query(
+            team=self.team,
+            date_range=date_range,
+            service_names=query_data.get("serviceNames", None),
+            status_codes=query_data.get("statusCodes", None),
+            filter_group=filter_group,
+            root_spans=root_spans,
+        )
+
+        self._report_usage(
+            request,
+            "tracing duration histogram queried",
+            {
+                "buckets_count": len(response.results),
+                "root_spans": root_spans,
+                "has_filter_group": bool(query_data.get("filterGroup")),
+                "service_names_count": len(query_data.get("serviceNames") or []),
+                "status_codes_count": len(query_data.get("statusCodes") or []),
+            },
+        )
+
+        return Response({"results": response.results}, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        request=_TracingLatencyHeatmapRequestSerializer,
+        responses={200: _TracingLatencyHeatmapResponseSerializer},
+    )
+    @action(detail=False, methods=["POST"], url_path="latency-heatmap", required_scopes=["tracing:read"])
+    def latency_heatmap(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
+        query_data = request.data.get("query", {}) or {}
+        date_range = self.get_model(normalize_tracing_date_range(query_data.get("dateRange")), DateRange)
+
+        try:
+            filter_group = (
+                self.get_model(self._normalize_filter_group(query_data["filterGroup"]), PropertyGroupFilter)
+                if query_data.get("filterGroup")
+                else None
+            )
+        except (ValidationError, ValueError, ParseError):
+            filter_group = None
+
+        response = run_latency_heatmap_query(
             team=self.team,
             date_range=date_range,
             service_names=query_data.get("serviceNames", None),
@@ -979,6 +1060,17 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             compare_filter=compare_filter,
             filter_group=filter_group,
             service_names=query_data.get("serviceNames", None),
+        )
+
+        self._report_usage(
+            request,
+            "tracing aggregation queried",
+            {
+                "results_count": len(response.results),
+                "has_compare": bool(query_data.get("compareFilter")),
+                "has_filter_group": bool(query_data.get("filterGroup")),
+                "service_names_count": len(query_data.get("serviceNames") or []),
+            },
         )
 
         return Response(
@@ -1114,6 +1206,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             filter_group=filter_group,
             service_names=query_data.get("serviceNames", None),
             exclude_breakdown_filter=bool(query_data.get("excludeBreakdownFilter")),
+            facet_search=query_data.get("facetSearch") or None,
         )
 
         return Response(
@@ -1180,6 +1273,17 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         # Self-time needs a span's children present. On a paged (truncated) trace it overstates for
         # spans whose children fall on a later page — an accepted bound, same as the prior 2000 cap.
         annotate_self_time(results)
+
+        self._report_usage(
+            request,
+            "tracing trace fetched",
+            {
+                "spans_count": len(results),
+                "has_more": has_more,
+                "is_paginated": offset > 0,
+                "has_filter_group": bool(query_data.get("filterGroup")),
+            },
+        )
 
         return Response(
             {

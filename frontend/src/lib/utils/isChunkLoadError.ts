@@ -7,6 +7,15 @@
  *   - Firefox: native `TypeError: error loading dynamically imported module: <url>` (deferred import of a now-deleted chunk after a deploy)
  *   - WebKit/Safari: `Importing a module script failed.` (module script fails to load, e.g. transient network failure)
  */
+const markedChunkLoadErrors = new WeakSet<object>()
+
+export function markAsChunkLoadError(error: unknown): void {
+    if (!error || typeof error !== 'object') {
+        return
+    }
+    markedChunkLoadErrors.add(error)
+}
+
 export function isChunkLoadError(error: unknown): boolean {
     if (!error || typeof error !== 'object') {
         return false
@@ -15,6 +24,7 @@ export function isChunkLoadError(error: unknown): boolean {
     const message = typeof err.message === 'string' ? err.message : ''
     const isTypeError = err.name === 'TypeError'
     return (
+        markedChunkLoadErrors.has(error) ||
         err.name === 'ChunkLoadError' ||
         message.includes('Failed to fetch dynamically imported module') ||
         message.includes('Importing a module script failed') ||

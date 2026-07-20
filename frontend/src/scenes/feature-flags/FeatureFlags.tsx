@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconCopy, IconLock, IconPlusSmall, IconTrash } from '@posthog/icons'
+import { IconLock, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonTag, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
@@ -58,13 +58,13 @@ import {
 } from '~/types'
 
 import { ApprovalsPromoBanner } from './ApprovalsPromoBanner'
-import { BulkCopyFlagsModal } from './BulkCopyFlagsModal'
+import { BulkCopyFlagsModal, BulkCopyToProjectsButton } from './BulkCopyFlagsModal'
 import { BulkDeleteResultsModal } from './BulkDeleteResultsModal'
 import { openFeatureFlagArchiveDialog } from './featureFlagArchiveDialog'
 import { openFeatureFlagDeleteDialog } from './featureFlagDeleteDialog'
 import { FeatureFlagFiltersSection } from './FeatureFlagFilters'
 import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic, flagMatchesType } from './featureFlagsLogic'
-import { BULK_COPY_MAX_FLAGS, flagSelectionLogic } from './flagSelectionLogic'
+import { flagSelectionLogic } from './flagSelectionLogic'
 import { OverlayForNewFeatureFlagMenu } from './NewFeatureFlagMenu'
 import ProjectsGrid from './projects-grid/ProjectsGrid'
 
@@ -675,19 +675,15 @@ export function OverviewTab({
                                         Select all {totalMatchingCount} matching flags
                                     </LemonButton>
                                 )}
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    icon={<IconCopy />}
-                                    data-attr="bulk-copy-flags-button"
-                                    disabledReason={
+                                <BulkCopyToProjectsButton
+                                    dataAttr="bulk-copy-flags-button"
+                                    selectedCount={ctx.selectedCount}
+                                    extraDisabledReason={
                                         (currentOrganization?.teams?.length ?? 0) <= 1
                                             ? 'Your organization has only one project'
-                                            : ctx.selectedCount > BULK_COPY_MAX_FLAGS
-                                              ? `Bulk copy supports up to ${BULK_COPY_MAX_FLAGS} flags at once`
-                                              : undefined
+                                            : undefined
                                     }
-                                    onClick={() => {
+                                    onOpen={() => {
                                         if (currentProjectId) {
                                             openBulkCopyModal({
                                                 sourceProjectId: currentProjectId,
@@ -695,9 +691,7 @@ export function OverviewTab({
                                             })
                                         }
                                     }}
-                                >
-                                    Copy to projects
-                                </LemonButton>
+                                />
                                 <BulkUpdateTagsButton
                                     resource="feature_flags"
                                     selectedIds={ctx.selectedKeys}

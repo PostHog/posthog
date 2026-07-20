@@ -5,7 +5,7 @@ import './buffer-polyfill'
 import { Suspense, lazy } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 
-import { retryImport } from 'lib/utils/retryImport'
+import { retryBootImport } from 'lib/utils/retryImport'
 
 import { RootErrorBoundary } from './RootErrorBoundary'
 import { ChunkLoadErrorBoundary } from './scenes/ChunkLoadErrorBoundary'
@@ -16,7 +16,7 @@ import { ChunkLoadErrorBoundary } from './scenes/ChunkLoadErrorBoundary'
 // load and before <App /> first renders. It lives in its own module so scenes/App
 // keeps component-only exports and stays a React Fast Refresh boundary.
 const App = lazy(() =>
-    Promise.all([retryImport(() => import('scenes/App')), retryImport(() => import('scenes/bootApp'))]).then(
+    Promise.all([retryBootImport(() => import('scenes/App')), retryBootImport(() => import('scenes/bootApp'))]).then(
         ([appModule, bootModule]) => {
             bootModule.bootApp()
             return { default: appModule.App }

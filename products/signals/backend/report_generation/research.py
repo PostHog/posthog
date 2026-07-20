@@ -218,6 +218,27 @@ def _render_existing_report_context(previous_report_id: str | None) -> str:
     )
 
 
+def _render_resolved_report_context(resolved_title: str | None, resolved_summary: str | None) -> str:
+    if not resolved_title and not resolved_summary:
+        return ""
+
+    parts = [
+        "\n---\n\n## Previously resolved report",
+        "",
+        "A very similar issue was covered by an earlier report that has already been **resolved** — its fix was "
+        "shipped. This signal is a recurrence, so it's a fresh report rather than a reopening of that one. Take the "
+        "prior resolution into account: figure out whether this is a regression of that fix, a new dimension of the "
+        "same underlying issue, or a genuinely distinct problem, and say which in your findings.",
+        "",
+        "The resolved report was:",
+    ]
+    if resolved_title:
+        parts.append(f"- **Title:** {resolved_title}")
+    if resolved_summary:
+        parts.append(f"- **Summary:** {resolved_summary}")
+    return "\n".join(parts) + "\n"
+
+
 def _render_previous_finding_context(previous_finding: SignalFinding | None) -> str:
     if previous_finding is None:
         return ""
@@ -393,6 +414,8 @@ def build_initial_research_prompt(
     previous_report_id: str | None = None,
     previous_finding: SignalFinding | None = None,
     has_business_knowledge: bool = False,
+    resolved_report_title: str | None = None,
+    resolved_report_summary: str | None = None,
 ) -> str:
     """Build the opening prompt for the first signal in a multi-turn research session."""
     signal_block = _render_signal_for_research(first_signal, 1, total_signals)
@@ -410,6 +433,7 @@ def build_initial_research_prompt(
             report_context += f"**Summary:** {summary}\n\n"
 
     existing_report_context = _render_existing_report_context(previous_report_id)
+    resolved_report_context = _render_resolved_report_context(resolved_report_title, resolved_report_summary)
     previous_finding_context = _render_previous_finding_context(previous_finding)
     investigation_instruction = (
         "You will investigate **{total_signals} signal(s)** one at a time. I will send each signal in a separate "
@@ -428,6 +452,7 @@ def build_initial_research_prompt(
 {investigation_instruction.format(total_signals=total_signals)}
 {report_context}
 {existing_report_context}
+{resolved_report_context}
 ---
 
 {_RESEARCH_PROTOCOL}
@@ -639,6 +664,8 @@ async def run_multi_turn_research(
     output_fn: OutputFn = None,
     signal_report_id: str | None = None,
     has_business_knowledge: bool = False,
+    resolved_report_title: str | None = None,
+    resolved_report_summary: str | None = None,
 ) -> ReportResearchOutput:
     """Orchestrate a multi-turn sandbox session that investigates each signal individually."""
     from products.tasks.backend.facade import api as tasks_facade
@@ -670,6 +697,8 @@ async def run_multi_turn_research(
         previous_report_id=previous_report_id,
         previous_finding=first_previous,
         has_business_knowledge=has_business_knowledge,
+        resolved_report_title=resolved_report_title,
+        resolved_report_summary=resolved_report_summary,
     )
     first_schema: type[SignalFinding] | type[SignalFindingUpdate] = (
         SignalFindingUpdate if first_previous else SignalFinding

@@ -21,8 +21,8 @@
 use metrics::counter;
 use tracing::warn;
 
-use crate::filters::manager::{CatalogHandle, FilterCatalog};
-use crate::filters::{CohortId, TeamId};
+use crate::filters::manager::CatalogHandle;
+use crate::filters::{CohortId, FilterCatalog, TeamId};
 use crate::observability::metrics::{
     STAGE2_ORPHAN_GC_KEYS_DELETED_TOTAL, STAGE2_ORPHAN_GC_KEYS_SCANNED_TOTAL,
     STAGE2_ORPHAN_GC_SKIPPED_TOTAL, STAGE2_ORPHAN_GC_UNDECODABLE_KEYS_TOTAL,

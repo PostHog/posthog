@@ -33,6 +33,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class UpstashSource(SimpleSource[UpstashSourceConfig]):
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://upstash.com/docs/devops/developer-api/introduction"
     # get_schemas iterates a static endpoint catalog with no I/O, so the public docs can render the
     # Supported tables section without credentials.
     lists_tables_without_credentials = True

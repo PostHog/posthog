@@ -120,6 +120,14 @@ class TestGetGroupTypesForProject(SimpleTestCase):
 
         assert result == stale_data
 
+    def test_unconfigured_client_falls_back_instead_of_raising(self):
+        # Worker without PERSONHOG_ADDR: require_personhog_client() raises RuntimeError.
+        # It must reach the DatabaseError fallback, not escape and crash the caller.
+        with patch(_CLIENT_PATCH, return_value=None):
+            result = get_group_types_for_project(self.project_id)
+
+        assert result == []
+
 
 class TestGetGroupTypesForTeam(SimpleTestCase):
     def setUp(self):
@@ -152,6 +160,12 @@ class TestGetGroupTypesForTeam(SimpleTestCase):
         mock_fetch_personhog.side_effect = RuntimeError("grpc timeout")
 
         result = get_group_types_for_team(self.team_id)
+
+        assert result == []
+
+    def test_unconfigured_client_returns_empty_instead_of_raising(self):
+        with patch(_CLIENT_PATCH, return_value=None):
+            result = get_group_types_for_team(self.team_id)
 
         assert result == []
 
@@ -474,6 +488,12 @@ class TestCountGroupTypeMappingsPerTeam(SimpleTestCase):
         self._mock_client.count_group_type_mappings.side_effect = RuntimeError("grpc timeout")
 
         result = count_group_type_mappings_per_team()
+
+        assert result == []
+
+    def test_unconfigured_client_returns_empty_instead_of_raising(self):
+        with patch(_CLIENT_PATCH, return_value=None):
+            result = count_group_type_mappings_per_team()
 
         assert result == []
 

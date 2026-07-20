@@ -37,6 +37,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class FactorialSource(ResumableSource[FactorialSourceConfig, FactorialResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("2025-04-01",)
+    default_version = "2025-04-01"
+    api_docs_url = "https://apidoc.factorialhr.com/docs/api-versioning"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

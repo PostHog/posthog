@@ -3,7 +3,7 @@ from collections.abc import Callable
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
 
@@ -27,14 +27,54 @@ from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
 from posthog.tasks.alerts.utils import AlertEvaluationResult
 from posthog.temporal.alerts.activities import evaluate_alert, notify_alert, prepare_alert
 from posthog.temporal.alerts.schedule import create_schedule_due_alert_checks_schedule
-from posthog.temporal.alerts.types import CheckAlertWorkflowInputs, SkipReason
-from posthog.temporal.alerts.workflows import CheckAlertWorkflow
+from posthog.temporal.alerts.types import AlertInfo, CheckAlertWorkflowInputs, SkipReason
+from posthog.temporal.alerts.workflows import CheckAlertWorkflow, ScheduleDueAlertChecksWorkflow
 from posthog.temporal.common.slo_interceptor import SloInterceptor
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
 from products.product_analytics.backend.models.insight import Insight
 
 CHECK_ALERT_ACTIVITIES: list[Callable[..., Any]] = [prepare_alert, evaluate_alert, notify_alert]
+
+
+@pytest.mark.asyncio
+async def test_schedule_due_alert_checks_adds_shared_slo_context() -> None:
+    alert = AlertInfo(
+        alert_id="alert-1",
+        team_id=42,
+        distinct_id="user-1",
+        calculation_interval=AlertCalculationInterval.DAILY.value,
+        insight_id=123,
+    )
+
+    with (
+        patch(
+            "posthog.temporal.alerts.workflows.temporalio.workflow.execute_activity",
+            new=AsyncMock(return_value=[alert]),
+        ),
+        patch(
+            "posthog.temporal.alerts.workflows.temporalio.workflow.execute_child_workflow", new=AsyncMock()
+        ) as execute_child,
+    ):
+        await ScheduleDueAlertChecksWorkflow().run()
+
+    inputs = execute_child.call_args.args[1]
+    assert isinstance(inputs, CheckAlertWorkflowInputs)
+    assert inputs.slo is not None
+    assert inputs.slo.operation == SloOperation.ALERT_CHECK
+    assert inputs.slo.area == SloArea.ANALYTIC_PLATFORM
+    assert inputs.slo.team_id == 42
+    assert inputs.slo.resource_id == "alert-1"
+    assert inputs.slo.distinct_id == "user-1"
+    assert inputs.slo.start_properties == {
+        "alert_type": "insight",
+        "calculation_interval": AlertCalculationInterval.DAILY.value,
+        "insight_id": 123,
+    }
+    assert inputs.slo.completion_properties == inputs.slo.start_properties
+
+    inputs.slo.completion_properties["alert_state"] = AlertState.FIRING
+    assert "alert_state" not in inputs.slo.start_properties
 
 
 def test_schedule_is_registered_in_init_schedules():

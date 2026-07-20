@@ -36,6 +36,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FloatAppSource(ResumableSource[FloatAppSourceConfig, FloatAppResumeConfig]):
+    supported_versions = ("v3",)
+    default_version = "v3"
+    api_docs_url = "https://developer.float.com/api_reference.html"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

@@ -42,6 +42,21 @@ class TaskDTO:
 
 
 @dataclass(frozen=True)
+class WizardCloudRunDTO:
+    """A team's active onboarding wizard cloud run.
+
+    Lets the frontend rehydrate the setup-progress FAB from the server when the drop
+    flow started the run server-side (so no client-side localStorage handle exists).
+    Carries only what the FAB's cloud stream needs to reconnect.
+    """
+
+    task_id: UUID
+    run_id: UUID
+    status: str
+    started_at: datetime | None = None
+
+
+@dataclass(frozen=True)
 class TaskRunDTO:
     """A single execution of a task.
 
@@ -119,6 +134,7 @@ class TaskDetailDTO:
     title_manually_set: bool
     description: str
     origin_product: str
+    runtime: str
     repository: str | None
     github_integration: int | None
     github_user_integration: UUID | None
@@ -710,19 +726,3 @@ class TaskRunStateMetricsDTO:
     oldest_open_age_seconds: list[TaskRunGaugeRow] = Field(default_factory=list)
     created_recently: list[TaskRunGaugeRow] = Field(default_factory=list)
     terminal_recently: list[TaskRunGaugeRow] = Field(default_factory=list)
-
-
-@dataclass(frozen=True)
-class PermissionResponseResult:
-    """Outcome of delivering a human permission decision to a run's sandbox agent.
-
-    ``outcome`` is one of ``sent`` (decision delivered), ``not_found`` (run doesn't exist
-    for the task/team), ``terminal`` (run already finished; ``run_status`` carries its
-    status), or ``failed`` (delivery to the sandbox failed; ``status_code``/``error``
-    carry diagnostics).
-    """
-
-    outcome: str
-    run_status: str | None = None
-    status_code: int | None = None
-    error: str | None = None

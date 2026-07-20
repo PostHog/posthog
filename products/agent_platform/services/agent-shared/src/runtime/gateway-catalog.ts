@@ -10,6 +10,7 @@
  */
 
 import { MODEL_POLICY_LEVELS, type ModelEntry, type ModelPolicy, type ModelLevel } from '../spec/spec'
+import { gatewayAuthHeader } from './gateway-wire'
 import type { HttpFetcher } from './http-client'
 import { createLogger } from './logger'
 
@@ -307,7 +308,7 @@ export class HttpGatewayCatalog implements GatewayCatalog {
     private async fetchModels(): Promise<CatalogModel[]> {
         const headers: Record<string, string> = { Accept: 'application/json' }
         if (this.bearer) {
-            headers.Authorization = `Bearer ${this.bearer}`
+            Object.assign(headers, gatewayAuthHeader(this.bearer))
         }
         const res = await this.http.fetch(`${this.baseUrl}/models`, {
             method: 'GET',

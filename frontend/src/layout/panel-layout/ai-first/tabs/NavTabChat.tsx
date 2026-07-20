@@ -46,9 +46,27 @@ function getDateGroupLabel(dateString: string | null): string {
     return 'Older'
 }
 
-interface ConversationGroup {
+export interface ConversationGroup {
     value: string
     items: Conversation[]
+}
+
+export function groupConversations(conversationHistory: Conversation[]): ConversationGroup[] {
+    const grouped: Record<string, Conversation[]> = {}
+    for (const conversation of conversationHistory) {
+        if (!conversation) {
+            continue
+        }
+        const label = getDateGroupLabel(conversation.updated_at)
+        if (!grouped[label]) {
+            grouped[label] = []
+        }
+        grouped[label].push(conversation)
+    }
+
+    return DATE_GROUP_ORDER.filter((label) => grouped[label]?.length > 0).map(
+        (label): ConversationGroup => ({ value: label, items: grouped[label] })
+    )
 }
 
 export function NavTabChat({
@@ -64,20 +82,7 @@ export function NavTabChat({
     const { conversationHistory, conversationHistoryLoading, currentConversationId } = useValues(maxGlobalLogic)
     const [inputValue, setInputValue] = useState('')
 
-    const conversationGroups = useMemo(() => {
-        const grouped: Record<string, Conversation[]> = {}
-        for (const conversation of conversationHistory) {
-            const label = getDateGroupLabel(conversation.updated_at)
-            if (!grouped[label]) {
-                grouped[label] = []
-            }
-            grouped[label].push(conversation)
-        }
-
-        return DATE_GROUP_ORDER.filter((label) => grouped[label]?.length > 0).map(
-            (label): ConversationGroup => ({ value: label, items: grouped[label] })
-        )
-    }, [conversationHistory])
+    const conversationGroups = useMemo(() => groupConversations(conversationHistory), [conversationHistory])
 
     return (
         <div className="flex flex-col flex-1 overflow-hidden">

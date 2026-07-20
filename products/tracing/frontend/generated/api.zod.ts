@@ -125,6 +125,12 @@ export const TracingSpansAttributeBreakdownCreateBody = /* @__PURE__ */ zod.obje
                 .describe(
                     "Drop filters targeting the breakdown key itself (including serviceNames for a service_name breakdown), so a facet's value list stays complete while one of its values is selected."
                 ),
+            facetSearch: zod
+                .string()
+                .optional()
+                .describe(
+                    "Type-ahead filter over the breakdown field's own values (case-insensitive substring match). An empty string means no filter. Lets a facet's value search reach past the row limit."
+                ),
             orderBy: zod
                 .enum(['count', 'error_count'])
                 .describe('\* `count` - count\n\* `error_count` - error_count')
@@ -373,6 +379,89 @@ export const TracingSpansDurationHistogramCreateBody = /* @__PURE__ */ zod.objec
                 ),
         })
         .describe('The duration-histogram query to execute.'),
+})
+
+export const tracingSpansLatencyHeatmapCreateBodyQueryOneFilterGroupDefault = []
+export const tracingSpansLatencyHeatmapCreateBodyQueryOneRootSpansDefault = true
+
+export const TracingSpansLatencyHeatmapCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .object({
+            dateRange: zod
+                .object({
+                    date_from: zod
+                        .string()
+                        .nullish()
+                        .describe(
+                            'Start of the date range. Accepts ISO 8601 timestamps or relative formats: -1h, -6h, -1d, -7d, etc.'
+                        ),
+                    date_to: zod
+                        .string()
+                        .nullish()
+                        .describe('End of the date range. Same format as date_from. Omit or null for \"now\".'),
+                })
+                .optional()
+                .describe('Date range for the query. Defaults to last hour.'),
+            serviceNames: zod.array(zod.string()).optional().describe('Filter by service names.'),
+            statusCodes: zod
+                .array(zod.number())
+                .optional()
+                .describe(
+                    'Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans.'
+                ),
+            filterGroup: zod
+                .array(
+                    zod.object({
+                        key: zod
+                            .string()
+                            .describe(
+                                'Attribute key. For type \"span\", use built-in fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). For \"span_attribute\"\/\"span_resource_attribute\", use the attribute key (e.g. \"http.method\").'
+                            ),
+                        type: zod
+                            .enum(['span', 'span_attribute', 'span_resource_attribute'])
+                            .describe(
+                                '\* `span` - span\n\* `span_attribute` - span_attribute\n\* `span_resource_attribute` - span_resource_attribute'
+                            )
+                            .describe(
+                                '\"span\" filters built-in span fields. \"span_attribute\" filters span-level attributes. \"span_resource_attribute\" filters resource-level attributes.\n\n\* `span` - span\n\* `span_attribute` - span_attribute\n\* `span_resource_attribute` - span_resource_attribute'
+                            ),
+                        operator: zod
+                            .enum([
+                                'exact',
+                                'is_not',
+                                'icontains',
+                                'not_icontains',
+                                'regex',
+                                'not_regex',
+                                'gt',
+                                'lt',
+                                'is_set',
+                                'is_not_set',
+                            ])
+                            .describe(
+                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                            )
+                            .describe(
+                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                            ),
+                        value: zod
+                            .unknown()
+                            .optional()
+                            .describe(
+                                'Value to compare against. String, number, or array of strings. Omit for is_set\/is_not_set operators.'
+                            ),
+                    })
+                )
+                .default(tracingSpansLatencyHeatmapCreateBodyQueryOneFilterGroupDefault)
+                .describe('Property filters for the query.'),
+            rootSpans: zod
+                .boolean()
+                .default(tracingSpansLatencyHeatmapCreateBodyQueryOneRootSpansDefault)
+                .describe(
+                    'When true (default), bucket root-span durations only — a distribution of traces. When false, bucket every matching span — used with a span name filter for operation-scoped distributions.'
+                ),
+        })
+        .describe('The latency-heatmap query to execute.'),
 })
 
 export const tracingSpansQueryCreateBodyQueryOneFilterGroupDefault = []

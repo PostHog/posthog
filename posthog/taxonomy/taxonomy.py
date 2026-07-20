@@ -1750,6 +1750,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The numeric identifier of the feature flag that was called.",
             "examples": ["1234"],
         },
+        "$feature_flag_has_experiment": {
+            "label": "Feature flag has experiment",
+            "description": "Whether the feature flag that was called is linked to a live experiment.",
+            "examples": ["true", "false"],
+        },
         "$feature_flag_bootstrapped_response": {
             "label": "Feature flag bootstrapped response",
             "description": "The response value provided to the SDK at initialization via the bootstrap option, before evaluation against PostHog.",
@@ -2590,6 +2595,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI framework (LLM)",
             "description": "The AI framework used to produce this event.",
             "examples": ["langchain", "llamaindex", "openai"],
+        },
+        "$ai_git_branch": {
+            "label": "AI git branch",
+            "description": "The git branch checked out when the AI generation ran.",
+            "examples": ["feat/my-feature"],
+        },
+        "$ai_git_repo": {
+            "label": "AI git repository",
+            "description": "The repository that AI interacted with, as owner/name.",
+            "examples": ["PostHog/posthog"],
         },
         "$ai_lib": {
             "label": "AI library (LLM)",
