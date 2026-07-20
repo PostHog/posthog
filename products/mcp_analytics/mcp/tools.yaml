@@ -261,11 +261,11 @@ wrappers:
         description: >
             Return individual errored $mcp_tool_call events for a single MCP tool within one failure bucket, newest
             first (up to 50). Each occurrence carries the timestamp, distinct_id, session id, resolved harness, the
-            agent's stated intent, the captured error message ($mcp_error_message — empty on events that predate
-            message capture), and the HTTP status. Pass toolName plus the errorType (raw $mcp_error_type; "unknown" for
-            events without one) and optional errorStatus exactly as returned by query-mcp-tool-failures — when
-            errorStatus is omitted, only events without a status match. Use to answer "show me the actual errors" after
-            a failure bucket looks suspicious.
+            agent's stated intent, the captured error message ($mcp_error_message — empty on events that predate message
+            capture), and the HTTP status. Pass toolName plus the errorType (raw $mcp_error_type; "unknown" for events
+            without one) and optional errorStatus exactly as returned by query-mcp-tool-failures — when errorStatus is
+            omitted, only events without a status match. Use to answer "show me the actual errors" after a failure
+            bucket looks suspicious.
         system_prompt_hint: Individual errored calls (with error messages) for one MCP tool's failure bucket
         exclude_properties:
             - response
