@@ -132,10 +132,9 @@ jobs:
         steps:
             - name: Check results
               run: |
-                  # Block cancelled too: outputs are empty then, so the "no relevant
-                  # changes" exit below would report green.
+                  # Block cancelled too: outputs are empty then, so the exit below would report green.
                   if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
-                    echo "Change detection job failed."
+                    echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
                     exit 1
                   fi
 

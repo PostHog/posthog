@@ -69,8 +69,7 @@ jobs:
         steps:
             - name: Check all oauth-proxy jobs
               run: |
-                  # Block cancelled too: outputs are empty then, so the "no relevant
-                  # changes" exit below would report green.
+                  # Block cancelled too: outputs are empty then, so the exit below would report green.
                   if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
                     echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
                     exit 1
