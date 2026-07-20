@@ -92,7 +92,6 @@ const DiscussionContent = ({
                 <CommentsList {...logicProps} />
             </div>
 
-            {/* Renders the full composer, or a "New comment" button while a reply is in progress */}
             <div className="border-t px-3 pb-3">
                 <CommentComposer {...logicProps} />
             </div>

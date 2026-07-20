@@ -389,9 +389,11 @@ export const commentsLogic = kea<commentsLogicType>([
         threadExpansion: [
             {} as Record<string, boolean>,
             {
-                setThreadExpanded: (state, { threadId, expanded }) => ({ ...state, [threadId]: expanded }),
+                setThreadExpanded: (state, { threadId, expanded }) =>
+                    state[threadId] === expanded ? state : { ...state, [threadId]: expanded },
                 // Starting a reply pins the thread open so it stays expanded after the reply is sent
-                setReplyingComment: (state, { commentId }) => (commentId ? { ...state, [commentId]: true } : state),
+                setReplyingComment: (state, { commentId }) =>
+                    commentId && !state[commentId] ? { ...state, [commentId]: true } : state,
             },
         ],
         isEmpty: [
@@ -577,7 +579,7 @@ export const commentsLogic = kea<commentsLogicType>([
         ],
     })),
 
-    listeners(({ values, actions, selectors, cache }) => ({
+    listeners(({ values, actions, cache }) => ({
         startNewComment: () => {
             // Bring the footer composer back focused - it registers on its next mount
             cache.focusEditorOnRegister = true
@@ -617,8 +619,8 @@ export const commentsLogic = kea<commentsLogicType>([
                 actions.loadComments()
             }
         },
-        sendComposedContentSuccess: (_, __, ___, previousState) => {
-            const wasReply = !!selectors.replyingCommentId(previousState)
+        sendComposedContentSuccess: () => {
+            const wasReply = !!values.replyingCommentId
             // Replies land inline mid-list - only new root comments append at the bottom
             if (!wasReply) {
                 actions.scrollToLastComment()

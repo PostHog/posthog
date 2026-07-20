@@ -2,7 +2,7 @@ import { generateText } from '@tiptap/core'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import { IconChevronRight, IconEllipsis, IconEye, IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonMenu, LemonTag, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
@@ -11,6 +11,7 @@ import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import {
@@ -19,6 +20,7 @@ import {
     serializationOptions,
 } from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
 import { colonDelimitedDuration } from 'lib/utils/durations'
+import { pluralize } from 'lib/utils/strings'
 
 import { CommentType } from '~/types'
 
@@ -28,8 +30,8 @@ import { getRecordingLinkInfo, isViewingRecording } from './commentUtils'
 
 export type CommentProps = {
     commentWithReplies: CommentWithRepliesType
-    /** Provided only for top-level threads - enables the inline reply composer */
-    composerLogicProps?: CommentsLogicProps
+    /** Mounts the inline reply composer at the thread's bottom while it is the reply target */
+    composerLogicProps: CommentsLogicProps
 }
 
 const CommentBottomRow = ({ comment }: { comment: CommentType }): JSX.Element | null => {
@@ -241,6 +243,8 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
     // The reply target wins over selection so only one comment ever reads as focused
     const isHighlighted = (replyingCommentId ?? selectedCommentId) === comment.id || isEditing
     const threadId = comment.source_comment ?? comment.id
+    // Rendering markdown from tiptap JSON is not free - skip it on unrelated re-renders
+    const text = useMemo(() => getText(comment), [comment])
 
     useEffect(() => {
         if (isHighlighted) {
@@ -294,7 +298,7 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
                                 <CommentEditingForm comment={comment} />
                             ) : (
                                 <div className={clsx(comment.completed_at && 'line-through text-secondary')}>
-                                    <LemonMarkdown lowKeyHeadings>{getText(comment)}</LemonMarkdown>
+                                    <LemonMarkdown lowKeyHeadings>{text}</LemonMarkdown>
                                 </div>
                             )}
                         </div>
@@ -309,10 +313,10 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
 const InlineReplyComposer = ({ logicProps }: { logicProps: CommentsLogicProps }): JSX.Element => {
     const ref = useRef<HTMLDivElement | null>(null)
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         // In long threads the composer mounts below the fold at the thread's bottom
         ref.current?.scrollIntoView({ block: 'nearest' })
-    }, [])
+    })
 
     return (
         <div ref={ref}>
@@ -327,23 +331,21 @@ export const CommentWithReplies = ({ commentWithReplies, composerLogicProps }: C
     const { setReplyingComment, setThreadExpanded } = useActions(commentsLogic)
 
     // replyingCommentId always resolves to the thread root, so this only matches top-level threads
-    const isTopLevel = !!composerLogicProps
-    const isReplyTarget = isTopLevel && replyingCommentId === commentWithReplies.id
+    const isReplyTarget = replyingCommentId === commentWithReplies.id
+    // expandedThreadIds always includes the reply target, so the composer is never collapsed away
     const isExpanded = expandedThreadIds.has(commentWithReplies.id)
-    const showReplies = (replies.length > 0 && isExpanded) || isReplyTarget
-    const canToggle = isTopLevel && editingComment?.id !== commentWithReplies.id
+    const canToggle = editingComment?.id !== commentWithReplies.id
 
     // Hidden only while the composer is open - the composer takes over as the reply affordance
-    const replyButton =
-        isTopLevel && !isReplyTarget ? (
-            <LemonButton
-                size="xsmall"
-                onClick={() => setReplyingComment(commentWithReplies.id)}
-                data-attr="comment-reply-button"
-            >
-                Reply
-            </LemonButton>
-        ) : null
+    const replyButton = !isReplyTarget ? (
+        <LemonButton
+            size="xsmall"
+            onClick={() => setReplyingComment(commentWithReplies.id)}
+            data-attr="comment-reply-button"
+        >
+            Reply
+        </LemonButton>
+    ) : null
 
     // TODO: Permissions
 
@@ -389,16 +391,16 @@ export const CommentWithReplies = ({ commentWithReplies, composerLogicProps }: C
                             <IconChevronRight
                                 className={clsx('size-3 shrink-0 transition-transform', isExpanded && 'rotate-90')}
                             />
-                            <span>{replies.length === 1 ? '1 reply' : `${replies.length} replies`}</span>
+                            <span>{pluralize(replies.length, 'reply', 'replies')}</span>
                             {replyButton ? <div className="ml-auto">{replyButton}</div> : null}
                         </div>
                     </>
                 ) : null}
             </div>
 
-            {showReplies ? replies.map((reply) => <Comment key={reply.id} comment={reply} />) : null}
+            {isExpanded ? replies.map((reply) => <Comment key={reply.id} comment={reply} />) : null}
 
-            {isReplyTarget && composerLogicProps ? (
+            {isReplyTarget ? (
                 <>
                     <LemonDivider className="my-0" />
                     <div className="p-2">

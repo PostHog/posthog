@@ -10,11 +10,11 @@ import { LemonRichContentEditor } from 'lib/lemon-ui/LemonRichContent/LemonRichC
 import { CommentsLogicProps, commentsLogic } from './commentsLogic'
 
 export type CommentComposerProps = CommentsLogicProps & {
-    /** The footer variant hides itself while a reply is in progress; 'inline-reply' renders inside the thread */
+    /** The footer variant swaps to a "New comment" button while a reply is in progress; 'inline-reply' renders inside the thread */
     variant?: 'footer' | 'inline-reply'
 }
 
-export const CommentComposer = ({ variant = 'footer', ...props }: CommentComposerProps): JSX.Element | null => {
+export const CommentComposer = ({ variant = 'footer', ...props }: CommentComposerProps): JSX.Element => {
     const { key, commentsLoading, replyingCommentId, itemContext, isEmpty, composerDraft } = useValues(
         commentsLogic(props)
     )
