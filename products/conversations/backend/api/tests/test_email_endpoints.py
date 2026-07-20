@@ -2056,7 +2056,7 @@ class TestEmailDeliveryEventsWebhook(BaseTest):
         outbox.refresh_from_db()
         comment.refresh_from_db()
         assert outbox.status == EmailOutboxMessage.Status.BOUNCED
-        assert comment.item_context["email_delivery_status"] == "bounced"
+        assert (comment.item_context or {})["email_delivery_status"] == "bounced"
 
     @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
     def test_temporary_failure_does_not_downgrade(self, _mock_sig: MagicMock):
@@ -2069,7 +2069,7 @@ class TestEmailDeliveryEventsWebhook(BaseTest):
         outbox.refresh_from_db()
         comment.refresh_from_db()
         assert outbox.status == EmailOutboxMessage.Status.SENT
-        assert comment.item_context.get("email_delivery_status") != "bounced"
+        assert (comment.item_context or {}).get("email_delivery_status") != "bounced"
 
     @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=False)
     def test_invalid_signature_rejected(self, _mock_sig: MagicMock):
