@@ -47,6 +47,7 @@ class ZScoreDetector(BaseDetector):
         if not self._validate_data(data, min_length=window + 1):
             return DetectionResult(is_anomaly=False)
 
+        raw_data = data
         data = self.preprocess(data)
         values = data if data.ndim == 1 else data[:, 0]
 
@@ -56,13 +57,16 @@ class ZScoreDetector(BaseDetector):
         std = np.std(window_data)
 
         current_value = values[-1]
+        last_index = len(values) - 1
 
         if std == 0:
-            is_anomaly = abs(current_value - mean) > 0
+            is_anomaly = abs(current_value - mean) > 0 and not self.raw_value_within_normal_band(
+                raw_data, last_index, window
+            )
             return DetectionResult(
                 is_anomaly=is_anomaly,
                 score=1.0 if is_anomaly else 0.0,
-                triggered_indices=[len(values) - 1] if is_anomaly else [],
+                triggered_indices=[last_index] if is_anomaly else [],
                 all_scores=[1.0 if is_anomaly else 0.0],
                 metadata={"mean": float(mean), "std": 0.0, "value": float(current_value), "raw_zscore": None},
             )
@@ -70,11 +74,12 @@ class ZScoreDetector(BaseDetector):
         z_score = abs((current_value - mean) / std)
         window_zscores = np.abs((window_data - mean) / std)
         prob = _zscore_to_probability(z_score, window_zscores)
+        is_anomaly = prob > threshold and not self.raw_value_within_normal_band(raw_data, last_index, window)
 
         return DetectionResult(
-            is_anomaly=prob > threshold,
+            is_anomaly=is_anomaly,
             score=prob,
-            triggered_indices=[len(values) - 1] if prob > threshold else [],
+            triggered_indices=[last_index] if is_anomaly else [],
             all_scores=[prob],
             metadata={
                 "mean": float(mean),
@@ -92,6 +97,7 @@ class ZScoreDetector(BaseDetector):
         if not self._validate_data(data, min_length=window + 1):
             return DetectionResult(is_anomaly=False)
 
+        raw_data = data
         data = self.preprocess(data)
         values = data if data.ndim == 1 else data[:, 0]
 
@@ -108,7 +114,8 @@ class ZScoreDetector(BaseDetector):
             if std == 0:
                 if abs(current_val - mean) > 0:
                     scores.append(1.0)
-                    triggered.append(i)
+                    if not self.raw_value_within_normal_band(raw_data, i, window):
+                        triggered.append(i)
                 else:
                     scores.append(0.0)
                 continue
@@ -118,7 +125,7 @@ class ZScoreDetector(BaseDetector):
             prob = _zscore_to_probability(z_score, window_zscores)
             scores.append(prob)
 
-            if prob > threshold:
+            if prob > threshold and not self.raw_value_within_normal_band(raw_data, i, window):
                 triggered.append(i)
 
         return DetectionResult(

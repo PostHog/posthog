@@ -4,7 +4,11 @@ from typing import Any
 
 import numpy as np
 
-from posthog.tasks.alerts.detectors.preprocessing import preprocess_data
+from posthog.tasks.alerts.detectors.preprocessing import (
+    preprocess_data,
+    preprocessing_alters_scored_value,
+    within_normal_band,
+)
 
 
 @dataclass
@@ -29,10 +33,15 @@ class BaseDetector(ABC):
     # Higher values make the model slower to adapt to recent distribution shifts.
     DEFAULT_TRAINING_OFFSET = 1
 
+    # How far (in standard deviations of the raw window) a raw value may sit from its
+    # historical mean and still count as "within the normal band" for the raw-band guard.
+    DEFAULT_RAW_BAND_SIGMA = 3.0
+
     def __init__(self, config: dict[str, Any]):
         self.config = config
         self.preprocessing_config = config.get("preprocessing", {})
         self.training_offset: int = config.get("training_offset_n", self.DEFAULT_TRAINING_OFFSET)
+        self.raw_band_sigma: float = config.get("raw_band_sigma", self.DEFAULT_RAW_BAND_SIGMA)
 
     @abstractmethod
     def detect(self, data: np.ndarray) -> DetectionResult:
@@ -72,6 +81,26 @@ class BaseDetector(ABC):
     def preprocess(self, data: np.ndarray) -> np.ndarray:
         """Apply preprocessing pipeline to data."""
         return preprocess_data(data, self.preprocessing_config)
+
+    def raw_value_within_normal_band(self, raw_data: np.ndarray, index: int, window: int) -> bool:
+        """Reconcile a transformed-signal anomaly with the raw value the user is shown.
+
+        Smoothing/differencing make the detector score a transformed signal, so a point can
+        score as anomalous while its raw value is squarely inside the series' normal range —
+        e.g. the sharp drop as a metric returns to baseline after a spike produces a large
+        first difference that trips the score, even though the raw value is unremarkable. In
+        that case the fired value (raw) and the scored signal disagree and we should not page.
+
+        Returns False (no suppression) when preprocessing leaves the scored value equal to the
+        raw value, since then there is nothing to reconcile — a genuine outlier still fires.
+        """
+        if not preprocessing_alters_scored_value(self.preprocessing_config):
+            return False
+        raw_values = raw_data if raw_data.ndim == 1 else raw_data[:, 0]
+        window_slice = raw_values[max(index - window, 0) : index]
+        if len(window_slice) == 0:
+            return False
+        return within_normal_band(window_slice, float(raw_values[index]), self.raw_band_sigma)
 
     @classmethod
     def get_default_config(cls) -> dict[str, Any]:

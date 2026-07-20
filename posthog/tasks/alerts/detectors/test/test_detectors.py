@@ -569,8 +569,38 @@ def _make_stable_with_spike(n_days: int = 14, spike_value: float = 2000.0) -> np
     return data
 
 
+def _make_spike_then_baseline() -> np.ndarray:
+    """Sparse ~0.7/hour metric with a real spike that then returns to baseline.
+
+    Mirrors the shape that produced a false positive: the sharp drop off the tail of the
+    spike (… 86 -> 21 -> 2) is a large negative first difference, so a differencing detector
+    scores the return to baseline as anomalous even though the raw value (2) is unremarkable.
+    """
+    rng = np.random.default_rng(7)
+    baseline = np.clip(rng.normal(0.7, 0.4, 40), 0, None)
+    return np.concatenate([baseline, np.array([78.0, 82.0, 86.0, 84.0, 21.0, 2.0])])
+
+
 STABLE_HOURLY = _make_stable_hourly_data()
 STABLE_HOURLY_WITH_SPIKE = _make_stable_with_spike()
+SPIKE_THEN_BASELINE = _make_spike_then_baseline()
+
+# Detectors configured like the dogfood alert: first-difference + smoothing, so they score the
+# transformed signal rather than the raw value.
+DIFFERENCING_DETECTOR_CONFIGS = [
+    ("zscore", {"type": "zscore", "threshold": 0.95, "window": 30, "preprocessing": {"diffs_n": 1, "smooth_n": 3}}),
+    ("mad", {"type": "mad", "threshold": 0.95, "window": 30, "preprocessing": {"diffs_n": 1, "smooth_n": 3}}),
+    (
+        "iqr",
+        {
+            "type": "iqr",
+            "threshold": 0.95,
+            "multiplier": 1.5,
+            "window": 30,
+            "preprocessing": {"diffs_n": 1, "smooth_n": 3},
+        },
+    ),
+]
 
 
 class TestRealisticScoreBehavior:
@@ -639,6 +669,54 @@ class TestRealisticScoreBehavior:
         assert zr.score is not None and ir.score is not None
         assert zr.score < 0.8, f"zscore score too high on stable data: {zr.score:.4f}"
         assert ir.score < 0.8, f"iforest score too high on stable data: {ir.score:.4f}"
+
+    @parameterized.expand(DIFFERENCING_DETECTOR_CONFIGS)
+    def test_return_to_baseline_does_not_fire(self, _name: str, config: dict[str, Any]) -> None:
+        """A drop back to baseline after a spike trips the differenced score but is not a real
+        anomaly — the raw value is inside its normal band, so the raw-band guard must suppress it."""
+        result = get_detector(config).detect(SPIKE_THEN_BASELINE)
+        # Precondition: the transformed signal really does score above threshold, so the only
+        # thing that can keep this from firing is the raw-band guard (guards against the test
+        # going silently vacuous if the score ever drops on its own).
+        assert result.score is not None and result.score > config["threshold"], (
+            f"{_name} precondition failed: differenced score {result.score} should exceed threshold"
+        )
+        assert not result.is_anomaly, (
+            f"{_name} fired on a return to baseline (raw value {SPIKE_THEN_BASELINE[-1]}, score {result.score:.4f})"
+        )
+
+    @parameterized.expand(DIFFERENCING_DETECTOR_CONFIGS)
+    def test_spike_onset_still_fires(self, _name: str, config: dict[str, Any]) -> None:
+        """The raw-band guard must not swallow the genuine spike: its onset (baseline -> 78) is a
+        large first difference on a raw value far outside the normal band."""
+        onset = np.concatenate([SPIKE_THEN_BASELINE[:40], np.array([78.0])])
+        assert get_detector(config).detect(onset).is_anomaly, f"{_name} missed the spike onset"
+
+    @parameterized.expand(DIFFERENCING_DETECTOR_CONFIGS)
+    def test_genuine_collapse_still_fires(self, _name: str, config: dict[str, Any]) -> None:
+        """A metric that is normally high and stable then collapses is a real anomaly: the raw
+        value falls outside its normal band, so the guard must not suppress a legitimate drop."""
+        rng = np.random.default_rng(11)
+        series = np.concatenate([rng.normal(100.0, 3.0, 40), np.array([2.0])])
+        assert get_detector(config).detect(series).is_anomaly, f"{_name} wrongly suppressed a real collapse"
+
+    def test_ensemble_or_return_to_baseline_does_not_fire(self) -> None:
+        """End-to-end guard for the reported alert config: an OR ensemble whose zscore sub-detector
+        differences the series must not fire when the metric merely returns to baseline."""
+        detector = EnsembleDetector(
+            {
+                "type": "ensemble",
+                "operator": "or",
+                "detectors": [
+                    {"type": "zscore", "threshold": 0.95, "window": 30, "preprocessing": {"diffs_n": 1, "smooth_n": 3}},
+                    {"type": "zscore", "threshold": 0.95, "window": 30},
+                ],
+            }
+        )
+        result = detector.detect(SPIKE_THEN_BASELINE)
+        assert not result.is_anomaly, (
+            f"Ensemble OR fired on a return to baseline (sub_results={result.metadata.get('sub_results')})"
+        )
 
     def test_ensemble_or_does_not_fire_on_stable_data(self) -> None:
         """Ensemble (OR) of zscore + isolation_forest should not fire on

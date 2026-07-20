@@ -33,12 +33,14 @@ class MADDetector(BaseDetector):
         if not self._validate_data(data, min_length=window + 1):
             return DetectionResult(is_anomaly=False)
 
+        raw_data = data
         data = self.preprocess(data)
         values = data if data.ndim == 1 else data[:, 0]
 
         # Use rolling window (exclude current point) to fit the model
         window_data = values[-(window + 1) : -1]
         current_value = values[-1]
+        last_index = len(values) - 1
 
         clf = MAD()
         clf.fit(window_data.reshape(-1, 1))
@@ -46,12 +48,12 @@ class MADDetector(BaseDetector):
         # Get normalized probability score via pyod's erf-based conversion
         test_point = np.array([[current_value]])
         prob = float(clf.predict_proba(test_point)[0, 1])
-        is_anomaly = prob > threshold
+        is_anomaly = prob > threshold and not self.raw_value_within_normal_band(raw_data, last_index, window)
 
         return DetectionResult(
             is_anomaly=is_anomaly,
             score=prob,
-            triggered_indices=[len(values) - 1] if is_anomaly else [],
+            triggered_indices=[last_index] if is_anomaly else [],
             all_scores=[prob],
             metadata={
                 "median": float(clf.median_),
@@ -68,6 +70,7 @@ class MADDetector(BaseDetector):
         if not self._validate_data(data, min_length=window + 1):
             return DetectionResult(is_anomaly=False)
 
+        raw_data = data
         data = self.preprocess(data)
         values = data if data.ndim == 1 else data[:, 0]
 
@@ -85,7 +88,7 @@ class MADDetector(BaseDetector):
             prob = float(clf.predict_proba(test_point)[0, 1])
             scores.append(prob)
 
-            if prob > threshold:
+            if prob > threshold and not self.raw_value_within_normal_band(raw_data, i, window):
                 triggered.append(i)
 
         return DetectionResult(

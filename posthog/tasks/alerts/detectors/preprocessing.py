@@ -39,6 +39,35 @@ def preprocess_data(data: np.ndarray, config: dict[str, Any] | None) -> np.ndarr
     return result
 
 
+def preprocessing_alters_scored_value(config: dict[str, Any] | None) -> bool:
+    """True if preprocessing makes the scored signal differ from the raw value.
+
+    Smoothing and differencing both transform what the detector scores away from the raw
+    value the user is shown. When that happens, a point can score as anomalous on the
+    transformed signal while its raw value is unremarkable, so the fired value and the
+    scored signal disagree. Detectors use this to decide whether the raw-band guard applies.
+    """
+    if not config:
+        return False
+    return bool((config.get("smooth_n", 0) or 0) > 0 or (config.get("diffs_n", 0) or 0) > 0)
+
+
+def within_normal_band(window: np.ndarray, value: float, n_sigma: float) -> bool:
+    """Whether ``value`` sits within ``n_sigma`` standard deviations of the window mean.
+
+    Used to reconcile a transformed-signal anomaly with the raw value: a point squarely
+    inside the raw series' normal range (e.g. a return to baseline after a spike) is not
+    itself anomalous, even if the smoothed first difference trips the score.
+    """
+    if len(window) == 0:
+        return False
+    mean = float(np.mean(window))
+    std = float(np.std(window))
+    if std == 0:
+        return value == mean
+    return abs(value - mean) <= n_sigma * std
+
+
 def first_difference(data: np.ndarray) -> np.ndarray:
     """
     Compute first difference of time series.

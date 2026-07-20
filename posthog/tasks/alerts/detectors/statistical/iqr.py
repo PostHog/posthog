@@ -60,6 +60,7 @@ class IQRDetector(BaseDetector):
         if not self._validate_data(data, min_length=window + 1):
             return DetectionResult(is_anomaly=False)
 
+        raw_data = data
         data = self.preprocess(data)
         values = data if data.ndim == 1 else data[:, 0]
 
@@ -72,6 +73,7 @@ class IQRDetector(BaseDetector):
         upper_fence = q3 + multiplier * iqr
 
         current_value = values[-1]
+        last_index = len(values) - 1
 
         # Raw distance from nearest fence, normalized by IQR
         if iqr == 0:
@@ -86,12 +88,12 @@ class IQRDetector(BaseDetector):
         window_distances = _iqr_fence_distances(window_data, lower_fence, upper_fence, iqr)
 
         prob = _iqr_distance_to_probability(raw_distance, window_distances)
-        is_anomaly = prob > threshold
+        is_anomaly = prob > threshold and not self.raw_value_within_normal_band(raw_data, last_index, window)
 
         return DetectionResult(
             is_anomaly=is_anomaly,
             score=prob,
-            triggered_indices=[len(values) - 1] if is_anomaly else [],
+            triggered_indices=[last_index] if is_anomaly else [],
             all_scores=[prob],
             metadata={
                 "q1": float(q1),
@@ -112,6 +114,7 @@ class IQRDetector(BaseDetector):
         if not self._validate_data(data, min_length=window + 1):
             return DetectionResult(is_anomaly=False)
 
+        raw_data = data
         data = self.preprocess(data)
         values = data if data.ndim == 1 else data[:, 0]
 
@@ -146,7 +149,7 @@ class IQRDetector(BaseDetector):
 
             prob = _iqr_distance_to_probability(raw_distance, window_distances)
             scores.append(prob)
-            if prob > threshold:
+            if prob > threshold and not self.raw_value_within_normal_band(raw_data, i, window):
                 triggered.append(i)
 
         return DetectionResult(
