@@ -4939,9 +4939,9 @@ snapshots:
     replay-overview-tab--wide-overview-tab--light:
         hash: v1.k794b7964.deb71477c91ae3fb89eaa9c6c9a45e665db4fa8363df4de30b3737c655930825.n5T9fmKBWN7qXDwbX9sYPEtdRgVYiaUgrJfvtail2tg
     replay-overview-tab-experiments--default--dark:
-        hash: v1.k794b7964.25a125f1ccda9f810a1e6d396031977f27bdb0871bccaa500afbbdfe495d551d.1yCi_OiCfAFcalukt75bILwNnkYCfyi07maDMAtzqYA
+        hash: v1.k794b7964.33a861df26de2c58bb3f682709f548f3c18e4055068e53210d6bf0eed290f3b9.n3yoSXnVRzJVlrCCoLNytIv7UTIIaJA1fb-ApkS6_rE
     replay-overview-tab-experiments--default--light:
-        hash: v1.k794b7964.ab0755b8da5c67099503a8ae53ee63e34c0ea513dd3b7fd1baa0905067a7ea01.iSLqrIDxgzlGZ1DT7vgBu8DtMPs56SESNRW7avoHa8g
+        hash: v1.k794b7964.d9bf55d955df06da692463ec7d1526a899103567f37d68e807c2c3b94c575e78.dRJfZZ5apQCOXa20PcujmkCflmN-X733GYazCRK2PRg
     replay-overview-tab-experiments--empty--dark:
         hash: v1.k794b7964.13e51a486b40a1455fde0075af333e3dff21f25491d06cc59ab10c24200eb1d2.Fn0OHVeRm39HLB3-xcZUZavR375CxuNraJZdmfxTS-U
     replay-overview-tab-experiments--empty--light:
