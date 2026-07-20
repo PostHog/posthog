@@ -61,6 +61,7 @@ import {
 
 const ERROR_TOAST_ID = 'live-pageviews-error'
 const RECONNECT_TOAST_ID = 'live-pageviews-reconnect'
+const PARTIAL_FAILURE_TOAST_ID = 'live-pageviews-partial-failure'
 const BUCKET_WINDOW_MINUTES = 30
 const FLUSH_INTERVAL_MS = 300
 const COOKIELESS_TRANSFORM_PREFIX = 'cookieless_transform'
@@ -176,13 +177,13 @@ export interface liveWebAnalyticsMetricsLogicActions {
     loadInitialData: () => {
         value: true
     }
-    scheduleReload: () => {
-        value: true
-    }
     pauseStream: () => {
         value: true
     }
     resumeStream: () => {
+        value: true
+    }
+    scheduleReload: () => {
         value: true
     }
     setInitialData: (
@@ -552,6 +553,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
     }),
     listeners(({ actions, values, cache }) => ({
         pauseStream: () => {
+            cache.isPaused = true
             cache.loadAbortController?.abort()
             cache.eventsConnection?.abort()
             cache.geoConnection?.abort()
@@ -561,6 +563,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             cache.disposables.dispose('liveUserCountInterval')
         },
         resumeStream: () => {
+            cache.isPaused = false
             if (cache.hasInitialized) {
                 lemonToast.info('Refreshing live data...', {
                     toastId: RECONNECT_TOAST_ID,
@@ -604,6 +607,11 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     return
                 }
 
+                if (data.allFailed) {
+                    lemonToast.error('Failed to load initial data')
+                    return
+                }
+
                 const bucketMap = new Map<number, SlidingWindowBucket>()
 
                 addUserDataToBuckets(data.usersPageviews, bucketMap)
@@ -620,8 +628,10 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     data.recentUsers ? getRecentUsersByLastSeenEntries(data.recentUsers) : []
                 )
 
-                if (data.allFailed) {
-                    lemonToast.error('Failed to load initial data')
+                if (data.failedQueries.length > 0) {
+                    lemonToast.warning(`Some live metrics failed to load: ${data.failedQueries.join(', ')}`, {
+                        toastId: PARTIAL_FAILURE_TOAST_ID,
+                    })
                 }
             } catch (error) {
                 if (!isAbortedRequest(error)) {
@@ -640,6 +650,9 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
         },
         scheduleReload: async (_, breakpoint) => {
             await breakpoint(RELOAD_DEBOUNCE_MS)
+            if (cache.isPaused) {
+                return
+            }
             actions.loadInitialData()
         },
         updateConnection: () => {
@@ -848,6 +861,21 @@ interface LiveQueryData {
     bot: HogQLQueryResponse | null
     city: HogQLQueryResponse | null
     allFailed: boolean
+    failedQueries: string[]
+}
+
+type LiveQueryKey = Exclude<keyof LiveQueryData, 'allFailed' | 'failedQueries'>
+
+const LIVE_QUERY_LABELS: Record<LiveQueryKey, string> = {
+    usersPageviews: 'visitors and pageviews',
+    device: 'devices',
+    browser: 'browsers',
+    paths: 'top paths',
+    referrer: 'referrers',
+    geo: 'locations',
+    recentUsers: 'recent visitors',
+    bot: 'bot traffic',
+    city: 'cities',
 }
 
 const loadQueryData = async ({
@@ -1093,7 +1121,6 @@ const loadQueryData = async ({
               }
             : null
 
-    type LiveQueryKey = Exclude<keyof LiveQueryData, 'allFailed'>
     const jobs: { key: LiveQueryKey; query: HogQLQuery | TrendsQuery }[] = [
         { key: 'usersPageviews', query: usersPageviewsQuery },
         { key: 'device', query: deviceQuery },
@@ -1131,9 +1158,9 @@ const loadQueryData = async ({
         bot: null,
         city: null,
         allFailed: false,
+        failedQueries: [],
     }
 
-    let failed = 0
     settled.forEach((result, index) => {
         const { key, query } = jobs[index]
         if (result.status === 'fulfilled') {
@@ -1143,12 +1170,12 @@ const loadQueryData = async ({
                 data[key] = result.value as HogQLQueryResponse
             }
         } else if (!isAbortedRequest(result.reason)) {
-            failed += 1
+            data.failedQueries.push(LIVE_QUERY_LABELS[key])
             console.error(`Live query "${query.tags?.name ?? key}" failed:`, result.reason)
         }
     })
 
-    data.allFailed = jobs.length > 0 && failed === jobs.length
+    data.allFailed = jobs.length > 0 && data.failedQueries.length === jobs.length
     return data
 }
 
