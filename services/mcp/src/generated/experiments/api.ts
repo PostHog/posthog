@@ -4328,6 +4328,18 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             .describe(
                 'When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected.'
             ),
+        version: zod
+            .number()
+            .nullish()
+            .describe(
+                "Optimistic-concurrency token. Reads return the experiment's current version, bumped on every update. Send the version you last read with an update to detect concurrent edits: a stale update that only touches the metric collections is merged per metric uuid when `original_experiment` is also sent; anything else fails with HTTP 409. Omit to skip the check."
+            ),
+        original_experiment: zod
+            .record(zod.string(), zod.unknown())
+            .nullish()
+            .describe(
+                'The metric collections as the client last read them, used together with `version` to resolve concurrent metric edits: changes made by other users are merged per metric uuid where safe instead of failing. Relevant keys are metrics, metrics_secondary, and saved_metrics_ids; unknown keys are ignored. Without it, any version mismatch fails with HTTP 409.'
+            ),
     })
     .describe('Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.')
 
@@ -7949,6 +7961,18 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected.'
             ),
+        version: zod
+            .number()
+            .nullish()
+            .describe(
+                "Optimistic-concurrency token. Reads return the experiment's current version, bumped on every update. Send the version you last read with an update to detect concurrent edits: a stale update that only touches the metric collections is merged per metric uuid when `original_experiment` is also sent; anything else fails with HTTP 409. Omit to skip the check."
+            ),
+        original_experiment: zod
+            .record(zod.string(), zod.unknown())
+            .nullish()
+            .describe(
+                'The metric collections as the client last read them, used together with `version` to resolve concurrent metric edits: changes made by other users are merged per metric uuid where safe instead of failing. Relevant keys are metrics, metrics_secondary, and saved_metrics_ids; unknown keys are ignored. Without it, any version mismatch fails with HTTP 409.'
+            ),
     })
     .describe('Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.')
 
@@ -11512,6 +11536,18 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
             .default(experimentsDuplicateCreateBodyUpdateFeatureFlagParamsDefault)
             .describe(
                 'When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected.'
+            ),
+        version: zod
+            .number()
+            .nullish()
+            .describe(
+                "Optimistic-concurrency token. Reads return the experiment's current version, bumped on every update. Send the version you last read with an update to detect concurrent edits: a stale update that only touches the metric collections is merged per metric uuid when `original_experiment` is also sent; anything else fails with HTTP 409. Omit to skip the check."
+            ),
+        original_experiment: zod
+            .record(zod.string(), zod.unknown())
+            .nullish()
+            .describe(
+                'The metric collections as the client last read them, used together with `version` to resolve concurrent metric edits: changes made by other users are merged per metric uuid where safe instead of failing. Relevant keys are metrics, metrics_secondary, and saved_metrics_ids; unknown keys are ignored. Without it, any version mismatch fails with HTTP 409.'
             ),
     })
     .describe(

@@ -179,6 +179,8 @@ const ExperimentCreateSchema = ExperimentsCreateBody.omit({
     secondary_metrics_ordered_uuids: true,
     only_count_matured_users: true,
     update_feature_flag_params: true,
+    version: true,
+    original_experiment: true,
 }).extend({
     feature_flag: ExperimentsCreateBody.shape['feature_flag'].describe(
         'Variant split, rollout scope, payloads, and experience continuity for the auto-created feature flag, in the flag\'s own filters shape. This is the canonical input for flag config. If the user mentions a specific percentage, load the configuring-experiment-rollout skill and clarify before setting these values. Set filters.multivariate.variants (each with key and rollout_percentage; percentages must sum to 100) to customize the variant split. Set filters.groups to a single group [{"properties": [], "rollout_percentage": N}] (0-100) to control the overall fraction of users entering the experiment. Default: 50/50 control/test, 100% rollout. Omit this parameter entirely when feature_flag_key refers to a pre-existing flag: the experiment links to that flag as-is and explicit config is rejected. No specific variant key is required. The analysis baseline defaults to the variant keyed `control` (lowercase) when present, else the first variant; override with stats_config.baseline_variant_key. Convention: when the user describes variants as "A/B", "old/new", "original/redesign", or any other natural-language pair without naming explicit keys, key the baseline `control` and keep their wording in the variant `name`. When the user asks for specific keys, use them as-is and put the baseline first.'
@@ -293,6 +295,8 @@ const ExperimentDuplicateSchema = ExperimentsDuplicateCreateParams.omit({ projec
             secondary_metrics_ordered_uuids: true,
             only_count_matured_users: true,
             update_feature_flag_params: true,
+            version: true,
+            original_experiment: true,
         }).shape
     )
     .extend({ id: z.preprocess(castStringToInt, ExperimentsDuplicateCreateParams.shape['id']) })
@@ -896,6 +900,8 @@ const ExperimentUpdateSchema = ExperimentsPartialUpdateParams.omit({ project_id:
             primary_metrics_ordered_uuids: true,
             secondary_metrics_ordered_uuids: true,
             only_count_matured_users: true,
+            version: true,
+            original_experiment: true,
         }).shape
     )
     .extend({

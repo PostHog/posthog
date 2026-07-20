@@ -39,7 +39,7 @@ from posthog.temporal.experiments.models import ExperimentTimeseriesRecalculatio
 from posthog.user_permissions import UserPermissions
 
 from products.approvals.backend.mixins import ApprovalHandlingMixin
-from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
 from products.experiments.backend.llm_metric_templates import build_template, list_templates
 
 # TODO: Route through facade instead of direct import
@@ -333,6 +333,14 @@ class EnterpriseExperimentsViewSet(
         if self.action == "list":
             return ExperimentBasicSerializer
         return ExperimentSerializer
+
+    def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # Structured 409 body ({detail, current_version, conflicting_*}) so clients can refetch
+        # and retry precisely; the default exception handler would flatten it to a plain string.
+        try:
+            return super().update(request, *args, **kwargs)
+        except ExperimentVersionConflict as err:
+            return Response(err.response_data(), status=err.status_code)
 
     @tracer.start_as_current_span("ExperimentViewSet.list")
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:

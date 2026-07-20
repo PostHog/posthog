@@ -1138,6 +1138,54 @@ export type ExperimentWritePayload<T> = Omit<T, 'feature_flag' | 'feature_flag_c
 export type ExperimentUpdatePayload = Omit<Partial<Experiment>, 'feature_flag'> & {
     feature_flag?: ExperimentFeatureFlagInputApi | Experiment['feature_flag']
     update_feature_flag_params?: boolean
+    original_experiment?: Record<string, any>
+}
+
+/** Concurrency context for experiment PATCHes: the version last read plus the metric collections
+ * that version belongs to, so the server can merge concurrent metric edits safely and reject
+ * everything else with a 409 instead of letting a stale write clobber it. */
+export function toConcurrencyPayload(
+    unmodified: Experiment | null
+): Pick<ExperimentUpdatePayload, 'version' | 'original_experiment'> {
+    if (!unmodified || typeof unmodified.id !== 'number') {
+        return {}
+    }
+    return {
+        version: unmodified.version ?? 0,
+        original_experiment: {
+            metrics: unmodified.metrics,
+            metrics_secondary: unmodified.metrics_secondary,
+            saved_metrics_ids: (unmodified.saved_metrics || []).map((sharedMetric) => ({
+                id: sharedMetric.saved_metric,
+                metadata: sharedMetric.metadata,
+            })),
+        },
+    }
+}
+
+/** Whether an API error is the experiment concurrency conflict (as opposed to any other 409,
+ * e.g. an approval-required response, which carries no `current_version`). */
+export function isExperimentConflictError(error: any): boolean {
+    return error?.status === 409 && error?.data?.current_version !== undefined
+}
+
+const CONFLICT_UNPRESERVABLE_KEYS = new Set([
+    'metrics',
+    'metrics_secondary',
+    'saved_metrics_ids',
+    'primary_metrics_ordered_uuids',
+    'secondary_metrics_ordered_uuids',
+    'version',
+    'original_experiment',
+    'update_feature_flag_params',
+    'feature_flag',
+])
+
+/** The fields of a 409-rejected update worth keeping in local state: the user's scalar edits.
+ * Collection and bookkeeping fields are dropped — re-applying a stale metric array over the
+ * fresh state would reintroduce exactly the clobbering the conflict prevented. */
+export function conflictPreservedFields(payload: ExperimentUpdatePayload): Partial<Experiment> {
+    return Object.fromEntries(Object.entries(payload).filter(([key]) => !CONFLICT_UNPRESERVABLE_KEYS.has(key)))
 }
 
 /** Maps UI variants to the flag's write shape, dropping null names the generated type disallows. */
