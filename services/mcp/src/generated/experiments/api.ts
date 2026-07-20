@@ -747,6 +747,9 @@ export const experimentsCreateBodyFeatureFlagOneFiltersOneGroupsItemRolloutPerce
 
 export const experimentsCreateBodyFeatureFlagOneFiltersOneGroupsItemPropertiesMax = 0
 
+export const experimentsCreateBodyFeatureFlagOneFiltersOneMultivariateOneVariantsItemRolloutPercentageMin = 0
+export const experimentsCreateBodyFeatureFlagOneFiltersOneMultivariateOneVariantsItemRolloutPercentageMax = 100
+
 export const experimentsCreateBodyArchivedDefault = false
 export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneOperatorDefault = `exact`
 export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneTypeDefault = `event`
@@ -891,26 +894,46 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                             ),
                         multivariate: zod
                             .union([
-                                zod.object({
-                                    variants: zod
-                                        .array(
-                                            zod.object({
-                                                key: zod.string().describe('Unique key for this variant.'),
-                                                name: zod
-                                                    .string()
-                                                    .optional()
-                                                    .describe('Human-readable name for this variant.'),
-                                                rollout_percentage: zod
-                                                    .number()
-                                                    .describe('Variant rollout percentage.'),
-                                            })
-                                        )
-                                        .describe('Variant definitions for multivariate feature flags.'),
-                                }),
+                                zod
+                                    .object({
+                                        variants: zod
+                                            .array(
+                                                zod
+                                                    .object({
+                                                        key: zod
+                                                            .string()
+                                                            .describe(
+                                                                "Unique variant key. The baseline defaults to the variant keyed 'control' when present, else the first variant."
+                                                            ),
+                                                        name: zod
+                                                            .string()
+                                                            .optional()
+                                                            .describe('Human-readable variant name.'),
+                                                        rollout_percentage: zod
+                                                            .number()
+                                                            .min(
+                                                                experimentsCreateBodyFeatureFlagOneFiltersOneMultivariateOneVariantsItemRolloutPercentageMin
+                                                            )
+                                                            .max(
+                                                                experimentsCreateBodyFeatureFlagOneFiltersOneMultivariateOneVariantsItemRolloutPercentageMax
+                                                            )
+                                                            .describe(
+                                                                'Variant rollout percentage (0-100). Across variants these must sum to 100.'
+                                                            ),
+                                                    })
+                                                    .describe(
+                                                        'A single multivariate variant. Extra per-variant keys are dropped.'
+                                                    )
+                                            )
+                                            .describe(
+                                                "Variant definitions (2 to 20). The baseline defaults to the variant keyed 'control' when present, else the first variant."
+                                            ),
+                                    })
+                                    .describe("Multivariate config for the experiment's feature flag."),
                                 zod.null(),
                             ])
                             .optional()
-                            .describe('Multivariate configuration for variant-based rollouts.'),
+                            .describe('Multivariate variant configuration.'),
                         aggregation_group_type_index: zod
                             .number()
                             .nullish()
@@ -925,14 +948,16 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                     )
                     .optional()
                     .describe(
-                        "Flag config to apply: `multivariate.variants` (exactly one variant key must be the literal string 'control'), `groups` (a single group with `rollout_percentage` only; release conditions are not supported here, edit the feature flag directly), `aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). On update, config this object omits is preserved from the linked flag's current state."
+                        "Flag config to apply: `multivariate.variants` (2 to 20 variants; the baseline defaults to the variant keyed 'control' when present, else the first variant), `groups` (a single group with `rollout_percentage` only; release conditions are not supported here, edit the feature flag directly), `aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). On update, config this object omits is preserved from the linked flag's current state."
                     ),
                 ensure_experience_continuity: zod
                     .boolean()
                     .nullish()
                     .describe('Whether the flag persists variant assignment across authentication steps.'),
             })
-            .describe("Flag config for experiment create/update, sent through the linked feature flag's own shape.")
+            .describe(
+                "Flag config for experiment create/update, sent through the linked feature flag's own shape.\n\nValidated both as the OpenAPI request field (via ``ExperimentWriteSerializer``) and at runtime\n(``ExperimentSerializer._normalize_feature_flag_input`` runs it against the raw feature_flag\nobject). Echoed read-only flag objects (carrying a non-null id) are handled upstream and never\nreach this validation."
+            )
             .optional()
             .describe(
                 "Feature-flag config for the experiment, in the flag's own filters shape. The linked flag is the source of truth for variants, rollout, aggregation, payloads, and experience continuity: send config here instead of the deprecated `parameters` keys. On a running experiment, also send `update_feature_flag_params=true`. Cannot be combined with the key of a pre-existing feature flag on create (the experiment links to it as-is)."
@@ -4339,6 +4364,9 @@ export const experimentsPartialUpdateBodyFeatureFlagOneFiltersOneGroupsItemRollo
 
 export const experimentsPartialUpdateBodyFeatureFlagOneFiltersOneGroupsItemPropertiesMax = 0
 
+export const experimentsPartialUpdateBodyFeatureFlagOneFiltersOneMultivariateOneVariantsItemRolloutPercentageMin = 0
+export const experimentsPartialUpdateBodyFeatureFlagOneFiltersOneMultivariateOneVariantsItemRolloutPercentageMax = 100
+
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneTypeDefault = `event`
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwoTypeDefault = `person`
@@ -4482,26 +4510,46 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                             ),
                         multivariate: zod
                             .union([
-                                zod.object({
-                                    variants: zod
-                                        .array(
-                                            zod.object({
-                                                key: zod.string().describe('Unique key for this variant.'),
-                                                name: zod
-                                                    .string()
-                                                    .optional()
-                                                    .describe('Human-readable name for this variant.'),
-                                                rollout_percentage: zod
-                                                    .number()
-                                                    .describe('Variant rollout percentage.'),
-                                            })
-                                        )
-                                        .describe('Variant definitions for multivariate feature flags.'),
-                                }),
+                                zod
+                                    .object({
+                                        variants: zod
+                                            .array(
+                                                zod
+                                                    .object({
+                                                        key: zod
+                                                            .string()
+                                                            .describe(
+                                                                "Unique variant key. The baseline defaults to the variant keyed 'control' when present, else the first variant."
+                                                            ),
+                                                        name: zod
+                                                            .string()
+                                                            .optional()
+                                                            .describe('Human-readable variant name.'),
+                                                        rollout_percentage: zod
+                                                            .number()
+                                                            .min(
+                                                                experimentsPartialUpdateBodyFeatureFlagOneFiltersOneMultivariateOneVariantsItemRolloutPercentageMin
+                                                            )
+                                                            .max(
+                                                                experimentsPartialUpdateBodyFeatureFlagOneFiltersOneMultivariateOneVariantsItemRolloutPercentageMax
+                                                            )
+                                                            .describe(
+                                                                'Variant rollout percentage (0-100). Across variants these must sum to 100.'
+                                                            ),
+                                                    })
+                                                    .describe(
+                                                        'A single multivariate variant. Extra per-variant keys are dropped.'
+                                                    )
+                                            )
+                                            .describe(
+                                                "Variant definitions (2 to 20). The baseline defaults to the variant keyed 'control' when present, else the first variant."
+                                            ),
+                                    })
+                                    .describe("Multivariate config for the experiment's feature flag."),
                                 zod.null(),
                             ])
                             .optional()
-                            .describe('Multivariate configuration for variant-based rollouts.'),
+                            .describe('Multivariate variant configuration.'),
                         aggregation_group_type_index: zod
                             .number()
                             .nullish()
@@ -4516,14 +4564,16 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                     )
                     .optional()
                     .describe(
-                        "Flag config to apply: `multivariate.variants` (exactly one variant key must be the literal string 'control'), `groups` (a single group with `rollout_percentage` only; release conditions are not supported here, edit the feature flag directly), `aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). On update, config this object omits is preserved from the linked flag's current state."
+                        "Flag config to apply: `multivariate.variants` (2 to 20 variants; the baseline defaults to the variant keyed 'control' when present, else the first variant), `groups` (a single group with `rollout_percentage` only; release conditions are not supported here, edit the feature flag directly), `aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). On update, config this object omits is preserved from the linked flag's current state."
                     ),
                 ensure_experience_continuity: zod
                     .boolean()
                     .nullish()
                     .describe('Whether the flag persists variant assignment across authentication steps.'),
             })
-            .describe("Flag config for experiment create/update, sent through the linked feature flag's own shape.")
+            .describe(
+                "Flag config for experiment create/update, sent through the linked feature flag's own shape.\n\nValidated both as the OpenAPI request field (via ``ExperimentWriteSerializer``) and at runtime\n(``ExperimentSerializer._normalize_feature_flag_input`` runs it against the raw feature_flag\nobject). Echoed read-only flag objects (carrying a non-null id) are handled upstream and never\nreach this validation."
+            )
             .optional()
             .describe(
                 "Feature-flag config for the experiment, in the flag's own filters shape. The linked flag is the source of truth for variants, rollout, aggregation, payloads, and experience continuity: send config here instead of the deprecated `parameters` keys. On a running experiment, also send `update_feature_flag_params=true`. Cannot be combined with the key of a pre-existing feature flag on create (the experiment links to it as-is)."
@@ -11538,7 +11588,7 @@ export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
  * Validates the experiment is in draft state, activates its linked feature flag,
  * sets start_date to the current server time, and transitions the experiment to running.
  * Returns 400 if the experiment has already been launched or if the feature flag
- * configuration is invalid (e.g. missing "control" variant or fewer than 2 variants).
+ * configuration is invalid (e.g. fewer than 2 variants).
  */
 export const ExperimentsLaunchCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
