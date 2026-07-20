@@ -947,13 +947,42 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert bounds == {"min": expected_min, "max": cur_end}
 
 
+class _SessionIdInCounter:
+    """Counts (GLOBAL pair-tuple INs, plain single-column session-id INs) in a tree."""
+
+    def __init__(self) -> None:
+        self.pair = 0
+        self.single = 0
+
+    def count(self, node: ast.AST) -> tuple[int, int]:
+        from posthog.hogql.visitor import TraversingVisitor
+
+        counter = self
+
+        class Visitor(TraversingVisitor):
+            def visit_compare_operation(self, cmp: ast.CompareOperation) -> None:
+                if cmp.op == ast.CompareOperationOp.GlobalIn and isinstance(cmp.left, ast.Tuple):
+                    counter.pair += 1
+                elif (
+                    cmp.op == ast.CompareOperationOp.In
+                    and isinstance(cmp.left, ast.Field)
+                    and cmp.left.chain[-1] == "session_id_v7"
+                ):
+                    counter.single += 1
+                super().visit_compare_operation(cmp)
+
+        Visitor().visit(node)
+        return self.pair, self.single
+
+
 @override_settings(IN_UNIT_TESTING=True)
 class TestWebStatsPathsSessionIdSetInsert(ClickhouseTestMixin, APIBaseTest):
-    """Filtered paths inserts must stay on the JOIN template even for allowlisted
-    teams: the join attributes bounce per (session, path) from filtered events,
-    which a global session-id set cannot reproduce (measured ~2% bounce drift).
-    Locks the correctness decision until a (session_id, entry_path) pair-set
-    shape exists."""
+    """The filtered-insert chooser and the pair-set insert's parity with the join
+    insert. Paths cannot use a plain session-id set: the join attributes bounce
+    per (session, path) from filtered events, so the id-set variant carries a
+    (session_id, entry_path) PAIR membership check — the parity fixture encodes
+    the exact divergence (a session whose only matching event is NOT on its
+    entry path)."""
 
     HOST_FILTER = [EventPropertyFilter(key="$host", value="example.com", operator=PropertyOperator.EXACT)]
 
@@ -970,13 +999,16 @@ class TestWebStatsPathsSessionIdSetInsert(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("unfiltered_page", [], WebStatsBreakdown.PAGE, "no_join"),
-            ("filtered_page_allowlisted", HOST_FILTER, WebStatsBreakdown.PAGE, "join"),
-            ("filtered_initial_page", HOST_FILTER, WebStatsBreakdown.INITIAL_PAGE, "join"),
+            ("unfiltered_page", [], WebStatsBreakdown.PAGE, True, "no_join"),
+            ("filtered_page_allowlisted", HOST_FILTER, WebStatsBreakdown.PAGE, True, "pair_set"),
+            ("filtered_page_not_allowlisted", HOST_FILTER, WebStatsBreakdown.PAGE, False, "join"),
+            ("filtered_initial_page", HOST_FILTER, WebStatsBreakdown.INITIAL_PAGE, True, "join"),
         ]
     )
-    def test_filtered_paths_inserts_keep_join_template(self, _name, properties, breakdown_by, expected):
+    def test_insert_template_chooser(self, _name, properties, breakdown_by, allowlisted, expected):
         from datetime import UTC, datetime
+
+        from posthog.hogql.placeholders import find_placeholders
 
         from products.web_analytics.backend.hogql_queries import web_stats_paths_lazy_precompute as mod
 
@@ -988,7 +1020,7 @@ class TestWebStatsPathsSessionIdSetInsert(ClickhouseTestMixin, APIBaseTest):
 
         with override_settings(
             WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk],
-            WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk],
+            WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk] if allowlisted else [],
         ):
             runner = self._make_runner(properties=properties, breakdown_by=breakdown_by)
             with patch.object(mod, "web_ensure_precomputed", side_effect=capture):
@@ -996,11 +1028,131 @@ class TestWebStatsPathsSessionIdSetInsert(ClickhouseTestMixin, APIBaseTest):
                     runner, datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 7, tzinfo=UTC)
                 )
 
-        template = captured["insert_query"]
+        insert_query = captured["insert_query"]
+        modifiers = captured["modifiers"]
         # Default sort is DESC visitors -> the capped variants are selected.
         if expected == "no_join":
-            assert template is mod.NO_JOIN_INSERT_QUERY_TEMPLATE_CAPPED
+            assert insert_query is mod.NO_JOIN_INSERT_QUERY_TEMPLATE_CAPPED
+            assert modifiers is None
+        elif expected == "pair_set":
+            assert isinstance(insert_query, ast.SelectQuery)
+            assert modifiers is not None and modifiers.sessionIdPushdown is True
+            # Only the framework-managed windows are left for per-job substitution.
+            assert captured["placeholders"] == {}
+            leftover = {str(c[0]) for c in find_placeholders(insert_query).placeholder_fields}
+            assert leftover == {"time_window_min", "time_window_max"}
+            # Exactly one GLOBAL pair IN (post-GROUP-BY attribution) and one plain
+            # single-id IN (rewritten below the GROUP BY at print time).
+            assert _SessionIdInCounter().count(insert_query) == (1, 1)
         else:
-            assert template is mod.INSERT_QUERY_TEMPLATE_CAPPED
-        assert "session_id_v7 IN" not in template
-        assert captured.get("modifiers") is None
+            assert insert_query is mod.INSERT_QUERY_TEMPLATE_CAPPED
+            assert "session_id_v7 IN" not in insert_query
+            assert modifiers is None
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_filtered_insert_matches_join_insert(self):
+        """The pair-set insert must store the same finalized per-path metrics as the
+        join insert for the same filtered key. The fixture carries the divergence
+        case: s1 enters /landing but its only filter-matching event is on /pricing —
+        a plain session-id set admits s1's bounce to /landing (asserted below, so
+        the fixture can't silently go vacuous); the pair set must not."""
+        from datetime import UTC, datetime
+
+        from posthog.hogql.context import HogQLContext
+        from posthog.hogql.modifiers import create_default_modifiers_for_team
+        from posthog.hogql.placeholders import replace_placeholders
+        from posthog.hogql.printer import prepare_and_print_ast
+
+        from posthog.clickhouse.client import sync_execute
+
+        from products.web_analytics.backend.hogql_queries import web_stats_paths_lazy_precompute as mod
+        from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import (
+            build_insert_select_ast,
+            with_insert_session_id_set_filter,
+        )
+
+        s1 = str(uuid7("2024-01-02T10:00:00"))
+        s2 = str(uuid7("2024-01-02T11:00:00"))
+        s3 = str(uuid7("2024-01-02T10:10:00"))
+        _create_person(team_id=self.team.pk, distinct_ids=["p1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["p2"])
+        _create_person(team_id=self.team.pk, distinct_ids=["p3"])
+        # s1: enters /landing (no plan), matches the filter only on /pricing; bounce=0.
+        # s3: same hour, single-pageview /landing with plan=pro — its filtered event
+        # creates the (10:00, /landing) cell, so join bounce there is avg(s3)=1.0 while
+        # a plain session-id set admits s1's entry-path bounce too -> avg(0, 1)=0.5.
+        # s2: control session in another hour, matched on its entry path.
+        for did, ts, sid, path, props in [
+            ("p1", "2024-01-02T10:00:00Z", s1, "/landing", {}),
+            ("p1", "2024-01-02T10:05:00Z", s1, "/pricing", {"plan": "pro"}),
+            ("p3", "2024-01-02T10:10:00Z", s3, "/landing", {"plan": "pro"}),
+            ("p2", "2024-01-02T11:00:00Z", s2, "/landing", {"plan": "pro"}),
+            ("p1", "2024-01-02T12:00:00Z", "legacy-session", "/landing", {"plan": "pro"}),
+        ]:
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=did,
+                timestamp=ts,
+                properties={
+                    "$session_id": sid,
+                    "$host": "example.com",
+                    "$pathname": path,
+                    "$current_url": f"https://example.com{path}",
+                    **props,
+                },
+            )
+
+        with override_settings(
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk],
+            WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk],
+        ):
+            runner = self._make_runner(
+                properties=[EventPropertyFilter(key="plan", value="pro", operator=PropertyOperator.EXACT)]
+            )
+            placeholders = {
+                "events_session_id": mod._events_session_id_expr(runner),
+                "breakdown_value_expr": mod._breakdown_value_expr(runner),
+                "entry_breakdown_value_expr": mod._entry_breakdown_value_expr(runner),
+                "entry_breakdown_value_sessions_expr": mod._entry_breakdown_value_sessions_expr(runner),
+                "event_type_filter": runner.event_type_expr,
+                "user_filter": host_filter_expr(runner.query.properties or [], team=self.team),
+                "test_account_filter": _test_account_filter_expr(
+                    test_account_filters=runner._test_account_filters, team=self.team
+                ),
+                "pad_minutes": ast.Constant(value=SESSION_FORWARD_PAD_MINUTES),
+            }
+            windows = {
+                "time_window_min": ast.Constant(value=datetime(2024, 1, 1, tzinfo=UTC)),
+                "time_window_max": ast.Constant(value=datetime(2024, 1, 7, tzinfo=UTC)),
+            }
+
+            def run_template(template, pushdown: bool):
+                modifiers = create_default_modifiers_for_team(self.team)
+                modifiers.sessionIdPushdown = pushdown
+                context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
+                if isinstance(template, str):
+                    inner = parse_select(template, placeholders={**placeholders, **windows})
+                else:
+                    inner = replace_placeholders(template, dict(windows))
+                sql, _ = prepare_and_print_ast(inner, context=context, dialect="clickhouse")
+                merged = f"""
+                    SELECT formatDateTime(time_window_start, '%%Y-%%m-%%d %%H:%%i:%%S') AS window_key,
+                           breakdown_value,
+                           uniqMerge(uniq_users_state), sumMerge(sum_pageviews_state),
+                           round(avgMerge(avg_bounce_state), 4)
+                    FROM ({sql}) GROUP BY time_window_start, breakdown_value
+                    ORDER BY time_window_start, breakdown_value
+                """
+                return sync_execute(merged, context.values, team_id=self.team.pk)
+
+            pair_ast = build_insert_select_ast(mod.SESSION_ID_PAIR_SET_INSERT_QUERY_TEMPLATE, placeholders)
+            join_rows = run_template(mod.INSERT_QUERY_TEMPLATE, pushdown=False)
+            plain_set_rows = run_template(
+                with_insert_session_id_set_filter(mod.NO_JOIN_INSERT_QUERY_TEMPLATE), pushdown=True
+            )
+            pair_rows = run_template(pair_ast, pushdown=True)
+
+        assert join_rows, "join insert produced no rows — fixture broken"
+        assert plain_set_rows != join_rows, "fixture no longer exercises the cross-path divergence"
+        assert pair_rows == join_rows

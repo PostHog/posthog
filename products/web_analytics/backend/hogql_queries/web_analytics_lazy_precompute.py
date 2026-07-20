@@ -24,8 +24,11 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.placeholders import find_placeholders
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.models.team import Team
 
@@ -360,6 +363,67 @@ def with_insert_session_id_set_filter(no_join_template: str) -> str:
         _SESSIONS_SIDE_ANCHOR,
         _SESSIONS_SIDE_ANCHOR + "\n        " + _INSERT_SESSION_ID_SET_FILTER_SQL,
     )
+
+
+def splice_after_sessions_anchor(template: str, fragment_sql: str) -> str:
+    """Splice an extra sessions-side WHERE term after the no-join anchor line.
+
+    Same contract as `with_insert_session_id_set_filter`: the source template is
+    untouched, so the unfiltered variant's AST hash never moves."""
+    assert template.count(_SESSIONS_SIDE_ANCHOR) == 1, "no-join template sessions-side anchor drifted"
+    return template.replace(
+        _SESSIONS_SIDE_ANCHOR,
+        _SESSIONS_SIDE_ANCHOR + "\n        " + fragment_sql,
+    )
+
+
+class _PartialPlaceholderReplacer(CloningVisitor):
+    """Substitute only the given placeholders, leaving unknown ones (the
+    framework-managed `{time_window_min}`/`{time_window_max}`) as `ast.Placeholder`
+    nodes for `ensure_precomputed` to fill per job."""
+
+    def __init__(self, placeholders: dict[str, ast.Expr]) -> None:
+        super().__init__()
+        self.placeholders = placeholders
+
+    def visit_placeholder(self, node: ast.Placeholder) -> ast.Expr:
+        chain = node.chain
+        if chain is not None and len(chain) == 1 and str(chain[0]) in self.placeholders:
+            return clone_expr(self.placeholders[str(chain[0])])
+        return super().visit_placeholder(node)
+
+
+class _GlobalizeSessionTupleIn(TraversingVisitor):
+    """Upgrade `(sessions.session_id_v7, ...) IN (subquery)` to GLOBAL IN.
+
+    HogQL has no grammar for `GLOBAL IN`, and the sessions_v2 pushdown rewrite
+    only handles the single-column `session_id_v7 IN` form — without the upgrade
+    a distributed read would execute the tuple's right-side subquery once per
+    shard, which is exactly the amplification the id-set shape exists to avoid."""
+
+    def visit_compare_operation(self, node: ast.CompareOperation) -> None:
+        if (
+            node.op == ast.CompareOperationOp.In
+            and isinstance(node.left, ast.Tuple)
+            and len(node.left.exprs) > 0
+            and isinstance(node.left.exprs[0], ast.Field)
+            and node.left.exprs[0].chain[-1] == "session_id_v7"
+        ):
+            node.op = ast.CompareOperationOp.GlobalIn
+        super().visit_compare_operation(node)
+
+
+def build_insert_select_ast(template: str, placeholders: dict[str, ast.Expr]) -> ast.SelectQuery:
+    """Parse an insert template into the `ast.SelectQuery` form of `ensure_precomputed`'s
+    `insert_query`, with every placeholder except the framework-managed time windows
+    substituted, and session-id tuple INs upgraded to GLOBAL IN (no HogQL grammar for it)."""
+    parsed = parse_select(template)
+    node = _PartialPlaceholderReplacer(placeholders).visit(parsed)
+    assert isinstance(node, ast.SelectQuery)
+    _GlobalizeSessionTupleIn().visit(node)
+    leftover = {str(chain[0]) for chain in find_placeholders(node).placeholder_fields}
+    assert leftover <= {"time_window_min", "time_window_max"}, f"unsubstituted placeholders: {leftover}"
+    return node
 
 
 def user_filter_expr(runner: LazyPrecomputeRunner) -> ast.Expr:

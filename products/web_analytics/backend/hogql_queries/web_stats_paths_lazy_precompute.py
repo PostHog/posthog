@@ -25,6 +25,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -34,7 +35,12 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationResult,
     LazyComputationTable,
 )
-from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import is_constant_true
+from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import (
+    build_insert_select_ast,
+    is_constant_true,
+    splice_after_sessions_anchor,
+    with_insert_session_id_set_filter,
+)
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     LAZY_TTL_SECONDS,
     SESSION_FORWARD_PAD_MINUTES,
@@ -424,6 +430,48 @@ WHERE breakdown_rank <= """ + str(PATHS_TOP_K)
 INSERT_QUERY_TEMPLATE_CAPPED = "WITH per_window AS (" + _PER_WINDOW_AGG_SQL + _CAPPED_WRAPPER
 NO_JOIN_INSERT_QUERY_TEMPLATE_CAPPED = "WITH per_window AS (" + _NO_JOIN_PER_WINDOW_AGG_SQL + _CAPPED_WRAPPER
 
+# Sessions-side PAIR filter for FILTERED PAGE keys. A plain session-id set is not
+# enough for paths: the join insert attributes bounce per (session, path) from
+# FILTERED events — a session's bounce lands on its entry path only when the
+# session had a matching event ON that path, and a global id set admits the
+# bounce whenever the session matched anywhere (~2% relative bounce drift
+# measured on prod). This pair membership reproduces the join's semantics
+# exactly: `{entry_breakdown_value_sessions_expr}` and `{breakdown_value_expr}`
+# share the same cleaning shape (the join template's own equality check relies
+# on that), and a NULL entry path never matches the IN — the same sessions the
+# join drops via its `equals(breakdown_value, entry_breakdown_value)` guard.
+#
+# The pair check can only run AFTER the per-session GROUP BY (entry path is an
+# argMin output), so it complements — not replaces — the shared single-id
+# fragment, which the `sessionIdPushdown` rewrite moves below the GROUP BY to
+# prune the sessions scan. The tuple IN is upgraded to GLOBAL IN at parse time
+# (`build_insert_select_ast`); HogQL has no grammar for it, hence the AST-input
+# path into `ensure_precomputed`.
+_INSERT_SESSION_ID_PAIR_SET_FILTER_SQL = """(sessions.session_id_v7, {entry_breakdown_value_sessions_expr}) IN (
+            SELECT DISTINCT
+                _toUInt128(events.$session_id_uuid),
+                {breakdown_value_expr}
+            FROM events
+            WHERE and(
+                events.$session_id_uuid IS NOT NULL,
+                equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7),
+                {event_type_filter},
+                timestamp >= {time_window_min},
+                timestamp < ({time_window_max} + toIntervalMinute({pad_minutes})),
+                {user_filter},
+                {test_account_filter}
+            )
+        ),"""
+
+_PAIR_SET_PER_WINDOW_AGG_SQL = splice_after_sessions_anchor(
+    with_insert_session_id_set_filter(_NO_JOIN_PER_WINDOW_AGG_SQL),
+    _INSERT_SESSION_ID_PAIR_SET_FILTER_SQL,
+)
+SESSION_ID_PAIR_SET_INSERT_QUERY_TEMPLATE = _PAIR_SET_PER_WINDOW_AGG_SQL
+SESSION_ID_PAIR_SET_INSERT_QUERY_TEMPLATE_CAPPED = (
+    "WITH per_window AS (" + _PAIR_SET_PER_WINDOW_AGG_SQL + _CAPPED_WRAPPER
+)
+
 
 def _top_k_ranking_expr(runner: "WebStatsTableQueryRunner") -> ast.Expr | None:
     """Ranking expression for the insert top-K cap, mirroring the read's sort.
@@ -498,29 +546,41 @@ def ensure_web_stats_paths_precomputed(
 
     # Unfiltered PAGE keys use the no-join shape (events self-attribute to the
     # session-start hour via the UUIDv7 session id; bounce comes from the sessions
-    # table). INITIAL_PAGE needs the join for persons-per-entry-path. Filtered keys
-    # ALSO keep the join — including keys whose filters are events-evaluable: the
-    # join insert attributes bounce per (session, path) from FILTERED events, so a
-    # session's bounce lands on its entry path only when the session had a matching
-    # event ON that path. A global session-id set (the overview insert's shape)
-    # admits the session's bounce to its entry path if it matched anywhere —
-    # measured ~2% relative bounce drift on prod. Expressing the join's semantics
-    # needs a (session_id, entry_path) PAIR set checked post-GROUP-BY; until that
-    # exists, filtered paths inserts stay on the join template.
-    use_no_join = runner.query.breakdownBy == WebStatsBreakdown.PAGE and all(
-        is_constant_true(placeholders[key]) for key in ("user_filter", "test_account_filter")
-    )
-    if use_no_join:
+    # table). Filtered PAGE keys with events-evaluable filters use the pair-set
+    # variant of the same shape (see `_INSERT_SESSION_ID_PAIR_SET_FILTER_SQL` for
+    # why per-path bounce needs a (session_id, entry_path) PAIR, not a plain id
+    # set). INITIAL_PAGE and everything else (cohort/session filters,
+    # non-allowlisted teams) keep the join: persons-per-entry-path and
+    # non-events-evaluable filters both need the events↔sessions association.
+    is_page = runner.query.breakdownBy == WebStatsBreakdown.PAGE
+    use_no_join = is_page and all(is_constant_true(placeholders[key]) for key in ("user_filter", "test_account_filter"))
+    use_pair_set = is_page and not use_no_join and runner._session_id_set_common_eligibility()
+    if use_no_join or use_pair_set:
         placeholders["entry_breakdown_value_sessions_expr"] = _entry_breakdown_value_sessions_expr(runner)
 
     # Cap to the displayable top-K for descending sorts; store the full set otherwise.
     # The metric goes into the INSERT AST, so the sort dimension joins the job hash.
     ranking_expr = _top_k_ranking_expr(runner)
+    capped = ranking_expr is not None
     if ranking_expr is not None:
-        insert_query = NO_JOIN_INSERT_QUERY_TEMPLATE_CAPPED if use_no_join else INSERT_QUERY_TEMPLATE_CAPPED
         placeholders["top_k_metric"] = ranking_expr
+
+    insert_query: str | ast.SelectQuery
+    modifiers: Optional[HogQLQueryModifiers] = None
+    if use_no_join:
+        insert_query = NO_JOIN_INSERT_QUERY_TEMPLATE_CAPPED if capped else NO_JOIN_INSERT_QUERY_TEMPLATE
+    elif use_pair_set:
+        # AST input: placeholders are substituted here (windows stay as Placeholder
+        # nodes for the framework) so the tuple IN can be upgraded to GLOBAL IN.
+        template = (
+            SESSION_ID_PAIR_SET_INSERT_QUERY_TEMPLATE_CAPPED if capped else SESSION_ID_PAIR_SET_INSERT_QUERY_TEMPLATE
+        )
+        insert_query = build_insert_select_ast(template, placeholders)
+        placeholders = {}
+        modifiers = create_default_modifiers_for_team(runner.team)
+        modifiers.sessionIdPushdown = True
     else:
-        insert_query = NO_JOIN_INSERT_QUERY_TEMPLATE if use_no_join else INSERT_QUERY_TEMPLATE
+        insert_query = INSERT_QUERY_TEMPLATE_CAPPED if capped else INSERT_QUERY_TEMPLATE
 
     # Warmers keep the framework default; user-facing calls get the 10s budget, or the
     # caller-provided remainder of it when this is the second (compare-period) ensure.
@@ -541,6 +601,7 @@ def ensure_web_stats_paths_precomputed(
         query_type="web_stats_paths_lazy_insert",
         spill_to_disk=True,  # high-cardinality path breakdown GROUP BY; can build a large hash table
         wait_timeout_seconds=wait_timeout,
+        modifiers=modifiers,
     )
 
 
