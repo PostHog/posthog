@@ -155,6 +155,12 @@ If automatic creation failed due to a permissions error, your API key needs writ
             errors[f"403 Client Error: Forbidden for url: {host}"] = (
                 "Your Paddle API key does not have the required permissions. Please check your API key permissions in Paddle and try again."
             )
+            # 404 on a list endpoint we know exists means the resource isn't reachable for this
+            # account — Paddle Billing isn't enabled, or the API key belongs to a different
+            # environment (sandbox vs. production) than the data. Retrying can't change that.
+            errors[f"404 Client Error: Not Found for url: {host}"] = (
+                "Paddle couldn't find the requested data. This usually means Paddle Billing isn't enabled for your account, or your API key is for a different environment (sandbox vs. production). Check your Paddle account and reconnect with a matching API key."
+            )
         return errors
 
     def should_retry_non_retryable_errors(self) -> bool:

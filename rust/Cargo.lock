@@ -1785,6 +1785,7 @@ name = "capture"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arc-swap",
  "assert-json-diff",
  "async-compression",
  "async-trait",
@@ -2286,6 +2287,7 @@ dependencies = [
  "metrics",
  "metrics-exporter-prometheus",
  "object_store",
+ "proptest",
  "rand 0.8.5",
  "rdkafka",
  "rocksdb",
@@ -6156,6 +6158,7 @@ name = "limiters"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arc-swap",
  "async-trait",
  "chrono",
  "common-redis",
@@ -6167,6 +6170,7 @@ dependencies = [
  "metrics-util",
  "moka",
  "rand 0.8.5",
+ "serde_json",
  "strum 0.26.3",
  "tokio",
  "tracing",
@@ -8013,6 +8017,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "posthog-replay-anonymizer"
+version = "0.1.0"
+dependencies = [
+ "ahash 0.8.12",
+ "anyhow",
+ "base64 0.22.1",
+ "flate2",
+ "image",
+ "libdeflater",
+ "lz4",
+ "memchr",
+ "serde",
+ "serde_json",
+ "simd-json",
+ "zstd",
+]
+
+[[package]]
 name = "posthog-rs"
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9098,19 +9120,10 @@ checksum = "51743d3e274e2b18df81c4dc6caf8a5b8e15dbe799e0dca05c7617380094e884"
 name = "replay-anonymizer-node"
 version = "0.0.1"
 dependencies = [
- "ahash 0.8.12",
- "anyhow",
- "base64 0.22.1",
- "flate2",
- "image",
- "libdeflater",
- "lz4",
- "memchr",
  "neon",
+ "posthog-replay-anonymizer",
  "serde",
  "serde_json",
- "simd-json",
- "zstd",
 ]
 
 [[package]]

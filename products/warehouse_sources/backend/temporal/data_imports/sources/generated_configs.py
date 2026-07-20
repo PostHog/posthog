@@ -74,6 +74,14 @@ class GoogleAdsIsMccAccountConfig(config.Config):
 
 
 @config.config
+class GrafanaAuthMethodConfig(config.Config):
+    selection: Literal["token", "basic"] = "token"
+    token: str | None = None
+    username: str | None = None
+    password: str | None = None
+
+
+@config.config
 class HubspotCustomPropertiesConfig(config.Config):
     enabled: bool = config.value(converter=config.str_to_bool, default=False)
     contacts_properties: str | None = None
@@ -83,6 +91,15 @@ class HubspotCustomPropertiesConfig(config.Config):
     quotes_properties: str | None = None
     emails_properties: str | None = None
     meetings_properties: str | None = None
+
+
+@config.config
+class JamfProAuthMethodConfig(config.Config):
+    selection: Literal["client_credentials", "basic"] = "client_credentials"
+    client_id: str | None = None
+    client_secret: str | None = None
+    username: str | None = None
+    password: str | None = None
 
 
 @config.config
@@ -396,7 +413,9 @@ class AppwriteSourceConfig(config.Config):
 
 @config.config
 class ArgocdSourceConfig(config.Config):
-    pass
+    host: str
+    api_token: str
+    project: str | None = None
 
 
 @config.config
@@ -438,7 +457,8 @@ class Auth0SourceConfig(config.Config):
 
 @config.config
 class AutomoxSourceConfig(config.Config):
-    pass
+    api_key: str
+    organization_id: str | None = None
 
 
 @config.config
@@ -484,7 +504,9 @@ class AzureTableStorageSourceConfig(config.Config):
 
 @config.config
 class BabelforceSourceConfig(config.Config):
-    pass
+    environment: str
+    access_id: str
+    access_token: str
 
 
 @config.config
@@ -525,7 +547,10 @@ class BetterStackSourceConfig(config.Config):
 
 @config.config
 class BettermodeSourceConfig(config.Config):
-    pass
+    client_id: str
+    client_secret: str
+    network_id: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
@@ -568,7 +593,7 @@ class BitlySourceConfig(config.Config):
 
 @config.config
 class BitriseSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -720,7 +745,7 @@ class CampaynSourceConfig(config.Config):
 
 @config.config
 class CampfireSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -789,7 +814,9 @@ class ChartMogulSourceConfig(config.Config):
 
 @config.config
 class ChatwootSourceConfig(config.Config):
-    pass
+    account_id: str
+    api_access_token: str
+    host: str | None = None
 
 
 @config.config
@@ -842,7 +869,12 @@ class CircleCISourceConfig(config.Config):
 
 @config.config
 class CircleciInsightsSourceConfig(config.Config):
-    pass
+    api_token: str
+    project_slugs: str
+    reporting_window: Literal["last-24-hours", "last-7-days", "last-30-days", "last-60-days", "last-90-days"] | None = (
+        config.value(default="last-90-days")
+    )
+    branch_scope: Literal["default_branch", "all_branches"] | None = config.value(default="default_branch")
 
 
 @config.config
@@ -899,7 +931,8 @@ class ClickUpSourceConfig(config.Config):
 
 @config.config
 class ClickhouseCloudSourceConfig(config.Config):
-    pass
+    key_id: str
+    key_secret: str
 
 
 @config.config
@@ -1030,7 +1063,13 @@ class ConfluenceSourceConfig(config.Config):
 
 @config.config
 class ConfluentCloudSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_secret: str
+    kafka_cluster_ids: str | None = None
+    connector_ids: str | None = None
+    ksqldb_cluster_ids: str | None = None
+    schema_registry_ids: str | None = None
+    compute_pool_ids: str | None = None
 
 
 @config.config
@@ -1057,7 +1096,17 @@ class CopperSourceConfig(config.Config):
 
 @config.config
 class CoralogixSourceConfig(config.Config):
-    pass
+    api_key: str
+    domain: Literal[
+        "coralogix.us",
+        "cx498.coralogix.com",
+        "coralogix.com",
+        "eu2.coralogix.com",
+        "coralogix.in",
+        "coralogixsg.com",
+        "ap3.coralogix.com",
+    ] = config.value(default="coralogix.us")
+    tier: Literal["frequent_search", "archive"] = config.value(default="frequent_search")
 
 
 @config.config
@@ -1145,7 +1194,9 @@ class CustomerlySourceConfig(config.Config):
 
 @config.config
 class DagsterCloudSourceConfig(config.Config):
-    pass
+    organization: str
+    deployment: str
+    api_token: str
 
 
 @config.config
@@ -1348,7 +1399,8 @@ class DynamoDBSourceConfig(config.Config):
 
 @config.config
 class DynatraceSourceConfig(config.Config):
-    pass
+    environment_url: str
+    api_token: str
 
 
 @config.config
@@ -1421,7 +1473,8 @@ class EnchargeSourceConfig(config.Config):
 
 @config.config
 class Env0SourceConfig(config.Config):
-    pass
+    api_key_id: str
+    api_key_secret: str
 
 
 @config.config
@@ -1483,7 +1536,7 @@ class FaunaSourceConfig(config.Config):
 
 @config.config
 class FeaturebaseSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1559,7 +1612,8 @@ class FireworksAISourceConfig(config.Config):
 
 @config.config
 class FlagsmithSourceConfig(config.Config):
-    pass
+    api_key: str
+    base_url: str | None = None
 
 
 @config.config
@@ -1625,7 +1679,8 @@ class FreshcallerSourceConfig(config.Config):
 
 @config.config
 class FreshchatSourceConfig(config.Config):
-    pass
+    domain: str
+    api_key: str
 
 
 @config.config
@@ -1715,12 +1770,15 @@ class GitLabSourceConfig(config.Config):
 
 @config.config
 class GiteaSourceConfig(config.Config):
-    pass
+    base_url: str
+    access_token: str
+    repository: str
 
 
 @config.config
 class GitguardianSourceConfig(config.Config):
-    pass
+    api_key: str
+    base_url: str | None = None
 
 
 @config.config
@@ -1868,7 +1926,9 @@ class GorgiasSourceConfig(config.Config):
 
 @config.config
 class GrafanaSourceConfig(config.Config):
-    pass
+    host: str
+    auth_method: GrafanaAuthMethodConfig
+    org_id: str | None = None
 
 
 @config.config
@@ -2183,7 +2243,8 @@ class IterableSourceConfig(config.Config):
 
 @config.config
 class JamfProSourceConfig(config.Config):
-    pass
+    instance_url: str
+    auth_method: JamfProAuthMethodConfig
 
 
 @config.config
@@ -2193,12 +2254,15 @@ class JellyfishSourceConfig(config.Config):
 
 @config.config
 class JenkinsSourceConfig(config.Config):
-    pass
+    host: str
+    username: str
+    api_token: str
 
 
 @config.config
 class JfrogArtifactorySourceConfig(config.Config):
-    pass
+    base_url: str
+    access_token: str
 
 
 @config.config
@@ -2233,7 +2297,9 @@ class JudgeMeReviewsSourceConfig(config.Config):
 
 @config.config
 class JumpcloudSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
+    org_id: str | None = None
 
 
 @config.config
@@ -2317,7 +2383,8 @@ class KlarnaSourceConfig(config.Config):
 
 @config.config
 class KlausSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_token: str
 
 
 @config.config
@@ -2356,7 +2423,9 @@ class KustomerSourceConfig(config.Config):
 
 @config.config
 class LaceworkSourceConfig(config.Config):
-    pass
+    account_name: str
+    key_id: str
+    secret_key: str
 
 
 @config.config
@@ -2372,7 +2441,8 @@ class LambdaLabsSourceConfig(config.Config):
 
 @config.config
 class LangSmithSourceConfig(config.Config):
-    pass
+    api_key: str
+    host: str | None = None
 
 
 @config.config
@@ -2447,7 +2517,7 @@ class LinearSourceConfig(config.Config):
 
 @config.config
 class LinearbSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2649,7 +2719,7 @@ class MetabaseSourceConfig(config.Config):
 
 @config.config
 class MetaplaneSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2818,7 +2888,9 @@ class NetlifySourceConfig(config.Config):
 
 @config.config
 class NewRelicSourceConfig(config.Config):
-    pass
+    api_key: str
+    account_id: int = config.value(converter=int)
+    region: Literal["US", "EU"] = config.value(default="US")
 
 
 @config.config
@@ -2877,7 +2949,7 @@ class NotionSourceConfig(config.Config):
 
 @config.config
 class NugetSourceConfig(config.Config):
-    pass
+    package_ids: str
 
 
 @config.config
@@ -2902,7 +2974,8 @@ class OctolensSourceConfig(config.Config):
 
 @config.config
 class OctopusDeploySourceConfig(config.Config):
-    pass
+    host: str
+    api_key: str
 
 
 @config.config
@@ -2933,7 +3006,8 @@ class OneHundredMsSourceConfig(config.Config):
 
 @config.config
 class OnePasswordSourceConfig(config.Config):
-    pass
+    api_token: str
+    region: Literal["us", "ca", "eu", "enterprise"] = config.value(default="us")
 
 
 @config.config
@@ -3380,6 +3454,11 @@ class ProductiveSourceConfig(config.Config):
 
 
 @config.config
+class PromptWatchSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class PromptingCompanySourceConfig(config.Config):
     pass
 
@@ -3801,7 +3880,8 @@ class SenseforceSourceConfig(config.Config):
 
 @config.config
 class SentineloneSourceConfig(config.Config):
-    pass
+    console_url: str
+    api_token: str
 
 
 @config.config
@@ -3993,7 +4073,9 @@ class SnowplowSourceConfig(config.Config):
 
 @config.config
 class SnykSourceConfig(config.Config):
-    pass
+    api_token: str
+    region: Literal["us", "eu", "au"] = config.value(default="us")
+    organization_id: str | None = None
 
 
 @config.config
@@ -4004,7 +4086,9 @@ class SolarwindsServiceDeskSourceConfig(config.Config):
 
 @config.config
 class SonarCloudSourceConfig(config.Config):
-    pass
+    token: str
+    organization: str
+    region: Literal["eu", "us"] = config.value(default="eu")
 
 
 @config.config
@@ -4015,17 +4099,22 @@ class SonarqubeSourceConfig(config.Config):
 
 @config.config
 class SonatypeNexusSourceConfig(config.Config):
-    pass
+    host: str
+    username: str
+    password: str
 
 
 @config.config
 class SourcegraphSourceConfig(config.Config):
-    pass
+    host: str
+    access_token: str
 
 
 @config.config
 class SpaceliftSourceConfig(config.Config):
-    pass
+    account_name: str
+    api_key_id: str
+    api_key_secret: str
 
 
 @config.config
@@ -4058,7 +4147,8 @@ class SpotlerCRMSourceConfig(config.Config):
 
 @config.config
 class SquadcastSourceConfig(config.Config):
-    pass
+    refresh_token: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
@@ -4079,7 +4169,7 @@ class StatsigSourceConfig(config.Config):
 
 @config.config
 class StatuscakeSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -4120,7 +4210,8 @@ class StripeSourceConfig(config.Config):
 
 @config.config
 class StytchSourceConfig(config.Config):
-    pass
+    project_id: str
+    secret: str
 
 
 @config.config
@@ -4230,7 +4321,8 @@ class TavusSourceConfig(config.Config):
 
 @config.config
 class TawkToSourceConfig(config.Config):
-    pass
+    api_key: str
+    property_id: str | None = None
 
 
 @config.config
@@ -4495,17 +4587,19 @@ class UptickSourceConfig(config.Config):
 
 @config.config
 class UptimerobotSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
 class UsersnapSourceConfig(config.Config):
-    pass
+    jwt_secret: str
+    jwt_id: str
 
 
 @config.config
 class UservoiceSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
@@ -5452,6 +5546,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.PRINTIFY: PrintifySourceConfig,
         ExternalDataSourceType.PRODUCTBOARD: ProductboardSourceConfig,
         ExternalDataSourceType.PRODUCTIVE: ProductiveSourceConfig,
+        ExternalDataSourceType.PROMPTWATCH: PromptWatchSourceConfig,
         ExternalDataSourceType.PROMPTINGCOMPANY: PromptingCompanySourceConfig,
         ExternalDataSourceType.PULUMICLOUD: PulumiCloudSourceConfig,
         ExternalDataSourceType.PYPI: PyPISourceConfig,

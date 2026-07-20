@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { OAUTH_SCOPES_SUPPORTED } from '@/lib/constants'
+import { OAUTH_SCOPES_HIDDEN, OAUTH_SCOPES_SUPPORTED } from '@/lib/constants'
 import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
@@ -235,7 +235,11 @@ describe('Tool Filtering - Tools Allowlist', () => {
     })
 })
 
-const createMockContext = (scopes: string[]): Context => ({
+const createMockContext = (
+    scopes: string[],
+    getUser?: () => Promise<{ is_staff?: boolean }>,
+    apiKeyExtra?: { scoped_teams?: number[]; scoped_organizations?: string[] }
+): Context => ({
     api: {} as any,
     cache: {} as any,
     env: {
@@ -248,8 +252,13 @@ const createMockContext = (scopes: string[]): Context => ({
         POSTHOG_UI_APPS_TOKEN: undefined,
     },
     stateManager: {
-        getApiKey: async () => ({ scopes }),
+        getApiKey: async () => ({ scopes, ...apiKeyExtra }),
         getAiConsentGiven: async () => undefined,
+        getUser:
+            getUser ??
+            (async () => {
+                throw new Error('users/@me not available')
+            }),
     } as any,
     sessionManager: new SessionManager({} as any),
     getDistinctId: async () => 'test-distinct-id',
@@ -340,6 +349,59 @@ describe('Tool Filtering - API Scopes', () => {
     })
 })
 
+describe('Tool Filtering - Staff-only (OAuth-hidden scope) tools', () => {
+    const STAFF_TOOLS = ['managed-migrations-support-list', 'managed-migrations-support-get']
+
+    it.each([
+        {
+            description: 'hidden from a full-access `*` key even for a staff user',
+            scopes: ['*'],
+            getUser: async () => ({ is_staff: true }),
+            visible: false,
+        },
+        {
+            description: 'visible for a staff user whose key explicitly carries the hidden scope',
+            scopes: ['batch_import_support:read', 'user:read'],
+            getUser: async () => ({ is_staff: true }),
+            visible: true,
+        },
+        {
+            description: 'hidden from a non-staff user even when the key carries the hidden scope',
+            scopes: ['batch_import_support:read', 'user:read'],
+            getUser: async () => ({ is_staff: false }),
+            visible: false,
+        },
+        {
+            // Default mock getUser rejects, like a key minted without `user:read`.
+            description: 'hidden (fail closed) when staffness cannot be determined',
+            scopes: ['batch_import_support:read'],
+            getUser: undefined,
+            visible: false,
+        },
+        {
+            // The staff endpoints reject tenant-scoped keys, so discovery must not
+            // advertise tools whose every call would 403.
+            description: 'hidden for a tenant-scoped key even with staff + explicit scope',
+            scopes: ['batch_import_support:read', 'user:read'],
+            getUser: async () => ({ is_staff: true }),
+            apiKeyExtra: { scoped_organizations: ['0195b1a0-0000-0000-0000-000000000000'] },
+            visible: false,
+        },
+    ])('$description', async ({ scopes, getUser, visible, apiKeyExtra }) => {
+        const context = createMockContext(scopes, getUser, apiKeyExtra)
+        const tools = await getToolsFromContext(context)
+        const toolNames = tools.map((t) => t.name)
+
+        for (const tool of STAFF_TOOLS) {
+            if (visible) {
+                expect(toolNames).toContain(tool)
+            } else {
+                expect(toolNames).not.toContain(tool)
+            }
+        }
+    })
+})
+
 /**
  * Asserts that every tool in `toolNames` has an empty `required_scopes` array
  * in its definition. Used by the "user has no scopes" tests so they don't
@@ -369,6 +431,11 @@ describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
         'signal_scout_report:write',
     ])
 
+    // OAuth-hidden scopes (generated from OAUTH_HIDDEN_SCOPE_OBJECTS in posthog/scopes.py)
+    // are PAT-grantable but never OAuth-advertised: tools requiring one (e.g. the staff-only
+    // managed-migrations support tools) only surface for personal API keys carrying it.
+    const oauthHiddenScopes = new Set<string>(OAUTH_SCOPES_HIDDEN)
+
     it('should include every scope referenced in tool definitions', () => {
         const supportedScopes = new Set<string>(OAUTH_SCOPES_SUPPORTED)
 
@@ -382,7 +449,7 @@ describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
         }
 
         const missing = [...scopesFromTools]
-            .filter((s) => !supportedScopes.has(s) && !SERVER_MINT_ONLY_SCOPES.has(s))
+            .filter((s) => !supportedScopes.has(s) && !SERVER_MINT_ONLY_SCOPES.has(s) && !oauthHiddenScopes.has(s))
             .sort()
 
         expect(

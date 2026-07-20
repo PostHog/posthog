@@ -17,6 +17,7 @@ from posthog.api.llm_prompt_serializers import (
     validate_prompt_label_name_value,
 )
 from posthog.api.services.llm_prompt import MAX_PROMPT_VERSION
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.rate_limit import BurstRateThrottle, LLMPromptPublishBurstRateThrottle, SustainedRateThrottle
 
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptLabel
@@ -1073,6 +1074,107 @@ class TestLLMPromptLabelsAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert LLMPromptLabel.objects.filter(team=self.team).count() == 0
+
+    def _fetch_by_label(self, prompt_name: str, label_name: str):
+        return self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/{prompt_name}/?label={label_name}")
+
+    def _set_label_committed(self, prompt_name: str, label_name: str, version: int):
+        # Cache invalidation rides on transaction.on_commit, which TestCase never fires
+        # on its own — execute the callbacks so these tests exercise the invalidation
+        # exactly as a committed request would.
+        with self.captureOnCommitCallbacks(execute=True):
+            return self._set_label(prompt_name, label_name, version)
+
+    def test_fetch_by_label_returns_resolved_version_and_survives_label_move(self):
+        self.create_prompt_version(version=1, is_latest=False, prompt="v1 content")
+        self.create_prompt_version(version=2, prompt="v2 content")
+        self._set_label_committed("my-prompt", "production", 1)
+
+        first_fetch = self._fetch_by_label("my-prompt", "production")
+        assert first_fetch.status_code == status.HTTP_200_OK
+        assert first_fetch.json()["version"] == 1
+        assert first_fetch.json()["prompt"] == "v1 content"
+        assert first_fetch.json()["label"] == "production"
+
+        # The move must invalidate the cached label entry the first fetch created —
+        # a stale entry here means the promote button silently doesn't promote.
+        self._set_label_committed("my-prompt", "production", 2)
+
+        second_fetch = self._fetch_by_label("my-prompt", "production")
+        assert second_fetch.status_code == status.HTTP_200_OK
+        assert second_fetch.json()["version"] == 2
+        assert second_fetch.json()["prompt"] == "v2 content"
+
+    def test_fetch_by_label_after_cached_miss_sees_newly_created_label(self):
+        self.create_prompt_version(version=1)
+
+        # This 404 caches a miss sentinel; creating the label must clear it.
+        assert self._fetch_by_label("my-prompt", "production").status_code == status.HTTP_404_NOT_FOUND
+
+        self._set_label_committed("my-prompt", "production", 1)
+
+        response = self._fetch_by_label("my-prompt", "production")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["version"] == 1
+
+    def test_fetch_rejects_invalid_label_params(self):
+        self.create_prompt_version(version=1)
+        self._set_label("my-prompt", "production", 1)
+
+        both_params = self.client.get(
+            f"/api/environments/{self.team.id}/llm_prompts/name/my-prompt/?label=production&version=1"
+        )
+        # Invalid names must be rejected before any cache touch — an unvalidated fetch
+        # writes a miss sentinel under a caller-controlled key and silently 404s.
+        bad_name = self._fetch_by_label("my-prompt", "Production")
+
+        assert both_params.status_code == status.HTTP_400_BAD_REQUEST
+        assert bad_name.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_fetch_by_label_404s_after_label_delete_and_prompt_archive(self):
+        self.create_prompt_version(version=1)
+        self._set_label_committed("my-prompt", "production", 1)
+        assert self._fetch_by_label("my-prompt", "production").status_code == status.HTTP_200_OK
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.delete(self._label_url("my-prompt", "production"))
+        assert self._fetch_by_label("my-prompt", "production").status_code == status.HTTP_404_NOT_FOUND
+
+        self._set_label_committed("my-prompt", "production", 1)
+        assert self._fetch_by_label("my-prompt", "production").status_code == status.HTTP_200_OK
+
+        # Archive removes labels via a queryset delete — its post_delete signals must
+        # clear the label cache entries too, not just the explicit delete endpoint path.
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(f"/api/environments/{self.team.id}/llm_prompts/name/my-prompt/archive/")
+        assert self._fetch_by_label("my-prompt", "production").status_code == status.HTTP_404_NOT_FOUND
+
+    def test_label_changes_are_activity_logged_with_version_movement(self):
+        self.create_prompt_version(version=1, is_latest=False)
+        self.create_prompt_version(version=2)
+
+        self._set_label("my-prompt", "production", 1)
+        self._set_label("my-prompt", "production", 2)
+        self._set_label("my-prompt", "production", 2)  # no-op move must not log
+        self.client.delete(self._label_url("my-prompt", "production"))
+
+        entries = list(ActivityLog.objects.filter(team_id=self.team.id, scope="LLMPromptLabel").order_by("created_at"))
+        assert [entry.activity for entry in entries] == ["created", "updated", "deleted"]
+        move_detail = entries[1].detail
+        assert move_detail is not None
+        assert move_detail["name"] == "my-prompt: production"
+        assert move_detail["changes"][0]["before"] == 1
+        assert move_detail["changes"][0]["after"] == 2
+        assert entries[1].user is not None and entries[1].user.id == self.user.id
+
+    def test_archive_logs_label_deletion(self):
+        self.create_prompt_version(version=1)
+        self._set_label("my-prompt", "production", 1)
+
+        self.client.post(f"/api/environments/{self.team.id}/llm_prompts/name/my-prompt/archive/")
+
+        deletions = ActivityLog.objects.filter(team_id=self.team.id, scope="LLMPromptLabel", activity="deleted")
+        assert deletions.count() == 1
 
     def test_label_writes_forbidden_for_read_only_personal_api_key(self):
         self.create_prompt_version(version=1)

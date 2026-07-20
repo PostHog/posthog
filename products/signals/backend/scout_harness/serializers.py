@@ -278,23 +278,45 @@ class RecentEmissionsQuerySerializer(serializers.Serializer):
 
 
 class FleetFindingsSummarySerializer(serializers.Serializer):
-    """Fleet-wide tally of recently emitted findings — backs the "Scout findings" callout so it
-    renders from one cheap query instead of the client walking the whole paginated runs window."""
+    """Fleet-wide tally of recent scout output — legacy `emit_signal` findings plus reports
+    authored/edited via the report channel. Backs the "Scout findings" callout so it renders
+    from one cheap query instead of the client walking the whole paginated runs window."""
 
     count = serializers.IntegerField(
         help_text=(
-            "Total findings the fleet emitted in the window — the sum of each emitted run's "
-            "`emitted_count`, over the most recent 120 emitted runs."
+            "Total findings the fleet emitted in the window — the sum of each run's "
+            "`emitted_count`, over the most recent 120 runs that produced output."
         )
     )
     scout_count = serializers.IntegerField(
-        help_text="Number of distinct scouts (skills) that emitted at least one finding in the window."
+        help_text=(
+            "Number of distinct scouts (skills) that produced output in the window — emitted a "
+            "finding, or authored/edited an inbox report that survives the 50-report cap (a "
+            "report-only scout whose touched reports all fell outside the cap is not counted, "
+            "matching the findings page's scout filter)."
+        )
+    )
+    authored_report_count = serializers.IntegerField(
+        help_text=(
+            "Number of distinct inbox reports scouts authored via `emit_report`, deduped across runs, "
+            "over the same most-recent-120-output-runs set as `count`, capped to the 50 most recently "
+            "touched reports (the same slice the findings page lists)."
+        )
+    )
+    edited_report_count = serializers.IntegerField(
+        help_text=(
+            "Number of distinct inbox reports scouts edited via `edit_report`, deduped across runs, "
+            "over the same most-recent-120-output-runs set as `count`, capped to the 50 most recently "
+            "touched reports (the same slice the findings page lists) and excluding reports also "
+            "authored within that set (authoring supersedes an edit; a report whose authoring run "
+            "falls outside the cap counts as edited)."
+        )
     )
     latest_at = serializers.DateTimeField(
         allow_null=True,
         help_text=(
-            "ISO-8601 timestamp of the most recently emitted finding's run (TaskRun completion, "
-            "falling back to run creation), or null when nothing was emitted in the window."
+            "ISO-8601 timestamp of the most recent output run (TaskRun completion, falling back "
+            "to run creation), or null when nothing was produced in the window."
         ),
     )
 
@@ -623,6 +645,20 @@ class SuggestedReviewerSerializer(serializers.Serializer):
             "PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). "
             "Resolved server-side to the member's linked GitHub login — use this when you know the PostHog "
             "user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here."
+        ),
+    )
+
+    reason = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=500,
+        help_text=(
+            "One sentence of evidence for WHY this person: what ties them to the affected surface "
+            "(e.g. 'authored 4 of the last 10 commits touching products/tracing/mcp/', 'human "
+            "correction routed the prior tracing report to them'). Persisted on the report so the "
+            "routing is auditable — always set it when you can name the evidence; 'precedent' alone "
+            "is weak, prefer code-derived ownership."
         ),
     )
 

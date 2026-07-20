@@ -20,7 +20,12 @@ from products.tasks.backend.constants import SNAPSHOT_KIND_FILESYSTEM
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
 from products.tasks.backend.temporal.create_snapshot.workflow import CreateSnapshotForRepositoryInput
-from products.tasks.backend.temporal.process_task.activities.get_pr_context import GetPrContextInput, get_pr_context
+from products.tasks.backend.temporal.patches import ci_follow_up_actionable_gate
+from products.tasks.backend.temporal.process_task.activities.get_pr_context import (
+    GetPrContextInput,
+    get_pr_context,
+    is_pr_actionable,
+)
 
 from .activities.cleanup_sandbox import (
     CleanupSandboxInput,
@@ -114,6 +119,8 @@ class ResumedSandboxState:
     first_user_message_received: bool
     is_agent_design_enabled: bool
     last_active_time: Optional[str]  # ISO8601, or None if never active
+    # Defaulted so continue_as_new payloads from pre-rollout runs deserialize.
+    pr_unresolved_threads: int = 0
 
 
 @dataclass
@@ -131,6 +138,9 @@ class ProcessTaskInput:
 class PendingFollowup:
     message: str | None
     artifact_ids: list[str]
+    # Sender-supplied idempotency key (stable across the sender's retries);
+    # None falls back to a workflow-generated id.
+    message_id: str | None = None
 
 
 @dataclass
@@ -269,6 +279,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         # exception handler onto the right card.
         self._current_progress_step: Optional[tuple[str, str, str]] = None
         self._pr_fingerprint: Optional[str] = None
+        # Last observed unresolved review-thread count. Starting at 0 means
+        # feedback posted before the first poll still reads as new.
+        self._pr_unresolved_threads: int = 0
         # Emit the "PR opened / keeping CI green" progress once, the first time we observe a PR — the
         # agent opens it mid-run and then keeps it green, so without this the UI dead-ends at "Started agent".
         self._pr_progress_emitted: bool = False
@@ -481,18 +494,19 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 },
             )
             return CIFollowUpDecision.SKIP
-        if self._pr_fingerprint != pr_context.fingerprint:
-            workflow.logger.info(
-                "PR context has changed, running CI follow-up",
-                extra={
-                    "run_id": self.context.run_id,
-                    "pr_url": pr_context.pr_url,
-                    "pr_state": pr_context.pr_state,
-                },
-            )
+        fingerprint_changed = self._pr_fingerprint != pr_context.fingerprint
+        if not ci_follow_up_actionable_gate():
+            # Legacy replay path: any fingerprint change fires; feedback is not consulted.
+            if not fingerprint_changed:
+                return CIFollowUpDecision.SKIP
             self._pr_fingerprint = pr_context.fingerprint
             return CIFollowUpDecision.FIRE
-        else:
+        # New unresolved review threads are feedback for the agent, and comparing
+        # against the last-seen count means its own thread replies (which never
+        # resolve anything) can't re-trigger it.
+        new_feedback = pr_context.unresolved_threads > self._pr_unresolved_threads
+        self._pr_unresolved_threads = pr_context.unresolved_threads
+        if not fingerprint_changed and not new_feedback:
             workflow.logger.info(
                 "PR context has not changed, skipping CI follow-up",
                 extra={
@@ -502,6 +516,22 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 },
             )
             return CIFollowUpDecision.SKIP
+        self._pr_fingerprint = pr_context.fingerprint
+        fire = (fingerprint_changed and is_pr_actionable(pr_context)) or new_feedback
+        workflow.logger.info(
+            "PR context has changed, deciding CI follow-up",
+            extra={
+                "run_id": self.context.run_id,
+                "pr_url": pr_context.pr_url,
+                "pr_state": pr_context.pr_state,
+                "ci_status": pr_context.ci_status,
+                "changes_requested": pr_context.changes_requested,
+                "unresolved_threads": pr_context.unresolved_threads,
+                "new_feedback": new_feedback,
+                "fire": fire,
+            },
+        )
+        return CIFollowUpDecision.FIRE if fire else CIFollowUpDecision.SKIP
 
     async def _dispatch_ci_follow_up(self) -> None:
         self._ci_repetitions += 1
@@ -663,6 +693,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                             await self._send_followup_to_sandbox(
                                 message=message,
                                 artifact_ids=artifact_ids,
+                                message_id=pending_followup.message_id,
                             )
                             continue
 
@@ -950,6 +981,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 connect_token=self._sandbox_connect_token,
                 ci_repetitions=self._ci_repetitions,
                 pr_fingerprint=self._pr_fingerprint,
+                pr_unresolved_threads=self._pr_unresolved_threads,
                 pr_progress_emitted=self._pr_progress_emitted,
                 first_user_message_received=self._first_user_message_received,
                 is_agent_design_enabled=self._is_agent_design_enabled,
@@ -961,6 +993,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._is_agent_design_enabled = resumed.is_agent_design_enabled
         self._ci_repetitions = resumed.ci_repetitions
         self._pr_fingerprint = resumed.pr_fingerprint
+        self._pr_unresolved_threads = resumed.pr_unresolved_threads
         self._pr_progress_emitted = resumed.pr_progress_emitted
         self._first_user_message_received = resumed.first_user_message_received
         self._last_active_time = datetime.fromisoformat(resumed.last_active_time) if resumed.last_active_time else None
@@ -1777,7 +1810,21 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._last_active_time = workflow.now()
 
     @temporalio.workflow.signal
-    async def send_followup_message(self, message: str | None = None, artifact_ids: Optional[list[str]] = None) -> None:
+    async def send_followup_message(
+        self,
+        message: str | None = None,
+        artifact_ids: Optional[list[str]] = None,
+        message_id: Optional[str] = None,
+        actor_user_id: Optional[int] = None,
+        message_context: Optional[dict[str, Any]] = None,
+    ) -> None:
+        # The handler declares the full positional arg list even though only
+        # ``message`` and ``artifact_ids`` are read here. Temporal passes every
+        # positional arg a caller sends to the handler, and a handler that
+        # declares fewer params than were sent raises and fails the workflow
+        # task — so the arity must stay a superset of every caller's. Widening it
+        # here, ahead of any caller that populates the extra fields, lets this
+        # handler roll out to all workers before those callers ship.
         # Log signal arrival so we can correlate it with the adapter's "begin dispatch"
         # log below — gaps between the two point at workflow-loop backpressure.
         context = self._context
@@ -1789,7 +1836,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "artifact_count": len(artifact_ids or []),
             },
         )
-        pending_followup = PendingFollowup(message=message, artifact_ids=artifact_ids or [])
+        pending_followup = PendingFollowup(message=message, artifact_ids=artifact_ids or [], message_id=message_id)
         # Always queue. `deprecate_patch` accepts existing non-deprecated
         # markers from workflows that ran the prior `workflow.patched(...)`
         # gate, so this is safe to deploy alongside in-flight workflows. The
@@ -1844,7 +1891,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             },
         )
 
-    async def _send_followup_to_sandbox(self, message: str | None, artifact_ids: list[str]) -> None:
+    async def _send_followup_to_sandbox(
+        self, message: str | None, artifact_ids: list[str], message_id: str | None = None
+    ) -> None:
         workflow.logger.info(
             "send_followup_dispatch_begin",
             extra={
@@ -1861,7 +1910,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     message=message,
                     posthog_mcp_scopes=self._posthog_mcp_scopes,
                     artifact_ids=artifact_ids,
-                    message_id=str(workflow.uuid4()),
+                    message_id=message_id or str(workflow.uuid4()),
                 ),
                 start_to_close_timeout=timedelta(minutes=35),
                 # The activity heartbeats while blocked on the sync delivery

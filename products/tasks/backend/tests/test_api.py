@@ -7829,7 +7829,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(data["jsonrpc"], "2.0")
         self.assertTrue(data["result"]["queued"])
 
-        mock_signal_followup.assert_called_once_with(run.workflow_id, "Hello agent", [])
+        mock_signal_followup.assert_called_once_with(run.workflow_id, "Hello agent", [], None)
 
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
     def test_command_user_message_requires_code_access(self, mock_signal_followup):
@@ -7865,7 +7865,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.json()["result"]["queued"])
-        mock_signal_followup.assert_called_once_with(run.workflow_id, "Hello agent", [])
+        mock_signal_followup.assert_called_once_with(run.workflow_id, "Hello agent", [], None)
 
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
     def test_command_signals_user_message_artifact_ids(self, mock_signal_followup):
@@ -7897,7 +7897,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.json()["result"]["queued"])
-        mock_signal_followup.assert_called_once_with(run.workflow_id, "See attached", ["artifact-123"])
+        mock_signal_followup.assert_called_once_with(run.workflow_id, "See attached", ["artifact-123"], None)
 
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
     def test_command_returns_502_when_user_message_signal_fails(self, mock_signal_followup):
@@ -9469,6 +9469,33 @@ class TestSandboxCustomImageAPI(BaseTaskAPITest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.temporal.client.execute_build_sandbox_image_workflow")
+    @patch("products.tasks.backend.logic.services.image_spec.validate_spec_buildable")
+    def test_build_rejected_when_refresh_claims_image_after_initial_read(self, mock_validate, mock_workflow):
+        image = _make_custom_image(
+            team=self.team,
+            user=self.user,
+            name="img",
+            status=SandboxCustomImage.Status.READY,
+            spec={"version": 1, "apt_packages": ["git"]},
+        )
+
+        mock_validate.side_effect = lambda *_args: (
+            SandboxCustomImage.objects.for_team(self.team.id)
+            .filter(id=image.id, status=SandboxCustomImage.Status.READY)
+            .update(status=SandboxCustomImage.Status.BUILDING)
+        )
+
+        response = self.client.post(
+            self.detail_url(image.id) + "build/", {"spec_yaml": "version: 1\napt_packages: [jq]\n"}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_workflow.assert_not_called()
+        image.refresh_from_db()
+        self.assertEqual(image.status, SandboxCustomImage.Status.BUILDING)
+        self.assertEqual(image.spec["apt_packages"], ["git"])
 
     def test_other_team_image_not_reachable(self):
         other_org = Organization.objects.create(name="Other Org")

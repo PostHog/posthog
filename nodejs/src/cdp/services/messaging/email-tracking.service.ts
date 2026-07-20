@@ -15,6 +15,7 @@ import { HogFunctionManagerService } from '../managers/hog-function-manager.serv
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
+import { EmailSuppressionService } from './email-suppression.service'
 import { SesWebhookHandler } from './helpers/ses'
 import { EmailTrackingCodeSigner, trackingCodeFormatCounter } from './helpers/tracking-code'
 
@@ -143,9 +144,11 @@ export class EmailTrackingService {
         private capturedEventsService: CapturedEventsService,
         private teamWorkflowsConfigService: TeamWorkflowsConfigService,
         private recipientsManager: RecipientsManagerService,
-        private trackingCodeSigner: EmailTrackingCodeSigner
+        private trackingCodeSigner: EmailTrackingCodeSigner,
+        private emailSuppressionService: EmailSuppressionService
     ) {
-        this.sesWebhookHandler = new SesWebhookHandler(this.trackingCodeSigner)
+        const allowedTopicArns = (process.env.SES_ALLOWED_SNS_TOPIC_ARNS ?? '').split(',')
+        this.sesWebhookHandler = new SesWebhookHandler(this.trackingCodeSigner, allowedTopicArns)
     }
 
     public async trackMetric({
@@ -308,7 +311,16 @@ export class EmailTrackingService {
         }
 
         try {
-            const { status, body, metrics, logEntries, optOutRecipients } = await this.sesWebhookHandler.handleWebhook({
+            const {
+                status,
+                body,
+                metrics,
+                logEntries,
+                optOutRecipients,
+                transientBounceRecipients,
+                hardBounceRecipients,
+                deliveredRecipients,
+            } = await this.sesWebhookHandler.handleWebhook({
                 body: parseJSON(req.body),
                 headers: req.headers,
                 verifySignature: true,
@@ -374,6 +386,41 @@ export class EmailTrackingService {
                         error,
                     })
                 }
+            }
+
+            // Feed soft bounces and successful deliveries into the suppression list. Wrapped so a
+            // failure here never affects the webhook's 200 response to SNS. Deliveries are processed
+            // first so a delivery + bounce in the same batch nets out conservatively (count resets,
+            // then the fresh bounce re-counts from a clean slate).
+            try {
+                for (const { teamId, emailAddresses, timestamp } of deliveredRecipients || []) {
+                    const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
+                    if (parsedTeamId && !isNaN(parsedTeamId)) {
+                        await this.emailSuppressionService.recordDeliveries(parsedTeamId, emailAddresses, timestamp)
+                    }
+                }
+                for (const { teamId, emailAddresses, diagnostic } of transientBounceRecipients || []) {
+                    const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
+                    if (parsedTeamId && !isNaN(parsedTeamId)) {
+                        await this.emailSuppressionService.recordTransientBounces(
+                            parsedTeamId,
+                            emailAddresses,
+                            diagnostic
+                        )
+                    }
+                }
+                // Dual-write: hard bounces still go through the opt-out path above; here we also
+                // mirror them into the suppression list so the unified deliverability view
+                // includes them ahead of phase 2 (retiring the opt-out write).
+                for (const { teamId, emailAddresses, diagnostic } of hardBounceRecipients || []) {
+                    const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
+                    if (parsedTeamId && !isNaN(parsedTeamId)) {
+                        await this.emailSuppressionService.recordHardBounces(parsedTeamId, emailAddresses, diagnostic)
+                    }
+                }
+            } catch (error) {
+                logger.error('[EmailTrackingService] Failed to update suppression list', { error })
+                emailTrackingErrorsCounter.inc({ error_type: 'suppression_update_failed', source: 'ses' })
             }
 
             return { status, message: body as string }
