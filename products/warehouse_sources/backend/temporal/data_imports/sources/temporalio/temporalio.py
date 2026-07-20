@@ -70,7 +70,13 @@ _RETRYABLE_RPC_STATUSES = frozenset({RPCStatusCode.RESOURCE_EXHAUSTED, RPCStatus
 # rather than one of the transient statuses above. It's a connection blip, not the server
 # rejecting the request, so ride it out the same way. Match the stable transport phrase, not the
 # whole UNKNOWN status, so genuine server-side UNKNOWN failures still surface.
-_RETRYABLE_RPC_MESSAGES = ("h2 protocol error",)
+#
+# tonic's timeout layer cancels a call that outruns the core client's per-request RPC deadline and
+# surfaces it as status CANCELLED with the message "Timeout expired" — a client-side timeout on a
+# single read (ListWorkflowExecutions / GetWorkflowExecutionHistory), not the server rejecting the
+# request. It's the client-side analog of the DEADLINE_EXCEEDED case above, so ride it out too.
+# Match the phrase rather than the whole CANCELLED status so a genuine cancellation still surfaces.
+_RETRYABLE_RPC_MESSAGES = ("h2 protocol error", "Timeout expired")
 
 
 def _is_retryable_rpc_error(error: RPCError) -> bool:
