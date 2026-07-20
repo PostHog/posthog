@@ -103,6 +103,39 @@ async def test_failed_fires_completed_with_failure_reason(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+async def test_failed_completed_carries_underlying_error_details(ateam):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=4,
+        total_weight=2.0,
+    )
+    report_id = str(report.id)
+
+    with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture") as capture:
+        await mark_report_failed_activity(
+            MarkReportFailedInput(
+                team_id=ateam.id,
+                report_id=report_id,
+                error="Activity task failed",
+                failure_reason="agentic_activity_error",
+                failure_error_type="GitHubIntegrationError",
+                failure_error_message="GitHub installation suspended",
+                signal_count=4,
+                source_products=["linear"],
+            )
+        )
+
+    pipeline_calls = [call for call in capture.call_args_list if call.kwargs["event"] != "signal_report_status_changed"]
+    assert len(pipeline_calls) == 1
+    props = pipeline_calls[0].kwargs["properties"]
+    assert props["failure_reason"] == "agentic_activity_error"
+    assert props["failure_error_type"] == "GitHubIntegrationError"
+    assert props["failure_error_message"] == "GitHub installation suspended"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_failed_is_idempotent_when_already_failed(ateam):
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
