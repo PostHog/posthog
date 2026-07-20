@@ -85,7 +85,8 @@ def _normalize_member(item: dict[str, Any]) -> dict[str, Any]:
 def validate_credentials(username: str, api_token: str) -> bool:
     """Confirm the user token is valid. /whoami is a cheap authenticated probe."""
     ok, _status = validate_via_probe(
-        lambda: make_tracked_session(redact_values=(api_token,)),
+        # Redirects pinned off on the session so a 3xx can't carry the Basic-auth credential off-host.
+        lambda: make_tracked_session(redact_values=(api_token,), allow_redirects=False),
         f"{GURU_BASE_URL}/whoami",
         auth=HTTPBasicAuth(username, api_token),
     )

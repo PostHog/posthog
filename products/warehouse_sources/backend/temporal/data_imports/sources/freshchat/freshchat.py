@@ -177,7 +177,8 @@ def validate_credentials(domain: str, api_key: str) -> Optional[int]:
     Hits the account-configuration endpoint — the cheapest resource any valid token can read.
     """
     _ok, status = validate_via_probe(
-        lambda: make_tracked_session(redact_values=(api_key,)),
+        # Redirects pinned off on the session so a 3xx can't carry the token to another host.
+        lambda: make_tracked_session(redact_values=(api_key,), allow_redirects=False),
         f"{_base_url(domain)}/accounts/configuration",
         headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
         timeout=VALIDATE_TIMEOUT,

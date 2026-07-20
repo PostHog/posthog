@@ -331,3 +331,14 @@ class TestValidateCredentials:
             validate_credentials(BASE_HOST, "secret-key")
 
         assert mock_make.call_args.kwargs.get("redact_values") == ("secret-key",)
+
+    def test_probe_disables_redirects_to_protect_token(self) -> None:
+        # The token rides on the probe; the session must be built with redirects pinned off so a
+        # redirect can't replay it to the redirect target during validation.
+        session = mock.MagicMock()
+        session.get.return_value = _resp(None, status=200)
+
+        with mock.patch(FRESHCHAT_SESSION_PATCH, return_value=session) as mock_make:
+            validate_credentials(BASE_HOST, "key")
+
+        assert mock_make.call_args.kwargs.get("allow_redirects") is False

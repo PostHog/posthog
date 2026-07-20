@@ -200,6 +200,14 @@ class TestValidateCredentials:
         mock_session.return_value.get.side_effect = Exception("boom")
         assert validate_credentials("user@company.com", "token") is False
 
+    @mock.patch(GURU_SESSION_PATCH)
+    def test_probe_disables_redirects_to_protect_credential(self, mock_session):
+        # The Basic-auth credential rides on the probe; the session must be built with redirects
+        # pinned off so a redirect can't replay it to the redirect target during validation.
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
+        validate_credentials("user@company.com", "token")
+        assert mock_session.call_args.kwargs.get("allow_redirects") is False
+
 
 class TestGetRows:
     @mock.patch(CLIENT_SESSION_PATCH)

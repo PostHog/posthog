@@ -163,7 +163,8 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     Invoiced API keys are account-wide, so one probe validates access to every list endpoint.
     """
     ok, status = validate_via_probe(
-        lambda: make_tracked_session(redact_values=(api_key,)),
+        # Redirects pinned off on the session so a 3xx can't carry the Basic-auth API key off-host.
+        lambda: make_tracked_session(redact_values=(api_key,), allow_redirects=False),
         f"{INVOICED_BASE_URL}{DEFAULT_PROBE_PATH}?per_page=1",
         auth=HttpBasicAuth(username=api_key, password=""),
         timeout=15,

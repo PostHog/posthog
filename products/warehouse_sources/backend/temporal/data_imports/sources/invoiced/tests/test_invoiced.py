@@ -264,6 +264,14 @@ class TestValidateCredentials:
         assert ok is False
         assert message is not None and "Could not connect to Invoiced" in message
 
+    @mock.patch(INVOICED_SESSION_PATCH)
+    def test_probe_disables_redirects_to_protect_api_key(self, mock_session: mock.MagicMock) -> None:
+        # The Basic-auth API key rides on the probe; the session must be built with redirects pinned
+        # off so a redirect can't replay it to the redirect target during validation.
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
+        validate_credentials("good-key")
+        assert mock_session.call_args.kwargs.get("allow_redirects") is False
+
 
 class TestInvoicedSourceResponse:
     def test_response_metadata(self) -> None:
