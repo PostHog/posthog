@@ -1106,4 +1106,9 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(methods=["GET"], detail=False, url_path="check-schema-name")
     def check_schema_name(self, request: Request, **kwargs) -> Response:
         """Check if a schema name is free within the organization's managed warehouse."""
+        # Same gate as onboard_team: the check scans every project's schema in the org, so a
+        # non-admin could otherwise probe names and learn what inaccessible projects use.
+        admin_error = self._require_organization_admin(request, "check schema names for")
+        if admin_error:
+            return admin_error
         return managed_warehouse.check_schema_name(self.team.organization_id, request.query_params.get("name"))

@@ -119,7 +119,7 @@ export function SettingsTab(): JSX.Element {
         setSchemaName,
         onboardTeam,
     } = useActions(warehouseProvisioningLogic)
-    const deprovisionRestrictionReason = useRestrictedArea({
+    const adminRestrictionReason = useRestrictedArea({
         scope: RestrictionScope.Organization,
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
     })
@@ -308,11 +308,20 @@ export function SettingsTab(): JSX.Element {
                         <ConnectionDetails connection={warehouseStatus.connection} />
                     )}
 
-                    {isReady && !teamOnboarded && (
+                    {isReady && !teamOnboarded && adminRestrictionReason && (
                         <div className="border rounded p-4 space-y-3">
                             <h3 className="mb-0">Your organization's warehouse is running</h3>
                             <p className="text-muted text-xs mb-0">
-                                This project isn't part of it yet. Pick a schema name to enable it — the project's data
+                                This project isn't part of it yet. Ask an organization admin to enable it here.
+                            </p>
+                        </div>
+                    )}
+
+                    {isReady && !teamOnboarded && !adminRestrictionReason && (
+                        <div className="border rounded p-4 space-y-3">
+                            <h3 className="mb-0">Your organization's warehouse is running</h3>
+                            <p className="text-muted text-xs mb-0">
+                                This project isn't part of it yet. Pick a schema name to enable it. The project's data
                                 lands in its own schema so it doesn't mix with other projects. Unlike the project name,
                                 the schema name cannot be changed later.
                             </p>
@@ -402,7 +411,7 @@ export function SettingsTab(): JSX.Element {
                                 type="secondary"
                                 status="danger"
                                 loading={isDeprovisioning}
-                                disabledReason={deprovisionRestrictionReason ?? undefined}
+                                disabledReason={adminRestrictionReason ?? undefined}
                                 onClick={() => {
                                     LemonDialog.open({
                                         title: 'Deprovision managed warehouse?',
