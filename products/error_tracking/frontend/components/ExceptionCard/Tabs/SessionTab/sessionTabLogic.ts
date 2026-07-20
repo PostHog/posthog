@@ -61,7 +61,7 @@ export interface sessionTabLogicValues {
 export interface sessionTabLogicActions {
     seekToTimestamp: (
         timestamp: number,
-        forcePlay?: boolean
+        forcePlay?: boolean | undefined
     ) => {
         forcePlay: boolean
         timestamp: number

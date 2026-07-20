@@ -42,6 +42,7 @@ class CimisSource(SimpleSource[CimisSourceConfig]):
     # get_schemas iterates a static endpoint catalog with no I/O, so the table list is safe to surface
     # in public docs without credentials.
     lists_tables_without_credentials = True
+    api_docs_url = "https://et.water.ca.gov/Rest/Index"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

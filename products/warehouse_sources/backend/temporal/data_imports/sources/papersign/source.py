@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class PapersignSource(ResumableSource[PapersignSourceConfig, PapersignResumeConfig]):
     supported_versions = ("v1",)
     default_version = "v1"
+    api_docs_url = "https://paperform.readme.io/reference/papersign"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

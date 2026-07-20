@@ -32,6 +32,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class VultrSource(SimpleSource[VultrSourceConfig]):
     # get_schemas is a static endpoint catalog with no I/O, so the table list is safe for public docs.
     lists_tables_without_credentials = True
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://www.vultr.com/api/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

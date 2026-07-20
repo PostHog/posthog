@@ -286,15 +286,17 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     def save(self, *args: Any, **kwargs: Any) -> None:
         """Keep `condition_type` derived from `filters` on every save, so any creation path
         (the cohorts API, management commands, or a direct `Cohort.objects.create(...)`)
-        ends up with a consistent classification, not just the API serializer's flow."""
+        ends up with a consistent classification, not just the API serializer's flow.
+
+        `cohort_type` isn't derived here — it's computed by the API serializer
+        (`validate_filters_and_compute_realtime_support`) — so a direct `Cohort.objects.create(...)`
+        gets a fresh `condition_type` but a stale/absent `cohort_type`."""
         # update_fields can arrive positionally (4th positional, after force_insert/force_update/using)
         # or as a keyword. Intercept it so _maintain_behavioral_shape can extend the frozen set.
         update_fields = args[3] if len(args) > 3 else kwargs.get("update_fields")
-        if update_fields is None:
+        if update_fields is None or "filters" in update_fields:
             self.condition_type = Cohort.compute_condition_type(self.filters)
-        elif "filters" in update_fields:
-            self.condition_type = Cohort.compute_condition_type(self.filters)
-            if "condition_type" not in update_fields:
+            if update_fields is not None and "condition_type" not in update_fields:
                 update_fields = [*update_fields, "condition_type"]
 
         maintained_update_fields = self._maintain_behavioral_shape(update_fields)
@@ -634,6 +636,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         *,
         team_id: Optional[int] = None,
         batch_size: int = DEFAULT_COHORT_INSERT_BATCH_SIZE,
+        raise_on_error: bool = False,
     ) -> int:
         """
         Insert a list of users identified by their distinct ID into the cohort, for the given team.
@@ -642,6 +645,10 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             items: List of distinct IDs of users to be inserted into the cohort.
             team_id: ID of the team for which to insert the users. Defaults to `self.team`, because of a lot of existing usage in tests.
             batch_size: Number of records to process in each batch. Defaults to 1000.
+            raise_on_error: When True, a batch insert failure is re-raised and terminal cohort
+                state is left for the caller to finalize, instead of being swallowed and
+                recorded on the cohort here. Use when the caller must not treat a partial
+                insert as success.
         """
         if team_id is None:
             team_id = self.team_id
@@ -661,7 +668,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 return get_person_uuids_by_distinct_ids(team_id, items[start_idx:end_idx])
 
         batch_iterator = FunctionBatchIterator(create_uuid_batch, batch_size=batch_size, max_items=len(items))
-        return self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=True, team_id=team_id)
+        return self._insert_users_list_with_batching(
+            batch_iterator, insert_in_clickhouse=True, team_id=team_id, raise_on_error=raise_on_error
+        )
 
     def insert_users_list_by_uuid(
         self,

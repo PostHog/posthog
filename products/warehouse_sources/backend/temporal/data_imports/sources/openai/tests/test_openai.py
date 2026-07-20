@@ -113,6 +113,13 @@ class TestBucketParams:
         assert params["start_time"] == int(datetime(2020, 1, 1, tzinfo=UTC).timestamp())
         assert params["limit"] == 180
 
+    def test_costs_groups_only_by_dimensions_the_api_accepts(self) -> None:
+        # api_key_id grouping is rejected by the live costs endpoint with a 400 that fails the whole
+        # sync, even though the SDK types list it.
+        config = OPENAI_ENDPOINTS["costs"]
+        _, multi = _bucket_params(config, should_use_incremental_field=False, db_incremental_field_last_value=None)
+        assert multi == {"group_by": ["project_id", "line_item"]}
+
 
 class TestFlattenBucketResult:
     def test_flattens_nested_amount_and_converts_bucket_times(self) -> None:
@@ -328,6 +335,47 @@ class TestProjectFanOut:
         ]
         rows = _collect(_FakeResumableManager(), monkeypatch, responses, "project_users")
         assert [(r["project_id"], r["id"]) for r in rows] == [("proj_1", "user_1"), ("proj_2", "user_1")]
+
+    def test_400_on_one_project_is_skipped_and_others_still_import(self, monkeypatch: Any) -> None:
+        # A single project can reject listing its sub-resources with a 400 even for a valid admin
+        # key (e.g. the org's default project). That must skip only that project, not fail the whole
+        # endpoint's sync — a 400 on proj_1 here still lets proj_2 import.
+        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
+            if "/projects/proj_1/" in url:
+                raise requests.HTTPError("400 Client Error", response=MagicMock(status_code=400))
+            if "/projects/proj_2/" in url:
+                return {"data": [{"id": "user_1"}], "has_more": False, "last_id": "user_1"}
+            return {"data": [{"id": "proj_1"}, {"id": "proj_2"}], "has_more": False, "last_id": "proj_2"}
+
+        monkeypatch.setattr(openai, "_fetch_page", fake_fetch)
+        rows: list[dict] = []
+        for table in get_rows(
+            api_key="sk-admin-test",
+            endpoint="project_users",
+            logger=MagicMock(),
+            resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+        ):
+            rows.extend(table.to_pylist())
+        assert [(r["project_id"], r["id"]) for r in rows] == [("proj_2", "user_1")]
+
+    def test_non_400_http_error_still_propagates(self, monkeypatch: Any) -> None:
+        # Only a 400 is a per-project skip; other client errors must surface so real failures aren't
+        # silently swallowed.
+        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
+            if "/projects/proj_1/" in url:
+                raise requests.HTTPError("404 Client Error", response=MagicMock(status_code=404))
+            return {"data": [{"id": "proj_1"}], "has_more": False, "last_id": "proj_1"}
+
+        monkeypatch.setattr(openai, "_fetch_page", fake_fetch)
+        with pytest.raises(requests.HTTPError):
+            list(
+                get_rows(
+                    api_key="sk-admin-test",
+                    endpoint="project_users",
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                )
+            )
 
     def test_flushes_each_projects_rows_before_checkpointing_next(self, monkeypatch: Any) -> None:
         # A project's buffered rows must be yielded before the resume cursor advances to the next

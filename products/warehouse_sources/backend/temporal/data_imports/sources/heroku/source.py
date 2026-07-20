@@ -37,6 +37,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class HerokuSource(ResumableSource[HerokuSourceConfig, HerokuResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("3",)  # Accept header: application/vnd.heroku+json; version=3
+    default_version = "3"
+    api_docs_url = "https://devcenter.heroku.com/articles/platform-api-reference"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

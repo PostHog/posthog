@@ -36,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class XmattersSource(ResumableSource[XmattersSourceConfig, XmattersResumeConfig]):
+    api_docs_url = "https://help.xmatters.com/xmapi/index.html"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     # The stored password/API key is sent to the host derived from `subdomain`, so retargeting

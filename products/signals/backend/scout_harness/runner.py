@@ -27,7 +27,7 @@ from products.signals.backend.scout_harness.skill_loader import (
     load_skill_for_run,
     skill_uses_report_channel,
 )
-from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
+from products.signals.backend.scout_harness.team_limits import github_read_access_for_team, withheld_skills_for_team
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
@@ -145,7 +145,7 @@ async def arun_signals_scout(
             extra={"team_id": team_id},
         )
     skill = await database_sync_to_async(load_skill_for_run, thread_sensitive=False)(
-        team, skill_name, version=skill_version
+        team, skill_name, version=skill_version, include_authors=True
     )
     config = await database_sync_to_async(_resolve_config, thread_sensitive=False)(team, skill.name)
 
@@ -390,6 +390,32 @@ async def _spawn_and_run(
         SIGNALS_SCOUT_SANDBOX_ENV_NAME,
         tasks_facade.SandboxNetworkAccessLevel.TRUSTED,
     )
+    report_channel = skill_uses_report_channel(skill.allowed_tools)
+    # Scout sandboxes never get the write-capable installation token: task creation attaches the
+    # team's GitHub integration to every task, so without this request a repo-less scout run on a
+    # GitHub-connected team is silently provisioned with the FULL token. Requesting read access on
+    # every scout run downscopes that to a read-only mint (or nothing when the mint fails) —
+    # a strict privilege reduction, independent of the prompt-guidance flag below.
+    #
+    # The `gh` guidance in the prompt is gated separately: report-channel scouts only, the
+    # `github_read_access` posture in the `signals-scout` flag payload (default on; per-team or
+    # fleet-wide `false` is the kill switch — resolved against the canonical project id, like
+    # every flag-payload lookup), AND a mint preflight — the prompt must not name `gh` when the
+    # team has no usable installation to mint from (the scout would burn budget on 401s before
+    # falling back). Repo-backed runs (the management command's `--repository` escape hatch) are
+    # excluded too: they take the full-credential provisioning path, and the section's read-only
+    # framing would misdescribe the token they actually hold.
+    github_prompt_guidance = (
+        report_channel
+        and repository is None
+        and await database_sync_to_async(github_read_access_for_team, thread_sensitive=False)(
+            team.parent_team_id or team.id
+        )
+    )
+    if github_prompt_guidance:
+        github_prompt_guidance = await database_sync_to_async(
+            tasks_facade.can_mint_readonly_github_token, thread_sensitive=False
+        )(team.id)
     # `repository` is None on the cadence path — v1 doesn't clone a repo into the
     # sandbox. The kwarg stays wired so the management command can still pass
     # `--repository` for ad-hoc local investigations; productionised repo access
@@ -413,9 +439,8 @@ async def _spawn_and_run(
         # the same posture plus `signal_scout_report:write` — so the MCP server exposes the
         # emit_report/edit_report tools. Every other scout gets plain `signals_scout` and never
         # sees them.
-        posthog_mcp_scopes=(
-            "signals_scout_reports" if skill_uses_report_channel(skill.allowed_tools) else "signals_scout"
-        ),
+        posthog_mcp_scopes=("signals_scout_reports" if report_channel else "signals_scout"),
+        github_read_access=True,
         # `None` keeps the agent-server default; an override pins the whole run on one model
         # (the `scouts-model-selection` gate routes it here). The model the gateway actually serves
         # is tagged on each $ai_generation, so per-run model is queryable in LLM analytics.
@@ -424,7 +449,9 @@ async def _spawn_and_run(
         runtime_adapter=runtime_adapter,
         reasoning_effort=reasoning_effort,
     )
-    prompt = build_run_prompt(skill, run_id=str(run_id), team_id=team.id, started_at=started_at)
+    prompt = build_run_prompt(
+        skill, run_id=str(run_id), team_id=team.id, started_at=started_at, github_read_access=github_prompt_guidance
+    )
     logger.info(
         "signals_scout: spawning sandbox",
         extra={
