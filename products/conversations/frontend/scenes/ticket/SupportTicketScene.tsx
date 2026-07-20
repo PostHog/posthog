@@ -398,9 +398,9 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     dropdownMatchSelectWidth={false}
                                 />
                             </div>
-                            <div className="flex justify-between items-center">
+                            <div className="flex justify-between items-start">
                                 <span className="text-muted-alt">Assignee</span>
-                                <div className="flex items-center gap-1">
+                                <div className="flex flex-col items-end gap-1">
                                     {user?.id != null &&
                                         !(assignee?.type === 'user' && String(assignee.id) === String(user.id)) && (
                                             <LemonButton
@@ -408,7 +408,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                                 type="tertiary"
                                                 onClick={() => setAssignee({ type: 'user', id: user.id })}
                                             >
-                                                Assign to me
+                                                <span className="text-accent">Assign to me</span>
                                             </LemonButton>
                                         )}
                                     <AssigneeSelect assignee={assignee} onChange={setAssignee}>
