@@ -3,13 +3,14 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import DateRange, MarketingAnalyticsTableQuery
+from posthog.schema import CompareFilter, DateRange, MarketingAnalyticsTableQuery
 
 from posthog import redis
 from posthog.clickhouse.query_tagging import Feature, get_query_tag_value, reset_query_tags, tags_context
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.marketing_analytics.backend.hogql_queries.marketing_lazy_precompute import (
+    ENQUEUE_FAILURE_BACKOFF_SECONDS,
     REVALIDATION_TRIGGER,
     STALE_WHILE_REVALIDATE_SECONDS,
     _query_shape_key,
@@ -84,6 +85,9 @@ class TestMarketingLazyPrecompute(BaseTest):
             # `select` gates which conversion goals get built, and a different window is different data.
             ("select", {"select": ["campaign", "cost"]}, 2),
             ("date_range", {"dateRange": DateRange(date_from="-30d")}, 2),
+            # Compare is stripped before revalidation (it drives a separate runner + window), so toggling
+            # it collapses onto the same rebuild rather than buying a second one.
+            ("compare_toggle", {"compareFilter": CompareFilter(compare=True)}, 1),
         ]
     )
     @mock.patch(_DELAY)
@@ -105,3 +109,24 @@ class TestMarketingLazyPrecompute(BaseTest):
 
         assert delay.call_count == 0
         assert get_query_tag_value("precompute_stale") is True
+
+    @mock.patch(_DELAY, side_effect=Exception("broker down"))
+    def test_broker_failure_shrinks_the_debounce_slot_to_a_backoff(self, _delay):
+        # The slot is claimed before the enqueue is confirmed. If the enqueue fails, holding it the full
+        # window would suppress every retry for 10 minutes with no rebuild in flight — release it to a
+        # short backoff so revalidation resumes soon after the broker recovers.
+        key = f"ma_swr_reval:{self.team.id}:{_query_shape_key(self.query)}"
+
+        handle_stale_served(team=self.team, query=self.query)
+
+        assert 0 < redis.get_client().ttl(key) <= ENQUEUE_FAILURE_BACKOFF_SECONDS
+
+    @mock.patch(_DELAY)
+    def test_compare_is_stripped_from_the_revalidation_query(self, delay):
+        # A compare read runs a separate previous-period runner that revalidates its own window; leaving
+        # compare on would make the task re-derive a second, un-requested comparison window.
+        query = self.query.model_copy(update={"compareFilter": CompareFilter(compare=True)})
+
+        handle_stale_served(team=self.team, query=query)
+
+        assert "compareFilter" not in delay.call_args.kwargs["query"]

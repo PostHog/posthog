@@ -21,6 +21,7 @@ that on the CACHE_WARMUP feature tag (which the Dagster warmer already sets) plu
 
 import json
 import hashlib
+from contextlib import suppress
 from typing import Any
 
 import structlog
@@ -56,6 +57,12 @@ STALE_WHILE_REVALIDATE_SECONDS = 6 * 60 * 60
 # query shape and they all go stale together; without this they would each enqueue a rebuild of the same
 # windows.
 REVALIDATION_DEBOUNCE_SECONDS = 10 * 60
+
+# If the enqueue itself fails (broker blip), hold the debounce slot only this long instead of the full
+# window. Long enough not to retry `.delay()` on every stale read during an outage — each failed publish
+# adds latency to a user-facing read — short enough that revalidation resumes soon after the broker heals,
+# rather than staying suppressed for 10 minutes with no rebuild in flight.
+ENQUEUE_FAILURE_BACKOFF_SECONDS = 30
 
 # Fields that shape only the final read, never what gets materialized, so they must not split the debounce
 # key — paging or re-sorting a stale table would otherwise enqueue a rebuild per interaction. Kept
@@ -102,6 +109,23 @@ def _query_shape_key(query: Any) -> str:
     return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
 
+def _scope_to_revalidation(query: Any) -> Any:
+    """Drop compare mode so the revalidation rebuilds only the window that actually went stale.
+
+    A compare read runs two independent runners (current + previous), each of which detects its own
+    staleness and enqueues its own window. Leaving compare on would make the task re-derive a second,
+    un-requested comparison window on top of the one it needs — double the ensure work per task.
+    """
+    compare_filter = getattr(query, "compareFilter", None)
+    if compare_filter is None or not getattr(compare_filter, "compare", False):
+        return query
+    # Drop the filter entirely rather than just flipping compare off, so a compare read and a plain read
+    # of the same window collapse onto one debounce slot instead of scheduling near-identical rebuilds.
+    scoped = query.model_copy(deep=True)
+    scoped.compareFilter = None
+    return scoped
+
+
 def enqueue_stale_revalidation(*, team: Team, query: Any) -> None:
     """Schedule a background re-run so the next read of this query shape is fresh.
 
@@ -113,14 +137,24 @@ def enqueue_stale_revalidation(*, team: Team, query: Any) -> None:
         revalidate_marketing_analytics_precompute,
     )
 
+    query = _scope_to_revalidation(query)
+    claimed = False
+    debounce_key: str | None = None
     try:
         debounce_key = f"ma_swr_reval:{team.id}:{_query_shape_key(query)}"
-        if not redis.get_client().set(debounce_key, "1", ex=REVALIDATION_DEBOUNCE_SECONDS, nx=True):
+        claimed = bool(redis.get_client().set(debounce_key, "1", ex=REVALIDATION_DEBOUNCE_SECONDS, nx=True))
+        if not claimed:
             return
         revalidate_marketing_analytics_precompute.delay(
             team_id=team.id, query=query.model_dump(mode="json", exclude_none=True)
         )
     except Exception:
+        # We may have claimed the debounce slot before the enqueue failed. Shrink it to a brief backoff so
+        # the next stale read retries soon, rather than being suppressed for the full window with no
+        # rebuild in flight — while not retrying on every read during a broker outage.
+        if claimed and debounce_key is not None:
+            with suppress(Exception):
+                redis.get_client().set(debounce_key, "1", ex=ENQUEUE_FAILURE_BACKOFF_SECONDS)
         MARKETING_PRECOMPUTE_REVALIDATION_ENQUEUE_FAILED.inc()
         logger.warning("marketing_precompute.swr_revalidation_enqueue_failed", team_id=team.id, exc_info=True)
         return

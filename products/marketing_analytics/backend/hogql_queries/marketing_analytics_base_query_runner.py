@@ -30,11 +30,13 @@ from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPr
 from posthog.models.team.team import DEFAULT_CURRENCY
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationTable
+from products.analytics_platform.backend.lazy_computation.stale_policy import is_background_warming_request
 from products.marketing_analytics.backend.hogql_queries.constants import (
     DRILL_DOWN_LEVEL_CONFIG,
     UNIFIED_CONVERSION_GOALS_CTE_ALIAS,
 )
 from products.marketing_analytics.backend.hogql_queries.marketing_lazy_precompute import (
+    BACKGROUND_WARMING_TRIGGERS,
     handle_stale_served,
     marketing_ensure_precomputed,
 )
@@ -157,6 +159,13 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         filtering). Built with the runner's user+modifiers so it's valid for resolving the final
         query, not just the factory's warehouse-name lookup."""
         modifiers = create_default_modifiers_for_team(self.team, self.modifiers)
+        # Background materialization (Dagster warmer, stale-while-revalidate task) runs userless, so under
+        # warehouse access control a userless database fails closed and hides every warehouse table — the
+        # cost adapters then enumerate empty and the ensure never fires, so warehouse-backed costs would
+        # never refresh. Bypass access control for these background writers exactly as the warmer does
+        # (the materialization INSERT is printed userless either way); user-facing reads keep self.user and
+        # the access-controlled path.
+        bypass_access_control = is_background_warming_request(BACKGROUND_WARMING_TRIGGERS)
         # Pass the runner's timings so create_for's internal spans (data_warehouse_tables,
         # filter_system_tables_for_user, saved queries, revenue views, …) surface in the query's
         # timings instead of a discarded HogQLTimings — otherwise this whole build shows as an
@@ -167,6 +176,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             modifiers=modifiers,
             timings=self.timings,
             build_postgres_foreign_keys=False,
+            bypass_warehouse_access_control=bypass_access_control,
         )
 
     @cached_property
