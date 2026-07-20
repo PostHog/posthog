@@ -237,4 +237,57 @@ describe('PropertiesTable inline editor', () => {
             expect(container.querySelector('.ph-no-capture')).not.toBeNull()
         })
     })
+
+    describe('pagination bounds mounted properties', () => {
+        // Event-detail tables pass { pageSize: 50, hideOnSinglePage: true } so an event with
+        // hundreds of properties doesn't mount them all at once. These guard that bound.
+        const manyProperties = (count: number): Record<string, string> => {
+            const props: Record<string, string> = {}
+            for (let i = 0; i < count; i++) {
+                props[`prop_${i}`] = `value_${i}`
+            }
+            return props
+        }
+
+        const renderPaginated = (properties: Record<string, string>, searchable = false): ReturnType<typeof render> =>
+            render(
+                <Provider>
+                    <PropertiesTable
+                        type={PropertyDefinitionType.Event}
+                        properties={properties}
+                        searchable={searchable}
+                        tableProps={{ pagination: { pageSize: 50, hideOnSinglePage: true } }}
+                    />
+                </Provider>
+            )
+
+        const rowCount = (container: HTMLElement): number => container.querySelectorAll('tbody tr').length
+
+        it('mounts only the first page when there are more than pageSize properties', () => {
+            const { container } = renderPaginated(manyProperties(60))
+            expect(rowCount(container)).toBe(50)
+            expect(screen.getByText(/of 60 entries/)).toBeInTheDocument()
+        })
+
+        it('hides pagination controls when all properties fit on one page', () => {
+            const { container } = renderPaginated(manyProperties(50))
+            expect(rowCount(container)).toBe(50)
+            expect(screen.queryByText(/of 50 entries/)).not.toBeInTheDocument()
+        })
+
+        it('updates the bound after searching narrows below a page', () => {
+            const { container } = renderPaginated(manyProperties(60), true)
+            expect(rowCount(container)).toBe(50)
+
+            fireEvent.change(screen.getByPlaceholderText('Search property keys and values'), {
+                target: { value: 'prop_1' },
+            })
+
+            // Only prop_1, prop_10..prop_19 match — well under a page, so no pagination.
+            const matched = rowCount(container)
+            expect(matched).toBeLessThanOrEqual(50)
+            expect(matched).toBeGreaterThan(0)
+            expect(screen.queryByText(/entries/)).not.toBeInTheDocument()
+        })
+    })
 })

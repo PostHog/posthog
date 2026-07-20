@@ -4,7 +4,13 @@ import type { Node } from '~/queries/schema/schema-general'
 
 const NO_TAB = '__no_tab__'
 
-export type ExpandedRowsByTabAndVizKey = Record<string, Record<string, number[]>>
+/**
+ * Stable identity for an expanded DataTable row. Event-backed tables key on the event's UUID/id
+ * so expansion survives reordering and refreshes; non-event tables fall back to positional index.
+ */
+export type ExpandedRowKey = string | number
+
+export type ExpandedRowsByTabAndVizKey = Record<string, Record<string, ExpandedRowKey[]>>
 export type SavedQueriesByTabAndScene = Record<string, Record<string, Node>>
 export type ChatDraftsByTab = Record<string, string>
 
@@ -13,7 +19,7 @@ export interface tabUiStateLogicValues {
     chatDraftFor: (tabId: string | undefined) => string
     chatDraftsByTab: ChatDraftsByTab
     expandedRowsByTabAndVizKey: ExpandedRowsByTabAndVizKey
-    expandedRowsFor: (tabId: string | undefined, vizKey: string) => number[]
+    expandedRowsFor: (tabId: string | undefined, vizKey: string) => ExpandedRowKey[]
     savedQueriesByTabAndScene: SavedQueriesByTabAndScene
     savedQueryFor: (tabId: string | undefined, sceneKey: string) => Node | null
 }
@@ -22,6 +28,15 @@ export interface tabUiStateLogicValues {
 export interface tabUiStateLogicActions {
     clearTabUiState: (tabId: string) => {
         tabId: string
+    }
+    reconcileExpandedRows: (
+        tabId: string | undefined,
+        vizKey: string,
+        visibleKeys: ExpandedRowKey[]
+    ) => {
+        tabId: string
+        vizKey: string
+        visibleKeys: ExpandedRowKey[]
     }
     setChatDraftForTab: (
         tabId: string | undefined,
@@ -42,9 +57,9 @@ export interface tabUiStateLogicActions {
     toggleExpandedRow: (
         tabId: string | undefined,
         vizKey: string,
-        rowIndex: number
+        rowKey: ExpandedRowKey
     ) => {
-        rowIndex: number
+        rowKey: ExpandedRowKey
         tabId: string
         vizKey: string
     }
@@ -55,7 +70,7 @@ export interface tabUiStateLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         expandedRowsFor: (
             expandedRowsByTabAndVizKey: ExpandedRowsByTabAndVizKey
-        ) => (tabId: string | undefined, vizKey: string) => number[]
+        ) => (tabId: string | undefined, vizKey: string) => ExpandedRowKey[]
         savedQueryFor: (
             savedQueriesByTabAndScene: SavedQueriesByTabAndScene
         ) => (tabId: string | undefined, sceneKey: string) => Node | null
@@ -73,10 +88,15 @@ export type tabUiStateLogicType = MakeLogicType<
 export const tabUiStateLogic = kea<tabUiStateLogicType>([
     path(['lib', 'logic', 'tabUiStateLogic']),
     actions({
-        toggleExpandedRow: (tabId: string | undefined, vizKey: string, rowIndex: number) => ({
+        toggleExpandedRow: (tabId: string | undefined, vizKey: string, rowKey: ExpandedRowKey) => ({
             tabId: tabId ?? NO_TAB,
             vizKey,
-            rowIndex,
+            rowKey,
+        }),
+        reconcileExpandedRows: (tabId: string | undefined, vizKey: string, visibleKeys: ExpandedRowKey[]) => ({
+            tabId: tabId ?? NO_TAB,
+            vizKey,
+            visibleKeys,
         }),
         clearTabUiState: (tabId: string) => ({ tabId }),
         setSavedQueryForTab: (tabId: string | undefined, sceneKey: string, query: Node | null) => ({
@@ -93,12 +113,24 @@ export const tabUiStateLogic = kea<tabUiStateLogicType>([
         expandedRowsByTabAndVizKey: [
             {} as ExpandedRowsByTabAndVizKey,
             {
-                toggleExpandedRow: (state, { tabId, vizKey, rowIndex }) => {
+                toggleExpandedRow: (state, { tabId, vizKey, rowKey }) => {
                     const tabState = state[tabId] ?? {}
                     const existing = tabState[vizKey] ?? []
-                    const next = existing.includes(rowIndex)
-                        ? existing.filter((r: number) => r !== rowIndex)
-                        : [...existing, rowIndex]
+                    const next = existing.includes(rowKey)
+                        ? existing.filter((k: ExpandedRowKey) => k !== rowKey)
+                        : [...existing, rowKey]
+                    return { ...state, [tabId]: { ...tabState, [vizKey]: next } }
+                },
+                reconcileExpandedRows: (state, { tabId, vizKey, visibleKeys }) => {
+                    const tabState = state[tabId] ?? {}
+                    const existing = tabState[vizKey] ?? []
+                    // Drop keys for events no longer in the result set. Positional (numeric)
+                    // keys are reconciled too so a reordered result can't inherit expansion.
+                    const visible = new Set(visibleKeys)
+                    const next = existing.filter((k: ExpandedRowKey) => visible.has(k))
+                    if (next.length === existing.length) {
+                        return state
+                    }
                     return { ...state, [tabId]: { ...tabState, [vizKey]: next } }
                 },
                 clearTabUiState: (state, { tabId }) => {
@@ -173,7 +205,7 @@ export const tabUiStateLogic = kea<tabUiStateLogicType>([
     selectors({
         expandedRowsFor: [
             (s) => [s.expandedRowsByTabAndVizKey],
-            (state: ExpandedRowsByTabAndVizKey): ((tabId: string | undefined, vizKey: string) => number[]) =>
+            (state: ExpandedRowsByTabAndVizKey): ((tabId: string | undefined, vizKey: string) => ExpandedRowKey[]) =>
                 (tabId, vizKey) =>
                     state[tabId ?? NO_TAB]?.[vizKey] ?? [],
         ],

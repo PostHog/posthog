@@ -76,7 +76,7 @@ describe('tabUiStateLogic', () => {
         })
         logic.mount()
         logic.actions.toggleRowExpanded(4)
-        expect(logic.values.expandedRows).toEqual([4])
+        expect(logic.values.expandedRowKeys).toEqual([4])
         logic.unmount()
 
         // Remount with the same identity — state must come back from tabUiStateLogic.
@@ -87,7 +87,7 @@ describe('tabUiStateLogic', () => {
             query: dataTableQuery,
         })
         logic.mount()
-        expect(logic.values.expandedRows).toEqual([4])
+        expect(logic.values.expandedRowKeys).toEqual([4])
         logic.unmount()
     })
 
@@ -108,11 +108,11 @@ describe('tabUiStateLogic', () => {
             query: dataTableQuery,
         })
         logicB.mount()
-        expect(logicB.values.expandedRows).toEqual([])
+        expect(logicB.values.expandedRowKeys).toEqual([])
         logicB.actions.toggleRowExpanded(2)
 
-        expect(logicA.values.expandedRows).toEqual([1])
-        expect(logicB.values.expandedRows).toEqual([2])
+        expect(logicA.values.expandedRowKeys).toEqual([1])
+        expect(logicB.values.expandedRowKeys).toEqual([2])
 
         logicA.unmount()
         logicB.unmount()

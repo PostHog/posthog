@@ -217,7 +217,8 @@ export function DataTable({
         queryWithDefaults,
         canSort,
         sourceFeatures,
-        expandedRows,
+        expandedRowKeys,
+        getExpandedRowKey,
     } = useValues(dataTableLogic(dataTableLogicProps))
     const { toggleRowExpanded } = useActions(dataTableLogic(dataTableLogicProps))
 
@@ -742,25 +743,46 @@ export function DataTable({
                 ? contextExpandable
                 : expandable && columnsInResponse?.includes('*')
                   ? {
-                        isRowExpanded: (_: DataTableRow, rowIndex: number) => expandedRows.includes(rowIndex),
-                        onRowExpand: (_: DataTableRow, rowIndex: number) => toggleRowExpanded(rowIndex),
-                        onRowCollapse: (_: DataTableRow, rowIndex: number) => toggleRowExpanded(rowIndex),
+                        isRowExpanded: (row: DataTableRow, rowIndex: number) =>
+                            expandedRowKeys.includes(getExpandedRowKey(row, rowIndex)),
+                        onRowExpand: (row: DataTableRow, rowIndex: number) =>
+                            toggleRowExpanded(getExpandedRowKey(row, rowIndex)),
+                        onRowCollapse: (row: DataTableRow, rowIndex: number) =>
+                            toggleRowExpanded(getExpandedRowKey(row, rowIndex)),
                         expandedRowRender: function renderExpand({ result }: DataTableRow) {
                             if (
                                 (isEventsQuery(query.source) || isRevenueExampleEventsQuery(query.source)) &&
                                 Array.isArray(result)
                             ) {
-                                return <EventDetails event={result[columnsInResponse.indexOf('*')] ?? {}} />
+                                return (
+                                    <EventDetails
+                                        event={result[columnsInResponse.indexOf('*')] ?? {}}
+                                        tableProps={{ pagination: { pageSize: 50, hideOnSinglePage: true } }}
+                                    />
+                                )
                             }
                             if (result && !Array.isArray(result)) {
-                                return <EventDetails event={result as EventType} />
+                                return (
+                                    <EventDetails
+                                        event={result as EventType}
+                                        tableProps={{ pagination: { pageSize: 50, hideOnSinglePage: true } }}
+                                    />
+                                )
                             }
                         },
                         rowExpandable: ({ result }: DataTableRow) => !!result,
                         noIndent: true,
                     }
                   : undefined,
-        [contextExpandable, expandable, columnsInResponse, expandedRows, toggleRowExpanded, query.source]
+        [
+            contextExpandable,
+            expandable,
+            columnsInResponse,
+            expandedRowKeys,
+            toggleRowExpanded,
+            query.source,
+            getExpandedRowKey,
+        ]
     )
 
     const rowActions = useMemo(
