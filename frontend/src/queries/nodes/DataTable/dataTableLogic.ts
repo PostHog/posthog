@@ -77,8 +77,8 @@ export function isExpandableRow(row: DataTableRow): boolean {
 }
 
 /**
- * A stable identifier for an event-like object: its `uuid`, falling back to `id`. Shared with
- * `EventDetails`'s `getEventId`, which needs the same fallback to key per-event UI state.
+ * A stable identifier for an event-like object: its `uuid`, falling back to `id`. `EventDetails`'s
+ * `getEventId` uses the same fallback to key per-event UI state, though on a narrower event type.
  */
 export function eventIdentityKey(candidate: any): ExpandedRowKey | null {
     if (candidate && typeof candidate === 'object') {

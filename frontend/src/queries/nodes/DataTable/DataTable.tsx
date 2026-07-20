@@ -1057,7 +1057,7 @@ export function DataTable({
                                 // refresh that reorders events keeps each row's React key (and its
                                 // expanded EventDetails subtree) instead of remounting it. Label
                                 // rows fall back to their positional index via getExpandedRowKey.
-                                rowKey={(row, rowIndex) => getExpandedRowKey(row, rowIndex)}
+                                rowKey={getExpandedRowKey}
                                 sorting={null}
                                 useURLForSorting={false}
                                 emptyState={
