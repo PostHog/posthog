@@ -3951,12 +3951,14 @@ const api = {
             search,
             types,
             limit,
+            offset,
             full,
         }: {
             filter_groups?: CyclotronJobFiltersType[]
             search?: string
             types?: HogFunctionTypeType[]
             limit?: number
+            offset?: number
             full?: boolean
         }): Promise<CountedPaginatedResponse<HogFunctionType>> {
             return await new ApiRequest()
@@ -3967,6 +3969,7 @@ const api = {
                     ...(types ? { type: types.join(',') } : {}),
                     ...(search ? { search } : {}),
                     ...(limit ? { limit } : {}),
+                    ...(offset !== undefined ? { offset } : {}),
                     ...(full ? { full: 'true' } : {}),
                 })
                 .get()

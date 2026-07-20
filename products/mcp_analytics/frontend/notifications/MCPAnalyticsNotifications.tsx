@@ -1,4 +1,6 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
+import { useEffect } from 'react'
 
 import { IconPlus } from '@posthog/icons'
 import {
@@ -35,13 +37,19 @@ const USE_CASE_LABELS: Record<MCPNotificationUseCase, string> = {
 }
 
 export function MCPAnalyticsNotifications(): JSX.Element {
-    const { notifications, notificationsLoading, notificationsFailed } = useValues(mcpAnalyticsNotificationsLogic)
+    const { notifications, notificationsLoaded, notificationsFailed, pendingToggleIds } =
+        useValues(mcpAnalyticsNotificationsLogic)
+    const { searchParams } = useValues(router)
     const { loadNotifications, toggleNotificationEnabled, deleteNotification } =
         useActions(mcpAnalyticsNotificationsLogic)
     const addDisabledReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
     })
+
+    useEffect(() => {
+        loadNotifications()
+    }, [loadNotifications])
 
     const onCreated = (): void => {
         loadNotifications()
@@ -98,7 +106,7 @@ export function MCPAnalyticsNotifications(): JSX.Element {
 
     let content: JSX.Element
 
-    if (notificationsLoading) {
+    if (!notificationsLoaded) {
         content = (
             <div className="flex flex-col gap-1.5">
                 {Array.from({ length: 2 }).map((_, i) => (
@@ -156,7 +164,11 @@ export function MCPAnalyticsNotifications(): JSX.Element {
                                 <HogFunctionIcon src={fn.icon_url} size="small" />
                                 <div className="flex-1 min-w-0">
                                     <Link
-                                        to={urlForHogFunction(fn, urls.mcpAnalyticsNotifications())}
+                                        to={urlForHogFunction(
+                                            fn,
+                                            // Carry the scene's shared params (date range) so returning doesn't reset them
+                                            combineUrl(urls.mcpAnalyticsNotifications(), searchParams).url
+                                        )}
                                         className="font-medium truncate"
                                     >
                                         {fn.name}
@@ -171,6 +183,7 @@ export function MCPAnalyticsNotifications(): JSX.Element {
                                 <LemonSwitch
                                     checked={fn.enabled}
                                     onChange={() => toggleNotificationEnabled(fn.id, !fn.enabled)}
+                                    loading={!!pendingToggleIds[fn.id]}
                                 />
                                 <ConfirmDeleteButton
                                     onDelete={() => deleteNotification(fn)}

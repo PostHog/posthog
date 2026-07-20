@@ -5,11 +5,12 @@ export function getNotificationDescription(fn: Pick<HogFunctionType, 'inputs'>):
     if (!inputs) {
         return null
     }
-    if (inputs.url?.value) {
+    const destinationUrl = inputs.url?.value || inputs.webhookUrl?.value
+    if (destinationUrl) {
         try {
-            return new URL(String(inputs.url.value)).hostname
+            return new URL(String(destinationUrl)).hostname
         } catch {
-            return String(inputs.url.value)
+            return String(destinationUrl)
         }
     }
     if (inputs.channel?.value) {

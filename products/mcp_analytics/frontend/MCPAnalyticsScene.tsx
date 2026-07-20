@@ -44,7 +44,7 @@ function MCPAnalyticsSceneContent(): JSX.Element {
     const { searchParams } = useValues(router)
     const { activeTab } = useValues(mcpAnalyticsSceneLogic)
     const { onboardingState, signals, dashboardStage } = useValues(mcpAnalyticsOnboardingLogic)
-    const { notifications } = useValues(mcpAnalyticsNotificationsLogic)
+    const { notificationCount } = useValues(mcpAnalyticsNotificationsLogic)
 
     // search is Sessions-only — drop it when leaving the tab; the date range stays shared.
     const { search: _search, ...sharedParams } = searchParams
@@ -95,9 +95,9 @@ function MCPAnalyticsSceneContent(): JSX.Element {
             label: (
                 <span className="flex items-center gap-1.5">
                     Notifications
-                    {notifications.length > 0 && (
+                    {notificationCount > 0 && (
                         <LemonTag type="completion" size="small">
-                            {notifications.length}
+                            {notificationCount}
                         </LemonTag>
                     )}
                 </span>
