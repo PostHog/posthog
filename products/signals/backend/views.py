@@ -720,10 +720,11 @@ class SignalReportViewSet(
             .values("count"),
             output_field=IntegerField(),
         )
-        # select_related("refund"): the serializer renders the reverse OneToOne inline.
+        # select_related("refund", "fix_verification"): the serializer renders both reverse
+        # OneToOnes inline.
         return (
             queryset.filter(team=self.team)
-            .select_related("refund")
+            .select_related("refund", "fix_verification")
             .annotate(
                 artefact_count=Coalesce(artefact_count_subquery, Value(0), output_field=IntegerField()),
             )

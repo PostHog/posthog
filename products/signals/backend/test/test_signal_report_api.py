@@ -21,7 +21,7 @@ from social_django.models import UserSocialAuth
 from posthog.models.team.team import Team
 
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
+from products.signals.backend.models import SignalFixVerification, SignalReport, SignalReportArtefact, SignalReportTask
 from products.signals.backend.signal_metadata import ReportSignalMeta
 from products.signals.backend.task_run_artefacts import append_task_run_artefact, record_implementation_task
 
@@ -1233,6 +1233,37 @@ class TestAssociatedTaskRunsForReports(APIBaseTest):
         assert str(report.id) in SignalReport.associated_task_runs_for_reports(
             report_ids=[str(report.id)], team_id=self.team.id
         )
+
+
+class TestSignalReportFixVerificationAPI(APIBaseTest):
+    """The inbox needs to distinguish 'resolved (unverified)' from 'verified fixed' / 'fix regressed'."""
+
+    def test_list_renders_fix_verification_when_present_and_null_otherwise(self):
+        verified = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.RESOLVED, title="Fixed thing", summary="s"
+        )
+        unverified = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, title="Open thing", summary="s"
+        )
+        checked_at = timezone.now()
+        SignalFixVerification.all_teams.create(
+            team=self.team,
+            report=verified,
+            pr_url="https://github.com/posthog/posthog/pull/42",
+            verify_after=checked_at - timedelta(days=1),
+            status=SignalFixVerification.Status.VERIFIED,
+            checked_at=checked_at,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/")
+
+        assert response.status_code == status.HTTP_200_OK
+        by_id = {row["id"]: row for row in response.json()["results"]}
+        rendered = by_id[str(verified.id)]["fix_verification"]
+        assert rendered["status"] == "verified"
+        assert rendered["pr_url"] == "https://github.com/posthog/posthog/pull/42"
+        assert rendered["regressed_report"] is None
+        assert by_id[str(unverified.id)]["fix_verification"] is None
 
 
 class TestSignalReportSuppressionAPI(APIBaseTest):
