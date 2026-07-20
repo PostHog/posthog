@@ -33454,6 +33454,7 @@
                 "data warehouse sources table",
                 "experiment created",
                 "experiment analyzed",
+                "experiment view recordings",
                 "feature flag created",
                 "session_replay_set_filters",
                 "session_replay_experiment_link_clicked",
