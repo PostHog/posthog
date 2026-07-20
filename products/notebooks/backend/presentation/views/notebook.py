@@ -1316,7 +1316,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             and not self.user_access_control.is_organization_admin
             and is_publicly_shared(notebook)
         ):
-            blocked = blocked_access_in_notebook_edit(user, notebook, request.data.get("content"))
+            blocked = blocked_access_in_notebook_edit(user, notebook, data.get("content"))
             if blocked:
                 blocked_list = ", ".join(f"`{name}`" for name in blocked)
                 raise serializers.ValidationError(
