@@ -663,6 +663,62 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CUSTOM
 
+    # Custom REST sources are capped per team to keep abuse of the arbitrary-URL fetcher bounded.
+    max_instances_per_team = MAX_CUSTOM_SOURCES_PER_TEAM
+
+    def server_managed_job_input_fields(self, incoming_job_inputs, existing_job_inputs):
+        # The OAuth2 integration row pointer is server-managed: pin it so an editor can't repoint
+        # the source at a different row (and through it, different credentials). Re-entered
+        # auth_oauth2_* secrets flow into the pinned row during credential validation.
+        return ["auth_oauth2_integration_id"]
+
+    def job_inputs_add_connection_host(self, incoming_job_inputs, existing_job_inputs):
+        # The custom source's connection target lives inside the manifest, not a top-level `host`.
+        # A manifest edit that introduces a new request host would send the preserved credential
+        # somewhere it wasn't going before — the same exfiltration risk, so require re-entry.
+        if "manifest_json" not in incoming_job_inputs:
+            return False
+        new_hosts = manifest_request_hosts(incoming_job_inputs.get("manifest_json"))
+        existing_hosts = manifest_request_hosts(existing_job_inputs.get("manifest_json"))
+        return bool(new_hosts - existing_hosts)
+
+    def has_preserved_row_backed_credentials(self, source_model, incoming_job_inputs):
+        # A row-backed OAuth2 custom source carries no secret in job_inputs — the client secret +
+        # tokens live in the bound CustomOAuth2Integration row and are injected at sync time, so the
+        # generic preserved-credentials check never sees them. A host change would still redirect the
+        # row's injected token, so treat the row's secrets as preserved unless the editor re-entered
+        # every one the row holds (adoption on config change replaces them with the typed values).
+        bound_integration = (
+            CustomOAuth2Integration.objects.for_team(source_model.team_id)
+            .filter(external_data_source=source_model)
+            .first()
+        )
+        if bound_integration is None:
+            return False
+        held_secret_fields = [
+            incoming_field
+            for row_key, incoming_field in (
+                ("client_secret", "auth_oauth2_client_secret"),
+                ("refresh_token", "auth_oauth2_refresh_token"),
+            )
+            if bound_integration.sensitive_config.get(row_key)
+        ]
+        reentered_oauth2_secrets = bool(held_secret_fields) and all(
+            bool(incoming_job_inputs.get(field)) for field in held_secret_fields
+        )
+        return not reentered_oauth2_secrets
+
+    def on_source_created(self, source_model, team_id):
+        # Claim the OAuth2 integration row for the new source right away instead of waiting for the
+        # first sync's trust-on-first-use claim, closing the window where another create by the same
+        # user (matching the same unbound row) could adopt it. The guarded filter makes a lost race
+        # a no-op; sync-time authorization remains the backstop.
+        oauth2_integration_id = (source_model.job_inputs or {}).get("auth_oauth2_integration_id")
+        if oauth2_integration_id:
+            CustomOAuth2Integration.objects.for_team(team_id).filter(
+                id=oauth2_integration_id, external_data_source__isnull=True
+            ).update(external_data_source=source_model)
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
@@ -777,6 +833,12 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             "invalid_client": "The OAuth2 token endpoint rejected the client credentials (invalid_client). Check the configured client_id, client secret, and token URL.",
             "invalid_grant": "The OAuth2 token endpoint rejected the grant (invalid_grant) — a refresh token may have expired or been revoked. Re-enter the OAuth2 credentials.",
             OAUTH2_PERMANENT_ERROR_MARKER: "The OAuth2 token endpoint rejected the request and the configuration must change before the sync can succeed. Check the configured OAuth2 credentials, token URL, grant type, and scopes.",
+            # The endpoint returned non-JSON content (an HTML or plain-text error page, a
+            # login redirect) on an otherwise-successful response. The request shape is
+            # manifest-driven and deterministic, so retrying re-fetches the same body —
+            # stop and point at the config the user can change. Matches the stable prefix
+            # RESTClientNonRetryableError uses, not the variable URL that follows.
+            "Non-JSON response from": "The upstream API returned a non-JSON response (for example an HTML or plain-text error page) instead of data. Check that the resource's URL and path in the manifest point at a JSON API endpoint and that any required authentication is configured, then try again.",
         }
 
     def _assemble_manifest(self, config: CustomSourceConfig) -> dict[str, Any]:
