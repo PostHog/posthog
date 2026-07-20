@@ -75,7 +75,7 @@ export function AlertWizard({
                                         'flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors',
                                         !canAccess && 'opacity-40 cursor-not-allowed',
                                         isCurrent
-                                            ? 'bg-accent-primary text-accent-primary-highlight'
+                                            ? 'bg-primary text-primary-highlight font-semibold'
                                             : isComplete
                                               ? 'bg-success-highlight text-success'
                                               : 'text-muted hover:bg-border'
@@ -84,9 +84,9 @@ export function AlertWizard({
                                 >
                                     <span
                                         className={cn(
-                                            'inline-flex size-4 shrink-0 items-center justify-center rounded-full text-[10px]',
+                                            'inline-flex size-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold',
                                             isCurrent
-                                                ? 'bg-accent-primary-highlight text-accent-primary'
+                                                ? 'bg-primary-highlight text-primary ring-2 ring-primary ring-offset-1'
                                                 : isComplete
                                                   ? 'bg-success text-success-highlight'
                                                   : 'border border-border'
