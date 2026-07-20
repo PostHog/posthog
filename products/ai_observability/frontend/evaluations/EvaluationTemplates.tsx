@@ -129,9 +129,7 @@ function TemplateRow({ template }: TemplateRowProps): JSX.Element {
                     )}
                 </div>
                 <p className="text-sm text-secondary mb-0">
-                    {isBlank
-                        ? 'Build a custom evaluation with your own configuration'
-                        : template.description}
+                    {isBlank ? 'Build a custom evaluation with your own configuration' : template.description}
                 </p>
             </div>
         </button>
