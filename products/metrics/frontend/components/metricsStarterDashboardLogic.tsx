@@ -18,6 +18,10 @@ import type { _MetricNameApi } from 'products/metrics/frontend/generated/api.sch
 import type { metricsStarterDashboardLogicType } from './metricsStarterDashboardLogicType'
 import { RECOMMENDED_AGGREGATION_BY_TYPE, toKnownMetricType } from './metricsViewerLogic'
 
+// A metric name can appear under more than one OTel type, so option identity
+// must include both. \0 can't occur in ingest strings, so the key is collision-free.
+export const metricOptionKey = (name: string, metricType: string): string => `${name}\0${metricType}`
+
 // One dashboard, one insight per picked metric, each charted with the
 // aggregation its type recommends and scoped to the picked service — the
 // onboarding doc's starter set, productized.
@@ -31,9 +35,10 @@ export const metricsStarterDashboardLogic = kea<metricsStarterDashboardLogicType
         closeModal: true,
         setDashboardName: (dashboardName: string) => ({ dashboardName }),
         setServiceName: (serviceName: string) => ({ serviceName }),
+        // selectedMetrics holds metricOptionKey() composites, not bare names.
         setSelectedMetrics: (selectedMetrics: string[]) => ({ selectedMetrics }),
         createDashboard: true,
-        createDashboardSuccess: (createdDashboard: DashboardType) => ({ createdDashboard }),
+        createDashboardSuccess: (createdDashboard: DashboardType, warning?: string) => ({ createdDashboard, warning }),
         createDashboardFailure: (message: string) => ({ message }),
     }),
     reducers({
@@ -103,8 +108,13 @@ export const metricsStarterDashboardLogic = kea<metricsStarterDashboardLogicType
             const name = values.dashboardName.trim()
             const selectedMetrics = [...values.selectedMetrics]
             const serviceName = values.serviceName
-            const typeByName: Record<string, string> = Object.fromEntries(
-                values.metricOptions.map((option) => [option.name, option.metric_type])
+            const optionByKey: Record<string, _MetricNameApi> = Object.fromEntries(
+                values.metricOptions.map((option) => [metricOptionKey(option.name, option.metric_type), option])
+            )
+            // Resolve keys to options up front so a name shared by two OTel types
+            // keeps the type the user actually picked.
+            const pickedMetrics: _MetricNameApi[] = selectedMetrics.map(
+                (key) => optionByKey[key] ?? { name: key, metric_type: '' }
             )
             let dashboard: DashboardType | null = null
             let created = 0
@@ -120,8 +130,7 @@ export const metricsStarterDashboardLogic = kea<metricsStarterDashboardLogicType
                 dashboard = await api.create<DashboardType>(`api/projects/${values.currentTeamId}/dashboards/`, {
                     name,
                 })
-                for (const metricName of selectedMetrics) {
-                    const rawType = typeByName[metricName]
+                for (const { name: metricName, metric_type: rawType } of pickedMetrics) {
                     // The names endpoint reports raw ingest strings; only enum members
                     // may reach the API — mirrors the viewer's metricsQueryNode.
                     const metricType = toKnownMetricType(rawType)
@@ -151,11 +160,12 @@ export const metricsStarterDashboardLogic = kea<metricsStarterDashboardLogicType
                 if (dashboard) {
                     // The dashboard exists with a partial insight set — say so and take
                     // the user there rather than implying nothing happened (a retry
-                    // from the modal would mint a duplicate dashboard).
-                    lemonToast.warning(
+                    // from the modal would mint a duplicate dashboard). The warning
+                    // replaces the success toast so only one shows.
+                    actions.createDashboardSuccess(
+                        dashboard,
                         `Dashboard "${dashboard.name}" created, but only ${created} of ${selectedMetrics.length} insights could be added`
                     )
-                    actions.createDashboardSuccess(dashboard)
                 } else {
                     actions.createDashboardFailure(error?.detail || error?.message || 'Failed to create the dashboard')
                 }
@@ -163,9 +173,13 @@ export const metricsStarterDashboardLogic = kea<metricsStarterDashboardLogicType
                 cache.creatingDashboard = false
             }
         },
-        createDashboardSuccess: ({ createdDashboard }) => {
+        createDashboardSuccess: ({ createdDashboard, warning }) => {
             actions.closeModal()
-            lemonToast.success(`Dashboard "${createdDashboard.name}" created`)
+            if (warning) {
+                lemonToast.warning(warning)
+            } else {
+                lemonToast.success(`Dashboard "${createdDashboard.name}" created`)
+            }
             router.actions.push(urls.dashboard(createdDashboard.id))
         },
         createDashboardFailure: ({ message }) => {

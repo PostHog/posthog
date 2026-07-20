@@ -1,13 +1,14 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { insightsApi } from 'scenes/insights/utils/api'
 
 import { initKeaTests } from '~/test/init'
 
 import { metricsAttributeValuesRetrieve, metricsValuesRetrieve } from 'products/metrics/frontend/generated/api'
 
-import { metricsStarterDashboardLogic } from './metricsStarterDashboardLogic'
+import { metricOptionKey, metricsStarterDashboardLogic } from './metricsStarterDashboardLogic'
 
 jest.mock('products/metrics/frontend/generated/api', () => ({
     ...jest.requireActual('products/metrics/frontend/generated/api'),
@@ -16,6 +17,9 @@ jest.mock('products/metrics/frontend/generated/api', () => ({
 }))
 jest.mock('scenes/insights/utils/api', () => ({
     insightsApi: { create: jest.fn() },
+}))
+jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
+    lemonToast: { success: jest.fn(), warning: jest.fn(), error: jest.fn() },
 }))
 
 const mockNames = metricsValuesRetrieve as jest.MockedFunction<typeof metricsValuesRetrieve>
@@ -31,6 +35,9 @@ describe('metricsStarterDashboardLogic', () => {
         mockNames.mockReset()
         mockValues.mockReset()
         mockInsightCreate.mockReset()
+        ;(lemonToast.success as jest.Mock).mockReset()
+        ;(lemonToast.warning as jest.Mock).mockReset()
+        ;(lemonToast.error as jest.Mock).mockReset()
         mockNames.mockResolvedValue({
             results: [
                 { name: 'billing.invoices.processed', metric_type: 'sum' },
@@ -69,7 +76,10 @@ describe('metricsStarterDashboardLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadMetricOptionsSuccess'])
         logic.actions.setDashboardName('Billing service')
         logic.actions.setServiceName('billing-worker')
-        logic.actions.setSelectedMetrics(['billing.invoices.processed', 'billing.job.duration'])
+        logic.actions.setSelectedMetrics([
+            metricOptionKey('billing.invoices.processed', 'sum'),
+            metricOptionKey('billing.job.duration', 'histogram'),
+        ])
 
         await expectLogic(logic, () => {
             logic.actions.createDashboard()
@@ -105,7 +115,10 @@ describe('metricsStarterDashboardLogic', () => {
         logic.actions.openModal()
         await expectLogic(logic).toDispatchActions(['loadMetricOptionsSuccess'])
         logic.actions.setDashboardName('Billing service')
-        logic.actions.setSelectedMetrics(['billing.invoices.processed', 'billing.job.duration'])
+        logic.actions.setSelectedMetrics([
+            metricOptionKey('billing.invoices.processed', 'sum'),
+            metricOptionKey('billing.job.duration', 'histogram'),
+        ])
         mockInsightCreate
             .mockResolvedValueOnce({ id: 101, short_id: 'abc' } as any)
             .mockRejectedValueOnce(new Error('boom'))
@@ -116,6 +129,35 @@ describe('metricsStarterDashboardLogic', () => {
 
         expect(apiCreateSpy).toHaveBeenCalledTimes(1)
         expect(logic.values.isModalOpen).toBe(false)
+        // Partial failure surfaces exactly one toast: the warning, not the success.
+        expect(lemonToast.warning).toHaveBeenCalledTimes(1)
+        expect((lemonToast.warning as jest.Mock).mock.calls[0][0]).toContain('only 1 of 2 insights')
+        expect(lemonToast.success).not.toHaveBeenCalled()
+    })
+
+    it('keeps the picked type when the same metric name exists under two OTel types', async () => {
+        mockNames.mockResolvedValue({
+            results: [
+                { name: 'billing.throughput', metric_type: 'sum' },
+                { name: 'billing.throughput', metric_type: 'gauge' },
+            ],
+        })
+        logic.actions.openModal()
+        await expectLogic(logic).toDispatchActions(['loadMetricOptionsSuccess'])
+        logic.actions.setDashboardName('Billing service')
+        logic.actions.setSelectedMetrics([metricOptionKey('billing.throughput', 'sum')])
+
+        await expectLogic(logic, () => {
+            logic.actions.createDashboard()
+        }).toDispatchActions(['createDashboardSuccess'])
+
+        // Name-keyed lookup would collapse to the last-listed type (gauge/avg).
+        const [insight] = mockInsightCreate.mock.calls[0]
+        expect((insight.query as any).clauses[0]).toMatchObject({
+            metricName: 'billing.throughput',
+            metricType: 'sum',
+            aggregation: 'increase',
+        })
     })
 
     it('drops non-enum metric types instead of sending raw ingest strings', async () => {
@@ -123,7 +165,7 @@ describe('metricsStarterDashboardLogic', () => {
         logic.actions.openModal()
         await expectLogic(logic).toDispatchActions(['loadMetricOptionsSuccess'])
         logic.actions.setDashboardName('Legacy')
-        logic.actions.setSelectedMetrics(['legacy.metric'])
+        logic.actions.setSelectedMetrics([metricOptionKey('legacy.metric', 'counter')])
 
         await expectLogic(logic, () => {
             logic.actions.createDashboard()
@@ -137,7 +179,7 @@ describe('metricsStarterDashboardLogic', () => {
         logic.actions.openModal()
         await expectLogic(logic).toDispatchActions(['loadMetricOptionsSuccess'])
         logic.actions.setDashboardName('Billing service')
-        logic.actions.setSelectedMetrics(['billing.queue.depth'])
+        logic.actions.setSelectedMetrics([metricOptionKey('billing.queue.depth', 'gauge')])
 
         await expectLogic(logic, () => {
             logic.actions.createDashboard()

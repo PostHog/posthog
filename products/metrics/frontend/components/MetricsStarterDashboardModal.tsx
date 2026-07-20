@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonInput, LemonInputSelect, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
-import { metricsStarterDashboardLogic } from './metricsStarterDashboardLogic'
+import { metricOptionKey, metricsStarterDashboardLogic } from './metricsStarterDashboardLogic'
 
 export function MetricsStarterDashboardModal(): JSX.Element {
     const {
@@ -79,7 +79,8 @@ export function MetricsStarterDashboardModal(): JSX.Element {
                     onChange={setSelectedMetrics}
                     loading={metricOptionsLoading}
                     options={metricOptions.map((option) => ({
-                        key: option.name,
+                        // Composite key: the same name can exist under two OTel types.
+                        key: metricOptionKey(option.name, option.metric_type),
                         label: `${option.name} (${option.metric_type})`,
                     }))}
                     placeholder="Pick the metrics to chart"
