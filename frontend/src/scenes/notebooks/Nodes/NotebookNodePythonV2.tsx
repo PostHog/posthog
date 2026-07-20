@@ -66,6 +66,7 @@ const Component = ({
         isStale,
         isChainRunning,
         staleDownstreamCount,
+        pendingKernelStart,
     } = useValues(dataLogic)
     const { setPage, setPageSize, runStaleChain } = useActions(dataLogic)
 
@@ -109,6 +110,9 @@ const Component = ({
                             disabledReason={isRunning ? 'This cell is running' : (operationBlockReason ?? undefined)}
                         />
                     </div>
+                ) : null}
+                {isRunning && pendingKernelStart ? (
+                    <div className="shrink-0 px-2 pt-1 text-xs text-muted">Starting compute sandbox…</div>
                 ) : null}
                 {hasStreamOutput ? (
                     <div className="shrink-0 space-y-2 px-2 pt-1" onClick={(event) => event.stopPropagation()}>

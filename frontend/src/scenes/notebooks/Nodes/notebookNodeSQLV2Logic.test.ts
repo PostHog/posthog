@@ -2,6 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { initKeaTests } from '~/test/init'
 
@@ -155,21 +156,24 @@ describe('notebookNodeSQLV2Logic', () => {
             })
         })
 
-        it('opens the kernel panel for a kernel-lane run and not for a direct one', async () => {
+        it('opens the kernel panel and notifies for a kernel-lane run, and not for a direct one', async () => {
             // Scenario B: a run that needs the sandbox must surface the provisioning wait;
-            // a pure-SQL run must never pop the panel (it needs no sandbox at all).
+            // a pure-SQL run must never pop the panel or toast (it needs no sandbox at all).
+            const toastSpy = jest.spyOn(lemonToast, 'info')
             mount()
             logic.actions.runQuery('select 1')
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.activeRunLane).toEqual('direct')
             expect(notebookSettingsLogic.findMounted()?.values.showKernelInfo).toBe(false)
             expect(logic.values.pendingKernelStart).toBe(false)
+            expect(toastSpy).not.toHaveBeenCalled()
 
             logic.actions.runQuery('select * from new_events', { new_events: { node_id: 'py', kind: 'local' } })
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.activeRunLane).toEqual('kernel')
             expect(notebookSettingsLogic.findMounted()?.values.showKernelInfo).toBe(true)
             expect(logic.values.pendingKernelStart).toBe(true)
+            expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining('Starting a compute sandbox'))
         })
     })
 

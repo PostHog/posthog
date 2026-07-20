@@ -174,15 +174,6 @@ export interface notebookNodeSQLV2LogicActions {
     interruptRun: () => {
         value: true
     }
-    setActiveRunLane: (activeRunLane: SqlV2RunLane) => {
-        activeRunLane: SqlV2RunLane
-    }
-    setDirectRows: (directRows: NotebookNodeSQLV2DirectRows | null) => {
-        directRows: NotebookNodeSQLV2DirectRows | null
-    }
-    setPendingKernelStart: (pendingKernelStart: boolean) => {
-        pendingKernelStart: boolean
-    }
     pollResult: (runId: string) => {
         runId: string
     }
@@ -197,6 +188,12 @@ export interface notebookNodeSQLV2LogicActions {
         code: string
         opts: RunQueryOptions
         refs: Record<string, SqlV2RunRef>
+    }
+    setActiveRunLane: (activeRunLane: SqlV2RunLane) => {
+        activeRunLane: SqlV2RunLane
+    }
+    setDirectRows: (directRows: NotebookNodeSQLV2DirectRows | null) => {
+        directRows: NotebookNodeSQLV2DirectRows | null
     }
     setIsInterrupting: (isInterrupting: boolean) => {
         isInterrupting: boolean
@@ -215,6 +212,9 @@ export interface notebookNodeSQLV2LogicActions {
     }
     setPageSize: (pageSize: number) => {
         pageSize: number
+    }
+    setPendingKernelStart: (pendingKernelStart: boolean) => {
+        pendingKernelStart: boolean
     }
     setRunError: (runError: string | null) => {
         runError: string | null
@@ -501,6 +501,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     if (!kernelKnownRunning) {
                         actions.setShowKernelInfo(true)
                         actions.setPendingKernelStart(true)
+                        lemonToast.info('Starting a compute sandbox. The cell will run once it’s ready.')
                     }
                 }
                 actions.startOperation(runOperation)
