@@ -172,6 +172,12 @@ export interface dataTableLogicActions {
               }
             | undefined
     ) => {
+        payload?: {
+            overrideQuery: import('~/queries/schema/schema-general').DataNode<Record<string, any>> | undefined
+            pollOnly: boolean
+            queryId: string
+            refresh: import('~/queries/schema/schema-general').RefreshType | undefined
+        }
         response:
             | ErrorTrackingQueryResponse
             | HogQLAutocompleteResponse
@@ -188,14 +194,6 @@ export interface dataTableLogicActions {
             | TraceSpansQueryResponse
             | null
             | undefined
-        payload?:
-            | {
-                  overrideQuery: import('~/queries/schema/schema-general').DataNode<Record<string, any>> | undefined
-                  pollOnly: boolean
-                  queryId: string
-                  refresh: import('~/queries/schema/schema-general').RefreshType | undefined
-              }
-            | undefined
     } // dataNodeLogic
     reconcileExpandedRows: (
         tabId: string | undefined,
@@ -203,8 +201,8 @@ export interface dataTableLogicActions {
         visibleKeys: ExpandedRowKey[]
     ) => {
         tabId: string
-        vizKey: string
         visibleKeys: ExpandedRowKey[]
+        vizKey: string
     } // tabUiStateLogic
     toggleExpandedRow: (
         tabId: string | undefined,
@@ -229,7 +227,7 @@ export interface dataTableLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         context: (arg: any) => any
         expandedRowKeys: (
-            expandedRowsFor: (tabId: string | undefined, vizKey: string) => ExpandedRowKey[],
+            expandedRowsFor: (tabId: string | undefined, vizKey: string) => ExpandedRowKey[], // tabUiStateLogic
             arg: any
         ) => ExpandedRowKey[]
         sourceKind: (query: DataTableNode) => NodeKind | null

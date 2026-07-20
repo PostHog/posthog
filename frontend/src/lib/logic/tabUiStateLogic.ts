@@ -35,8 +35,8 @@ export interface tabUiStateLogicActions {
         visibleKeys: ExpandedRowKey[]
     ) => {
         tabId: string
-        vizKey: string
         visibleKeys: ExpandedRowKey[]
+        vizKey: string
     }
     setChatDraftForTab: (
         tabId: string | undefined,
