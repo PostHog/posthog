@@ -6,9 +6,13 @@ from unittest import mock
 from unittest.mock import MagicMock, patch
 
 from requests import Response
+from requests.exceptions import Timeout
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldOauthConfig
+from posthog.schema import ReleaseStatus, SourceFieldOauthAccountSelectConfig, SourceFieldOauthConfig
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccountListingError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RedditAdsSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.reddit_ads import RedditAdsResumeConfig
@@ -46,21 +50,20 @@ class TestRedditAdsSource:
         assert config.releaseStatus == ReleaseStatus.GA
         assert len(config.fields) == 2
 
-        # Check account_id field
-        account_field = config.fields[0]
-        assert isinstance(account_field, SourceFieldInputConfig)
-        assert account_field.name == "account_id"
-        assert account_field.label == "Reddit Ads Account ID"
-        assert account_field.required is True
-        assert account_field.placeholder == "Your Reddit Ads account ID"
-
-        # Check oauth field
-        oauth_field = config.fields[1]
+        oauth_field = config.fields[0]
         assert isinstance(oauth_field, SourceFieldOauthConfig)
         assert oauth_field.name == "reddit_integration_id"
         assert oauth_field.label == "Reddit Ads account"
         assert oauth_field.required is True
         assert oauth_field.kind == "reddit-ads"
+
+        account_field = config.fields[1]
+        assert isinstance(account_field, SourceFieldOauthAccountSelectConfig)
+        assert account_field.name == "account_id"
+        assert account_field.label == "Reddit Ads Account ID"
+        assert account_field.required is True
+        assert account_field.integrationField == "reddit_integration_id"
+        assert account_field.integrationKind == "reddit-ads"
 
     def test_validate_credentials_missing_account_id(self):
         """Test credential validation with missing account ID."""
@@ -155,6 +158,29 @@ class TestRedditAdsSource:
         """Transient infrastructure failures must stay retryable."""
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
+
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.source.OauthIntegration")
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.source.RedditAdsSource.get_oauth_integration"
+    )
+    def test_get_oauth_accounts_refresh_network_failure_is_actionable(
+        self, mock_get_oauth_integration, mock_oauth_integration_cls
+    ):
+        """A refresh that fails before an HTTP response (timeout) must surface actionable guidance,
+        not an unhandled 500 — it raises before ERROR_TOKEN_REFRESH_FAILED is recorded."""
+        integration = mock.MagicMock()
+        integration.errors = ""
+        integration.access_token = "expired_token"
+        mock_get_oauth_integration.return_value = integration
+
+        oauth = mock_oauth_integration_cls.return_value
+        oauth.access_token_expired.return_value = True
+        oauth.refresh_access_token.side_effect = Timeout("connection timed out")
+
+        with pytest.raises(IntegrationAccountListingError) as excinfo:
+            self.source.get_oauth_accounts(self.config.reddit_integration_id, self.team_id)
+
+        assert "try again" in str(excinfo.value).lower()
 
     def test_get_schemas(self):
         """Test get_schemas returns all endpoint schemas."""

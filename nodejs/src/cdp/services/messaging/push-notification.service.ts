@@ -1,5 +1,6 @@
 import { createHash, createSign } from 'crypto'
-import { Counter } from 'prom-client'
+import { DateTime } from 'luxon'
+import { Counter, Histogram } from 'prom-client'
 
 import {
     CyclotronInvocationQueueParametersSendPushNotificationType,
@@ -16,6 +17,13 @@ import { EncryptedFields } from '../../utils/encryption-utils'
 import { createInvocationResult } from '../../utils/invocation-utils'
 import { getDevicePushSubscriptionToken } from '../../utils/push-subscription-utils'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
+import {
+    NormalizedPushError,
+    PushPlatform,
+    PushSendError,
+    normalizeApnsError,
+    normalizeFcmError,
+} from './push-notification-errors'
 
 const pushNotificationSentCounter = new Counter({
     name: 'push_notification_sent_total',
@@ -26,6 +34,31 @@ const pushNotificationSentCounter = new Counter({
 const pushNotificationTokenPrunedCounter = new Counter({
     name: 'push_notification_token_pruned_total',
     help: 'Total number of device tokens removed after the provider reported them no longer registered',
+    labelNames: ['platform'],
+})
+
+const pushNotificationFailedCounter = new Counter({
+    name: 'push_notification_failed_total',
+    help: 'Push notifications that failed to send, by platform and normalized failure reason.',
+    labelNames: ['platform', 'reason'],
+})
+
+const pushNotificationSkippedCounter = new Counter({
+    name: 'push_notification_skipped_total',
+    help: 'Push sends not delivered without an outright failure, by platform and reason. no_token = the recipient never registered a device; unregistered = the provider reported the token dead and it was removed.',
+    labelNames: ['platform', 'reason'],
+})
+
+const pushNotificationSendDurationMs = new Histogram({
+    name: 'push_notification_send_duration_ms',
+    help: 'Duration of a push send request to the provider, by platform.',
+    labelNames: ['platform'],
+    buckets: [10, 25, 50, 100, 200, 500, 1000, 2000, 5000, 10000],
+})
+
+const pushNotificationRescheduledCounter = new Counter({
+    name: 'push_notification_rescheduled_total',
+    help: 'Push sends rescheduled after a transient provider failure (throttle / 5xx / network) instead of being dropped. A sustained rate for one platform means that provider is rate-limiting the sending project.',
     labelNames: ['platform'],
 })
 
@@ -40,6 +73,42 @@ const APNS_JWT_TTL_SECONDS = 45 * 60
 // push targets a handful of provider integrations, not thousands.
 const MAX_PUSH_CHANNELS = 10
 
+// Cap a provider-supplied Retry-After. FCM returns one on QUOTA_EXCEEDED and honoring it is the point,
+// but a hostile or misconfigured value must not park an invocation for hours.
+const MAX_RETRY_AFTER_MS = 5 * 60 * 1000
+
+function stringifyBody(body: unknown): string {
+    return typeof body === 'string' ? body : JSON.stringify(body)
+}
+
+// Retry-After is delta-seconds or an HTTP-date. Return a bounded millisecond delay, or undefined if the
+// header is absent or unparseable so the caller falls back to exponential backoff.
+function parseRetryAfterMs(response: FetchResponse | null): number | undefined {
+    const header = response?.headers?.['retry-after']
+    if (!header) {
+        return undefined
+    }
+    const seconds = Number(header)
+    const ms = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(header) - Date.now()
+    if (!Number.isFinite(ms) || ms <= 0) {
+        return undefined
+    }
+    return Math.min(ms, MAX_RETRY_AFTER_MS)
+}
+
+// Exponential-ish backoff with jitter for a retry when the provider didn't give a Retry-After.
+function backoffAt(baseMs: number, maxMs: number, tries: number): DateTime {
+    const delay = Math.min(baseMs * tries + Math.floor(Math.random() * baseMs), maxMs)
+    return DateTime.utc().plus({ milliseconds: delay })
+}
+
+function pushSendError(platform: PushPlatform, err: NormalizedPushError, retryAfterMs?: number): PushSendError {
+    // Append the raw provider code so the failure surfaced to the hog template stays debuggable, while
+    // the human-readable sentence leads.
+    const message = err.code ? `${err.message} [${err.code}]` : err.message
+    return new PushSendError(message, platform, err.reason, err.level, err.retriable, err.code, retryAfterMs)
+}
+
 export type PushNotificationFetchUtils = {
     trackedFetch: (args: { url: string; fetchParams: FetchOptions; templateId: string }) => Promise<{
         fetchError: Error | null
@@ -47,6 +116,11 @@ export type PushNotificationFetchUtils = {
         fetchDuration: number
     }>
     maxFetchTimeoutMs: number
+    // Retry budget + backoff for transient provider failures, wired from CDP_FETCH_* so push shares the
+    // same policy as the generic fetch destinations.
+    maxRetries: number
+    backoffBaseMs: number
+    backoffMaxMs: number
 }
 
 export class PushNotificationService {
@@ -69,14 +143,24 @@ export class PushNotificationService {
         const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation, {}, { finished: true })
         const addLog = createAddLogFunction(result.logs)
 
-        const pushMetric = (metricName: 'push_sent' | 'push_skipped' | 'push_failed'): void => {
+        // How many times this send has already been rescheduled after a transient failure, carried on the
+        // invocation's queue metadata across reschedules.
+        const metadata = (invocation.queueMetadata as { tries?: number }) || {}
+        const tries = metadata.tries ?? 0
+
+        // Business metrics are emitted once, at the terminal outcome below, rather than per channel — a
+        // rescheduled attempt must not re-count the same notification's skips or failures on every retry.
+        const pushMetric = (metricName: 'push_sent' | 'push_skipped' | 'push_failed', count: number): void => {
+            if (count <= 0) {
+                return
+            }
             result.metrics.push({
                 team_id: invocation.teamId,
                 app_source_id: invocation.parentRunId ?? invocation.functionId,
                 instance_id: invocation.state.actionId || invocation.id,
-                metric_kind: 'other',
+                metric_kind: 'push',
                 metric_name: metricName,
-                count: 1,
+                count,
             })
         }
 
@@ -95,8 +179,10 @@ export class PushNotificationService {
             )
         }
 
-        let errorCount = 0
         let successCount = 0
+        let skippedCount = 0
+        let otherErrorCount = 0
+        const errors: PushSendError[] = []
         let firstError: string | undefined
         for (const integrationId of integrationIds) {
             try {
@@ -116,23 +202,75 @@ export class PushNotificationService {
 
                 if (sent) {
                     successCount++
-                    pushMetric('push_sent')
                 } else {
                     // A channel with no registered device token for this recipient is skipped, not failed.
-                    pushMetric('push_skipped')
+                    skippedCount++
                 }
             } catch (error) {
-                errorCount++
                 firstError = firstError ?? error.message
-                addLog('error', error.message)
-                pushMetric('push_failed')
+                if (error instanceof PushSendError) {
+                    // Normalized provider failure: log once at the reason's severity. The failure metric is
+                    // emitted at the terminal outcome below, so a rescheduled retry doesn't over-count it.
+                    errors.push(error)
+                    addLog(error.level, error.message)
+                } else {
+                    otherErrorCount++
+                    addLog('error', error.message)
+                }
             }
         }
 
-        // Retry (by surfacing an error) only when a channel was attempted and failed and nothing was
-        // delivered. A skip (no device token) is not a delivery, so retrying is safe; but once any
-        // channel has delivered we must not retry, or it would re-deliver to that channel.
+        const errorCount = errors.length + otherErrorCount
         const success = successCount > 0 || errorCount === 0
+        const retriableErrors = errors.filter((e) => e.retriable)
+
+        // Nothing delivered and a channel failed transiently: reschedule the whole invocation instead of
+        // dropping the notification. Only safe when nothing was delivered — once a channel has sent,
+        // retrying would re-deliver to it. A terminally-failed channel (e.g. a 400) sitting alongside a
+        // transient one is re-attempted on each retry; that's acceptable, it just re-fails, bounded by the
+        // budget. `tries` starts at 0, so this allows CDP_FETCH_RETRIES reschedules after the first attempt
+        // (the notification is tried maxRetries + 1 times in total).
+        if (!success && retriableErrors.length > 0 && tries < this.fetchUtils.maxRetries) {
+            const nextTries = tries + 1
+            // Restore queueParameters — createInvocationResult cleared them. Without this the retry dequeue
+            // routes on an undefined queue type and resumes the hog VM instead of re-running this send,
+            // which pops an empty stack and throws a bytecode error, dropping the notification.
+            result.invocation.queueParameters = invocation.queueParameters
+            result.invocation.queueMetadata = { ...metadata, tries: nextTries }
+            result.invocation.queuePriority = nextTries
+            // Retrying re-attempts every failed channel, so wait out the LONGEST Retry-After any channel
+            // asked for; fall back to exponential backoff when none provided one.
+            const retryAfterValues = retriableErrors
+                .map((e) => e.retryAfterMs)
+                .filter((ms): ms is number => ms !== undefined)
+            result.invocation.queueScheduledAt =
+                retryAfterValues.length > 0
+                    ? DateTime.utc().plus({ milliseconds: Math.max(...retryAfterValues) })
+                    : backoffAt(this.fetchUtils.backoffBaseMs, this.fetchUtils.backoffMaxMs, nextTries)
+            result.finished = false
+            // Count each distinct throttled platform so the metric shows which provider is rate-limiting.
+            for (const platform of new Set(retriableErrors.map((e) => e.platform))) {
+                pushNotificationRescheduledCounter.labels({ platform }).inc()
+            }
+            addLog(
+                'warn',
+                `Push notification throttled or temporarily unavailable; retrying (attempt ${nextTries}/${this.fetchUtils.maxRetries}).`
+            )
+            // No business metric or VM-state push here — the eventual terminal attempt reports the outcome.
+            return result
+        }
+
+        // Terminal outcome: emit the per-notification business metrics once, and label the ops failure
+        // metric by platform + reason for every channel that failed for good.
+        pushMetric('push_sent', successCount)
+        pushMetric('push_skipped', skippedCount)
+        pushMetric('push_failed', errorCount)
+        for (const error of errors) {
+            pushNotificationFailedCounter.labels({ platform: error.platform, reason: error.reason }).inc()
+        }
+        if (otherErrorCount > 0) {
+            pushNotificationFailedCounter.labels({ platform: 'unknown', reason: 'unknown' }).inc(otherErrorCount)
+        }
         if (!success) {
             result.error = firstError
         }
@@ -163,6 +301,7 @@ export class PushNotificationService {
 
         if (!token) {
             addLog('warn', `No active FCM device token found for distinct_id: ${params.distinctId}`)
+            pushNotificationSkippedCounter.labels({ platform: 'fcm', reason: 'no_token' }).inc()
             return false
         }
 
@@ -210,27 +349,23 @@ export class PushNotificationService {
         }
 
         const status = fetchResponse?.status
+        pushNotificationSendDurationMs.labels({ platform: 'fcm' }).observe(fetchDuration)
 
         if (!fetchResponse || (status && status >= 400)) {
-            addLog(
-                'error',
-                `FCM send error. Status: ${status ?? '(none)'}. Body: ${typeof body === 'string' ? body : JSON.stringify(body)}. Fetch error: ${fetchError?.message ?? 'none'}`
-            )
-            // A 404 / UNREGISTERED means FCM no longer knows this token (app uninstalled or token rotated).
-            // Prune it and treat the channel as skipped rather than retrying a token that will never work.
-            const fcmErrorCode = (body as any)?.error?.details?.find?.((d: any) => d?.errorCode)?.errorCode
-            if (status === 404 || fcmErrorCode === 'UNREGISTERED') {
+            const err = normalizeFcmError(status, body, fetchError)
+            // Keep the raw provider response available for deep debugging, at debug level so it doesn't
+            // clutter the workflow log — the user-facing explanation is the normalized message below.
+            addLog('debug', `FCM response ${status ?? '(none)'}: ${stringifyBody(body)}`)
+            if (err.unregistered) {
                 this.pruneDeviceToken(result, invocation, params.distinctId, projectId, 'fcm')
-                addLog('warn', `Removed unregistered FCM token for distinct_id: ${params.distinctId}`)
+                addLog('warn', `FCM: ${err.message}`)
                 return false
             }
-            throw new Error(
-                `Push notification failed with status ${status ?? '(none)'}.${fetchError ? ` Error: ${fetchError.message}.` : ''}`
-            )
+            throw pushSendError('fcm', err, parseRetryAfterMs(fetchResponse))
         }
 
         pushNotificationSentCounter.labels({ platform: 'fcm' }).inc()
-        addLog('info', `Push notification sent via FCM`)
+        addLog('info', 'Push notification accepted by FCM.')
         return true
     }
 
@@ -257,6 +392,7 @@ export class PushNotificationService {
 
         if (!token) {
             addLog('warn', `No active APNS device token found for distinct_id: ${params.distinctId}`)
+            pushNotificationSkippedCounter.labels({ platform: 'apns', reason: 'no_token' }).inc()
             return false
         }
 
@@ -322,29 +458,23 @@ export class PushNotificationService {
         }
 
         const status = fetchResponse?.status
+        pushNotificationSendDurationMs.labels({ platform: 'apns' }).observe(fetchDuration)
 
         if (!fetchResponse || (status && status >= 400)) {
-            const reason =
-                body && typeof body === 'object' && 'reason' in body ? ` Reason: ${(body as any).reason}.` : ''
-            addLog(
-                'error',
-                `APNS send error. Status: ${status ?? '(none)'}. Body: ${typeof body === 'string' ? body : JSON.stringify(body)}. Fetch error: ${fetchError?.message ?? 'none'}`
-            )
-            // 410 Unregistered is Apple's signal that the token is dead (app uninstalled). Prune it and
-            // skip rather than retrying. Other 4xx (e.g. BadDeviceToken) can be environment/config issues,
-            // so we don't prune on those to avoid dropping a token that is actually valid.
-            if (status === 410) {
+            const err = normalizeApnsError(status, body, fetchError)
+            addLog('debug', `APNs response ${status ?? '(none)'}: ${stringifyBody(body)}`)
+            // Apple signals a dead token with 410 / reason "Unregistered". Prune it and skip rather than
+            // retrying a token that will never work; other reasons are surfaced as failures.
+            if (err.unregistered) {
                 this.pruneDeviceToken(result, invocation, params.distinctId, bundleId, 'apns')
-                addLog('warn', `Removed unregistered APNS token for distinct_id: ${params.distinctId}`)
+                addLog('warn', `APNs: ${err.message}`)
                 return false
             }
-            throw new Error(
-                `Push notification failed with status ${status ?? '(none)'}.${reason}${fetchError ? ` Error: ${fetchError.message}.` : ''}`
-            )
+            throw pushSendError('apns', err, parseRetryAfterMs(fetchResponse))
         }
 
         pushNotificationSentCounter.labels({ platform: 'apns' }).inc()
-        addLog('info', `Push notification sent via APNS`)
+        addLog('info', 'Push notification accepted by APNs.')
         return true
     }
 
@@ -450,6 +580,9 @@ export class PushNotificationService {
             properties: { $unset: [`$device_push_subscription_${appIdentifier}`] },
         })
         pushNotificationTokenPrunedCounter.labels({ platform }).inc()
+        // A dead token is a non-delivery, not a failure to fix. Record it in the reason-labeled skip
+        // series too (not just the token-removal counter) so the skip metric accounts for it.
+        pushNotificationSkippedCounter.labels({ platform, reason: 'unregistered' }).inc()
     }
 
     private buildFcmMessage(token: string, payload: PushNotificationPayloadType): Record<string, unknown> {

@@ -45,6 +45,9 @@ from .utils import BingAdsResumeConfig
 @SourceRegistry.register
 class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], OAuthMixin):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v13",)
+    default_version = "v13"
+    api_docs_url = "https://learn.microsoft.com/en-us/advertising/guides/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -80,6 +83,14 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
         )
         return {
             "AADSTS650052": service_principal_friendly,
+            # PostHog's own Azure AD application secret (BING_ADS_CLIENT_SECRET) is invalid or expired —
+            # Microsoft rejects the token request with AADSTS7000215 for the app itself, not the connected
+            # account. Reconnecting the integration can't fix it; only rotating PostHog's app secret can, so
+            # this is internal config (None message), not customer-actionable. Wrapped by the SDK as
+            # `OAuthTokenRequestException: invalid_client AADSTS7000215: …`, so it shares those two generic
+            # substrings — it must precede both so handle_non_retryable doesn't surface the misleading
+            # "reconnect your integration" message.
+            "AADSTS7000215": None,
             # OAuth grant rejection by Microsoft (the bingads SDK raises OAuthTokenRequestException
             # whose str() format is "<error_code> <error_description>").
             "OAuthTokenRequestException": auth_friendly,

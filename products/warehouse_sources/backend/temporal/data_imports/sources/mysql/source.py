@@ -312,10 +312,17 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
         try:
             self.get_schemas(config, team_id)
         except BaseSSHTunnelForwarderError as e:
+            # sshtunnel surfaces raw library strings (e.g. "Could not establish session to SSH
+            # gateway"); map them to the friendly guidance in `get_non_retryable_errors` — which the
+            # generic `except Exception` branch below already applies — instead of leaking the
+            # internal wording to the wizard.
+            ssh_error = e.value or ""
+            for pattern, friendly_error in self.get_non_retryable_errors().items():
+                if friendly_error and pattern in ssh_error:
+                    return False, friendly_error
             return (
                 False,
-                e.value
-                or f"Could not connect to {self.get_source_config.name} via the SSH tunnel. Please check all connection details are valid.",
+                f"Could not connect to {self.get_source_config.name} via the SSH tunnel. Please check all connection details are valid.",
             )
         except Exception as e:
             # Connection/credential failures we already classify as non-retryable during sync

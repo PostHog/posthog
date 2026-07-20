@@ -3,7 +3,7 @@ import time
 from collections.abc import Callable, Iterable
 from datetime import datetime
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, Literal, Optional, TypedDict, Union, cast
 from uuid import UUID
 
 from django.conf import settings
@@ -52,6 +52,30 @@ class CohortType(StrEnum):
     BEHAVIORAL = "behavioral"
     REALTIME = "realtime"
     ANALYTICAL = "analytical"
+
+
+class CohortConditionFlags(TypedDict):
+    """Boolean flags describing which kinds of leaf conditions a cohort's filters contain,
+    independent of `CohortType` (which is about realtime-evaluation eligibility, not filter shape)."""
+
+    person_properties: bool
+    behavioral: bool
+    lifecycle: bool
+    cohorts: bool
+
+
+# Behavioral filter `value`s that represent lifecycle-style conditions (new/returning/dormant/
+# resurrecting), matching the frontend's "Lifecycle" cohort filter section (BehavioralLifecycleType
+# in frontend/src/types.ts) — distinct from plain event-count behavioral filters (performed_event,
+# performed_event_multiple, performed_event_sequence).
+LIFECYCLE_BEHAVIORAL_VALUES = frozenset(
+    {
+        "performed_event_first_time",
+        "performed_event_regularly",
+        "stopped_performing_event",
+        "restarted_performing_event",
+    }
+)
 
 
 # The empty string literal helps us determine when the cohort is invalid/deleted, when
@@ -226,6 +250,15 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         help_text="Type of cohort based on filter complexity",
     )
 
+    condition_type = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Flags describing which kinds of conditions the cohort's filters contain: "
+        "person_properties (property or person_metadata), behavioral, lifecycle (first-seen/regularly/"
+        "stopped/restarted performing an event), and cohorts (nested cohort references). Null when the "
+        "cohort has no filters to classify.",
+    )
+
     # deprecated in favor of filters
     groups = models.JSONField(default=list)
 
@@ -251,10 +284,20 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         return self.name or "Untitled cohort"
 
     def save(self, *args: Any, **kwargs: Any) -> None:
+        """Keep `condition_type` derived from `filters` on every save, so any creation path
+        (the cohorts API, management commands, or a direct `Cohort.objects.create(...)`)
+        ends up with a consistent classification, not just the API serializer's flow."""
         # update_fields can arrive positionally (4th positional, after force_insert/force_update/using)
         # or as a keyword. Intercept it so _maintain_behavioral_shape can extend the frozen set.
-        positional_update_fields = args[3] if len(args) > 3 else kwargs.get("update_fields")
-        maintained_update_fields = self._maintain_behavioral_shape(positional_update_fields)
+        update_fields = args[3] if len(args) > 3 else kwargs.get("update_fields")
+        if update_fields is None:
+            self.condition_type = Cohort.compute_condition_type(self.filters)
+        elif "filters" in update_fields:
+            self.condition_type = Cohort.compute_condition_type(self.filters)
+            if "condition_type" not in update_fields:
+                update_fields = [*update_fields, "condition_type"]
+
+        maintained_update_fields = self._maintain_behavioral_shape(update_fields)
         if len(args) > 3:
             args = (*args[:3], maintained_update_fields, *args[4:])
         else:
@@ -344,30 +387,75 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             should_delete=self.deleted,
         )
 
-    def _has_filter_type(self, filter_type: str) -> bool:
-        """Check whether the cohort's filter tree contains any leaf node of the given type."""
-        if not self.filters:
-            return False
-        properties = self.filters.get("properties")
+    @staticmethod
+    def _filter_leaves(filters: Optional[dict]) -> list[dict]:
+        """Flatten a cohort filters dict into its leaf filter nodes, expanding AND/OR groups."""
+        if not filters:
+            return []
+        properties = filters.get("properties")
         if not properties:
-            return False
+            return []
 
-        def _check(node) -> bool:
+        leaves: list[dict] = []
+
+        def _walk(node: Any) -> None:
             if not isinstance(node, dict):
-                return False
+                return
             node_type = node.get("type")
             if node_type in ("AND", "OR"):
-                return any(_check(child) for child in node.get("values", []))
-            return node_type == filter_type
+                for child in node.get("values", []):
+                    _walk(child)
+            else:
+                leaves.append(node)
 
-        return _check(properties)
+        _walk(properties)
+        return leaves
+
+    @staticmethod
+    def _filters_contain_type(filters: Optional[dict], filter_type: str) -> bool:
+        """Check whether a cohort filters dict contains any leaf node of the given type."""
+        return any(leaf.get("type") == filter_type for leaf in Cohort._filter_leaves(filters))
+
+    def _has_filter_type(self, filter_type: str) -> bool:
+        """Check whether the cohort's filter tree contains any leaf node of the given type."""
+        return Cohort._filters_contain_type(self.filters, filter_type)
+
+    @staticmethod
+    def compute_condition_type(filters: Optional[dict]) -> Optional[CohortConditionFlags]:
+        """Classify a cohort's filters by which kinds of leaf conditions they contain.
+
+        `person` and `person_metadata` are both property-style conditions (the latter reads
+        top-level persons-table columns instead of the properties JSON blob, but is not
+        behavioral), so either sets the `person_properties` flag. Behavioral filters split into
+        `lifecycle` (first-seen/regularly/stopped/restarted performing an event, matching the
+        frontend's "Lifecycle" cohort filter section) and `behavioral` for everything else
+        (performed_event, performed_event_multiple, performed_event_sequence, and their
+        negations). `cohorts` flags nested cohort references.
+
+        Returns None when the filters have no leaf conditions to classify (e.g. empty filters).
+        """
+        leaves = Cohort._filter_leaves(filters)
+        if not leaves:
+            return None
+
+        return {
+            "person_properties": any(leaf.get("type") in ("person", "person_metadata") for leaf in leaves),
+            "behavioral": any(
+                leaf.get("type") == "behavioral" and leaf.get("value") not in LIFECYCLE_BEHAVIORAL_VALUES
+                for leaf in leaves
+            ),
+            "lifecycle": any(
+                leaf.get("type") == "behavioral" and leaf.get("value") in LIFECYCLE_BEHAVIORAL_VALUES for leaf in leaves
+            ),
+            "cohorts": any(leaf.get("type") == "cohort" for leaf in leaves),
+        }
 
     @property
     def is_flag_compatible(self) -> bool:
         """Whether this cohort can be used in feature flag targeting via cohort_membership lookups.
 
         Gates on both person property and event backfills based on which filter types the cohort uses:
-        - Cohorts with person property filters require last_backfill_person_properties_at
+        - Cohorts with person property or person_metadata filters require last_backfill_person_properties_at
         - Cohorts with behavioral event filters require last_backfill_events_at
         - Cohorts with both require both timestamps
         - Cohorts with neither recognized filter type (empty filters, cohort-reference-only, etc.)
@@ -377,7 +465,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         if self.cohort_type != CohortType.REALTIME:
             return False
 
-        has_person_filters = self._has_filter_type("person")
+        has_person_filters = self._has_filter_type("person") or self._has_filter_type("person_metadata")
         has_behavioral_filters = self._has_filter_type("behavioral")
 
         if not (has_person_filters or has_behavioral_filters):
@@ -546,6 +634,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         *,
         team_id: Optional[int] = None,
         batch_size: int = DEFAULT_COHORT_INSERT_BATCH_SIZE,
+        raise_on_error: bool = False,
     ) -> int:
         """
         Insert a list of users identified by their distinct ID into the cohort, for the given team.
@@ -554,6 +643,10 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             items: List of distinct IDs of users to be inserted into the cohort.
             team_id: ID of the team for which to insert the users. Defaults to `self.team`, because of a lot of existing usage in tests.
             batch_size: Number of records to process in each batch. Defaults to 1000.
+            raise_on_error: When True, a batch insert failure is re-raised and terminal cohort
+                state is left for the caller to finalize, instead of being swallowed and
+                recorded on the cohort here. Use when the caller must not treat a partial
+                insert as success.
         """
         if team_id is None:
             team_id = self.team_id
@@ -573,7 +666,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 return get_person_uuids_by_distinct_ids(team_id, items[start_idx:end_idx])
 
         batch_iterator = FunctionBatchIterator(create_uuid_batch, batch_size=batch_size, max_items=len(items))
-        return self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=True, team_id=team_id)
+        return self._insert_users_list_with_batching(
+            batch_iterator, insert_in_clickhouse=True, team_id=team_id, raise_on_error=raise_on_error
+        )
 
     def insert_users_list_by_uuid(
         self,
@@ -969,6 +1064,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             "groups": self.groups,
             "is_static": self.is_static,
             "cohort_type": self.cohort_type,
+            "condition_type": self.condition_type,
             "created_by_id": self.created_by_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "last_error_at": self.last_error_at.isoformat() if self.last_error_at else None,

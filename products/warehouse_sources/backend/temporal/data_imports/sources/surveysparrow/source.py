@@ -45,6 +45,9 @@ def _base_url_for(config: SurveySparrowSourceConfig) -> str:
 
 @SourceRegistry.register
 class SurveySparrowSource(ResumableSource[SurveySparrowSourceConfig, SurveySparrowResumeConfig]):
+    supported_versions = ("v3",)
+    default_version = "v3"
+    api_docs_url = "https://developers.surveysparrow.com/rest-apis/"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

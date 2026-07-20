@@ -73,9 +73,26 @@ class TestActiveCampaignSource:
         assert api_key_field.required is True
         assert api_key_field.secret is True
 
-    @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error", "Unauthorized for url"])
+    @pytest.mark.parametrize(
+        "expected_key",
+        ["401 Client Error", "403 Client Error", "Unauthorized for url", "ActiveCampaign API URL is not allowed"],
+    )
     def test_non_retryable_errors(self, expected_key: str) -> None:
         assert expected_key in self.source.get_non_retryable_errors()
+
+    @pytest.mark.parametrize(
+        "raised_message",
+        [
+            # `active_campaign_source` raises `ActiveCampaign API URL is not allowed: {reason}` for
+            # every URL-validation failure; the sync matcher is a substring check, so the stable
+            # prefix must classify each reason as non-retryable regardless of the appended detail.
+            "ActiveCampaign API URL is not allowed: Could not resolve host",
+            "ActiveCampaign API URL is not allowed: Private IP address not allowed",
+        ],
+    )
+    def test_url_not_allowed_is_non_retryable(self, raised_message: str) -> None:
+        keys = self.source.get_non_retryable_errors().keys()
+        assert any(key in raised_message for key in keys)
 
     def test_get_schemas_all_full_refresh(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)

@@ -251,8 +251,13 @@ def resolve_primary_keys(
         return schema.primary_key_columns
     if resource.primary_keys:
         return list(resource.primary_keys)
-    if "id" in extract_available_column_names(schema.schema_metadata):
-        return ["id"]
+    # Case-insensitive: engines like Snowflake uppercase unquoted identifiers, so the column
+    # arrives as `ID`. Return the actual stored casing — the merge indexes batches by real name.
+    id_column = next(
+        (name for name in extract_available_column_names(schema.schema_metadata) if name.lower() == "id"), None
+    )
+    if id_column is not None:
+        return [id_column]
     return None
 
 
@@ -465,8 +470,10 @@ async def handle_corrupted_delta_log(
                 )
 
                 # The completed swap copied the full temp table over live, so any hollow-table
-                # marker is stale now.
-                await database_sync_to_async_pool(update_sync_type_config_keys)(
+                # marker is stale now. Refresh the in-memory config from the persisted result —
+                # this schema object keeps saving `sync_type_config` for the rest of the run, and
+                # a stale copy would write the marker back, re-arming the revive every sync.
+                schema.sync_type_config = await database_sync_to_async_pool(update_sync_type_config_keys)(
                     schema.id, schema.team_id, removes=["delta_revive_required"]
                 )
                 await logger.ainfo(
@@ -486,7 +493,10 @@ async def handle_corrupted_delta_log(
 
     await delta_table_helper.reset_table()
     await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)()
-    await database_sync_to_async_pool(update_sync_type_config_keys)(
+    # Refresh the in-memory config from the persisted result — this schema object keeps saving
+    # `sync_type_config` for the rest of the run (incremental staging, partition bookkeeping), and
+    # a stale copy would write the marker back, re-arming a non-billable revive on every sync.
+    schema.sync_type_config = await database_sync_to_async_pool(update_sync_type_config_keys)(
         schema.id, schema.team_id, removes=["repartition_pending", "repartition_swap", "delta_revive_required"]
     )
     was_billable = bool(job.billable)

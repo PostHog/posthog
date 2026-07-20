@@ -22,6 +22,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import NotionSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.notion.notion import (
+    NOTION_VERSION_2025_09_03,
+    NOTION_VERSION_2026_03_11,
     NotionResumeConfig,
     notion_source,
     validate_credentials as validate_notion_credentials,
@@ -35,6 +37,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class NotionSource(ResumableSource[NotionSourceConfig, NotionResumeConfig]):
+    supported_versions = (NOTION_VERSION_2025_09_03, NOTION_VERSION_2026_03_11)
+    default_version = NOTION_VERSION_2026_03_11
+    api_docs_url = "https://developers.notion.com/page/changelog"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -109,7 +115,9 @@ Then **share** each page or database you want to sync with the integration (via 
     def validate_credentials(
         self, config: NotionSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        return validate_notion_credentials(config.api_key)
+        # Runs at creation time with no row pin; new sources are stamped with default_version, and
+        # the /v1/users/me probe is version-agnostic, so validate under the default.
+        return validate_notion_credentials(config.api_key, self.default_version)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[NotionResumeConfig]:
         return ResumableSourceManager[NotionResumeConfig](inputs, NotionResumeConfig)
@@ -125,4 +133,5 @@ Then **share** each page or database you want to sync with the integration (via 
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
         )

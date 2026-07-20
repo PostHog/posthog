@@ -30,6 +30,7 @@ import { GENERATED_TOOLS as field_notes } from './field_notes'
 import { GENERATED_TOOLS as health_issues } from './health_issues'
 import { GENERATED_TOOLS as integrations } from './integrations'
 import { GENERATED_TOOLS as logs } from './logs'
+import { GENERATED_TOOLS as managed_migrations } from './managed_migrations'
 import { GENERATED_TOOLS as marketing_analytics } from './marketing_analytics'
 import { GENERATED_TOOLS as mcp_analytics } from './mcp_analytics'
 import { GENERATED_TOOLS as mcp_store } from './mcp_store'
@@ -45,6 +46,7 @@ import { GENERATED_TOOLS as replay } from './replay'
 import { GENERATED_TOOLS as replay_vision } from './replay_vision'
 import { GENERATED_TOOLS as signals } from './signals'
 import { GENERATED_TOOLS as skills } from './skills'
+import { GENERATED_TOOLS as stamphog } from './stamphog'
 import { GENERATED_TOOLS as subscriptions } from './subscriptions'
 import { GENERATED_TOOLS as surveys } from './surveys'
 import { GENERATED_TOOLS as tasks } from './tasks'
@@ -85,6 +87,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...health_issues,
     ...integrations,
     ...logs,
+    ...managed_migrations,
     ...marketing_analytics,
     ...mcp_analytics,
     ...mcp_store,
@@ -100,6 +103,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...replay_vision,
     ...signals,
     ...skills,
+    ...stamphog,
     ...subscriptions,
     ...surveys,
     ...tasks,

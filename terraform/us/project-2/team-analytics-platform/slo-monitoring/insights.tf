@@ -341,14 +341,18 @@ resource "posthog_insight" "slo_success_rate" {
     source = {
       kind  = "HogQLQuery"
       query = <<-SQL
-        -- No correlation_id needed: daily buckets have negligible cross-bucket issues.
-        -- Sampled operations are reweighted by 1/sample_rate so the rate reflects
-        -- true volume; events without the property coalesce to 1.0 (no sampling).
+        -- Pair starts to completions by correlation_id (same as the burn rate query) so an
+        -- operation that starts late in a day and finishes after midnight is attributed to its
+        -- start day, not miscounted as a failure on the start day and dropped on the next.
+        -- Uncorrelated events (cid = '') fall back to per-day bucket counting with a clamp.
+        -- Sampled operations are reweighted by 1/sample_rate so the rate reflects true volume;
+        -- events without the property coalesce to 1.0 (no sampling).
         WITH weighted_events AS (
             SELECT
                 event,
                 timestamp,
                 properties.operation AS operation,
+                coalesce(nullIf(properties.correlation_id, ''), '') AS correlation_id,
                 properties.outcome AS outcome,
                 1.0 / coalesce(toFloat(properties.sample_rate), 1.0) AS weight
             FROM events
@@ -356,21 +360,50 @@ resource "posthog_insight" "slo_success_rate" {
               AND properties.operation IN (${local.slo_operation_list})
               AND timestamp >= now() - INTERVAL 56 DAY
         ),
-        daily AS (
+        per_cid_day AS (
             SELECT
-                toDate(timestamp) AS date,
                 operation,
-                sumIf(weight, event = 'slo_operation_started') AS total,
-                greatest(
-                    sumIf(weight, event = 'slo_operation_started')
-                      - sumIf(weight, event = 'slo_operation_completed' AND outcome = 'success'),
-                    0.0
-                ) AS failures
+                correlation_id AS cid,
+                toDate(timestamp) AS event_date,
+                sumIf(weight, event = 'slo_operation_started') AS starts,
+                sumIf(weight, event = 'slo_operation_completed' AND outcome = 'success') AS successes,
+                -- One operation per cid, so all its events share a weight; max() collapses them.
+                max(weight) AS cid_weight,
+                min(if(event = 'slo_operation_started', timestamp, NULL)) AS first_start
             FROM weighted_events
-            GROUP BY date, operation
+            GROUP BY operation, cid, event_date
+        ),
+        daily AS (
+            SELECT operation, date, sum(total) AS total, sum(failures) AS failures
+            FROM (
+                -- Uncorrelated: starts/successes already weighted; 1 row per (operation, day).
+                SELECT
+                    operation,
+                    event_date AS date,
+                    starts AS total,
+                    greatest(starts - successes, 0.0) AS failures
+                FROM per_cid_day
+                WHERE cid = ''
+
+                UNION ALL
+
+                -- Correlated: collapse across days per (operation, cid), attribute to start day.
+                SELECT
+                    operation,
+                    toDate(min(first_start)) AS date,
+                    max(cid_weight) AS total,
+                    if(max(successes) > 0, 0.0, max(cid_weight)) AS failures
+                FROM per_cid_day
+                WHERE cid != ''
+                GROUP BY operation, cid
+                HAVING date IS NOT NULL
+            )
+            GROUP BY operation, date
         ),
         date_range AS (
-            SELECT toDate(now()) - number AS date FROM numbers(28)
+            -- 28 displayed days + 28 days of look-back so every displayed point has a full
+            -- 28-day rolling window (avoids the warm-up ramp at the left edge of the chart).
+            SELECT toDate(now()) - number AS date FROM numbers(56)
         ),
         operations AS (
             SELECT arrayJoin([${local.slo_operation_list}]) AS operation
@@ -398,6 +431,7 @@ resource "posthog_insight" "slo_success_rate" {
             operation,
             if(t28 > 0, round((t28 - f28) / t28 * 100, 2), NULL) AS success_rate
         FROM rolling
+        WHERE date >= toDate(now()) - INTERVAL 27 DAY
         ORDER BY date ASC, operation ASC
         LIMIT ${local.slo_success_rate_limit}
       SQL

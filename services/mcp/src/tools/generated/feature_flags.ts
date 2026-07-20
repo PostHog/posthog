@@ -136,6 +136,7 @@ const featureFlagGetAll = (): ToolBase<
                 active: params.active,
                 archived: params.archived,
                 created_by_id: params.created_by_id,
+                eligible_for_experiment: params.eligible_for_experiment,
                 evaluation_runtime: params.evaluation_runtime,
                 excluded_properties: params.excluded_properties,
                 excluded_tags: params.excluded_tags,
@@ -314,6 +315,9 @@ const featureFlagsCopyFlagsCreate = (): ToolBase<
         if (params.disable_copied_flag !== undefined) {
             body['disable_copied_flag'] = params.disable_copied_flag
         }
+        if (params.copy_dependencies !== undefined) {
+            body['copy_dependencies'] = params.copy_dependencies
+        }
         const result = await context.api.request<Schemas.CopyFlagsResponse>({
             method: 'POST',
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/feature_flags/copy_flags/`,
@@ -358,6 +362,7 @@ const featureFlagsEvaluationReasonsRetrieve = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/evaluation_reasons/`,
             query: {
                 distinct_id: params.distinct_id,
+                flag_keys: params.flag_keys,
                 groups: params.groups,
             },
         })

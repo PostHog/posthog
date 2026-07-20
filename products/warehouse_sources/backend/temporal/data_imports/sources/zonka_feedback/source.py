@@ -29,6 +29,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feed
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feedback.zonka_feedback import (
     DATA_CENTER_IDS,
+    ZONKA_API_VERSION_V1,
+    ZONKA_API_VERSION_V2_1,
     ZonkaFeedbackResumeConfig,
     base_url,
     check_access,
@@ -39,6 +41,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ZonkaFeedbackSource(ResumableSource[ZonkaFeedbackSourceConfig, ZonkaFeedbackResumeConfig]):
+    api_docs_url = "https://apidocs.zonkafeedback.com/"
+
+    supported_versions = (ZONKA_API_VERSION_V1, ZONKA_API_VERSION_V2_1)
+    default_version = ZONKA_API_VERSION_V2_1
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
