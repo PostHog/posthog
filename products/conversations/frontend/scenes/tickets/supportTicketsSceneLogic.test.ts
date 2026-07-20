@@ -1,4 +1,7 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -68,6 +71,59 @@ describe('supportTicketsSceneLogic', () => {
             }).toFinishAllListeners()
             expect(logic.values.assigneeFilterEntries).toEqual(['unassigned'])
             expect(lastAssigneeParam).toBe('unassigned')
+        })
+    })
+
+    describe('URL sync', () => {
+        let logic: ReturnType<typeof supportTicketsSceneLogic.build>
+
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/conversations/tickets/': () => [200, { count: 0, results: [] }],
+                },
+            })
+            initKeaTests()
+        })
+
+        afterEach(() => {
+            logic?.unmount()
+        })
+
+        it('writes active filters to the URL so links are shareable', async () => {
+            router.actions.push(urls.supportTickets())
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.setStatusFilter(['open', 'new'])
+                logic.actions.setChannelFilter('slack')
+                logic.actions.setAssigneeFilter([{ type: 'user', id: 1 }])
+                logic.actions.setSorting({ columnKey: 'created_at', order: 1 })
+            }).toFinishAllListeners()
+
+            expect(router.values.searchParams.status).toEqual(['open', 'new'])
+            expect(router.values.searchParams.channel).toBe('slack')
+            expect(router.values.searchParams.assignee).toEqual(['user:1'])
+            expect(router.values.searchParams.order_by).toBe('created_at')
+        })
+
+        it('applies filters from the URL on mount so bookmarked links restore them', async () => {
+            router.actions.push(urls.supportTickets(), {
+                status: ['pending'],
+                channel: 'email',
+                order_by: 'created_at',
+                assignee: ['unassigned'],
+            })
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.statusFilter).toEqual(['pending'])
+            expect(logic.values.channelFilter).toBe('email')
+            expect(logic.values.sorting).toEqual({ columnKey: 'created_at', order: 1 })
+            expect(logic.values.assigneeFilterEntries).toEqual(['unassigned'])
         })
     })
 })
