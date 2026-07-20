@@ -522,12 +522,13 @@ class Database(BaseModel):
     _data_warehouse_sync_warnings: dict[str, list[DataWarehouseSyncWarning]] = {}
 
     _timezone: str | None
-    _week_start_day: WeekStartDay | None
+    # Django reads team.week_start_day (a SmallIntegerField) back as a plain int, so we store int | enum.
+    _week_start_day: WeekStartDay | int | None
 
     def __init__(
         self,
         timezone: str | None = None,
-        week_start_day: WeekStartDay | None = None,
+        week_start_day: WeekStartDay | int | None = None,
         include_posthog_tables: bool = True,
     ):
         super().__init__(tables=build_database_root_node(include_posthog_tables=include_posthog_tables))
@@ -552,7 +553,9 @@ class Database(BaseModel):
         return self._timezone or "UTC"
 
     def get_week_start_day(self) -> WeekStartDay:
-        return self._week_start_day or WeekStartDay.SUNDAY
+        # team.week_start_day comes back from Django as a plain int, so coerce to the enum.
+        # A bare `or` would also mishandle Monday (1 is truthy) vs Sunday (0 is falsy).
+        return WeekStartDay(self._week_start_day) if self._week_start_day is not None else WeekStartDay.SUNDAY
 
     def get_serialization_errors(self) -> dict[str, str]:
         """Return any errors encountered during serialization."""
