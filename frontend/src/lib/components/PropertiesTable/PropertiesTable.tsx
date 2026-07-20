@@ -263,6 +263,7 @@ function VirtualizedPropertyRow({
     highlightedKeys,
     highlightVariant,
     dynamicRowHeight,
+    ariaAttributes,
 }: {
     ariaAttributes: { 'aria-posinset': number; 'aria-setsize': number; role: 'listitem' }
     index: number
@@ -281,7 +282,7 @@ function VirtualizedPropertyRow({
 
     return (
         // eslint-disable-next-line react/forbid-dom-props
-        <div ref={rowRef} style={style} data-index={index}>
+        <div ref={rowRef} style={style} data-index={index} {...ariaAttributes}>
             <div
                 className="flex items-start gap-2 px-2 py-1 border-b border-border"
                 // eslint-disable-next-line react/forbid-dom-props
