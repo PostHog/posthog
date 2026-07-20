@@ -24,7 +24,8 @@ import type {
 
 export const SUPPORT_TICKETS_PAGE_SIZE = 20
 
-// Must mirror the filter reducers' defaults below
+// Must mirror the filter reducers' defaults below. The date range is deliberately
+// omitted: it's a persisted user preference, so clearing a view keeps it as-is.
 const DEFAULT_TICKET_FILTERS: TicketViewFilters = {
     status: [],
     priority: [],
@@ -35,8 +36,6 @@ const DEFAULT_TICKET_FILTERS: TicketViewFilters = {
     tags: [],
     tagsMatch: 'any',
     tagsExclude: [],
-    dateFrom: '-7d',
-    dateTo: null,
     sorting: { columnKey: 'updated_at', order: -1 },
     search: '',
 }
