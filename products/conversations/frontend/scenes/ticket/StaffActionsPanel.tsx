@@ -8,9 +8,13 @@ import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotic
 export function StaffActionsPanel(): JSX.Element {
     const { ticketContext } = useValues(impersonationNoticeLogic)
 
-    // null/undefined means the identity signal was never assessed for this ticket —
-    // login as is still allowed, but warn staff to confirm they have the right customer.
+    // Two distinct non-verified states: never checked (null/undefined) allows login with
+    // a caution, while an explicit false means the sender claimed this email but failed
+    // verification — direct login is blocked, only the manual admin path remains.
     const identityUnknown = !!ticketContext?.email && ticketContext.identityVerified == null
+    const identityFailed = !!ticketContext?.email && ticketContext.identityVerified === false
+
+    const emailClassName = identityFailed ? 'text-danger' : identityUnknown ? 'text-warning' : 'text-success'
 
     return (
         <LemonCollapse
@@ -22,17 +26,24 @@ export function StaffActionsPanel(): JSX.Element {
                     header: 'Staff actions',
                     content: (
                         <div className="space-y-2">
-                            {identityUnknown && (
-                                <LemonBanner type="warning">
-                                    This ticket's identity hasn't been verified. Confirm you're logging in as the right
-                                    customer before proceeding.
+                            {identityFailed ? (
+                                <LemonBanner type="error">
+                                    This ticket failed identity verification: the sender claimed this email but couldn't
+                                    prove they own it, so logging in directly is disabled. "View user in Django admin"
+                                    looks up the claimed email, so verify the customer's identity before logging in as
+                                    them from there.
                                 </LemonBanner>
-                            )}
+                            ) : identityUnknown ? (
+                                <LemonBanner type="warning">
+                                    This ticket's identity was never checked (not the same as failed verification).
+                                    Confirm you're logging in as the right customer before proceeding.
+                                </LemonBanner>
+                            ) : null}
                             <div className="flex items-center justify-between gap-2">
                                 <span className="text-xs text-muted-alt">
                                     {ticketContext?.email ? (
                                         <>
-                                            Customer: <span className="text-success">{ticketContext.email}</span>
+                                            Customer: <span className={emailClassName}>{ticketContext.email}</span>
                                         </>
                                     ) : (
                                         'No customer email on this ticket'
