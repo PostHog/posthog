@@ -392,7 +392,8 @@ export const CommentWithReplies = ({ commentWithReplies, composerLogicProps }: C
                                 className={clsx('size-3 shrink-0 transition-transform', isExpanded && 'rotate-90')}
                             />
                             <span>{pluralize(replies.length, 'reply', 'replies')}</span>
-                            {replyButton ? <div className="ml-auto">{replyButton}</div> : null}
+                            {/* Once expanded, the reply affordance moves to the thread's bottom */}
+                            {!isExpanded ? <div className="ml-auto">{replyButton}</div> : null}
                         </div>
                     </>
                 ) : null}
@@ -407,7 +408,7 @@ export const CommentWithReplies = ({ commentWithReplies, composerLogicProps }: C
                         <InlineReplyComposer logicProps={composerLogicProps} />
                     </div>
                 </>
-            ) : replies.length === 0 && replyButton ? (
+            ) : isExpanded || replies.length === 0 ? (
                 <>
                     <LemonDivider className="my-0" />
                     <div className="flex justify-end px-2 py-1">{replyButton}</div>
