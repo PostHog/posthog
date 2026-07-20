@@ -48,6 +48,7 @@ export function AssigneeDropdown({ assignee, onChange }: AssigneeDropdownProps):
                             type="user"
                             onSelect={onChange}
                             activeId={assignee?.id}
+                            labelSuffix={<span className="text-secondary">(you)</span>}
                         />
                     </li>
                 )}
@@ -101,11 +102,13 @@ const AssigneeItem = ({
     type,
     onSelect,
     activeId,
+    labelSuffix,
 }: {
     item: Assignee
     type: 'user' | 'role'
     onSelect: (value: TicketAssignee) => void
     activeId?: string | number
+    labelSuffix?: JSX.Element
 }): JSX.Element => {
     return (
         <LemonButton
@@ -116,7 +119,10 @@ const AssigneeItem = ({
             onClick={() => item?.id && onSelect(String(activeId) === String(item.id) ? null : { type, id: item.id })}
             active={String(activeId) === String(item?.id)}
         >
-            <AssigneeLabelDisplay assignee={item} />
+            <span className="flex items-center gap-1">
+                <AssigneeLabelDisplay assignee={item} />
+                {labelSuffix}
+            </span>
         </LemonButton>
     )
 }
