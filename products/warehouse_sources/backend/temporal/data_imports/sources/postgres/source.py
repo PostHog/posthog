@@ -206,6 +206,10 @@ _SSH_GATEWAY_UNREACHABLE_MESSAGE = (
 
 @SourceRegistry.register
 class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+    # xmin replication is Postgres-only; per-table availability is still decided by
+    # `SourceSchema.supports_xmin` at discovery.
+    supports_xmin = True
+
     def __init__(self, source_name: str = "Postgres"):
         super().__init__()
         self.source_name = source_name

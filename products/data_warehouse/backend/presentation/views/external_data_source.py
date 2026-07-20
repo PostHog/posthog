@@ -65,6 +65,7 @@ from products.cdp.backend.facade.api import HogFunctionSerializer
 from products.cdp.backend.facade.models import HogFunction
 from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
 from products.data_warehouse.backend.facade.api import (
+    DirectQueryEngine,
     apply_on_refresh as apply_sql_warehouse_refresh_migration,
     apply_on_schema_clear as apply_sql_warehouse_schema_clear_migration,
     bulk_create_external_data_job_schedules,
@@ -78,21 +79,15 @@ from products.data_warehouse.backend.facade.api import (
     detect_schema_clear_transition as detect_sql_schema_clear_transition,
     ensure_cdc_slot_cleanup_schedule,
     get_direct_query_engine,
+    get_namespaced_resource_adapter,
     get_or_create_webhook_hog_function,
     get_postgres_source_location,
     get_webhook_url,
-    github_repositories_for_job_inputs,
     is_any_external_data_schema_paused,
     is_cdc_enabled_for_team,
     is_cdc_extraction_schedule_paused,
     is_custom_source_ai_builder_enabled_for_team,
     is_multi_schema_capable_sql_source,
-    reconcile_github_repositories,
-    reconcile_mysql_schemas,
-    reconcile_postgres_schemas,
-    reconcile_redshift_schemas,
-    reconcile_refresh_name_substitutions as reconcile_postgres_refresh_name_substitutions,
-    reconcile_snowflake_schemas,
     source_namespace_is_blank,
     sync_cdc_extraction_schedule,
     sync_discover_schemas_schedule,
@@ -116,7 +111,6 @@ from products.data_warehouse.backend.presentation.views.source_api_versions impo
 from products.revenue_analytics.backend.facade.api import ensure_person_join, remove_person_join
 from products.warehouse_sources.backend.facade.api import validate_source_prefix
 from products.warehouse_sources.backend.facade.models import (
-    CustomOAuth2Integration,
     DataWarehouseTable,
     ExternalDataJob,
     ExternalDataSchema,
@@ -129,7 +123,6 @@ from products.warehouse_sources.backend.facade.models import (
 from products.warehouse_sources.backend.facade.source_management import (
     DEFAULT_LAG_CRITICAL_THRESHOLD_MB,
     DEFAULT_LAG_WARNING_THRESHOLD_MB,
-    MAX_CUSTOM_SOURCES_PER_TEAM,
     PREVIEW_DEFAULT_ROWS,
     PREVIEW_MAX_ROWS,
     AnySource,
@@ -162,7 +155,6 @@ from products.warehouse_sources.backend.facade.source_management import (
     filter_integration_accounts,
     get_cdc_adapter,
     get_primary_key_columns,
-    manifest_request_hosts,
     repair_cdc_source,
     source_requires_ssl,
     source_type_supports_cdc,
@@ -473,7 +465,6 @@ def get_postgres_source_table_location(
     )
 
 
-CUSTOM_SOURCE_LIMIT_MESSAGE = f"You can create at most {MAX_CUSTOM_SOURCES_PER_TEAM} custom sources per project."
 DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE = (
     "Direct query mode is currently supported only for Postgres, MySQL, Snowflake, and Redshift sources."
 )
@@ -481,12 +472,24 @@ DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE = (
 DIRECT_CONNECTION_ENGINE_CHOICES = ["duckdb", "postgres", "mysql", "snowflake", "redshift"]
 
 
-def count_active_custom_sources(team_id: int) -> int:
-    return (
-        ExternalDataSource.objects.filter(team_id=team_id, source_type=ExternalDataSourceType.CUSTOM)
-        .exclude(deleted=True)
-        .count()
-    )
+def count_active_sources(team_id: int, source_type: str) -> int:
+    return ExternalDataSource.objects.filter(team_id=team_id, source_type=source_type).exclude(deleted=True).count()
+
+
+def _refresh_name_substitutions(
+    engine: DirectQueryEngine | None, *, source: ExternalDataSource, source_schemas: list[Any], team_id: int
+) -> dict[str, str]:
+    """Legacy-row name remapping applied before schema sync on refresh. The engine adapter's
+    remapping wins when it has one (Postgres's bespoke dedup — an empty dict still counts as
+    "handled" and suppresses the fallback); otherwise a multi-schema-capable SQL source with a
+    blank namespace gets the generic migration. Neither applies to any other source."""
+    if engine is not None:
+        engine_subs = engine.refresh_name_substitutions(source=source, source_schemas=source_schemas, team_id=team_id)
+        if engine_subs is not None:
+            return engine_subs
+    if source_namespace_is_blank(source) and is_multi_schema_capable_sql_source(source.source_type):
+        return apply_sql_warehouse_refresh_migration(source=source, team_id=team_id)
+    return {}
 
 
 class ExternalDataSourceRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
@@ -1019,27 +1022,16 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             else:
                 new_job_inputs.pop(key, None)
 
-        # GitHub's legacy `repository` is a server-managed marker once the multi-repo field is in
-        # play: it defines which repo's schema rows keep bare (unqualified) names, so an edit can
-        # never rename or re-point it. Legacy-only PATCHes (no `repositories` anywhere) keep the
-        # original single-repo swap semantics.
-        if source_type_model == ExternalDataSourceType.GITHUB and (
-            "repositories" in incoming_job_inputs or "repositories" in existing_job_inputs
-        ):
-            if existing_job_inputs.get("repository"):
-                new_job_inputs["repository"] = existing_job_inputs["repository"]
+        # Server-managed job_inputs (Custom's OAuth2 row pointer, GitHub's legacy `repository`
+        # marker): pin each to the stored value so an editor can't repoint the source at a different
+        # row/marker (and through it, different credentials). Re-entered auth_oauth2_* secrets flow
+        # into the pinned row during credential validation. The source declares which fields these
+        # are — the API never names the source type.
+        for field in source.server_managed_job_input_fields(incoming_job_inputs, existing_job_inputs):
+            if existing_job_inputs.get(field):
+                new_job_inputs[field] = existing_job_inputs[field]
             else:
-                new_job_inputs.pop("repository", None)
-
-        # The OAuth2 integration row pointer is server-managed: pin it to the stored value so an
-        # editor can't repoint the source at a different row (and through it, different credentials).
-        # Re-entered auth_oauth2_* secrets flow into the pinned row during credential validation.
-        if source_type_model == ExternalDataSourceType.CUSTOM:
-            existing_oauth2_pointer = existing_job_inputs.get("auth_oauth2_integration_id")
-            if existing_oauth2_pointer:
-                new_job_inputs["auth_oauth2_integration_id"] = existing_oauth2_pointer
-            else:
-                new_job_inputs.pop("auth_oauth2_integration_id", None)
+                new_job_inputs.pop(field, None)
 
         # If the connection target changed, require credentials to be re-entered. Covers
         # both the generic `host` field and source-specific URL fields like ServiceNow's
@@ -1065,52 +1057,27 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             incoming_job_inputs.get("ssh_tunnel"),
         )
 
-        # The custom source's connection target lives inside the manifest, not a top-level `host`.
-        # A manifest edit that introduces a new request host would send the preserved credential
-        # somewhere it wasn't going before — the same exfiltration risk, so require re-entry too.
-        manifest_host_added = False
-        if source_type_model == ExternalDataSourceType.CUSTOM and "manifest_json" in incoming_job_inputs:
-            new_hosts = manifest_request_hosts(incoming_job_inputs.get("manifest_json"))
-            existing_hosts = manifest_request_hosts(existing_job_inputs.get("manifest_json"))
-            manifest_host_added = bool(new_hosts - existing_hosts)
+        # Some sources keep their connection target somewhere other than a named field — Custom's
+        # lives inside its manifest. An edit that introduces a new request host would send the
+        # preserved credential somewhere it wasn't going before, the same exfiltration risk, so
+        # require re-entry too. The source decides; the API never names the source type.
+        job_inputs_host_added = source.job_inputs_add_connection_host(incoming_job_inputs, existing_job_inputs)
 
-        # A row-backed OAuth2 custom source carries no secret in job_inputs — the client secret +
-        # tokens live in the bound CustomOAuth2Integration row and are injected at sync time. So
-        # `has_preserved_credentials` never sees a preserved secret for it, yet a host change would
-        # still redirect the row's injected token to the new host. Re-entering every secret the row
-        # holds satisfies the gate the same way typing a password does for other sources: because a
-        # config change makes adoption replace the row's secrets with the typed ones outright (see
-        # _apply_oauth2_material — the rotated-token keep-rule is suspended on config change), only
-        # material the editor provably possesses is ever sent to the new host.
-        bound_integration = None
-        if source_type_model == ExternalDataSourceType.CUSTOM:
-            bound_integration = (
-                CustomOAuth2Integration.objects.for_team(instance.team_id).filter(external_data_source=instance).first()
-            )
-        reentered_oauth2_secrets = False
-        if bound_integration is not None:
-            held_secret_fields = [
-                incoming_field
-                for row_key, incoming_field in (
-                    ("client_secret", "auth_oauth2_client_secret"),
-                    ("refresh_token", "auth_oauth2_refresh_token"),
-                )
-                if bound_integration.sensitive_config.get(row_key)
-            ]
-            reentered_oauth2_secrets = bool(held_secret_fields) and all(
-                bool(incoming_job_inputs.get(field)) for field in held_secret_fields
-            )
-        preserved_oauth2_integration = bound_integration is not None and not reentered_oauth2_secrets
+        # Some sources keep their secrets in a bound row, not job_inputs (Custom's
+        # CustomOAuth2Integration) — the generic preserved-credentials check can't see those, yet a
+        # host change would still redirect the row's injected token. The source reports whether such
+        # row-backed secrets are preserved (not re-entered) on this update.
+        preserved_row_backed_credentials = source.has_preserved_row_backed_credentials(instance, incoming_job_inputs)
 
-        if connection_host_changed or ssh_tunnel_changed or manifest_host_added:
+        if connection_host_changed or ssh_tunnel_changed or job_inputs_host_added:
             gate_sensitive_fields = sensitive_fields - _CREATION_ONLY_SECRET_FIELDS
             preserved_credentials = has_preserved_credentials(
                 existing_job_inputs, incoming_job_inputs, gate_sensitive_fields
             )
-            if preserved_credentials or preserved_oauth2_integration:
+            if preserved_credentials or preserved_row_backed_credentials:
                 if ssh_tunnel_changed:
                     raise ValidationError("Changing the SSH tunnel requires re-entering your database credentials.")
-                if manifest_host_added:
+                if job_inputs_host_added:
                     raise ValidationError("Changing the manifest's request host requires re-entering your credentials.")
                 raise ValidationError("Changing the connection host requires re-entering your credentials.")
 
@@ -1237,19 +1204,22 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                     validated_job_inputs[key] = existing_job_inputs[key]
             validated_data["job_inputs"] = validated_job_inputs
 
-        github_old_repositories: list[str] = []
-        if source_type_model == ExternalDataSourceType.GITHUB and job_inputs_were_submitted:
-            github_old_repositories = github_repositories_for_job_inputs(existing_job_inputs)
+        # Namespaced-resource sources (GitHub repos) track their schema rows against a resource
+        # set in job_inputs; capture the old set before the write so we can reconcile after.
+        namespaced_adapter = get_namespaced_resource_adapter(source_type_model)
+        old_namespaced_resources: list[str] = []
+        if namespaced_adapter is not None and job_inputs_were_submitted:
+            old_namespaced_resources = namespaced_adapter.resources_for_job_inputs(existing_job_inputs)
 
         updated_source: ExternalDataSource = super().update(instance, validated_data)
 
-        if source_type_model == ExternalDataSourceType.GITHUB and job_inputs_were_submitted:
-            # Adds schema rows for added repos, retires removed repos' rows, and reconciles the
-            # per-repo webhooks. No-op when the effective repo list didn't change.
-            reconcile_github_repositories(
+        if namespaced_adapter is not None and job_inputs_were_submitted:
+            # Adds schema rows for added resources, retires removed ones, and reconciles their
+            # webhooks. No-op when the effective resource list didn't change.
+            namespaced_adapter.reconcile_resources(
                 source_model=updated_source,
                 team=instance.team,
-                old_repositories=github_old_repositories,
+                old_resources=old_namespaced_resources,
                 new_config=source_config,
             )
 
@@ -1259,20 +1229,10 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
             with transaction.atomic():
                 ExternalDataSource._base_manager.filter(pk=updated_source.pk).select_for_update().get()
-                name_substitutions: dict[str, str] = {}
-                if updated_source.source_type == ExternalDataSourceType.POSTGRES:
-                    name_substitutions = reconcile_postgres_refresh_name_substitutions(
-                        source=updated_source,
-                        source_schemas=discovered_schemas,
-                        team_id=instance.team_id,
-                    )
-                elif source_namespace_is_blank(updated_source) and is_multi_schema_capable_sql_source(
-                    updated_source.source_type
-                ):
-                    name_substitutions = apply_sql_warehouse_refresh_migration(
-                        source=updated_source,
-                        team_id=instance.team_id,
-                    )
+                engine = get_direct_query_engine(updated_source.direct_engine)
+                name_substitutions = _refresh_name_substitutions(
+                    engine, source=updated_source, source_schemas=discovered_schemas, team_id=instance.team_id
+                )
                 if name_substitutions:
                     schema_names = {name_substitutions.get(name, name): label for name, label in schema_names.items()}
                     descriptions = {
@@ -1284,31 +1244,11 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                     team_id=instance.team_id,
                     descriptions=descriptions,
                 )
-                # Direct call (not via hook) so tests mocking `SourceRegistry.get_source` still
-                # exercise the real direct-query DataWarehouseTable rebuild.
-                if updated_source.source_type == ExternalDataSourceType.POSTGRES:
-                    reconcile_postgres_schemas(
-                        source=updated_source,
-                        source_schemas=discovered_schemas,
-                        team_id=instance.team_id,
-                    )
-                elif updated_source.source_type == ExternalDataSourceType.SNOWFLAKE:
-                    reconcile_snowflake_schemas(
-                        source=updated_source,
-                        source_schemas=discovered_schemas,
-                        team_id=instance.team_id,
-                    )
-                elif updated_source.source_type == ExternalDataSourceType.REDSHIFT:
-                    reconcile_redshift_schemas(
-                        source=updated_source,
-                        source_schemas=discovered_schemas,
-                        team_id=instance.team_id,
-                    )
-                else:
-                    reconcile_mysql_schemas(
-                        source=updated_source,
-                        source_schemas=discovered_schemas,
-                        team_id=instance.team_id,
+                # Direct call on the engine adapter (not the source hook) so tests mocking
+                # `SourceRegistry.get_source` still exercise the real DataWarehouseTable rebuild.
+                if engine is not None:
+                    engine.reconcile_schemas(
+                        source=updated_source, source_schemas=discovered_schemas, team_id=instance.team_id
                     )
 
             schemas = list(
@@ -2122,15 +2062,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 if isinstance(value, str):
                     payload[key] = value.strip()
         source_type_model = ExternalDataSourceType(source_type)
-        if (
-            source_type_model == ExternalDataSourceType.CUSTOM
-            and count_active_custom_sources(self.team_id) >= MAX_CUSTOM_SOURCES_PER_TEAM
-        ):
+        source = SourceRegistry.get_source(source_type_model)
+        max_instances = source.max_instances_per_team
+        if max_instances is not None and count_active_sources(self.team_id, source_type_model) >= max_instances:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": CUSTOM_SOURCE_LIMIT_MESSAGE},
+                data={"message": f"You can create at most {max_instances} sources of this type per project."},
             )
-        source = SourceRegistry.get_source(source_type_model)
         if skip_credential_validation:
             source_config: Config = source.parse_config(payload)
         else:
@@ -2158,16 +2096,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             direct_query_enabled=direct_query_enabled,
         )
 
-        if source_type_model == ExternalDataSourceType.CUSTOM:
-            # Claim the OAuth2 integration row for the new source right away instead of waiting for the
-            # first sync's trust-on-first-use claim, closing the window where another create by the same
-            # user (matching the same unbound row) could adopt it. The guarded filter makes a lost race
-            # a no-op; sync-time authorization remains the backstop.
-            oauth2_integration_id = (new_source_model.job_inputs or {}).get("auth_oauth2_integration_id")
-            if oauth2_integration_id:
-                CustomOAuth2Integration.objects.for_team(self.team_id).filter(
-                    id=oauth2_integration_id, external_data_source__isnull=True
-                ).update(external_data_source=new_source_model)
+        # Post-create hook (Custom claims its bound OAuth2 integration row here). No-op otherwise.
+        source.on_source_created(new_source_model, self.team_id)
 
         # CDC: gate per-source-type adapter availability up front so downstream blocks
         # can `if cdc_enabled` without repeating the source-type check.
@@ -2912,65 +2842,34 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 instance.connection_metadata = connection_metadata
                 instance.save(update_fields=["connection_metadata", "updated_at"])
             # Migrate/dedupe legacy rows before sync_old_schemas; non-Postgres only once namespace cleared.
-            name_substitutions: dict[str, str] = {}
-            if instance.source_type == ExternalDataSourceType.POSTGRES:
-                name_substitutions = reconcile_postgres_refresh_name_substitutions(
-                    source=instance,
-                    source_schemas=schemas,
-                    team_id=self.team_id,
-                )
-            elif source_namespace_is_blank(instance) and is_multi_schema_capable_sql_source(instance.source_type):
-                name_substitutions = apply_sql_warehouse_refresh_migration(source=instance, team_id=self.team_id)
+            engine = get_direct_query_engine(instance.direct_engine)
+            name_substitutions = _refresh_name_substitutions(
+                engine, source=instance, source_schemas=schemas, team_id=self.team_id
+            )
 
             if name_substitutions:
                 schema_names = {name_substitutions.get(name, name): label for name, label in schema_names.items()}
                 descriptions = {
                     name_substitutions.get(name, name): description for name, description in descriptions.items()
                 }
-            # GitHub keeps its legacy repo's rows bare alongside qualified rows for added repos, so
-            # bare↔qualified tail matching would wrongly collapse them; match names exactly and seed
-            # the per-repo location metadata on newly created rows.
-            is_github = instance.source_type == ExternalDataSourceType.GITHUB
+            # Namespaced-resource sources (GitHub) keep the legacy resource's rows bare alongside
+            # qualified rows for the others, so bare↔qualified tail matching would wrongly collapse
+            # them; match names exactly and seed per-resource location metadata on new rows.
+            namespaced_adapter = get_namespaced_resource_adapter(instance.source_type)
             schemas_created, schemas_deleted = sync_old_schemas_with_new_schemas(
                 schema_names,
                 source_id=str(instance.id),
                 team_id=self.team_id,
                 descriptions=descriptions,
-                strict_name_match=is_github,
-                schema_metadata_by_name={s.name: s.schema_metadata for s in schemas if s.schema_metadata}
-                if is_github
+                strict_name_match=namespaced_adapter is not None and namespaced_adapter.uses_strict_schema_name_match,
+                schema_metadata_by_name=namespaced_adapter.schema_metadata_by_name(schemas)
+                if namespaced_adapter is not None
                 else None,
             )
 
-            if instance.source_type == ExternalDataSourceType.POSTGRES:
-                reconciled_deleted_schemas = reconcile_postgres_schemas(
-                    source=instance,
-                    source_schemas=schemas,
-                    team_id=self.team_id,
-                )
-                if reconciled_deleted_schemas:
-                    schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
-            elif instance.source_type == ExternalDataSourceType.MYSQL:
-                reconciled_deleted_schemas = reconcile_mysql_schemas(
-                    source=instance,
-                    source_schemas=schemas,
-                    team_id=self.team_id,
-                )
-                if reconciled_deleted_schemas:
-                    schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
-            elif instance.source_type == ExternalDataSourceType.SNOWFLAKE:
-                reconciled_deleted_schemas = reconcile_snowflake_schemas(
-                    source=instance,
-                    source_schemas=schemas,
-                    team_id=self.team_id,
-                )
-                if reconciled_deleted_schemas:
-                    schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
-            elif instance.source_type == ExternalDataSourceType.REDSHIFT:
-                reconciled_deleted_schemas = reconcile_redshift_schemas(
-                    source=instance,
-                    source_schemas=schemas,
-                    team_id=self.team_id,
+            if engine is not None:
+                reconciled_deleted_schemas = engine.reconcile_schemas(
+                    source=instance, source_schemas=schemas, team_id=self.team_id
                 )
                 if reconciled_deleted_schemas:
                     schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
@@ -3088,8 +2987,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # which makes a network round-trip per call. With large schema lists (e.g. Slack workspaces with
         # thousands of channels) the per-iteration call inflated the response loop past the 120s gateway.
         cdc_enabled = is_cdc_enabled_for_team(self.team)
-        # xmin is Postgres-only — gate on the source type so the capability never leaks to another SQL source.
-        is_postgres = source_type_model == ExternalDataSourceType.POSTGRES
+        # xmin is gated at the source-type level by the source's capability flag so it never
+        # leaks to another SQL source.
+        xmin_capable = source.supports_xmin
         data = [
             {
                 "table": schema.name,
@@ -3099,7 +2999,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "incremental_available": schema.supports_incremental,
                 "append_available": schema.supports_append,
                 "cdc_available": schema.supports_cdc if cdc_enabled else None,
-                "xmin_available": schema.supports_xmin if is_postgres else None,
+                "xmin_available": schema.supports_xmin if xmin_capable else None,
                 "incremental_field": schema.incremental_fields[0]["field"]
                 if len(schema.incremental_fields) > 0 and len(schema.incremental_fields[0]["field"]) > 0
                 else None,
