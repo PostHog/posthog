@@ -85,6 +85,51 @@ class TestTask(TestCase):
         self.assertEqual(task_run.status, TaskRun.Status.QUEUED)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_threads_github_read_access_into_state(self, mock_execute_workflow):
+        from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (  # noqa: PLC0415 — activities import the workflow stack; keep it off this module's import path
+            TaskProcessingContext,
+        )
+
+        user = User.objects.create(email="test@test.com")
+
+        with self.captureOnCommitCallbacks(execute=True):
+            Task.create_and_run(
+                team=self.team,
+                title="Scout run",
+                description="repo-less run wanting gh evidence access",
+                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                user_id=user.id,
+                github_read_access=True,
+            )
+
+        state = TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"]).state
+        # Provisioning reads the flag back only through this property — the writer and reader agree
+        # on nothing but the state key, and a drift on either side silently drops the token.
+        ctx = TaskProcessingContext(
+            task_id="t",
+            run_id="r",
+            team_id=1,
+            team_uuid="u",
+            organization_id="o",
+            github_integration_id=None,
+            repository=None,
+            distinct_id="d",
+            state=state,
+        )
+        self.assertTrue(ctx.github_read_access)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            Task.create_and_run(
+                team=self.team,
+                title="Plain run",
+                description="no gh access requested",
+                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                user_id=user.id,
+            )
+        state = TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"]).state
+        self.assertNotIn("github_read_access", state)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_threads_initial_permission_mode_into_state(self, mock_execute_workflow):
         user = User.objects.create(email="test@test.com")
         Integration.objects.create(team=self.team, kind="github", config={})

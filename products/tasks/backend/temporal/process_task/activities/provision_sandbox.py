@@ -29,6 +29,7 @@ from products.tasks.backend.temporal.observability import emit_agent_log, log_ac
 from products.tasks.backend.temporal.process_task.sandbox_credentials import set_git_remote_token
 from products.tasks.backend.temporal.process_task.utils import (
     get_git_identity_env_vars,
+    get_readonly_github_token,
     get_sandbox_api_url,
     get_sandbox_github_token,
     get_sandbox_name_for_task,
@@ -388,6 +389,18 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
                     {"github_integration_id": ctx.github_integration_id, "task_id": ctx.task_id, "error": str(e)},
                     cause=e,
                 )
+        elif ctx.github_read_access:
+            # Repo-less run that asked for read-only GitHub evidence access (e.g. a Signals scout
+            # resolving suggested reviewers from commit history). Best-effort by design — the helper
+            # returns None instead of raising, and the run proceeds without a token.
+            github_token = get_readonly_github_token(ctx.team_id) or ""
+            emit_agent_log(
+                ctx.run_id,
+                "debug",
+                "Read-only GitHub token minted for evidence gathering"
+                if github_token
+                else "Read-only GitHub token unavailable, continuing without GitHub access",
+            )
 
         try:
             access_token = create_oauth_access_token_for_run(task, ctx.state)

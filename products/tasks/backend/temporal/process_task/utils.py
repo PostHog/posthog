@@ -645,6 +645,40 @@ def get_github_token(github_integration_id: int) -> Optional[str]:
     return github_integration.integration.access_token or None
 
 
+# Downscope for sandboxes that only gather evidence (commit history, PR metadata) and must not be
+# able to write anywhere. Every permission here must be one the PostHog GitHub App holds, or the
+# mint 422s: contents/metadata back `gh api repos/.../commits`, pull_requests backs PR lookups.
+READONLY_SANDBOX_GITHUB_PERMISSIONS: dict[str, str] = {
+    "contents": "read",
+    "metadata": "read",
+    "pull_requests": "read",
+}
+
+
+def get_readonly_github_token(team_id: int) -> Optional[str]:
+    """Mint an ephemeral read-only GitHub token for a repo-less sandbox, or None.
+
+    Resolves the same integration the repo-selection agent would use for this team, then mints an
+    installation token downscoped to read-only permissions. The scoped token is never persisted —
+    the integration's cached token stays the full-permission credential other flows share. Returns
+    None (never raises) when the team has no usable integration or the mint fails: read access is
+    an evidence-gathering nicety, and its absence must not fail the run.
+    """
+    # noqa: deferred to break a circular import — repo_selection.agent transitively imports the
+    # process-task workflow, which imports this module.
+    from products.tasks.backend.logic.repo_selection.agent import resolve_team_github_integration  # noqa: PLC0415
+
+    try:
+        integration = resolve_team_github_integration(team_id)
+        if integration is None:
+            logger.info("No GitHub integration for team %d, skipping read-only token mint", team_id)
+            return None
+        return integration.mint_scoped_installation_token(READONLY_SANDBOX_GITHUB_PERMISSIONS)
+    except Exception:
+        logger.warning("Failed to mint read-only GitHub token for team %d", team_id, exc_info=True)
+        return None
+
+
 def get_user_github_token(github_user_integration_id: str) -> Optional[str]:
     """Return the installation access token from a UserIntegration, refreshing if expired."""
     integration = UserIntegration.objects.get(id=github_user_integration_id)

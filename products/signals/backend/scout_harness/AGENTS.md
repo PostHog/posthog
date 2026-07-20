@@ -183,6 +183,18 @@ one sandbox session → zero or more emitted signals.
   The skill body is loaded into the system prompt; each scout has its own
   `SignalScoutConfig` row (keyed on `(team, skill_name)`) whose `enabled` flag and
   `run_interval_minutes` schedule the coordinator's per-scout due-check honors.
+- Report-channel scouts can additionally get a **read-only GitHub token** (`GH_TOKEN`/`GITHUB_TOKEN`
+  in the sandbox, backing the preinstalled `gh` CLI) for code-derived reviewer evidence — commit
+  history by path, cross-checked against `scout-members-list`, cited in each reviewer's `reason`.
+  Gated per team via the `signals-scout` flag payload (`github_read_access` in
+  `team_configs`/`default_team_config`, resolved by `team_limits.github_read_access_for_team`,
+  default off) and never granted to signal-channel scouts. The runner passes
+  `github_read_access` into the Tasks sandbox context; provisioning then mints an ephemeral
+  downscoped installation token (`contents`/`metadata`/`pull_requests` read —
+  `get_readonly_github_token` in the tasks product) that is never persisted and can't write.
+  Best-effort: a mint failure logs and the run proceeds tokenless; the matching prompt section
+  (`_GITHUB_EVIDENCE_REPORT`) only renders when the grant resolved true, so a tokenless run is
+  never steered at `gh`.
 - `MultiTurnSession.start()` creates a Tasks `(Task, TaskRun)` pair to drive the
   sandbox. The bridge row links to its `TaskRun` via a `OneToOne` FK (`task_run`), created
   by the `on_task_run_created` hook before the agent's first turn — this powers the

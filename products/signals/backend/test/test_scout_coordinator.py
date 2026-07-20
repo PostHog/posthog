@@ -34,6 +34,7 @@ from products.signals.backend.scout_harness.team_limits import (
     _parse_enrollment,
     _read_flag_payload,
     _resolve_enrolled,
+    _resolve_github_read_access,
     _resolve_global_max_runs_per_tick,
     _resolve_max_runs_per_day,
     _resolve_withheld_skills,
@@ -1088,6 +1089,23 @@ def test_resolve_max_runs_per_day(team_configs, default_cfg, expected):
 )
 def test_resolve_withheld_skills(team_configs, default_cfg, expected):
     assert _resolve_withheld_skills(7, team_configs, default_cfg) == expected
+
+
+@pytest.mark.parametrize(
+    "team_configs,default_cfg,expected",
+    [
+        ({}, {}, False),  # nothing set → off (fail closed: this grants a GitHub token)
+        ({}, {"github_read_access": True}, True),  # fleet default grants
+        ({7: {"github_read_access": True}}, {}, True),  # per-team grant
+        # per-team explicit False wins over a fleet-wide grant (revoke one team without a deploy)
+        ({7: {"github_read_access": False}}, {"github_read_access": True}, False),
+        # only literal booleans are honored — a truthy string/int must never grant token access
+        ({7: {"github_read_access": "true"}}, {}, False),
+        ({7: {"github_read_access": 1}}, {"github_read_access": False}, False),
+    ],
+)
+def test_resolve_github_read_access(team_configs, default_cfg, expected):
+    assert _resolve_github_read_access(7, team_configs, default_cfg) is expected
 
 
 def _due_run(team_id: int, skill_name: str, overdue_s: float) -> _DueRun:

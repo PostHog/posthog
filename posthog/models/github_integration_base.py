@@ -111,7 +111,13 @@ class GitHubIntegrationBase:
     # --- App-level JWT authentication ---
 
     @classmethod
-    def client_request(cls, endpoint: str, method: str = "GET", timeout: float | None = 10) -> requests.Response:
+    def client_request(
+        cls,
+        endpoint: str,
+        method: str = "GET",
+        timeout: float | None = 10,
+        json_body: dict[str, Any] | None = None,
+    ) -> requests.Response:
         """Make a request to the GitHub App API using a JWT.
 
         ``timeout`` defaults to 10s so callers in web request and token-refresh paths
@@ -154,6 +160,8 @@ class GitHubIntegrationBase:
             source=_OBSERVABILITY_SOURCE,
             headers={"Authorization": f"Bearer {jwt_token}"},
             timeout=timeout,
+            # requests omits the body entirely when json is None
+            json=json_body,
         )
 
     # --- App installation lifecycle (uninstall) ---
@@ -353,6 +361,45 @@ class GitHubIntegrationBase:
         }
         self._on_token_refreshed()
         self.integration.save()
+
+    def mint_scoped_installation_token(
+        self,
+        permissions: Mapping[str, str],
+        repositories: list[str] | None = None,
+    ) -> str:
+        """Mint an ephemeral installation token downscoped to ``permissions`` (e.g.
+        ``{"contents": "read", "metadata": "read"}``) and optionally to ``repositories``
+        (bare repo names, no owner prefix).
+
+        The token is returned to the caller and deliberately NOT persisted: the cached
+        ``sensitive_config`` token is the shared full-permission credential every other
+        flow reads, and overwriting it with a downscoped one would silently break them.
+        Scoped tokens expire like any installation token (~1h) and cannot be refreshed —
+        mint a new one instead. Requesting a permission the installation doesn't have
+        fails the mint (422), which surfaces as ``GitHubIntegrationError``.
+        """
+        installation_id = self.github_installation_id
+        if not installation_id:
+            raise GitHubIntegrationError("No GitHub App installation id on this integration")
+
+        body: dict[str, Any] = {"permissions": dict(permissions)}
+        if repositories:
+            body["repositories"] = repositories
+
+        response = self.client_request(f"installations/{installation_id}/access_tokens", method="POST", json_body=body)
+        try:
+            data = response.json()
+        except ValueError:
+            raise GitHubIntegrationError(
+                f"Non-JSON response when minting scoped installation token: {response.text[:500]}",
+                status_code=response.status_code,
+            ) from None
+        if response.status_code != 201 or not data.get("token"):
+            raise GitHubIntegrationError(
+                f"Failed to mint scoped installation token: {response.text[:500]}",
+                status_code=response.status_code,
+            )
+        return data["token"]
 
     @staticmethod
     def _installation_permanently_unavailable(response: requests.Response) -> bool:

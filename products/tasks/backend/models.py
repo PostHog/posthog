@@ -749,6 +749,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         workflow_id_prefix: str | None = None,
         custom_image_builder_id: str | None = None,
         custom_image_id: str | None = None,
+        github_read_access: bool = False,
     ) -> "Task":
         from products.tasks.backend.temporal.client import _normalize_slack_context, execute_task_processing_workflow
 
@@ -783,6 +784,10 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         )
 
         run_extra_state = dict(extra_state or {})
+        if github_read_access:
+            # Read by TaskProcessingContext.github_read_access: provisioning injects a read-only
+            # GitHub token into the (repo-less) sandbox instead of the full credential path.
+            run_extra_state["github_read_access"] = True
         if start_workflow:
             # Persist everything the dispatch needs alongside the row, in the same INSERT, so a
             # reconciler can re-dispatch faithfully if the on_commit callback below is ever lost.
