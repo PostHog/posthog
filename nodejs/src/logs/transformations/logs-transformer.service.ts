@@ -5,6 +5,7 @@ import { HogFunctionManagerService } from '~/cdp/services/managers/hog-function-
 import { HogFunctionMonitoringService } from '~/cdp/services/monitoring/hog-function-monitoring.service'
 import { HogWatcherService, HogWatcherState } from '~/cdp/services/monitoring/hog-watcher.service'
 import { HogFunctionType, LogEntry } from '~/cdp/types'
+import { sanitizeLogMessage } from '~/cdp/utils'
 import { yieldEventLoopIfNeeded } from '~/common/utils/event-loop-yield'
 import { logger } from '~/common/utils/logger'
 import { UUIDT } from '~/common/utils/utils'
@@ -308,7 +309,15 @@ export class LogsTransformerService {
                 agg.failed++
                 transformationRecordsCounter.inc({ result: 'failed' })
                 this.annotateFailure(record, fn)
-                this.captureErrorLogs(fn, ctx.teamId, ctx.instanceId, agg, [], String(error))
+                this.captureErrorLogs(
+                    fn,
+                    ctx.teamId,
+                    ctx.instanceId,
+                    agg,
+                    [],
+                    String(error),
+                    this.getSensitiveValues(fn, ctx.sensitiveValuesCache)
+                )
                 continue
             }
 
@@ -340,7 +349,15 @@ export class LogsTransformerService {
                 agg.failed++
                 transformationRecordsCounter.inc({ result: 'failed' })
                 this.annotateFailure(record, fn)
-                this.captureErrorLogs(fn, ctx.teamId, ctx.instanceId, agg, outcome.logs, outcome.error)
+                this.captureErrorLogs(
+                    fn,
+                    ctx.teamId,
+                    ctx.instanceId,
+                    agg,
+                    outcome.logs,
+                    outcome.error,
+                    this.getSensitiveValues(fn, ctx.sensitiveValuesCache)
+                )
                 continue
             }
 
@@ -424,7 +441,8 @@ export class LogsTransformerService {
         instanceId: string,
         agg: FunctionAggregates,
         printLogs: string[],
-        error: string
+        error: string,
+        sensitiveValues: string[]
     ): void {
         const capturedFailures = agg.errorLogs.filter((log) => log.level === 'error').length
         if (capturedFailures >= this.config.maxErrorLogsPerFunctionPerMessage) {
@@ -440,7 +458,14 @@ export class LogsTransformerService {
         for (const message of printLogs) {
             agg.errorLogs.push({ ...base, level: 'info', message, timestamp: DateTime.now() })
         }
-        agg.errorLogs.push({ ...base, level: 'error', message: error, timestamp: DateTime.now() })
+        // The thrown error string is customer-influenced like print() output —
+        // redact encrypted input values before it reaches persisted function logs.
+        agg.errorLogs.push({
+            ...base,
+            level: 'error',
+            message: sanitizeLogMessage([error], sensitiveValues),
+            timestamp: DateTime.now(),
+        })
     }
 
     private getAggregates(aggregates: Map<string, FunctionAggregates>, functionId: string): FunctionAggregates {

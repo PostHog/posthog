@@ -74,6 +74,27 @@ describe('hog-log-exec', () => {
             expect(inputs.svc).toBe('service = auth-api')
             expect(durationMs).toBeGreaterThan(0)
         })
+
+        it('kills memory-hungry input templates via the memory limit', async () => {
+            // Input templates are customer bytecode running once per record; they must
+            // get the same 8MB cap as the body, not the VM's larger default. The
+            // allocation lands between the two so this fails if the cap is lost.
+            const record = createRecord()
+            const bytecode = await compileHog(`
+                let s := 'xxxxxxxxxxxxxxxx'
+                for (let i := 0; i < 19; i := i + 1) {
+                    s := concat(s, s)
+                }
+                return s
+            `)
+            expect(() =>
+                resolveLogTransformationInputs(
+                    { inputs: { big: { value: '', bytecode, order: 0 } }, encrypted_inputs: null } as any,
+                    buildLogRecordGlobals(record, PROJECT, {}),
+                    1000
+                )
+            ).toThrow(/memory/i)
+        })
     })
 
     describe('executeLogTransformation', () => {
