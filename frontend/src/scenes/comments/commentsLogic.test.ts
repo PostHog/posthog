@@ -225,13 +225,58 @@ describe('commentsLogic', () => {
         expect(logic.values.expandedThreadIds.has('thread-1')).toBe(false)
 
         // Deep link to a reply reveals its thread
-        logic.actions.setSelectedComment('reply-1')
+        logic.actions.setSelectedComment('reply-1', true)
         expect(logic.values.expandedThreadIds.has('thread-1')).toBe(true)
 
         // Deep link to a thread root reveals its replies too
         logic.actions.setThreadExpanded('thread-1', false)
-        logic.actions.setSelectedComment('thread-1')
+        logic.actions.setSelectedComment('thread-1', true)
         expect(logic.values.expandedThreadIds.has('thread-1')).toBe(true)
+    })
+
+    it('does not expand a thread when a comment is selected by clicking', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/comments': {
+                    results: [makeComment('thread-1'), makeComment('reply-1', 'thread-1')],
+                },
+            },
+        })
+        await expectLogic(logic, () => {
+            logic.actions.loadComments()
+        }).toDispatchActions(['loadCommentsSuccess'])
+
+        // Clicking inside a comment (e.g. its emoji reaction button) selects it for the
+        // highlight wash - that must not expand the collapsed thread
+        logic.actions.setSelectedComment('thread-1')
+
+        expect(logic.values.selectedCommentId).toBe('thread-1')
+        expect(logic.values.expandedThreadIds.has('thread-1')).toBe(false)
+    })
+
+    it('reveals a deep-linked comment that was selected before comments loaded', async () => {
+        // Deep link lands while comments are still loading - nothing to reveal yet
+        logic.actions.setSelectedComment('reply-1', true)
+
+        useMocks({
+            get: {
+                '/api/projects/:team_id/comments': {
+                    results: [makeComment('thread-1'), makeComment('reply-1', 'thread-1')],
+                },
+            },
+        })
+        await expectLogic(logic, () => {
+            logic.actions.loadComments()
+        }).toDispatchActions(['loadCommentsSuccess'])
+
+        expect(logic.values.expandedThreadIds.has('thread-1')).toBe(true)
+
+        // The pending reveal is one-shot: collapsing and reloading must not re-expand
+        logic.actions.setThreadExpanded('thread-1', false)
+        await expectLogic(logic, () => {
+            logic.actions.loadComments()
+        }).toDispatchActions(['loadCommentsSuccess'])
+        expect(logic.values.expandedThreadIds.has('thread-1')).toBe(false)
     })
 
     it('keeps a separate draft per thread', () => {

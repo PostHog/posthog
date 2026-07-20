@@ -277,8 +277,12 @@ export interface commentsLogicActions {
     setRichContentEditor: (editor: RichContentEditorType) => {
         editor: RichContentEditorType
     }
-    setSelectedComment: (commentId: string | null) => {
+    setSelectedComment: (
+        commentId: string | null,
+        reveal?: boolean
+    ) => {
         commentId: string | null
+        reveal: boolean
     }
     setThreadExpanded: (
         threadId: string,
@@ -346,7 +350,7 @@ export const commentsLogic = kea<commentsLogicType>([
         reopenComment: (comment: CommentType) => ({ comment }),
         setEditingComment: (comment: CommentType | null) => ({ comment }),
         setReplyingComment: (commentId: string | null) => ({ commentId }),
-        setSelectedComment: (commentId: string | null) => ({ commentId }),
+        setSelectedComment: (commentId: string | null, reveal: boolean = false) => ({ commentId, reveal }),
         setThreadExpanded: (threadId: string, expanded: boolean) => ({ threadId, expanded }),
         revealSelectedComment: true,
         startNewComment: true,
@@ -675,20 +679,28 @@ export const commentsLogic = kea<commentsLogicType>([
                 }
             }
         },
-        setSelectedComment: () => {
-            actions.revealSelectedComment()
+        setSelectedComment: ({ commentId, reveal }) => {
+            // Revealing is deep-link behavior. Local click-selection (the highlight wash) must
+            // not expand collapsed threads - e.g. clicking a comment's emoji reaction button.
+            cache.revealSelectedCommentOnLoad = !!(reveal && commentId)
+            if (reveal && commentId) {
+                actions.revealSelectedComment()
+            }
         },
         revealSelectedComment: () => {
-            // A selected comment may live in (or head) a collapsed thread - expand it so it is visible.
-            // One-shot on purpose: the user can still collapse the thread again afterwards.
+            // A deep-linked comment may live in (or head) a collapsed thread - expand it so it is
+            // visible. One-shot on purpose: the user can still collapse the thread again afterwards.
             const selected = values.sortedComments.find((comment) => comment.id === values.selectedCommentId)
             if (selected) {
+                cache.revealSelectedCommentOnLoad = false
                 actions.setThreadExpanded(selected.source_comment ?? selected.id, true)
             }
         },
         loadCommentsSuccess: () => {
-            // Deep links can select a comment before comments have loaded - re-check now
-            actions.revealSelectedComment()
+            // A deep link can select a comment before comments have loaded - re-run the reveal now
+            if (cache.revealSelectedCommentOnLoad) {
+                actions.revealSelectedComment()
+            }
             actions.scrollToLastComment()
         },
     })),
