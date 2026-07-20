@@ -22,6 +22,7 @@ import type {
     CustomPropertyDefinitionApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
+
 import { propertyTypeForDisplayType } from './accountsCustomPropertyFilters'
 
 // Mandatory — the backend emits it as `tuple(name, external_id, id)` so the

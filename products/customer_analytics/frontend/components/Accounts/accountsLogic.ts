@@ -19,7 +19,6 @@ import {
     accountsRelationshipsEndCreate,
     accountsRelationshipsList,
 } from 'products/customer_analytics/frontend/generated/api'
-import type { CustomPropertyDefinitionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import type { UserType } from '../../../../../frontend/src/types'
 import {
@@ -639,8 +638,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 tileFilter: TileFilter | null,
                 sortOrder: AccountSortOrder,
                 querySelectColumns: string[],
-                visibleColumnNames: string[]
-,
+                visibleColumnNames: string[],
                 customPropertyFilters: AccountCustomPropertyFilter[],
                 customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>,
                 aliasToDefinition: Record<string, CustomPropertyDefinitionApi>
