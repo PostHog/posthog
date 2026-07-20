@@ -28,16 +28,23 @@ def test_get_sandbox_api_url(sandbox_api_url: str | None, expected: str) -> None
         assert get_sandbox_api_url() == expected
 
 
-def _team_integration_with_failing_mint() -> MagicMock:
+def _team_integration(*, unavailable: bool = False, mint_raises: bool = False) -> MagicMock:
     github = MagicMock(spec=GitHubIntegration)
-    github.mint_scoped_installation_token.side_effect = GitHubIntegrationError("mint failed")
+    github.installation_unavailable.return_value = unavailable
+    if mint_raises:
+        github.mint_scoped_installation_token.side_effect = GitHubIntegrationError("mint failed")
     return github
 
 
 @pytest.mark.parametrize(
     "resolved",
-    [None, _team_integration_with_failing_mint(), MagicMock(spec=UserGitHubIntegration)],
-    ids=["no_integration", "mint_raises", "personal_integration_fallback"],
+    [
+        None,
+        _team_integration(mint_raises=True),
+        MagicMock(spec=UserGitHubIntegration),
+        _team_integration(unavailable=True),
+    ],
+    ids=["no_integration", "mint_raises", "personal_integration_fallback", "installation_marked_gone"],
 )
 def test_get_readonly_github_token_never_raises_and_refuses_personal_integrations(
     resolved: MagicMock | None,
@@ -46,25 +53,29 @@ def test_get_readonly_github_token_never_raises_and_refuses_personal_integration
     # provisioning for every run that requested it whenever GitHub hiccups. The resolver's
     # org-owner fallback returns a *personal* integration whose installation can span repos never
     # connected to the team — minting off it would silently widen a scheduled scout's reach, so it
-    # must be refused, not used.
+    # must be refused, not used. An installation a prior mint marked permanently gone must also be
+    # skipped without minting, or every scheduled run re-storms GitHub with doomed calls.
     with patch(
         "products.tasks.backend.logic.repo_selection.agent.resolve_team_github_integration",
         return_value=resolved,
     ):
         assert get_readonly_github_token(1) is None
-    if resolved is not None and not isinstance(resolved, GitHubIntegration):
+    if resolved is not None and (
+        not isinstance(resolved, GitHubIntegration) or resolved.installation_unavailable.return_value
+    ):
         resolved.mint_scoped_installation_token.assert_not_called()
 
 
 @pytest.mark.parametrize(
     "resolved, expected",
     [
-        (MagicMock(spec=GitHubIntegration), True),
+        (_team_integration(), True),
         (MagicMock(spec=UserGitHubIntegration), False),
         (None, False),
         (GitHubIntegrationError("resolver blew up"), False),
+        (_team_integration(unavailable=True), False),
     ],
-    ids=["team_integration", "personal_integration", "no_integration", "resolver_raises"],
+    ids=["team_integration", "personal_integration", "no_integration", "resolver_raises", "installation_marked_gone"],
 )
 def test_can_mint_readonly_github_token_matches_mint_eligibility(resolved, expected: bool) -> None:
     # The preflight gates whether prompts name `gh` at all — a wrong True steers agents into

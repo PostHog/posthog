@@ -393,12 +393,19 @@ async def _spawn_and_run(
     #
     # The `gh` guidance in the prompt is gated separately: report-channel scouts only, the
     # `github_read_access` posture in the `signals-scout` flag payload (default on; per-team or
-    # fleet-wide `false` is the kill switch), AND a mint preflight — the prompt must not name
-    # `gh` when the team has no usable installation to mint from (the scout would burn budget
-    # on 401s before falling back).
-    github_prompt_guidance = report_channel and await database_sync_to_async(
-        github_read_access_for_team, thread_sensitive=False
-    )(team.id)
+    # fleet-wide `false` is the kill switch — resolved against the canonical project id, like
+    # every flag-payload lookup), AND a mint preflight — the prompt must not name `gh` when the
+    # team has no usable installation to mint from (the scout would burn budget on 401s before
+    # falling back). Repo-backed runs (the management command's `--repository` escape hatch) are
+    # excluded too: they take the full-credential provisioning path, and the section's read-only
+    # framing would misdescribe the token they actually hold.
+    github_prompt_guidance = (
+        report_channel
+        and repository is None
+        and await database_sync_to_async(github_read_access_for_team, thread_sensitive=False)(
+            team.parent_team_id or team.id
+        )
+    )
     if github_prompt_guidance:
         github_prompt_guidance = await database_sync_to_async(
             tasks_facade.can_mint_readonly_github_token, thread_sensitive=False

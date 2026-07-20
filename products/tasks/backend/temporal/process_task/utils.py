@@ -662,15 +662,29 @@ def can_mint_readonly_github_token(team_id: int) -> bool:
     `gh`) on the token actually being obtainable — the flag alone can't tell a team that never
     connected GitHub from one that did. Same team-level-only rule as the mint itself; never raises.
     """
+    try:
+        return _resolve_mintable_team_integration(team_id) is not None
+    except Exception:
+        logger.warning("Failed to resolve GitHub integration for team %d", team_id, exc_info=True)
+        return False
+
+
+def _resolve_mintable_team_integration(team_id: int) -> GitHubIntegration | None:
+    """The team-level integration a read-only mint may use, or None.
+
+    Refuses the resolver's org-owner personal-integration fallback (its installation can span
+    repos never connected to this team) and installations already marked permanently gone by a
+    prior failed mint — re-minting those storms GitHub with doomed calls until the customer
+    reconnects.
+    """
     # Deferred to break a circular import — repo_selection.agent transitively imports the
     # process-task workflow, which imports this module.
     from products.tasks.backend.logic.repo_selection.agent import resolve_team_github_integration  # noqa: PLC0415
 
-    try:
-        return isinstance(resolve_team_github_integration(team_id), GitHubIntegration)
-    except Exception:
-        logger.warning("Failed to resolve GitHub integration for team %d", team_id, exc_info=True)
-        return False
+    integration = resolve_team_github_integration(team_id)
+    if not isinstance(integration, GitHubIntegration) or integration.installation_unavailable():
+        return None
+    return integration
 
 
 def get_readonly_github_token(team_id: int) -> Optional[str]:
@@ -686,14 +700,10 @@ def get_readonly_github_token(team_id: int) -> Optional[str]:
     no usable team-level integration or the mint fails: read access is an evidence-gathering
     nicety, and its absence must not fail the run.
     """
-    # Deferred to break a circular import — repo_selection.agent transitively imports the
-    # process-task workflow, which imports this module.
-    from products.tasks.backend.logic.repo_selection.agent import resolve_team_github_integration  # noqa: PLC0415
-
     try:
-        integration = resolve_team_github_integration(team_id)
-        if not isinstance(integration, GitHubIntegration):
-            logger.info("No team-level GitHub integration for team %d, skipping read-only token mint", team_id)
+        integration = _resolve_mintable_team_integration(team_id)
+        if integration is None:
+            logger.info("No mintable team-level GitHub integration for team %d, skipping read-only token", team_id)
             return None
         return integration.mint_scoped_installation_token(READONLY_SANDBOX_GITHUB_PERMISSIONS)
     except Exception:

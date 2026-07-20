@@ -390,16 +390,27 @@ class GitHubIntegrationBase:
         try:
             data = response.json()
         except ValueError:
+            self._mark_if_installation_gone(response)
             raise GitHubIntegrationError(
                 f"Non-JSON response when minting scoped installation token: {response.text[:500]}",
                 status_code=response.status_code,
             ) from None
         if response.status_code != 201 or not data.get("token"):
+            self._mark_if_installation_gone(response)
             raise GitHubIntegrationError(
                 f"Failed to mint scoped installation token: {response.text[:500]}",
                 status_code=response.status_code,
             )
         return data["token"]
+
+    def _mark_if_installation_gone(self, response: requests.Response) -> None:
+        """Persist the permanently-gone marker after a failed scoped mint (404 uninstalled /
+        403 suspended), so callers that check :meth:`installation_unavailable` stop re-minting a
+        dead installation on every run. Deliberately NOT the full ``_on_token_refresh_failed``
+        hook: that one also stamps ``errors`` on transient failures, which would exclude the
+        integration from team resolution over a passing GitHub 500."""
+        if self._disarm_proactive_refresh_if_installation_gone(response):
+            self.integration.save(update_fields=["config"])
 
     @staticmethod
     def _installation_permanently_unavailable(response: requests.Response) -> bool:

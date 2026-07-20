@@ -1301,6 +1301,26 @@ class TestGitHubIntegrationModel(BaseTest):
         return _client_request
 
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    def test_mint_scoped_installation_token_marks_uninstalled_installation(self, mock_client_request):
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "expires_in": 3600, "refreshed_at": 1704110400},
+            {"access_token": "FULL_TOKEN"},
+        )
+        mock_response = MagicMock(status_code=404, text="Not Found")
+        mock_response.json.return_value = {"message": "Not Found"}
+        mock_client_request.return_value = mock_response
+
+        github = GitHubIntegration(integration)
+        with pytest.raises(GitHubIntegrationError):
+            github.mint_scoped_installation_token({"contents": "read"})
+
+        # Without the permanently-gone marker, every scheduled run re-mints a dead installation
+        # forever — the marker is what lets callers skip it until the customer reconnects.
+        integration.refresh_from_db()
+        assert GitHubIntegration(integration).installation_unavailable() is True
+        assert "expires_in" not in integration.config
+
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
     def test_mint_scoped_installation_token_downscopes_without_persisting(self, mock_client_request):
         integration = self.create_integration({"installation_id": "INSTALL"}, {"access_token": "FULL_TOKEN"})
         mock_response = MagicMock(status_code=201)
