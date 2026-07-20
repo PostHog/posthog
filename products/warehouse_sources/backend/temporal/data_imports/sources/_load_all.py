@@ -68,6 +68,7 @@ from .aviationstack.source import AviationstackSource
 from .aviator.source import AviatorSource
 from .awin.source import AwinSource
 from .aws_cloudtrail.source import AwsCloudTrailSource
+from .axiom.source import AxiomSource
 from .azure_blob.source import AzureBlobSource
 from .azure_devops.source import AzureDevOpsSource
 from .azure_table_storage.source import AzureTableStorageSource
@@ -581,6 +582,7 @@ from .planetscale.source import PlanetScaleSource
 from .planhat.source import PlanhatSource
 from .platform_sh.source import PlatformShSource
 from .plausible.source import PlausibleSource
+from .plivo.source import PlivoSource
 from .plunk.source import PlunkSource
 from .pocket.source import PocketSource
 from .podium.source import PodiumSource

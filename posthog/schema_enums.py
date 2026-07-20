@@ -2044,6 +2044,8 @@ class ExternalDataSourceType(StrEnum):
     CAMPFIRE = "Campfire"
     CRISP = "Crisp"
     KOMMO = "Kommo"
+    AXIOM = "Axiom"
+    PLIVO = "Plivo"
 
 
 class ExternalQueryErrorCode(StrEnum):
