@@ -930,7 +930,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             return valid_host, host_errors
 
         try:
-            self.get_schemas(config, team_id, names=[schema_name] if schema_name else None)
+            self.get_schemas(config, team_id, names=[schema_name] if schema_name else None, api_version=api_version)
         except SSLRequiredError as e:
             return False, str(e)
         except OperationalError as e:
@@ -959,8 +959,9 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         team_id: int,
         access_method: str,
         schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return self.validate_credentials(config, team_id, schema_name=schema_name)
+        return self.validate_credentials(config, team_id, schema_name=schema_name, api_version=api_version)
 
     def get_connection_metadata(
         self, config: PostgresSourceConfig, team_id: int, require_ssl: bool = False

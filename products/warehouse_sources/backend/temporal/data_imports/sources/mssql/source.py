@@ -158,7 +158,12 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
         # first blip.
         def discover() -> list[SourceSchema]:
             return super(MSSQLSource, self).get_schemas(
-                config, team_id, with_counts=with_counts, names=names, force_refresh=force_refresh
+                config,
+                team_id,
+                with_counts=with_counts,
+                names=names,
+                force_refresh=force_refresh,
+                api_version=api_version,
             )
 
         return retry_on_transient_connection_error(discover)
@@ -253,7 +258,7 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             return valid_host, host_errors
 
         try:
-            self.get_schemas(config, team_id)
+            self.get_schemas(config, team_id, api_version=api_version)
         except OperationalError as e:
             error_msg = " ".join(str(n) for n in e.args)
             for key, value in MSSQLErrors.items():

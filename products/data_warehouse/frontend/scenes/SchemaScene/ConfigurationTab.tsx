@@ -542,11 +542,16 @@ function ApiVersionSection({
     const isDirty = (draftVersion ?? null) !== (schema.api_version ?? null)
     const deprecation = schema.api_version_deprecation
 
+    const sourceVersionRetired = !!sourceVersion && !supportedVersions.includes(sourceVersion)
     const options: LemonSelectOption<string | null>[] = [
-        { value: null, label: `Source default${sourceVersion ? ` (${sourceVersion})` : ''}` },
+        {
+            value: null,
+            label: `Source default${sourceVersion ? ` (${sourceVersion}${sourceVersionRetired ? ', no longer supported' : ''})` : ''}`,
+        },
         ...supportedVersions.map((version) => ({ value: version, label: version })),
-        // A stored override can outlive its version's removal from supported_versions — pins are
-        // honored verbatim, so keep it listed and re-selectable instead of orphaning the value.
+        // A stored override can outlive its version's removal from supported_versions — the backend
+        // keeps honoring it verbatim, so keep it visible here. Saving it again is blocked by
+        // validation; this entry exists so the current state is representable, not as a choice.
         ...(schema.api_version && !supportedVersions.includes(schema.api_version)
             ? [{ value: schema.api_version, label: `${schema.api_version} (no longer supported)` }]
             : []),

@@ -1196,9 +1196,13 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         validated_data["job_inputs"] = validated_job_inputs
 
         if job_inputs_were_submitted:
+            effective_api_version = source.resolve_api_version(instance.api_version)
             if isinstance(source, (PostgresSource, MySQLSource)):
                 credentials_valid, credentials_error = source.validate_credentials_for_access_method(
-                    cast(Any, source_config), instance.team_id, instance.access_method
+                    cast(Any, source_config),
+                    instance.team_id,
+                    instance.access_method,
+                    api_version=effective_api_version,
                 )
             elif isinstance(source, CustomSource):
                 # Pass the source being updated so an integration-backed OAuth2 source can only validate
@@ -1210,17 +1214,17 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                     instance.team_id,
                     source_id=str(instance.pk),
                     owner_user_id=self.context["request"].user.id,
-                    api_version=source.resolve_api_version(instance.api_version),
+                    api_version=effective_api_version,
                 )
             else:
                 credentials_valid, credentials_error = source.validate_credentials(
-                    source_config, instance.team_id, api_version=source.resolve_api_version(instance.api_version)
+                    source_config, instance.team_id, api_version=effective_api_version
                 )
             if not credentials_valid:
                 raise ValidationError(credentials_error or "Invalid credentials")
             if instance.is_direct_query:
                 discovered_schemas = source.get_schemas(
-                    source_config, instance.team_id, api_version=source.resolve_api_version(instance.api_version)
+                    source_config, instance.team_id, api_version=effective_api_version
                 )
                 validated_data["connection_metadata"] = get_direct_connection_metadata(
                     source_impl=source,
@@ -4504,11 +4508,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": "This source type does not support webhooks"},
             )
 
+        effective_api_version = source.resolve_api_version(instance.api_version)
         try:
             config = source.parse_config(instance.job_inputs)
-            source_schemas = source.get_schemas(
-                config, self.team_id, api_version=source.resolve_api_version(instance.api_version)
-            )
+            source_schemas = source.get_schemas(config, self.team_id, api_version=effective_api_version)
         except ValidationError as e:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -4547,7 +4550,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
 
         result = create_and_register_webhook(
-            source, config, hog_fn_result, self.team_id, api_version=source.resolve_api_version(instance.api_version)
+            source, config, hog_fn_result, self.team_id, api_version=effective_api_version
         )
 
         return Response(

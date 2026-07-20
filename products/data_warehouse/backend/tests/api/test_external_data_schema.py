@@ -122,6 +122,62 @@ class TestExternalDataSchema(APIBaseTest):
             "detected_primary_keys": None,
         }
 
+    def test_incremental_fields_probe_uses_schema_pin_over_source_pin(self):
+        # A schema-level api_version override must win over the source pin in capability probes,
+        # matching sync-time precedence — consolidating probe callers to the source pin would
+        # silently ignore overrides and no other test would fail.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+            api_version="v-source-pin",
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            api_version="v-schema-pin",
+        )
+        with (
+            mock.patch.object(StripeSource, "validate_credentials", return_value=(True, None)) as validate,
+            mock.patch.object(StripeSource, "get_schemas", return_value=[]) as get_schemas,
+        ):
+            self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
+            )
+        assert validate.call_args.kwargs["api_version"] == "v-schema-pin"
+        assert get_schemas.call_args_list, "expected the probe to run discovery"
+        assert all(c.kwargs["api_version"] == "v-schema-pin" for c in get_schemas.call_args_list)
+
+    def test_sync_type_gate_probes_under_incoming_api_version(self):
+        # A PATCH changing api_version and sync_type together must gate capabilities under the
+        # incoming version (what the schema will sync with), not the stored one.
+        current_version = StripeSource().supported_versions[0]
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.WEBHOOK,
+            api_version="v-retired-pin",
+        )
+        with mock.patch.object(StripeSource, "get_schemas", return_value=[]) as get_schemas:
+            self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/",
+                data={"sync_type": "full_refresh", "api_version": current_version},
+            )
+        assert get_schemas.call_args_list, "expected the webhook-only gate to probe discovery"
+        assert all(c.kwargs["api_version"] == current_version for c in get_schemas.call_args_list)
+
     def test_incremental_fields_missing_source_type(self):
         source = ExternalDataSource.objects.create(
             team=self.team,

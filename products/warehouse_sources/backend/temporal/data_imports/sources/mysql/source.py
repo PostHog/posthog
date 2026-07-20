@@ -310,7 +310,7 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             return valid_host, host_errors
 
         try:
-            self.get_schemas(config, team_id)
+            self.get_schemas(config, team_id, api_version=api_version)
         except BaseSSHTunnelForwarderError as e:
             # sshtunnel surfaces raw library strings (e.g. "Could not establish session to SSH
             # gateway"); map them to the friendly guidance in `get_non_retryable_errors` — which the
@@ -357,5 +357,6 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
         team_id: int,
         access_method: str,
         schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return self.validate_credentials(config, team_id, schema_name=schema_name)
+        return self.validate_credentials(config, team_id, schema_name=schema_name, api_version=api_version)

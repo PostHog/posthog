@@ -322,7 +322,7 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             return False, "Missing required parameters: username, private key"
 
         try:
-            self.get_schemas(config, team_id)
+            self.get_schemas(config, team_id, api_version=api_version)
         except (ProgrammingError, DatabaseError, ForbiddenError, HttpError) as e:
             error_msg = e.msg or e.raw_msg or ""
             for key, value in SnowflakeErrors.items():

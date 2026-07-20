@@ -53,6 +53,7 @@ from products.warehouse_sources.backend.facade.models import (
 )
 from products.warehouse_sources.backend.facade.pipelines import finish_row_tracking
 from products.warehouse_sources.backend.facade.source_management import (
+    AnySource,
     RowFilterValidationError,
     SourceRegistry,
     WebhookSource,
@@ -1092,6 +1093,20 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
         return updated_instance
 
+    def _effective_probe_api_version(self, schema: ExternalDataSchema, source_impl: AnySource) -> str | None:
+        """Version the schema will sync with after this request saves.
+
+        An `api_version` in the incoming payload wins over the stored override — a PATCH can change
+        version and sync_type together, and gating capabilities under the old version would approve
+        a sync method the new version doesn't support. Unvalidated payload values fall through to
+        the stored chain (the request 400s in validate() anyway, and the probe must never send an
+        unvetted label to the vendor)."""
+        data = self.initial_data if isinstance(self.initial_data, dict) else {}
+        incoming = data.get("api_version")
+        if "api_version" in data and (incoming is None or incoming in source_impl.supported_versions):
+            return incoming or schema.source.api_version
+        return schema.api_version or schema.source.api_version
+
     def _is_webhook_only_schema(self, schema: ExternalDataSchema) -> bool:
         source = schema.source
         if not source.job_inputs:
@@ -1107,7 +1122,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 config,
                 schema.team_id,
                 names=[schema.name],
-                api_version=source_impl.resolve_api_version(schema.api_version or source.api_version),
+                api_version=source_impl.resolve_api_version(self._effective_probe_api_version(schema, source_impl)),
             )
         except Exception:
             return False
@@ -1128,7 +1143,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 config,
                 schema.team_id,
                 names=[schema.name],
-                api_version=source_impl.resolve_api_version(schema.api_version or source.api_version),
+                api_version=source_impl.resolve_api_version(self._effective_probe_api_version(schema, source_impl)),
             )
         except Exception:
             return False
@@ -1180,9 +1195,10 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             return
 
         config = source_impl.parse_config(source.job_inputs)
-        source_schemas = source_impl.get_schemas(
-            config, schema.team_id, api_version=source_impl.resolve_api_version(source.api_version)
-        )
+        # Source pin only: webhook-sync schemas cannot carry a schema-level override (validate()
+        # rejects it), so there is no per-schema precedence to honor here.
+        effective_api_version = source_impl.resolve_api_version(source.api_version)
+        source_schemas = source_impl.get_schemas(config, schema.team_id, api_version=effective_api_version)
         webhook_source_schemas = {s.name for s in source_schemas if s.supports_webhooks}
 
         if schema.name not in webhook_source_schemas:
@@ -1206,11 +1222,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             if hog_fn_result.hog_function_created:
                 # Only register the webhook if we're creating the hog function when it didn't exist previously
                 result = create_and_register_webhook(
-                    source_impl,
-                    config,
-                    hog_fn_result,
-                    schema.team_id,
-                    api_version=source_impl.resolve_api_version(source.api_version),
+                    source_impl, config, hog_fn_result, schema.team_id, api_version=effective_api_version
                 )
                 if not result.success:
                     raise ValidationError(
@@ -1231,7 +1243,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                             hog_fn_result,
                             schema.team_id,
                             [schema.name],
-                            api_version=source_impl.resolve_api_version(source.api_version),
+                            api_version=effective_api_version,
                         )
                         if not reconcile_result.success:
                             logger.warning(

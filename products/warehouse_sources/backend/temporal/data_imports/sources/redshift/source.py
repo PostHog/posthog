@@ -187,7 +187,7 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
             return valid_host, host_errors
 
         try:
-            self.get_schemas(config, team_id)
+            self.get_schemas(config, team_id, api_version=api_version)
         except OperationalError as e:
             error_msg = " ".join(str(n) for n in e.args)
             for key, value in RedshiftErrors.items():

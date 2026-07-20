@@ -425,6 +425,7 @@ class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
         self, config: ConfigType, webhook_url: str, team_id: int, inputs: dict[str, Any], api_version: str | None = None
     ) -> tuple[bool, str | None]:
         """Called when webhook inputs have been set on the underlying hog function.
+        ``api_version`` follows the `create_webhook` contract.
 
         Returns ``(success, error)``. Implementations that need to call out to the
         external service (e.g. enabling a previously-disabled webhook) should return
