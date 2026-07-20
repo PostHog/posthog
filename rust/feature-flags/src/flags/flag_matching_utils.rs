@@ -643,8 +643,13 @@ fn are_overrides_useful_for_flag(
 /// Determines if a FlagError should trigger a retry
 fn should_retry_on_error(error: &FlagError) -> bool {
     match error {
-        // Retry on database errors that are likely transient
+        // Retry on database errors that are likely transient. Errors constructed with
+        // context still carry the raw sqlx error, so classify by transience here.
         FlagError::DatabaseError(sqlx_error, _) => common_database::is_transient_error(sqlx_error),
+
+        // Transient DB faults propagated via `?` (From<sqlx::Error>) or connection
+        // acquisition failures arrive already classified as DatabaseUnavailable (503).
+        FlagError::DatabaseUnavailable => true,
 
         // Other error types generally should not be retried
         _ => false,
@@ -2453,6 +2458,15 @@ mod tests {
 
         let row_not_found_error = FlagError::RowNotFound;
         assert!(!should_retry_on_error(&row_not_found_error));
+
+        // Transient errors propagated via From<sqlx::Error> arrive as DatabaseUnavailable
+        // (a retryable 503); the retry loop must still retry them.
+        let pool_closed_via_conversion: FlagError = SqlxError::PoolClosed.into();
+        assert!(matches!(
+            pool_closed_via_conversion,
+            FlagError::DatabaseUnavailable
+        ));
+        assert!(should_retry_on_error(&pool_closed_via_conversion));
     }
 
     #[test]
