@@ -81,6 +81,7 @@ describe('supportTicketsSceneLogic', () => {
             useMocks({
                 get: {
                     '/api/projects/:team_id/conversations/tickets/': () => [200, { count: 0, results: [] }],
+                    '/api/environments/:team_id/conversations/views/:short_id': () => [404, { detail: 'Not found' }],
                 },
             })
             initKeaTests()
@@ -124,6 +125,19 @@ describe('supportTicketsSceneLogic', () => {
             expect(logic.values.channelFilter).toBe('email')
             expect(logic.values.sorting).toEqual({ columnKey: 'created_at', order: 1 })
             expect(logic.values.assigneeFilterEntries).toEqual(['unassigned'])
+        })
+
+        it('drops the view param and falls back to loading tickets when a linked view is missing', async () => {
+            router.actions.push(urls.supportTickets(), { view: 'deadbeef' })
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+
+            await expectLogic(logic)
+                .toDispatchActions(['loadSavedView', 'clearActiveView', 'loadTickets'])
+                .toFinishAllListeners()
+
+            expect(logic.values.activeView).toBeNull()
+            expect(router.values.searchParams.view).toBeUndefined()
         })
     })
 })

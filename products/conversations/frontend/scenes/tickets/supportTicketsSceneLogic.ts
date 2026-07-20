@@ -793,22 +793,33 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             actions.setActiveView(view)
         },
         loadSavedView: async ({ shortId }) => {
-            // The cache guard keeps the concurrent afterMount + urlToAction mount
-            // triggers from fetching the same view twice.
-            if (cache.loadingViewShortId === shortId) {
+            // Track the view the URL currently names. Rapidly switching views leaves
+            // several requests in flight; only the latest one may touch state, so a
+            // slow earlier response can't clobber the view the user actually landed on.
+            cache.latestViewShortId = shortId
+            const inFlight: Set<string> = (cache.inFlightViewShortIds ??= new Set())
+            // De-dupe the concurrent afterMount + urlToAction mount triggers for the same view.
+            if (inFlight.has(shortId)) {
                 return
             }
-            cache.loadingViewShortId = shortId
+            inFlight.add(shortId)
             const teamId = teamLogic.values.currentTeamId
             try {
                 // nosemgrep: prefer-codegen-api
                 const view: SavedTicketView = await api.get(`api/environments/${teamId}/conversations/views/${shortId}`)
-                actions.applyView(view)
+                if (cache.latestViewShortId === shortId) {
+                    actions.applyView(view)
+                }
             } catch {
-                lemonToast.error('Failed to load saved view')
-                actions.loadTickets()
+                if (cache.latestViewShortId === shortId) {
+                    lemonToast.error('Failed to load saved view')
+                    // The named view can't be shown, so drop it — otherwise the URL keeps
+                    // pointing at the failed view while a stale view/filters stay applied.
+                    actions.clearActiveView()
+                    actions.loadTickets()
+                }
             } finally {
-                cache.loadingViewShortId = null
+                inFlight.delete(shortId)
             }
         },
         resetFilters: () => {
