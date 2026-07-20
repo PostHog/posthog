@@ -16,6 +16,7 @@ import { HogExecutorService } from '../../hog-executor.service'
 import { HogInputsService } from '../../hog-inputs.service'
 import { HogFunctionTemplateManagerService } from '../../managers/hog-function-template-manager.service'
 import { TeamWorkflowsConfigService } from '../../managers/team-workflows-config.service'
+import { EmailSuppressionService, emailSuppressionConfigFromEnv } from '../../messaging/email-suppression.service'
 import { EmailValidationService } from '../../messaging/email-validation.service'
 import { EmailService } from '../../messaging/email.service'
 import { EmailTrackingCodeSigner } from '../../messaging/helpers/tracking-code'
@@ -61,7 +62,8 @@ describe('HogFunctionHandler', () => {
             new TeamWorkflowsConfigService(hub.postgres),
             hub.ENCRYPTION_SALT_KEYS,
             hub.SITE_URL,
-            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
+            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
+            new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
         )
         mockHogFunctionExecutor = new HogExecutorService(
             {

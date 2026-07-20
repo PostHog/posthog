@@ -7,6 +7,7 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.calendly.calendly import (
     CALENDLY_BASE_URL,
+    SUPPORTED_API_VERSIONS,
     CalendlyResumeConfig,
     _build_initial_params,
     _format_datetime,
@@ -214,6 +215,16 @@ class TestGetRows:
         assert batches == [[{"uri": "z"}]]
         # No /users/me bootstrap call on resume; first request is the saved URL.
         assert session.requested_urls == [resume_url]
+
+    @parameterized.expand([(version,) for version in SUPPORTED_API_VERSIONS])
+    def test_every_supported_version_targets_calendly_host(self, api_version: str) -> None:
+        session = FakeSession(
+            [_users_me_response(), FakeResponse(200, {"collection": [{"uri": "a"}], "pagination": {}})]
+        )
+
+        self._run(session, StubResumeManager(), api_version=api_version)
+
+        assert all(url.startswith(CALENDLY_BASE_URL) for url in session.requested_urls)
 
     def test_first_request_scopes_to_organization(self) -> None:
         session = FakeSession(

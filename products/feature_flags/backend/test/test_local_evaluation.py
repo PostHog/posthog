@@ -18,6 +18,7 @@ from posthog.utils import safe_cache_delete
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.cache_keys import EU_CROSS_REGION_MIRROR_CACHE_KEY
 from products.feature_flags.backend.flags_cache import get_team_ids_with_recently_updated_flags
 from products.feature_flags.backend.local_evaluation import (
     FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG,
@@ -1334,6 +1335,17 @@ class TestFlagDefinitionsCache(BaseTest):
     def test_update_flag_definitions_cache_returns_false_for_nonexistent_team(self):
         result = update_flag_definitions_cache(999999)
         assert result is False
+
+    def test_cold_read_of_cross_region_sentinel_returns_none_without_querying_team(self):
+        # The EU mirror sentinel has no backing Team row, so a cold read must
+        # short-circuit in the load_fn instead of raising Team.DoesNotExist.
+        clear_flag_definition_caches(EU_CROSS_REGION_MIRROR_CACHE_KEY, kinds=["redis", "s3"])
+
+        with patch.object(Team.objects, "get") as mock_team_get:
+            result = flag_definitions_hypercache.get_from_cache(EU_CROSS_REGION_MIRROR_CACHE_KEY)
+
+        assert result is None
+        mock_team_get.assert_not_called()
 
     def test_clear_flag_definition_caches(self):
         FeatureFlag.objects.create(

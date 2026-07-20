@@ -1,6 +1,8 @@
 import pytest
 from unittest import mock
 
+from parameterized import parameterized
+
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldSelectConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
@@ -32,7 +34,9 @@ def _api_key_config(api_key: str = "key123") -> ServiceNowSourceConfig:
     )
 
 
-def _source_inputs(schema_name: str = "incidents", incremental: bool = False) -> SourceInputs:
+def _source_inputs(
+    schema_name: str = "incidents", incremental: bool = False, api_version: str | None = None
+) -> SourceInputs:
     return SourceInputs(
         schema_name=schema_name,
         schema_id="schema-1",
@@ -46,6 +50,7 @@ def _source_inputs(schema_name: str = "incidents", incremental: bool = False) ->
         job_id="job-1",
         logger=mock.MagicMock(),
         reset_pipeline=False,
+        api_version=api_version,
     )
 
 
@@ -181,3 +186,25 @@ class TestServiceNowSource:
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2024-01-01 00:00:00"
         assert kwargs["incremental_field"] == "sys_updated_on"
+
+    def test_default_version_is_v2(self) -> None:
+        assert self.source.supported_versions == ("v1", "v2")
+        assert self.source.default_version == "v2"
+
+    @parameterized.expand(
+        [
+            # no pin resolves to the default (v2); a present pin is honored verbatim.
+            ("unpinned", None, "v2"),
+            ("pinned_v1", "v1", "v1"),
+            ("pinned_v2", "v2", "v2"),
+        ]
+    )
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.servicenow.source.servicenow_source")
+    def test_source_for_pipeline_resolves_api_version(
+        self, _name: str, pin: str | None, expected: str, mock_source: mock.Mock
+    ) -> None:
+        inputs = _source_inputs(api_version=pin)
+        self.source.source_for_pipeline(_api_key_config(), mock.MagicMock(), inputs)
+
+        _, kwargs = mock_source.call_args
+        assert kwargs["api_version"] == expected
