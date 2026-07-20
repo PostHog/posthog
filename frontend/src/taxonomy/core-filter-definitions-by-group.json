@@ -1614,6 +1614,14 @@
             ],
             "label": "Feature flag evaluated at"
         },
+        "$feature_flag_has_experiment": {
+            "description": "Whether the feature flag that was called is linked to a live experiment.",
+            "examples": [
+                "true",
+                "false"
+            ],
+            "label": "Feature flag has experiment"
+        },
         "$feature_flag_id": {
             "description": "The numeric identifier of the feature flag that was called.",
             "examples": [
@@ -6000,6 +6008,14 @@
                 "1732051200000"
             ],
             "label": "Feature flag evaluated at"
+        },
+        "$feature_flag_has_experiment": {
+            "description": "Whether the feature flag that was called is linked to a live experiment.",
+            "examples": [
+                "true",
+                "false"
+            ],
+            "label": "Feature flag has experiment"
         },
         "$feature_flag_id": {
             "description": "The numeric identifier of the feature flag that was called.",
