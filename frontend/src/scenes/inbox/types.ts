@@ -83,6 +83,9 @@ export interface SignalReport {
     scout_name?: string | null
     /** PR URL from the latest implementation task run, if available. */
     implementation_pr_url?: string | null
+    /** Whether that implementation PR is merged, per the GitHub webhook. Status doesn't imply it: a
+     * resolved report may have been resolved directly, without a merged PR. */
+    implementation_pr_merged?: boolean
     /** Reason code from the latest dismissal artefact (when archived). See dismissalReasons. */
     dismissal_reason?: string | null
     /** Free-form note from the latest dismissal artefact (when archived). */
