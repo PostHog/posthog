@@ -18,6 +18,7 @@ import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { objectsEqual } from 'lib/utils/objects'
 
+import { BooleanTag } from '../../components/BooleanTag'
 import { CardHeader } from '../../components/CardHeader'
 import type { ReplayScannerPromptSuggestionApi } from '../../generated/api.schemas'
 import { replayScannerLogic } from '../replayScannerLogic'
@@ -162,14 +163,12 @@ function FieldValueEditor({
     onChange,
     basePrompt,
     isDarkModeOn,
-    tagChanges,
 }: {
     kind: FieldEditorKind
     value: unknown
     onChange: (value: unknown) => void
     basePrompt: string | null
     isDarkModeOn: boolean
-    tagChanges: ScannerConfigChange[]
 }): JSX.Element {
     if (kind === 'prompt') {
         if (!basePrompt) {
@@ -188,17 +187,14 @@ function FieldValueEditor({
     if (kind === 'tags') {
         const tags = (value as string[]) ?? []
         return (
-            <div className="space-y-2">
-                {tagChanges.length > 0 && <TagChips changes={tagChanges} />}
-                <LemonInputSelect
-                    mode="multiple"
-                    allowCustomValues
-                    placeholder="Type a tag and press enter..."
-                    value={tags}
-                    onChange={onChange}
-                    options={tags.map((t) => ({ key: t, label: t }))}
-                />
-            </div>
+            <LemonInputSelect
+                mode="multiple"
+                allowCustomValues
+                placeholder="Type a tag and press enter..."
+                value={tags}
+                onChange={onChange}
+                options={tags.map((t) => ({ key: t, label: t }))}
+            />
         )
     }
     if (kind === 'scale') {
@@ -242,9 +238,42 @@ function FieldValueEditor({
         )
     }
     if (kind === 'flag') {
-        return <LemonSwitch checked={!!value} onChange={onChange} label={value ? 'On' : 'Off'} />
+        return <LemonSwitch checked={!!value} onChange={onChange} label={value ? 'Enabled' : 'Disabled'} />
     }
     return <LemonTextArea value={String(value ?? '')} onChange={onChange} minRows={2} />
+}
+
+/** The read-only rendering of a field's current value, shown in the "Current" column beside its editor. */
+function FieldCurrentValue({ kind, value }: { kind: FieldEditorKind; value: unknown }): JSX.Element {
+    if (kind === 'tags') {
+        const tags = (value as string[]) ?? []
+        return tags.length ? (
+            <div className="flex flex-wrap gap-1">
+                {tags.map((tag) => (
+                    <LemonTag key={tag} type="option">
+                        {tag}
+                    </LemonTag>
+                ))}
+            </div>
+        ) : (
+            <span className="text-muted text-sm">—</span>
+        )
+    }
+    if (kind === 'flag') {
+        return <BooleanTag value={!!value} />
+    }
+    if (kind === 'scale') {
+        const scale = value as { min?: number; max?: number; label?: string } | undefined
+        return <span className="text-sm">{formatChangeValue(scale)}</span>
+    }
+    if (kind === 'length') {
+        return (
+            <span className="text-sm">
+                {SUMMARIZER_LENGTH_OPTIONS.find((option) => option.value === value)?.label ?? String(value ?? '—')}
+            </span>
+        )
+    }
+    return <span className="text-sm whitespace-pre-wrap">{String(value ?? '') || '—'}</span>
 }
 
 /** The static before-to-after view of a field, used for past recommendations. */
@@ -330,64 +359,115 @@ export function ConfigChangeCards({
 
     const base = (suggestion.base_config ?? {}) as Record<string, unknown>
     const suggested = { ...base, ...((suggestion.suggested_config ?? {}) as Record<string, unknown>) }
-    const fieldNames = readOnly
-        ? changedFields(changes).map(({ field }) => field)
-        : Object.keys(suggested).sort((a, b) => (a === 'prompt' ? -1 : b === 'prompt' ? 1 : 0))
 
-    const rows = fieldNames.map((field) => {
-        const fieldChanges = changes.filter((change) => change.field === field)
-        const value = readOnly ? suggested[field] : fieldValues[field]
-        const { kind, label } = fieldEditor(field, value)
-        // The configuration tab labels the summarizer's prompt "Additional context"; read the same way here.
-        const fieldLabel = field === 'prompt' && scanner?.scanner_type === 'summarizer' ? 'Additional context' : label
-        const edited = !readOnly && !objectsEqual(value, suggested[field])
+    // Past recommendations sit inside a history card and only recap their changes, read-only.
+    if (readOnly) {
         return (
-            <div key={field}>
-                <div className="flex items-center justify-between gap-2 mb-0.5">
-                    <span className="text-xs text-muted">{fieldLabel}</span>
-                    {edited && (
-                        <LemonButton
-                            size="xsmall"
-                            type="secondary"
-                            icon={<IconRevert />}
-                            onClick={() => setFieldValue(suggestion.id, field, suggested[field])}
-                            tooltip="Revert to the suggested value"
-                            data-attr="vision-quality-revert-field"
-                        >
-                            Revert
-                        </LemonButton>
-                    )}
-                </div>
-                {readOnly ? (
-                    <FieldValueReadOnly
-                        kind={kind as ScannerConfigChange['kind']}
-                        suggestion={suggestion}
-                        isDarkModeOn={isDarkModeOn}
-                        fieldChanges={fieldChanges}
-                    />
-                ) : (
-                    <FieldValueEditor
-                        kind={kind}
-                        value={value}
-                        onChange={(newValue) => setFieldValue(suggestion.id, field, newValue)}
-                        basePrompt={suggestion.base_prompt}
-                        isDarkModeOn={isDarkModeOn}
-                        tagChanges={fieldChanges}
-                    />
-                )}
-                <FieldRationales fieldChanges={fieldChanges} />
+            <div className="flex flex-col gap-3">
+                {changedFields(changes).map(({ field, kind }) => {
+                    const fieldChanges = changes.filter((change) => change.field === field)
+                    return (
+                        <div key={field}>
+                            <div className="text-xs text-muted mb-0.5">
+                                {fieldEditor(field, suggested[field]).label}
+                            </div>
+                            <FieldValueReadOnly
+                                kind={kind}
+                                suggestion={suggestion}
+                                isDarkModeOn={isDarkModeOn}
+                                fieldChanges={fieldChanges}
+                            />
+                            <FieldRationales fieldChanges={fieldChanges} />
+                        </div>
+                    )
+                })}
             </div>
         )
-    })
-
-    // Past recommendations sit inside a history card already, so they skip the extra Behavior card.
-    if (readOnly) {
-        return <div className="flex flex-col gap-3">{rows}</div>
     }
+
+    // The prompt is a full-width current-vs-new diff; the remaining fields sit in Current | New columns.
+    const fieldNames = Object.keys(suggested).sort((a, b) => (a === 'prompt' ? -1 : b === 'prompt' ? 1 : 0))
+    const structuredFields = fieldNames.filter((field) => field !== 'prompt')
+
+    // Rendered even when not edited (invisible) so the row height never changes as it appears or disappears.
+    const revertButton = (field: string, edited: boolean): JSX.Element => (
+        <LemonButton
+            size="xsmall"
+            type="secondary"
+            icon={<IconRevert />}
+            onClick={() => setFieldValue(suggestion.id, field, suggested[field])}
+            tooltip="Revert to the suggested value"
+            data-attr="vision-quality-revert-field"
+            className={edited ? undefined : 'invisible'}
+            aria-hidden={!edited}
+        >
+            Revert
+        </LemonButton>
+    )
+
+    const fieldLabelText = (field: string): string => {
+        const { label } = fieldEditor(field, fieldValues[field])
+        return field === 'prompt' && scanner?.scanner_type === 'summarizer' ? 'Additional context' : label
+    }
+
     return (
         <LemonCard className="p-4" hoverEffect={false}>
             <CardHeader icon={<IconPencil />} title="Behavior" />
-            <div className="flex flex-col gap-3">{rows}</div>
+            <div className="flex flex-col gap-4">
+                {fieldNames.includes('prompt') && (
+                    <div>
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                            <span className="text-xs text-muted">{fieldLabelText('prompt')}</span>
+                            {revertButton('prompt', !objectsEqual(fieldValues.prompt, suggested.prompt))}
+                        </div>
+                        <FieldValueEditor
+                            kind="prompt"
+                            value={fieldValues.prompt}
+                            onChange={(newValue) => setFieldValue(suggestion.id, 'prompt', newValue)}
+                            basePrompt={suggestion.base_prompt}
+                            isDarkModeOn={isDarkModeOn}
+                        />
+                        <FieldRationales fieldChanges={changes.filter((change) => change.field === 'prompt')} />
+                    </div>
+                )}
+                {structuredFields.length > 0 && (
+                    <div className="flex flex-col gap-3">
+                        <div className="grid grid-cols-2 gap-3 text-xs font-medium text-muted border-b pb-1">
+                            <span>Current</span>
+                            <span>New</span>
+                        </div>
+                        {structuredFields.map((field) => {
+                            const { kind } = fieldEditor(field, fieldValues[field])
+                            const edited = !objectsEqual(fieldValues[field], suggested[field])
+                            return (
+                                <div key={field}>
+                                    <div className="flex items-center justify-between gap-2 mb-1">
+                                        <span className="text-xs text-muted">{fieldLabelText(field)}</span>
+                                        {revertButton(field, edited)}
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3 items-start">
+                                        <div>
+                                            <FieldCurrentValue kind={kind} value={base[field]} />
+                                        </div>
+                                        <div>
+                                            <FieldValueEditor
+                                                kind={kind}
+                                                value={fieldValues[field]}
+                                                onChange={(newValue) => setFieldValue(suggestion.id, field, newValue)}
+                                                basePrompt={suggestion.base_prompt}
+                                                isDarkModeOn={isDarkModeOn}
+                                            />
+                                        </div>
+                                    </div>
+                                    <FieldRationales
+                                        fieldChanges={changes.filter((change) => change.field === field)}
+                                    />
+                                </div>
+                            )
+                        })}
+                    </div>
+                )}
+            </div>
         </LemonCard>
     )
 }
