@@ -330,7 +330,8 @@ pub const REMOTE_CONFIG_REQUESTS_COUNTER: &str = "flags_remote_config_requests_t
 pub const REMOTE_CONFIG_AUTH_COUNTER: &str = "flags_remote_config_auth_total";
 
 // Remote config ETag metrics
-// Labels: result (hit = 304, miss = 200 with stale etag, none = 200 without etag). Unlike flag
+// Labels: result (hit = 304, miss = 200 with stale etag, none = request sent no
+// If-None-Match; the 200 still carries an etag since it is computed per request). Unlike flag
 // definitions there is no redis_error case: no cache backs this endpoint, so the etag is
 // content-derived per request and can always be computed.
 pub const REMOTE_CONFIG_ETAG_COUNTER: &str = "flags_remote_config_etag_total";

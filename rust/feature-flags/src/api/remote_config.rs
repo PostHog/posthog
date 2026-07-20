@@ -41,7 +41,6 @@ use axum::{
 use common_metrics::inc;
 use serde::Deserialize;
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 use tracing::warn;
 
 /// Query params. SDKs pass `?token=phc_...` (the project key) and call this with `@current`
@@ -237,12 +236,11 @@ pub async fn remote_config(
     }
 }
 
-/// Content-derived ETag: sha256 of the exact response body, truncated to 16 hex chars —
-/// the same shape HyperCache's `_compute_etag` produces for `/flags/definitions`, so SDKs
-/// see one etag format across both endpoints.
+/// Content-derived ETag over the exact response body, using the same HyperCache helper
+/// that produces `/flags/definitions` etags, so SDKs see one etag format across both
+/// endpoints.
 fn compute_etag(body: &str) -> String {
-    let digest = Sha256::digest(body.as_bytes());
-    hex::encode(digest)[..16].to_string()
+    common_hypercache::writer::compute_etag(body)
 }
 
 /// 200 with a pre-serialized JSON body plus ETag and Cache-Control headers, mirroring the
