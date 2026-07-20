@@ -28,6 +28,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.test.persons import create_person
 
 from products.actions.backend.models.action import Action
+from products.approvals.backend.models import ApprovalPolicy
 from products.cohorts.backend.models.cohort import Cohort
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.models.insight import Insight
@@ -7335,3 +7336,70 @@ class TestSurveyFeatureFlagScopeEnforcement(PersonalAPIKeysBaseTest, APIBaseTest
             format="json",
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+
+@patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+class TestSurveyTargetingFlagApprovalGate(APIBaseTest):
+    # Survey-internal targeting flags are an implementation detail (creation_context "surveys").
+    # They must not be caught by the feature-flag approval gate — otherwise the gate raises
+    # ApprovalRequired, which SurveyViewSet does not handle and would surface as a 500.
+    TARGETING_FILTERS = {"groups": [{"variant": None, "rollout_percentage": 100, "properties": []}]}
+
+    def _enable_policy(self, action_key: str, conditions: Optional[dict[str, Any]] = None) -> None:
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key=action_key,
+            conditions=conditions if conditions is not None else {},
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+
+    @parameterized.expand(
+        [
+            ("enable_policy", "feature_flag.enable", None),
+            (
+                "update_policy",
+                "feature_flag.update",
+                {"type": "before_after", "field": "rollout_percentage", "operator": ">", "value": 0},
+            ),
+        ]
+    )
+    def test_create_survey_with_targeting_flag_bypasses_approval(self, _name, action_key, conditions, _mock_enabled):
+        self._enable_policy(action_key, conditions)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "survey with targeting",
+                "type": "popover",
+                "targeting_flag_filters": self.TARGETING_FILTERS,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        survey = Survey.objects.get(pk=response.json()["id"])
+        assert survey.targeting_flag_id is not None
+
+    def test_update_survey_targeting_flag_bypasses_approval(self, _mock_enabled):
+        survey_id = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={"name": "survey", "type": "popover", "targeting_flag_filters": self.TARGETING_FILTERS},
+            format="json",
+        ).json()["id"]
+
+        self._enable_policy(
+            "feature_flag.update",
+            {"type": "before_after", "field": "rollout_percentage", "operator": ">", "value": 0},
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+            data={
+                "targeting_flag_filters": {"groups": [{"variant": None, "rollout_percentage": 50, "properties": []}]}
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
