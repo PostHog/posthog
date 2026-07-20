@@ -857,13 +857,13 @@ export interface experimentLogicActions {
         isSecondary,
         newUuid,
     }: {
-        sharedMetricId: SharedMetric['id']
         isSecondary: boolean
         newUuid: string
+        sharedMetricId: SharedMetric['id']
     }) => {
-        sharedMetricId: SharedMetric['id']
         isSecondary: boolean
         newUuid: string
+        sharedMetricId: number
     }
     endExperiment: (openCleanupPr?: boolean) => {
         openCleanupPr: boolean
