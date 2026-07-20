@@ -12,6 +12,9 @@ import { HOG_EVAL_EXAMPLES } from '../hogEvalExamples'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import { HogTestResult } from '../types'
 
+const GLOBAL_NAME_CODE_CLASS = 'font-medium text-sm bg-fill-primary px-1.5 py-0.5 rounded'
+const PROPERTY_NAME_CODE_CLASS = 'font-medium text-xs bg-fill-primary px-1 py-0.5 rounded'
+
 const HOG_EVAL_COMMON_GLOBALS = {
     evaluation_events: [
         {
@@ -200,6 +203,7 @@ export function EvaluationCodeEditor(): JSX.Element {
     }
 
     const source = evaluation.evaluation_config.source
+    const targetLabel = evaluation.target === 'generation' ? 'generation' : 'trace'
 
     return (
         <div className="space-y-4">
@@ -297,71 +301,77 @@ export function EvaluationCodeEditor(): JSX.Element {
                     ))}
                 </div>
                 <h4 className="text-sm font-semibold mb-2">Available globals</h4>
-                <dl className="grid grid-cols-[max-content_minmax(0,1fr)] items-baseline gap-x-3 gap-y-2 text-sm text-muted">
+                <dl className="grid grid-cols-[max-content_minmax(0,1fr)] items-start gap-x-3 gap-y-2 text-sm text-muted">
                     <dt>
-                        <code>evaluation_events</code>
+                        <code className={GLOBAL_NAME_CODE_CLASS}>evaluation_events</code>
                     </dt>
                     <dd className="m-0">
-                        <p className="m-0">One generation event, or every event in the trace.</p>
-                        <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-2 gap-y-0.5 mt-1">
+                        <p className="m-0">
+                            {evaluation.target === 'generation'
+                                ? 'The event for the generation being evaluated.'
+                                : 'Every event in the trace being evaluated.'}
+                        </p>
+                        <dl className="grid grid-cols-[max-content_minmax(0,1fr)] items-baseline gap-x-2 gap-y-1 mt-1.5">
                             <dt>
-                                <code>uuid</code>
+                                <code className={PROPERTY_NAME_CODE_CLASS}>uuid</code>
                             </dt>
                             <dd className="m-0">The event UUID.</dd>
                             <dt>
-                                <code>event</code>
+                                <code className={PROPERTY_NAME_CODE_CLASS}>event</code>
                             </dt>
                             <dd className="m-0">The PostHog event name.</dd>
                             <dt>
-                                <code>timestamp</code>
+                                <code className={PROPERTY_NAME_CODE_CLASS}>timestamp</code>
                             </dt>
                             <dd className="m-0">When the event was captured.</dd>
                             <dt>
-                                <code>input</code>
+                                <code className={PROPERTY_NAME_CODE_CLASS}>input</code>
                             </dt>
                             <dd className="m-0">The raw input serialized as a string.</dd>
                             <dt>
-                                <code>output</code>
+                                <code className={PROPERTY_NAME_CODE_CLASS}>output</code>
                             </dt>
                             <dd className="m-0">The raw output serialized as a string.</dd>
                             <dt>
-                                <code>input_text</code>
+                                <code className={PROPERTY_NAME_CODE_CLASS}>input_text</code>
                             </dt>
                             <dd className="m-0">Readable text extracted from the input.</dd>
                             <dt>
-                                <code>output_text</code>
+                                <code className={PROPERTY_NAME_CODE_CLASS}>output_text</code>
                             </dt>
                             <dd className="m-0">Readable text extracted from the output.</dd>
                             <dt>
-                                <code>properties</code>
+                                <code className={PROPERTY_NAME_CODE_CLASS}>properties</code>
                             </dt>
                             <dd className="m-0">Event properties without large input, output, and tool payloads.</dd>
                         </dl>
                     </dd>
                     <dt>
-                        <code>target</code>
+                        <code className={GLOBAL_NAME_CODE_CLASS}>target</code>
                     </dt>
                     <dd className="m-0">
-                        <p className="m-0">Details about the generation or trace being evaluated.</p>
-                        <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-2 gap-y-0.5 mt-1">
+                        <p className="m-0">Details about the {targetLabel} being evaluated.</p>
+                        <dl className="grid grid-cols-[max-content_minmax(0,1fr)] items-baseline gap-x-2 gap-y-1 mt-1.5">
                             <dt>
-                                <code>type</code>
+                                <code className={PROPERTY_NAME_CODE_CLASS}>type</code>
                             </dt>
                             <dd className="m-0">
-                                <code>generation</code> or <code>trace</code>.
+                                <code>{targetLabel}</code>.
                             </dd>
                             <dt>
-                                <code>id</code>
+                                <code className={PROPERTY_NAME_CODE_CLASS}>id</code>
                             </dt>
-                            <dd className="m-0">The event UUID or trace ID.</dd>
+                            <dd className="m-0">
+                                {evaluation.target === 'generation' ? 'The generation event UUID.' : 'The trace ID.'}
+                            </dd>
                             <dt>
-                                <code>total_cost_usd</code>
+                                <code className={PROPERTY_NAME_CODE_CLASS}>total_cost_usd</code>
                             </dt>
-                            <dd className="m-0">The total cost in USD, when available.</dd>
+                            <dd className="m-0">The total cost for the {targetLabel} in USD, when available.</dd>
                             <dt>
-                                <code>total_latency_seconds</code>
+                                <code className={PROPERTY_NAME_CODE_CLASS}>total_latency_seconds</code>
                             </dt>
-                            <dd className="m-0">The total latency in seconds, when available.</dd>
+                            <dd className="m-0">The total latency for the {targetLabel} in seconds, when available.</dd>
                         </dl>
                     </dd>
                 </dl>
