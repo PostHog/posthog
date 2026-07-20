@@ -3,7 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { FilterLogicalOperator } from '~/types'
 
-import { logsViewerConfigLogic } from './logsViewerConfigLogic'
+import { LogsViewerGroupBy, logsViewerConfigLogic } from './logsViewerConfigLogic'
 import { LogsViewerFilters } from './types'
 
 describe('logsViewerConfigLogic', () => {
@@ -61,6 +61,44 @@ describe('logsViewerConfigLogic', () => {
             }).toMatchValues({
                 filters: newFilters,
             })
+        })
+    })
+
+    describe('groupBys', () => {
+        // The reducer, not the picker UI, is what guarantees the group-by API never sees a
+        // combination it rejects (cap of 4, no duplicate dimensions).
+        const dim = (key: string, source: LogsViewerGroupBy['source'] = 'log'): LogsViewerGroupBy => ({
+            key,
+            source,
+        })
+
+        it('appends in order and ignores additions past the cap', () => {
+            for (const key of ['a', 'b', 'c', 'd', 'e']) {
+                logic.actions.addGroupBy(dim(key))
+            }
+            expect(logic.values.groupBys.map((d) => d.key)).toEqual(['a', 'b', 'c', 'd'])
+        })
+
+        it('ignores a duplicate dimension but allows the same key from another source', () => {
+            logic.actions.addGroupBy(dim('env', 'resource'))
+            logic.actions.addGroupBy(dim('env', 'resource'))
+            logic.actions.addGroupBy(dim('env', 'log'))
+            expect(logic.values.groupBys).toEqual([dim('env', 'resource'), dim('env', 'log')])
+        })
+
+        it('removes by index preserving order of the rest', () => {
+            logic.actions.setGroupBys([dim('a'), dim('b'), dim('c')])
+            logic.actions.removeGroupByAt(1)
+            expect(logic.values.groupBys.map((d) => d.key)).toEqual(['a', 'c'])
+        })
+
+        it('replaces in place and ignores a replacement that duplicates another dimension', () => {
+            logic.actions.setGroupBys([dim('a'), dim('b')])
+            logic.actions.replaceGroupByAt(0, dim('c'))
+            expect(logic.values.groupBys.map((d) => d.key)).toEqual(['c', 'b'])
+
+            logic.actions.replaceGroupByAt(0, dim('b'))
+            expect(logic.values.groupBys.map((d) => d.key)).toEqual(['c', 'b'])
         })
     })
 

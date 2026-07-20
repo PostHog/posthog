@@ -46,6 +46,10 @@ export interface LogsViewerGroupBy {
     source: LogsGroupBySourceEnumApi
 }
 
+// Mirrors the endpoint's MAX_GROUP_DIMENSIONS (group_by_query_runner.py) — the picker must
+// not offer a combination the API would reject.
+export const MAX_GROUP_BY_DIMENSIONS = 4
+
 export interface LogsViewerConfigProps {
     id: string
 }
@@ -71,6 +75,9 @@ export interface logsViewerConfigLogicActions {
     addColumn: (column: LogsColumnConfig) => {
         column: LogsColumnConfig
     }
+    addGroupBy: (groupBy: LogsViewerGroupBy) => {
+        groupBy: LogsViewerGroupBy
+    }
     moveColumn: (
         id: string,
         direction: 'left' | 'right'
@@ -80,6 +87,16 @@ export interface logsViewerConfigLogicActions {
     }
     removeColumn: (id: string) => {
         id: string
+    }
+    removeGroupByAt: (index: number) => {
+        index: number
+    }
+    replaceGroupByAt: (
+        index: number,
+        groupBy: LogsViewerGroupBy
+    ) => {
+        groupBy: LogsViewerGroupBy
+        index: number
     }
     setBaselineMode: (mode: PatternsBaselineMode) => {
         mode: PatternsBaselineMode
@@ -164,6 +181,9 @@ export const logsViewerConfigLogic = kea<logsViewerConfigLogicType>([
         setFacetRailCollapsed: (facetRailCollapsed: boolean) => ({ facetRailCollapsed }),
         setViewMode: (viewMode: LogsViewerViewMode) => ({ viewMode }),
         setGroupBys: (groupBys: LogsViewerGroupBy[]) => ({ groupBys }),
+        addGroupBy: (groupBy: LogsViewerGroupBy) => ({ groupBy }),
+        removeGroupByAt: (index: number) => ({ index }),
+        replaceGroupByAt: (index: number, groupBy: LogsViewerGroupBy) => ({ index, groupBy }),
         setCompareEnabled: (enabled: boolean) => ({ enabled }),
         setBaselineMode: (mode: PatternsBaselineMode) => ({ mode }),
 
@@ -265,6 +285,19 @@ export const logsViewerConfigLogic = kea<logsViewerConfigLogicType>([
             [] as LogsViewerGroupBy[],
             {
                 setGroupBys: (_, { groupBys }) => groupBys,
+                // Cap and duplicate guards live here, not in the UI: the picker disables
+                // in-use keys and hides the add affordance at the cap, but the reducer is
+                // what guarantees the API never sees a combination it would reject.
+                addGroupBy: (state, { groupBy }) =>
+                    state.length >= MAX_GROUP_BY_DIMENSIONS ||
+                    state.some((d) => d.key === groupBy.key && d.source === groupBy.source)
+                        ? state
+                        : [...state, groupBy],
+                removeGroupByAt: (state, { index }) => state.filter((_, i) => i !== index),
+                replaceGroupByAt: (state, { index, groupBy }) =>
+                    state.some((d, i) => i !== index && d.key === groupBy.key && d.source === groupBy.source)
+                        ? state
+                        : state.map((d, i) => (i === index ? groupBy : d)),
             },
         ],
     }),

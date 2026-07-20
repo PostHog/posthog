@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { Fragment } from 'react'
 
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
@@ -11,7 +12,7 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { logsGroupByLogic } from 'products/logs/frontend/components/LogsGroupBy/logsGroupByLogic'
 import { logsPatternsLogic } from 'products/logs/frontend/components/LogsPatterns/logsPatternsLogic'
 
-import { logsViewerConfigLogic } from './config/logsViewerConfigLogic'
+import { MAX_GROUP_BY_DIMENSIONS, logsViewerConfigLogic } from './config/logsViewerConfigLogic'
 import { resolveGroupBySource } from './groupBySource'
 import { LogsViewerToolbar } from './LogsViewerToolbar'
 
@@ -40,8 +41,8 @@ export const LogsDisplayBar = ({
     showFacetRailToggle = false,
     totalLogsCount,
 }: LogsDisplayBarProps): JSX.Element => {
-    const { facetRailCollapsed, viewMode, groupBys } = useValues(logsViewerConfigLogic)
-    const { setFacetRailCollapsed, setViewMode, setGroupBys } = useActions(logsViewerConfigLogic)
+    const { facetRailCollapsed, viewMode } = useValues(logsViewerConfigLogic)
+    const { setFacetRailCollapsed, setViewMode } = useActions(logsViewerConfigLogic)
     const showPatternsView = useFeatureFlag('LOGS_PATTERNS_VIEW')
     const showGroupBy = useFeatureFlag('LOGS_GROUP_BY')
 
@@ -78,43 +79,7 @@ export const LogsDisplayBar = ({
                         options={viewModeOptions}
                     />
                 )}
-                {inGroupByMode && (
-                    <TaxonomicStringPopover
-                        size="small"
-                        groupType={TaxonomicFilterGroupType.Logs}
-                        groupTypes={[
-                            TaxonomicFilterGroupType.Logs,
-                            TaxonomicFilterGroupType.LogAttributes,
-                            TaxonomicFilterGroupType.LogResourceAttributes,
-                        ]}
-                        // `message` is not a grouping key — high-cardinality free text is the
-                        // Patterns lens's job, and the backend can't aggregate by it. Excluding it
-                        // from the Logs group drops the message-search item; excluding it from
-                        // LogAttributes keeps a `message contains …` search from leaking back in via
-                        // the Recent tab (message searches are recorded under LogAttributes).
-                        excludedProperties={{
-                            [TaxonomicFilterGroupType.Logs]: ['message'],
-                            [TaxonomicFilterGroupType.LogAttributes]: ['message'],
-                        }}
-                        value={groupBys[0]?.key}
-                        onChange={(value, groupType) =>
-                            // Clearing the key keeps you in the Group view (empty state) — leaving
-                            // the view is the segmented bar's job, not the picker's. The source is
-                            // resolved from the key so a recent (recorded under LogAttributes) still
-                            // groups by the right top-level column instead of a missing attribute.
-                            setGroupBys(value ? [{ key: value, source: resolveGroupBySource(value, groupType) }] : [])
-                        }
-                        allowClear
-                        placeholder="Group by"
-                        renderValue={(value) => (
-                            <span>
-                                Group by <span className="font-mono">{value}</span>
-                            </span>
-                        )}
-                        selectingKeyOnly
-                        data-attr="logs-group-by-picker"
-                    />
-                )}
+                {inGroupByMode && <GroupByDimensionPickers />}
                 {inPatternsMode ? (
                     <PatternsCountIndicator id={id} />
                 ) : inGroupByMode ? (
@@ -132,6 +97,93 @@ export const LogsDisplayBar = ({
                 !inGroupByMode && <LogsViewerToolbar totalLogsCount={totalLogsCount} />
             )}
         </div>
+    )
+}
+
+// `message` is not a grouping key — high-cardinality free text is the Patterns lens's job,
+// and the backend can't aggregate by it. Excluding it from the Logs group drops the
+// message-search item; excluding it from LogAttributes keeps a `message contains …` search
+// from leaking back in via the Recent tab (message searches are recorded under LogAttributes).
+const BASE_EXCLUDED_KEYS = ['message']
+
+/**
+ * Group mode's configuration: one picker pill per dimension, joined by "and", plus a
+ * trailing "+ and" affordance to add another (up to MAX_GROUP_BY_DIMENSIONS). Clearing a
+ * pill removes its dimension; clearing the last one returns the Group view's empty state —
+ * leaving the view is the segmented bar's job, not the picker's.
+ */
+const GroupByDimensionPickers = (): JSX.Element => {
+    const { groupBys } = useValues(logsViewerConfigLogic)
+    const { addGroupBy, removeGroupByAt, replaceGroupByAt } = useActions(logsViewerConfigLogic)
+
+    // Keys already used by another dimension are excluded from every group tab: re-picking
+    // one would either duplicate a dimension or silently no-op (the reducer guards both).
+    const excludedForPill = (pillIndex: number | null): Partial<Record<TaxonomicFilterGroupType, string[]>> => {
+        const usedKeys = groupBys.filter((_, i) => i !== pillIndex).map((d) => d.key)
+        return {
+            [TaxonomicFilterGroupType.Logs]: [...BASE_EXCLUDED_KEYS, ...usedKeys],
+            [TaxonomicFilterGroupType.LogAttributes]: [...BASE_EXCLUDED_KEYS, ...usedKeys],
+            [TaxonomicFilterGroupType.LogResourceAttributes]: usedKeys,
+        }
+    }
+
+    const pickerProps = {
+        size: 'small' as const,
+        groupType: TaxonomicFilterGroupType.Logs,
+        groupTypes: [
+            TaxonomicFilterGroupType.Logs,
+            TaxonomicFilterGroupType.LogAttributes,
+            TaxonomicFilterGroupType.LogResourceAttributes,
+        ],
+        selectingKeyOnly: true,
+    }
+
+    return (
+        <>
+            {groupBys.map((dimension, index) => (
+                <Fragment key={`${dimension.source}:${dimension.key}`}>
+                    {index > 0 && <span className="text-muted text-xs font-semibold uppercase">and</span>}
+                    <TaxonomicStringPopover
+                        {...pickerProps}
+                        excludedProperties={excludedForPill(index)}
+                        value={dimension.key}
+                        onChange={(value, groupType) =>
+                            // The source is resolved from the key so a recent (recorded under
+                            // LogAttributes) still groups by the right top-level column instead
+                            // of a missing attribute.
+                            value
+                                ? replaceGroupByAt(index, {
+                                      key: value,
+                                      source: resolveGroupBySource(value, groupType),
+                                  })
+                                : removeGroupByAt(index)
+                        }
+                        allowClear
+                        placeholder="Group by"
+                        renderValue={(value) => (
+                            <span>
+                                {index === 0 ? 'Group by ' : ''}
+                                <span className="font-mono">{value}</span>
+                            </span>
+                        )}
+                        data-attr="logs-group-by-picker"
+                    />
+                </Fragment>
+            ))}
+            {groupBys.length > 0 && groupBys.length < MAX_GROUP_BY_DIMENSIONS && (
+                <TaxonomicStringPopover
+                    {...pickerProps}
+                    type="tertiary"
+                    excludedProperties={excludedForPill(null)}
+                    value={undefined}
+                    onChange={(value, groupType) =>
+                        value && addGroupBy({ key: value, source: resolveGroupBySource(value, groupType) })
+                    }
+                    placeholder="+ and"
+                    data-attr="logs-group-by-add-dimension"
+                />
+            )}
+        </>
     )
 }
 

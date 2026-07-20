@@ -149,7 +149,7 @@ export const logsGroupByLogic = kea<logsGroupByLogicType>([
                 'setPinnedFilters',
             ],
             logsViewerConfigLogic({ id: props.id }),
-            ['setGroupBys'],
+            ['setGroupBys', 'addGroupBy', 'removeGroupByAt', 'replaceGroupByAt'],
         ],
     })),
 
@@ -227,8 +227,11 @@ export const logsGroupByLogic = kea<logsGroupByLogicType>([
             setFilters: reload,
             setFilterGroup: reload,
             setPinnedFilters: reload,
-            // Immediate: switching the grouping key or ranking column is a deliberate click.
+            // Immediate: changing the grouping dimensions or ranking column is a deliberate click.
             setGroupBys: () => actions.loadGroups(),
+            addGroupBy: () => actions.loadGroups(),
+            removeGroupByAt: () => actions.loadGroups(),
+            replaceGroupByAt: () => actions.loadGroups(),
             setOrderGroupsBy: () => actions.loadGroups(),
         }
     }),
