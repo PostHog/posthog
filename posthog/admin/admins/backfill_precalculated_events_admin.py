@@ -31,6 +31,12 @@ class BackfillPrecalculatedEventsForm(forms.Form):
         help_text="Number of concurrent child workflows to run (1-100, default: 5)",
         label="Concurrent workflows",
     )
+    ignore_backfilled_dates = forms.BooleanField(
+        required=False,
+        initial=False,
+        help_text="Skip the already-backfilled check and reprocess all days unconditionally",
+        label="Ignore backfilled dates",
+    )
 
     def clean_concurrent_workflows(self):
         value = self.cleaned_data.get("concurrent_workflows")
@@ -58,6 +64,9 @@ def backfill_precalculated_events_view(request):
 
             command_args.extend(["--concurrent-workflows", str(form.cleaned_data["concurrent_workflows"])])
 
+            if form.cleaned_data.get("ignore_backfilled_dates"):
+                command_args.append("--ignore-backfilled-dates")
+
             try:
                 call_command("backfill_precalculated_events", *command_args)
 
@@ -71,9 +80,10 @@ def backfill_precalculated_events_view(request):
                     if form.cleaned_data.get("days")
                     else " (auto-computed window)"
                 )
+                force_info = ", ignoring backfilled dates" if form.cleaned_data.get("ignore_backfilled_dates") else ""
                 messages.success(
                     request,
-                    f"Event backfill started successfully for {cohort_info}{days_info} "
+                    f"Event backfill started successfully for {cohort_info}{days_info}{force_info} "
                     f"(team {form.cleaned_data['team_id']}) "
                     f"with {form.cleaned_data['concurrent_workflows']} concurrent workflows. "
                     f"Check Temporal UI for progress.",

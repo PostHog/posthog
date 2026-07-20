@@ -31,7 +31,6 @@ class TestCoassembleSource:
         assert config.releaseStatus == ReleaseStatus.ALPHA
         # Deliberately still hidden — the source lands unreleased until it has been verified
         # against a live workspace.
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/coassemble"
 
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]

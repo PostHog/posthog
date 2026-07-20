@@ -31,6 +31,8 @@ import { SceneMenuBar, SceneMenuBarItem, SceneMenuBarMenu } from '~/layout/scene
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, ReplayTabs } from '~/types'
 
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+
 import { PostHogSDKIssueBanner } from '../../components/Banners/PostHogSDKIssueBanner'
 import { BreakdownsChart } from '../../components/Breakdowns/BreakdownsChart'
 import { BreakdownsSearchBar } from '../../components/Breakdowns/BreakdownsSearchBar'
@@ -74,6 +76,10 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     const isMobile = isWindowLessThan('md')
     const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
+
+    useAttachedContext(
+        issueId ? [{ type: 'error_tracking_issue', key: issueId, label: issue?.name ?? undefined }] : null
+    )
 
     useEffect(() => {
         const utmSource = new URLSearchParams(window.location.search).get('utm_source')

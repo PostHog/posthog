@@ -39,6 +39,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class GainsightPxSource(ResumableSource[GainsightPxSourceConfig, GainsightPxResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://px-apidocs.gainsight.com/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -152,6 +153,5 @@ class GainsightPxSource(ResumableSource[GainsightPxSourceConfig, GainsightPxResu
                     ),
                 ],
             ),
-            unreleasedSource=True,
             releaseStatus=ReleaseStatus.ALPHA,
         )

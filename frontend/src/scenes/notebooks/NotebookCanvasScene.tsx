@@ -48,7 +48,7 @@ export function NotebookCanvas(): JSX.Element {
                             items={[
                                 {
                                     label: 'Clear canvas',
-                                    onClick: () => setLocalContent({ type: 'doc', content: [] }, true),
+                                    onClick: () => setLocalContent({ type: 'doc', content: [] }),
                                 },
                                 {
                                     label: 'Export as JSON',
@@ -71,7 +71,7 @@ export function NotebookCanvas(): JSX.Element {
                                                     throw new Error('Not a notebook')
                                                 }
                                                 // Looks like a notebook
-                                                setLocalContent(data, true)
+                                                setLocalContent(data)
                                             })
                                             .catch((e) => {
                                                 lemonToast.error(e.message)

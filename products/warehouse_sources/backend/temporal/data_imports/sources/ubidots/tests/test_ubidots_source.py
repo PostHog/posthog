@@ -27,8 +27,6 @@ class TestUbidotsSource:
         assert config.name.value == "Ubidots"
         assert config.label == "Ubidots"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Deliberately still gated while the source lands across PRs.
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/ubidots"
 
         field_names = [f.name for f in config.fields]

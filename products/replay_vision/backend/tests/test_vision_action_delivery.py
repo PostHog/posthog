@@ -122,6 +122,9 @@ class TestVisionActionDelivery(APIBaseTest):
         self.assertEqual(self._inputs(fn)["slack_workspace"]["value"], self.integration.id)
         self.assertEqual(self._inputs(fn)["channel"]["value"], "#general")
         self.assertEqual(self._inputs(fn)["text"]["value"], "{event.properties.slack_text}")
+        # A whole-string template on the json blocks input resolves to the raw list at delivery time,
+        # so the pre-split report renders as one message instead of Slack splitting the text mid-link.
+        self.assertEqual(self._inputs(fn)["blocks"]["value"], "{event.properties.slack_blocks}")
 
     def test_channel_composite_is_stripped_to_bare_id_for_slack(self) -> None:
         # The UI stores the `${id}|#${name}` picker composite; the Slack destination must receive the

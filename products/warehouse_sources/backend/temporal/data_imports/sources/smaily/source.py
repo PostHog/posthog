@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class SmailySource(ResumableSource[SmailySourceConfig, SmailyResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog â€” safe for public docs
+    api_docs_url = "https://smaily.com/help/api/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -81,7 +82,6 @@ Create an API user in [Smaily](https://smaily.com) under **Account preferences â
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     @property

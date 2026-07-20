@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class GoogleWebfontsSource(SimpleSource[GoogleWebfontsSourceConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://developers.google.com/fonts/docs/developer_api"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -47,7 +48,6 @@ class GoogleWebfontsSource(SimpleSource[GoogleWebfontsSourceConfig]):
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Google Webfonts",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter a Google API key to pull the Google Fonts catalog into the PostHog Data warehouse.
 
 Create an API key in the [Google Cloud Console](https://console.cloud.google.com/apis/credentials) and enable the **Web Fonts Developer API** for the project. No OAuth or scopes are required — the API is a public, read-only metadata catalog.

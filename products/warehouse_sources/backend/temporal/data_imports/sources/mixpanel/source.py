@@ -38,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MixpanelSource(ResumableSource[MixpanelSourceConfig, MixpanelResumeConfig]):
+    api_docs_url = "https://developer.mixpanel.com"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -161,6 +163,12 @@ Authenticate with a [Mixpanel Service Account](https://developer.mixpanel.com/re
                 "access to the project and reconnect."
             ),
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # A 429 (rate limit) or 5xx is retried internally honoring Retry-After; if those retries
+        # still exhaust, the failure is transient and self-recovering, so let Temporal retry the
+        # activity without surfacing it as tracked exception noise.
+        return {"Mixpanel API error (retryable)"}
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[MixpanelResumeConfig]:
         return ResumableSourceManager[MixpanelResumeConfig](inputs, MixpanelResumeConfig)

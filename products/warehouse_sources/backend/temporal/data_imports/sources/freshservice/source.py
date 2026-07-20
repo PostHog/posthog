@@ -45,6 +45,9 @@ _DOMAIN_REGEX = re.compile(r"^[a-zA-Z0-9-]+$")
 @SourceRegistry.register
 class FreshserviceSource(ResumableSource[FreshserviceSourceConfig, FreshserviceResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://api.freshservice.com/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -85,7 +88,6 @@ Your **API key** is on your Freshservice profile settings page (click your profi
             releaseStatus=ReleaseStatus.ALPHA,
             # Kept hidden while the connector's incremental/ordering behavior is verified against a
             # live Freshservice account. Drop this flag to release the source to users.
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

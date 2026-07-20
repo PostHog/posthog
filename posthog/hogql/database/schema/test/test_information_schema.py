@@ -140,16 +140,16 @@ class TestWarehouseMetadata(APIBaseTest):
         # rather than being clobbered by a dead row's stale value (which is what `.objects` returned).
         self._table("orders", 100)
         self._table("orders", 5, deleted=True)
-        row_counts, _view_row_counts, _column_stats = _warehouse_metadata(self.team.id)
-        assert row_counts["orders"] == 100
+        metadata = _warehouse_metadata(self.team.id)
+        assert metadata.row_counts["orders"] == 100
 
     def test_view_row_count_comes_from_the_backing_table(self):
         backing = self._table("orders_view_backing", 42)
         DataWarehouseSavedQuery.objects.create(
             team=self.team, name="orders_view", query={"query": "SELECT 1"}, columns={}, table=backing
         )
-        _row_counts, view_row_counts, _column_stats = _warehouse_metadata(self.team.id)
-        assert view_row_counts["orders_view"] == 42
+        metadata = _warehouse_metadata(self.team.id)
+        assert metadata.view_row_counts["orders_view"] == 42
 
     def test_metadata_does_not_leak_other_teams_row_counts(self):
         # `DataWarehouseTable` is not team-scoped, so the query must filter team_id explicitly — a
@@ -157,8 +157,8 @@ class TestWarehouseMetadata(APIBaseTest):
         other_team = Team.objects.create(organization=self.organization, name="other")
         self._table("shared", 999, team=other_team)
         self._table("shared", 7)
-        row_counts, _view_row_counts, _column_stats = _warehouse_metadata(self.team.id)
-        assert row_counts["shared"] == 7
+        metadata = _warehouse_metadata(self.team.id)
+        assert metadata.row_counts["shared"] == 7
 
 
 class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
@@ -199,6 +199,36 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
         assert rows.get("system.cohorts") == "system"
         # information_schema is self-describing
         assert rows.get("system.information_schema.columns") == "information_schema"
+
+    def test_posthog_namespaced_data_plane_tables_are_discoverable(self):
+        # The `posthog.*` namespace holds data-plane tables (ai_events, trace_spans, metrics, …) that
+        # exist ONLY there — a bare `FROM ai_events` errors, and the execute-sql prompt points agents at
+        # their `posthog.`-qualified names. If the catalog drops them, they become undiscoverable through
+        # the schema-discovery workflow and a healthy project looks like it has no such schema. Copies of
+        # root tables (posthog.events) must stay hidden so the catalog isn't cluttered with duplicates.
+        names = {
+            row[0]
+            for row in execute_hogql_query(
+                "SELECT table_name FROM system.information_schema.tables", team=self.team
+            ).results
+            or []
+        }
+        assert {"posthog.ai_events", "posthog.trace_spans", "posthog.metrics"}.issubset(names)
+        assert "events" in names
+        assert "posthog.events" not in names
+
+    def test_posthog_namespaced_table_columns_resolve(self):
+        # Being listed isn't enough — an agent that discovers `posthog.trace_spans` must then be able to
+        # inspect its columns. Guards the split between enumerating a dotted name and resolving it.
+        columns = {
+            row[0]
+            for row in execute_hogql_query(
+                "SELECT column_name FROM system.information_schema.columns WHERE table_name = 'posthog.trace_spans'",
+                team=self.team,
+            ).results
+            or []
+        }
+        assert {"trace_id", "span_id"}.issubset(columns)
 
     def test_access_scoped_system_tables_are_filtered(self):
         # Access-scoped system tables the caller can't reach must not leak into the catalog,

@@ -40,6 +40,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class UbidotsSource(ResumableSource[UbidotsSourceConfig, UbidotsResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://docs.ubidots.com/reference/welcome"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -52,7 +53,6 @@ class UbidotsSource(ResumableSource[UbidotsSourceConfig, UbidotsResumeConfig]):
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Ubidots",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             keywords=["iot", "sensors", "telemetry"],
             caption="""Enter your Ubidots API token to pull your IoT devices, variables, and sensor values into the PostHog Data warehouse.
 

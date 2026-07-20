@@ -502,7 +502,7 @@ class TestSlackSourceChannelMessagesWebhookOnly:
 
         # Webhook mode is activated from the first sync (skip the initial-sync-complete gate).
         # When disabled the table stays empty until webhook events arrive — never a historical backfill.
-        manager.webhook_enabled.assert_awaited_once_with(True)
+        manager.webhook_enabled.assert_awaited_once_with(webhook_only=True)
         assert items == expected_items
         assert manager.get_items.called == expect_get_items_called
         mock_backfill.assert_not_called()

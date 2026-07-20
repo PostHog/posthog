@@ -6,6 +6,7 @@ import { ActivityLogItem, Describer, defaultDescriber } from 'lib/components/Act
 import { actionActivityDescriber } from 'scenes/actions/actionActivityDescriber'
 import { annotationActivityDescriber } from 'scenes/annotations/activityDescriptions'
 import { userActivityDescriber } from 'scenes/authentication/shared/activityDescriptions'
+import { billingActivityDescriber } from 'scenes/billing/activityDescriptions'
 import { cohortActivityDescriber } from 'scenes/cohorts/activityDescriptions'
 import { dashboardActivityDescriber } from 'scenes/dashboard/dashboardActivityDescriber'
 import { dataManagementActivityDescriber } from 'scenes/data-management/dataManagementDescribers'
@@ -56,6 +57,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return batchExportActivityDescriber
         case ActivityScope.BATCH_IMPORT:
             return batchImportActivityDescriber
+        case ActivityScope.BILLING:
+            return billingActivityDescriber
         case ActivityScope.EXPORTED_ASSET:
             return exportedAssetActivityDescriber
         case ActivityScope.DASHBOARD:

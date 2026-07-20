@@ -6,8 +6,9 @@ never on a web worker. Instance lifecycle is owned by the Kernel info panel
 (kernel/start); dispatch lazily ensures the SQLV2 server on the running kernel.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
+from typing import Any
 
 from temporalio import activity, common, workflow
 
@@ -25,6 +26,10 @@ class SQLV2RunInput:
     team_id: int
     user_id: int | None = None
     code: str = ""
+    node_type: str = "hogql"
+    output_name: str = ""
+    # For a python node: [{name, kind, query, query_hash}] frames to materialize before running.
+    inputs: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _load_notebook_and_user(team_id: int, notebook_short_id: str, user_id: int | None) -> tuple[Notebook, User | None]:
@@ -38,7 +43,15 @@ def dispatch_sql_v2_run_activity(input: SQLV2RunInput) -> None:
     notebook, user = _load_notebook_and_user(input.team_id, input.notebook_short_id, input.user_id)
     run = NotebookNodeRun.objects.for_team(input.team_id).get(id=input.run_id)
     try:
-        dispatch_sql_v2_run(notebook, user, run, input.code)
+        dispatch_sql_v2_run(
+            notebook,
+            user,
+            run,
+            input.code,
+            node_type=input.node_type,
+            output_name=input.output_name,
+            inputs=input.inputs,
+        )
     except SQLV2KernelNotRunning:
         # Terminal — retrying won't start the kernel. Mark failed; the SSE stream surfaces it.
         run.status = NotebookNodeRun.Status.FAILED

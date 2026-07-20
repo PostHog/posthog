@@ -33,6 +33,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class IP2WhoisSource(SimpleSource[IP2WhoisSourceConfig]):
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://www.ip2whois.com/developers-api"
     # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to render
     # in public docs without credentials.
     lists_tables_without_credentials = True
@@ -48,7 +51,6 @@ class IP2WhoisSource(SimpleSource[IP2WhoisSourceConfig]):
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="IP2WHOIS",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your IP2WHOIS API key and the domains you want to look up to pull WHOIS registration data into the PostHog Data warehouse.
 
 IP2WHOIS (by IP2Location) is a domain WHOIS lookup API. Create an API key in your [IP2WHOIS dashboard](https://www.ip2whois.com/) — the free tier includes 500 lookups per month.

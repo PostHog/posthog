@@ -57,8 +57,6 @@ class TestSparkPostSource:
 
         assert config.name.value == "SparkPost"
         assert config.label == "SparkPost"
-        # Shipped hidden for now (not yet exercised against a live account).
-        assert config.unreleasedSource is True
         assert config.releaseStatus == ReleaseStatus.ALPHA
         assert config.iconPath == "/static/services/sparkpost.png"
 

@@ -659,6 +659,8 @@ def _build_template_context(
     # Merge caller-provided keys into posthog_app_context (e.g. oauth_application from the authorize view)
     if "oauth_application" in context:
         posthog_app_context["oauth_application"] = context.pop("oauth_application")
+    if "oauth_mcp_consent" in context:
+        posthog_app_context["oauth_mcp_consent"] = context.pop("oauth_mcp_consent")
 
     # JSON dumps here since there may be objects like Queries
     # that are not serializable by Django's JSON serializer
@@ -814,6 +816,9 @@ def _build_flag_provider() -> "HyperCacheFlagProvider":
     initialize_self_capture_api_token() (ASGI). Callers assign the result to
     posthoganalytics.flag_definition_cache_provider and handle loading themselves.
     """
+    from products.feature_flags.backend.cache_keys import (
+        EU_CROSS_REGION_MIRROR_CACHE_KEY,  # noqa: PLC0415 — this core module doesn't otherwise depend on product code
+    )
     from products.feature_flags.backend.sdk_cache_provider import (  # noqa: PLC0415 — keeps the heavy dep off the import path
         HyperCacheFlagProvider,
     )
@@ -830,7 +835,11 @@ def _build_flag_provider() -> "HyperCacheFlagProvider":
         # Intentionally the FIRST team, not self-capture's current_team — see
         # resolve_dogfood_flags_team().
         return HyperCacheFlagProvider.for_dynamic_resolution(get_dogfood_flags_team_id)
-    # Cloud (SELF_CAPTURE off) or E2E: the canonical PostHog-internal team is 2.
+    if get_instance_region() == "EU":
+        # EU has no rows for PostHog's own team — reads go to the sentinel-keyed
+        # mirror that cross_region_flag_sync writes (see the key's definition).
+        return HyperCacheFlagProvider.for_static_team(EU_CROSS_REGION_MIRROR_CACHE_KEY)
+    # Cloud (SELF_CAPTURE off) or E2E, non-EU: the canonical PostHog-internal team is 2.
     return HyperCacheFlagProvider.for_static_team(2)
 
 
@@ -1073,6 +1082,17 @@ def get_ip_address(request: HttpRequest) -> str:
         return ""
 
     return ip
+
+
+def sanitize_ip_address(ip: Any) -> Optional[str]:
+    """Return the value only if it is a valid IP address string, otherwise None.
+
+    Use this before persisting an externally supplied IP so a malformed or non-string
+    value can't reach an IP database column and fail the write.
+    """
+    if not isinstance(ip, str):
+        return None
+    return _normalize_ip(ip)
 
 
 def _normalize_ip(ip: str) -> Optional[str]:
@@ -1714,15 +1734,24 @@ def cache_requested_by_client(request: Request) -> bool | str:
     return _request_has_key_set("use_cache", request)
 
 
-def filters_override_requested_by_client(request: Request, dashboard: Optional["Dashboard"]) -> dict:
+def filters_override_requested_by_client(
+    request: Request, dashboard: Optional["Dashboard"], is_shared: bool = False
+) -> dict:
     from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 
     dashboard_filters = dashboard.filters if dashboard else {}
     raw_override = request.query_params.get("filters_override")
 
-    # Security: Don't allow overrides when accessing via sharing tokens
-    if not raw_override or isinstance(
-        request.successful_authenticator, (SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication)
+    # Security: never honor client-supplied overrides for shared/embedded access. The
+    # successful_authenticator check catches token-authenticated refreshes; is_shared also covers
+    # the path-based /shared/<token> page load, where no authenticator runs and the check is blind.
+    if (
+        not raw_override
+        or is_shared
+        or isinstance(
+            request.successful_authenticator,
+            (SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication),
+        )
     ):
         return dashboard_filters
 
@@ -1735,7 +1764,10 @@ def filters_override_requested_by_client(request: Request, dashboard: Optional["
 
 
 def variables_override_requested_by_client(
-    request: Optional[Request], dashboard: Optional["Dashboard"], variables: list["InsightVariable"]
+    request: Optional[Request],
+    dashboard: Optional["Dashboard"],
+    variables: list["InsightVariable"],
+    is_shared: bool = False,
 ) -> Optional[dict[str, dict]]:
     from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 
@@ -1744,12 +1776,18 @@ def variables_override_requested_by_client(
     dashboard_variables = (dashboard and dashboard.variables) or {}
     raw_override = request.query_params.get("variables_override") if request else None
 
-    # Security: Don't allow overrides when accessing via sharing tokens
-    if not raw_override or (
-        request
-        and isinstance(
-            request.successful_authenticator,
-            (SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication),
+    # Security: never honor client-supplied overrides for shared/embedded access. The
+    # successful_authenticator check catches token-authenticated refreshes; is_shared also covers
+    # the path-based /shared/<token> page load, where no authenticator runs and the check is blind.
+    if (
+        not raw_override
+        or is_shared
+        or (
+            request
+            and isinstance(
+                request.successful_authenticator,
+                (SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication),
+            )
         )
     ):
         return map_stale_to_latest(dashboard_variables, variables)
@@ -1762,15 +1800,24 @@ def variables_override_requested_by_client(
     return map_stale_to_latest({**dashboard_variables, **request_variables}, variables)
 
 
-def tile_filters_override_requested_by_client(request: Request, tile: Optional["DashboardTile"]) -> dict:
+def tile_filters_override_requested_by_client(
+    request: Request, tile: Optional["DashboardTile"], is_shared: bool = False
+) -> dict:
     from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 
     tile_filters = tile.filters_overrides if tile and tile.filters_overrides else {}
     raw_override = request.query_params.get("tile_filters_override")
 
-    # Security: Don't allow overrides when accessing via sharing tokens
-    if not raw_override or isinstance(
-        request.successful_authenticator, (SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication)
+    # Security: never honor client-supplied overrides for shared/embedded access. The
+    # successful_authenticator check catches token-authenticated refreshes; is_shared also covers
+    # the path-based /shared/<token> page load, where no authenticator runs and the check is blind.
+    if (
+        not raw_override
+        or is_shared
+        or isinstance(
+            request.successful_authenticator,
+            (SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication),
+        )
     ):
         return tile_filters
 

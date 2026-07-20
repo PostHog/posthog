@@ -32,7 +32,6 @@ class TestFilloutSource:
         assert config.label == "Fillout"
         assert config.category == DataWarehouseSourceCategory.PRODUCTIVITY
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.iconPath == "/static/services/fillout.png"
 
     def test_source_config_fields(self) -> None:

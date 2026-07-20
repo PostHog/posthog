@@ -41,6 +41,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class TremendousSource(ResumableSource[TremendousSourceConfig, TremendousResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://developers.tremendous.com/docs/introduction"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -53,7 +56,6 @@ class TremendousSource(ResumableSource[TremendousSourceConfig, TremendousResumeC
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Tremendous",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Tremendous API key to pull your rewards and payouts data into the PostHog Data warehouse.
 
 You can create an API key under **Team settings → Developers** in [Tremendous](https://www.tremendous.com). Sandbox and production are separate environments with separate API keys — make sure the environment matches the key.""",

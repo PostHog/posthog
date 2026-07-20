@@ -244,14 +244,17 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
                         .uuid()
                         .nullish()
                         .describe(
-                            'Team provider key to run this eval with (same provider as `provider`). Leave null only for brief pre-key testing; real evals should set it.'
+                            'Optional team provider key to run this evaluation with; it must use the same provider. May be null when no key is pinned or after the selected key is removed.'
                         ),
                     provider_key_name: zod.string().nullable(),
                 })
                 .describe('Nested serializer for model configuration.'),
             zod.null(),
         ])
-        .optional(),
+        .optional()
+        .describe(
+            'Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null.'
+        ),
     deleted: zod.boolean().optional().describe('Set to true to soft-delete the evaluation.'),
 })
 
@@ -397,14 +400,17 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod.object({
                         .uuid()
                         .nullish()
                         .describe(
-                            'Team provider key to run this eval with (same provider as `provider`). Leave null only for brief pre-key testing; real evals should set it.'
+                            'Optional team provider key to run this evaluation with; it must use the same provider. May be null when no key is pinned or after the selected key is removed.'
                         ),
                     provider_key_name: zod.string().nullable(),
                 })
                 .describe('Nested serializer for model configuration.'),
             zod.null(),
         ])
-        .optional(),
+        .optional()
+        .describe(
+            'Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null.'
+        ),
     deleted: zod.boolean().optional().describe('Set to true to soft-delete the evaluation.'),
 })
 
@@ -552,14 +558,17 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         .uuid()
                         .nullish()
                         .describe(
-                            'Team provider key to run this eval with (same provider as `provider`). Leave null only for brief pre-key testing; real evals should set it.'
+                            'Optional team provider key to run this evaluation with; it must use the same provider. May be null when no key is pinned or after the selected key is removed.'
                         ),
                     provider_key_name: zod.string().nullable(),
                 })
                 .describe('Nested serializer for model configuration.'),
             zod.null(),
         ])
-        .optional(),
+        .optional()
+        .describe(
+            'Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null.'
+        ),
     deleted: zod.boolean().optional().describe('Set to true to soft-delete the evaluation.'),
 })
 
@@ -1818,6 +1827,15 @@ export const LlmPromptsNameDuplicateCreateBody = /* @__PURE__ */ zod.object({
         .max(llmPromptsNameDuplicateCreateBodyNewNameMax)
         .describe(
             'Name for the duplicated prompt. Must be unique and use only letters, numbers, hyphens, and underscores.'
+        ),
+})
+
+export const LlmPromptsNameLabelsUpdateBody = /* @__PURE__ */ zod.object({
+    version: zod
+        .number()
+        .min(1)
+        .describe(
+            'Prompt version this label should point to. If the label already exists on another version of the prompt, it is moved there.'
         ),
 })
 

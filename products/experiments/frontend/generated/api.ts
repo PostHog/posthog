@@ -14,14 +14,17 @@ import type {
     CreateFromPromptInputApi,
     EndExperimentApi,
     ExperimentApi,
+    ExperimentFlagCleanupTaskApi,
     ExperimentHoldoutApi,
     ExperimentHoldoutsListParams,
     ExperimentMetricsRecalculationApi,
     ExperimentSavedMetricApi,
     ExperimentSavedMetricsListParams,
+    ExperimentSessionContextResponseApi,
     ExperimentWriteApi,
     ExperimentsListParams,
     ExperimentsPromptTemplatesRetrieve200Item,
+    ExperimentsSessionContextRetrieveParams,
     ExperimentsTimeseriesResultsRetrieveParams,
     PaginatedExperimentBasicListApi,
     PaginatedExperimentHoldoutListApi,
@@ -540,6 +543,29 @@ export const experimentsEndCreate = async (
     })
 }
 
+export const getExperimentsFlagCleanupTaskRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/flag_cleanup_task/`
+}
+
+/**
+ * Status of the flag-cleanup Code task opened for this experiment.
+ *
+ * When an experiment was ended or shipped with open_cleanup_pr=true, a Code task
+ * removes the experiment's feature-flag code and opens a draft pull request. This
+ * returns that task's latest run status and the PR URL once one is opened. Poll
+ * until is_terminal is true. Returns 404 when no cleanup task was opened.
+ */
+export const experimentsFlagCleanupTaskRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentFlagCleanupTaskApi> => {
+    return apiMutator<ExperimentFlagCleanupTaskApi>(getExperimentsFlagCleanupTaskRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getExperimentsFreezeExposureCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/freeze_exposure/`
 }
@@ -578,7 +604,7 @@ export const getExperimentsLaunchCreateUrl = (projectId: string, id: number) => 
  * Validates the experiment is in draft state, activates its linked feature flag,
  * sets start_date to the current server time, and transitions the experiment to running.
  * Returns 400 if the experiment has already been launched or if the feature flag
- * configuration is invalid (e.g. missing "control" variant or fewer than 2 variants).
+ * configuration is invalid (e.g. fewer than 2 variants).
  */
 export const experimentsLaunchCreate = async (
     projectId: string,
@@ -954,8 +980,7 @@ export const getExperimentsEligibleFeatureFlagsRetrieveUrl = (projectId: string)
  * Returns a paginated list of feature flags eligible for use in experiments.
  *
  * Eligible flags must:
- * - Be multivariate with at least 2 variants
- * - Have "control" as the first variant key
+ * - Be multivariate with 2 to 20 variants
  *
  * Query parameters:
  * - search: Filter by flag key or name (case insensitive)
@@ -995,6 +1020,39 @@ export const experimentsPromptTemplatesRetrieve = async (
             method: 'GET',
         }
     )
+}
+
+export const getExperimentsSessionContextRetrieveUrl = (
+    projectId: string,
+    params: ExperimentsSessionContextRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/experiments/session_context/?${stringifiedParams}`
+        : `/api/projects/${projectId}/experiments/session_context/`
+}
+
+/**
+ * Resolve which experiments (and variants) a session recording saw. Variants come from the session's $feature_flag_called events and stamped $feature/<key> event properties — flag evaluation, which may differ from an experiment's exposure criteria.
+ */
+export const experimentsSessionContextRetrieve = async (
+    projectId: string,
+    params: ExperimentsSessionContextRetrieveParams,
+    options?: RequestInit
+): Promise<ExperimentSessionContextResponseApi> => {
+    return apiMutator<ExperimentSessionContextResponseApi>(getExperimentsSessionContextRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getExperimentsStatsRetrieveUrl = (projectId: string) => {

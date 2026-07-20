@@ -33,7 +33,6 @@ class TestCallRailSource:
         assert config.name.value == "CallRail"
         assert config.label == "CallRail"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/callrail"
 
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
