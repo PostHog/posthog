@@ -97,6 +97,16 @@ _MAX_DEADLOCK_ATTEMPTS = 5
 # `MSSQLSource.get_non_retryable_errors`) — same gateway-config class as a wrapped tunnel failure.
 _SSH_HANDSHAKE_EOF_ERROR = "SSH gateway closed the connection during the SSH handshake"
 
+# Raised by `get_table_metadata` when INFORMATION_SCHEMA.COLUMNS returns no rows for a table we
+# were asked to sync — the table was dropped or renamed at the source after schema discovery (or
+# its schema/name no longer matches under the server's collation). Unlike a live SELECT against a
+# missing object (SQL Server error 208, "Invalid object name"), this metadata lookup returns an
+# empty result set rather than erroring, so this guard fires first. Retrying replays the identical
+# lookup and gets the same empty result, so it's classified non-retryable (see
+# `MSSQLSource.get_non_retryable_errors`). Kept as a stable prefix so the match stays clear of the
+# volatile schema/table name that follows it.
+_TABLE_NOT_FOUND_ERROR = "Table not found when reading column metadata"
+
 
 def _is_transient_connection_error(error: BaseException) -> bool:
     """True for a mid-stream TDS connection death that a fresh connection recovers from."""
@@ -680,7 +690,7 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
             )
 
         if not columns:
-            raise ValueError(f"Table {table_name} not found")
+            raise ValueError(f"{_TABLE_NOT_FOUND_ERROR}: {schema}.{table_name}")
 
         return Table(
             name=table_name,

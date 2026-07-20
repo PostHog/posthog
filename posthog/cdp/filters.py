@@ -15,6 +15,48 @@ from products.cohorts.backend.models.cohort import Cohort
 
 COHORT_FILTER_TYPES = frozenset({"cohort", "static-cohort", "precalculated-cohort", "dynamic-cohort"})
 
+# Internal events (e.g. activity logs) carry real nested JSON objects in their properties — such as
+# `detail` on `$activity_log_entry_created`, which the activity log filter UI exposes as `detail.name`
+# and `detail.changes`. Unlike analytics events (whose properties are a flat map), these need dotted
+# keys resolved into nested field chains so the HogVM matches against the nested object.
+INTERNAL_NESTED_PROPERTY_EVENTS = frozenset({"$activity_log_entry_created"})
+
+
+class _NestedPropertyKeyResolver(CloningVisitor):
+    """Resolve dotted event-property keys into nested field chains.
+
+    A property key like `detail.name` is otherwise compiled into a single flat lookup
+    (`properties["detail.name"]`) that never matches the nested global. Splitting it into the
+    chain `properties.detail.name` lets it resolve against the nested object at runtime.
+    Only `properties.*` chains are touched, so person/group property filters are left as-is.
+    """
+
+    def visit_field(self, node: ast.Field) -> ast.Field:
+        field = super().visit_field(node)
+        if not field.chain or field.chain[0] != "properties":
+            return field
+        resolved: list[str | int] = [field.chain[0]]
+        for element in field.chain[1:]:
+            if isinstance(element, str) and "." in element:
+                resolved.extend(element.split("."))
+            else:
+                resolved.append(element)
+        field.chain = resolved
+        return field
+
+
+def _only_targets_internal_nested_events(filters: dict) -> bool:
+    """True only when every targeted event/action is an internal nested event.
+
+    Global property filters apply across all event branches, so a dotted key there can only be
+    resolved into a nested chain when *every* targeted event carries nested JSON. If an internal
+    event is mixed with an analytics event (e.g. `$pageview`), the same global key may be a flat
+    property on that branch — so leave it untouched and let per-branch resolution handle the
+    internal event's own properties.
+    """
+    all_filters = filters.get("events", []) + filters.get("actions", [])
+    return bool(all_filters) and all(f.get("id") in INTERNAL_NESTED_PROPERTY_EVENTS for f in all_filters)
+
 
 class CohortInlineError(Exception):
     """Raised when cohort test account filters can't be inlined for real-time use."""
@@ -182,11 +224,18 @@ def _build_single_filter_expr(filter: dict, actions: dict[int, Action], team: Te
 
     # Return single expression or AND combination
     if not filter_exprs:
-        return ast.Constant(value=True)
+        expr: ast.Expr = ast.Constant(value=True)
     elif len(filter_exprs) == 1:
-        return filter_exprs[0]
+        expr = filter_exprs[0]
     else:
-        return ast.And(exprs=filter_exprs)
+        expr = ast.And(exprs=filter_exprs)
+
+    # Internal events carry nested JSON properties, so resolve dotted keys (e.g. `detail.name`)
+    # into nested chains for this branch only — never for sibling non-internal event branches.
+    if filter.get("id") in INTERNAL_NESTED_PROPERTY_EVENTS:
+        expr = _NestedPropertyKeyResolver().visit(expr)
+
+    return expr
 
 
 def _combine_expressions(expressions: list[ast.Expr]) -> ast.Expr:
@@ -217,8 +266,16 @@ def hog_function_filters_to_expr(filters: dict, team: Team, actions: dict[int, A
     if not all_filters:
         return _combine_expressions(test_account_filters + global_property_filters)
 
-    # Build expressions for each event/action filter
+    # Build expressions for each event/action filter (dotted keys on internal events are resolved
+    # per-branch inside _build_single_filter_expr).
     event_action_exprs = [_build_single_filter_expr(filter, actions, team) for filter in all_filters]
+
+    # Global property filters apply across all branches; the activity log UI stores `detail.name`
+    # here, so resolve dotted keys only when every targeted event is an internal nested event —
+    # never when a sibling analytics event could read the same key as a flat property.
+    if _only_targets_internal_nested_events(filters):
+        resolver = _NestedPropertyKeyResolver()
+        global_property_filters = [resolver.visit(expr) for expr in global_property_filters]
 
     # Combine event/action filters with OR (match any of these events/actions)
     combined_events_expr = ast.Or(exprs=event_action_exprs) if len(event_action_exprs) > 1 else event_action_exprs[0]

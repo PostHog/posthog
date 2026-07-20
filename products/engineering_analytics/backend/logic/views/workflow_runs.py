@@ -26,12 +26,28 @@ Nullable JSON with ``ifNull`` (a Nullable column cannot feed ``JSONExtractArrayR
 SELECT derives the duration and repo identity off those parsed columns, which also
 avoids referencing a same-SELECT alias as another expression's input.
 
+Because those timestamps land as zero-padded ISO-8601 strings, they compare correctly
+lexicographically ('2026-07-11' < '2026-07-11T09:00:00'). Every windowed consumer filters
+on ``parseDateTimeBestEffort(run_started_at)``, and a predicate over a computed column cannot
+be pushed down to the parquet/S3 scan — so each windowed query full-scans the runs table. With
+``started_floor`` the builder wraps the source in an innermost prefilter on the RAW string column
+(``run_started_at >= {run_started_floor}``), a coarse floor the scan CAN prune on. The precise
+parsed ``{date_from}`` filter downstream stays the authoritative bound; the raw floor only trims
+the scan. Callers register the ``{run_started_floor}`` placeholder via ``run_started_floor_constant``
+(a date-only string one day below the window start, so it can never cut a row the parsed filter keeps).
+
 Every query module embeds this ``SELECT`` as a subquery (see ``_curated``);
 nothing registers it as a global HogQL view.
 """
 
 
-def build_query(table_name: str) -> str:
+def build_query(table_name: str, *, started_floor: bool = False) -> str:
+    # The raw floor must live in its OWN innermost SELECT, not the parsing SELECT below: that SELECT
+    # aliases parseDateTimeBestEffort(run_started_at) AS run_started_at, and ClickHouse alias resolution
+    # would make a WHERE there compare the parsed DateTime against the string. Keep it on the raw column.
+    table_source = (
+        f"(SELECT * FROM {table_name} WHERE run_started_at >= {{run_started_floor}})" if started_floor else table_name
+    )
     return f"""
         SELECT
             id,
@@ -62,6 +78,6 @@ def build_query(table_name: str) -> str:
                 parseDateTimeBestEffort(run_started_at) AS run_started_at,
                 parseDateTimeBestEffort(updated_at) AS updated_at,
                 parseDateTimeBestEffort(created_at) AS created_at
-            FROM {table_name}
+            FROM {table_source}
         )
     """

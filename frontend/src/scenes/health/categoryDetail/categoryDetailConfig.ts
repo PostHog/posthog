@@ -1,6 +1,7 @@
 import { urls } from 'scenes/urls'
 
 import { DataModelingHealthTable } from '../components/DataModelingHealthTable'
+import { ErrorTrackingHealthTable } from '../components/ErrorTrackingHealthTable'
 import { IngestionWarningTable } from '../components/IngestionWarningTable'
 import { PipelineHealthTable } from '../components/PipelineHealthTable'
 import { WebAnalyticsHealthTable } from '../components/WebAnalyticsHealthTable'
@@ -53,5 +54,11 @@ export const CATEGORY_DETAIL_CONFIG: Partial<Record<HealthIssueCategory, Categor
         guidance: 'Materialized view failures may affect query performance and data freshness.',
         contentComponent: DataModelingDetailContent,
         tableComponent: DataModelingHealthTable,
+    },
+    error_tracking: {
+        docsUrl: 'https://posthog.com/docs/error-tracking',
+        guidance: 'These checks ensure your error tracking setup captures exceptions with readable stack traces.',
+        redirectUrl: urls.errorTracking({ activeTab: 'recommendations' }),
+        tableComponent: ErrorTrackingHealthTable,
     },
 }

@@ -34,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BuzzsproutSource(SimpleSource[BuzzsproutSourceConfig]):
+    api_docs_url = "https://github.com/Buzzsprout/buzzsprout-api"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -47,7 +49,6 @@ class BuzzsproutSource(SimpleSource[BuzzsproutSourceConfig]):
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Buzzsprout",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Buzzsprout API token and podcast ID to sync your podcast data into the PostHog Data warehouse.
 
 You can find both your API token and podcast ID in your [Buzzsprout API settings](https://www.buzzsprout.com/my/profile/api).""",

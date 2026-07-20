@@ -3,7 +3,6 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
-    ActivityLogListQueryParams,
     AdvancedActivityLogsListQueryParams,
     ApprovalPoliciesListQueryParams,
     ApprovalPoliciesRetrieveParams,
@@ -24,59 +23,8 @@ import {
     UserHomeSettingsPartialUpdateParams,
     UserHomeSettingsRetrieveParams,
 } from '@/generated/platform_features/api'
-import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-
-const ActivityLogListSchema = ActivityLogListQueryParams.extend({
-    page_size: z
-        .preprocess(castStringToInt, ActivityLogListQueryParams.shape['page_size'].default(10).optional())
-        .optional(),
-    page: z.preprocess(castStringToInt, ActivityLogListQueryParams.shape['page']).optional(),
-})
-
-const activityLogList = (): ToolBase<
-    typeof ActivityLogListSchema,
-    WithPostHogUrl<Schemas.PaginatedActivityLogList>
-> => ({
-    name: 'activity-log-list',
-    schema: ActivityLogListSchema,
-    handler: async (context: Context, params: z.infer<typeof ActivityLogListSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedActivityLogList>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/activity_log/`,
-            query: {
-                item_id: params.item_id,
-                page: params.page,
-                page_size: params.page_size,
-                scope: params.scope,
-                scopes: params.scopes,
-                user: params.user,
-            },
-        })
-        const filtered = {
-            ...result,
-            results: (result.results ?? []).map((item: any) =>
-                pickResponseFields(item, [
-                    'id',
-                    'user.id',
-                    'user.first_name',
-                    'user.last_name',
-                    'user.email',
-                    'activity',
-                    'scope',
-                    'item_id',
-                    'detail.name',
-                    'detail.short_id',
-                    'detail.type',
-                    'created_at',
-                ])
-            ),
-        } as typeof result
-        return await withPostHogUrl(context, filtered, '/activity')
-    },
-})
 
 const AdvancedActivityLogsFiltersSchema = z.object({})
 
@@ -99,6 +47,30 @@ const advancedActivityLogsFilters = (): ToolBase<
 
 const AdvancedActivityLogsListSchema = AdvancedActivityLogsListQueryParams.extend({
     page_size: AdvancedActivityLogsListQueryParams.shape['page_size'].default(10).optional(),
+}).extend({
+    fields: z
+        .array(
+            z.enum([
+                'id',
+                'user.id',
+                'user.first_name',
+                'user.last_name',
+                'user.email',
+                'activity',
+                'scope',
+                'item_id',
+                'detail.name',
+                'detail.short_id',
+                'detail.type',
+                'detail.changes',
+                'created_at',
+            ])
+        )
+        .min(1)
+        .optional()
+        .describe(
+            'Optional subset of response fields to return, each a dot-path from the allowlist. Omit to return all fields. Request only the fields your task needs to keep responses small.'
+        ),
 })
 
 const advancedActivityLogsList = (): ToolBase<
@@ -134,21 +106,26 @@ const advancedActivityLogsList = (): ToolBase<
         const filtered = {
             ...result,
             results: (result.results ?? []).map((item: any) =>
-                pickResponseFields(item, [
-                    'id',
-                    'user.id',
-                    'user.first_name',
-                    'user.last_name',
-                    'user.email',
-                    'activity',
-                    'scope',
-                    'item_id',
-                    'detail.name',
-                    'detail.short_id',
-                    'detail.type',
-                    'detail.changes',
-                    'created_at',
-                ])
+                pickResponseFields(
+                    item,
+                    params.fields?.length
+                        ? params.fields
+                        : [
+                              'id',
+                              'user.id',
+                              'user.first_name',
+                              'user.last_name',
+                              'user.email',
+                              'activity',
+                              'scope',
+                              'item_id',
+                              'detail.name',
+                              'detail.short_id',
+                              'detail.type',
+                              'detail.changes',
+                              'created_at',
+                          ]
+                )
             ),
         } as typeof result
         return await withPostHogUrl(context, filtered, '/activity')
@@ -504,7 +481,6 @@ const userHomeSettingsUpdate = (): ToolBase<typeof UserHomeSettingsUpdateSchema,
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'activity-log-list': activityLogList,
     'advanced-activity-logs-filters': advancedActivityLogsFilters,
     'advanced-activity-logs-list': advancedActivityLogsList,
     'approval-policies-list': approvalPoliciesList,

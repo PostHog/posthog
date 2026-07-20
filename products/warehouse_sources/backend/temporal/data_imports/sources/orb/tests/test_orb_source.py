@@ -34,7 +34,6 @@ class TestOrbSourceConfig:
         assert config.category == DataWarehouseSourceCategory.PAYMENTS___BILLING
         assert config.releaseStatus == ReleaseStatus.ALPHA
         # Shipped behind the unreleased flag while in alpha.
-        assert config.unreleasedSource is True
 
     def test_single_secret_api_key_field(self) -> None:
         fields = OrbSource().get_source_config.fields

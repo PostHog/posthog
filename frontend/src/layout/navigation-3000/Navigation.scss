@@ -16,6 +16,15 @@
     --scene-padding: 1rem;
     --scene-padding-bottom: 4rem;
 
+    // Height of the MinimalNavigation top bar (orgless/zen modes). The settings
+    // scene's viewport-fixed nav clears it via --settings-nav-top below.
+    --minimal-navigation-height: 3.5rem;
+
+    // Top offset for the settings scene's viewport-fixed nav. Defaults to the
+    // scene padding (full app layout); the minimal/zen wrapper overrides it to
+    // also clear the MinimalNavigation bar so the nav doesn't overlap the logo.
+    --settings-nav-top: var(--scene-padding);
+
     @media screen and (max-width: $sm) {
         // handle notched devices and mobile safari's bottom nav bar
         // provide a fallback of 80px as Safari's approach to safe-area-inset-bottom is not consistent across versions

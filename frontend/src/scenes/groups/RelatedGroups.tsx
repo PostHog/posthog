@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { IconPerson } from '@posthog/icons'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
@@ -45,52 +46,60 @@ export function RelatedGroups({
     const { relatedActors, relatedPeople, relatedActorsLoading } = useValues(relatedGroupsLogic({ groupTypeIndex, id }))
     const { aggregationLabel } = useValues(groupsModel)
 
-    const extraGroups = (extraActors ?? []).filter((extra) => !relatedActors.some((actor) => actor.id === extra.id))
-    const dataSource = type === 'person' ? relatedPeople : [...relatedActors, ...extraGroups]
+    const dataSource = useMemo(() => {
+        if (type === 'person') {
+            return relatedPeople
+        }
+        const extraGroups = (extraActors ?? []).filter((extra) => !relatedActors.some((actor) => actor.id === extra.id))
+        return [...relatedActors, ...extraGroups]
+    }, [type, relatedPeople, relatedActors, extraActors])
 
-    const columns: LemonTableColumns<ActorType> = [
-        {
-            title: 'Type',
-            key: 'type',
-            render: function RenderActor(_, actor: ActorType) {
-                if (actor.type === 'group') {
-                    return <>{capitalizeFirstLetter(aggregationLabel(actor.group_type_index).singular)}</>
-                }
-                return (
-                    <>
-                        <IconPerson /> Person
-                    </>
-                )
-            },
-        },
-        {
-            title: 'id',
-            key: 'id',
-            render: function RenderActor(_, actor: ActorType) {
-                if (actor.type === 'group') {
-                    const isHighlighted = highlightGroupKey != null && actor.group_key === highlightGroupKey
+    const columns: LemonTableColumns<ActorType> = useMemo(
+        () => [
+            {
+                title: 'Type',
+                key: 'type',
+                render: function RenderActor(_, actor: ActorType) {
+                    if (actor.type === 'group') {
+                        return <>{capitalizeFirstLetter(aggregationLabel(actor.group_type_index).singular)}</>
+                    }
                     return (
-                        <div className="flex items-center gap-2">
-                            <GroupActorDisplay actor={actor} />
-                            {isHighlighted && highlightLabel && (
-                                <LemonTag type="muted" size="small">
-                                    {highlightLabel}
-                                </LemonTag>
-                            )}
-                            {isHighlighted && highlightStale && (
-                                <Tooltip title={highlightStaleTooltip}>
-                                    <LemonTag type="warning" size="small">
-                                        Stale
-                                    </LemonTag>
-                                </Tooltip>
-                            )}
-                        </div>
+                        <>
+                            <IconPerson /> Person
+                        </>
                     )
-                }
-                return <PersonDisplay person={actor} withIcon={false} />
+                },
             },
-        },
-    ]
+            {
+                title: 'id',
+                key: 'id',
+                render: function RenderActor(_, actor: ActorType) {
+                    if (actor.type === 'group') {
+                        const isHighlighted = highlightGroupKey != null && actor.group_key === highlightGroupKey
+                        return (
+                            <div className="flex items-center gap-2">
+                                <GroupActorDisplay actor={actor} />
+                                {isHighlighted && highlightLabel && (
+                                    <LemonTag type="muted" size="small">
+                                        {highlightLabel}
+                                    </LemonTag>
+                                )}
+                                {isHighlighted && highlightStale && (
+                                    <Tooltip title={highlightStaleTooltip}>
+                                        <LemonTag type="warning" size="small">
+                                            Stale
+                                        </LemonTag>
+                                    </Tooltip>
+                                )}
+                            </div>
+                        )
+                    }
+                    return <PersonDisplay person={actor} withIcon={false} />
+                },
+            },
+        ],
+        [aggregationLabel, highlightGroupKey, highlightLabel, highlightStale, highlightStaleTooltip]
+    )
 
     const nouns: [string, string] =
         type === 'person' ? ['related person', 'related people'] : ['related group', 'related groups']

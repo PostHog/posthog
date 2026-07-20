@@ -106,6 +106,65 @@ describe('logsViewerDataLogic', () => {
         })
     })
 
+    describe('live-tail identity', () => {
+        const makeLog = (uuid: string, timestamp: string): any => ({
+            uuid,
+            timestamp,
+            body: `body of ${uuid}`,
+            attributes: { service: 'api' },
+            severity_text: 'info',
+        })
+
+        it('keeps existing log and parsed row references across a live-tail poll', async () => {
+            // The poll used to rebuild every log ({...log, new: false}) and parsedLogs re-cloned
+            // them all again, so every visible row's identity churned per 1-5s tick and the whole
+            // virtualized list re-rendered. Only genuinely new rows may get fresh references.
+            const existingA = makeLog('log-a', '2026-01-02T00:00:00Z')
+            const existingB = makeLog('log-b', '2026-01-01T00:00:00Z')
+            logic.actions.setLogs([existingA, existingB])
+            const parsedBefore = logic.values.parsedLogs
+
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/logs/query/': () => [
+                        200,
+                        {
+                            // The poll window overlaps: one genuinely new row plus repeats.
+                            results: [
+                                makeLog('log-c', '2026-01-03T00:00:00Z'),
+                                makeLog('log-a', '2026-01-02T00:00:00Z'),
+                                makeLog('log-b', '2026-01-01T00:00:00Z'),
+                            ],
+                            maxExportableLogs: 5000,
+                        },
+                    ],
+                },
+            })
+            logic.actions.setLiveTailRunning(true)
+            await expectLogic(logic).toFinishAllListeners()
+
+            const logByUuid = (uuid: string): any => logic.values.logs.find((log) => log.uuid === uuid)
+            expect(logic.values.logs).toHaveLength(3)
+            expect(logByUuid('log-a')).toBe(existingA)
+            expect(logByUuid('log-b')).toBe(existingB)
+
+            const parsedByUuid = (list: typeof parsedBefore, uuid: string): any => list.find((log) => log.uuid === uuid)
+            expect(parsedByUuid(logic.values.parsedLogs, 'log-a')).toBe(parsedByUuid(parsedBefore, 'log-a'))
+            expect(parsedByUuid(logic.values.parsedLogs, 'log-b')).toBe(parsedByUuid(parsedBefore, 'log-b'))
+
+            // Only the fresh batch is highlighted; the next poll replaces the set.
+            expect([...logic.values.newLogUuids]).toEqual(['log-c'])
+        })
+
+        it('clears the arrival highlight when a fresh query result set lands', async () => {
+            logic.actions.setNewLogUuids(['log-a'])
+            logic.actions.fetchLogs()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.newLogUuids.size).toBe(0)
+        })
+    })
+
     describe('sparklineData selector', () => {
         it.each([
             ['null', null, { labels: [], dates: [], data: [] }],
@@ -345,6 +404,38 @@ describe('logsViewerDataLogic', () => {
                     false
                 )
             }).toDispatchActions(['handleQueryChange', 'runQuery'])
+        })
+    })
+
+    describe('custom column aliases', () => {
+        // Aliases must key by expression, not request position: moveColumn reorders columns without
+        // re-fetching, so a positional zip would render each custom column another column's values.
+        it('maps server aliases to the expression that produced them', async () => {
+            useMocks({
+                post: {
+                    // Server echoes one alias per sent expression, in request (config) order.
+                    '/api/environments/:team_id/logs/query/': () => [
+                        200,
+                        { results: [], maxExportableLogs: 5000, columns: ['col_a', 'col_b'] },
+                    ],
+                    '/api/environments/:team_id/logs/sparkline/': () => [200, []],
+                },
+            })
+            logic.actions.setColumns([
+                { id: 'timestamp', type: 'timestamp' },
+                { id: 'c1', type: 'custom', expression: 'upper(level)' },
+                { id: 'c2', type: 'custom', expression: 'lower(body)' },
+                { id: 'message', type: 'message' },
+            ])
+
+            await expectLogic(logic, () => {
+                logic.actions.fetchLogs()
+            }).toFinishAllListeners()
+
+            expect(logic.values.customColumnAliases).toEqual({
+                'upper(level)': 'col_a',
+                'lower(body)': 'col_b',
+            })
         })
     })
 })

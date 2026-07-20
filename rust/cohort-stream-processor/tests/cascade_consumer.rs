@@ -37,7 +37,9 @@ use cohort_stream_processor::producer::{
     KafkaStreamEventSink, KafkaTransferSink, MembershipSink, MembershipStatus, StreamEventSink,
     TransferSink,
 };
-use cohort_stream_processor::store::{CohortStore, StoreConfig};
+use cohort_stream_processor::store::{
+    CohortStore, OffloadConfig, OffloadMode, StoreConfig, StoreHandle,
+};
 use cohort_stream_processor::workers::{
     CascadeConfig, MergeWorkerDeps, TransferRetryPolicy, DEFAULT_MERGE_GC_SCAN_LIMIT,
 };
@@ -183,6 +185,8 @@ fn producer_kafka_config() -> KafkaConfig {
         kafka_producer_topic_metadata_refresh_interval_ms: None,
         kafka_producer_message_max_bytes: None,
         kafka_producer_sticky_partitioning_linger_ms: None,
+        kafka_producer_acks: None,
+        kafka_producer_retries: None,
     }
 }
 
@@ -454,12 +458,26 @@ async fn spawn_instance(
             fanout_cap: 1000,
         },
         partition_count: COHORT_PARTITION_COUNT,
+        seed_tile_sink: Arc::new(cohort_stream_processor::producer::CaptureSeedTileSink::new()),
+        seed_tracker: Arc::new(
+            cohort_stream_processor::partitions::offset_tracker::OffsetTracker::new(),
+        ),
+        live_watermarks: Arc::new(
+            cohort_stream_processor::partitions::watermarks::LiveWatermarks::new(),
+        ),
     });
 
     let dispatcher = Arc::new(EventDispatcher::new(
         PartitionRouter::new(64),
         Arc::new(OffsetTracker::new()),
-        store,
+        StoreHandle::new(
+            store,
+            OffloadConfig {
+                mode: OffloadMode::All,
+                event_read_permits: 16,
+                maintenance_permits: 6,
+            },
+        ),
         Arc::new(catalog),
         membership_sink,
         merge_deps,
@@ -537,7 +555,7 @@ async fn spawn_instance(
     tasks.push(tokio::spawn(cascade_follower.process()));
 
     let events_consumer = CohortStreamEventsConsumer::new(
-        events_client,
+        Arc::new(events_client),
         topics.events.clone(),
         dispatcher.clone(),
         events_handle,
@@ -580,6 +598,8 @@ async fn cascade_producer_co_partitions_with_events() {
                             person_id: person.to_string(),
                             last_updated: TS.to_string(),
                             status: MembershipStatus::Entered,
+                            origin: None,
+                            run_id: None,
                         },
                         n as i64,
                     )

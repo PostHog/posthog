@@ -151,3 +151,14 @@ def test_noop_when_token_missing():
     # the records would be lost), and a half-configured lane shouldn't crash the worker.
     emitter = JobLogsEmitter(endpoint="http://localhost:8010/i/v1/logs", token=None)
     assert emitter.emit_log_archive(_lines("2026-06-25T09:14:02.000000Z x"), attributes=_ATTRS) == 0
+
+
+def test_records_carry_ci_logs_service_name_despite_pod_otel_env():
+    # The worker pod sets OTEL_SERVICE_NAME to its own workload name, and a hand-built LogRecord
+    # defaults its resource from that env — Logger.emit(record) never attaches the provider's
+    # resource. Without pinning the resource on each record, every line lands under the pod's
+    # service.name and the failure-logs read filter (service.name = github-ci-logs) matches nothing.
+    env = {"OTEL_SERVICE_NAME": "temporal-worker-general-purpose", "OTEL_RESOURCE_ATTRIBUTES": ""}
+    with patch.dict("os.environ", env):
+        _, records = _emit("2026-06-25T09:14:02.000000Z hello")
+    assert [r.resource.attributes["service.name"] for r in records] == ["github-ci-logs"]

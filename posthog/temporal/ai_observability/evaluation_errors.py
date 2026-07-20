@@ -31,6 +31,13 @@ class EvaluationErrorSpec:
 
 
 USER_ERROR_SPECS: dict[str, EvaluationErrorSpec] = {
+    "provider_key_required": EvaluationErrorSpec(
+        error_type="provider_key_required",
+        owner="user",
+        safe_message="Add a provider API key to run this evaluation.",
+        status_reason=EvaluationStatusReason.PROVIDER_KEY_REQUIRED,
+        disables_evaluation=True,
+    ),
     "trial_limit_reached": EvaluationErrorSpec(
         error_type="trial_limit_reached",
         owner="user",

@@ -175,7 +175,7 @@ async def _call_llm_to_consolidate_segments(
                 ),
                 posthog_distinct_id=inputs.user_distinct_id_to_log,
                 posthog_trace_id=trace_id,
-                posthog_properties={},
+                posthog_properties={"ai_product": "session_replay"},
                 posthog_groups={"project": str(inputs.team_id)},
             )
 
@@ -307,7 +307,7 @@ async def _call_llm_to_tag_session(
         ),
         posthog_distinct_id=inputs.user_distinct_id_to_log,
         posthog_trace_id=trace_id,
-        posthog_properties={"$session_id": inputs.session_id},
+        posthog_properties={"ai_product": "session_replay", "$session_id": inputs.session_id},
         posthog_groups={"project": str(inputs.team_id)},
     )
 

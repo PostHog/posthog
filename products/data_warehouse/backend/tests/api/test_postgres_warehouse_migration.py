@@ -17,6 +17,16 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseTable,
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 
 
+def _stub_source_security_gate(source_mock) -> None:
+    """The update path asks the source whether an edit introduces a new connection host or leaves
+    row-backed credentials preserved; a bare MagicMock returns truthy for both, which would wrongly
+    trip the credential-reentry gate. Stub them to their real (falsy) defaults."""
+    source_mock.connection_host_fields = []
+    source_mock.server_managed_job_input_fields.return_value = []
+    source_mock.job_inputs_add_connection_host.return_value = False
+    source_mock.has_preserved_row_backed_credentials.return_value = False
+
+
 class TestPostgresWarehouseMigration(APIBaseTest):
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_qualifies_legacy_warehouse_rows_in_place(self, mock_get_source):
@@ -27,6 +37,7 @@ class TestPostgresWarehouseMigration(APIBaseTest):
         # writes to the original Delta path — no orphaned data, but the row picks up the new
         # qualified naming so tables from other schemas can coexist without a name collision.
         mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_version_deprecation.return_value = None
         mock_get_source.return_value.get_schemas.return_value = [
             SourceSchema(
                 name="public.auth_group",
@@ -96,6 +107,7 @@ class TestPostgresWarehouseMigration(APIBaseTest):
         # Calling refresh_schemas twice on a legacy row should be a no-op on the second call —
         # name stays put, schema_metadata stays put, no thrash of updated_at.
         mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_version_deprecation.return_value = None
         mock_get_source.return_value.get_schemas.return_value = [
             SourceSchema(
                 name="public.auth_group",
@@ -151,6 +163,7 @@ class TestPostgresWarehouseMigration(APIBaseTest):
         # Without resolving the row by source location, reconcile_postgres_schemas would only
         # write metadata on the very first refresh and then leave the column-picker UI stale.
         mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_version_deprecation.return_value = None
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
@@ -221,6 +234,7 @@ class TestPostgresWarehouseMigration(APIBaseTest):
         # `example_table`, otherwise source_for_pipeline falls back to `config.schema or "public"`
         # and emits `FROM "public"."poblic.example_table"` — a non-existent relation.
         mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_version_deprecation.return_value = None
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
@@ -311,9 +325,11 @@ class TestPostgresWarehouseMigration(APIBaseTest):
             "schema": "",
         }
         source_mock.parse_config.return_value = parsed_config
+        source_mock.get_version_deprecation.return_value = None
         source_mock.validate_config.return_value = (True, [])
         source_mock.validate_credentials_for_access_method.return_value = (True, None)
         source_mock.validate_credentials.return_value = (True, None)
+        _stub_source_security_gate(source_mock)
 
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
@@ -394,9 +410,11 @@ class TestPostgresWarehouseMigration(APIBaseTest):
             "schema": "",
         }
         source_mock.parse_config.return_value = parsed_config
+        source_mock.get_version_deprecation.return_value = None
         source_mock.validate_config.return_value = (True, [])
         source_mock.validate_credentials_for_access_method.return_value = (True, None)
         source_mock.validate_credentials.return_value = (True, None)
+        _stub_source_security_gate(source_mock)
 
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
@@ -469,6 +487,7 @@ class TestPostgresWarehouseMigration(APIBaseTest):
         # must be persisted to sync_type_config.primary_key_columns so it can later be switched to
         # CDC (which requires a PK) — otherwise the toggle fails with "refresh to pick one up".
         mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_version_deprecation.return_value = None
         mock_get_source.return_value.get_schemas.return_value = [
             SourceSchema(
                 name="public.cdc_test_orders",
@@ -512,6 +531,7 @@ class TestPostgresWarehouseMigration(APIBaseTest):
         # A user-set / previously-stored PK must survive refresh even if discovery detects a
         # different one — the explicit choice wins.
         mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_version_deprecation.return_value = None
         mock_get_source.return_value.get_schemas.return_value = [
             SourceSchema(
                 name="public.orders",

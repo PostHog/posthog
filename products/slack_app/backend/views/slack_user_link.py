@@ -43,7 +43,7 @@ from posthog.models.user import User
 from posthog.models.user_integration import user_slack_integration_from_identity
 from posthog.views import login_required
 
-from products.slack_app.backend.feature_flags import slack_oauth_link_enabled
+from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
 from products.slack_app.backend.services.slack_user_oauth import (
     CallbackState,
     InviteToken,
@@ -103,7 +103,7 @@ def slack_user_link_authorize(request: HttpRequest) -> HttpResponse:
     if workspace_integration is None:
         return _settings_redirect(error="workspace_not_found")
 
-    if not slack_oauth_link_enabled(workspace_integration, invite.slack_team_id):
+    if not is_slack_app_oauth_enabled(workspace_integration, invite.slack_team_id):
         return _settings_redirect(error="flag_off")
 
     callback_state = CallbackState(
@@ -152,7 +152,7 @@ def slack_user_link_callback(request: HttpRequest) -> HttpResponse:
     workspace_integration = _load_workspace_integration(state.posthog_team_id, state.slack_team_id)
     if workspace_integration is None:
         return _settings_redirect(error="workspace_not_found")
-    if not slack_oauth_link_enabled(workspace_integration, state.slack_team_id):
+    if not is_slack_app_oauth_enabled(workspace_integration, state.slack_team_id):
         return _settings_redirect(error="flag_off")
 
     try:

@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use tracing::warn;
+use tracing::{debug, warn};
 use uuid::Uuid;
 
 use crate::core::{
@@ -42,7 +42,9 @@ pub async fn handle_issue_created(
         &event_properties,
     )
     .await?;
-    let sentry_integration = event_properties.other.contains_key("$sentry_event_id");
+    let sentry_integration = event_properties
+        .properties()
+        .contains_key("$sentry_event_id");
 
     send_issue_created_internal_event(
         &context.cyclotron_producer,
@@ -109,28 +111,58 @@ pub async fn handle_issue_spiking(
         issue,
         computed_baseline,
         current_bucket_value,
+        assignee,
     } = notification;
     let IssueNotificationContext {
         issue_id,
         issue: issue_snapshot,
         event_properties,
     } = issue;
-    let issue = issue_from_notification(meta.team_id, issue_id, issue_snapshot);
 
-    persist_spike_event(
+    let detected_at = spike_detection_time(meta.notification_id);
+
+    match persist_spike_event(
         context,
         meta.notification_id,
         meta.team_id,
         issue_id,
+        detected_at,
         computed_baseline,
         current_bucket_value,
     )
-    .await?;
+    .await?
+    {
+        PersistSpikeEventResult::Inserted => {}
+        PersistSpikeEventResult::AlreadyPersisted => {
+            debug!(
+                notification_id = %meta.notification_id,
+                team_id = meta.team_id,
+                issue_id = %issue_id,
+                "dropping duplicate spike notification"
+            );
+            return Ok(());
+        }
+        PersistSpikeEventResult::MissingIssue => {
+            warn!(
+                notification_id = %meta.notification_id,
+                team_id = meta.team_id,
+                issue_id = %issue_id,
+                "dropping spike notification for missing issue"
+            );
+            return Ok(());
+        }
+    }
+
+    let issue = issue_from_notification(meta.team_id, issue_id, issue_snapshot);
+
     send_issue_spiking_internal_event(
         &context.cyclotron_producer,
         &context.internal_events_topic,
         meta.notification_id,
         &issue,
+        assignee,
+        &event_properties,
+        detected_at,
         computed_baseline,
         current_bucket_value,
     )
@@ -144,6 +176,12 @@ pub async fn handle_issue_spiking(
     );
 
     Ok(())
+}
+
+enum PersistSpikeEventResult {
+    Inserted,
+    AlreadyPersisted,
+    MissingIssue,
 }
 
 fn issue_from_notification(
@@ -161,31 +199,68 @@ fn issue_from_notification(
     }
 }
 
+// When the spike was detected, not when this consumer processed the notification. The
+// notification_id is a UUIDv7 minted in notification_meta() on the processing side, in the same
+// call stack as spike detection, so its embedded timestamp survives any consumer lag. Falls back
+// to now() for legacy payloads where serde defaulted the id at consume time.
+fn spike_detection_time(notification_id: Uuid) -> DateTime<Utc> {
+    notification_id
+        .get_timestamp()
+        .and_then(|ts| {
+            let (secs, nanos) = ts.to_unix();
+            DateTime::from_timestamp(secs as i64, nanos)
+        })
+        .unwrap_or_else(Utc::now)
+}
+
 async fn persist_spike_event(
     context: &NotificationsContext,
     notification_id: Uuid,
     team_id: i32,
     issue_id: Uuid,
+    detected_at: DateTime<Utc>,
     computed_baseline: f64,
     current_bucket_value: f64,
-) -> Result<(), UnhandledError> {
-    let now = Utc::now();
-    sqlx::query(
-        r#"INSERT INTO posthog_errortrackingspikeevent
+) -> Result<PersistSpikeEventResult, UnhandledError> {
+    let result = sqlx::query(
+        r#"WITH existing_issue AS (
+               SELECT 1 FROM posthog_errortrackingissue
+               WHERE team_id = $2 AND id = $3
+               FOR KEY SHARE
+           )
+           INSERT INTO posthog_errortrackingspikeevent
            (id, team_id, issue_id, detected_at, computed_baseline, current_bucket_value)
-           VALUES ($1, $2, $3, $4, $5, $6)
+           SELECT $1, $2, $3, $4, $5, $6 FROM existing_issue
            ON CONFLICT (id) DO NOTHING"#,
     )
     .bind(notification_id)
     .bind(team_id)
     .bind(issue_id)
-    .bind(now)
+    .bind(detected_at)
     .bind(computed_baseline)
     .bind(current_bucket_value as i32)
     .execute(&context.posthog_pool)
     .await?;
 
-    Ok(())
+    if result.rows_affected() > 0 {
+        return Ok(PersistSpikeEventResult::Inserted);
+    }
+
+    let issue_exists: bool = sqlx::query_scalar(
+        r#"SELECT EXISTS(
+            SELECT 1 FROM posthog_errortrackingissue WHERE team_id = $1 AND id = $2
+        )"#,
+    )
+    .bind(team_id)
+    .bind(issue_id)
+    .fetch_one(&context.posthog_pool)
+    .await?;
+
+    if issue_exists {
+        return Ok(PersistSpikeEventResult::AlreadyPersisted);
+    }
+
+    Ok(PersistSpikeEventResult::MissingIssue)
 }
 
 fn parse_notification_timestamp(event_timestamp: &str, event_uuid: Uuid) -> DateTime<Utc> {
@@ -196,4 +271,29 @@ fn parse_notification_timestamp(event_timestamp: &str, event_uuid: Uuid) -> Date
         );
         Utc::now()
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use uuid::{NoContext, Timestamp};
+
+    #[test]
+    fn spike_detection_time_recovers_the_v7_mint_instant() {
+        let minted = DateTime::parse_from_rfc3339("2026-07-16T10:30:00.123Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let ts = Timestamp::from_unix(
+            NoContext,
+            minted.timestamp() as u64,
+            minted.timestamp_subsec_nanos(),
+        );
+        let notification_id = Uuid::new_v7(ts);
+
+        // UUIDv7 stores millisecond precision, so compare at that granularity.
+        assert_eq!(
+            spike_detection_time(notification_id).timestamp_millis(),
+            minted.timestamp_millis()
+        );
+    }
 }

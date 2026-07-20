@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { organizationLogic } from 'scenes/organizationLogic'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import api from '~/lib/api'
 import { initKeaTests } from '~/test/init'
 import { AppContext } from '~/types'
@@ -129,6 +130,10 @@ describe('messageActionsMenuLogic', () => {
         })
 
         describe('translationError', () => {
+            // These tests deliberately fail the translate loader.
+            beforeEach(silenceKeaLoadersErrors)
+            afterEach(resumeKeaLoadersErrors)
+
             it('clears error on resetTranslation', async () => {
                 // Ensure org is loaded first
                 const orgLogic = organizationLogic()
@@ -326,20 +331,26 @@ describe('messageActionsMenuLogic', () => {
             })
 
             it('throws error when data processing not accepted', async () => {
-                initKeaTests(true, undefined, undefined, {
-                    ...MOCK_DEFAULT_ORGANIZATION,
-                    is_ai_data_processing_approved: false,
-                })
+                // The translate loader deliberately throws when consent is missing.
+                silenceKeaLoadersErrors()
+                try {
+                    initKeaTests(true, undefined, undefined, {
+                        ...MOCK_DEFAULT_ORGANIZATION,
+                        is_ai_data_processing_approved: false,
+                    })
 
-                const logic = messageActionsMenuLogic({ content: mockContent })
-                logic.mount()
+                    const logic = messageActionsMenuLogic({ content: mockContent })
+                    logic.mount()
 
-                await expectLogic(logic, () => {
-                    logic.actions.translate()
-                }).toFinishAllListeners()
+                    await expectLogic(logic, () => {
+                        logic.actions.translate()
+                    }).toFinishAllListeners()
 
-                expect(logic.values.translationError).toBeTruthy()
-                expect(mockApi.aiObservability.translate).not.toHaveBeenCalled()
+                    expect(logic.values.translationError).toBeTruthy()
+                    expect(mockApi.aiObservability.translate).not.toHaveBeenCalled()
+                } finally {
+                    resumeKeaLoadersErrors()
+                }
             })
         })
     })

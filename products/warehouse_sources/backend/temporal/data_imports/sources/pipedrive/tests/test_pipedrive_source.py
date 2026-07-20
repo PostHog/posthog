@@ -1,3 +1,5 @@
+import datetime
+
 import pytest
 from unittest import mock
 
@@ -19,6 +21,17 @@ class TestPipedriveSource:
 
     def test_source_type(self) -> None:
         assert self.source.source_type == ExternalDataSourceType.PIPEDRIVE
+
+    def test_v1_is_deprecated_with_vendor_sunset_and_default_is_v2(self) -> None:
+        # New sources start on v2; v1 stays supported but carries the vendor's sunset date so the
+        # generic in-product deprecation warning fires.
+        assert self.source.default_version == "v2"
+        assert set(self.source.supported_versions) == {"v1", "v2"}
+
+        deprecation = self.source.get_version_deprecation("v1")
+        assert deprecation is not None
+        assert deprecation.sunset_at == datetime.date(2025, 12, 31)
+        assert self.source.get_version_deprecation("v2") is None
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
@@ -129,10 +142,22 @@ class TestPipedriveSource:
         assert isinstance(manager, ResumableSourceManager)
         assert manager._data_class is PipedriveResumeConfig
 
+    @pytest.mark.parametrize(
+        "pinned_version, expected_version",
+        [
+            ("v2", "v2"),
+            ("v1", "v1"),
+            # A missing pin resolves to the source's default (v2).
+            (None, "v2"),
+        ],
+    )
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.pipedrive.source.pipedrive_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_pipedrive_source: mock.MagicMock) -> None:
+    def test_source_for_pipeline_plumbs_arguments(
+        self, mock_pipedrive_source: mock.MagicMock, pinned_version: str | None, expected_version: str
+    ) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "deals"
+        inputs.api_version = pinned_version
         manager = mock.MagicMock()
 
         self.source.source_for_pipeline(self.config, manager, inputs)
@@ -142,6 +167,7 @@ class TestPipedriveSource:
         assert kwargs["company_domain"] == "acme"
         assert kwargs["api_token"] == "token"
         assert kwargs["endpoint"] == "deals"
+        assert kwargs["api_version"] == expected_version
         assert kwargs["resumable_source_manager"] is manager
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.pipedrive.source.pipedrive_source")

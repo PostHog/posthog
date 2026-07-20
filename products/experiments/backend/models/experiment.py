@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
@@ -12,8 +12,37 @@ from posthog.models.file_system.file_system_representation import FileSystemRepr
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import RootTeamMixin, UUIDModel
 
+from products.feature_flags.backend.facade.filters import (
+    CohortRestrictionBlocker,
+    group_cohort_restriction_blocker,
+    groups_carry_restriction_marker,
+)
+from products.feature_flags.backend.facade.rules import ExperimentRuleConfig, experiment_rule_from_filters
+
 if TYPE_CHECKING:
     from posthog.models.team import Team
+
+
+# Structured key stamped on each feature-flag release group when an experiment's exposure is frozen.
+# Frozen-exposure state is derived from this key, not stored on the experiment — the same spirit as
+# is_paused being derived from feature_flag.active rather than persisted. Unknown group keys pass
+# through flag validation and are ignored by the Rust flag matcher, so this is additive metadata;
+# that pass-through contract is pinned by test_flag_update_after_freeze_preserves_frozen_state.
+EXPOSURE_FROZEN_GROUP_KEY = "exposure_frozen"
+
+# Companion key recording which snapshot cohort the freeze AND-ed into the group, so unfreezing
+# can remove exactly that condition even if users added their own cohort conditions meanwhile.
+EXPOSURE_FROZEN_COHORT_KEY = "exposure_frozen_cohort"
+
+# Human-readable note prepended to each release group's `description` when freezing. Purely
+# informational — the description stays user-editable prose and carries no state.
+EXPOSURE_FROZEN_GROUP_MARKER = "Added automatically when the experiment exposure was frozen to stop new enrollment."
+
+# Why an experiment's exposure can't be frozen right now. Experiment-state reasons plus the
+# flag-shape reasons computed flag-side by group_cohort_restriction_blocker.
+ExposureFreezeBlocker = (
+    Literal["draft", "stopped", "paused", "already_frozen", "no_flag", "flag_deleted"] | CohortRestrictionBlocker
+)
 
 
 class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
@@ -110,6 +139,10 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
         blank=True,
     )
 
+    # Latest flag-cleanup Code task opened when this experiment ended. A bare UUID, not a FK —
+    # tasks is an isolated product, so details are read through its facade.
+    flag_cleanup_task_id = models.UUIDField(null=True, blank=True)
+
     class Meta:
         db_table = "posthog_experiment"
 
@@ -144,6 +177,62 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
         return self.is_running and self.feature_flag_id is not None and not self.feature_flag.active
 
     @property
+    def is_exposure_frozen(self) -> bool:
+        # Frozen exposure is not stored on the experiment — it is the running state with the linked flag's
+        # release groups narrowed to a static snapshot of the already-exposed cohort. We detect it from the
+        # structured key stamped on each group when the cohort condition was AND'd in — the same predicate
+        # the experiments list endpoint uses.
+        if not self.is_running or self.feature_flag_id is None:
+            return False
+        # Paused takes precedence: a deactivated flag serves no one, so reporting "frozen" would
+        # misdescribe the experiment and hide the pause/resume lifecycle (Resume only renders for
+        # paused). The group stamps survive, so resuming lands back in the frozen state.
+        if not self.feature_flag.active:
+            return False
+        # Enrollment is closed only when EVERY release group is stamped, so that add/edit groups
+        # surfaces as the experiment reverting to "running".
+        return groups_carry_restriction_marker(self.feature_flag.filters or {}, marker_key=EXPOSURE_FROZEN_GROUP_KEY)
+
+    @property
+    def freeze_exposure_blocker(self) -> ExposureFreezeBlocker | None:
+        """Why exposure can't be frozen right now, or None. Single source for the freeze
+        validator's preconditions and the serializer's can_freeze_exposure gate — the service
+        maps each blocker to its user-facing validation message, so the UI gate can't drift
+        from what the validator enforces."""
+        if self.is_draft:
+            return "draft"
+        if self.is_stopped:
+            return "stopped"
+        if self.is_paused:
+            # A paused flag serves no one, so there is no live enrollment to freeze; freezing anyway
+            # would mislabel the (inactive) experiment as "exposure_frozen". Resume first.
+            return "paused"
+        if self.is_exposure_frozen:
+            return "already_frozen"
+        # Guard on the id, not the relation: feature_flag is a non-nullable FK, so accessing
+        # self.feature_flag when it's unset raises RelatedObjectDoesNotExist rather than
+        # returning None. Widened to Optional because django-stubs types the id as int, but an
+        # unsaved in-memory instance can still carry None.
+        feature_flag_id: int | None = self.feature_flag_id
+        if feature_flag_id is None:
+            return "no_flag"
+        if self.feature_flag.deleted:
+            return "flag_deleted"
+        # The flag-shape preconditions (group aggregation, evaluation order, empty groups) live
+        # flag-side in group_cohort_restriction_blocker. Fail closed rather than freeze partially.
+        flag_blocker = group_cohort_restriction_blocker(self.feature_flag.filters or {})
+        if flag_blocker == "group_aggregation":
+            return flag_blocker
+        # An experiment-level holdout blocks freezing even before the flag filters carry holdout keys.
+        if self.holdout_id is not None or flag_blocker == "holdout":
+            return "holdout"
+        return flag_blocker
+
+    @property
+    def can_freeze_exposure(self) -> bool:
+        return self.freeze_exposure_blocker is None
+
+    @property
     def computed_status(self) -> "Experiment.Status":
         if self.is_stopped:
             return Experiment.Status.STOPPED
@@ -153,8 +242,10 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
 
     @property
     def status_label(self) -> str:
-        """Public status string (draft/running/paused/stopped) — single source for the API
+        """Public status string (draft/running/paused/exposure_frozen/stopped) — single source for the API
         serializer and dashboard widgets."""
+        if self.is_exposure_frozen:
+            return "exposure_frozen"
         if self.is_paused:
             return "paused"
         return self.status or self.computed_status.value
@@ -226,13 +317,15 @@ def flag_has_live_experiment(feature_flag_id: int) -> bool:
     return _live_experiments_for_flag(feature_flag_id).exists()
 
 
-def holdout_filters_for_flag(holdout_id: int | None, filters: list | None) -> dict:
-    """Return the `holdout` field for a feature flag's filters."""
-    if not holdout_id or not filters:
-        return {"holdout": None}
-    return {
-        "holdout": {"id": holdout_id, "exclusion_percentage": filters[0]["rollout_percentage"]},
-    }
+def get_experiment_rule(experiment: Experiment) -> ExperimentRuleConfig:
+    """The experiment's normalized rule config — the single home for experiment-to-rule resolution.
+
+    A v1 flag hosting an experiment is one implicit experiment rule, so this reads the
+    whole linked flag through the flag-side derivation. When the rule-level flag model
+    lands, this resolves the flag rule carrying this experiment's id instead — consumers
+    are untouched.
+    """
+    return experiment_rule_from_filters(experiment.feature_flag.filters or {})
 
 
 LEGACY_METRIC_KINDS: frozenset[str] = frozenset({"ExperimentTrendsQuery", "ExperimentFunnelsQuery"})
@@ -279,6 +372,12 @@ class ExperimentHoldout(ModelActivityMixin, RootTeamMixin, models.Model):
             super(ModelActivityMixin, self).save(*args, **kwargs)
         else:
             super().save(*args, **kwargs)
+
+    @property
+    def exclusion_percentage(self) -> float | None:
+        # Only the first release-condition group's rollout_percentage is denormalized onto
+        # linked flags as the holdout's exclusion percentage (see the holdout API help text).
+        return self.filters[0]["rollout_percentage"] if self.filters else None
 
 
 class ExperimentSavedMetric(ModelActivityMixin, RootTeamMixin, models.Model):

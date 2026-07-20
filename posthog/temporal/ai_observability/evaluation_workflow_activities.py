@@ -139,7 +139,7 @@ async def disable_evaluation_activity(
     """
 
     def _disable() -> bool:
-        reason = status_reason or "trial_limit_reached"
+        reason = status_reason or "provider_key_required"
         with transaction.atomic():
             evaluation = Evaluation.objects.select_for_update().filter(id=evaluation_id, team_id=team_id).first()
             if evaluation is None:
@@ -183,6 +183,12 @@ async def send_trial_usage_email_activity(inputs: SendTrialUsageEmailInputs) -> 
 
         config = EvaluationConfig.objects.filter(team_id=inputs.team_id).first()
         if not config:
+            return
+
+        # provider_key_required disables also route here with threshold 100, but they can fire for
+        # teams cut off mid-trial at the deprecation date or that never started — for those, "used
+        # up" would be false, so only send when the trial was actually exhausted.
+        if inputs.threshold_pct >= 100 and config.trial_evals_used < config.trial_eval_limit:
             return
 
         max_listed = 20
@@ -248,6 +254,7 @@ class SendEvaluationDisabledEmailInputs:
 
 
 _STATUS_REASON_SUBJECTS = {
+    "provider_key_required": "Your AI observability evaluation was disabled because it has no provider API key",
     "model_not_allowed": "Your AI observability evaluation was disabled because its model isn't supported on the trial plan",
     "no_default_model": "Your AI observability evaluation was disabled because no default model is configured",
     "provider_key_deleted": "Your AI observability evaluation was disabled because its provider API key was removed",

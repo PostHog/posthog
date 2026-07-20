@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    ElementsStatsRetrieveQueryParams,
     InsightsActivityRetrieveParams,
     InsightsActivityRetrieveQueryParams,
     InsightsAllActivityRetrieveQueryParams,
@@ -164,6 +165,32 @@ const AssistantDataVisualizationNode = z.object({
 
 const InsightQuery = z.union([AssistantInsightVizNode, AssistantDataVisualizationNode])
 
+const ElementsStatsRetrieveSchema = ElementsStatsRetrieveQueryParams
+
+const elementsStatsRetrieve = (): ToolBase<typeof ElementsStatsRetrieveSchema, Schemas.ElementStatsResponse> => ({
+    name: 'elements-stats-retrieve',
+    schema: ElementsStatsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof ElementsStatsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ElementStatsResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/elements/stats/`,
+            query: {
+                data_attributes: params.data_attributes,
+                date_from: params.date_from,
+                date_to: params.date_to,
+                filter_test_accounts: params.filter_test_accounts,
+                include: params.include,
+                limit: params.limit,
+                offset: params.offset,
+                properties: params.properties,
+                sampling_factor: params.sampling_factor,
+            },
+        })
+        return result
+    },
+})
+
 const InsightCreateSchema = InsightsCreateBody.omit({
     derived_name: true,
     order: true,
@@ -261,6 +288,7 @@ const insightGet = (): ToolBase<typeof InsightGetSchema, WithPostHogUrl<Schemas.
             path: `/api/projects/${encodeURIComponent(String(projectId))}/insights/${encodeURIComponent(String(params.id))}/`,
             query: {
                 filters_override: params.filters_override,
+                include_dashboards: params.include_dashboards,
                 variables_override: params.variables_override,
             },
         })
@@ -420,6 +448,7 @@ const insightsList = (): ToolBase<typeof InsightsListSchema, WithPostHogUrl<Sche
                 date_from: params.date_from,
                 date_to: params.date_to,
                 favorited: params.favorited,
+                include_dashboards: params.include_dashboards,
                 insight: params.insight,
                 last_viewed_date_from: params.last_viewed_date_from,
                 last_viewed_date_to: params.last_viewed_date_to,
@@ -481,6 +510,7 @@ const insightsTrendingRetrieve = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/insights/trending/`,
             query: {
                 days: params.days,
+                include_dashboards: params.include_dashboards,
                 limit: params.limit,
                 offset: params.offset,
             },
@@ -521,6 +551,7 @@ const insightsTrendingRetrieve = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'elements-stats-retrieve': elementsStatsRetrieve,
     'insight-create': insightCreate,
     'insight-delete': insightDelete,
     'insight-get': insightGet,

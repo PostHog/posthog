@@ -45,7 +45,13 @@ from posthog.constants import LIMIT, OFFSET
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
-from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH, NAME_FIELD, apply_trigram_search, normalize_search_term
+from posthog.helpers.trigram_search import (
+    MAX_SEARCH_LENGTH,
+    NAME_FIELD,
+    apply_trigram_search,
+    drop_similar_when_exact_exists,
+    normalize_search_term,
+)
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.metrics import LABEL_TEAM_ID
@@ -550,6 +556,27 @@ class CohortFiltersField(serializers.JSONField):
     pass
 
 
+class CohortConditionTypeFlags(BaseModel, extra="forbid"):
+    person_properties: bool = Field(description="The filters include a person property or person_metadata condition.")
+    behavioral: bool = Field(
+        description="The filters include a behavioral condition that is not lifecycle-style "
+        "(e.g. performed_event, performed_event_multiple, performed_event_sequence, or their "
+        "negations)."
+    )
+    lifecycle: bool = Field(
+        description="The filters include a lifecycle-style behavioral condition (first-seen/regularly/"
+        "stopped/restarted performing an event)."
+    )
+    cohorts: bool = Field(description="The filters include a nested reference to another cohort.")
+
+
+@extend_schema_field(CohortConditionTypeFlags)  # type: ignore[arg-type]
+class CohortConditionTypeField(serializers.JSONField):
+    """Custom JSONField that exposes proper OpenAPI schema for condition_type flags."""
+
+    pass
+
+
 class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     earliest_timestamp_func = earliest_timestamp_func
@@ -560,6 +587,14 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
 
     # Explicit filters field with proper OpenAPI schema
     filters = CohortFiltersField(required=False, allow_null=True)
+
+    # Explicit condition_type field with proper OpenAPI schema
+    condition_type = CohortConditionTypeField(
+        read_only=True,
+        allow_null=True,
+        help_text="Flags describing which kinds of conditions the cohort's filters contain. "
+        "Null when the cohort has no filters to classify.",
+    )
 
     # If this cohort is an exposure cohort for an experiment
     experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)  # ty: ignore[invalid-assignment]
@@ -587,6 +622,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             "count",
             "is_static",
             "cohort_type",
+            "condition_type",
             "experiment_set",
             "search_match_type",
             "_create_in_folder",
@@ -605,6 +641,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             "last_error_message",
             "count",
             "experiment_set",
+            "condition_type",
         ]
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -1415,11 +1452,11 @@ def get_cohorts_using_cohort(cohort: Cohort) -> QuerySet[Cohort]:
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 description=(
-                    "Optional. Match against cohort `name`. Returns case-insensitive substring matches and "
-                    "fuzzy trigram matches (typos, transpositions, prefix-as-you-type) together, ordered "
-                    "exact-first then by relevance; each result's `search_match_type` is `exact` or `similar`. "
-                    "When omitted, cohorts are ordered newest-first. Capped at 200 characters; longer queries "
-                    "return a 400 error."
+                    "Optional. Match against cohort `name`. Returns exact (case-insensitive substring) "
+                    "matches only; if no exact match exists, returns similar (fuzzy trigram — typos, "
+                    "transpositions, prefix-as-you-type) matches instead. Each result's `search_match_type` "
+                    "is `exact` or `similar`. Results are ordered by relevance. When omitted, cohorts are ordered newest-first. Capped at "
+                    "200 characters; longer queries return a 400 error."
                 ),
             ),
             OpenApiParameter(
@@ -1543,6 +1580,9 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             queryset = queryset.order_by("-created_at")
 
         return queryset
+
+    def filter_queryset(self, queryset: QuerySet) -> QuerySet:
+        return drop_similar_when_exact_exists(super().filter_queryset(queryset))
 
     @extend_schema(
         parameters=[

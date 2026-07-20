@@ -76,7 +76,11 @@ export function InboxScopeSelect(): JSX.Element {
                         }
                     }}
                     options={[
-                        { value: 'for-you', label: 'For you' },
+                        {
+                            value: 'for-you',
+                            label: 'For you',
+                            tooltip: 'Only reports where agents suggested you as a reviewer',
+                        },
                         {
                             value: 'other',
                             label: (
@@ -85,6 +89,7 @@ export function InboxScopeSelect(): JSX.Element {
                                     <IconChevronDown className="text-tertiary" />
                                 </span>
                             ),
+                            tooltip: "See every report in the project, or a specific teammate's",
                         },
                     ]}
                 />

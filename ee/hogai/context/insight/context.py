@@ -29,6 +29,8 @@ class InsightContext:
         self,
         team: Team,
         query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery,
+        *,
+        user: User,
         name: str | None = None,
         description: str | None = None,
         insight_id: str | None = None,
@@ -38,7 +40,6 @@ class InsightContext:
         dashboard_filters: dict | None = None,
         filters_override: dict | None = None,
         variables_override: dict | None = None,
-        user: User | None = None,
     ):
         self.team = team
         self.user = user

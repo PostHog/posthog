@@ -104,11 +104,11 @@ describe('MarkdownNotebookV2Renderer UI', () => {
             )
         }
 
-        const { container, getByRole } = render(<ControlledMarkdownNotebookWithHeader />)
+        const { container, getByText } = render(<ControlledMarkdownNotebookWithHeader />)
 
         expect(container.querySelector('.MarkdownNotebook__debug-drawer')).toBeInstanceOf(HTMLElement)
 
-        fireEvent.click(getByRole('button', { name: /kernel/i }))
+        fireEvent.click(getByText('Kernel'))
 
         expect(onDebugOpenChange).not.toHaveBeenCalled()
         expect(settingsLogic.values.showKernelInfo).toBe(true)
@@ -130,19 +130,15 @@ describe('MarkdownNotebookV2Renderer UI', () => {
         expect(notebookElement?.classList.contains('Notebook--expanded')).toBe(false)
     })
 
-    it('collapses markdown content width without changing the legacy notebook width setting', () => {
-        const { container } = render(
-            <NotebookExpandButton type="secondary" size="small" inPanel={false} isMarkdownNotebook />
-        )
+    it('collapses markdown content width', () => {
+        const { container } = render(<NotebookExpandButton type="secondary" size="small" inPanel={false} />)
         const button = container.querySelector('button')
 
         expect(settingsLogic.values.isMarkdownExpanded).toBe(true)
-        expect(settingsLogic.values.isExpanded).toBe(false)
         expect(button).toBeInstanceOf(HTMLButtonElement)
 
         fireEvent.click(button as HTMLButtonElement)
 
         expect(settingsLogic.values.isMarkdownExpanded).toBe(false)
-        expect(settingsLogic.values.isExpanded).toBe(false)
     })
 })

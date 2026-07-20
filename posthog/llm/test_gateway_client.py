@@ -1,9 +1,23 @@
+import json
 from typing import get_args
 
 import pytest
 from unittest.mock import patch
 
-from posthog.llm.gateway_client import Product, get_async_anthropic_gateway_client, get_async_llm_client, get_llm_client
+from django.test import override_settings
+
+from posthog.llm.gateway_client import (
+    Product,
+    build_async_openai_client,
+    build_openai_client,
+    get_async_anthropic_gateway_client,
+    get_async_llm_client,
+    get_llm_client,
+    resolve_ai_gateway_config,
+)
+
+AI_GATEWAY_URL = "https://ai-gateway.example/v1"
+AI_GATEWAY_KEY = "phs_project_secret"
 
 
 class TestGetLlmClient:
@@ -157,3 +171,82 @@ class TestGetAsyncAnthropicGatewayClient:
         )
 
         assert client.default_headers.get("x-posthog-use-bedrock-fallback") == expected_header_value
+
+
+class TestResolveAIGatewayConfig:
+    @override_settings(AI_GATEWAY_URL="", AI_GATEWAY_API_KEY="")
+    def test_returns_none_when_both_unset(self):
+        assert resolve_ai_gateway_config() is None
+
+    @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
+    def test_returns_pair_when_both_set(self):
+        assert resolve_ai_gateway_config() == (AI_GATEWAY_URL, AI_GATEWAY_KEY)
+
+    @pytest.mark.parametrize(
+        "url,key,reason",
+        [
+            (AI_GATEWAY_URL, "", "must be set together"),
+            ("", AI_GATEWAY_KEY, "must be set together"),
+            ("https://ai-gateway.example", AI_GATEWAY_KEY, "OpenAI base path"),
+        ],
+    )
+    def test_misconfig_falls_back_to_none_and_logs(self, url, key, reason):
+        # Radu review: a misconfig logs and returns None so callers fall back, never raises.
+        with (
+            override_settings(AI_GATEWAY_URL=url, AI_GATEWAY_API_KEY=key),
+            patch("posthog.llm.gateway_client.logger") as mock_logger,
+        ):
+            assert resolve_ai_gateway_config() is None
+
+        mock_logger.warning.assert_called_once()
+        assert reason in str(mock_logger.warning.call_args)
+
+
+class TestBuildOpenAIClient:
+    @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
+    @patch("posthog.llm.gateway_client.httpx.Client")
+    @patch("posthog.llm.gateway_client.OpenAI")
+    def test_gateway_mode_routes_to_slugless_go_gateway_with_ai_product(self, mock_openai, mock_httpx):
+        result = build_openai_client("llma_summarization", ai_product="aio_summarization")
+
+        mock_httpx.assert_called_once_with(trust_env=False)
+        mock_openai.assert_called_once_with(
+            api_key=AI_GATEWAY_KEY,
+            base_url=AI_GATEWAY_URL,
+            default_headers={"X-PostHog-Properties": json.dumps({"ai_product": "aio_summarization"})},
+            http_client=mock_httpx.return_value,
+        )
+        assert result is mock_openai.return_value
+
+    @override_settings(AI_GATEWAY_URL="", AI_GATEWAY_API_KEY="")
+    @patch("posthog.llm.gateway_client.get_llm_client")
+    def test_falls_back_to_python_gateway_when_unset(self, mock_get_llm_client):
+        result = build_openai_client("llma_summarization", ai_product="aio_summarization")
+
+        mock_get_llm_client.assert_called_once_with("llma_summarization")
+        assert result is mock_get_llm_client.return_value
+
+
+class TestBuildAsyncOpenAIClient:
+    @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
+    @patch("posthog.llm.gateway_client.httpx.AsyncClient")
+    @patch("posthog.llm.gateway_client.AsyncOpenAI")
+    def test_gateway_mode_routes_to_slugless_go_gateway_with_ai_product(self, mock_async_openai, mock_httpx):
+        result = build_async_openai_client("llma_eval_summary", ai_product="aio_eval_summary")
+
+        mock_httpx.assert_called_once_with(trust_env=False)
+        mock_async_openai.assert_called_once_with(
+            api_key=AI_GATEWAY_KEY,
+            base_url=AI_GATEWAY_URL,
+            default_headers={"X-PostHog-Properties": json.dumps({"ai_product": "aio_eval_summary"})},
+            http_client=mock_httpx.return_value,
+        )
+        assert result is mock_async_openai.return_value
+
+    @override_settings(AI_GATEWAY_URL="", AI_GATEWAY_API_KEY="")
+    @patch("posthog.llm.gateway_client.get_async_llm_client")
+    def test_falls_back_to_python_async_gateway_when_unset(self, mock_get_async):
+        result = build_async_openai_client("llma_eval_summary", ai_product="aio_eval_summary")
+
+        mock_get_async.assert_called_once_with("llma_eval_summary")
+        assert result is mock_get_async.return_value

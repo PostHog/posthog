@@ -8,7 +8,7 @@ pub const DEFAULT_CONSUMER_TOPIC: &str = "error_tracking_ingestion_notifications
 
 /// Consumer group for the notifications mode. Overridable via
 /// `KAFKA_CONSUMER_GROUP`.
-pub const DEFAULT_CONSUMER_GROUP: &str = "error-tracking-ingestion-notifications";
+pub const DEFAULT_CONSUMER_GROUP: &str = "error_tracking_ingestion_notifications";
 
 /// Top-level config for notifications mode. Keep this narrow: only Kafka,
 /// Postgres, signal emission, and the metrics server.
@@ -26,7 +26,7 @@ pub struct NotificationsConfig {
     #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
     pub database_url: String,
 
-    // Rust services connect directly to postgres, not via pgbouncer, so we keep this low.
+    // Keep this low: each Cymbal pod owns its own sqlx pool, regardless of DATABASE_URL routing.
     #[envconfig(default = "4")]
     pub max_pg_connections: u32,
 

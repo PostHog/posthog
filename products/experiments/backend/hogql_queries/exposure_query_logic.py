@@ -27,6 +27,13 @@ from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 
 logger = logging.getLogger(__name__)
 
+# The event an experiment counts exposures on when its criteria don't name one. If the default
+# ever changes (e.g. to a dedicated exposure event), flip it here — consumers that resolve
+# criteria through this module's helpers key off this constant. Note the variant-property
+# pairing in `get_exposure_event_and_property` (and the handling of configs that explicitly
+# name `$feature_flag_called`) must move with it.
+DEFAULT_EXPOSURE_EVENT = "$feature_flag_called"
+
 
 def _is_actions_node_dict(config: dict) -> bool:
     """
@@ -180,15 +187,15 @@ def get_exposure_event_and_property(
     else:
         # For the default $feature_flag_called event, we need to get the variant from $feature_flag_response
         feature_flag_variant_property = "$feature_flag_response"
-        event = "$feature_flag_called"
+        event = DEFAULT_EXPOSURE_EVENT
 
     return event, feature_flag_variant_property
 
 
 def _get_event_name_from_config(exposure_config: Optional[Union[ActionsNode, ExperimentEventExposureConfig]]) -> str:
-    """Extract event name from exposure config, defaulting to $feature_flag_called."""
+    """Extract event name from exposure config, defaulting to DEFAULT_EXPOSURE_EVENT."""
     if not exposure_config or not hasattr(exposure_config, "event"):
-        return "$feature_flag_called"
+        return DEFAULT_EXPOSURE_EVENT
 
     event = exposure_config.event
     return str(event) if event and event != "$feature_flag_called" else "$feature_flag_called"
@@ -248,6 +255,26 @@ def _build_property_filters(
     return [ast.And(exprs=property_filters)] if property_filters else []
 
 
+def build_exposure_event_conditions(
+    exposure_criteria: Union[ExperimentExposureCriteria, dict, None],
+    team: Team,
+    feature_flag_key: Optional[str],
+) -> list[ast.Expr]:
+    """
+    Builds the event/action and property filters that define what counts as an exposure event —
+    the exposure-identity subset of build_common_exposure_conditions, without the analysis-only
+    conditions (date range, variant filter, test-account exclusion). Used directly by consumers
+    that need "who was exposed" for serving decisions rather than metric analysis, such as the
+    freeze-exposure snapshot scan.
+    """
+    criteria = normalize_to_exposure_criteria(exposure_criteria)
+    exposure_config = criteria.exposure_config if criteria else None
+    return [
+        *_build_event_filters(exposure_config, team, feature_flag_key),
+        *_build_property_filters(exposure_config, team),
+    ]
+
+
 def build_common_exposure_conditions(
     feature_flag_variant_property: str,
     variants: list[str],
@@ -268,7 +295,6 @@ def build_common_exposure_conditions(
         feature_flag_key: Feature flag key (required for $feature_flag_called events)
     """
     criteria = normalize_to_exposure_criteria(exposure_criteria)
-    exposure_config = criteria.exposure_config if criteria else None
 
     return [
         # Date range filters
@@ -290,10 +316,8 @@ def build_common_exposure_conditions(
         ),
         # Test accounts filter
         *get_test_accounts_filter(team, criteria),
-        # Event/action filters
-        *_build_event_filters(exposure_config, team, feature_flag_key),
-        # Property filters
-        *_build_property_filters(exposure_config, team),
+        # Event/action and property filters
+        *build_exposure_event_conditions(criteria, team, feature_flag_key),
     ]
 
 

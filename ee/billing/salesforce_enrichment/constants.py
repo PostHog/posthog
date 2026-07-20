@@ -2,6 +2,7 @@ REDIS_TTL_SECONDS: int = 12 * 60 * 60  # 12h
 SALESFORCE_ACCOUNTS_CACHE_KEY: str = "salesforce-enrichment:global:all_accounts"
 SALESFORCE_ORG_MAPPINGS_CACHE_KEY: str = "salesforce-enrichment:global:org_mappings"
 SALESFORCE_STRIPE_ENRICHMENT_WATERMARK_KEY: str = "salesforce-enrichment:stripe:last_watermark"
+ORG_MAPPINGS_CACHE_MISSING_ERROR_TYPE: str = "OrgMappingsCacheMissing"
 HARMONIC_BASE_URL: str = "https://api.harmonic.ai"
 YC_INVESTOR_NAME: str = "y combinator"
 HARMONIC_DEFAULT_MAX_CONCURRENT_REQUESTS: int = 5  # rate limit: 10/s
@@ -144,6 +145,17 @@ STRIPE_ENRICHMENT_FIELD_MAPPINGS: dict[str, str] = {
     "address_state": "BillingState",
     "address_postal_code": "BillingPostalCode",
     "address_country": "BillingCountry",
+}
+
+CONVERSATIONS_SLACK_ENRICHMENT_BATCH_SIZE: int = 100
+
+
+CONVERSATIONS_SLACK_FIELD_MAPPINGS: dict[str, str] = {
+    "slack_channel_url": "Slack_Channel__c",
+    "slack_issue_count": "slack_issue_count__c",
+    "slack_user_count": "slack_user_count__c",
+    "last_slack_activity": "last_slack_activity__c",
+    "most_recent_support_ticket_url": "Most_Recent_Support_Ticket__c",
 }
 
 PERSONAL_EMAIL_DOMAINS = {

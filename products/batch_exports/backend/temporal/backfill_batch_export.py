@@ -45,6 +45,11 @@ from products.batch_exports.backend.service import (
 from products.batch_exports.backend.temporal.metrics import log_query_duration
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.temporal.spmc import compose_filters_clause
+from products.batch_exports.backend.temporal.workflow_metadata import (
+    WorkflowDetails,
+    build_logs_link,
+    build_team_admin_link,
+)
 
 LOGGER = get_write_only_logger(__name__)
 
@@ -768,6 +773,9 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
                     task_timeout=schedule_action.task_timeout,
                     id_reuse_policy=temporalio.common.WorkflowIDReusePolicy.ALLOW_DUPLICATE,
                     search_attributes=temporalio.common.TypedSearchAttributes(search_attributes=search_attributes),
+                    # casts required to satisfy type checking
+                    static_summary=typing.cast(str | None, schedule_action.static_summary),
+                    static_details=typing.cast(str | None, schedule_action.static_details),
                 )
             except temporalio.exceptions.WorkflowAlreadyStartedError:
                 workflow_handle = client.get_workflow_handle(f"{description.id}-{backfill_end_at:%Y-%m-%dT%H:%M:%S}Z")
@@ -879,6 +887,12 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
         )
         logger = LOGGER.bind()
 
+        base_details = WorkflowDetails(footer=build_logs_link(temporalio.workflow.info().workflow_id)).add(
+            "Team", build_team_admin_link(inputs.team_id)
+        )
+        backfill_range = f"`{inputs.start_at or 'earliest'}` → `{inputs.end_at or 'realtime'}`"
+        temporalio.workflow.set_current_details(base_details.text(f"Backfilling {backfill_range}").render())
+
         # Step 1: Create backfill model with STARTING status
         backfill_id = await temporalio.workflow.execute_activity(
             create_batch_export_backfill_model,
@@ -927,6 +941,15 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
             update_inputs.estimated_records_count = backfill_info.total_records_count
             # If estimated count is 0, complete early; if None (sessions/other models), proceed normally
             should_complete_early = backfill_info.total_records_count == 0
+
+            if backfill_info.adjusted_start_at is not None and backfill_info.adjusted_start_at != inputs.start_at:
+                backfill_range = f"`{backfill_info.adjusted_start_at}` → `{inputs.end_at or 'realtime'}`"
+            if backfill_info.total_records_count is not None:
+                temporalio.workflow.set_current_details(
+                    base_details.text(f"Backfilling {backfill_range}")
+                    .add("Estimated records", backfill_info.total_records_count)
+                    .render()
+                )
 
             await temporalio.workflow.execute_activity(
                 update_batch_export_backfill_model,
@@ -1014,6 +1037,13 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
             raise
 
         finally:
+            temporalio.workflow.set_current_details(
+                base_details.add("Range", backfill_range)
+                .add("Status", update_inputs.status)
+                .code_block("Error", update_inputs.latest_error)
+                .render()
+            )
+
             if not completed_early:
                 await temporalio.workflow.execute_activity(
                     update_batch_export_backfill_model,

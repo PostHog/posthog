@@ -1,10 +1,10 @@
 import { OVERFLOW_OUTPUT, OverflowOutput } from '~/common/outputs'
 import { COOKIELESS_SENTINEL_VALUE } from '~/ingestion/common/cookieless/cookieless-manager'
-import { PipelineResult, ok, redirect } from '~/ingestion/framework/results'
 import {
     OverflowEventBatch,
     OverflowRedirectService,
-} from '~/ingestion/utils/overflow-redirect/overflow-redirect-service'
+} from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
+import { PipelineResult, ok, redirect } from '~/ingestion/framework/results'
 import { EventHeaders, PipelineEvent } from '~/types'
 
 // `headers.distinct_id` is set by capture from Kafka headers and is never mutated by the

@@ -24,6 +24,25 @@ DEFAULT_PAGE_SIZE = 1000
 REQUEST_TIMEOUT = 60
 MAX_RETRY_ATTEMPTS = 5
 
+SERVICENOW_API_VERSION_V1 = "v1"
+SERVICENOW_API_VERSION_V2 = "v2"
+
+# ServiceNow's Table API is reachable both versionless (`/api/now/table`) and pinned
+# (`/api/now/v2/table`). `v1` keeps the versionless path it has always used so existing
+# syncs stay byte-for-byte unchanged; `v2` targets the explicit v2 endpoint. With
+# `sysparm_display_value=false` and `sysparm_exclude_reference_link=true` the row shapes
+# are identical across versions, so only the URL segment differs.
+_TABLE_API_PATHS = {
+    SERVICENOW_API_VERSION_V1: "api/now/table",
+    SERVICENOW_API_VERSION_V2: "api/now/v2/table",
+}
+
+
+def _table_api_url(base_url: str, table: str, api_version: str) -> str:
+    # An unrecognized pin falls back to the versionless path — the most conservative choice.
+    path = _TABLE_API_PATHS.get(api_version, _TABLE_API_PATHS[SERVICENOW_API_VERSION_V1])
+    return f"{base_url}/{path}/{table}"
+
 
 class ServiceNowRetryableError(Exception):
     pass
@@ -186,6 +205,7 @@ def get_rows(
     auth: ServiceNowAuth,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[ServiceNowResumeConfig],
+    api_version: str,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
     incremental_field: str | None = None,
@@ -204,7 +224,7 @@ def get_rows(
         sort_field = "sys_created_on"
 
     query = build_sysparm_query(cursor_field, last_value, sort_field)
-    url = f"{base_url}/api/now/table/{table}"
+    url = _table_api_url(base_url, table, api_version)
 
     # One session for the whole paginated fetch so the TCP/TLS connection is reused
     # across pages. Disable urllib3-level retries — `tenacity` below is the single
@@ -280,6 +300,7 @@ def servicenow_source(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[ServiceNowResumeConfig],
     team_id: int,
+    api_version: str = SERVICENOW_API_VERSION_V1,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
@@ -295,6 +316,7 @@ def servicenow_source(
             auth=auth,
             logger=logger,
             resumable_source_manager=resumable_source_manager,
+            api_version=api_version,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
             incremental_field=incremental_field,

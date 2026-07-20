@@ -219,6 +219,21 @@ mod tests {
     }
 
     #[test]
+    fn test_completed_beyond_outstanding_is_noop() {
+        // A spurious extra completion (e.g. a double resolve for the same key)
+        // must be a no-op — not an underflow that would leave the key
+        // "deferring" forever and stall it permanently.
+        let mut stash = Stash::new();
+        stash.defer("batch-1", group("t:a", 1));
+
+        stash.completed("t:a");
+        assert!(!stash.is_deferring("t:a"));
+
+        stash.completed("t:a");
+        assert!(!stash.is_deferring("t:a"));
+    }
+
+    #[test]
     fn test_take_unknown_batch_is_empty() {
         let mut stash = Stash::new();
         assert!(stash.take_batch("nope").is_empty());

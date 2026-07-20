@@ -39,6 +39,30 @@ DATA_MODELING_DUCKGRES_SHADOW_SCHEMA_PREFIX = "shadow"
 
 logger = logging.getLogger(__name__)
 
+# Managed-warehouse buckets live in the deployment's home region: us-east-1 for
+# PostHog Cloud US, eu-central-1 for PostHog Cloud EU.
+_BUCKET_REGION_BY_CLOUD_DEPLOYMENT: dict[str, str] = {
+    "US": "us-east-1",
+    "EU": "eu-central-1",
+}
+
+
+def default_bucket_region() -> str:
+    """Deployment-default S3 region for managed-warehouse buckets.
+
+    Prefers the CLOUD_DEPLOYMENT Django setting, falling back to the same-named
+    environment variable so CLI tools work without Django configured. us-east-1
+    remains the default for US, dev, and self-hosted setups.
+    """
+    try:
+        from django.conf import settings
+
+        deployment = getattr(settings, "CLOUD_DEPLOYMENT", None)
+    except Exception:
+        deployment = os.environ.get("CLOUD_DEPLOYMENT")
+    return _BUCKET_REGION_BY_CLOUD_DEPLOYMENT.get((deployment or "").upper(), "us-east-1")
+
+
 DEFAULTS: dict[str, str] = {
     "DUCKLAKE_RDS_HOST": "localhost",
     "DUCKLAKE_RDS_PORT": "5432",
@@ -46,7 +70,9 @@ DEFAULTS: dict[str, str] = {
     "DUCKLAKE_RDS_USERNAME": "posthog",
     "DUCKLAKE_RDS_PASSWORD": "posthog",
     "DUCKLAKE_BUCKET": "ducklake-dev",
-    "DUCKLAKE_BUCKET_REGION": "us-east-1",
+    # Frozen at import time: depends on the CLOUD_DEPLOYMENT env var being set before
+    # process start (override_settings cannot affect it).
+    "DUCKLAKE_BUCKET_REGION": default_bucket_region(),
     # Optional: S3 credentials for local dev (production uses IRSA)
     "DUCKLAKE_S3_ACCESS_KEY": "",
     "DUCKLAKE_S3_SECRET_KEY": "",
@@ -222,8 +248,11 @@ def upsert_duckgres_server_for_org(
 # Production code reads it from there (persisted on DuckgresServer.bucket, self-healed from
 # warehouse status) — it is never re-derived, because a local re-derivation drifted from the
 # Crossplane composition (UUID hyphen-compaction + the mw- env suffix) and named buckets
-# that don't exist. The region is fixed for the single managed-warehouse deployment.
-DUCKGRES_BUCKET_REGION = "us-east-1"
+# that don't exist. The region follows the cloud deployment: each managed warehouse
+# lives in its deployment's home region (see default_bucket_region).
+# Frozen at import time: depends on the CLOUD_DEPLOYMENT env var being set before
+# process start (override_settings cannot affect it).
+DUCKGRES_BUCKET_REGION = default_bucket_region()
 
 
 def get_ducklake_connection_string(config: dict[str, str] | None = None) -> str:
@@ -627,6 +656,7 @@ def get_team_backfill_state(team_id: int) -> dict[str, object]:
 __all__ = [
     "DucklingBackfillEnableError",
     "attach_catalog",
+    "default_bucket_region",
     "duckgres_data_imports_schema",
     "duckgres_data_imports_table_name",
     "duckgres_data_modeling_schema",

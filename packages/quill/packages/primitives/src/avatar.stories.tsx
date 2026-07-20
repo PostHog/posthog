@@ -49,6 +49,10 @@ export const Sizes: Story = {
                 <AvatarImage src={FACES[1]} alt="Grace Hopper" />
                 <AvatarFallback>GH</AvatarFallback>
             </Avatar>
+            <Avatar size="lg">
+                <AvatarImage src={FACES[1]} alt="Grace Hopper" />
+                <AvatarFallback>GH</AvatarFallback>
+            </Avatar>
         </div>
     ),
 } satisfies Story

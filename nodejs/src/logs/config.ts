@@ -50,6 +50,12 @@ export type LogsIngestionConsumerConfig = {
     LOGS_SAMPLING_ENABLED_TEAMS: string
     /** When `true`, sampling always keeps every record (metrics path may still run). */
     LOGS_SAMPLING_KILLSWITCH: boolean
+    /** Comma-separated team IDs, or `*` for all teams, or empty to disable metric-rule evaluation entirely. */
+    LOGS_METRICS_RULES_ENABLED_TEAMS: string
+    /** When `true`, metric-rule evaluation and emission are skipped for every team. */
+    LOGS_METRICS_RULES_KILLSWITCH: boolean
+    /** capture-logs OTLP metrics endpoint (e.g. `http://capture-logs:3308/i/v1/metrics`); empty disables emission. */
+    LOGS_METRICS_RULES_EXPORT_URL: string
     /**
      * When `true`, rows removed by drop rules are credited back to the billed usage metrics
      * (`bytes_ingested` / `records_ingested`). When `false` (default), the credit is only
@@ -83,6 +89,9 @@ export function getDefaultLogsIngestionConsumerConfig(): LogsIngestionConsumerCo
         LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: '',
         LOGS_SAMPLING_ENABLED_TEAMS: '*',
         LOGS_SAMPLING_KILLSWITCH: false,
+        LOGS_METRICS_RULES_ENABLED_TEAMS: isProdEnv() ? '' : '*',
+        LOGS_METRICS_RULES_KILLSWITCH: false,
+        LOGS_METRICS_RULES_EXPORT_URL: '',
         LOGS_BILLING_PRORATE_ENABLED: false,
         // Overlapping fields with CommonConfig, included for standalone usage
         // ok to connect to localhost over plaintext

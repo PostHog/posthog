@@ -35,6 +35,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DelightedSource(ResumableSource[DelightedSourceConfig, DelightedResumeConfig]):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://app.delighted.com/docs/api"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -45,6 +49,10 @@ class DelightedSource(ResumableSource[DelightedSourceConfig, DelightedResumeConf
         return {
             "401 Client Error: Unauthorized for url: https://api.delighted.com": "Delighted authentication failed. Please check your API key.",
             "403 Client Error: Forbidden for url: https://api.delighted.com": "Delighted denied access. Please check that your API key has access to this project.",
+            # 410 Gone means the endpoint has been permanently retired — no amount of retrying will
+            # bring it back. Match the host prefix, not the per-request path/`since`, so it covers
+            # every endpoint the retired API answers this way.
+            "410 Client Error: Gone for url: https://api.delighted.com": "The Delighted API is no longer available. Delighted has permanently retired this API, so this source can no longer sync data.",
         }
 
     @property

@@ -306,6 +306,89 @@ describe('createQueryWrapper output_format handling', () => {
     })
 })
 
+describe('createQueryWrapper filterTestAccounts project default', () => {
+    // Mirrors the generated wrapper schemas: most default `filterTestAccounts`
+    // to false (which the factory must strip so omission can follow the project
+    // setting), AssistantTracesQuery to true (an intentional stricter default
+    // the factory must keep).
+    function makeSchema(schemaDefault: boolean): z.ZodObject<z.ZodRawShape> {
+        return z.object({
+            series: z.array(z.object({ kind: z.string(), event: z.string() })),
+            filterTestAccounts: z.coerce
+                .boolean()
+                .describe('Exclude internal and test users by applying the respective filters')
+                .default(schemaDefault)
+                .optional(),
+        })
+    }
+    const series = [{ kind: 'EventsNode', event: '$pageview' }]
+
+    function createMockContext(
+        runQuery: ReturnType<typeof vi.fn>,
+        testAccountFiltersDefaultChecked: boolean | undefined
+    ): Context {
+        return {
+            api: {
+                query: vi.fn().mockReturnValue({ runQuery }),
+                getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
+            },
+            stateManager: {
+                getProjectId: vi.fn().mockResolvedValue('1'),
+                getCachedOrFetchProject: vi
+                    .fn()
+                    .mockResolvedValue({ test_account_filters_default_checked: testAccountFiltersDefaultChecked }),
+            },
+        } as unknown as Context
+    }
+
+    it.each([
+        ['omitted follows a checked project default', false, {}, true, true],
+        ['omitted stays unset when the project default is unchecked', false, {}, false, undefined],
+        ['explicit false wins over a checked project default', false, { filterTestAccounts: false }, true, false],
+        ['explicit true wins over an unchecked project default', false, { filterTestAccounts: true }, false, true],
+        ['an intentional true schema default survives an unchecked project default', true, {}, false, true],
+        [
+            'explicit false wins over an intentional true schema default',
+            true,
+            { filterTestAccounts: false },
+            true,
+            false,
+        ],
+    ] as const)('%s', async (_name, schemaDefault, inputExtra, projectDefault, expected) => {
+        const runQuery = vi.fn().mockResolvedValue({ results: [] })
+        const context = createMockContext(runQuery, projectDefault)
+        const tool = createQueryWrapper({ name: 'test', schema: makeSchema(schemaDefault), kind: 'TrendsQuery' })()
+
+        // Validate through the tool's advertised schema first, exactly like the
+        // executor does — this is where a hard default would clobber omission.
+        await tool.handler(context, tool.schema.parse({ series, ...inputExtra }))
+
+        expect(runQuery.mock.calls[0]![0].query.filterTestAccounts).toBe(expected)
+    })
+
+    it.each(['false', 'true'])('rejects the string %j rather than coercing it to a boolean', (stringValue) => {
+        const tool = createQueryWrapper({ name: 'test', schema: makeSchema(false), kind: 'TrendsQuery' })()
+
+        // The generated schemas use z.coerce.boolean(), which would turn "false"
+        // into true; the stripped replacement must be a strict boolean so a
+        // malformed value is rejected instead of silently flipping filtering.
+        expect(tool.schema.safeParse({ series, filterTestAccounts: stringValue }).success).toBe(false)
+    })
+
+    it('does not inject the field into schemas that lack it', async () => {
+        const runQuery = vi.fn().mockResolvedValue({ results: [] })
+        const context = createMockContext(runQuery, true)
+        const schemaWithoutFilter = z.object({
+            series: z.array(z.object({ kind: z.string(), event: z.string() })),
+        })
+        const tool = createQueryWrapper({ name: 'test', schema: schemaWithoutFilter, kind: 'WebOverviewQuery' })()
+
+        await tool.handler(context, tool.schema.parse({ series }))
+
+        expect(runQuery.mock.calls[0]![0].query).not.toHaveProperty('filterTestAccounts')
+    })
+})
+
 describe('createQueryWrapper actors dispatch', () => {
     function createMockContext(): Context {
         return {
@@ -333,5 +416,44 @@ describe('createQueryWrapper actors dispatch', () => {
         await expect(tool.handler(context, { source: { kind: 'FunnelCorrelationQuery' } })).rejects.toThrow(
             'Unsupported source kind for actors query: FunnelCorrelationQuery'
         )
+    })
+})
+
+describe('createQueryWrapper warnings', () => {
+    const schema = z.object({ kind: z.string() })
+
+    function contextWithRunQuery(data: Record<string, unknown>): Context {
+        return {
+            api: {
+                query: vi.fn().mockReturnValue({ runQuery: vi.fn().mockResolvedValue(data) }),
+                getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
+            },
+            stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
+        } as unknown as Context
+    }
+
+    it('forwards warnings so an access-filtered result is not mistaken for the full set', async () => {
+        const warnings = [
+            {
+                type: 'access_control',
+                resources: ['dashboard'],
+                message: "Results may exclude dashboards you don't have access to",
+            },
+        ]
+        const tool = createQueryWrapper({ name: 'test', schema, kind: 'HogQLQuery' })()
+
+        const result = (await tool.handler(contextWithRunQuery({ results: [], warnings }), {
+            kind: 'HogQLQuery',
+        })) as any
+
+        expect(result.warnings).toEqual(warnings)
+    })
+
+    it('omits the key when there are no warnings', async () => {
+        const tool = createQueryWrapper({ name: 'test', schema, kind: 'HogQLQuery' })()
+
+        const result = (await tool.handler(contextWithRunQuery({ results: [] }), { kind: 'HogQLQuery' })) as any
+
+        expect(result).not.toHaveProperty('warnings')
     })
 })

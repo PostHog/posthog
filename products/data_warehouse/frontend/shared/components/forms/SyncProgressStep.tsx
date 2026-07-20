@@ -184,6 +184,12 @@ export const SyncProgressStep = (): JSX.Element => {
                 )
             }
         >
+            {!isDirectQuerySource && (
+                <p className="text-sm text-secondary mb-4">
+                    Your synced tables live in the data warehouse. Query them from the SQL editor; they won't appear in
+                    the events or Activity feed.
+                </p>
+            )}
             {schemasWithErrors.length > 0 && (
                 <LemonBanner type="warning" className="mb-4">
                     <p className="font-semibold mb-1">

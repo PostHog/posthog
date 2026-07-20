@@ -423,5 +423,7 @@ Scope: `namespace=~"ingestion-.*"`, `pod=~"ingestion-.*"` (or `namespace="clickh
 
 See [references/investigation-playbooks.md](./references/investigation-playbooks.md)
 for step-by-step workflows covering: health checks, event drops, latency, consumer lag,
-person processing, Kafka/MSK issues, Redis, Postgres, session replay, ClickHouse
-downstream health, and cross-environment comparison.
+person processing (including the pganalyze query-level view of the persons DB),
+Kafka/MSK issues, Redis, Postgres, session replay, ClickHouse downstream health,
+single-partition lag (keyed-cost diagnosis, handing off to the `querying-tophog`
+skill for actor identification), and cross-environment comparison.

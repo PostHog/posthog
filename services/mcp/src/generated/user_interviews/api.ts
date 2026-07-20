@@ -489,7 +489,7 @@ export const UserInterviewsSearchCreateBody = /* @__PURE__ */ zod.object({
             'Which document types to search across. Omit to default to both `transcript` and `summary`. Pass a non-empty subset to restrict the search.'
         ),
     topic_id: zod
-        .uuid()
+        .string()
         .nullish()
         .describe('Optional. Restrict results to interviews belonging to a specific UserInterviewTopic.'),
     classifications: zod

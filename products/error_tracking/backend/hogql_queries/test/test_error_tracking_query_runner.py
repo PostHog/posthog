@@ -190,7 +190,10 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
                 team=self.team,
                 query=ErrorTrackingQuery(
                     kind="ErrorTrackingQuery",
-                    dateRange=DateRange() if dateRange is None else dateRange,
+                    # Fixtures span back to 2020; request all-time so these correctness tests
+                    # see them regardless of the production default window (covered by the
+                    # parse_relative_date_from unit tests below).
+                    dateRange=DateRange(date_from="all") if dateRange is None else dateRange,
                     assignee=assignee,
                     issueId=issueId,
                     filterTestAccounts=filterTestAccounts,
@@ -317,6 +320,26 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         self.assertFalse(runner.query.withFirstEvent)
         self.assertFalse(runner.query.withLastEvent)
         self.assertTrue(runner.query.withAggregations)
+
+    @freeze_time("2022-01-10T12:11:00")
+    def test_missing_date_from_defaults_to_seven_days(self):
+        # A missing date_from must default to a bounded 7-day window, not all-time.
+        date_from = ErrorTrackingQueryRunner.parse_relative_date_from(None)
+        self.assertEqual(date_from, datetime(2022, 1, 3, 12, 11, 0, tzinfo=ZoneInfo(key="UTC")))
+
+    @freeze_time("2022-01-10T12:11:00")
+    def test_date_to_only_window_ends_at_date_to(self):
+        # date_to-only queries must anchor the default window to date_to, not to now.
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                dateRange=DateRange(date_to="2021-06-01"),
+                orderBy="last_seen",  # pyright: ignore[reportArgumentType]
+                volumeResolution=1,
+            ),
+        )
+        self.assertEqual(runner.date_from, runner.date_to - timedelta(days=7))
 
     @freeze_time("2022-01-10T12:11:00")
     @snapshot_clickhouse_queries
@@ -905,6 +928,21 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         ## Make sure occurrences are correct
         first_aggregations = results[0]["aggregations"]
         self.assertEqual(first_aggregations["volumeRange"], [0, 1, 0])
+
+    @freeze_time("2020-01-12")
+    def test_volume_aggregation_counts_only(self):
+        # Regression test: volumeResolution=0 (counts only) used to build
+        # intDiv(..., 0) bin expressions and fail with an illegal division.
+        results = self._calculate(
+            volumeResolution=0, dateRange=DateRange(date_from="2020-01-10", date_to="2020-01-11"), withAggregations=True
+        )["results"]
+        self.assertEqual(len(results), 3)
+
+        for result in results:
+            aggregations = result["aggregations"]
+            self.assertIsNone(aggregations["volumeRange"])
+            self.assertEqual(aggregations["volume_buckets"], [])
+            self.assertGreaterEqual(aggregations["occurrences"], 1)
 
     @freeze_time("2025-05-05")
     @snapshot_clickhouse_queries

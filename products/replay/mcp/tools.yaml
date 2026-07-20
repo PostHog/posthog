@@ -18,6 +18,23 @@ tools:
     create-session-summaries-individually:
         operation: create_session_summaries_individually
         enabled: false
+    session-recording-bulk-delete:
+        operation: session_recordings_bulk_delete_create
+        enabled: true
+        scopes:
+            - session_recording:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Bulk delete session recordings
+        description: >
+            Delete a batch of session recordings by session ID, up to 100 per call. Deletion is permanent and cannot be
+            undone — confirm with the user before deleting. Prefer this over `session-recording-delete` whenever more
+            than one recording needs deleting: find the target IDs with `query-session-recordings-list`, then delete in
+            batches. Pass `date_from` (e.g. '-30d') when the recordings' age is known — it makes the lookup much faster.
+            IDs with no matching recording are skipped, so a `deleted_count` below `total_requested` is normal when some
+            recordings were already deleted or never existed.
     session-recording-delete:
         operation: session_recordings_destroy
         enabled: true
@@ -30,7 +47,8 @@ tools:
         title: Delete session recording
         description: >
             Delete a session recording by ID. This permanently removes the recording data. Use for privacy or compliance
-            workflows.
+            workflows. To delete more than one recording, use `session-recording-bulk-delete` instead of calling this
+            repeatedly.
     session-recording-get:
         operation: session_recordings_retrieve
         enabled: true
@@ -44,18 +62,22 @@ tools:
         title: Get session recording
         description: >
             Get a specific session recording by ID. Returns full recording metadata including duration, interaction
-            counts, console log counts, person info, and viewing status. Session recordings are reachable from events,
-            errors, and persons via the `$session_id` property on events. Any `$session_id` value from an event can be
-            passed as the `id` parameter to this tool. Note: a `$session_id` on an event does not guarantee a recording
-            exists — session replay may not be enabled for that project or session. A 404 means no recording was
-            captured. If the user wants to understand what happened without watching the recording, check
-            `vision-observations-list` for an existing Replay Vision AI summary, or run a summarizer scanner via
-            `vision-scanners-scan-session` (see the investigating-replay skill; scanning is slow). If a recording is
-            missing (404) or the user asks why recordings aren't being captured, diagnose with `execute-sql`: query
-            `$recording_status`, `$session_recording_start_reason`, `$replay_sample_rate`, and
+            counts, console log counts, viewing status, and a compact person summary (id, name, distinct IDs). The
+            person's full property bag is not included — use `persons-retrieve` when you need a person's properties.
+            Session recordings are reachable from events, errors, and persons via the `$session_id` property on events.
+            Any `$session_id` value from an event can be passed as the `id` parameter to this tool. Note: a
+            `$session_id` on an event does not guarantee a recording exists — session replay may not be enabled for that
+            project or session. A 404 means no recording was captured. If the user wants to understand what happened
+            without watching the recording, check `vision-observations-list` for an existing Replay Vision AI summary,
+            or run a summarizer scanner via `vision-scanners-scan-session` (see the investigating-replay skill; scanning
+            is slow). If a recording is missing (404) or the user asks why recordings aren't being captured, diagnose
+            with `execute-sql`: query `$recording_status`, `$session_recording_start_reason`, `$replay_sample_rate`, and
             `$sdk_debug_recording_script_not_loaded` from the events table (filter by `$session_id` for a specific
             session, or sample recent events for project-wide issues).
         ui_app: session-recording
+        response:
+            exclude:
+                - person.properties
     session-recording-playlist-create:
         operation: session_recording_playlists_create
         enabled: true

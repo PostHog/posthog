@@ -45,6 +45,7 @@ import {
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsTableQuery,
     MathType,
+    MetricsQuery,
     Node,
     NodeKind,
     NonIntegratedConversionsTableQuery,
@@ -66,6 +67,7 @@ import {
     RevenueExampleEventsQuery,
     SavedInsightNode,
     SessionAttributionExplorerQuery,
+    SessionQuery,
     SessionsQuery,
     StickinessQuery,
     TracesQuery,
@@ -78,7 +80,7 @@ import {
     WebVitalsPathBreakdownQuery,
     WebVitalsQuery,
 } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType, GroupTypeIndex, IntervalType } from '~/types'
+import { BaseMathType, ChartDisplayType, FunnelVizType, GroupTypeIndex, IntervalType } from '~/types'
 
 import { LATEST_VERSIONS } from './latest-versions'
 
@@ -252,6 +254,10 @@ export function isRevenueAnalyticsTopCustomersQuery(
     return node?.kind === NodeKind.RevenueAnalyticsTopCustomersQuery
 }
 
+export function isMetricsQuery(node?: Record<string, any> | null): node is MetricsQuery {
+    return node?.kind === NodeKind.MetricsQuery
+}
+
 export function isEndpointsUsageOverviewQuery(node?: Record<string, any> | null): node is EndpointsUsageOverviewQuery {
     return node?.kind === NodeKind.EndpointsUsageOverviewQuery
 }
@@ -316,6 +322,10 @@ export function isNonIntegratedConversionsTableQuery(
 
 export function isTracesQuery(node?: Record<string, any> | null): node is TracesQuery {
     return node?.kind === NodeKind.TracesQuery
+}
+
+export function isSessionQuery(node?: Record<string, any> | null): node is SessionQuery {
+    return node?.kind === NodeKind.SessionQuery
 }
 
 export function isWebVitalsQuery(node?: Record<string, any> | null): node is WebVitalsQuery {
@@ -439,8 +449,11 @@ export function shouldQueryBeAsync(query: Node): boolean {
         isInsightQueryNode(query) ||
         isHogQLQuery(query) ||
         isTracesQuery(query) ||
-        (isDataTableNode(query) && (isInsightQueryNode(query.source) || isTracesQuery(query.source))) ||
-        (isDataVisualizationNode(query) && (isInsightQueryNode(query.source) || isTracesQuery(query.source)))
+        isSessionQuery(query) ||
+        (isDataTableNode(query) &&
+            (isInsightQueryNode(query.source) || isTracesQuery(query.source) || isSessionQuery(query.source))) ||
+        (isDataVisualizationNode(query) &&
+            (isInsightQueryNode(query.source) || isTracesQuery(query.source) || isSessionQuery(query.source)))
     )
 }
 
@@ -498,6 +511,67 @@ export const getDisplay = (query: InsightQueryNode): ChartDisplayType | undefine
         return query.trendsFilter?.display
     }
     return undefined
+}
+
+// Display types whose viz paints to a <canvas> (Chart.js / quill-charts), which repaints on every resize
+// frame. Everything else renders as DOM/SVG and is cheap to keep mounted while a tile is resized.
+const CANVAS_CHART_DISPLAY_TYPES = new Set<ChartDisplayType>([
+    ChartDisplayType.Auto,
+    ChartDisplayType.ActionsLineGraph,
+    ChartDisplayType.ActionsLineGraphCumulative,
+    ChartDisplayType.ActionsAreaGraph,
+    ChartDisplayType.ActionsBar,
+    ChartDisplayType.ActionsUnstackedBar,
+    ChartDisplayType.ActionsStackedBar,
+    ChartDisplayType.ActionsBarValue,
+    ChartDisplayType.ActionsPie,
+    ChartDisplayType.Metric,
+    ChartDisplayType.BoxPlot,
+    ChartDisplayType.SlopeGraph,
+    ChartDisplayType.TwoDimensionalHeatmap,
+])
+
+type QueryVizCanvasClassification = 'canvas' | 'non-canvas' | 'unknown'
+
+function classifyQueryVizCanvas(query?: Node | null): QueryVizCanvasClassification {
+    if (isDataTableNode(query)) {
+        return 'non-canvas'
+    }
+    if (isDataVisualizationNode(query)) {
+        if (!query.display) {
+            return 'non-canvas'
+        }
+        if (query.display === ChartDisplayType.Auto) {
+            return 'unknown'
+        }
+        return CANVAS_CHART_DISPLAY_TYPES.has(query.display) ? 'canvas' : 'non-canvas'
+    }
+    if (isInsightVizNode(query)) {
+        const source = query.source
+        if (isRetentionQuery(source) || isPathsQuery(source)) {
+            return 'non-canvas'
+        }
+        if (isFunnelsQuery(source)) {
+            // Steps (default) and Trends paint to canvas; Flow (Sankey) is SVG and TimeToConvert is a DOM table.
+            const vizType = source.funnelsFilter?.funnelVizType
+            return vizType !== FunnelVizType.Flow && vizType !== FunnelVizType.TimeToConvert ? 'canvas' : 'non-canvas'
+        }
+        return CANVAS_CHART_DISPLAY_TYPES.has(getDisplay(source) ?? ChartDisplayType.Auto) ? 'canvas' : 'non-canvas'
+    }
+    return 'unknown'
+}
+
+/**
+ * Whether an insight's viz may paint to a <canvas>. Unknown visualizations count as canvas so resize throttling
+ * remains conservative.
+ */
+export function queryVizRendersToCanvas(query?: Node | null): boolean {
+    return classifyQueryVizCanvas(query) !== 'non-canvas'
+}
+
+/** Whether an insight's viz is definitely canvas-backed and safe to unmount when the page is hidden. */
+export function queryVizDefinitelyRendersToCanvas(query?: Node | null): boolean {
+    return classifyQueryVizCanvas(query) === 'canvas'
 }
 
 export const getFormula = (query: InsightQueryNode | null): string | undefined => {
@@ -1033,7 +1107,7 @@ export function setLatestVersionsOnQuery<T = any>(node: T, options?: { recursion
     return cloned as T
 }
 
-/** Checks wether a given query node satisfies all latest versions of the query schema. */
+/** Checks whether a given query node satisfies all latest versions of the query schema. */
 export function checkLatestVersionsOnQuery(node: any): boolean {
     if (node === null || typeof node !== 'object') {
         return true

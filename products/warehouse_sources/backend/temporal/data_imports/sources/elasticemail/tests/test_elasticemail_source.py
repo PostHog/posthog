@@ -30,7 +30,6 @@ class TestSourceConfig:
         config = ElasticemailSource().get_source_config
         assert config.category == DataWarehouseSourceCategory.MARKETING___EMAIL
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.fields is not None
         assert len(config.fields) == 1
         api_key_field = config.fields[0]

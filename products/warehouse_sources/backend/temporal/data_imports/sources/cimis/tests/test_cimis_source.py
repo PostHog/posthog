@@ -25,7 +25,6 @@ class TestCimisSourceConfig:
         config = CimisSource().get_source_config
         assert config.category == DataWarehouseSourceCategory.ANALYTICS
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/cimis"
 
     def test_source_config_fields(self) -> None:

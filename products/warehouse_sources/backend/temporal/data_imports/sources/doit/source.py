@@ -26,6 +26,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DoItSource(SimpleSource[DoItSourceConfig]):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://developer.doit.com"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.DOIT

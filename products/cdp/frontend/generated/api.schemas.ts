@@ -195,7 +195,7 @@ export interface HogFunctionMinimalApi {
     readonly status: HogFunctionStatusApi | null
     /** @nullable */
     readonly execution_order: number | null
-    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type: SearchMatchTypeEnumApi | null
 }
 
@@ -264,6 +264,7 @@ export const HogFunctionTypeEnumApi = {
  * * `choice` - choice
  * * `json` - json
  * * `integration` - integration
+ * * `integration_multi` - integration_multi
  * * `integration_field` - integration_field
  * * `email` - email
  * * `native_email` - native_email
@@ -272,6 +273,7 @@ export const HogFunctionTypeEnumApi = {
  * * `posthog_business_hours` - posthog_business_hours
  * * `non_failure_status_codes` - non_failure_status_codes
  * * `customer_analytics_account_properties` - customer_analytics_account_properties
+ * * `customer_analytics_account_relationships` - customer_analytics_account_relationships
  */
 export type InputsSchemaItemTypeEnumApi = (typeof InputsSchemaItemTypeEnumApi)[keyof typeof InputsSchemaItemTypeEnumApi]
 
@@ -283,6 +285,7 @@ export const InputsSchemaItemTypeEnumApi = {
     Choice: 'choice',
     Json: 'json',
     Integration: 'integration',
+    IntegrationMulti: 'integration_multi',
     IntegrationField: 'integration_field',
     Email: 'email',
     NativeEmail: 'native_email',
@@ -291,6 +294,7 @@ export const InputsSchemaItemTypeEnumApi = {
     PosthogBusinessHours: 'posthog_business_hours',
     NonFailureStatusCodes: 'non_failure_status_codes',
     CustomerAnalyticsAccountProperties: 'customer_analytics_account_properties',
+    CustomerAnalyticsAccountRelationships: 'customer_analytics_account_relationships',
 } as const
 
 export type InputsSchemaItemApiChoicesItem = { [key: string]: unknown }
@@ -444,7 +448,7 @@ export interface HogFunctionApi {
     _create_in_folder?: string
     /** @nullable */
     readonly batch_export_id: string | null
-    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type: SearchMatchTypeEnumApi | null
 }
 
@@ -522,7 +526,7 @@ export interface PatchedHogFunctionApi {
     _create_in_folder?: string
     /** @nullable */
     readonly batch_export_id?: string | null
-    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type?: SearchMatchTypeEnumApi | null
 }
 

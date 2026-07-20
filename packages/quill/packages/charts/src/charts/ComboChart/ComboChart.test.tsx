@@ -67,6 +67,29 @@ describe('ComboChart', () => {
         expect(chart.yRightTicks().length).toBeGreaterThan(0)
     })
 
+    describe('percent barLayout', () => {
+        it('applies a default percent formatter when the consumer omits one', () => {
+            const { chart } = renderHogChart(
+                <ComboChart series={BAR_AND_LINE} labels={LABELS} theme={THEME} config={{ barLayout: 'percent' }} />
+            )
+            expect(chart.yTicks().some((t) => /\d+%/.test(t))).toBe(true)
+        })
+
+        it('renders a custom percent formatter when the consumer supplies one', () => {
+            const formatter = jest.fn((v: number) => `${Math.round(v * 1000) / 10}‰`)
+            const { chart } = renderHogChart(
+                <ComboChart
+                    series={BAR_AND_LINE}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ barLayout: 'percent', yTickFormatter: formatter }}
+                />
+            )
+            expect(formatter).toHaveBeenCalled()
+            expect(chart.yTicks().some((t) => t.endsWith('‰'))).toBe(true)
+        })
+    })
+
     describe('hover & tooltip', () => {
         it('lists every visible series at the hovered x', async () => {
             const { chart } = renderHogChart(<ComboChart series={BAR_AND_LINE} labels={LABELS} theme={THEME} />)
@@ -130,6 +153,30 @@ describe('ComboChart', () => {
             expect(tooltip.series.a.value).toBe(20)
             expect(tooltip.series.b.value).toBe(15)
             expect(tooltip.series.l.value).toBe(60)
+        })
+
+        it('divergingStack keeps negative bar values signed in the tooltip', async () => {
+            // Without divergingStack the negative series is clamped to 0 (no bar, tooltip 0);
+            // with it, the bar stacks below zero and the tooltip must show the raw negative —
+            // not the positive segment height.
+            const series: Series[] = [
+                { key: 'pos', label: 'Pos', data: [40, 60, 50], type: 'bar' },
+                { key: 'neg', label: 'Neg', data: [-20, -30, -10], type: 'bar' },
+                { key: 'l', label: 'L', data: [5, 10, 15], type: 'line' },
+            ]
+            const { chart } = renderHogChart(
+                <ComboChart
+                    series={series}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ barLayout: 'stacked', divergingStack: true }}
+                />
+            )
+            chart.hoverAtIndex(1)
+            const tooltip = await chart.waitForTooltip()
+            expect(tooltip.series.pos.value).toBe(60)
+            expect(tooltip.series.neg.value).toBe(-30)
+            expect(tooltip.series.l.value).toBe(10)
         })
     })
 

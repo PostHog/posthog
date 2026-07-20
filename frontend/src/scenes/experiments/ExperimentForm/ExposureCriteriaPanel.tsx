@@ -12,12 +12,13 @@ import { ExperimentEventExposureConfig, ExperimentExposureCriteria, NodeKind } f
 import type { Experiment, FilterType } from '~/types'
 
 import { SelectableCard } from '../components/SelectableCard'
+import { EXPOSURE_DEFAULT_EVENT } from '../exposureContract'
 import { commonActionFilterProps } from '../Metrics/Selectors'
 import { exposureConfigToFilter, filterToExposureConfig } from '../utils'
 
 const DEFAULT_EXPOSURE_CONFIG: ExperimentEventExposureConfig = {
     kind: NodeKind.ExperimentEventExposureConfig,
-    event: '$feature_flag_called',
+    event: EXPOSURE_DEFAULT_EVENT,
     properties: [],
 }
 
@@ -77,7 +78,7 @@ function ExposureCriteriaFields({
                     title="Default"
                     description={
                         <>
-                            When a <LemonTag>$feature_flag_called</LemonTag> event is recorded, a user is considered{' '}
+                            When a <LemonTag>{EXPOSURE_DEFAULT_EVENT}</LemonTag> event is recorded, a user is considered{' '}
                             <strong>exposed</strong> to the experiment.
                         </>
                     }
@@ -189,7 +190,7 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
                                         <div>
                                             <div>Feature flag is called</div>
                                             <div className="text-xs text-muted font-normal">
-                                                When $feature_flag_called is recorded
+                                                When {EXPOSURE_DEFAULT_EVENT} is recorded
                                             </div>
                                         </div>
                                     ),

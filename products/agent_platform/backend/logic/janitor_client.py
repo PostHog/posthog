@@ -128,6 +128,11 @@ class JanitorClient:
     def delete_tool(self, revision_id: str, tool_id: str) -> dict:
         return self._call("DELETE", f"/revisions/{revision_id}/tools/{tool_id}")
 
+    def dry_run_tool(self, revision_id: str, tool_id: str, body: dict) -> dict:
+        """Single-shot sandbox execution of the persisted compiled.js with
+        synthetic args + mock secrets. `body` carries { args, mock_secrets? }."""
+        return self._call("POST", f"/revisions/{revision_id}/tools/{tool_id}/dry_run", json=body)
+
     def freeze(self, revision_id: str) -> dict:
         return self._call("POST", f"/revisions/{revision_id}/freeze")
 

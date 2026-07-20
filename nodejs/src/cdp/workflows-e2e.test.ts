@@ -23,7 +23,12 @@ import express from 'ultimate-express'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { setupExpressApp } from '~/common/api/router'
-import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '~/common/config/kafka-topics'
+import {
+    KAFKA_APP_METRICS_2,
+    KAFKA_HOG_INVOCATION_RESULTS,
+    KAFKA_LOG_ENTRIES,
+    KAFKA_MESSAGE_ASSETS,
+} from '~/common/config/kafka-topics'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { InternalPersonWithDistinctId, PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
@@ -50,7 +55,13 @@ import { CdpCyclotronWorkerHogFlow } from './consumers/cdp-cyclotron-worker-hogf
 import { CdpDatawarehouseEventsConsumer } from './consumers/cdp-data-warehouse-events.consumer'
 import { CdpEventsConsumer } from './consumers/cdp-events.consumer'
 import { CdpHogflowSubscriptionMatcherConsumer } from './consumers/cdp-hogflow-subscription-matcher.consumer'
-import { CyclotronV2Manager, CyclotronV2Worker } from './services/cyclotron-v2'
+import { createCdpOutputsRegistry } from './outputs/registry'
+import {
+    CyclotronV2Janitor,
+    CyclotronV2Manager,
+    CyclotronV2Worker,
+    JANITOR_POISON_PILL_ERROR_KIND,
+} from './services/cyclotron-v2'
 import {
     HOGFLOW_BATCH_RESOLVE_QUEUE,
     MAX_RESOLVER_ATTEMPTS,
@@ -62,12 +73,29 @@ import { CyclotronJobQueuePostgres } from './services/job-queue/job-queue-postgr
 import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
 import { CyclotronJobQueueRateLimitedPostgresV2 } from './services/job-queue/job-queue-rate-limited-postgres-v2'
 import { JobQueue } from './services/job-queue/job-queue.interface'
+import { HogInvocationResultsService } from './services/monitoring/hog-invocation-results.service'
 import { RateLimiterService } from './services/rate-limiter/rate-limiter.service'
 import { HogFunctionInvocationGlobals } from './types'
 import { convertBatchHogFlowRequestToHogFunctionInvocationGlobals } from './utils'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
 
 const ActualKafkaProducerWrapper = jest.requireActual('~/common/kafka/producer').KafkaProducerWrapper
+
+// DNS is mocked (like fetch) because EmailValidationService's MX lookups are a real
+// network boundary: validation is fail-open, so a CI resolver hiccup would silently
+// turn a "skipped hard bounce" assertion into a sent email — a guaranteed flake.
+// Implementations are domain-aware and set in the email-queue block's beforeEach.
+const mockDnsResolveMx = jest.fn()
+const mockDnsResolve4 = jest.fn()
+const mockDnsResolve6 = jest.fn()
+
+jest.mock('node:dns/promises', () => ({
+    Resolver: jest.fn().mockImplementation(() => ({
+        resolveMx: mockDnsResolveMx,
+        resolve4: mockDnsResolve4,
+        resolve6: mockDnsResolve6,
+    })),
+}))
 
 // Use the same env vars as config.ts (lines 221-229) so cleanup pools and hub target the same DBs
 const CYCLOTRON_NODE_DB_URL =
@@ -287,8 +315,8 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
 
     /**
      * Construct and enqueue a batch-shaped CyclotronJobInvocation directly, mimicking what
-     * CdpBatchHogFlowRequestsConsumer.createHogFlowInvocation would produce. Skips the
-     * blast-radius API call so tests don't need to stand up the Django side.
+     * the batch resolver's buildHogFlowInvocation would produce. Skips the blast-radius API
+     * call so tests don't need to stand up the Django side.
      */
     async function triggerBatchWorkflow(hogFlow: HogFlow, personUuid: string): Promise<void> {
         const invocationGlobals = convertBatchHogFlowRequestToHogFunctionInvocationGlobals({
@@ -360,6 +388,13 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
     // bytecode (op 29). Unlike an events entry, the executor evaluates the condition on entry, so
     // without the guard this fires the wait immediately. Mirrors the serializer's compiled shape.
     const emptyConditionFilters = () => ({ bytecode: ['_H', 1, 29], properties: [] })
+    // A wait CONDITION on a person property: `person.properties[key] == value`. Mirrors the bytecode
+    // Django compiles for a single person-property equality filter. Used to prove that a person
+    // mutation (no analytics event) can satisfy a parked condition wait.
+    const personPropertyConditionFilters = (key: string, value: string): any => ({
+        bytecode: ['_H', 1, 32, value, 32, key, 32, 'properties', 32, 'person', 1, 3, 11],
+        properties: [{ key, value, type: 'person', operator: 'exact' }],
+    })
 
     describe('simple workflow: trigger → function → exit', () => {
         beforeEach(async () => {
@@ -549,6 +584,168 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
 
             // Function should NOT have been called
             expect(mockFetch).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('live edit while a run is parked (follow-live contract)', () => {
+        // The runs park on a 2m delay so they cannot wake before the edit lands; the tests then
+        // pull the wake forward explicitly (the same scheduled-time update the subscription
+        // matcher performs), so there is no race between the park deadline and the edit.
+
+        /** Wait until a job is parked in the future (a delay/wait step was hit) */
+        async function waitForParkedJob(): Promise<void> {
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                expect(jobs.some((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
+            }, 5000)
+        }
+
+        /** Persist an edited actions/edges graph and bust the worker's config cache, like Django's save + pub/sub would */
+        async function applyLiveEdit(flow: HogFlow): Promise<void> {
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow SET actions = $2, edges = $3, updated_at = NOW() WHERE id = $1`,
+                [flow.id, JSON.stringify(flow.actions), JSON.stringify(flow.edges)],
+                'liveEditHogFlow'
+            )
+            ;(hogflowWorker as any).hogFlowManager.lazyLoader.markForRefresh(flow.id)
+        }
+
+        /** Pull parked jobs' scheduled time forward so the worker picks them up now */
+        async function wakeParkedJobsNow(): Promise<void> {
+            await cyclotronPool.query(
+                `UPDATE cyclotron_jobs SET scheduled = NOW() WHERE ${statusColumn} = 'available' AND scheduled > NOW()`
+            )
+        }
+
+        /** Shorten the flow's delay so the woken run advances instead of re-parking */
+        function shortenDelay(flow: HogFlow, actionId: string): void {
+            const delay = flow.actions.find((a) => a.id === actionId)!
+            ;(delay.config as any).delay_duration = '1s'
+        }
+
+        it('a content edit made while parked on an upstream delay is honored on wake', async () => {
+            const flow = await createWorkflowFlow({
+                actions: {
+                    trigger: trigger(),
+                    delay_1: delayAction('2m'),
+                    function_1: fetchAction('https://example.com/content-v1'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'delay_1', type: 'continue' },
+                    { from: 'delay_1', to: 'function_1', type: 'continue' },
+                    { from: 'function_1', to: 'exit', type: 'continue' },
+                ],
+            })
+            await triggerWorkflow(createGlobals())
+            await waitForParkedJob()
+
+            const functionAction = flow.actions.find((a) => a.id === 'function_1')!
+            ;(functionAction.config as any).inputs.url.value = 'https://example.com/content-v2'
+            shortenDelay(flow, 'delay_1')
+            await applyLiveEdit(flow)
+            await wakeParkedJobsNow()
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/content-v2', expect.anything())
+        })
+
+        it("rerouting the parked step's edge does not re-run earlier steps or run the old target", async () => {
+            const flow = await createWorkflowFlow({
+                actions: {
+                    trigger: trigger(),
+                    function_a: fetchAction('https://example.com/step-a'),
+                    delay_1: delayAction('2m'),
+                    function_b: fetchAction('https://example.com/step-b'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'function_a', type: 'continue' },
+                    { from: 'function_a', to: 'delay_1', type: 'continue' },
+                    { from: 'delay_1', to: 'function_b', type: 'continue' },
+                    { from: 'function_b', to: 'exit', type: 'continue' },
+                ],
+            })
+            await triggerWorkflow(createGlobals())
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledWith('https://example.com/step-a', expect.anything())
+            }, 10000)
+            await waitForParkedJob()
+
+            // Reroute the delay's continue edge onto a newly added step
+            const functionB = flow.actions.find((a) => a.id === 'function_b')!
+            flow.actions.push({
+                ...functionB,
+                id: 'function_c',
+                config: {
+                    ...(functionB.config as any),
+                    inputs: { url: { value: 'https://example.com/step-c' }, method: { value: 'POST' } },
+                },
+            })
+            flow.edges = [
+                { from: 'trigger', to: 'function_a', type: 'continue' },
+                { from: 'function_a', to: 'delay_1', type: 'continue' },
+                { from: 'delay_1', to: 'function_c', type: 'continue' },
+                { from: 'function_c', to: 'exit', type: 'continue' },
+            ]
+            shortenDelay(flow, 'delay_1')
+            await applyLiveEdit(flow)
+            await wakeParkedJobsNow()
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledWith('https://example.com/step-c', expect.anything())
+            }, 10000)
+
+            // Exactly one send per executed step: the step behind the run did not re-run, the old
+            // target never ran, the new target ran once
+            const urls = mockFetch.mock.calls.map((call) => call[0])
+            expect(urls.filter((u) => u === 'https://example.com/step-a')).toHaveLength(1)
+            expect(urls.filter((u) => u === 'https://example.com/step-b')).toHaveLength(0)
+            expect(urls.filter((u) => u === 'https://example.com/step-c')).toHaveLength(1)
+        })
+
+        it('deleting the step a run is parked on exits the run gracefully on wake', async () => {
+            const flow = await createWorkflowFlow({
+                actions: {
+                    trigger: trigger(),
+                    delay_1: delayAction('2m'),
+                    function_1: fetchAction('https://example.com/should-not-fire'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'delay_1', type: 'continue' },
+                    { from: 'delay_1', to: 'function_1', type: 'continue' },
+                    { from: 'function_1', to: 'exit', type: 'continue' },
+                ],
+            })
+            await triggerWorkflow(createGlobals())
+            await waitForParkedJob()
+
+            flow.actions = flow.actions.filter((a) => a.id !== 'delay_1')
+            flow.edges = [
+                { from: 'trigger', to: 'function_1', type: 'continue' },
+                { from: 'function_1', to: 'exit', type: 'continue' },
+            ]
+            await applyLiveEdit(flow)
+            await wakeParkedJobsNow()
+
+            // The parked run wakes, finds its step gone, and finishes as a deliberate exit
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                expect(jobs.filter((j: any) => j.status === 'completed')).toHaveLength(1)
+            }, 10000)
+            expect(mockFetch).not.toHaveBeenCalled()
+
+            await waitForExpect(() => {
+                const metricNames = mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .map((m: any) => m.value.metric_name)
+                expect(metricNames).toContain('exited_workflow_changed')
+                expect(metricNames).not.toContain('failed')
+            }, 5000)
         })
     })
 
@@ -1007,6 +1204,103 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             }, 10000)
             // Exited on conversion — the after-delay step never ran.
             expect(mockFetch).not.toHaveBeenCalled()
+        })
+
+        it('wakes a parked condition wait on a person-property change with no analytics event', async () => {
+            // The core of removing the 10-minute poll: a property change that produces no analytics
+            // event (only a clickhouse_person mutation) must still wake the wait. The matcher's
+            // person stream synthesizes a $person_updated globals carrying the new person.properties,
+            // which the wait's property condition then matches.
+            await createWaitUntilWorkflow({
+                // Person-property condition only — never satisfied by the trigger event, so it parks.
+                condition: { filters: personPropertyConditionFilters('plan', 'enterprise') },
+                max_wait_duration: '5m',
+            })
+            // person is not persisted in the job state — the worker re-resolves it from the person store
+            // on dequeue (CyclotronPerson.id = person.uuid). Without a resolvable person the re-parked job
+            // stores person_id = null and the person-stream matcher can never find it. Production resolves
+            // person_id during ingestion before the job parks; mirror that so the parked job carries
+            // person_id = 'uuid' — the same id the clickhouse_person mutation below targets. The resolved
+            // person has no `plan`, so the condition still fails on entry and the job parks as expected.
+            mockPersonRepo.fetchPersonsByDistinctIds.mockResolvedValue([
+                {
+                    id: '1',
+                    uuid: 'uuid',
+                    team_id: team.id,
+                    properties: { email: 'test@posthog.com' },
+                    properties_last_updated_at: {},
+                    properties_last_operation: null,
+                    created_at: DateTime.utc(),
+                    version: 1,
+                    is_identified: true,
+                    is_user_id: null,
+                    last_seen_at: null,
+                    distinct_id: 'distinct_id',
+                },
+            ])
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+
+            // A clickhouse_person mutation for that person — the person now matches `plan=enterprise`.
+            // No analytics event is involved; this comes straight off the person topic.
+            const personMessage = {
+                value: Buffer.from(
+                    JSON.stringify({
+                        id: 'uuid',
+                        team_id: team.id,
+                        properties: JSON.stringify({ email: 'test@posthog.com', plan: 'enterprise' }),
+                        is_deleted: 0,
+                        is_identified: 1,
+                        created_at: '2024-09-03 09:00:00.000',
+                        timestamp: '2024-09-03 09:00:00.000',
+                        version: 2,
+                    })
+                ),
+            }
+            const personGlobals = await matcher._parsePersonBatch([personMessage as any])
+            await matcher.processBatch(personGlobals)
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+        })
+
+        it('wakes a parked wait from a cdp_internal_events signal with no analytics event', async () => {
+            // CDP-generated signals (e.g. $insight_alert_firing) arrive on cdp_internal_events and never
+            // hit the analytics events topic. The matcher parses them via _parseInternalEventsBatch and
+            // wakes parked waits whose "events to wait for" name the signal, matched by distinct_id.
+            await createWaitUntilWorkflow({
+                // Property condition never matches the trigger event, so the job parks until the signal.
+                condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
+                events: [eventNameFilter('$insight_alert_firing')],
+                max_wait_duration: '5m',
+            })
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+
+            // A raw cdp_internal_events message for this person's distinct_id — no analytics event.
+            const internalEventMessage = {
+                value: Buffer.from(
+                    JSON.stringify({
+                        team_id: team.id,
+                        event: {
+                            uuid: new UUIDT().toString(),
+                            event: '$insight_alert_firing',
+                            distinct_id: 'distinct_id',
+                            properties: {},
+                            timestamp: '2024-09-03T09:00:00Z',
+                        },
+                    })
+                ),
+            }
+            const internalGlobals = await matcher._parseInternalEventsBatch([internalEventMessage as any])
+            await matcher.processBatch(internalGlobals)
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
         })
 
         it('counts an event-based conversion exactly once per run even when the event fires repeatedly', async () => {
@@ -1570,6 +1864,102 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             )
         })
     })
+
+    // Heartbeat + janitor is postgres-v2-only. Skipping on the legacy postgres
+    // mode where the heartbeat wrapper is a no-op.
+    if (mode === 'postgres-v2') {
+        describe('heartbeat during long batches', () => {
+            let janitor: CyclotronV2Janitor
+
+            beforeEach(async () => {
+                // Restart the worker with a short heartbeat interval so the
+                // interval fires several times inside the test's ~1s fetch delay.
+                // Default is 10s — nothing would fire in a test.
+                await hogflowWorker.stop()
+                hub.CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS = 100
+                hogflowWorker = new CdpCyclotronWorkerHogFlow(hub, deps, hogflowQueue)
+                await hogflowWorker.start()
+
+                // Aggressive stall/poison thresholds so the test observes the
+                // exact regression the heartbeat guards against: without heartbeats
+                // firing, a 1.2s fetch would exceed the 300ms stall window and
+                // the janitor would reset the row on the very first runOnce().
+                // cleanupGraceMs is huge so terminal jobs stay queryable after
+                // completion — we assert on their final janitor_touch_count.
+                janitor = new CyclotronV2Janitor({
+                    pool: { dbUrl: CYCLOTRON_NODE_DB_URL },
+                    stallTimeoutMs: 300,
+                    maxTouchCount: 2,
+                    cleanupGraceMs: 99_999_000,
+                    cleanupBatchSize: 100,
+                    cleanupIntervalMs: 60_000,
+                })
+
+                await createWorkflow({
+                    actions: {
+                        trigger: trigger(),
+                        slow_fetch: fetchAction('https://example.com/slow'),
+                        exit: exitAction(),
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'slow_fetch', type: 'continue' },
+                        { from: 'slow_fetch', to: 'exit', type: 'continue' },
+                    ],
+                })
+                globals = createGlobals()
+            })
+
+            afterEach(async () => {
+                await janitor?.stop()
+            })
+
+            it('heartbeats keep janitor_touch_count at 0 during a slow batch', async () => {
+                // Fetch takes 1.2s — 4x the stallTimeoutMs. The heartbeat
+                // interval firing every 100ms is the only thing preventing
+                // last_heartbeat from going stale.
+                mockFetch.mockImplementation(
+                    () =>
+                        new Promise((resolve) =>
+                            setTimeout(
+                                () =>
+                                    resolve({
+                                        status: 200,
+                                        headers: { 'Content-Type': 'application/json' },
+                                        json: () => Promise.resolve({ ok: true }),
+                                        text: () => Promise.resolve(JSON.stringify({ ok: true })),
+                                        dump: () => Promise.resolve(),
+                                    }),
+                                1200
+                            )
+                        )
+                )
+
+                await triggerWorkflow(globals)
+
+                // Wait long enough for the worker to dequeue and start the fetch,
+                // then check the janitor mid-flight. Without heartbeats,
+                // last_heartbeat would be ~700ms old (> 300ms cutoff) → stalled.
+                await new Promise((r) => setTimeout(r, 700))
+                const midResult = await janitor.runOnce()
+                expect(midResult.stalled).toBe(0)
+                expect(midResult.poisoned).toBe(0)
+
+                // Wait for the workflow to complete
+                await waitForExpect(async () => {
+                    const jobs = await queryCyclotronJobs()
+                    expect(jobs.some((j) => j.status === 'completed')).toBe(true)
+                }, 10000)
+
+                // Final check: no row ever accumulated a touch. This is the
+                // load-bearing assertion — regressions to the setInterval or
+                // its cleanup would flip this to >= 1.
+                const jobs = await queryCyclotronJobs()
+                for (const row of jobs) {
+                    expect(row.janitor_touch_count).toBe(0)
+                }
+            })
+        })
+    }
 })
 
 // Email queue routing is postgres-v2 only — the email worker reschedules jobs
@@ -1609,6 +1999,16 @@ describe('Workflows E2E (email queue)', () => {
 
         hub = await createHub()
         hub.CDP_CYCLOTRON_BATCH_DELAY_MS = 50
+
+        // `.invalid` domains are NXDOMAIN, everything else resolves as deliverable.
+        const nxdomain = () => Promise.reject(Object.assign(new Error('queryMx ENOTFOUND'), { code: 'ENOTFOUND' }))
+        mockDnsResolveMx.mockImplementation((domain: string) =>
+            domain.endsWith('.invalid') ? nxdomain() : Promise.resolve([{ exchange: 'mx.example.com', priority: 10 }])
+        )
+        mockDnsResolve4.mockImplementation((domain: string) =>
+            domain.endsWith('.invalid') ? nxdomain() : Promise.resolve(['1.2.3.4'])
+        )
+        mockDnsResolve6.mockImplementation(() => Promise.resolve([]))
 
         kafkaProducer = await ActualKafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
         mockProducerObserver = new KafkaProducerObserver(kafkaProducer)
@@ -1793,6 +2193,78 @@ describe('Workflows E2E (email queue)', () => {
                 (j: any) => j.status === 'completed' || j.status === 'failed' || j.status === 'canceled'
             )
             expect(terminal.length).toBeGreaterThanOrEqual(1)
+        }, 10000)
+    })
+
+    it('skips a predicted hard bounce before the email queue and completes the workflow', async () => {
+        // Locks down the pipeline sequencing the unit tests can't: the MX-validation
+        // skip happens on the hogflow worker BEFORE routeEmailToQueue, so a dead-domain
+        // recipient must produce no email_queued/email_sent, no billable_invocation,
+        // exactly one email_bounce_prevented, and a workflow that still runs to exit
+        // instead of wedging on the email queue.
+        const hogFlow = new FixtureHogFlowBuilder()
+            .withTeamId(team.id)
+            .withStatus('active')
+            .withExitCondition('exit_only_at_end')
+            .withWorkflow({
+                actions: {
+                    trigger: {
+                        type: 'trigger',
+                        config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                    },
+                    email_1: {
+                        type: 'function_email',
+                        config: {
+                            template_id: 'template-workflows-e2e-email',
+                            inputs: {
+                                email: {
+                                    value: {
+                                        to: { email: 'recipient@dead.invalid', name: 'Recipient' },
+                                        from: { integrationId: 1, email: 'sender@posthog.com' },
+                                        subject: 'Predicted bounce',
+                                        text: 'Should never send',
+                                        html: '<p>Should never send</p>',
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    exit: { type: 'exit', config: {} },
+                },
+                edges: [
+                    { from: 'trigger', to: 'email_1', type: 'continue' },
+                    { from: 'email_1', to: 'exit', type: 'continue' },
+                ],
+            })
+            .build()
+        await insertHogFlow(hub.postgres, hogFlow)
+
+        const { backgroundTask } = await eventsConsumer.processBatch([createGlobals()])
+        await backgroundTask
+
+        await waitForExpect(() => {
+            const sumCounts = (filter: (m: any) => boolean) =>
+                mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter(filter)
+                    .reduce((sum: number, m: any) => sum + m.value.count, 0)
+
+            // Wait for the two positive signals first — once the exit 'succeeded' metric
+            // has flushed, the absence of email metrics below is meaningful, since
+            // email_queued would have been emitted earlier in the pipeline.
+            expect(sumCounts((m) => m.value.metric_name === 'email_bounce_prevented')).toBe(1)
+            expect(sumCounts((m) => m.value.metric_name === 'succeeded' && m.value.instance_id === 'exit')).toBe(1)
+
+            expect(sumCounts((m) => m.value.metric_name === 'email_queued')).toBe(0)
+            expect(sumCounts((m) => m.value.metric_name === 'email_sent')).toBe(0)
+            expect(sumCounts((m) => m.value.metric_name === 'email_failed')).toBe(0)
+            expect(sumCounts((m) => m.value.metric_name === 'billable_invocation')).toBe(0)
+        }, 15000)
+
+        await waitForExpect(async () => {
+            const jobs = await queryCyclotronJobs()
+            expect(jobs.filter((j: any) => j.status === 'completed').length).toBeGreaterThanOrEqual(1)
+            expect(jobs.filter((j: any) => j.status === 'failed').length).toBe(0)
         }, 10000)
     })
 
@@ -2671,16 +3143,147 @@ describe('Workflows E2E (email queue)', () => {
         const pool = parseFloat(bucket?.pool ?? '0')
         expect(pool).toBeGreaterThanOrEqual(capacity - 1)
     })
+
+    // ---- Message-assets bulk flush at the batch boundary ----
+    //
+    // Email assets used to be produced one-at-a-time via a fire-and-forget Kafka call
+    // from `email.service.ts → MessageAssetsService.captureSentEmail`. We've moved that
+    // to a buffer-then-flush pattern that drains `result.emailAssets` at the batch
+    // boundary and bulk-produces, gated on broker ack before the consumer commits
+    // offsets. These tests pin the end-to-end behavior: one workflow → one asset row in
+    // the `message_assets` Kafka topic with the right metadata, and a single batch with
+    // multiple emails produces all rows.
+    describe('message_assets bulk capture', () => {
+        const buildEmailWorkflow = (subject: string) =>
+            new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withStatus('active')
+                .withExitCondition('exit_only_at_end')
+                .withWorkflow({
+                    actions: {
+                        trigger: {
+                            type: 'trigger',
+                            config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                        },
+                        email_1: {
+                            type: 'function_email',
+                            config: {
+                                template_id: 'template-workflows-e2e-email',
+                                inputs: {
+                                    email: {
+                                        value: {
+                                            to: { email: 'recipient@example.com', name: 'Recipient' },
+                                            from: { integrationId: 1, email: 'sender@posthog.com' },
+                                            subject,
+                                            text: 'plain text body',
+                                            html: `<p>${subject}</p>`,
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                        exit: { type: 'exit', config: {} },
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'email_1', type: 'continue' },
+                        { from: 'email_1', to: 'exit', type: 'continue' },
+                    ],
+                })
+                .build()
+
+        const assetMessages = (): { key: string; value: any }[] =>
+            mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_MESSAGE_ASSETS) as any
+
+        it('produces one message_assets row per workflow email with the rendered HTML and metadata', async () => {
+            const hogFlow = buildEmailWorkflow('Asset bulk-capture single')
+            await insertHogFlow(hub.postgres, hogFlow)
+
+            const { backgroundTask } = await eventsConsumer.processBatch([createGlobals()])
+            await backgroundTask
+
+            // The asset row only lands once the email worker's batch flushes — wait for
+            // the workflow to reach a terminal state, then assert against the topic.
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                const terminal = jobs.filter(
+                    (j: any) => j.status === 'completed' || j.status === 'failed' || j.status === 'canceled'
+                )
+                expect(terminal.length).toBeGreaterThanOrEqual(1)
+            }, 15000)
+
+            await waitForExpect(() => {
+                const rows = assetMessages()
+                expect(rows).toHaveLength(1)
+
+                const row = rows[0].value as Record<string, any>
+                expect(row.team_id).toBe(team.id)
+                expect(row.function_kind).toBe('hog_flow')
+                expect(row.kind).toBe('email')
+                expect(row.status).toBe('sent')
+                expect(row.action_id).toBe('email_1')
+                expect(row.recipient).toBe('recipient@example.com')
+                expect(row.subject).toBe('Asset bulk-capture single')
+                expect(row.html).toBe('<p>Asset bulk-capture single</p>')
+                // Partition key must match invocation_id so retries collapse via the
+                // destination ReplacingMergeTree(version).
+                expect(rows[0].key).toBe(row.invocation_id)
+            }, 15000)
+        })
+
+        it('bulk-captures every asset when multiple workflow runs share a batch', async () => {
+            // Use distinct subjects so we can assert on row content regardless of the
+            // partition-level ordering the Kafka producer chooses.
+            const hogFlow = buildEmailWorkflow('Bulk asset capture')
+            await insertHogFlow(hub.postgres, hogFlow)
+
+            // Three globals dispatched in one `processBatch` call — they go through the
+            // events consumer together. Each fires its own workflow run, each emits one
+            // asset; the bulk-flush is what we're exercising.
+            const { backgroundTask } = await eventsConsumer.processBatch([
+                createGlobals({ uuid: 'aaaaaaaa-0000-0000-0000-000000000001' as any }),
+                createGlobals({ uuid: 'aaaaaaaa-0000-0000-0000-000000000002' as any }),
+                createGlobals({ uuid: 'aaaaaaaa-0000-0000-0000-000000000003' as any }),
+            ])
+            await backgroundTask
+
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                const terminal = jobs.filter(
+                    (j: any) => j.status === 'completed' || j.status === 'failed' || j.status === 'canceled'
+                )
+                expect(terminal.length).toBeGreaterThanOrEqual(3)
+            }, 20000)
+
+            await waitForExpect(() => {
+                const rows = assetMessages()
+                expect(rows.length).toBeGreaterThanOrEqual(3)
+
+                // Every produced row must carry distinct invocation_id values (one per
+                // workflow run) — otherwise the buffer is dropping or aliasing rows.
+                const invocationIds = new Set(rows.map((r) => (r.value as any).invocation_id))
+                expect(invocationIds.size).toBeGreaterThanOrEqual(3)
+
+                // Subject and HTML are constant across the three runs (same flow), so we
+                // just sanity-check that every row carries the expected shape.
+                for (const row of rows) {
+                    const value = row.value as Record<string, any>
+                    expect(value.subject).toBe('Bulk asset capture')
+                    expect(value.html).toBe('<p>Bulk asset capture</p>')
+                    expect(value.kind).toBe('email')
+                    expect(value.status).toBe('sent')
+                    expect(row.key).toBe(value.invocation_id)
+                }
+            }, 20000)
+        })
+    })
 })
 
 /**
  * E2E for the batch resolver dispatch path through the cdp-api HTTP boundary.
  *
  * Goes through real express + supertest, real CdpApi, real cyclotron-node
- * Postgres. Verifies that POST `/batch_invocations/<id>` with the
- * `CDP_BATCH_RESOLVER_ROUTING` matching the team creates a resolver
- * cyclotron job pointing at the right queue with the right state. When the
- * routing matcher excludes the team, the legacy Kafka path takes over.
+ * Postgres. Verifies that POST `/batch_invocations/<id>` creates a resolver
+ * cyclotron job pointing at the right queue with the right state.
  *
  * The deep state-machine paths (page execution, terminal write, truncation,
  * Django down → resolver parks) are covered by the integration tests in
@@ -2723,7 +3326,6 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
 
         hub = await createHub({
             SITE_URL: 'http://localhost:8000',
-            CDP_BATCH_RESOLVER_ROUTING: '*',
         })
 
         const { createMockJobQueue } = require('../../tests/helpers/mocks/job-queue.mock')
@@ -2753,7 +3355,6 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         await resetTestDatabase()
         await cyclotronPool.query(`DELETE FROM cyclotron_jobs`)
         team = await getFirstTeam(hub.postgres)
-        api['batchResolverRoutingMatcher'] = () => true
         resolverWorker = undefined
     })
 
@@ -2854,26 +3455,6 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             pagesProcessed: 0,
         })
         expect(state.pendingTerminal).toBeUndefined()
-    })
-
-    it('POST /batch_invocations with no routing match falls back to the legacy Kafka path', async () => {
-        api['batchResolverRoutingMatcher'] = () => false
-
-        const flow = await insertActiveBatchFlow()
-        const parentRunId = new UUIDT().toString()
-
-        const response = await supertest(app)
-            .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${parentRunId}`)
-            .send({ filters: { filter_test_accounts: false } })
-            .expect(200)
-
-        expect(response.body).toEqual({ status: 'queued' })
-
-        const rows = await cyclotronPool.query(
-            `SELECT id FROM cyclotron_jobs WHERE queue_name = 'hogflow_batch_resolve' AND parent_run_id = $1`,
-            [parentRunId]
-        )
-        expect(rows.rows).toHaveLength(0)
     })
 
     it('rejects with 400 when the workflow is not a batch trigger', async () => {
@@ -3437,5 +4018,146 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             [parentRunId]
         )
         expect(children.rows).toHaveLength(0)
+    })
+})
+
+// Janitor poison-pill recovery (postgres-v2). Exercises the REAL results service
+// + real Kafka produce — the seam the mocked unit tests can't cover: an isolated
+// poison pill is recorded as a failed, replayable result on hog_invocation_results
+// BEFORE its cyclotron row is deleted, and with recovery disabled the janitor
+// reverts to master's legacy path (marks the pill failed, no recovery record).
+describe('Workflows E2E (janitor poison-pill recovery, postgres-v2)', () => {
+    jest.setTimeout(30000)
+
+    let hub: Hub
+    let kafkaProducer: KafkaProducerWrapper
+    let mockProducerObserver: KafkaProducerObserver
+    let team: Team
+    let cyclotronPool: Pool
+    let invocationResults: HogInvocationResultsService
+    let janitor: CyclotronV2Janitor | undefined
+
+    beforeAll(() => {
+        cyclotronPool = new Pool({ connectionString: CYCLOTRON_NODE_DB_URL })
+    })
+
+    afterAll(async () => {
+        await cyclotronPool.end()
+    })
+
+    beforeEach(async () => {
+        MockKafkaProducerWrapper.create = jest.fn((...args) => ActualKafkaProducerWrapper.create(...args))
+
+        // KAFKA_HOG_INVOCATION_RESULTS isn't in TEST_KAFKA_TOPICS — the janitor
+        // produces the give-up record there, so it must exist or the produce
+        // fails and the row is (correctly) never deleted.
+        await ensureKafkaTopics([...TEST_KAFKA_TOPICS, KAFKA_HOG_INVOCATION_RESULTS])
+        await resetTestDatabase()
+        await cyclotronPool.query('DELETE FROM cyclotron_jobs')
+
+        hub = await createHub()
+        // The give-up record path is gated on this flag (off by default outside dev).
+        hub.HOG_INVOCATION_RESULTS_ENABLED = true
+
+        kafkaProducer = await ActualKafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
+        mockProducerObserver = new KafkaProducerObserver(kafkaProducer)
+        team = await getFirstTeam(hub.postgres)
+        mockProducerObserver.resetKafkaProducer()
+
+        const deps = createCdpConsumerDeps(hub, kafkaProducer)
+        const outputs = createCdpOutputsRegistry().build(deps.cdpProducerRegistry, hub)
+        invocationResults = new HogInvocationResultsService(outputs, hub)
+    })
+
+    afterEach(async () => {
+        await janitor?.stop().catch(() => {})
+        janitor = undefined
+        await kafkaProducer.disconnect()
+        await closeHub(hub)
+        mockProducerObserver.resetKafkaProducer()
+    })
+
+    function createJanitor(overrides: Record<string, unknown> = {}): CyclotronV2Janitor {
+        return new CyclotronV2Janitor(
+            {
+                pool: { dbUrl: CYCLOTRON_NODE_DB_URL },
+                cleanupGraceMs: 0,
+                stallTimeoutMs: 1000,
+                maxTouchCount: 3,
+                ...overrides,
+            },
+            invocationResults
+        )
+    }
+
+    // A hogflow job stuck 'running' with a long-stale heartbeat and a touch count
+    // over the budget. The serialized state mirrors a wait_until_condition that
+    // had already advanced past earlier actions.
+    async function insertPoisonedHogflowJob(): Promise<string> {
+        const id = new UUIDT().toString()
+        const state = Buffer.from(
+            JSON.stringify({
+                state: {
+                    event: { uuid: 'evt-poison', distinct_id: 'd-poison' },
+                    actionStepCount: 2,
+                    variables: {},
+                    currentAction: { id: 'wait_condition', startedAtTimestamp: 1 },
+                },
+            })
+        )
+        await cyclotronPool.query(
+            `INSERT INTO cyclotron_jobs
+                (id, team_id, function_id, queue_name, status, priority, scheduled, created,
+                 lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition, state)
+             VALUES ($1, $2, $3, 'hogflow', 'running'::CyclotronJobStatus, 0, NOW(), NOW(),
+                     $4, NOW() - INTERVAL '5 minutes', 5, 10, NOW(), $5)`,
+            [id, team.id, new UUIDT().toString(), new UUIDT().toString(), state]
+        )
+        return id
+    }
+
+    it('records an isolated poison pill as a failed, replayable result and only then deletes it', async () => {
+        const id = await insertPoisonedHogflowJob()
+
+        janitor = createJanitor()
+        const result = await janitor.runOnce()
+
+        expect(result.poisonedIds).toEqual([id])
+
+        // A failed lifecycle row reached the hog_invocation_results topic so the
+        // run is discoverable in the Invocations UI and replayable by rerun.
+        await waitForExpect(() => {
+            const rows = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)
+            expect(rows.some((m: any) => m.value.invocation_id === id)).toBe(true)
+        }, 10000)
+
+        const row = mockProducerObserver
+            .getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)
+            .find((m: any) => m.value.invocation_id === id)!.value
+        expect(row.status).toBe('failed')
+        expect(row.function_kind).toBe('hog_flow')
+        expect(row.function_id).toBeTruthy()
+        expect(row.error_kind).toBe(JANITOR_POISON_PILL_ERROR_KIND)
+
+        // The cyclotron row is gone — but only because the record exists first.
+        const remaining = await cyclotronPool.query('SELECT 1 FROM cyclotron_jobs WHERE id = $1', [id])
+        expect(remaining.rowCount).toBe(0)
+    })
+
+    it('reverts to legacy mark-failed (records nothing) when recovery is disabled', async () => {
+        const id = await insertPoisonedHogflowJob()
+
+        janitor = createJanitor({ poisonRecoveryEnabled: false })
+        const result = await janitor.runOnce()
+
+        // Kill-switch off → master's legacy path: mark the pill failed and produce
+        // no recovery record. The give-up is terminal (no infinite retry) but not
+        // replayable — exactly master's pre-recovery behavior.
+        expect(result.poisonedIds).toEqual([id])
+        expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)).toHaveLength(0)
+
+        const rows = await cyclotronPool.query('SELECT status FROM cyclotron_jobs WHERE id = $1', [id])
+        expect(rows.rowCount).toBe(1)
+        expect(rows.rows[0].status).toBe('failed')
     })
 })

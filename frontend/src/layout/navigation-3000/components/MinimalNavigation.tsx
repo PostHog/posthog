@@ -32,7 +32,7 @@ export function MinimalNavigation(): JSX.Element {
         : (titleAndIcon.iconType as FileSystemIconType)
 
     return (
-        <nav className="flex items-center gap-2 p-2 border-b">
+        <nav className="flex items-center gap-2 p-2 border-b min-h-[var(--minimal-navigation-height)]">
             <LemonButton noPadding icon={<IconLogomark className="text-3xl mx-2" />} to={logoUrl} />
             {zenMode && (
                 <span className="font-semibold text-base flex items-center gap-2">
@@ -42,7 +42,7 @@ export function MinimalNavigation(): JSX.Element {
             )}
             <div className="flex items-center justify-end gap-2 flex-1">
                 <ZenModeButton />
-                {(currentOrganization?.teams?.length ?? 0 > 1) ? (
+                {(currentOrganization?.teams?.length ?? 0) > 1 ? (
                     <ProjectMenu
                         buttonProps={{
                             size: 'lg',

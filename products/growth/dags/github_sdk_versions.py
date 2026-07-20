@@ -6,11 +6,11 @@ from typing import Any, Optional, cast
 from django.conf import settings
 
 import dagster
-import requests
 import structlog
 
 from posthog.dags.common import JobOwners
 from posthog.dags.common.resources import redis
+from posthog.egress.github.transport import github_request
 from posthog.exceptions_capture import capture_exception
 
 from products.growth.backend.constants import SDK_CACHE_EXPIRY, SDK_TYPES, SdkTypes, github_sdk_versions_key
@@ -32,8 +32,11 @@ SDK_FETCH_FUNCTIONS: dict[SdkTypes, Callable[[], dict[str, Any]]] = {
     "posthog-node": lambda: fetch_node_sdk_data(),
     "posthog-react-native": lambda: fetch_react_native_sdk_data(),
     "posthog-flutter": lambda: fetch_flutter_sdk_data(),
+    "posthog-kmp": lambda: fetch_kmp_sdk_data(),
     "posthog-ios": lambda: fetch_ios_sdk_data(),
     "posthog-android": lambda: fetch_android_sdk_data(),
+    "posthog-java": lambda: fetch_java_sdk_data(),
+    "posthog-server": lambda: fetch_java_server_sdk_data(),
     "posthog-go": lambda: fetch_go_sdk_data(),
     "posthog-php": lambda: fetch_php_sdk_data(),
     "posthog-ruby": lambda: fetch_ruby_sdk_data(),
@@ -134,7 +137,8 @@ def fetch_releases_from_repo(repo: str, skip_cache: bool = False) -> list[Any]:
             url = f"https://api.github.com/repos/{repo}/releases?per_page=100&page={page}"
             logger.info(f"[SDK Health] Fetching releases from {url}")
 
-            response = requests.get(url, timeout=10)
+            # Identity-blind, unauthenticated call — records volume telemetry, no installation budget.
+            response = github_request("GET", url, source="growth", timeout=10)
 
             if not response.ok:
                 logger.error(f"[SDK Health] Failed to fetch releases for {repo}", status_code=response.status_code)
@@ -232,11 +236,26 @@ def fetch_ios_sdk_data() -> dict[str, Any]:
     return fetch_sdk_data_from_releases("PostHog/posthog-ios")
 
 
+def fetch_kmp_sdk_data() -> dict[str, Any]:
+    """Fetch Kotlin Multiplatform SDK data from GitHub releases API"""
+    return fetch_sdk_data_from_releases("PostHog/posthog-kmp", tag_prefixes=["v"])
+
+
 def fetch_android_sdk_data() -> dict[str, Any]:
     """Fetch Android SDK data from GitHub releases API"""
     return fetch_sdk_data_from_releases(
         "PostHog/posthog-android", tag_prefixes=prefixed_or_unprefixed_semver_tags("android-v")
     )
+
+
+def fetch_java_sdk_data() -> dict[str, Any]:
+    """Fetch releases for the archived Java SDK."""
+    return fetch_sdk_data_from_releases("PostHog/posthog-java", tag_prefixes=[UNPREFIXED_SEMVER_TAG])
+
+
+def fetch_java_server_sdk_data() -> dict[str, Any]:
+    """Fetch Java server SDK data from its dedicated tags in the Android monorepo."""
+    return fetch_sdk_data_from_releases("PostHog/posthog-android", tag_prefixes=["server-v"])
 
 
 def fetch_go_sdk_data() -> dict[str, Any]:

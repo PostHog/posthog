@@ -38,6 +38,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class BoldSignSource(ResumableSource[BoldSignSourceConfig, BoldSignResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://developers.boldsign.com"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -50,7 +53,6 @@ class BoldSignSource(ResumableSource[BoldSignSourceConfig, BoldSignResumeConfig]
             category=DataWarehouseSourceCategory.SALES,
             label="BoldSign",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your BoldSign API key to pull your eSignature documents, templates, and contacts into the PostHog Data warehouse.
 
 Create an API key in your [BoldSign account settings](https://app.boldsign.com/settings) under **API** → **API Key**. API keys carry all scopes by default.

@@ -4,9 +4,8 @@ import { useEffect } from 'react'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { LemonRichContentEditor } from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
-
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
 import { CommentsLogicProps, commentsLogic } from './commentsLogic'
 

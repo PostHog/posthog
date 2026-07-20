@@ -38,6 +38,8 @@ class JiraRetryableError(Exception):
 class JiraResumeConfig:
     next_page_token: Optional[str] = None
     start_at: Optional[int] = None
+    # The JQL the token was minted for — a token replayed against a different JQL is a 400.
+    jql: Optional[str] = None
 
 
 def is_valid_subdomain(subdomain: str) -> bool:
@@ -63,11 +65,16 @@ def _format_jql_datetime(value: Any) -> str:
     return (dt - INCREMENTAL_LOOKBACK).strftime(JQL_DATETIME_FORMAT)
 
 
+# The enhanced ``/search/jql`` endpoint rejects unbounded queries (400 "Unbounded JQL queries are not
+# allowed here"). On a full sync there's no watermark, so anchor to an epoch floor to keep the query bounded
+# while still scanning every issue.
+JQL_FLOOR_DATETIME = "1970-01-01 00:00"
+
+
 def _build_issues_jql(incremental_field: str | None, last_value: Any) -> str:
     field = incremental_field or "updated"
-    where = f'{field} >= "{_format_jql_datetime(last_value)}"' if last_value else ""
-    order = f"ORDER BY {field} ASC"
-    return f"{where} {order}".strip()
+    since = _format_jql_datetime(last_value) if last_value else JQL_FLOOR_DATETIME
+    return f'{field} >= "{since}" ORDER BY {field} ASC'
 
 
 def _extract_items(data: Any, data_key: str | None) -> list[dict[str, Any]]:
@@ -147,7 +154,15 @@ def get_rows(
     if config.pagination == "token":
         last_value = db_incremental_field_last_value if should_use_incremental_field else None
         jql = _build_issues_jql(incremental_field, last_value)
-        next_page_token = resume.next_page_token if resume else None
+
+        # The JQL moves between runs as the watermark advances. Dropping a stale token is safe:
+        # issues are scanned in incremental-field ASC order, so the watermark query resumes from
+        # where the interrupted run got to (modulo the lookback overlap, which merge dedupes).
+        next_page_token = resume.next_page_token if resume and resume.jql == jql else None
+        if resume and resume.next_page_token and not next_page_token:
+            logger.info(
+                f"Discarding Jira resume token minted for a different JQL: saved={resume.jql!r}, current={jql!r}"
+            )
 
         while True:
             params: dict[str, Any] = {"jql": jql, "maxResults": config.page_size, "fields": "*all"}
@@ -163,7 +178,7 @@ def get_rows(
             if not next_page_token or data.get("isLast"):
                 break
 
-            resumable_source_manager.save_state(JiraResumeConfig(next_page_token=next_page_token))
+            resumable_source_manager.save_state(JiraResumeConfig(next_page_token=next_page_token, jql=jql))
         return
 
     # offset pagination (startAt / maxResults)

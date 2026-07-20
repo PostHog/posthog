@@ -3,9 +3,17 @@ import uuid
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
+import psycopg.errors
+from parameterized import parameterized
+from sshtunnel import BaseSSHTunnelForwarderError
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import (
+    PostgresCDCAdapter,
+    _slot_setup_error_message,
+)
 
 _ADAPTER = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter"
+_POSTGRES = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
 
 
 def _source(**cdc_overrides):
@@ -165,6 +173,23 @@ class TestSetupResourcesPreflight:
         assert mock_drop_pub.call_args.args[1] == "p"
 
 
+class TestSlotSetupErrorMessage:
+    def test_permission_error_suggests_incremental_sync(self) -> None:
+        error = _slot_setup_error_message(
+            psycopg.errors.InsufficientPrivilege("permission denied to create replication slot")
+        )
+        assert "Incremental sync" in error
+        assert "permission denied to create replication slot" in error
+
+    def test_must_be_superuser_message_suggests_incremental_sync(self) -> None:
+        error = _slot_setup_error_message(Exception("ERROR: must be superuser or replication role"))
+        assert "Incremental sync" in error
+
+    def test_non_permission_error_keeps_raw_message_only(self) -> None:
+        error = _slot_setup_error_message(RuntimeError("connection reset"))
+        assert error == "Failed to create replication slot: connection reset"
+
+
 class TestRecreateSlot:
     @patch(f"{_ADAPTER}.create_slot_and_publication")
     @patch(f"{_ADAPTER}.create_slot", return_value="0/AA")
@@ -250,6 +275,33 @@ class TestRecreateSlot:
         with pytest.raises(RuntimeError, match="no slot name"):
             PostgresCDCAdapter().recreate_slot(source, tables=[])
 
+    @patch(f"{_POSTGRES}.time.sleep")
+    @patch(f"{_ADAPTER}.create_slot")
+    @patch(f"{_ADAPTER}.publication_exists", return_value=True)
+    @patch(f"{_ADAPTER}.drop_slot")
+    @patch(f"{_ADAPTER}.cdc_pg_connection", new_callable=_fake_conn)
+    def test_retries_recreation_after_transient_connection_drop(
+        self, _conn, mock_drop, _pub_exists, mock_create_slot, _sleep
+    ) -> None:
+        # The source terminates our backend mid-recreate (deploy/failover); recovery must reconnect
+        # and retry rather than fail the whole run. drop-before-create keeps the retry idempotent.
+        mock_create_slot.side_effect = [
+            psycopg.errors.AdminShutdown("terminating connection due to administrator command"),
+            "0/CC",
+        ]
+        source = _source(
+            cdc_enabled=True,
+            cdc_management_mode="posthog",
+            cdc_slot_name="posthog_slot",
+            cdc_publication_name="posthog_pub",
+        )
+
+        fields = PostgresCDCAdapter().recreate_slot(source, tables=["users"])
+
+        assert fields == {"cdc_consistent_point": "0/CC"}
+        assert mock_create_slot.call_count == 2
+        assert mock_drop.call_count == 2
+
 
 class TestAlterPublicationMembership:
     @patch(f"{_ADAPTER}.add_table_to_publication")
@@ -311,3 +363,18 @@ class TestGetStatus:
         status = PostgresCDCAdapter().get_status(source)
         assert status["published_tables"] == []
         mock_tables.assert_not_called()
+
+
+class TestIsConnectionError:
+    # A connect-time timeout to an unreachable source DB is the failure `cdc_status` reports as a
+    # degraded state; it must classify as a connection error so the endpoint doesn't capture it.
+    @parameterized.expand(
+        [
+            ("connect_timeout", psycopg.errors.ConnectionTimeout("connection timeout expired"), True),
+            ("operational", psycopg.OperationalError("connection refused"), True),
+            ("ssh_tunnel", BaseSSHTunnelForwarderError("could not open tunnel"), True),
+            ("programming_bug", ValueError("unexpected status shape"), False),
+        ]
+    )
+    def test_classifies_connection_errors(self, _name: str, exc: BaseException, expected: bool) -> None:
+        assert PostgresCDCAdapter().is_connection_error(exc) is expected

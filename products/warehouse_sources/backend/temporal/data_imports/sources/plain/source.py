@@ -33,6 +33,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PlainSource(SimpleSource[PlainSourceConfig]):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://www.plain.com/docs"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -55,6 +59,8 @@ Make sure to grant the following read permissions:
 - customer:read
 - thread:read
 - timeline:read
+- user:read
+- label:read
 """,
             iconPath="/static/services/plain.png",
             fields=cast(
@@ -82,7 +88,10 @@ Make sure to grant the following read permissions:
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error": "Invalid Plain credentials. Please check your API key.",
-            "403 Client Error": "Access forbidden. Your API key may lack required permissions.",
+            # Plain fails the whole GraphQL request when the key lacks a scope any requested field needs.
+            # Our customers/threads queries read assignee (user:read) and label (label:read) data on top
+            # of the basics, so name every required scope — retrying a key missing one never succeeds.
+            "403 Client Error": "Access forbidden. Grant your Plain API key these read permissions, then reconnect: customer:read, thread:read, timeline:read, user:read, label:read.",
         }
 
     def get_schemas(

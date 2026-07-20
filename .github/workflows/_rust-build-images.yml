@@ -41,6 +41,8 @@ on:
                 required: false
             POSTHOG_DEVEX_PROJECT_API_TOKEN:
                 required: false
+            POSTHOG_UPLOAD_SYMBOLS_CLI_API_KEY:
+                required: false
         outputs:
             digests:
                 description: 'JSON object mapping image name to digest'
@@ -142,11 +144,38 @@ jobs:
 
             - name: Retrieve sccache configuration
               id: sccache
+              env:
+                  IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
               run: |
+                  echo "cache-key-prefix=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_OUTPUT"
+                  if [ "$IS_FORK_PR" = "true" ]; then
+                      echo "Fork PR — skipping sccache credentials (build runs without remote cache)"
+                      exit 0
+                  fi
                   echo "endpoint=$SCCACHE_WEBDAV_ENDPOINT" >> "$GITHUB_OUTPUT"
                   echo "::add-mask::$SCCACHE_WEBDAV_TOKEN"
                   echo "token=$SCCACHE_WEBDAV_TOKEN" >> "$GITHUB_OUTPUT"
-                  echo "cache-key-prefix=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_OUTPUT"
+
+            # Native debug symbols upload to PostHog error tracking from inside the
+            # image build (see rust/Dockerfile). Only master builds on the canonical
+            # deploy repo get the token; everywhere else the Dockerfile skips the
+            # upload, so unrebased branches and forks are unaffected.
+            - name: Prepare symbol upload token
+              id: symbols
+              env:
+                  TOKEN: ${{ secrets.POSTHOG_UPLOAD_SYMBOLS_CLI_API_KEY }}
+                  ENABLED: ${{ github.event_name != 'pull_request' && vars.CD_DEPLOY_ENABLED == 'true' }}
+              run: |
+                  if [ "$ENABLED" = "true" ] && [ -n "$TOKEN" ]; then
+                      echo "::add-mask::$TOKEN"
+                      echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+                      # Unique per run: secret mounts don't participate in the layer
+                      # cache key, so this busts the cache to guarantee the upload
+                      # actually runs on token-bearing builds (see rust/Dockerfile).
+                      echo "trigger=${{ github.run_id }}-${{ github.run_attempt }}" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "Native symbol upload disabled for this build"
+                  fi
 
             - name: Build and push image
               id: docker_build
@@ -165,10 +194,14 @@ jobs:
                       SCCACHE_NO_DAEMON=1
                       BIN=${{ matrix.bin || matrix.image }}
                       BUILD_FEATURES=${{ matrix.features || '' }}
+                      EXTRA_RUSTFLAGS=${{ matrix.extra_rustflags || '' }}
+                      EXTRA_CFLAGS=${{ matrix.extra_cflags || '' }}
                       SCCACHE_WEBDAV_KEY_PREFIX=${{ steps.sccache.outputs.cache-key-prefix }}
+                      SYMBOL_UPLOAD_TRIGGER=${{ steps.symbols.outputs.trigger }}
                   secrets: |
                       SCCACHE_WEBDAV_ENDPOINT=${{ steps.sccache.outputs.endpoint }}
                       SCCACHE_WEBDAV_TOKEN=${{ steps.sccache.outputs.token }}
+                      posthog_upload_symbols_cli_api_key=${{ steps.symbols.outputs.token }}
 
             - name: Build failure properties
               if: failure()

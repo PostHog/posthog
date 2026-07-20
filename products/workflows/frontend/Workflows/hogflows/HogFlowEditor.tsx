@@ -12,7 +12,7 @@ import {
     useReactFlow,
 } from '@xyflow/react'
 import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 
@@ -54,12 +54,19 @@ function HogFlowEditorContent(): JSX.Element {
         setReactFlowWrapper(reactFlowWrapper)
     }, [setReactFlowWrapper])
 
+    // ReactFlow diffs its nodes prop by reference: an inline spread would hand it a fresh array
+    // every render, making every render look like a graph change.
+    const nodesWithDropzones = useMemo(
+        () => [...nodes, ...(dropzoneNodes as unknown as HogFlowActionNode[])],
+        [nodes, dropzoneNodes]
+    )
+
     return (
         <div ref={reactFlowWrapper} className="flex flex-col grow w-full" data-attr="workflow-editor">
             <ReactFlow<HogFlowActionNode, HogFlowActionEdge>
                 className="grow"
                 fitView
-                nodes={[...nodes, ...(dropzoneNodes as unknown as HogFlowActionNode[])]}
+                nodes={nodesWithDropzones}
                 edges={edges}
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
