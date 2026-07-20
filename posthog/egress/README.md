@@ -50,7 +50,8 @@ Budgets stay deliberately under the real ceiling so reactive backoff absorbs dri
 
 logo.dev (`logodev/`) meters per account token, and each instance holds exactly one (`LOGO_DEV_TOKEN`), so a single `logodev` domain carries one instance-wide budget under a constant scope.
 logo.dev publishes no rate-limit numbers, so the budgets are static operator ceilings read from settings at acquire time: `LOGODEV_EGRESS_PER_MINUTE_BUDGET` (default 300) smooths bursts and `LOGODEV_EGRESS_HOURLY_BUDGET` (default 5,000) caps total spend.
-Every logo.dev call runs on a sheddable lane — the icon id is user-controlled, so nothing in this domain runs `CRITICAL` — and the consumer-side icon cache (`posthog/cdp/services/icons.py`) keeps steady-state traffic far below the ceilings.
+Every logo.dev call runs on a sheddable lane — the icon id is user-controlled, so nothing in this domain runs `CRITICAL`.
+Icon bytes are never stored server-side (logo.dev licenses that separately), so steady-state traffic is deduped only by browser caching (`posthog/cdp/services/icons.py` sets `Cache-Control`) and tracks unique (user, icon) first views per day — raise the settings if that outgrows the defaults.
 
 ### Priority lanes
 
