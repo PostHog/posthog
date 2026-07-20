@@ -222,6 +222,12 @@ def select(changed_files: list[str], area_map: dict, all_specs: set[str]) -> dic
     return _result("selected", sorted(selected), [], changed_files, total)
 
 
+def _error_result(detail: str) -> dict:
+    """The selector itself failed. Fall closed to a full run, but record why so the
+    failure is visible in telemetry instead of surfacing as an opaque empty output."""
+    return _result("full", [], [f"selector error: {detail}"], [], 0, "selector_error", detail)
+
+
 def changed_files_from_git(base_ref: str) -> list[str]:
     result = subprocess.run(
         ["git", "diff", "--name-only", f"{base_ref}...HEAD"],
@@ -260,10 +266,21 @@ def main() -> int:
     parser.add_argument("--pretty", action="store_true", help="Pretty-print the JSON output")
     args = parser.parse_args()
 
-    area_map = load_map(Path(args.map))
-    all_specs = discover_specs(REPO_ROOT)
-    changed = changed_files_from_git(args.base_ref)
-    result = select(changed, area_map, all_specs)
+    # Fall closed to a full run on any failure, tagging the cause so selector_error
+    # runs are diagnosable (a stale map target, a git failure) rather than opaque.
+    try:
+        area_map = load_map(Path(args.map))
+        all_specs = discover_specs(REPO_ROOT)
+        changed = changed_files_from_git(args.base_ref)
+        result = select(changed, area_map, all_specs)
+    except subprocess.CalledProcessError:
+        result = _error_result("git_diff_failed")
+    except MapError:
+        result = _error_result("map_target_unresolved")
+    except (OSError, ValueError):
+        result = _error_result("map_load_failed")
+    except Exception:
+        result = _error_result("unexpected_error")
 
     if args.summary_path:
         write_summary(Path(args.summary_path), result)

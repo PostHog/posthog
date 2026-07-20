@@ -56,6 +56,9 @@
         "billing": ["playwright/e2e/billing/"],
         "experiments": ["playwright/e2e/experiments/"],
         "cohorts": ["playwright/e2e/product-analytics/cohorts.spec.ts"],
+        "trends": ["playwright/e2e/product-analytics/"],
+        "data-warehouse": ["playwright/e2e/sql-editor*.spec.ts"],
+        "activity": ["playwright/e2e/events.spec.ts"],
         "dashboard": [
             "playwright/e2e/product-analytics/dashboards.spec.ts",
             "playwright/e2e/shared-dashboard-styling.spec.ts",
@@ -92,6 +95,12 @@
     },
     "explicit": {
         "products/product_analytics/frontend/**": ["playwright/e2e/product-analytics/"],
+        "products/dashboards/frontend/**": [
+            "playwright/e2e/product-analytics/dashboards.spec.ts",
+            "playwright/e2e/shared-dashboard-styling.spec.ts",
+            "playwright/e2e/shared-dashboard-unauthenticated.spec.ts"
+        ],
+        "products/session_replay/frontend/**": ["products/replay/frontend/e2e/"],
         "products/batch_exports/frontend/**": ["playwright/e2e/batch-exports/"],
         "products/logs/frontend/**": ["playwright/e2e/logs/"],
         "products/cdp/frontend/**": ["playwright/e2e/cdp/"],

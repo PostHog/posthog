@@ -391,7 +391,13 @@ jobs:
                   if [[ "$SELECT_OUTCOME" != "success" ]] || [[ ! -s /tmp/spec-selection.json ]]; then
                       echo "::warning::spec selector produced no output — running the FULL suite"
                       MODE=full
-                      REASON_CATEGORY=selector_error
+                      # Distinguish an unrebased branch (script/map not present yet — expected,
+                      # self-resolves on rebase) from a genuine selector failure worth investigating.
+                      if [[ ! -f tools/playwright_spec_selection.py ]] || [[ ! -f tools/playwright_area_map.json ]]; then
+                          REASON_CATEGORY=selector_unavailable
+                      else
+                          REASON_CATEGORY=selector_error
+                      fi
                   else
                       MODE=$(jq -r '.mode' /tmp/spec-selection.json)
                       SELECTED_COUNT=$(jq -r '.selected_count' /tmp/spec-selection.json)
