@@ -12,16 +12,24 @@ import {
 
 import type { TeamPublicType, TeamType } from '../../../../../types'
 
+/** Parse the team's legacy `session_recording_sample_rate` (a "0"–"1" string, or null) into a fraction. */
+export function teamSampleRateFraction(team: TeamPublicType | TeamType | null): number {
+    const raw = team?.session_recording_sample_rate
+    const parsed = raw != null && raw !== '' ? parseFloat(raw) : NaN
+    return Number.isFinite(parsed) ? parsed : 1
+}
+
 /**
- * A conditionless group at 100% sample rate matches every session, so it's the explicit "record
- * everything" state in V2. We keep teams on this rather than dropping to zero groups (which would
- * fall back to legacy V1 config) so V2 stays the source of truth.
+ * A conditionless group matches every session, so it's the explicit "record everything" state in V2.
+ * We keep teams on this rather than dropping to zero groups (which would fall back to legacy V1
+ * config) so V2 stays the source of truth. It samples at the team's existing legacy rate so moving
+ * to trigger groups doesn't silently bump a team that recorded a subset up to recording everything.
  */
-export function buildRecordEverythingGroup(): SessionRecordingTriggerGroup {
+export function buildRecordEverythingGroup(sampleRate: number = 1): SessionRecordingTriggerGroup {
     return {
         id: uuid(),
         name: 'Record all sessions',
-        sampleRate: 1,
+        sampleRate,
         conditions: { matchType: 'all' },
     }
 }
@@ -75,6 +83,7 @@ export interface replayTriggersV2LogicActions {
     }
     deleteTriggerGroup: (id: string) => {
         id: string
+        fallbackSampleRate: number
     }
     hideCreateFromLegacyModal: () => {
         value: true
@@ -151,7 +160,12 @@ export const replayTriggersV2Logic = kea<replayTriggersV2LogicType>([
         setTriggerGroupsConfig: (config: SessionRecordingTriggerGroupsConfig | null) => ({ config }),
         addTriggerGroup: (group: SessionRecordingTriggerGroup) => ({ group }),
         addMultipleTriggerGroups: (groups: SessionRecordingTriggerGroup[]) => ({ groups }),
-        deleteTriggerGroup: (id: string) => ({ id }),
+        deleteTriggerGroup: (id: string) => ({
+            id,
+            // Resolved here in the action creator (not the reducer, which may not read the store) so
+            // the record-everything fallback inherits the team's legacy rate rather than 100%.
+            fallbackSampleRate: teamSampleRateFraction(teamLogic.findMounted()?.values.currentTeam ?? null),
+        }),
         updateTriggerGroup: (id: string, updates: Partial<SessionRecordingTriggerGroup>) => ({ id, updates }),
         setIsAddingGroup: (isAdding: boolean) => ({ isAdding }),
         setEditingGroupId: (id: string | null) => ({ id }),
@@ -214,16 +228,17 @@ export const replayTriggersV2Logic = kea<replayTriggersV2LogicType>([
                         groups: [...state.groups, ...groups],
                     }
                 },
-                deleteTriggerGroup: (state, { id }) => {
+                deleteTriggerGroup: (state, { id, fallbackSampleRate }) => {
                     if (!state) {
                         return state
                     }
                     const groups = state.groups.filter((g) => g.id !== id)
                     // Stay on V2 when the last group is removed: a record-everything group keeps the
-                    // team on trigger groups (record all) instead of falling back to legacy V1 config.
+                    // team on trigger groups instead of falling back to legacy V1 config. It inherits
+                    // the team's legacy sample rate so the effective rate doesn't jump to 100%.
                     return {
                         ...state,
-                        groups: groups.length === 0 ? [buildRecordEverythingGroup()] : groups,
+                        groups: groups.length === 0 ? [buildRecordEverythingGroup(fallbackSampleRate)] : groups,
                     }
                 },
                 updateTriggerGroup: (state, { id, updates }) => {
