@@ -23,7 +23,9 @@ function absoluteUrl(path: string): string {
 // Telemetry text as an indented literal block. Unlike a backtick fence, indentation is
 // applied per line, so no character sequence inside the content can terminate the block.
 function indentedBlock(content: string): string[] {
-    return content.split('\n').map((line) => `    ${line}`)
+    // Split on every line-ending form CommonMark recognizes: a bare \r would
+    // otherwise carry trailing text to column zero and escape the block.
+    return content.split(/\r\n|\r|\n/).map((line) => `    ${line}`)
 }
 
 // Telemetry text shown inline: collapse all whitespace runs (including newlines) so the
