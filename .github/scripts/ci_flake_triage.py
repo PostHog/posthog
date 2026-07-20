@@ -441,11 +441,11 @@ def main(argv: list[str]) -> int:
     if body is None:
         # Signal "no comment" to the workflow by writing an empty file rather than
         # a stale verdict from a previous step.
-        output.write_text("")
+        output.write_text("", encoding="utf-8")
         print("::notice title=CI flake triage::No classifiable failed jobs; nothing to comment.")
         return 0
 
-    output.write_text(body)
+    output.write_text(body, encoding="utf-8")
     print(body)
     return 0
 
