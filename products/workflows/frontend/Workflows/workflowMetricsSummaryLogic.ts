@@ -629,7 +629,10 @@ export interface workflowMetricsSummaryLogicMeta {
             type: 'function_push'
             updated_at?: number | undefined
         } & Record<string, unknown>)[]
-        messagingChannels: (appMetricsTrends: AppMetricsTimeSeriesResponse | null) => {
+        messagingChannels: (
+            workflow: HogFlow,
+            appMetricsTrends: AppMetricsTimeSeriesResponse | null
+        ) => {
             hasEmail: boolean
             hasPush: boolean
         }
@@ -936,12 +939,22 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
             (workflow: import('./hogflows/types').HogFlow) => workflow.actions.filter(isPushAction),
         ],
 
-        // Which messaging channels actually produced "sent" metrics in the fetched window. Drives the
-        // channel-aware "sent" summary tile + chart, so a push-only flow says "Push notifications".
+        // Which messaging channels the workflow uses, driving the channel-aware "sent" summary tile +
+        // chart. Keyed off the workflow's configured actions so the tile's identity stays stable across
+        // date ranges (matching the step tables, which also key off configured actions), unioned with any
+        // channel that actually sent in the window so historical data from a since-deleted action still shows.
         messagingChannels: [
-            (s) => [s.appMetricsTrends],
-            (appMetricsTrends: AppMetricsTimeSeriesResponse | null): { hasEmail: boolean; hasPush: boolean } =>
-                detectMessagingChannels(appMetricsTrends),
+            (s) => [s.workflow, s.appMetricsTrends],
+            (
+                workflow: import('./hogflows/types').HogFlow,
+                appMetricsTrends: AppMetricsTimeSeriesResponse | null
+            ): { hasEmail: boolean; hasPush: boolean } => {
+                const observed = detectMessagingChannels(appMetricsTrends)
+                return {
+                    hasEmail: workflow.actions.some(isEmailAction) || observed.hasEmail,
+                    hasPush: workflow.actions.some(isPushAction) || observed.hasPush,
+                }
+            },
         ],
 
         // "Emails sent" for email-only, "Push notifications sent" for push-only, "Messages sent" for both.
