@@ -8,5 +8,5 @@ Before designing or changing anything here, read both in full; don't re-derive w
 
 The decision most often re-derived wrong: **CI ↔ PR linkage is by PR number (the run's `pull_requests` association), never head SHA**.
 A head-SHA join silently drops every push but the latest, because the `github_pull_requests` snapshot keeps only the current head.
-See SPEC §7 (Locked decisions).
+See SPEC §6 (Locked decisions).
 head SHA is a per-commit precision key only; `head_branch` is the capture-time / fork fallback.

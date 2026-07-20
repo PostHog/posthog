@@ -111,8 +111,8 @@ Change one only in a separate PR with a written reason. Engineering-level decisi
 - Two motivations: (A) DevEx dogfood, (B) close the dark middle of PostHog's AI-to-prod loop. Every design decision serves both.
 - Unit of value = the open PR. Phase model: draft (low rigor) vs ready-for-review (high stakes).
 - North star: actionable CI Signals for PostHog Code. Ready-for-review-to-merge time is the headline metric, not the end in itself.
-- MCP is the official surface: named typed endpoints run the curated read layer privately (no global HogQL views, core imports only the viewset). The tool subset is curated in `mcp/tools.yaml`; the UI is a read surface on the same endpoints.
-- One sanctioned write: test quarantine, as an issue plus PR through the team's GitHub App. No saved views or stateful filters; persisted surfaces are a later, separate decision.
+- Two first-class surfaces, one endpoint set: the in-app UI and MCP tools. Named typed endpoints run the curated read layer privately (no global HogQL views, core imports only the viewset); keep `mcp/tools.yaml` current whenever endpoints change.
+- One sanctioned write: the test-health sidecar (quarantine, as an issue plus PR through the team's GitHub App), carved out because this UI is the fastest surface to iterate on it. No saved views or stateful filters; persisted surfaces are a later, separate decision.
 - Data path: HogQL over the warehouse, plus reads from Logs and Traces. PR lifecycle event ingestion deferred. Product Postgres DB stays empty.
 - No author leaderboards or per-developer performance rankings, ever. The author page (own PRs plus own CI cost, reached only from PR-row author links) is allowed; ranking people against each other is not.
 - Bots and drafts excluded by default in throughput / cycle-time reads; bot detection = `handle.endswith("[bot]") OR handle in KNOWN_BOT_HANDLES`.
