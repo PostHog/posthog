@@ -70,24 +70,25 @@ export function useDragToZoom({
             }
             if (origin.active) {
                 const range = dragRectToLabelRange({ x0: origin.x, x1: mouseX }, labelPositionsRef.current)
-                if (range && onAreaSelectRef.current) {
+                if (range) {
                     const currentLabels = labelsRef.current
-                    onAreaSelectRef.current({
+                    const labelRange = {
                         startLabel: currentLabels[range.startIndex],
                         endLabel: currentLabels[range.endIndex],
                         startIndex: range.startIndex,
                         endIndex: range.endIndex,
-                        yPixel0: Math.min(origin.y, mouseY),
-                        yPixel1: Math.max(origin.y, mouseY),
-                    })
-                } else if (range && onDateRangeZoomRef.current) {
-                    const currentLabels = labelsRef.current
-                    onDateRangeZoomRef.current({
-                        startLabel: currentLabels[range.startIndex],
-                        endLabel: currentLabels[range.endIndex],
-                        startIndex: range.startIndex,
-                        endIndex: range.endIndex,
-                    })
+                    }
+                    // Area-select wins over date-range zoom when both are set (a consumer wiring
+                    // both would otherwise double-apply the x range).
+                    if (onAreaSelectRef.current) {
+                        onAreaSelectRef.current({
+                            ...labelRange,
+                            yPixel0: Math.min(origin.y, mouseY),
+                            yPixel1: Math.max(origin.y, mouseY),
+                        })
+                    } else if (onDateRangeZoomRef.current) {
+                        onDateRangeZoomRef.current(labelRange)
+                    }
                 }
                 // Swallow the trailing `click` that the browser fires after the gesture's mouseup.
                 // shouldSwallowClick() clears this synchronously on that click; the timer is the
