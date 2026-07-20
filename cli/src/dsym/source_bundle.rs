@@ -71,11 +71,23 @@ pub fn extract_source_paths_from_dwarf_bytes(dwarf_data: &[u8]) -> Result<Vec<St
         let obj = obj?;
 
         // Pass 1: CU-only walk to derive the project root prefix.
-        let cu_paths = collect_cu_main_files_gimli(&obj);
-        let project_prefix = longest_common_prefix(&cu_paths);
+        let cu_info = collect_cu_main_files_gimli(&obj);
+        // Go CUs are packages, not files: DW_AT_name is the package import
+        // path ("internal/godebug") and DW_AT_comp_dir is "." — useless for a
+        // project prefix (they'd derive "./" and reject everything). The line
+        // table is the source of truth instead: on-disk (absolute) file paths
+        // are kept, and the Go-aware toolchain filters trim GOROOT and the
+        // module cache afterwards. `-trimpath` builds record no absolute
+        // paths at all, so they yield nothing here by design.
+        let project_prefix = if cu_info.has_go {
+            None
+        } else {
+            longest_common_prefix(&cu_info.main_files)
+        };
         tracing::debug!(
-            "CU main files: {:?}  →  project prefix: {:?}",
-            cu_paths,
+            "CU main files: {:?} (go: {})  →  project prefix: {:?}",
+            cu_info.main_files,
+            cu_info.has_go,
             project_prefix
         );
 
@@ -92,6 +104,7 @@ pub fn extract_source_paths_from_dwarf_bytes(dwarf_data: &[u8]) -> Result<Vec<St
             // (the normal EXCLUDED_PREFIXES / EXCLUDED_SUBSTRINGS filters still apply).
             let in_project = match &project_prefix {
                 Some(prefix) => abs_path.starts_with(prefix.as_str()),
+                None if cu_info.has_go => abs_path.starts_with('/'),
                 None => true,
             };
             if in_project {
@@ -112,21 +125,30 @@ pub fn extract_source_paths_from_dwarf_bytes(dwarf_data: &[u8]) -> Result<Vec<St
     Ok(paths)
 }
 
+/// CU-level facts gathered without reading any line program.
+#[derive(Default)]
+struct CuInfo {
+    /// Resolved absolute paths of each CU's main file (non-Go CUs only).
+    main_files: Vec<String>,
+    /// Whether any CU is Go (`DW_AT_language == DW_LANG_Go`).
+    has_go: bool,
+}
+
 /// Walk only `DW_TAG_compile_unit` root DIEs via gimli (no line table) and
 /// return the resolved absolute path of the main file for each CU.
 ///
 /// This deliberately does **not** read the line-number program, so cross-module
 /// file references that appear there (e.g. type-declaration sites in imported
 /// frameworks) are never included.
-fn collect_cu_main_files_gimli(obj: &Object<'_>) -> Vec<String> {
+fn collect_cu_main_files_gimli(obj: &Object<'_>) -> CuInfo {
     match obj {
         Object::MachO(m) => cu_main_files_from_dwarf(m),
         Object::Elf(e) => cu_main_files_from_dwarf(e),
-        _ => Vec::new(),
+        _ => CuInfo::default(),
     }
 }
 
-fn cu_main_files_from_dwarf<'d>(obj: &impl DwarfObject<'d>) -> Vec<String> {
+fn cu_main_files_from_dwarf<'d>(obj: &impl DwarfObject<'d>) -> CuInfo {
     let empty: &[u8] = &[];
 
     let info_data = obj
@@ -195,7 +217,7 @@ fn cu_main_files_from_dwarf<'d>(obj: &impl DwarfObject<'d>) -> Vec<String> {
             }
         };
 
-    let mut out = Vec::new();
+    let mut out = CuInfo::default();
     let mut iter = dwarf.units();
     loop {
         let header = match iter.next() {
@@ -218,6 +240,16 @@ fn cu_main_files_from_dwarf<'d>(obj: &impl DwarfObject<'d>) -> Vec<String> {
             _ => continue,
         };
         if root.tag() != gimli::DW_TAG_compile_unit {
+            continue;
+        }
+
+        // Go CU names are package import paths, not source files — record the
+        // language and skip them so they never poison the project prefix.
+        if matches!(
+            root.attr_value(gimli::DW_AT_language),
+            Ok(Some(gimli::AttributeValue::Language(gimli::DW_LANG_Go)))
+        ) {
+            out.has_go = true;
             continue;
         }
 
@@ -249,12 +281,12 @@ fn cu_main_files_from_dwarf<'d>(obj: &impl DwarfObject<'d>) -> Vec<String> {
         };
 
         if !path.is_empty() {
-            out.push(path);
+            out.main_files.push(path);
         }
     }
     // Drop synthetic linker-generated names and system/DerivedData paths before
     // returning so they never poison the project-root prefix computation.
-    out.retain(|p| {
+    out.main_files.retain(|p| {
         if EXCLUDED_SYNTHETIC_NAMES.iter().any(|s| p.starts_with(s)) {
             return false;
         }

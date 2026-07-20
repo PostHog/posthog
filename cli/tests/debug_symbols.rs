@@ -5,6 +5,7 @@ use posthog_cli::api::symbol_sets::SymbolSetUpload;
 use posthog_cli::debug_symbols::{
     dedup_uploads_by_chunk_id, discover, elf_debug_id, package_dsym_bundles, report_problems,
 };
+use posthog_cli::dsym::source_bundle::extract_source_paths_from_dwarf_bytes;
 use posthog_symbol_data::{read_symbol_data, AppleDsym, ElfDebugInfo};
 
 /// The native ELF fixtures shared with cymbal's symbolication tests; built by
@@ -281,4 +282,44 @@ fn packages_elf_and_dsym_from_one_directory() {
         b"\x7fELF",
         "dSYM dwarf entry must be a Mach-O binary, not ELF"
     );
+}
+
+/// Go DWARF names CUs after package import paths ("main", "internal/godebug")
+/// with comp_dir "." — a project prefix derived from those rejects every real
+/// file. The extraction must instead surface the line table's absolute
+/// on-disk paths, which --include-source reads from the build machine.
+#[test]
+fn go_dwarf_source_extraction_uses_line_table_paths() {
+    let data = zstd::decode_all(
+        std::fs::read(fixtures_dir().join("test_go_binary_paths.zst"))
+            .unwrap()
+            .as_slice(),
+    )
+    .unwrap();
+
+    let paths = extract_source_paths_from_dwarf_bytes(&data).unwrap();
+    assert!(
+        paths.contains(&"/cymbal_tests/native/test_go.go".to_string()),
+        "project source missing from extraction: {paths:?}"
+    );
+    assert!(
+        paths.iter().all(|p| p.starts_with('/')),
+        "only on-disk (absolute) paths can be bundled"
+    );
+}
+
+/// -trimpath strips every absolute path from Go DWARF, so there is nothing
+/// --include-source could read from disk; extraction must come back empty
+/// rather than bundling junk relative paths.
+#[test]
+fn go_trimpath_binaries_yield_no_bundleable_sources() {
+    let data = zstd::decode_all(
+        std::fs::read(fixtures_dir().join("test_go_binary.zst"))
+            .unwrap()
+            .as_slice(),
+    )
+    .unwrap();
+
+    let paths = extract_source_paths_from_dwarf_bytes(&data).unwrap();
+    assert_eq!(paths, Vec::<String>::new());
 }

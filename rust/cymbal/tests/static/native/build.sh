@@ -68,6 +68,17 @@ GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-B gobuildid" -o test_go_bi
 zstd -19 -f -q test_go_binary
 rm test_go_binary
 
+# Go fixture with on-disk source paths: -trimpath strips the absolute paths
+# the CLI's --include-source bundling reads from disk, so this variant keeps
+# them, remapping only the project directory to the stable test prefix (the
+# baked-in GOROOT paths are machine-specific; tests must not assert on them).
+GOOS=linux GOARCH=amd64 go build -ldflags "-B gobuildid" \
+    -gcflags "all=-trimpath=$PWD=>/cymbal_tests/native" \
+    -asmflags "all=-trimpath=$PWD=>/cymbal_tests/native" \
+    -o test_go_binary_paths test_go.go
+zstd -19 -f -q test_go_binary_paths
+rm test_go_binary_paths
+
 echo "Built fixtures:"
 file test_binary_nopie test_binary_pie test_binary_inline test_binary_nodebug test_binary_nobuildid
-ls -la test_rust_binary.zst test_go_binary.zst
+ls -la test_rust_binary.zst test_go_binary.zst test_go_binary_paths.zst
