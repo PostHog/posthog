@@ -214,6 +214,12 @@ impl Cohort {
                     }
                 }
             }
+            // A known filter type (e.g. `cohort`) that's otherwise malformed, such as a
+            // cohort reference missing `key`. Fail loud rather than silently dropping
+            // what may be a real dependency.
+            CohortValuesItem::MalformedKnownType(_) => {
+                return Err(FlagError::CohortFiltersParsingError);
+            }
             // No cohort dependency to contribute; count it and continue.
             CohortValuesItem::Unsupported(_) => {
                 common_metrics::inc(COHORT_UNSUPPORTED_FILTER_COUNTER, &[], 1);
@@ -289,6 +295,9 @@ fn evaluate_cohort_item(
         CohortValuesItem::Filter(filter) => {
             evaluate_cohort_filter(filter, target_properties, cohort_matches, team_timezone)
         }
+        // A known filter type that's otherwise malformed; fail loud rather than
+        // silently resolving to non-match (see `traverse_item`).
+        CohortValuesItem::MalformedKnownType(_) => Err(FlagError::CohortFiltersParsingError),
         // Non-match, so sibling leaves decide membership via their AND/OR combination.
         CohortValuesItem::Unsupported(_) => Ok(false),
     }
@@ -1514,6 +1523,39 @@ mod tests {
         assert!(matches!(
             evaluate_dynamic_cohorts(1, &HashMap::new(), &cohorts, &HashMap::new(), Tz::UTC),
             Ok(false)
+        ));
+    }
+
+    #[test]
+    fn test_cohort_filter_of_known_type_missing_required_field_still_errors() {
+        // A `type: "cohort"` leaf missing the required `key` matches neither `Filter`
+        // (no `key`) nor `Group` (no `values`). Its `type` is still a recognized
+        // `PropertyType`, though, so this must surface as a parsing error rather than
+        // silently falling through to `Unsupported` like a genuinely unrecognized type
+        // (e.g. `behavioral`) does — losing a real cohort dependency edge silently
+        // would be worse than the loud failure this replaces.
+        let cohort = create_dynamic_cohort_with_filters(
+            1,
+            json!({
+                "properties": {
+                    "type": "AND",
+                    "values": [{
+                        "type": "OR",
+                        "values": [{"type": "cohort", "value": 7, "negation": false}]
+                    }]
+                }
+            }),
+        );
+
+        assert!(matches!(
+            cohort.extract_dependencies(),
+            Err(FlagError::CohortFiltersParsingError)
+        ));
+
+        let cohorts = vec![cohort];
+        assert!(matches!(
+            evaluate_dynamic_cohorts(1, &HashMap::new(), &cohorts, &HashMap::new(), Tz::UTC),
+            Err(FlagError::CohortFiltersParsingError)
         ));
     }
 }
