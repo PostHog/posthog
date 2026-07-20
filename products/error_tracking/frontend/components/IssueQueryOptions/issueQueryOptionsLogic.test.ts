@@ -40,7 +40,7 @@ describe('issueQueryOptionsLogic', () => {
         const storageKey = Object.keys(window.localStorage).find(
             (key) => key.includes('issueQueryOptionsLogic') && key.endsWith('orderBy')
         )
-        expect(storageKey).toBeDefined()
+        expect(storageKey).not.toBeUndefined()
         logic.unmount()
 
         window.localStorage.setItem(storageKey!, JSON.stringify('revenue'))

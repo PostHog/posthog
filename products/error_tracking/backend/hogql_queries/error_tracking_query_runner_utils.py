@@ -18,6 +18,8 @@ def validate_order_by(value: ErrorTrackingOrderBy | str | None) -> ErrorTracking
     orderBy is injected directly into an ORDER BY field reference, so a value outside the
     known set would reach ClickHouse as an unknown column and fail the query.
     """
+    if value is None:
+        return DEFAULT_ORDER_BY
     try:
         return ErrorTrackingOrderBy(value)
     except ValueError:
