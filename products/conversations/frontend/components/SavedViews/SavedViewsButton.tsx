@@ -10,7 +10,7 @@ import { type TicketViewsLogicProps, ticketViewsLogic } from './ticketViewsLogic
 function SavedViewsButtonInner({ id }: TicketViewsLogicProps): JSX.Element {
     const { openModal } = useActions(ticketViewsLogic({ id }))
     const { activeView } = useValues(supportTicketsSceneLogic)
-    const { clearActiveView } = useActions(supportTicketsSceneLogic)
+    const { resetFilters } = useActions(supportTicketsSceneLogic)
 
     return (
         <>
@@ -25,8 +25,8 @@ function SavedViewsButtonInner({ id }: TicketViewsLogicProps): JSX.Element {
                     activeView
                         ? {
                               icon: <IconX />,
-                              onClick: clearActiveView,
-                              tooltip: 'Clear view (keeps current filters)',
+                              onClick: resetFilters,
+                              tooltip: 'Clear view and reset filters',
                           }
                         : undefined
                 }

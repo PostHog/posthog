@@ -24,6 +24,23 @@ import type {
 
 export const SUPPORT_TICKETS_PAGE_SIZE = 20
 
+// Must mirror the filter reducers' defaults below
+const DEFAULT_TICKET_FILTERS: TicketViewFilters = {
+    status: [],
+    priority: [],
+    channel: 'all',
+    sla: 'all',
+    aiTriageResult: [],
+    assignee: 'all',
+    tags: [],
+    tagsMatch: 'any',
+    tagsExclude: [],
+    dateFrom: '-7d',
+    dateTo: null,
+    sorting: { columnKey: 'updated_at', order: -1 },
+    search: '',
+}
+
 export interface SupportTicketsSceneLogicProps {
     key?: string
     distinctIds?: string[]
@@ -76,6 +93,9 @@ export interface supportTicketsSceneLogicActions {
         value: true
     }
     loadTickets: () => {
+        value: true
+    }
+    resetFilters: () => {
         value: true
     }
     setActiveView: (view: SavedTicketView | null) => {
@@ -198,6 +218,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         applyViewFilters: (filters: TicketViewFilters) => ({ filters }),
         setActiveView: (view: SavedTicketView | null) => ({ view }),
         clearActiveView: true,
+        resetFilters: true,
         bulkUpdateStatus: (ids: string[], status: TicketStatus) => ({ ids, status }),
         setBulkUpdating: (updating: boolean) => ({ updating }),
         setSelectedTicketIds: (ids: string[]) => ({ ids }),
@@ -536,6 +557,10 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         setSorting: () => {
             actions.clearActiveView()
             actions.setCurrentPage(1)
+        },
+        resetFilters: () => {
+            actions.clearActiveView()
+            actions.applyViewFilters({ ...DEFAULT_TICKET_FILTERS })
         },
         setActiveView: ({ view }) => {
             if (view) {
