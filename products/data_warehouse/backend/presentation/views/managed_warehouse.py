@@ -463,6 +463,13 @@ def team_onboarding_state(organization_id: UUID | str, team_id: int) -> dict:
     (onboarded before the control plane tracked teams) is pushed to duckgres here, with its
     explicit legacy table names. The push is idempotent (the control plane upserts) and
     best-effort — a failure is logged and retried on the next status read.
+
+    Reverse heal: a duckgres team row without a Django backfill row means a dual-write lost its
+    second half (provision registered the team with the control plane but the Django write
+    failed, or `onboard_team`'s Django write raced). Recreate the Django row from the duckgres
+    schema here so Dagster picks the team up, instead of reporting it onboarded forever with no
+    backfill. Only rows without explicit legacy table names are healed — those are the ones the
+    dual-write created, where schema name and table suffix are the same identifier.
     """
     # Keep ducklake.common (and its duckdb dependency) off the API import path.
     from posthog.ducklake.common import get_team_backfill_state  # noqa: PLC0415
@@ -478,6 +485,8 @@ def team_onboarding_state(organization_id: UUID | str, team_id: int) -> dict:
             duckgres_team = next((row for row in teams if row.get("team_id") == team_id), None)
             if duckgres_team is None and has_django_row:
                 duckgres_team = _push_grandfathered_team(organization_id, team_id, table_suffix)
+            elif duckgres_team is not None and not has_django_row:
+                _heal_django_backfill_row(organization_id, team_id, duckgres_team)
     except Exception:
         logger.exception(
             "Failed to resolve duckgres team onboarding state",
@@ -523,6 +532,45 @@ def _push_grandfathered_team(organization_id: UUID | str, team_id: int, table_su
         schema_name=fields["schema_name"],
     )
     return {"team_id": team_id, **fields}
+
+
+def _heal_django_backfill_row(organization_id: UUID | str, team_id: int, duckgres_team: dict) -> None:
+    """Recreate the missing Django backfill row for a duckgres-registered team. Best-effort.
+
+    Guarded to rows without explicit legacy table names: those came from the dual-write
+    (provision or onboard), where the duckgres schema name IS the Django table suffix. Rows
+    with legacy overrides originate from the grandfather push, which only runs off an existing
+    Django row — a missing one there is unexpected, so it's logged rather than guessed at.
+    """
+    # Keep ducklake.common (and its duckdb dependency) off the API import path.
+    from posthog.ducklake.common import enable_team_backfill  # noqa: PLC0415
+
+    schema_name = duckgres_team.get("schema_name")
+    has_legacy_names = any(
+        duckgres_team.get(key) for key in ("events_table_name", "persons_table_name", "schema_data_imports_name")
+    )
+    if not schema_name or has_legacy_names:
+        logger.warning(
+            "Duckgres team has no Django backfill row and cannot be healed",
+            organization_id=str(organization_id),
+            team_id=team_id,
+            has_legacy_names=has_legacy_names,
+        )
+        return
+    try:
+        enable_team_backfill(team_id=team_id, organization_id=organization_id, table_name=schema_name)
+        logger.info(
+            "duckgres_team_django_backfill_healed",
+            organization_id=str(organization_id),
+            team_id=team_id,
+            schema_name=schema_name,
+        )
+    except Exception:
+        logger.exception(
+            "Failed to heal Django backfill row for duckgres team",
+            organization_id=str(organization_id),
+            team_id=team_id,
+        )
 
 
 def check_schema_name(organization_id: UUID | str, name: str | None) -> Response:

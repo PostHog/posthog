@@ -504,15 +504,21 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
             },
 
             checkDatabaseName: async ({ name }) => {
+                // Same staleness guard as checkSchemaName: only the current name's request may
+                // write availability or clear the spinner.
                 try {
                     const result = await dataWarehouseCheckDatabaseNameRetrieve(currentProjectId(), { name })
                     if (values.databaseName === name) {
                         actions.setDatabaseNameAvailable(result.available)
                     }
                 } catch {
-                    actions.setDatabaseNameAvailable(null)
+                    if (values.databaseName === name) {
+                        actions.setDatabaseNameAvailable(null)
+                    }
                 }
-                actions.setDatabaseNameChecking(false)
+                if (values.databaseName === name) {
+                    actions.setDatabaseNameChecking(false)
+                }
             },
 
             setSchemaName: ({ name }) => {
@@ -530,15 +536,21 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
             },
 
             checkSchemaName: async ({ name }) => {
+                // Guard every state write on the request's name still being current: a stale
+                // completion (success or failure) must not clobber a newer check's result.
                 try {
                     const result = await dataWarehouseCheckSchemaNameRetrieve(currentProjectId(), { name })
                     if (values.schemaName === name) {
                         actions.setSchemaNameAvailable(result.available)
                     }
                 } catch {
-                    actions.setSchemaNameAvailable(null)
+                    if (values.schemaName === name) {
+                        actions.setSchemaNameAvailable(null)
+                    }
                 }
-                actions.setSchemaNameChecking(false)
+                if (values.schemaName === name) {
+                    actions.setSchemaNameChecking(false)
+                }
             },
 
             provisionWarehouse: async ({ databaseName, schemaName }) => {
@@ -663,6 +675,18 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                     actions.pollStatus()
                 } else {
                     actions.stopPolling()
+                }
+                // The default schema name is prefilled on mount, before this response can flip
+                // needsTeamOnboarding to true — so its availability was never checked. Re-set it
+                // here to run the debounced check once the onboarding form is actually shown.
+                if (
+                    values.needsTeamOnboarding &&
+                    values.schemaName &&
+                    values.isValidSchemaName &&
+                    values.schemaNameAvailable === null &&
+                    !values.schemaNameChecking
+                ) {
+                    actions.setSchemaName(values.schemaName)
                 }
             },
         }

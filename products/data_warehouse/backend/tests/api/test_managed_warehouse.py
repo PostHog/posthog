@@ -654,6 +654,54 @@ def test_team_onboarding_state_for_unonboarded_team(mock_list: MagicMock, mock_c
     mock_create.assert_not_called()
 
 
+@pytest.mark.django_db
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.list_teams")
+def test_team_onboarding_state_heals_missing_django_row(mock_list: MagicMock) -> None:
+    # Reverse heal: a dual-write that lost its Django half (provision registered the team with
+    # duckgres but enable_team_backfill failed) is repaired on the next status read, so Dagster
+    # picks the team up instead of it reporting onboarded forever with no backfill.
+    org, team, _ = _provisioned_org()
+    mock_list.return_value = Response([{"team_id": team.id, "schema_name": "healed_env"}], status=200)
+
+    state = managed_warehouse.team_onboarding_state(org.id, team.id)
+
+    assert state == {"team_onboarded": True, "schema_name": "healed_env"}
+    row = DuckgresServerTeam.objects.get(team=team)
+    assert row.table_suffix == "healed_env"
+
+
+@pytest.mark.django_db
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.list_teams")
+def test_team_onboarding_state_refuses_to_heal_legacy_named_row(mock_list: MagicMock) -> None:
+    # A duckgres row with explicit legacy table names came from the grandfather push (which only
+    # runs off an existing Django row) — a missing Django row there is unexpected, so the heal
+    # must not guess a suffix that would rename the team's tables.
+    org, team, _ = _provisioned_org()
+    mock_list.return_value = Response(
+        [{"team_id": team.id, "schema_name": "team_x", "events_table_name": "events"}], status=200
+    )
+
+    state = managed_warehouse.team_onboarding_state(org.id, team.id)
+
+    assert state == {"team_onboarded": True, "schema_name": "team_x"}
+    assert not DuckgresServerTeam.objects.filter(team=team).exists()
+
+
+@pytest.mark.django_db
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.list_teams")
+def test_team_onboarding_state_survives_failed_heal(mock_list: MagicMock) -> None:
+    # A heal that loses to a suffix collision is logged, never failing the status read.
+    org, team, server = _provisioned_org()
+    other_team = Team.objects.create(organization=org, name="other")
+    DuckgresServerTeam.objects.create(server=server, team=other_team, table_suffix="taken_env")
+    mock_list.return_value = Response([{"team_id": team.id, "schema_name": "taken_env"}], status=200)
+
+    state = managed_warehouse.team_onboarding_state(org.id, team.id)
+
+    assert state == {"team_onboarded": True, "schema_name": "taken_env"}
+    assert not DuckgresServerTeam.objects.filter(team=team).exists()
+
+
 @parameterized.expand(
     [
         # suffix set: schema is the suffix, explicit suffixed legacy names
