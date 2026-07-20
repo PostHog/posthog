@@ -501,7 +501,8 @@ ${C_DIM}  ${C_BOLD}q${C_RESET}${C_DIM} / ${C_BOLD}r${C_RESET}${C_DIM} in phrocs$
 fi
 
 # ── Silent background cleanup ──────────────────────────────────────
-# Clean old flox log files (>7 days). Fire-and-forget after activation.
+# Trim flox logs: drop >7-day-old files and cap total size (see doctor:disk).
+# Fire-and-forget after activation. The find fallback (no venv) is age-only.
 (
   if [[ -x "$UV_PROJECT_ENVIRONMENT/bin/python" && -f "$FLOX_ENV_PROJECT/bin/hogli" ]]; then
     POSTHOG_TELEMETRY_OPT_OUT=1 "$UV_PROJECT_ENVIRONMENT/bin/python" \

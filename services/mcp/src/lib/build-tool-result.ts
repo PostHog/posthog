@@ -119,9 +119,11 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
               | string
               | undefined)
 
-    let rawResult: Record<string, unknown> | string
+    let rawResult: Record<string, unknown> | unknown[] | string
     if (isStringResult) {
         rawResult = handlerResult as string
+    } else if (Array.isArray(handlerResult)) {
+        rawResult = [...handlerResult]
     } else {
         const { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: _ignored, ...rest } = (handlerResult ?? {}) as Record<
             string,

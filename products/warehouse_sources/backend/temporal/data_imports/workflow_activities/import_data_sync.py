@@ -44,6 +44,9 @@ from products.warehouse_sources.backend.temporal.data_imports.row_tracking impor
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ResumableSource, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_context import bind_job_context
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientNonRetryableError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     RowFilterValidationError,
@@ -314,21 +317,38 @@ async def _handle_import_error(
     Errors the source classifies as non-retryable (bad credentials, a deleted or
     misconfigured remote — e.g. a MongoDB ``mongodb+srv://`` hostname whose DNS record no
     longer resolves) are handed to ``handle_non_retryable_error``, which stops the job after
-    a few attempts instead of retrying up to the activity's maximum. Everything else is
-    re-raised so Temporal retries it as usual.
+    a few attempts instead of retrying up to the activity's maximum.
+
+    Errors the source classifies as retryable (rate limits, transient 5xx) reach us only after
+    the source's own retries are exhausted. Temporal retries the whole activity and the error is
+    transient and self-recovering, so we log at ``warning`` rather than ``exception`` to keep
+    this benign, recoverable failure out of error tracking.
+
+    Everything else is logged as an exception and re-raised so Temporal retries it as usual.
     """
     source_cls = SourceRegistry.get_source(job_inputs.job_type)
-    non_retryable_errors = source_cls.get_non_retryable_errors()
     error_msg = str(error)
-    is_non_retryable_error = any(
-        non_retryable_error in error_msg for non_retryable_error in non_retryable_errors.keys()
-    )
-    if is_non_retryable_error:
+
+    # The shared REST engine raises RESTClientNonRetryableError only for responses retrying can
+    # never turn into data (a non-JSON body on an otherwise-successful response). Honor that
+    # contract by type so every REST-based source stops immediately, rather than depending on each
+    # source listing the message in get_non_retryable_errors.
+    if isinstance(error, RESTClientNonRetryableError):
         await handle_non_retryable_error(job_inputs, error_msg, logger, error)
-    else:
-        await logger.aexception(error_msg)
-        await logger.adebug("Error encountered during import_data_activity - re-raising")
+
+    non_retryable_errors = source_cls.get_non_retryable_errors()
+    if any(match in error_msg for match in non_retryable_errors):
+        await handle_non_retryable_error(job_inputs, error_msg, logger, error)
+
+    retryable_errors = source_cls.get_retryable_errors()
+    if any(match in error_msg for match in retryable_errors):
+        await logger.awarning(error_msg)
+        await logger.adebug("Source-classified retryable error - re-raising for Temporal retry")
         raise error
+
+    await logger.aexception(error_msg)
+    await logger.adebug("Error encountered during import_data_activity - re-raising")
+    raise error
 
 
 async def _run(
