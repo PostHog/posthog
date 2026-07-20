@@ -1932,6 +1932,44 @@ export interface ExperimentMetricsRecalculationApi {
     estimated_rows_total?: number | null
 }
 
+/**
+ * Request body for resolving which of an experiment's metrics fired in a batch of sessions.
+ */
+export interface SessionMetricHitsRequestApi {
+    /**
+     * Session recording IDs to scan for the experiment's metric events. At most 100 per request.
+     * @maxItems 100
+     */
+    session_ids: string[]
+}
+
+/**
+ * One experiment metric with at least one matching event in a session recording.
+ */
+export interface ExperimentSessionMetricHitApi {
+    /** UUID of the experiment metric (inline primary/secondary or saved) whose events fired. */
+    metric_uuid: string
+    /** Display name of the metric, or a stable fallback derived from its UUID when the metric is unnamed. */
+    metric_name: string
+    /** Number of events in the session matching any of the metric's event/action sources. */
+    event_count: number
+    /** Timestamp of the first event in the session matching the metric. */
+    first_timestamp: string
+}
+
+/**
+ * Map of session recording ID to the experiment's metrics with at least one matching event in that session, sorted by first occurrence. Sessions with no metric hits are omitted from the map.
+ */
+export type SessionMetricHitsResponseApiResults = { [key: string]: ExperimentSessionMetricHitApi[] }
+
+/**
+ * Which of an experiment's metrics fired in each of the requested sessions.
+ */
+export interface SessionMetricHitsResponseApi {
+    /** Map of session recording ID to the experiment's metrics with at least one matching event in that session, sorted by first occurrence. Sessions with no metric hits are omitted from the map. */
+    results: SessionMetricHitsResponseApiResults
+}
+
 export interface ShipVariantApi {
     /** The conclusion of the experiment.
      *
@@ -2113,6 +2151,19 @@ export interface CreateFromPromptInputApi {
 }
 
 /**
+ * * `exposure` - exposure
+ * * `metric_events` - metric_events
+ * * `both` - both
+ */
+export type SeenReasonEnumApi = (typeof SeenReasonEnumApi)[keyof typeof SeenReasonEnumApi]
+
+export const SeenReasonEnumApi = {
+    Exposure: 'exposure',
+    MetricEvents: 'metric_events',
+    Both: 'both',
+} as const
+
+/**
  * One experiment whose feature flag a session recording saw.
  */
 export interface ExperimentSessionContextItemApi {
@@ -2143,6 +2194,14 @@ export interface ExperimentSessionContextItemApi {
      * @nullable
      */
     experiment_end_date: string | null
+    /** This experiment's metrics with at least one matching event in the session, sorted by first occurrence. Empty when none of the experiment's metric events fired during the session. */
+    metrics_in_session: ExperimentSessionMetricHitApi[]
+    /** Why this experiment surfaced for the session. 'exposure': variant/exposure evidence only. 'both': exposure evidence plus at least one metric event. 'metric_events' (metric activity with no exposure evidence) is reserved for future use and is never emitted yet.
+     *
+     * * `exposure` - exposure
+     * * `metric_events` - metric_events
+     * * `both` - both */
+    seen_reason: SeenReasonEnumApi
 }
 
 /**

@@ -35,6 +35,8 @@ import type {
     RecalculateMetricsRequestApi,
     RunningTimeCalculationInputApi,
     RunningTimeCalculationResultApi,
+    SessionMetricHitsRequestApi,
+    SessionMetricHitsResponseApi,
     ShipVariantApi,
 } from './api.schemas'
 
@@ -794,6 +796,27 @@ export const experimentsResumeCreate = async (
     return apiMutator<ExperimentApi>(getExperimentsResumeCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getExperimentsSessionMetricHitsCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/session_metric_hits/`
+}
+
+/**
+ * Resolve which of this experiment's metrics had events fire in each of the given session recordings. Returns a map of session recording ID to metric hits; sessions where none of the experiment's metric events fired are omitted.
+ */
+export const experimentsSessionMetricHitsCreate = async (
+    projectId: string,
+    id: number,
+    sessionMetricHitsRequestApi: SessionMetricHitsRequestApi,
+    options?: RequestInit
+): Promise<SessionMetricHitsResponseApi> => {
+    return apiMutator<SessionMetricHitsResponseApi>(getExperimentsSessionMetricHitsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sessionMetricHitsRequestApi),
     })
 }
 

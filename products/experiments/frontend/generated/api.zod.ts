@@ -1035,6 +1035,20 @@ export const ExperimentsRecalculateTimeseriesCreateBody = /* @__PURE__ */ zod
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
+ * Resolve which of this experiment's metrics had events fire in each of the given session recordings. Returns a map of session recording ID to metric hits; sessions where none of the experiment's metric events fired are omitted.
+ */
+export const experimentsSessionMetricHitsCreateBodySessionIdsMax = 100
+
+export const ExperimentsSessionMetricHitsCreateBody = /* @__PURE__ */ zod
+    .object({
+        session_ids: zod
+            .array(zod.string().describe("ID of a session recording to scan for the experiment's metric events."))
+            .max(experimentsSessionMetricHitsCreateBodySessionIdsMax)
+            .describe("Session recording IDs to scan for the experiment's metric events. At most 100 per request."),
+    })
+    .describe("Request body for resolving which of an experiment's metrics fired in a batch of sessions.")
+
+/**
  * Ship a variant and (optionally) end the experiment.
  *
  * Updates the feature flag so the selected variant gets 100% of the variant

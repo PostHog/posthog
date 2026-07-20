@@ -14,6 +14,7 @@ from typing import Any, Literal, cast
 
 from django.conf import settings
 from django.db.models import BooleanField, Case, Exists, OuterRef, Prefetch, Q, QuerySet, Value, When
+from django.utils import timezone
 from django.utils.text import slugify
 
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
@@ -41,6 +42,7 @@ from posthog.user_permissions import UserPermissions
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.llm_metric_templates import build_template, list_templates
+from products.experiments.backend.metric_events import resolve_metric_events, scan_sessions_for_metric_events
 
 # TODO: Route through facade instead of direct import
 from products.experiments.backend.models.experiment import (
@@ -65,6 +67,8 @@ from products.experiments.backend.presentation.serializers import (
     RecalculateMetricsRequestSerializer,
     RunningTimeCalculationInputSerializer,
     RunningTimeCalculationResultSerializer,
+    SessionMetricHitsRequestSerializer,
+    SessionMetricHitsResponseSerializer,
     ShipVariantSerializer,
 )
 from products.experiments.backend.recalculation import (
@@ -83,7 +87,7 @@ from products.experiments.backend.running_time_calculator import (
     calculate_variance,
     calculate_variance_from_stats,
 )
-from products.experiments.backend.session_context import get_session_experiment_context
+from products.experiments.backend.session_context import EVENT_WINDOW_SLACK, get_session_experiment_context
 from products.experiments.backend.temporal.models import (
     ExperimentMetricsRecalculationWorkflowInputs as MetricsRecalcInputs,
 )
@@ -1257,6 +1261,50 @@ class EnterpriseExperimentsViewSet(
             raise NotFound("Recording not found")
 
         serializer = ExperimentSessionContextResponseSerializer({"session_id": session_id, "results": items})
+        return Response(serializer.data)
+
+    @validated_request(
+        request_serializer=SessionMetricHitsRequestSerializer,
+        responses={200: OpenApiResponse(response=SessionMetricHitsResponseSerializer)},
+        description=(
+            "Resolve which of this experiment's metrics had events fire in each of the given session recordings. "
+            "Returns a map of session recording ID to metric hits; sessions where none of the experiment's metric "
+            "events fired are omitted."
+        ),
+    )
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="session_metric_hits",
+        required_scopes=["experiment:read", "session_recording:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
+    def session_metric_hits(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        experiment: Experiment = self.get_object()
+
+        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+            raise PermissionDenied("Reading session metric hits requires session replay access.")
+
+        if experiment.start_date is None:
+            raise ValidationError("Experiment has not been launched yet.")
+
+        session_ids: list[str] = request.validated_data["session_ids"]
+        # Timestamps are bounded by the experiment's run window as a coarse backstop; the tight
+        # predicate is the session id filter. Same slack the session-context resolver applies.
+        window_start = experiment.start_date - EVENT_WINDOW_SLACK
+        window_end = (experiment.end_date or timezone.now()) + EVENT_WINDOW_SLACK
+
+        # user threads through to the HogQL scan: metric source nodes can carry property
+        # filters, which must respect the viewer's property-level access control.
+        hits = scan_sessions_for_metric_events(
+            self.team,
+            cast(User, request.user),
+            metric_sources=resolve_metric_events(experiment),
+            session_ids=session_ids,
+            window_start=window_start,
+            window_end=window_end,
+        )
+        serializer = SessionMetricHitsResponseSerializer({"results": hits})
         return Response(serializer.data)
 
 

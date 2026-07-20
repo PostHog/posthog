@@ -1411,6 +1411,56 @@ class RunningTimeCalculationResultSerializer(serializers.Serializer):
     )
 
 
+# Upper bound on session_ids per session_metric_hits request — one recordings-playlist page.
+# Over-limit requests are rejected with a 400, never silently truncated.
+MAX_SESSION_METRIC_HITS_SESSIONS = 100
+
+
+class ExperimentSessionMetricHitSerializer(serializers.Serializer):
+    """One experiment metric with at least one matching event in a session recording."""
+
+    metric_uuid = serializers.CharField(
+        help_text="UUID of the experiment metric (inline primary/secondary or saved) whose events fired."
+    )
+    metric_name = serializers.CharField(
+        help_text="Display name of the metric, or a stable fallback derived from its UUID when the metric is unnamed."
+    )
+    event_count = serializers.IntegerField(
+        help_text="Number of events in the session matching any of the metric's event/action sources."
+    )
+    first_timestamp = serializers.DateTimeField(
+        help_text="Timestamp of the first event in the session matching the metric."
+    )
+
+
+class SessionMetricHitsRequestSerializer(serializers.Serializer):
+    """Request body for resolving which of an experiment's metrics fired in a batch of sessions."""
+
+    session_ids = serializers.ListField(
+        child=serializers.CharField(
+            allow_blank=False, help_text="ID of a session recording to scan for the experiment's metric events."
+        ),
+        allow_empty=False,
+        max_length=MAX_SESSION_METRIC_HITS_SESSIONS,
+        help_text=(
+            "Session recording IDs to scan for the experiment's metric events. "
+            f"At most {MAX_SESSION_METRIC_HITS_SESSIONS} per request."
+        ),
+    )
+
+
+class SessionMetricHitsResponseSerializer(serializers.Serializer):
+    """Which of an experiment's metrics fired in each of the requested sessions."""
+
+    results = serializers.DictField(
+        child=ExperimentSessionMetricHitSerializer(many=True),
+        help_text=(
+            "Map of session recording ID to the experiment's metrics with at least one matching event in that "
+            "session, sorted by first occurrence. Sessions with no metric hits are omitted from the map."
+        ),
+    )
+
+
 class ExperimentSessionContextItemSerializer(serializers.Serializer):
     """One experiment whose feature flag a session recording saw."""
 
@@ -1449,6 +1499,21 @@ class ExperimentSessionContextItemSerializer(serializers.Serializer):
     experiment_start_date = serializers.DateTimeField(allow_null=True, help_text="When the experiment was launched.")
     experiment_end_date = serializers.DateTimeField(
         allow_null=True, help_text="When the experiment ended. Null while the experiment is still running."
+    )
+    metrics_in_session = ExperimentSessionMetricHitSerializer(
+        many=True,
+        help_text=(
+            "This experiment's metrics with at least one matching event in the session, sorted by first "
+            "occurrence. Empty when none of the experiment's metric events fired during the session."
+        ),
+    )
+    seen_reason = serializers.ChoiceField(
+        choices=["exposure", "metric_events", "both"],
+        help_text=(
+            "Why this experiment surfaced for the session. 'exposure': variant/exposure evidence only. "
+            "'both': exposure evidence plus at least one metric event. 'metric_events' (metric activity with no "
+            "exposure evidence) is reserved for future use and is never emitted yet."
+        ),
     )
 
 

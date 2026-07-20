@@ -25604,6 +25604,34 @@ export namespace Schemas {
     }
 
     /**
+     * One experiment metric with at least one matching event in a session recording.
+     */
+    export interface ExperimentSessionMetricHit {
+      /** UUID of the experiment metric (inline primary/secondary or saved) whose events fired. */
+      metric_uuid: string;
+      /** Display name of the metric, or a stable fallback derived from its UUID when the metric is unnamed. */
+      metric_name: string;
+      /** Number of events in the session matching any of the metric's event/action sources. */
+      event_count: number;
+      /** Timestamp of the first event in the session matching the metric. */
+      first_timestamp: string;
+    }
+
+    /**
+     * * `exposure` - exposure
+     * * `metric_events` - metric_events
+     * * `both` - both
+     */
+    export type SeenReasonEnum = typeof SeenReasonEnum[keyof typeof SeenReasonEnum];
+
+
+    export const SeenReasonEnum = {
+      Exposure: 'exposure',
+      MetricEvents: 'metric_events',
+      Both: 'both',
+    } as const;
+
+    /**
      * One experiment whose feature flag a session recording saw.
      */
     export interface ExperimentSessionContextItem {
@@ -25634,6 +25662,14 @@ export namespace Schemas {
          * @nullable
          */
       experiment_end_date: string | null;
+      /** This experiment's metrics with at least one matching event in the session, sorted by first occurrence. Empty when none of the experiment's metric events fired during the session. */
+      metrics_in_session: ExperimentSessionMetricHit[];
+      /** Why this experiment surfaced for the session. 'exposure': variant/exposure evidence only. 'both': exposure evidence plus at least one metric event. 'metric_events' (metric activity with no exposure evidence) is reserved for future use and is never emitted yet.
+       *
+       * * `exposure` - exposure
+       * * `metric_events` - metric_events
+       * * `both` - both */
+      seen_reason: SeenReasonEnum;
     }
 
     /**
@@ -56489,6 +56525,30 @@ export namespace Schemas {
       readonly created_at: string;
       readonly created_by: UserBasic;
       readonly team: number;
+    }
+
+    /**
+     * Request body for resolving which of an experiment's metrics fired in a batch of sessions.
+     */
+    export interface SessionMetricHitsRequest {
+      /**
+         * Session recording IDs to scan for the experiment's metric events. At most 100 per request.
+         * @maxItems 100
+         */
+      session_ids: string[];
+    }
+
+    /**
+     * Map of session recording ID to the experiment's metrics with at least one matching event in that session, sorted by first occurrence. Sessions with no metric hits are omitted from the map.
+     */
+    export type SessionMetricHitsResponseResults = {[key: string]: ExperimentSessionMetricHit[]};
+
+    /**
+     * Which of an experiment's metrics fired in each of the requested sessions.
+     */
+    export interface SessionMetricHitsResponse {
+      /** Map of session recording ID to the experiment's metrics with at least one matching event in that session, sorted by first occurrence. Sessions with no metric hits are omitted from the map. */
+      results: SessionMetricHitsResponseResults;
     }
 
     export interface SessionRecordingBulkDeleteRequest {

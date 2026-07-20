@@ -47,6 +47,7 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         end_date: Optional[datetime] = None,
         created_by: Optional[User] = None,
         exposure_criteria: Optional[dict[str, Any]] = None,
+        metrics: Optional[list[dict[str, Any]]] = None,
     ) -> Experiment:
         team = team or self.team
         flag = FeatureFlag.objects.create(
@@ -71,6 +72,7 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
             start_date=start_date,
             end_date=end_date,
             exposure_criteria=exposure_criteria or {},
+            metrics=metrics or [],
         )
 
     def _enable_access_controls(self, feature: str = AvailableFeature.ACCESS_CONTROL) -> None:
@@ -600,6 +602,60 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
             headers={"authorization": f"Bearer {token}"},
         )
         assert response.status_code == status.HTTP_200_OK
+
+    def test_metrics_in_session_and_seen_reason(self) -> None:
+        self._create_recording()
+        # Two overlapping experiments with a metric each force a genuine multi-branch UNION ALL
+        # in the metric scan — a single branch collapses to a plain SelectQuery and would not
+        # catch the per-branch/set-level LIMIT breakage that 500ed session_context once.
+        metric = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "uuid": "11111111-1111-1111-1111-111111111111",
+            "name": "Purchases",
+            "source": {"kind": "EventsNode", "event": "purchase"},
+        }
+        other_metric = {
+            **metric,
+            "uuid": "22222222-2222-2222-2222-222222222222",
+            "name": "Pricing clicks",
+            "source": {"kind": "EventsNode", "event": "pricing clicked"},
+        }
+        with_hit = self._create_experiment(metrics=[metric])
+        without_hit = self._create_experiment(key="pricing-banner", name="Pricing banner", metrics=[other_metric])
+        for key in ("checkout-cta", "pricing-banner"):
+            self._create_session_event(properties={"$feature_flag": key, "$feature_flag_response": "test"})
+        self._create_session_event(event="purchase", timestamp="2026-01-01T10:09:00Z")
+        flush_persons_and_events()
+
+        response = self._get_session_context()
+
+        assert response.status_code == status.HTTP_200_OK
+        by_id = {result["experiment_id"]: result for result in response.json()["results"]}
+        assert by_id[with_hit.id]["seen_reason"] == "both"
+        assert by_id[with_hit.id]["metrics_in_session"] == [
+            {
+                "metric_uuid": metric["uuid"],
+                "metric_name": "Purchases",
+                "event_count": 1,
+                "first_timestamp": "2026-01-01T10:09:00Z",
+            }
+        ]
+        # No metric event fired for the other experiment — the additive fields stay inert and
+        # every pre-existing field keeps its value (the no-regression claim for current consumers).
+        assert by_id[without_hit.id] == {
+            "experiment_id": without_hit.id,
+            "experiment_name": "Pricing banner",
+            "flag_key": "pricing-banner",
+            "variant": "test",
+            "variants_seen": ["test"],
+            "multiple_variants": False,
+            "first_exposure_timestamp": "2026-01-01T10:02:11Z",
+            "experiment_start_date": "2025-12-01T00:00:00Z",
+            "experiment_end_date": None,
+            "metrics_in_session": [],
+            "seen_reason": "exposure",
+        }
 
     def test_team_isolation(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other team")
