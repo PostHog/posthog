@@ -47,6 +47,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     build_scd2_table,
     deduplicate_table,
     enrich_delete_rows,
+    enrich_toast_omitted_rows,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import mark_cdc_broken
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import (
@@ -608,7 +609,10 @@ class CDCExtractActivity:
             key_columns = self.pk_columns_by_table.get(table_name, [])
             cdc_table_mode = schema.cdc_table_mode
 
-            enriched_table = enrich_delete_rows(raw_table, key_columns)
+            # TOAST fill first so DELETE enrichment copies resolved values, not the
+            # nulls standing in for omitted columns.
+            enriched_table = enrich_toast_omitted_rows(raw_table, key_columns)
+            enriched_table = enrich_delete_rows(enriched_table, key_columns)
 
             # Consolidated shares the snapshot's canonical folder; the `_cdc` companion is
             # CDC-only and stays self-consistent with its `name`-keyed snapshot seed.
@@ -952,7 +956,10 @@ class CDCExtractActivity:
         if retained is None:
             return event
         filtered = {name: value for name, value in event.columns.items() if name in retained}
-        if filtered.keys() == event.columns.keys():
+        # Omitted (unchanged-TOAST) markers for disabled columns must go too, or the
+        # batcher would materialize a disabled column just to carry the marker.
+        filtered_omitted = frozenset(name for name in event.omitted_columns if name in retained)
+        if filtered.keys() == event.columns.keys() and filtered_omitted == event.omitted_columns:
             return event
         return ChangeEvent(
             operation=event.operation,
@@ -961,6 +968,7 @@ class CDCExtractActivity:
             timestamp=event.timestamp,
             columns=filtered,
             column_types=event.column_types,
+            omitted_columns=filtered_omitted,
         )
 
     def _qualified_table_name(self, schema: ExternalDataSchema) -> str:
