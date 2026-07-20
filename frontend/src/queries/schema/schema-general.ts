@@ -7704,6 +7704,7 @@ export const externalDataSources = [
     'Axiom',
     'Plivo',
     'DataForSEO',
+    'Sleekplan',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
