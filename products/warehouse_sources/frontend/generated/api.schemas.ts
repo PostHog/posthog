@@ -7954,6 +7954,10 @@ export type ExternalDataSourcesRepairCdcCreate200 = {
     schemas_reset?: number
 }
 
+export type ExternalDataSourcesResumeCdcCreate200 = {
+    success?: boolean
+}
+
 export type ExternalDataSourcesCheckCdcPrerequisitesCreate200 = {
     valid?: boolean
     errors?: string[]

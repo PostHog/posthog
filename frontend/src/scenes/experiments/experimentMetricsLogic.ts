@@ -145,6 +145,11 @@ export interface experimentMetricsLogicValues {
     isMetricRecalculating: (metricUuid: string | undefined) => boolean
     isRecalculating: boolean
     lastRefresh: string | null
+    liveRowsProgress: {
+        estimatedRows: number
+        recalculationId: string
+        rowsRead: number
+    } | null
     primaryMetricsResults: CachedNewExperimentQueryResponse[]
     primaryMetricsResultsErrors: (unknown | null)[]
     recalculatingMetricUuids: string[]
@@ -330,6 +335,25 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
             [] as string[],
             {
                 setRecalculatingMetricUuids: (_, { uuids }) => uuids,
+            },
+        ],
+        liveRowsProgress: [
+            null as { recalculationId: string; rowsRead: number; estimatedRows: number } | null,
+            {
+                setCurrentRecalculation: (state, { recalculation }) => {
+                    if (!recalculation) {
+                        return null
+                    }
+                    const rowsRead = recalculation.rows_read ?? 0
+                    if (rowsRead > 0) {
+                        return {
+                            recalculationId: recalculation.id,
+                            rowsRead,
+                            estimatedRows: recalculation.estimated_rows_total ?? 0,
+                        }
+                    }
+                    return state?.recalculationId === recalculation.id ? state : null
+                },
             },
         ],
     }),

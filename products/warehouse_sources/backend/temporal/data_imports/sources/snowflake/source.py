@@ -290,6 +290,14 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # matches the columns its query produces, so the view itself fails to compile. This is
             # a broken object on the source side that retrying can't repair.
             "but view query produces": "A Snowflake view in your source is invalid — the columns it declares no longer match the columns its query returns. Please recreate the view in Snowflake so the two agree, then resync.",
+            # Snowflake connector error 290403 (ER_HTTP_GENERAL_ERROR + 403): a request to Snowflake
+            # returned HTTP 403 Forbidden and kept doing so through the connector's own retry budget.
+            # The connector treats 403 as retryable and retries within the request timeout, so a
+            # ForbiddenError reaching us means the 403 is persistent — an access-denied condition
+            # (a network policy/firewall/proxy blocking PostHog, or the role's access to the data
+            # being revoked), not a transient blip. Retrying the whole sync can't fix it. The errno
+            # prefix and host are volatile, so we match the stable status text.
+            "HTTP 403: Forbidden": "Snowflake refused the request with an HTTP 403 (forbidden). This usually means a network policy or firewall on your account is blocking PostHog's access, or your role's access to the data was revoked. Check your Snowflake network access rules and role grants, then resync.",
         }
 
     def reconcile_schema_metadata(

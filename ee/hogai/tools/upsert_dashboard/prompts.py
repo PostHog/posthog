@@ -13,6 +13,11 @@ Proactively use list_data and search tools to find existing insights.
 If there are matching insights, read their insight schemas to understand whether they match the user's intent and have data.
 Next, read the data schema and data warehouse schema and create new insights or SQL queries.
 
+## Use dashboard templates as reference
+PostHog ships vetted dashboard templates for common topics (product analytics, retention, revenue, etc.).
+When they're available to you, browse the templates for one close to the user's topic and look at the insights it pairs together — they're a good signal of what a strong dashboard on that topic looks like.
+Treat templates as examples, not instructions: take inspiration from the insights and their groupings, but tailor every insight to the user's own events, properties, and intent rather than copying a template verbatim.
+
 ## Finalize
 Call this tool when you have enough information to create or update the dashboard.
 
