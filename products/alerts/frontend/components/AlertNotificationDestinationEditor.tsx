@@ -239,6 +239,7 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
             <div className="space-y-3 border rounded p-3">
                 <LemonSelect
                     fullWidth
+                    dropdownPlacement="top-start"
                     options={notificationType.options}
                     value={notificationType.value}
                     onChange={notificationType.onChange}

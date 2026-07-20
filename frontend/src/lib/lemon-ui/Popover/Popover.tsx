@@ -179,14 +179,8 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
             size({
                 padding: 4,
                 apply({ availableWidth, availableHeight, rects, elements: { floating } }) {
-                    const minHeight = 200 // Minimum desired height
-
-                    // If there's insufficient height, set a reasonable max height but still allow content to be scrollable
-                    if (availableHeight < minHeight) {
-                        floating.style.maxHeight = `${Math.max(availableHeight, 150)}px`
-                    } else {
-                        floating.style.maxHeight = `${availableHeight}px`
-                    }
+                    // Never force the popover beyond the available viewport. The content scrolls when space is tight.
+                    floating.style.maxHeight = `${Math.max(availableHeight, 0)}px`
 
                     floating.style.maxWidth = `${Math.min(availableWidth, window.innerWidth - 16)}px` // Ensure popover doesn't extend past window edge
                     floating.style.width = 'initial'
