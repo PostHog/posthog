@@ -3,7 +3,7 @@ from typing import Any
 
 from django.utils import timezone
 
-from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
@@ -48,11 +48,6 @@ def _log_survey_closed_by_schedule(survey: Survey) -> None:
         detail=Detail(
             name=survey.name,
             changes=[Change(type="Survey", field="end_date", action="created", after=survey.end_date)],
-            trigger=Trigger(
-                job_type="update_survey_iteration",
-                job_id=str(survey.id),
-                payload={"reason": "recurring_schedule_completed"},
-            ),
         ),
     )
 

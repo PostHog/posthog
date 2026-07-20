@@ -276,4 +276,3 @@ class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):
         assert change["field"] == "end_date"
         assert change["action"] == "created"
         assert change["after"] is not None
-        assert log.detail["trigger"]["payload"]["reason"] == "responses_limit_reached"

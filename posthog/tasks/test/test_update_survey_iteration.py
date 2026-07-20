@@ -78,7 +78,6 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
         self.assertEqual(change["field"], "end_date")
         self.assertEqual(change["action"], "created")
         self.assertIsNotNone(change["after"])
-        self.assertEqual(log.detail["trigger"]["payload"]["reason"], "recurring_schedule_completed")
 
     def test_huge_iteration_frequency_does_not_crash_task(self) -> None:
         self.recurring_survey.iteration_count = 1
