@@ -297,17 +297,73 @@ export function EvaluationCodeEditor(): JSX.Element {
                     ))}
                 </div>
                 <h4 className="text-sm font-semibold mb-2">Available globals</h4>
-                <dl className="grid grid-cols-[max-content_minmax(0,1fr)] items-baseline gap-x-3 gap-y-1 text-sm text-muted">
+                <dl className="grid grid-cols-[max-content_minmax(0,1fr)] items-baseline gap-x-3 gap-y-2 text-sm text-muted">
                     <dt>
                         <code>evaluation_events</code>
                     </dt>
                     <dd className="m-0">
-                        The generation event, or every trace event, with raw and readable input and output fields.
+                        <p className="m-0">One generation event, or every event in the trace.</p>
+                        <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-2 gap-y-0.5 mt-1">
+                            <dt>
+                                <code>uuid</code>
+                            </dt>
+                            <dd className="m-0">The event UUID.</dd>
+                            <dt>
+                                <code>event</code>
+                            </dt>
+                            <dd className="m-0">The PostHog event name.</dd>
+                            <dt>
+                                <code>timestamp</code>
+                            </dt>
+                            <dd className="m-0">When the event was captured.</dd>
+                            <dt>
+                                <code>input</code>
+                            </dt>
+                            <dd className="m-0">The raw input serialized as a string.</dd>
+                            <dt>
+                                <code>output</code>
+                            </dt>
+                            <dd className="m-0">The raw output serialized as a string.</dd>
+                            <dt>
+                                <code>input_text</code>
+                            </dt>
+                            <dd className="m-0">Readable text extracted from the input.</dd>
+                            <dt>
+                                <code>output_text</code>
+                            </dt>
+                            <dd className="m-0">Readable text extracted from the output.</dd>
+                            <dt>
+                                <code>properties</code>
+                            </dt>
+                            <dd className="m-0">Event properties without large input, output, and tool payloads.</dd>
+                        </dl>
                     </dd>
                     <dt>
                         <code>target</code>
                     </dt>
-                    <dd className="m-0">The generation or trace ID, total cost, and total latency.</dd>
+                    <dd className="m-0">
+                        <p className="m-0">Details about the generation or trace being evaluated.</p>
+                        <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-2 gap-y-0.5 mt-1">
+                            <dt>
+                                <code>type</code>
+                            </dt>
+                            <dd className="m-0">
+                                <code>generation</code> or <code>trace</code>.
+                            </dd>
+                            <dt>
+                                <code>id</code>
+                            </dt>
+                            <dd className="m-0">The event UUID or trace ID.</dd>
+                            <dt>
+                                <code>total_cost_usd</code>
+                            </dt>
+                            <dd className="m-0">The total cost in USD, when available.</dd>
+                            <dt>
+                                <code>total_latency_seconds</code>
+                            </dt>
+                            <dd className="m-0">The total latency in seconds, when available.</dd>
+                        </dl>
+                    </dd>
                 </dl>
                 <h4 className="text-sm font-semibold mt-3 mb-2">Tips</h4>
                 <ul className="text-sm text-muted space-y-1 list-disc list-inside">
