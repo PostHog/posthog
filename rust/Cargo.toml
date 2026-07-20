@@ -7,7 +7,9 @@ members = [
   "capture",
   "capture-load-gen",
   "capture-logs",
+  "cohort-core",
   "cohort-event-shuffler",
+  "cohort-seeder",
   "cohort-stream-processor",
   "common/alloc",
   "common/assignment-coordination",
@@ -38,12 +40,14 @@ members = [
   "cyclotron-core",
   "cyclotron-node",
   "cyclotron-janitor",
+  "replay-anonymizer",
   "replay-anonymizer-node",
   "cymbal",
   "cymbal-proto",
   "embedding-worker",
   "common/geoip",
   "common/hogvm",
+  "common/ingestion_warnings",
   "hogql/parser",
   "kafka-assigner",
   "kafka-assigner-proto",
@@ -107,6 +111,16 @@ debug = "line-tables-only"
 opt-level = 3
 
 [profile.dev.package.stateright]
+opt-level = 3
+
+# The model's rebalance action runs the production placement computation
+# (plan_partial_rebalance, the sticky strategy, the handoff diff) in every
+# explored state, so the crates that host it need the same treatment or
+# the checker's hot loop drops back to opt-level 0.
+[profile.dev.package.personhog-coordination]
+opt-level = 3
+
+[profile.dev.package.assignment-coordination]
 opt-level = 3
 
 [workspace.dependencies]

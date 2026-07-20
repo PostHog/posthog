@@ -13,9 +13,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feed
     ZONKA_FEEDBACK_ENDPOINTS,
 )
 
+# Vendor API version labels — opaque strings, never parsed or ordered. v2.1 is Zonka's current
+# stable API; v1 is the legacy label PostHog first shipped against.
+ZONKA_API_VERSION_V1 = "v1"
+ZONKA_API_VERSION_V2_1 = "v2.1"
+
 # Zonka Feedback hosts data per region; the account's data center is the subdomain of the API host.
 # US=us1, EU=e, IN=in are the documented, verifiable identifiers.
 DATA_CENTER_IDS: tuple[str, ...] = ("us1", "e", "in")
+
 # The list endpoints default to 25 items per page and allow overriding the page size. We request a
 # larger page to cut round trips; pagination terminates on the first empty page, so the request is
 # correct whether or not the server honours the larger size.

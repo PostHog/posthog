@@ -9,7 +9,7 @@ if [[ "${1:-}" == "--prepare" ]]; then
 fi
 
 if (($# == 0)); then
-    echo "usage: bash .codex/with-flox [--prepare] <command> [args...]" >&2
+    echo "usage: .codex/with-flox [--prepare] <command> [args...]" >&2
     exit 2
 fi
 
@@ -187,7 +187,7 @@ fi
 
 if [[ "$prepare" -eq 0 ]]; then
     if [[ ! -f "$env_file" ]]; then
-        echo "error: Codex environment is not prepared; run 'bash $repo_root/.codex/with-flox --prepare true'" >&2
+        echo "error: Codex environment is not prepared; run '$repo_root/.codex/with-flox --prepare true'" >&2
         exit 1
     fi
 
@@ -221,7 +221,7 @@ if [[ "$prepare" -eq 0 ]]; then
         cached_variables=$((cached_variables + 1))
     done < "$env_file"
     if [[ "$cached_variables" -eq 0 || "$cached_fingerprint" != "$(environment_fingerprint)" ]]; then
-        echo "error: Codex environment is stale; run 'bash $repo_root/.codex/with-flox --prepare true'" >&2
+        echo "error: Codex environment is stale; run '$repo_root/.codex/with-flox --prepare true'" >&2
         exit 1
     fi
 

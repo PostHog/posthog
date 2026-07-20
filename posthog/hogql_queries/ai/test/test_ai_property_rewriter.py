@@ -3,7 +3,20 @@ import pytest
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
+from posthog.hogql_queries.ai.ai_column_rewriter import (
+    _STRING_ID_COLUMNS,
+    AI_COLUMN_TO_PROPERTY,
+    EVENTS_FALLBACK_PROPERTY_TYPE_OVERRIDES,
+)
 from posthog.hogql_queries.ai.ai_property_rewriter import AiPropertyRewriter, _rewrite_property_field
+
+
+class TestEventsFallbackPropertyTypeOverrides:
+    def test_overrides_force_string_for_each_string_id_column(self):
+        assert _STRING_ID_COLUMNS <= set(AI_COLUMN_TO_PROPERTY), _STRING_ID_COLUMNS - set(AI_COLUMN_TO_PROPERTY)
+        assert EVENTS_FALLBACK_PROPERTY_TYPE_OVERRIDES == {
+            AI_COLUMN_TO_PROPERTY[col]: "String" for col in _STRING_ID_COLUMNS
+        }
 
 
 class TestRewritePropertyField:

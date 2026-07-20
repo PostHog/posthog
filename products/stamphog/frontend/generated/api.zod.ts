@@ -25,7 +25,9 @@ export const StamphogDigestChannelsCreateBody = /* @__PURE__ */ zod.object({
     audience_key: zod
         .string()
         .max(stamphogDigestChannelsCreateBodyAudienceKeyMax)
-        .describe("Opaque digest bucket this channel receives, e.g. 'repo:PostHog\/posthog'."),
+        .describe(
+            "Opaque digest bucket this channel receives, e.g. 'repo:PostHog\/posthog'. Immutable after creation — it anchors the audience and its opt-out tombstone."
+        ),
     slack_integration_id: zod
         .number()
         .min(stamphogDigestChannelsCreateBodySlackIntegrationIdMin)
@@ -59,7 +61,9 @@ export const StamphogDigestChannelsUpdateBody = /* @__PURE__ */ zod.object({
     audience_key: zod
         .string()
         .max(stamphogDigestChannelsUpdateBodyAudienceKeyMax)
-        .describe("Opaque digest bucket this channel receives, e.g. 'repo:PostHog\/posthog'."),
+        .describe(
+            "Opaque digest bucket this channel receives, e.g. 'repo:PostHog\/posthog'. Immutable after creation — it anchors the audience and its opt-out tombstone."
+        ),
     slack_integration_id: zod
         .number()
         .min(stamphogDigestChannelsUpdateBodySlackIntegrationIdMin)
@@ -94,7 +98,9 @@ export const StamphogDigestChannelsPartialUpdateBody = /* @__PURE__ */ zod.objec
         .string()
         .max(stamphogDigestChannelsPartialUpdateBodyAudienceKeyMax)
         .optional()
-        .describe("Opaque digest bucket this channel receives, e.g. 'repo:PostHog\/posthog'."),
+        .describe(
+            "Opaque digest bucket this channel receives, e.g. 'repo:PostHog\/posthog'. Immutable after creation — it anchors the audience and its opt-out tombstone."
+        ),
     slack_integration_id: zod
         .number()
         .min(stamphogDigestChannelsPartialUpdateBodySlackIntegrationIdMin)
@@ -235,11 +241,16 @@ export const StamphogRepoConfigsPartialUpdateBody = /* @__PURE__ */ zod.object({
 /**
  * Per-repo stamphog settings — enable/disable review, GitHub App installation, policy overrides.
  */
+export const stamphogRepoConfigsSyncInstallationCreateBodyInstallationIdDefault = ``
+
 export const StamphogRepoConfigsSyncInstallationCreateBody = /* @__PURE__ */ zod
     .object({
         installation_id: zod
             .string()
-            .describe('GitHub App installation ID returned on the post-install Setup URL redirect.'),
+            .default(stamphogRepoConfigsSyncInstallationCreateBodyInstallationIdDefault)
+            .describe(
+                "GitHub App installation ID from the fresh-install Setup URL redirect. Optional: absent or blank means discover the caller's installations from the OAuth code instead (authorize-first flow). The id is not trusted on its own — ownership is always proven via the code."
+            ),
         code: zod
             .string()
             .describe(
@@ -252,5 +263,5 @@ export const StamphogRepoConfigsSyncInstallationCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe(
-        "Request body for binding a completed GitHub App installation to the current team.\n\nRequires both the ``installation_id`` and the user-to-server OAuth ``code`` from the post-install\nredirect: the code proves the caller actually owns the installation, without which any caller could\nbind another org's installation to their own team."
+        "Request body for binding a GitHub App installation to the current team.\n\nAlways requires the user-to-server OAuth ``code`` (the ownership proof) and the ``state`` token.\n``installation_id`` is optional: when present (the fresh-install redirect) exactly that installation\nis verified and synced; when absent or blank (the authorize-first redirect) the caller's accessible\ninstallations are discovered server-side from the code, so the client never has to supply a\nforgeable id."
     )

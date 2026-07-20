@@ -6,7 +6,11 @@
 #   "opentelemetry-api~=1.27",
 #   "opentelemetry-sdk~=1.27",
 #   "opentelemetry-exporter-otlp-proto-http~=1.27",
+#   "posthog-owners",
 # ]
+#
+# [tool.uv.sources]
+# posthog-owners = { path = "../../tools/owners" }
 # ///
 """Emit OTLP traces from Backend CI JUnit XML artifacts.
 
@@ -35,8 +39,10 @@ import hashlib
 import logging
 import secrets
 import argparse
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from functools import cache
 from pathlib import Path
 from typing import Any
 
@@ -48,6 +54,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.sdk.trace.id_generator import IdGenerator
 from opentelemetry.trace import Status, StatusCode
+from posthog_owners import OwnersResolver
 
 logger = logging.getLogger("report_test_timings")
 
@@ -69,6 +76,7 @@ class TestCase:
     end: datetime
     outcome: str  # passed | failed | error | skipped | xfailed | rerun_passed
     attempts: int  # 1 + number of pytest-rerunfailures retries before final outcome
+    file: str  # repo-relative test file from JUnit's `file`; '' when absent (external shards)
     selector: str  # runnable 'path/test.py::Class::test' from JUnit's `file`; '' when file is absent
 
 
@@ -284,6 +292,7 @@ def parse_shard(xml_path: Path, info: ArtifactInfo) -> Shard | None:
                 nodeid=to_nodeid(classname, name),
                 classname=classname,
                 name=name,
+                file=file,
                 selector=to_selector(file, classname, name),
                 duration_seconds=duration,
                 start=test_start,
@@ -435,6 +444,35 @@ def job_trace_name(workflow: str, info: ArtifactInfo) -> str:
     return f"{workflow} / {job}"
 
 
+def owner_team_lookup() -> Callable[[str], str]:
+    """Repo-relative test file -> primary owning team slug, '' when unowned.
+
+    Resolution is capture-time on purpose: a test is attributed to whoever owned it when it
+    ran. Ownership is best-effort next to the timings themselves, so every failure — a resolver
+    that can't load (a base checkout predating `tools/owners`) or one file that won't resolve —
+    degrades to no stamp, leaving those spans in the reader's `unowned` bucket rather than
+    losing the emit.
+    """
+    try:
+        resolver = OwnersResolver()
+    except Exception:
+        logger.exception("owners resolver unavailable; emitting spans without team attribution")
+        return lambda _file: ""
+
+    @cache
+    def lookup(file: str) -> str:
+        if not file:
+            return ""
+        try:
+            owners = resolver.resolve(file).owners
+        except Exception:
+            logger.exception("owners resolution failed for %s; emitting span without team attribution", file)
+            return ""
+        return owners[0] if owners else ""
+
+    return lookup
+
+
 def emit_traces(shards: list[Shard], endpoint: str, token: str) -> None:
     """Emit one trace per job: a `<workflow> / <job>` root span with test children, shipped via OTLP HTTP."""
     run_id = os.environ.get("GITHUB_RUN_ID", "0")
@@ -452,16 +490,17 @@ def emit_traces(shards: list[Shard], endpoint: str, token: str) -> None:
         provider.shutdown()
         return
 
+    owner_of = owner_team_lookup()
     for shard in shards:
         # Mutate the shared generator before each job so its root span (and the test
         # children that inherit the active parent's trace ID) form a distinct trace.
         id_generator.trace_id = deterministic_trace_id(run_id, run_attempt, job_trace_key(shard.info))
-        _emit_shard_span(tracer, shard, job_trace_name(workflow, shard.info))
+        _emit_shard_span(tracer, shard, job_trace_name(workflow, shard.info), owner_of)
 
     provider.shutdown()
 
 
-def _emit_shard_span(tracer: trace.Tracer, shard: Shard, root_name: str) -> bool:
+def _emit_shard_span(tracer: trace.Tracer, shard: Shard, root_name: str, owner_of: Callable[[str], str]) -> bool:
     """Emit the job's root span and its test children. Returns True iff any child has Error."""
     info = shard.info
     shard_span = tracer.start_span(root_name, start_time=_to_ns(shard.start))
@@ -497,6 +536,9 @@ def _emit_shard_span(tracer: trace.Tracer, shard: Shard, root_name: str) -> bool
             test_span.set_attribute("test.name", test.name)
             if test.selector:
                 test_span.set_attribute("test.selector", test.selector)
+            owner_team = owner_of(test.file)
+            if owner_team:
+                test_span.set_attribute("test.owner_team", owner_team)
             if test.outcome in ("failed", "error"):
                 test_span.set_status(Status(StatusCode.ERROR))
                 has_error = True

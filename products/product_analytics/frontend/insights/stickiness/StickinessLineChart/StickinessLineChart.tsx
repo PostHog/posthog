@@ -51,7 +51,6 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
     const tooltipConfig = STICKINESS_TOOLTIP_CONFIG
 
     const legendConfig = useInsightsLegendConfig({ insightProps })
-    const quillLegendEnabled = !!legendConfig
 
     const {
         indexedResults,
@@ -60,7 +59,6 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
         yAxisScaleType,
         showMultipleYAxes,
         getTrendsColor,
-        getTrendsHidden,
         currentPeriodResult,
         breakdownFilter,
         trendsFilter,
@@ -101,13 +99,13 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
                 showMultipleYAxes: showMultipleYAxes ?? undefined,
                 display: display ?? undefined,
                 getColor: getTrendsColor,
-                // With the quill legend on, hidden series stay listed (dimmed) and are excluded via
-                // config.legend.hiddenKeys instead of being dropped here, so the legend can restore them.
-                getHidden: quillLegendEnabled ? undefined : getTrendsHidden,
+                // Hidden series stay listed (dimmed) and are excluded via config.legend.hiddenKeys
+                // instead of being dropped here, so the legend can restore them.
+                getHidden: undefined,
                 getLabel,
                 buildMeta: buildTrendsSeriesMeta,
             }),
-        [indexedResults, display, getTrendsColor, getTrendsHidden, getLabel, showMultipleYAxes, quillLegendEnabled]
+        [indexedResults, display, getTrendsColor, getLabel, showMultipleYAxes]
     )
 
     const chartConfig: TimeSeriesLineChartConfig = useChartConfig(

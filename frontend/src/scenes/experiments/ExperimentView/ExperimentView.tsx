@@ -34,6 +34,7 @@ import { ExperimentDebugPanel } from './ExperimentExecutionPathComparison'
 import { ExperimentFeedbackTab } from './ExperimentFeedbackTab'
 import { ExperimentHeader } from './ExperimentHeader'
 import { EditConclusionModal } from './ExperimentModals'
+import { ExperimentReplayTab } from './ExperimentReplayTab'
 import { ExperimentWarningBanner } from './ExperimentWarningBanners'
 import { ExposureCriteriaModal } from './ExposureCriteria'
 import { Exposures } from './Exposures'
@@ -90,11 +91,7 @@ const MetricsTab = (): JSX.Element => {
                 <MultiVariantBiasWarning />
             </div>
 
-            {showRecalculationStatus && (
-                <div className="mb-2">
-                    <RecalculationStatus experiment={experiment} />
-                </div>
-            )}
+            {showRecalculationStatus && <RecalculationStatus experiment={experiment} />}
 
             {/* Modern metrics view */}
             {!hasMetrics ? (
@@ -135,6 +132,7 @@ const VariantsTab = (): JSX.Element => {
 export function ExperimentView(): JSX.Element {
     const { experimentLoading, experimentId, experiment, isExperimentDraft, exposureCriteria, showDebugPanel } =
         useValues(experimentLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const {
         setExperiment,
         setExposureCriteria,
@@ -205,6 +203,15 @@ export function ExperimentView(): JSX.Element {
                                 ),
                                 content: <AiAnalysisTab />,
                             },
+                            ...(featureFlags[FEATURE_FLAGS.EXPERIMENT_RECORDINGS_TAB]
+                                ? [
+                                      {
+                                          key: 'recordings',
+                                          label: 'Recordings',
+                                          content: <ExperimentReplayTab experiment={experiment} />,
+                                      },
+                                  ]
+                                : []),
                             ...(!isExperimentDraft
                                 ? [
                                       {

@@ -5,7 +5,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { type SetupTaskId } from 'lib/components/ProductSetup'
 import { globalSetupLogic } from 'lib/components/ProductSetup/globalSetupLogic'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { isKeyOf } from 'lib/utils/guards'
@@ -16,6 +16,7 @@ import { resolveOnboardingFlowVariant } from 'scenes/onboarding/onboardingVarian
 import { availableOnboardingProducts } from 'scenes/onboarding/shared/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { setQuickstartAsDefaultHomepageOnce } from 'scenes/quickstart/quickstartHomepage'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -216,7 +217,8 @@ export interface onboardingLogicMeta {
         ) => Breadcrumb[]
         onCompleteOnboardingRedirectUrl: (
             productKey: ProductKey | null,
-            onCompleteOnboardingRedirectUrlOverride: string | null
+            onCompleteOnboardingRedirectUrlOverride: string | null,
+            featureFlags: FeatureFlagsSet
         ) => string
     }
 }
@@ -630,10 +632,17 @@ export const onboardingLogic = kea<onboardingLogicType>([
             },
         ],
         onCompleteOnboardingRedirectUrl: [
-            (s) => [s.productKey, s.onCompleteOnboardingRedirectUrlOverride],
-            (productKey: ProductKey | null, onCompleteOnboardingRedirectUrlOverride: string | null): string => {
+            (s) => [s.productKey, s.onCompleteOnboardingRedirectUrlOverride, s.featureFlags],
+            (
+                productKey: ProductKey | null,
+                onCompleteOnboardingRedirectUrlOverride: string | null,
+                featureFlags: Record<string, string | boolean | undefined>
+            ): string => {
                 if (onCompleteOnboardingRedirectUrlOverride) {
                     return onCompleteOnboardingRedirectUrlOverride
+                }
+                if (featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE] === 'test') {
+                    return urls.quickstart()
                 }
                 if (!productKey) {
                     return urls.default()
@@ -699,7 +708,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             }
             eventUsageLogic.actions.reportSubscribedDuringOnboarding(productKey)
         },
-        completeOnboarding: ({ redirectUrlOverride }) => {
+        completeOnboarding: async ({ redirectUrlOverride }) => {
             // Idempotency guard. Without this, a double-click on Finish, a re-render
             // calling advance() twice, or back-then-forward into the last step plus
             // pressing Finish again all fire duplicate product-intent writes,
@@ -781,11 +790,23 @@ export const onboardingLogic = kea<onboardingLogicType>([
             for (const productKey of visitedProducts) {
                 actions.recordProductIntentOnboardingComplete({ product_type: productKey as ProductKey })
             }
-            const completedMap: Record<string, boolean> = { ...values.currentTeam?.has_completed_onboarding_for }
+            const previouslyOnboardedMap = values.currentTeam?.has_completed_onboarding_for
+            const completedMap: Record<string, boolean> = { ...previouslyOnboardedMap }
             for (const productKey of visitedProducts) {
                 completedMap[productKey] = true
             }
-            teamLogic.actions.updateCurrentTeam({ has_completed_onboarding_for: completedMap })
+            try {
+                // Keep both completion signals in sync so every bootstrapped team shape prevents
+                // sceneLogic from redirecting a completed user back into onboarding after refresh.
+                await teamLogic.asyncActions.updateCurrentTeam({
+                    completed_snippet_onboarding: true,
+                    has_completed_onboarding_for: completedMap,
+                })
+                setQuickstartAsDefaultHomepageOnce(previouslyOnboardedMap)
+            } catch {
+                // The completion update failed, so leave the user's homepage untouched
+                lemonToast.error("Couldn't save onboarding progress. Please try again.")
+            }
         },
         completeContextOnboarding: async () => {
             // Idempotency guard — Finish can fire twice on a double-click.
@@ -812,18 +833,23 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 actions.reportContextOnboardingCompleted(productKey)
                 actions.recordProductIntentOnboardingComplete({ product_type: productKey })
             }
-            // Populating has_completed_onboarding_for flips teamLogic.hasOnboardedAnyProduct true, so
-            // sceneLogic stops redirecting back into onboarding. Await the PATCH before navigating —
-            // updateCurrentTeam is NOT optimistic, so leaving early would race a still-stale currentTeam
-            // and sceneLogic could bounce a not-yet-ingested team straight back here.
+            // Persist both completion signals before navigating. updateCurrentTeam is not optimistic,
+            // so leaving early would race stale state and bounce a not-yet-ingested team back here.
             const completedMap: Record<string, boolean> = { ...team?.has_completed_onboarding_for }
             for (const productKey of products) {
                 completedMap[productKey] = true
             }
             try {
-                await teamLogic.asyncActions.updateCurrentTeam({ has_completed_onboarding_for: completedMap })
+                await teamLogic.asyncActions.updateCurrentTeam({
+                    completed_snippet_onboarding: true,
+                    has_completed_onboarding_for: completedMap,
+                })
+                setQuickstartAsDefaultHomepageOnce(team?.has_completed_onboarding_for)
                 router.actions.push(
-                    getRelativeNextPath(router.values.searchParams['next'], window.location) ?? urls.default()
+                    getRelativeNextPath(router.values.searchParams['next'], window.location) ??
+                        (values.featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE] === 'test'
+                            ? urls.quickstart()
+                            : urls.default())
                 )
             } catch {
                 lemonToast.error("Couldn't finish onboarding. Please try again.")

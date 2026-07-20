@@ -1,6 +1,8 @@
 import random
 from collections import Counter
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+from typing import cast
 
 import pytest
 from freezegun import freeze_time
@@ -10,13 +12,16 @@ from django.utils import timezone
 
 from posthog.models import Organization, Team, User
 
-from products.tasks.backend.models import CodePrSnapshot, Task, TaskRun
+from products.tasks.backend.models import CodePrSnapshot, CodeWorkstream, Task, TaskRun
 from products.tasks.backend.temporal.code_workstreams.activities import rebuild_workstreams
 from products.tasks.backend.temporal.code_workstreams.activities.rebuild_workstreams import (
+    RebuildTeamWorkstreamsInput,
     _branch_resolution_pref,
     _build_pr_input,
     _repo_from_pr_url,
     _select_recent_task_ids,
+    _task_to_input,
+    rebuild_team_workstreams,
 )
 from products.tasks.backend.temporal.code_workstreams.constants import ACTIVITY_WINDOW
 from products.tasks.backend.temporal.process_task.utils import parse_run_state
@@ -66,6 +71,46 @@ def test_parse_run_state_reads_pr_base_branch(state, expected):
 )
 def test_repo_from_pr_url(pr_url, expected):
     assert _repo_from_pr_url(pr_url) == expected
+
+
+def test_task_to_input_preserves_merge_signal_from_older_run():
+    pr_url = "https://github.com/org/repo/pull/1"
+    merged_run = SimpleNamespace(
+        id="merged-run",
+        team_id=1,
+        created_at=datetime(2026, 5, 30, tzinfo=UTC),
+        updated_at=datetime(2026, 5, 30, tzinfo=UTC),
+        status=TaskRun.Status.COMPLETED,
+        branch=None,
+        state={},
+        output={"pr_url": pr_url, "pr_merged": True},
+    )
+    latest_run = SimpleNamespace(
+        id="latest-run",
+        team_id=1,
+        created_at=datetime(2026, 5, 31, tzinfo=UTC),
+        updated_at=datetime(2026, 5, 31, tzinfo=UTC),
+        status=TaskRun.Status.COMPLETED,
+        branch=None,
+        state={},
+        output={"pr_url": pr_url},
+    )
+    task = cast(
+        Task,
+        SimpleNamespace(
+            id="task-id",
+            team_id=1,
+            title="Task",
+            updated_at=datetime(2026, 5, 31, tzinfo=UTC),
+            repository=None,
+            latest_run=latest_run,
+            runs=SimpleNamespace(all=lambda: [merged_run, latest_run]),
+        ),
+    )
+
+    task_input, _ = _task_to_input(task)
+
+    assert task_input.cloud_pr_merged is True
 
 
 def test_build_pr_input_carries_head_branch():
@@ -243,3 +288,23 @@ def test_select_recent_task_ids_ignores_tasks_that_cannot_form_workstreams():
     assert branch_task.id in selected
     assert pr_task.id in selected
     assert selected.isdisjoint({t.id for t in junk})
+
+
+@pytest.mark.django_db
+@freeze_time("2026-06-01")
+def test_rebuild_omits_run_with_merged_pr_without_snapshot():
+    org = _org()
+    team = _team(org)
+    user = _user(org)
+    _task_with_run_at(
+        team,
+        user,
+        timezone.now() - timedelta(days=10),
+        branch=None,
+        output={"pr_url": "https://github.com/org/repo/pull/1", "pr_merged": True},
+    )
+
+    result = rebuild_team_workstreams(RebuildTeamWorkstreamsInput(team_id=team.id))
+
+    assert result.workstreams == 0
+    assert not CodeWorkstream.objects.for_team(team.id).filter(user=user).exists()
