@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 
@@ -48,6 +50,7 @@ describe('mcpAnalyticsNotificationsLogic', () => {
             results: [],
         })
         jest.spyOn(api.hogFunctions, 'update').mockResolvedValue(makeNotification('updated'))
+        jest.spyOn(lemonToast, 'warning').mockImplementation(() => 'toast-id')
         mockedDeleteWithUndo.mockReset().mockResolvedValue()
 
         logic = mcpAnalyticsNotificationsLogic()
@@ -84,33 +87,24 @@ describe('mcpAnalyticsNotificationsLogic', () => {
         expect(listSpy.mock.calls[0][0]).not.toHaveProperty('full')
     })
 
-    it('loads every notification page when the full list is requested', async () => {
-        const firstPage = Array.from({ length: 200 }, (_, index) => makeNotification(`page-1-${index}`))
-        const lastNotification = makeNotification('page-2-0')
-        listSpy.mockReset()
-        listSpy
-            .mockResolvedValueOnce({
-                count: 201,
-                next: 'http://localhost/api/projects/1/hog_functions/?limit=200&offset=200',
-                previous: null,
-                results: firstPage,
-            })
-            .mockResolvedValueOnce({
-                count: 201,
-                next: null,
-                previous: 'http://localhost/api/projects/1/hog_functions/?limit=200',
-                results: [lastNotification],
-            })
+    it('keeps the fetched rows and warns when the list is truncated', async () => {
+        const notifications = [makeNotification('a'), makeNotification('b')]
+        listSpy.mockReset().mockResolvedValue({
+            count: 501,
+            next: 'http://localhost/api/projects/1/hog_functions/?limit=500&offset=500',
+            previous: null,
+            results: notifications,
+        })
 
         await expectLogic(logic, () => logic.actions.loadNotifications())
             .toFinishAllListeners()
             .toMatchValues({
-                notificationCount: 201,
-                notifications: [...firstPage, lastNotification],
+                notifications,
+                notificationsFailed: false,
             })
 
-        expect(listSpy).toHaveBeenNthCalledWith(1, expect.objectContaining({ full: true, limit: 200, offset: 0 }))
-        expect(listSpy).toHaveBeenNthCalledWith(2, expect.objectContaining({ full: true, limit: 200, offset: 200 }))
+        expect(listSpy).toHaveBeenCalledWith(expect.objectContaining({ full: true, limit: 500 }))
+        expect(lemonToast.warning).toHaveBeenCalledWith(expect.stringContaining('first 500'))
     })
 
     it('blocks a second toggle and reconciles the first with the server response', async () => {
@@ -162,6 +156,6 @@ describe('mcpAnalyticsNotificationsLogic', () => {
             .toMatchValues({
                 notifications: [concurrentlyUpdatedNotification, serverNotification],
             })
-        expect(listSpy).toHaveBeenCalledWith(expect.objectContaining({ full: true, offset: 0 }))
+        expect(listSpy).toHaveBeenCalledWith(expect.objectContaining({ full: true }))
     })
 })
