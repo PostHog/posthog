@@ -472,6 +472,14 @@ export const TasksCreateBody = /* @__PURE__ */ zod
                 "When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead."
             ),
         channel: zod.uuid().nullish().describe('Channel this task is owned by (the channel it was kicked off in).'),
+        sandbox_environment_id: zod
+            .uuid()
+            .nullish()
+            .describe('Sandbox environment selected for matching a pre-warmed cloud run. Not persisted on the task.'),
+        custom_image_id: zod
+            .uuid()
+            .nullish()
+            .describe('Custom image selected for matching a pre-warmed cloud run. Not persisted on the task.'),
         runtime: zod
             .enum(['acp', 'pi'])
             .describe('\* `acp` - ACP\n\* `pi` - Pi')
@@ -2174,6 +2182,16 @@ export const TasksWarmCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Reasoning effort to warm the sandbox on for models that expose an effort control.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'
+            ),
+        sandbox_environment_id: zod
+            .uuid()
+            .nullish()
+            .describe('Optional sandbox environment to provision before the task is submitted.'),
+        custom_image_id: zod
+            .uuid()
+            .nullish()
+            .describe(
+                "Optional custom base image to provision before the task is submitted; takes precedence over the environment's image."
             ),
     })
     .describe(

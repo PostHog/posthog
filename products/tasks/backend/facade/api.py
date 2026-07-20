@@ -3532,6 +3532,8 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
     warm_runtime_adapter = validated_data.pop("runtime_adapter", None)
     warm_model = validated_data.pop("model", None)
     warm_reasoning_effort = validated_data.pop("reasoning_effort", None)
+    warm_sandbox_environment_id = validated_data.pop("sandbox_environment_id", None)
+    warm_custom_image_id = validated_data.pop("custom_image_id", None)
     pending_user_message = (validated_data.pop("pending_user_message", None) or "").strip() or None
     pending_user_artifact_ids = validated_data.pop("pending_user_artifact_ids", None) or []
     warm_auto_publish = validated_data.pop("auto_publish", None)
@@ -3553,7 +3555,16 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
             runtime_adapter=warm_runtime_adapter,
             model=warm_model,
             reasoning_effort=warm_reasoning_effort,
+            sandbox_environment_id=warm_sandbox_environment_id,
+            custom_image_id=warm_custom_image_id,
         )
+        if warm_run is not None and not _warm_sandbox_selection_is_accessible(
+            team_id=team_id,
+            task_created_by_id=user_id,
+            sandbox_environment_id=warm_sandbox_environment_id,
+            custom_image_id=warm_custom_image_id,
+        ):
+            warm_run = None
         if warm_run is not None and pending_user_artifact_ids:
             from products.tasks.backend.logic.services.staged_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
                 get_task_run_artifacts_by_id,
@@ -3843,6 +3854,8 @@ def _find_idling_warm_run(
     runtime_adapter: str | None = None,
     model: str | None = None,
     reasoning_effort: str | None = None,
+    sandbox_environment_id: str | UUID | None = None,
+    custom_image_id: str | UUID | None = None,
 ) -> TaskRun | None:
     """Most-recent idling pre-warmed Run matching this user's cloud composing selection, or ``None``.
 
@@ -3852,10 +3865,10 @@ def _find_idling_warm_run(
     live Run instead of spawning a second) and lets the normal create+run path transparently reuse a
     warm Run on submit. Team + user scoped; branch compared as ``None``-normalized exact match.
 
-    Reuse also requires the warm Run's ``runtime_adapter``/``model``/``reasoning_effort`` to match the
-    requested selection (each ``None``-normalized); a mismatch returns ``None`` so the caller cold-creates
-    on the correct runtime. The repo/branch/``await_user_message`` predicates stay in the query; the
-    runtime selection is matched in Python over the small candidate set.
+    Reuse also requires the warm Run's runtime, sandbox environment, and custom image selections to
+    match the request. A mismatch returns ``None`` so the caller cold-creates on the correct sandbox.
+    The repo/branch/``await_user_message`` predicates stay in the query; the remaining selection is
+    matched in Python over the small candidate set.
     """
     if user_id is None or not repository:
         return None
@@ -3873,13 +3886,53 @@ def _find_idling_warm_run(
         .select_related("task")
         .order_by("-created_at")[:20]
     )
-    wanted = (runtime_adapter or None, model or None, reasoning_effort or None)
+    wanted = (
+        runtime_adapter or None,
+        model or None,
+        reasoning_effort or None,
+        str(sandbox_environment_id) if sandbox_environment_id else None,
+        str(custom_image_id) if custom_image_id else None,
+    )
     for run in candidates:
         state = run.state or {}
-        have = (state.get("runtime_adapter") or None, state.get("model") or None, state.get("reasoning_effort") or None)
+        have = (
+            state.get("runtime_adapter") or None,
+            state.get("model") or None,
+            state.get("reasoning_effort") or None,
+            state.get("sandbox_environment_id") or None,
+            state.get("custom_image_id") or None,
+        )
         if have == wanted:
             return run
     return None
+
+
+def _warm_sandbox_selection_is_accessible(
+    *,
+    team_id: int,
+    task_created_by_id: int | None,
+    sandbox_environment_id: str | UUID | None,
+    custom_image_id: str | UUID | None,
+) -> bool:
+    if sandbox_environment_id is not None:
+        sandbox_environment = SandboxEnvironment.get_accessible_for_task(
+            environment_id=sandbox_environment_id,
+            team_id=team_id,
+            task_created_by_id=task_created_by_id,
+        )
+        if sandbox_environment is None:
+            return False
+
+    if custom_image_id is not None:
+        custom_image = SandboxCustomImage.get_accessible_for_task(
+            image_id=custom_image_id,
+            team_id=team_id,
+            task_created_by_id=task_created_by_id,
+        )
+        if custom_image is None or not custom_image.is_ready:
+            return False
+
+    return True
 
 
 def _idling_warm_run_for_task(task: Task) -> TaskRun | None:
@@ -3964,6 +4017,8 @@ def warm_task_sandbox(
     runtime_adapter: str | None = None,
     model: str | None = None,
     reasoning_effort: str | None = None,
+    sandbox_environment_id: str | UUID | None = None,
+    custom_image_id: str | UUID | None = None,
 ) -> contracts.WarmTaskDTO | None:
     """Warm a full idling Run for a Code-app cloud task while the user composes.
 
@@ -3997,6 +4052,31 @@ def warm_task_sandbox(
         get_provider_for_runtime_adapter,
     )
 
+    team = Team.objects.get(id=team_id)
+    github_integration = Integration.objects.filter(id=github_integration_id, team_id=team_id, kind="github").first()
+    if github_integration is None:
+        return None
+
+    sandbox_environment = None
+    if sandbox_environment_id is not None:
+        sandbox_environment = SandboxEnvironment.get_accessible_for_task(
+            environment_id=sandbox_environment_id,
+            team_id=team_id,
+            task_created_by_id=user_id,
+        )
+        if sandbox_environment is None:
+            return None
+
+    custom_image = None
+    if custom_image_id is not None:
+        custom_image = SandboxCustomImage.get_accessible_for_task(
+            image_id=custom_image_id,
+            team_id=team_id,
+            task_created_by_id=user_id,
+        )
+        if custom_image is None or not custom_image.is_ready:
+            return None
+
     existing = _find_idling_warm_run(
         team_id,
         user_id,
@@ -4005,14 +4085,11 @@ def warm_task_sandbox(
         runtime_adapter=runtime_adapter,
         model=model,
         reasoning_effort=reasoning_effort,
+        sandbox_environment_id=sandbox_environment_id,
+        custom_image_id=custom_image_id,
     )
     if existing is not None:
         return contracts.WarmTaskDTO(task_id=existing.task_id, run_id=existing.id)
-
-    team = Team.objects.get(id=team_id)
-    github_integration = Integration.objects.filter(id=github_integration_id, team_id=team_id, kind="github").first()
-    if github_integration is None:
-        return None
 
     task = Task.create_without_run(
         team=team,
@@ -4031,6 +4108,10 @@ def warm_task_sandbox(
         "initial_permission_mode": initial_permission_mode,
         "use_modal_network_allowlist": False,
     }
+    if sandbox_environment is not None:
+        extra_state["sandbox_environment_id"] = str(sandbox_environment.id)
+    if custom_image is not None:
+        extra_state["custom_image_id"] = str(custom_image.id)
     for key, value in {
         "runtime_adapter": runtime_adapter,
         "provider": provider.value if provider is not None else None,
@@ -4099,12 +4180,21 @@ def run_task(
                 warm_state.get("runtime_adapter") or None,
                 warm_state.get("model") or None,
                 warm_state.get("reasoning_effort") or None,
+                warm_state.get("sandbox_environment_id") or None,
+                warm_state.get("custom_image_id") or None,
             ) == (
                 validated_data.get("runtime_adapter") or None,
                 validated_data.get("model") or None,
                 validated_data.get("reasoning_effort") or None,
+                str(validated_data["sandbox_environment_id"]) if validated_data.get("sandbox_environment_id") else None,
+                str(validated_data["custom_image_id"]) if validated_data.get("custom_image_id") else None,
             )
-            if warm_runtime_matches:
+            if warm_runtime_matches and _warm_sandbox_selection_is_accessible(
+                team_id=team_id,
+                task_created_by_id=task.created_by_id,
+                sandbox_environment_id=warm_state.get("sandbox_environment_id"),
+                custom_image_id=warm_state.get("custom_image_id"),
+            ):
                 warm_staged_artifacts, warm_missing_artifact_ids = (
                     get_task_staged_artifacts(task, pending_user_artifact_ids)
                     if pending_user_artifact_ids
