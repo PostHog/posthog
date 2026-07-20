@@ -219,6 +219,32 @@ class TestLazyJoins(BaseTest):
         assert "e__override." in flat[dependent_pos : dependent_pos + 300]
         assert override_pos < dependent_pos, "override join must be emitted before the join that references it"
 
+    def test_person_override_join_not_added_twice_across_lazy_passes(self):
+        # The resolver re-visits a select query in a multi-pass loop to expand lazy joins that sit on
+        # top of other lazy joins. A person_id-keyed warehouse join on `events`, reached from a lazy
+        # source table (`persons`) via `IN (SELECT ... FROM events ...)`, forces such a re-visit: on the
+        # second pass the already-inserted person-overrides join (`events__override`) was collected and
+        # re-added, so `resolve_types` raised 'Already have joined a table called "events__override"'.
+        # This broke query-defined cohort calculation. The resolver must add each join at most once.
+        DataWarehouseJoin(
+            team=self.team,
+            source_table_name="events",
+            source_table_key="person_id",
+            joining_table_name="persons",
+            joining_table_key="id",
+            field_name="person_link",
+        ).save()
+
+        # Before the fix this raised QueryError('Already have joined a table called "events__override"').
+        printed = self._print_select(
+            "SELECT id AS actor_id FROM persons WHERE id IN (SELECT person_id FROM events WHERE person_link.id != '0')",
+            HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS),
+        )
+
+        # Guard that the skip did not drop the override join entirely: person_id still resolves through it.
+        assert "AS events__override ON" in printed, "person-overrides join was not emitted"
+        assert "AS events__person_link ON" in printed, "person_id-keyed warehouse join was not emitted"
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_events_session_join_with_timestamp_filter(self):
         # Documents SQL generation for events with session access and a timestamp filter.
