@@ -6,7 +6,7 @@ use metrics::{counter, gauge, histogram};
 
 use crate::aperture;
 use crate::debug_recorder::{
-    record_if, DebugEventKind, DebugRecorder, DispatcherLoad, LoadEntry, SubBatchInfo,
+    record_if, DebugEventKind, DebugRecorder, DispatcherLoad, LoadEntry, RoutingDebug, SubBatchInfo,
 };
 use crate::order_sentinel::KeyOrderSentinel;
 use crate::routing::{Router, RoutingStrategy, WorkerLoad};
@@ -266,6 +266,29 @@ impl Dispatcher {
             pin_count: table.pins.len(),
             stashed_messages: table.stash.message_count(),
             stashed_batches: table.stash.batch_count(),
+        }
+    }
+
+    /// Routing strategy and current aperture slice for the debug UI. Runs the
+    /// same ring/slice computation as `assign`, over a worker view the caller
+    /// captured in one registry pass — so within one debug response the ring,
+    /// slice, and worker rows can't disagree under churn.
+    pub fn debug_routing(&self, workers: Vec<WorkerId>, healthy: &[WorkerId]) -> RoutingDebug {
+        let strategy = self.router.lock().unwrap().strategy();
+        let ring = aperture::sorted_ring(workers);
+        let slice = if strategy == RoutingStrategy::Aperture {
+            self.aperture.as_ref().and_then(|(tracker, width)| {
+                let peers = tracker.snapshot();
+                aperture::ring_slice(&ring, healthy, peers.self_index, peers.peer_count(), *width)
+            })
+        } else {
+            None
+        };
+        RoutingDebug {
+            strategy: strategy.as_str().to_string(),
+            min_aperture: self.aperture.as_ref().map(|(_, width)| *width),
+            ring: ring.iter().map(|w| w.to_string()).collect(),
+            slice: slice.map(|s| s.iter().map(|w| w.to_string()).collect()),
         }
     }
 
@@ -1458,6 +1481,39 @@ mod tests {
             wid(0),
             "pinned key must stay on its out-of-slice worker"
         );
+    }
+
+    #[test]
+    fn test_debug_routing_reports_the_live_aperture_slice() {
+        // The debug payload must mirror what `assign` would use: same ring,
+        // same slice (peer 1 of 2 over 6 workers → floored width 3, positions
+        // 3-5). A drift here would make the control-plane UI lie during an
+        // incident.
+        let registry = healthy_registry(6);
+        let mut dispatcher =
+            Dispatcher::with_strategy(Arc::clone(&registry), RoutingStrategy::Aperture);
+        dispatcher.set_aperture(peer_tracker("10.0.0.2", &["10.0.0.1", "10.0.0.2"]), 2);
+
+        let routing = dispatcher.debug_routing(registry.workers(), &registry.healthy_workers());
+
+        assert_eq!(routing.strategy, "aperture");
+        assert_eq!(routing.min_aperture, Some(2));
+        assert_eq!(routing.ring.len(), 6);
+        assert_eq!(
+            routing.slice,
+            Some(vec![
+                wid(3).to_string(),
+                wid(4).to_string(),
+                wid(5).to_string()
+            ])
+        );
+
+        // Non-aperture strategies report no slice — the UI shows full pool.
+        let registry = healthy_registry(2);
+        let p2c = Dispatcher::with_strategy(Arc::clone(&registry), RoutingStrategy::P2c);
+        let routing = p2c.debug_routing(registry.workers(), &registry.healthy_workers());
+        assert_eq!(routing.strategy, "p2c");
+        assert!(routing.slice.is_none());
     }
 
     // ---- graceful drain ----
