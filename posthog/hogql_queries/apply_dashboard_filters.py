@@ -116,20 +116,32 @@ def merge_filters_by_priority(base_filters: dict | None, override_filters: dict 
     return merged
 
 
-def flatten_property_leaves(properties: Any) -> list[dict]:
+_MAX_PROPERTY_GROUP_DEPTH = 32
+
+
+def flatten_property_leaves(properties: Any, _depth: int = 0) -> list[dict]:
     """Flatten a `properties` value into a flat list of leaf property-filter dicts. The value is either a
     flat list of leaves or a (possibly nested) `PropertyGroupFilter` dict (`{"type": ..., "values": [...]}`),
     since dashboard/tile filter layers can be stored in either form. Non-dict entries are dropped so a
-    malformed filter can't crash the merge. Filter layers are AND-combined, so collapsing groups to a flat
-    list preserves their meaning while letting every layer be merged uniformly."""
+    malformed filter can't crash the merge. AND groups are collapsed (filter layers are AND-combined, so
+    collapsing preserves their meaning); OR groups are dropped entirely, since the flat-list contract can't
+    represent them and silently AND-combining their leaves would flip the semantics.
+
+    `properties` can arrive from untrusted JSON (`?filters_override=`), so recursion is depth-capped — a
+    deeply-nested group stops flattening (and is dropped) at `_MAX_PROPERTY_GROUP_DEPTH` instead of
+    stack-overflowing the request. Legitimate `PropertyGroupFilter` nesting is 2-3 levels."""
+    if _depth >= _MAX_PROPERTY_GROUP_DEPTH:
+        return []
     if isinstance(properties, dict):
+        if properties.get("type") not in (None, "AND"):
+            return []
         properties = properties.get("values")
     if not isinstance(properties, list):
         return []
     leaves: list[dict] = []
     for item in properties:
         if isinstance(item, dict) and isinstance(item.get("values"), list):
-            leaves.extend(flatten_property_leaves(item))
+            leaves.extend(flatten_property_leaves(item, _depth + 1))
         elif isinstance(item, dict):
             leaves.append(item)
     return leaves
@@ -231,6 +243,11 @@ def resolve_effective_dashboard_filters(
     effective_filters = (
         merge_filters_by_priority(base_filters, tile_filters_override) if tile_filters_override else base_filters or {}
     )
+    # `merge_filters_by_priority` early-returns the raw base/override dict (and a single-layer
+    # `base_filters` is unmerged) when only one layer is present, so `properties` can still be a
+    # property-group dict here. Downstream consumers (`DashboardFilter.model_validate`, cache key)
+    # require the flat-list contract, so normalize once at the boundary.
+    effective_filters = normalize_dashboard_filters_properties(effective_filters)
     if effective_filters and not _has_data_warehouse_series(query):
         query = remove_query_properties_overridden_by(query, effective_filters)
     return query, effective_filters

@@ -91,9 +91,8 @@ class TestInsightModel(BaseTest):
 
         filters = insight.dashboard_filters(dashboard=dashboard)
 
-        # The dashboard property survives in the merged group's second AND branch as a flat list.
-        second_branch = filters["properties"]["values"][1]
-        assert second_branch == {"type": "AND", "values": [dashboard_prop]}
+        # The insight has no own properties, so the dashboard's flattened property is set directly.
+        assert filters["properties"] == [dashboard_prop]
 
     def test_dashboard_with_date_from_all_overrides_compare(self) -> None:
         insight = Insight.objects.create(team=self.team, filters={"date_from": "-30d", "compare": True})

@@ -1279,10 +1279,16 @@ class DashboardSerializer(DashboardMetadataSerializer):
         the write paths read `request.data`/`initial_data` directly. `Dashboard.filters` is opaque
         JSON; this enforces the dict shape and normalizes a `PropertyGroupFilter` dict
         (`{"type": ..., "values": [...]}`) on `properties` to the flat-list contract
-        (`DashboardFilter.properties`), so the dict form can't be persisted for readers to trip on."""
+        (`DashboardFilter.properties`), so the dict form can't be persisted for readers to trip on.
+        OR-type group dicts (`{"type": "OR", ...}`) are rejected, since `DashboardFilter.properties`
+        is AND-combined and flattening an OR group would silently flip its semantics."""
         if not isinstance(request_filters, dict):
             raise serializers.ValidationError("Filters must be a dictionary")
         properties = request_filters.get("properties")
+        if isinstance(properties, dict) and properties.get("type") not in (None, "AND"):
+            raise serializers.ValidationError(
+                {"properties": "Property groups must be AND-combined; OR groups are not supported"}
+            )
         if properties is not None and not isinstance(properties, (list, dict)):
             raise serializers.ValidationError({"properties": "Must be a list of filters or a property group"})
         return normalize_dashboard_filters_properties(request_filters)

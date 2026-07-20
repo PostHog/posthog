@@ -4,8 +4,10 @@ from parameterized import parameterized
 
 from posthog.hogql_queries.apply_dashboard_filters import (
     dashboard_filter_from_dict,
+    flatten_property_leaves,
     merge_filters_by_priority,
     remove_query_properties_overridden_by,
+    resolve_effective_dashboard_filters,
     resolve_filter_layers_by_priority,
 )
 
@@ -209,6 +211,66 @@ class TestDashboardFilterFromDict(SimpleTestCase):
             {"key": "$browser", "type": "event", "value": "Chrome", "operator": "exact"}
         ]
         assert built.date_from == "-7d"
+
+
+class TestFlattenPropertyLeaves(SimpleTestCase):
+    def test_drops_or_property_group(self):
+        # An OR group can't be represented as a flat list of AND-combined leaves — flattening its
+        # leaves would silently flip OR to AND. Drop the group instead of corrupting its semantics.
+        or_group = {
+            "type": "OR",
+            "values": [
+                {"key": "$country", "value": "US", "type": "event"},
+                {"key": "$country", "value": "CA", "type": "event"},
+            ],
+        }
+        assert flatten_property_leaves(or_group) == []
+
+    def test_and_property_group_is_flattened(self):
+        and_group = {
+            "type": "AND",
+            "values": [
+                {"key": "$country", "value": "US", "type": "event"},
+                {"key": "$browser", "value": "Chrome", "type": "event"},
+            ],
+        }
+        assert flatten_property_leaves(and_group) == [
+            {"key": "$country", "value": "US", "type": "event"},
+            {"key": "$browser", "value": "Chrome", "type": "event"},
+        ]
+
+    def test_deeply_nested_group_does_not_recurse_past_depth_cap(self):
+        # A maliciously deep group must hit the depth cap and return empty, not stack-overflow.
+        nested = {"key": "$browser", "value": "Chrome", "type": "event"}
+        for _ in range(100):
+            nested = {"type": "AND", "values": [nested]}
+        assert flatten_property_leaves(nested) == []
+
+
+class TestResolveEffectiveDashboardFilters(SimpleTestCase):
+    def test_normalizes_single_layer_dict_properties_to_flat_list(self):
+        # When there's no tile override, `merge_filters_by_priority` early-returns the raw base dict
+        # without flattening. `resolve_effective_dashboard_filters` must still normalize so the
+        # returned `effective_filters` carries the flat-list contract downstream consumers
+        # (`DashboardFilter.model_validate` in process_query_dict) require.
+        prop = {"key": "$browser", "value": "Chrome", "type": "event"}
+        query = {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}}
+        _, effective = resolve_effective_dashboard_filters(
+            query, {"date_from": "-7d", "properties": {"type": "AND", "values": [prop]}}, None
+        )
+        assert effective["properties"] == [prop]
+        assert effective["date_from"] == "-7d"
+
+    def test_normalizes_merged_dict_properties_to_flat_list(self):
+        prop_a = {"key": "$country", "value": "US", "type": "event"}
+        prop_b = {"key": "$browser", "value": "Chrome", "type": "event"}
+        query = {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}}
+        _, effective = resolve_effective_dashboard_filters(
+            query,
+            {"properties": {"type": "AND", "values": [prop_a]}},
+            {"properties": {"type": "AND", "values": [prop_b]}},
+        )
+        assert effective["properties"] == [prop_a, prop_b]
 
 
 class TestRemoveQueryPropertiesOverriddenBy(SimpleTestCase):
