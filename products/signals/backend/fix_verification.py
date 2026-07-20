@@ -14,8 +14,14 @@ from django.utils import timezone
 
 import structlog
 
-from products.signals.backend.artefact_schemas import ArtefactContentValidationError, RelatedTo, parse_artefact_content
-from products.signals.backend.models import SignalFixVerification, SignalReport, SignalReportArtefact
+from products.signals.backend.artefact_attribution import ArtefactAttribution
+from products.signals.backend.artefact_schemas import (
+    ArtefactContentValidationError,
+    NoteArtefact,
+    RelatedTo,
+    parse_artefact_content,
+)
+from products.signals.backend.models import SignalFixVerification, SignalReport, SignalReportArtefact, SignalScratchpad
 
 logger = structlog.get_logger(__name__)
 
@@ -27,6 +33,14 @@ FIX_VERIFICATION_SOAK_WINDOW = timedelta(days=7)
 # Per-sweep cap so a backlog (first deploy, sweep outage) settles over a few ticks
 # instead of one unbounded pass.
 FIX_VERIFICATION_SWEEP_LIMIT = 500
+
+# Scout scratchpad key prefix for fix outcomes — the memory surface scout runs search at
+# prompt-assembly time, so outcomes here are what makes the fleet learn from its fixes.
+FIX_OUTCOME_MEMORY_KEY_PREFIX = "fix-outcome:"
+
+# Cap on retained fix-outcome entries per team; oldest are pruned so outcomes can't
+# crowd out the scout's other memory.
+MAX_FIX_OUTCOME_MEMORY_ENTRIES = 50
 
 
 def schedule_fix_verification(report: SignalReport, *, task_id: uuid.UUID | None, pr_url: str) -> SignalFixVerification:
@@ -232,4 +246,80 @@ def _record_outcome(
         pr_url=verification.pr_url,
         regressed_report_id=str(regressed_report.id) if regressed_report else None,
     )
+    # The settled row is the source of truth; downstream actions (memory, annotations)
+    # are best-effort so one bad write can't wedge the sweep.
+    try:
+        _act_on_outcome(verification, status, regressed_report)
+    except Exception:
+        logger.exception(
+            "signals_fix_verification_outcome_actions_failed",
+            verification_id=str(verification.id),
+            outcome=status,
+        )
     return status
+
+
+def _act_on_outcome(
+    verification: SignalFixVerification,
+    status: "SignalFixVerification.Status",
+    regressed_report: SignalReport | None,
+) -> None:
+    """Feed the outcome back into the loop: annotate the recurrence and remember the lesson."""
+    if status == SignalFixVerification.Status.INCONCLUSIVE:
+        return
+
+    # These strings become durable, system-authored agent memory that future runs read
+    # verbatim, so only system-derived facts (IDs, PR URL, dates) may appear in them.
+    # Report title/summary are user-editable prose — interpolating them here would be a
+    # prompt-injection path into trusted context; agents that need the title can look the
+    # report up by ID and treat it as untrusted.
+    report = verification.report
+    if status == SignalFixVerification.Status.REGRESSED and regressed_report is not None:
+        # The next research/fix agent reads this report's artefact log; without the note it
+        # has no way to know a fix was already tried and bounced.
+        SignalReportArtefact.add_log(
+            team_id=verification.team_id,
+            report_id=str(regressed_report.id),
+            content=NoteArtefact(
+                note=(
+                    f"Fix regression: this issue was previously resolved by {verification.pr_url} "
+                    f"(report {report.id}), but it recurred after the merge. The previous fix "
+                    "did not hold, so understand why before attempting a similar fix."
+                ),
+                author="fix_verification",
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+        memory = (
+            f"Fix outcome (regressed): report {report.id} was resolved by {verification.pr_url}, "
+            f"but the issue recurred and a new report was opened ({regressed_report.id}). "
+            "A similar fix alone is not enough; find out why it did not hold before re-attempting."
+        )
+    else:
+        memory = (
+            f"Fix outcome (verified): report {report.id} was resolved by {verification.pr_url} "
+            f"and stayed quiet through the {FIX_VERIFICATION_SOAK_WINDOW.days}-day soak window. "
+            "This class of fix holds."
+        )
+
+    # noqa rationale: `scout_harness.tools` package import chain reaches back into this
+    # module via the temporal package — deferring breaks that true circular import.
+    from products.signals.backend.scout_harness.tools.scratchpad import remember  # noqa: PLC0415
+
+    remember(
+        team_id=verification.team_id,
+        key=f"{FIX_OUTCOME_MEMORY_KEY_PREFIX}{report.id}",
+        content=memory,
+    )
+    _prune_fix_outcome_memory(verification.team_id)
+
+
+def _prune_fix_outcome_memory(team_id: int) -> None:
+    stale_ids = list(
+        SignalScratchpad.objects.for_team(team_id)
+        .filter(key__startswith=FIX_OUTCOME_MEMORY_KEY_PREFIX)
+        .order_by("-updated_at")
+        .values_list("id", flat=True)[MAX_FIX_OUTCOME_MEMORY_ENTRIES:]
+    )
+    if stale_ids:
+        SignalScratchpad.objects.for_team(team_id).filter(id__in=stale_ids).delete()
