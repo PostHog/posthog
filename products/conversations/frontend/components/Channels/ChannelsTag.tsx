@@ -60,7 +60,8 @@ export function ChannelsTag({ channel, detail, to }: ChannelsTagProps): JSX.Elem
         const tooltip = channelOpenLabel[channel] ?? `${channel}${detailText ? ` · ${detailText}` : ''}`
         return (
             <Tooltip title={tooltip}>
-                <Link to={to} target="_blank">
+                {/* Stop propagation so clicking the tag opens Slack without triggering a row/parent click. */}
+                <Link to={to} target="_blank" onClick={(e) => e.stopPropagation()}>
                     {tag}
                 </Link>
             </Tooltip>
