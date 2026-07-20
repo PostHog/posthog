@@ -176,6 +176,8 @@ describe('AiIngestionPipeline', () => {
             eventSchemaEnforcementManager: {} as unknown as EventSchemaEnforcementManager,
             // No-op metrics wrapper — these tests assert pipeline output, not topHog counters.
             topHog: ((step) => step) as TopHogWrapper,
+            aiBlobStore: null,
+            aiBlobOffloadConfig: { enabledTeamIds: new Set<number>(), minBase64Length: 8192 },
         }
     })
 

@@ -6,7 +6,7 @@ import { ProcessedEvent } from '~/types'
 
 import { EventToEmit } from './emit-event-step'
 
-const LARGE_AI_PROPERTIES = new Set([
+export const LARGE_AI_PROPERTIES = new Set([
     '$ai_input',
     '$ai_output',
     '$ai_output_choices',

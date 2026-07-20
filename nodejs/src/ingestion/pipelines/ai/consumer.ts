@@ -35,6 +35,7 @@ import { createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
 import { TopHog } from '~/ingestion/framework/tophog'
 import { RedisPool } from '~/types'
 
+import { buildAiBlobStore } from './blob-offload/blob-store'
 import { createAiIngestionPipeline } from './pipeline'
 
 export type AiConsumerConfig = CommonIngestionConsumerConfig &
@@ -54,6 +55,15 @@ export type AiConsumerConfig = CommonIngestionConsumerConfig &
         | 'SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID'
         | 'INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID'
         | 'EVENT_SCHEMA_ENFORCEMENT_ENABLED'
+        | 'AI_BLOB_S3_BUCKET'
+        | 'AI_BLOB_S3_PREFIX'
+        | 'AI_BLOB_S3_ENDPOINT'
+        | 'AI_BLOB_S3_REGION'
+        | 'AI_BLOB_S3_ACCESS_KEY_ID'
+        | 'AI_BLOB_S3_SECRET_ACCESS_KEY'
+        | 'AI_BLOB_OFFLOAD_TEAMS'
+        | 'AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH'
+        | 'AI_BLOB_OFFLOAD_TOUCH_AFTER_HOURS'
     > &
     Pick<CommonConfig, 'CDP_HOG_WATCHER_SAMPLE_RATE'>
 
@@ -151,6 +161,12 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
             })
     )
 
+    const aiBlobStore = buildAiBlobStore(config)
+    const aiBlobOffloadConfig = {
+        enabledTeamIds: new Set(splitTokens(config.AI_BLOB_OFFLOAD_TEAMS).map(Number)),
+        minBase64Length: config.AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH,
+    }
+
     return new CommonIngestionConsumerScope('ai', config, scope, ({ container }) =>
         createAiIngestionPipeline({
             outputs: container.outputs,
@@ -174,6 +190,8 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
             eventSchemaEnforcementEnabled: config.EVENT_SCHEMA_ENFORCEMENT_ENABLED,
             eventSchemaEnforcementManager: new EventSchemaEnforcementManager(container.postgres),
             topHog: createTopHogWrapper(container.topHog),
+            aiBlobStore,
+            aiBlobOffloadConfig,
         })
     )
 }

@@ -51,7 +51,9 @@ import { IngestionOverflowMode } from '~/ingestion/config'
 import { TopHogWrapper, sum, sumOk, sumResult } from '~/ingestion/framework/extensions/tophog'
 import { isDropResult } from '~/ingestion/framework/results'
 
+import { BlobStore } from './blob-offload/blob-store'
 import { AiEventOutput, EVENTS_OUTPUT, EventOutput } from './outputs'
+import { OffloadAiBlobsStepConfig, createOffloadAiBlobsStep } from './pipelines/steps/offload-ai-blobs-step'
 import { createProcessAiEventStep } from './pipelines/steps/process-ai-event-step'
 
 export interface AiIngestionPipelineConfig {
@@ -76,6 +78,8 @@ export interface AiIngestionPipelineConfig {
     eventSchemaEnforcementEnabled: boolean
     eventSchemaEnforcementManager: EventSchemaEnforcementManager
     topHog: TopHogWrapper
+    aiBlobStore: BlobStore | null
+    aiBlobOffloadConfig: OffloadAiBlobsStepConfig
 }
 
 interface AiIngestionPipelineInput {
@@ -123,6 +127,8 @@ export function createAiIngestionPipeline<
         eventSchemaEnforcementEnabled,
         eventSchemaEnforcementManager,
         topHog,
+        aiBlobStore,
+        aiBlobOffloadConfig,
     } = config
 
     return (
@@ -207,6 +213,9 @@ export function createAiIngestionPipeline<
             )
             .pipe(createNormalizeEventStep())
             .pipe(createProcessAiEventStep())
+            .pipe(createOffloadAiBlobsStep(aiBlobStore, aiBlobOffloadConfig), {
+                retry: { tries: 5, sleepMs: 100, name: 'offload_ai_blobs' },
+            })
             // Read-only: drop person-update props so they don't
             // leak into person_properties (person is never written).
             .pipe(createStripPersonUpdatePropertiesStep())
