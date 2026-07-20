@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any, Final
 
 import litellm
@@ -12,6 +12,7 @@ from litellm.llms.anthropic.experimental_pass_through.adapters.handler import (
     LiteLLMMessagesToCompletionTransformationHandler,
 )
 
+from llm_gateway.anthropic_stream import observe_anthropic_stream
 from llm_gateway.config import Settings, _normalize_cost_key
 
 # Modal endpoints are OpenAI-compatible vLLM servers; no native litellm provider.
@@ -109,7 +110,10 @@ def _inject_modal_params(kwargs: dict[str, Any], api_base: str, modal_key: str, 
 def make_modal_anthropic_call(api_base: str, modal_key: str, modal_secret: str) -> Callable[..., Awaitable[Any]]:
     async def llm_call(**kwargs: Any) -> Any:
         _inject_modal_params(kwargs, api_base, modal_key, modal_secret)
-        return await LiteLLMMessagesToCompletionTransformationHandler.async_anthropic_messages_handler(**kwargs)
+        response = await LiteLLMMessagesToCompletionTransformationHandler.async_anthropic_messages_handler(**kwargs)
+        if isinstance(response, AsyncIterator):
+            return observe_anthropic_stream(response, "modal")
+        return response
 
     return llm_call
 

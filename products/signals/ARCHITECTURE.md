@@ -209,7 +209,7 @@ Bulk sync (`sync_full_cache`) fans the per-repo sync out via `run_parallel_with_
 
 Reports are re-promoted when new evidence arrives. A `READY` / `RESOLVED` report re-promotes on every new matching signal (so research reruns with the latest evidence), and a report reset to `potential` re-promotes once it clears the `signals_at_run` snooze gate again.
 
-**Re-research cap.** The research activity reads every non-deleted signal, so re-research cost scales with report size. Once an already-researched report exceeds `RERESEARCH_MAX_SIGNALS` (`SIGNAL_RERESEARCH_MAX_SIGNALS`, default 10), `READY` / `RESOLVED` re-promotion is suppressed: new signals are still assigned, weighted, and emitted, but no new summary run spawns. The cap is enforced in two places: the grouping promotion gate (`assign_and_emit_signal_activity`), which fires the `signal_report_reresearch_skipped` event per suppressed signal so the saved volume is trackable, and the summary self-loop (`mark_report_ready_activity`), which stops an in-flight run from looping into another research pass (no event — this is a rare mid-run edge).
+**Re-research cap.** The research activity reads every non-deleted signal, so re-research cost scales with report size. Once an already-researched report exceeds `RERESEARCH_MAX_SIGNALS` (`SIGNAL_RERESEARCH_MAX_SIGNALS`, default 10), `READY` re-promotion is suppressed: new signals are still assigned, weighted, and emitted, but no new summary run spawns. The cap is enforced in two places: the grouping promotion gate (`assign_and_emit_signal_activity`), which fires the `signal_report_reresearch_skipped` event per suppressed signal so the saved volume is trackable, and the summary self-loop (`mark_report_ready_activity`), which stops an in-flight run from looping into another research pass (no event — this is a rare mid-run edge).
 
 The cap covers **only** the `READY` / `RESOLVED` path (the one that re-promotes on every signal). Re-promotions through the `potential` gate stay uncapped — first research, `candidate` self-heal, snooze return, and a not-actionable reset re-accumulating weight — because they are weight / `signals_at_run`-gated rather than per-signal, so strong new evidence can still resurface a large report.
 
@@ -354,11 +354,31 @@ potential → candidate → in_progress → ready
 # Re-promotion: READY reports are re-promoted to candidate on each new matching signal,
 # triggering a new summary run that reuses the previous repo selection and findings for
 # already-seen signals. Suppressed once signal_count > RERESEARCH_MAX_SIGNALS (see Re-research cap).
+# RESOLVED is terminal and never re-promotes: a recurrence spawns a fresh report, linked back to the
+# resolved one via a related_to artefact (assign_and_emit_signal_activity).
 ready → candidate
+
+# Resolve: a report is marked resolved when the requested work is done. Two paths:
+# - automatic: the tasks GitHub webhook resolves a report when its linked implementation PR merges
+# - user-driven: the state API accepts state='resolved' (single + bulk) so a user or MCP agent
+#   can resolve directly — useful for PR-less fixes (skill-body changes, NO_REPO reports) that the
+#   webhook could never reach. Restricted to the same statuses the machine allows below.
+ready | pending_input → resolved
+suppressed → resolved (resolve an archived report straight out of the archive; the state action
+              refuses this unless it was researched before being archived, so an unresearched
+              report can't be laundered candidate → suppressed → resolved)
+
+# Refund interaction: a refund is final (later PR runs are never billed). The refund path suppresses
+# the report so it leaves the inbox and the dismissal receiver closes the implementation PR that was
+# paid for and then refunded — including a manually-resolved one, whose PR may still be open. Only a
+# report resolved by a merged PR stays resolved (nothing to close). The state action then refuses to
+# move a refunded report back to potential — the live status the pipeline re-promotes from — whether
+# it sits in suppressed or resolved, and refuses to resolve it back out of the archive.
 
 # Transitions enforced by SignalReport.transition_to():
 # - deleted is terminal (no transitions out; excluded from API via queryset)
-# - suppressed only transitions back to potential
+# - suppressed transitions back to potential, or straight to the researched status it held before
+#   being archived (ready | pending_input | resolved | failed) — see restore_target_status()
 # - any non-deleted status can transition to deleted or suppressed
 # - snooze = transition to potential with snooze_for=N (sets signals_at_run = signal_count + N)
 suppressed → potential
@@ -745,16 +765,16 @@ Notes:
 
 Read + delete + state transitions. Uses `IsAuthenticated` + `APIScopePermission` (scope: `task`). Composed from `RetrieveModelMixin`, `ListModelMixin`, `DestroyModelMixin`, and `GenericViewSet`. Deleted reports are excluded from all endpoints via `safely_get_queryset`.
 
-| Method | Path                                   | Description                                                                                                                                                                                                                                                                                                                         |
-| ------ | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `signals/reports/`                     | List reports. Excludes `deleted` always and excludes `suppressed` by default. Supports `?status=`, `?search=`, `?source_product=`, `?suggested_reviewers=`, `?task_id=` (resolved through `task_run` artefacts), and `?ordering=`.                                                                                                  |
-| GET    | `signals/reports/{id}/`                | Retrieve a single report                                                                                                                                                                                                                                                                                                            |
-| DELETE | `signals/reports/{id}/`                | Soft-delete a report and its signals. Starts `SignalReportDeletionWorkflow`. On success returns `202`. If the workflow is already running, returns `200 {"status": "already_running"}`. The API immediately transitions the Postgres report to `deleted` to hide it from list results while ClickHouse cleanup runs asynchronously. |
-| POST   | `signals/reports/{id}/state/`          | Transition report state. Body: `{ "state": "suppressed" \| "potential", ...transition_to kwargs }`. Only `suppressed` and `potential` are exposed via API. Returns `409` on invalid transitions and `400` on invalid arguments.                                                                                                     |
-| POST   | `signals/reports/{id}/reingest/`       | Delete a report and re-ingest its signals. Starts `SignalReportReingestionWorkflow`. On success returns `202`. If already running, returns `200 {"status": "already_running"}`. Same team access as other report endpoints; personal API keys need `task:write`.                                                                    |
-| GET    | `signals/reports/{id}/artefacts/`      | List **all** artefacts for a report, ordered by `-created_at`                                                                                                                                                                                                                                                                       |
-| GET    | `signals/reports/{id}/signals/`        | Fetch all signals for a report from ClickHouse, including full metadata                                                                                                                                                                                                                                                             |
-| GET    | `signals/reports/available_reviewers/` | List available suggested reviewers for the team                                                                                                                                                                                                                                                                                     |
+| Method | Path                                   | Description                                                                                                                                                                                                                                                                                                                                         |
+| ------ | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `signals/reports/`                     | List reports. Excludes `deleted` always and excludes `suppressed` by default. Supports `?status=`, `?search=`, `?source_product=`, `?suggested_reviewers=`, `?task_id=` (resolved through `task_run` artefacts), and `?ordering=`.                                                                                                                  |
+| GET    | `signals/reports/{id}/`                | Retrieve a single report                                                                                                                                                                                                                                                                                                                            |
+| DELETE | `signals/reports/{id}/`                | Soft-delete a report and its signals. Starts `SignalReportDeletionWorkflow`. On success returns `202`. If the workflow is already running, returns `200 {"status": "already_running"}`. The API immediately transitions the Postgres report to `deleted` to hide it from list results while ClickHouse cleanup runs asynchronously.                 |
+| POST   | `signals/reports/{id}/state/`          | Transition report state. Body: `{ "state": "suppressed" \| "potential" \| "resolved", ...transition_to kwargs }`. `suppressed`, `potential`, and `resolved` are exposed via API (`resolved` for user-driven "work is done"; the model still gates which statuses may resolve). Returns `409` on invalid transitions and `400` on invalid arguments. |
+| POST   | `signals/reports/{id}/reingest/`       | Delete a report and re-ingest its signals. Starts `SignalReportReingestionWorkflow`. On success returns `202`. If already running, returns `200 {"status": "already_running"}`. Same team access as other report endpoints; personal API keys need `task:write`.                                                                                    |
+| GET    | `signals/reports/{id}/artefacts/`      | List **all** artefacts for a report, ordered by `-created_at`                                                                                                                                                                                                                                                                                       |
+| GET    | `signals/reports/{id}/signals/`        | Fetch all signals for a report from ClickHouse, including full metadata                                                                                                                                                                                                                                                                             |
+| GET    | `signals/reports/available_reviewers/` | List available suggested reviewers for the team                                                                                                                                                                                                                                                                                                     |
 
 **Ordering:** Configurable via `?ordering=` with comma-separated fields. Supported fields: `status`, `is_suggested_reviewer`, `signal_count`, `total_weight`, `priority`, `created_at`, `updated_at`, `id`.
 
