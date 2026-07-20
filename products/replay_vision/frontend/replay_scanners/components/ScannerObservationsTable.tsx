@@ -5,11 +5,12 @@ import { LemonButton, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tool
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, DateMappingOption } from '~/types'
 
 import { FilterPill } from '../../components/FilterPill'
 import { ObservationResultSummary, ObservationStatusTag } from '../../components/ObservationCard'
@@ -41,6 +42,17 @@ const VERDICT_OPTIONS: { value: ObservationVerdictValue; label: string }[] = [
     { value: 'yes', label: 'Yes' },
     { value: 'no', label: 'No' },
     { value: 'inconclusive', label: 'Inconclusive' },
+]
+
+// Empty values on "All time" clear the range, matching the unfiltered default.
+const OBSERVATION_DATE_OPTIONS: DateMappingOption[] = [
+    { key: CUSTOM_OPTION_KEY, values: [] },
+    { key: 'All time', values: [] },
+    { key: 'Last 24 hours', values: ['-24h'] },
+    { key: 'Last 3 days', values: ['-3d'] },
+    { key: 'Last 7 days', values: ['-7d'] },
+    { key: 'Last 30 days', values: ['-30d'] },
+    { key: 'Last 90 days', values: ['-90d'] },
 ]
 
 // Chip color by how many versions behind the live scanner an observation ran: latest → oldest.
@@ -259,7 +271,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                     size="small"
                                     dateFrom={observationDateFrom}
                                     dateTo={observationDateTo}
-                                    placeholder="All time"
+                                    dateOptions={OBSERVATION_DATE_OPTIONS}
                                     onChange={(dateFrom, dateTo) => setObservationDateRange(dateFrom, dateTo)}
                                 />
                                 <FilterPill<ObservationStatusValue>
