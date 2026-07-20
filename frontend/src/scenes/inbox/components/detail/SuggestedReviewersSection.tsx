@@ -237,7 +237,7 @@ function ReviewerRow({
     onRemove: () => void
 }): JSX.Element {
     const displayName = reviewer.github_name ?? reviewer.user?.first_name ?? reviewer.github_login
-    const reason = reviewer.relevant_commits[0]?.reason ?? null
+    const reason = reviewer.reason ?? reviewer.relevant_commits[0]?.reason ?? null
     const githubUrl = reviewer.github_login ? `https://github.com/${reviewer.github_login}` : null
 
     const person = (
