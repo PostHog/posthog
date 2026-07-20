@@ -217,7 +217,7 @@ export function AlertHistorySection({ alertId }: { alertId: AlertType['id'] }): 
     const checksTotal = alert.checks_total
 
     return (
-        <div className="mt-10 space-y-2">
+        <div className="space-y-2">
             <div className="flex flex-row gap-2 items-center">
                 <h3 className="m-0 flex items-center gap-1.5">
                     <IconGraph className="size-4 text-muted" />
