@@ -1,4 +1,5 @@
 import json
+import uuid
 from datetime import datetime, timedelta
 from typing import Any, cast
 
@@ -33,6 +34,7 @@ from posthog.settings import SITE_URL
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
+from products.conversations.backend.models import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.models.insight import Insight
@@ -2315,3 +2317,163 @@ class TestPerRequestLoggingContextMiddlewareMcpHeaders(APIBaseTest):
         assert "mcp_session_id" not in ctx
         assert "mcp_conversation_id" not in ctx
         span.set_attribute.assert_not_called()
+
+
+@override_settings(ADMIN_PORTAL_ENABLED=True, CLOUD_DEPLOYMENT="US")
+class TestLoginAsFromTicket(APIBaseTest):
+    other_user: User
+
+    def setUp(self):
+        super().setUp()
+        self.other_user = User.objects.create_and_join(
+            self.organization, email="customer@posthog.com", password="123456"
+        )
+        self.user.is_staff = True
+        self.user.save()
+
+        # The loginas admin view expects form-encoded POST data, which is Django
+        # Client's default (APIClient defaults to JSON).
+        self.client = cast(Any, DjangoClient())
+        self.client.force_login(self.user)
+
+    def _create_ticket(self, traits: dict) -> Ticket:
+        return Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id="widget-session",
+            distinct_id="distinct-1",
+            channel_source="widget",
+            status="new",
+            anonymous_traits=traits,
+        )
+
+    def _post(self, body: dict):
+        return self.client.post(
+            reverse("impersonation-from-ticket"),
+            data=json.dumps(body),
+            content_type="application/json",
+        )
+
+    def _as_internal_team(self):
+        return override_settings(POSTHOG_INTERNAL_TEAM_ID=self.team.pk)
+
+    def test_logs_in_as_customer_from_ticket(self):
+        ticket = self._create_ticket({"email": "customer@posthog.com"})
+        with self._as_internal_team():
+            res = self._post({"ticket_id": str(ticket.id)})
+        assert res.status_code == 200
+        assert res.json()["success"] is True
+        assert self.client.get("/api/users/@me").json()["email"] == "customer@posthog.com"
+
+    def test_logout_after_ticket_login_redirects_to_ticket(self):
+        ticket = self._create_ticket({"email": "customer@posthog.com"})
+        with self._as_internal_team():
+            self._post({"ticket_id": str(ticket.id)})
+
+        res = self.client.post("/logout/")
+        assert res.status_code == 302
+        assert res.headers["Location"] == f"/support/tickets/{ticket.id}"
+        assert self.client.get("/api/users/@me").json()["email"] == self.user.email
+
+    def test_non_staff_cannot_login_from_ticket(self):
+        self.user.is_staff = False
+        self.user.save()
+        ticket = self._create_ticket({"email": "customer@posthog.com"})
+        with self._as_internal_team():
+            res = self._post({"ticket_id": str(ticket.id)})
+        assert res.status_code == 404
+        assert self.client.get("/api/users/@me").json()["email"] == self.user.email
+
+    def test_unknown_ticket_returns_404(self):
+        with self._as_internal_team():
+            res = self._post({"ticket_id": str(uuid.uuid4())})
+        assert res.status_code == 404
+
+    def test_ticket_without_email_returns_400(self):
+        ticket = self._create_ticket({})
+        with self._as_internal_team():
+            res = self._post({"ticket_id": str(ticket.id)})
+        assert res.status_code == 400
+
+    def test_no_user_for_email_returns_404(self):
+        ticket = self._create_ticket({"email": "nobody@posthog.com"})
+        with self._as_internal_team():
+            res = self._post({"ticket_id": str(ticket.id)})
+        assert res.status_code == 404
+
+    def test_unknown_region_falls_back_to_local_login(self):
+        # The region trait is customer-suppliable — an unknown value must not 500.
+        ticket = self._create_ticket({"email": "customer@posthog.com", "region": "APAC"})
+        with self._as_internal_team():
+            res = self._post({"ticket_id": str(ticket.id)})
+        assert res.status_code == 200
+        assert res.json()["success"] is True
+        assert self.client.get("/api/users/@me").json()["email"] == "customer@posthog.com"
+
+    def test_cross_region_ticket_returns_redirect_without_impersonating(self):
+        ticket = self._create_ticket({"email": "customer@posthog.com", "region": "EU"})
+        with self._as_internal_team():
+            res = self._post({"ticket_id": str(ticket.id)})
+        assert res.status_code == 200
+        data = res.json()
+        assert data["redirect_region"] == "EU"
+        assert data["redirect_url"].startswith("https://eu.posthog.com/admin/posthog/user/")
+        # Staff stay themselves — impersonation must not start for another region.
+        assert self.client.get("/api/users/@me").json()["email"] == self.user.email
+
+    @parameterized.expand(
+        [
+            # Only an explicit False blocks; None (never assessed) and True allow login.
+            ("verified", True, 200, "customer@posthog.com"),
+            ("unassessed", None, 200, "customer@posthog.com"),
+            ("unverified", False, 400, None),
+        ]
+    )
+    def test_identity_verified_gates_login(self, _name, identity_verified, expected_status, expected_email):
+        ticket = self._create_ticket({"email": "customer@posthog.com"})
+        ticket.identity_verified = identity_verified
+        # Verified widget tickets resolve from the attested distinct_id, not the email trait.
+        ticket.distinct_id = "customer@posthog.com"
+        ticket.save(update_fields=["identity_verified", "distinct_id"])
+        with self._as_internal_team():
+            res = self._post({"ticket_id": str(ticket.id)})
+        assert res.status_code == expected_status
+        impersonated_email = self.client.get("/api/users/@me").json()["email"]
+        if expected_email is None:
+            # Blocked — staff must not have been logged in as the customer.
+            assert impersonated_email == self.user.email
+        else:
+            assert impersonated_email == expected_email
+
+    def test_verified_ticket_resolves_from_attested_identity_not_email_trait(self):
+        # A customer can mutate the email trait on any widget message, so a verified
+        # ticket claiming someone else's email must impersonate the attested identity.
+        attacker = User.objects.create_and_join(self.organization, email="attacker@posthog.com", password="123456")
+        ticket = self._create_ticket({"email": "customer@posthog.com"})
+        ticket.identity_verified = True
+        ticket.distinct_id = str(attacker.distinct_id)
+        ticket.save(update_fields=["identity_verified", "distinct_id"])
+        with self._as_internal_team():
+            res = self._post({"ticket_id": str(ticket.id)})
+        assert res.status_code == 200
+        assert self.client.get("/api/users/@me").json()["email"] == "attacker@posthog.com"
+
+    def test_verified_ticket_with_unresolvable_identity_does_not_fall_back_to_email(self):
+        ticket = self._create_ticket({"email": "customer@posthog.com"})
+        ticket.identity_verified = True
+        ticket.distinct_id = "no-such-distinct-id"
+        ticket.save(update_fields=["identity_verified", "distinct_id"])
+        with self._as_internal_team():
+            res = self._post({"ticket_id": str(ticket.id)})
+        assert res.status_code == 404
+        assert self.client.get("/api/users/@me").json()["email"] == self.user.email
+
+    @parameterized.expand(
+        [
+            ("missing", {}),
+            ("blank", {"ticket_id": "   "}),
+            ("invalid_uuid", {"ticket_id": "not-a-uuid"}),
+        ]
+    )
+    def test_invalid_ticket_id_returns_400(self, _name, body):
+        res = self._post(body)
+        assert res.status_code == 400
