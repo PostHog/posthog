@@ -371,7 +371,9 @@ export function EditAlertModalV2({
     return (
         <LemonModal onClose={handleClose} isOpen={isOpen} width={900} simple title="">
             {alertLoading && !alert ? (
-                <SpinnerOverlay />
+                <div className="flex items-center justify-center min-h-[400px]">
+                    <SpinnerOverlay />
+                </div>
             ) : (
                 <Form
                     logic={alertFormLogic}
