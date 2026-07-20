@@ -234,7 +234,7 @@ pub async fn build_components(
         if config.export_prometheus {
             let partition = partition.clone();
             tokio::spawn(async move {
-                partition.report_metrics().await;
+                partition.report_metrics("analytics").await;
             });
         }
 
@@ -415,9 +415,7 @@ pub async fn build_components(
     // The AI lane gets its own limiter instance with the same knobs: the
     // governor state (per-`token:distinct_id` budgets) is what must stay
     // isolated, so analytics volume can never push a key's AI events into
-    // AI overflow and AI volume never burns the analytics budget. No
-    // `report_metrics` task for this one — the `partition_limits_key_count`
-    // gauge is unlabelled and keeps meaning the analytics limiter.
+    // AI overflow and AI volume never burns the analytics budget.
     let ai_events_overflow_limiter: Option<Arc<OverflowLimiter>> =
         if config.overflow_enabled && ai_events_overflow_enabled {
             let limiter = OverflowLimiter::new(
@@ -426,6 +424,13 @@ pub async fn build_components(
                 config.ingestion_force_overflow_by_token_distinct_id.clone(),
                 config.overflow_preserve_partition_locality,
             );
+
+            if config.export_prometheus {
+                let limiter = limiter.clone();
+                tokio::spawn(async move {
+                    limiter.report_metrics("ai").await;
+                });
+            }
 
             {
                 // Keep the governor's per-key state from growing unbounded.
