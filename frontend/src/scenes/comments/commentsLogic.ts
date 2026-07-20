@@ -640,6 +640,9 @@ export const commentsLogic = kea<commentsLogicType>([
             }
         },
         setRichContentEditor: ({ editor }) => {
+            // isEmpty is otherwise only driven by typing - sync it to the (re)mounted editor's
+            // seeded content so a restored draft enables sending and a fresh composer disables it
+            actions.onRichContentEditorUpdate(editor.isEmpty())
             // The composer just (re)mounted - focus it when the user is mid-flow
             if (values.replyingCommentId || values.itemContext || cache.focusEditorOnRegister) {
                 cache.focusEditorOnRegister = false

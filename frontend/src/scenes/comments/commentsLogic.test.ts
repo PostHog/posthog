@@ -255,6 +255,19 @@ describe('commentsLogic', () => {
         expect(logic.values.currentComposerDraft).toEqual(OTHER_DRAFT)
     })
 
+    it('syncs isEmpty from the editor when a composer registers', () => {
+        logic.actions.setRichContentEditor(createEditor(DRAFT_CONTENT))
+        expect(logic.values.isEmpty).toBe(false)
+
+        // A fresh empty composer replaces it (e.g. switching to a thread with no draft)
+        logic.actions.setRichContentEditor(createEditor(null))
+        expect(logic.values.isEmpty).toBe(true)
+
+        // A composer seeded from a restored draft must enable sending straight away
+        logic.actions.setRichContentEditor(createEditor(DRAFT_CONTENT))
+        expect(logic.values.isEmpty).toBe(false)
+    })
+
     it('does not clear a composer that replaced the sender mid-flight', async () => {
         const replyEditor = createEditor(DRAFT_CONTENT)
         logic.actions.setRichContentEditor(replyEditor)
