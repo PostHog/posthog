@@ -189,13 +189,13 @@ function EditableTags({
                 )
             })}
             <LemonInput
-                size="small"
+                size="xsmall"
                 value={draft}
                 onChange={setDraft}
                 onPressEnter={addDraft}
                 onBlur={addDraft}
                 placeholder="Add tag…"
-                className="w-28"
+                className="w-24"
             />
         </div>
     )
@@ -480,7 +480,11 @@ export function ConfigChangeCards({
                             return (
                                 <div key={field} className="grid grid-cols-2 gap-10 items-start">
                                     <div>
-                                        <div className="text-xs text-muted mb-1">{label}</div>
+                                        {/* Reserve the revert button's height so both columns' values line up. */}
+                                        <div className="flex items-center justify-between gap-2 mb-1">
+                                            <span className="text-xs text-muted">{label}</span>
+                                            {revertButton(field, false)}
+                                        </div>
                                         <FieldCurrentValue kind={kind} value={base[field]} />
                                     </div>
                                     <div>
