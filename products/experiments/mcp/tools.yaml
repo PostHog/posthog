@@ -1060,6 +1060,9 @@ tools:
     experiments-session-context-retrieve:
         operation: experiments_session_context_retrieve
         enabled: false
+    experiments-session-metric-hits-create:
+        operation: experiments_session_metric_hits_create
+        enabled: false
     experiments-unfreeze-exposure-create:
         operation: experiments_unfreeze_exposure_create
         enabled: false
