@@ -191,6 +191,7 @@ from .customerly.source import CustomerlySource
 from .dagster_cloud.source import DagsterCloudSource
 from .databricks.source import DatabricksSource
 from .datadog.source import DatadogSource
+from .dataforseo.source import DataForSEOSource
 from .datahub.source import DatahubSource
 from .datascope.source import DatascopeSource
 from .datorama.source import DatoramaSource
