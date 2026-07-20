@@ -293,7 +293,9 @@ jobs:
         needs: [changes, affected]
         if: needs.changes.outputs.rust == 'true'
         runs-on: depot-ubuntu-24.04-4
-        timeout-minutes: 20
+        # The personhog-stateright shard's serialized model checks alone take ~17 min
+        # of test wall time; its only green run finished 11s under a 20-minute cap.
+        timeout-minutes: ${{ contains(matrix.packages, 'personhog-stateright') && 40 || 20 }}
         permissions:
             contents: read
         env:
