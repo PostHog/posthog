@@ -583,7 +583,7 @@ export const commentsLogic = kea<commentsLogicType>([
                 actions.loadComments()
             }
         },
-        sendComposedContentSuccess: ({}, _, __, previousState) => {
+        sendComposedContentSuccess: (_, __, ___, previousState) => {
             // Replies land inline mid-list - only new root comments append at the bottom
             if (!selectors.replyingCommentId(previousState)) {
                 actions.scrollToLastComment()
