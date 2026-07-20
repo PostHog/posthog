@@ -1,5 +1,5 @@
 import {
-    buildLogsSessionUrl,
+    buildLogsSessionFilters,
     formatFilterGroupValues,
     getFiltersSummaryLines,
     getSessionIdFromLogAttributes,
@@ -149,22 +149,15 @@ describe('logs utils', () => {
         })
     })
 
-    describe('buildLogsSessionUrl', () => {
-        const parseUrl = (url: string): { path: string; params: URLSearchParams } => {
-            const [path, query] = url.split('?')
-            return { path, params: new URLSearchParams(query) }
-        }
-
+    describe('buildLogsSessionFilters', () => {
         it.each([
             ['defaults to the SDK convention key', undefined, ['posthogSessionId']],
             ['uses configured keys in order', ['session.id', 'custom.key'], ['session.id', 'custom.key']],
             ['empty configured list falls back to default', [], ['posthogSessionId']],
         ])('%s', (_, configuredKeys, expectedKeys) => {
-            const { path, params } = parseUrl(buildLogsSessionUrl('sess-1', configuredKeys))
-            expect(path).toBe('/logs')
+            const filters = buildLogsSessionFilters('sess-1', configuredKeys)
 
-            const filterGroup = JSON.parse(params.get('filterGroup')!)
-            const innerGroup = filterGroup.values[0]
+            const innerGroup = filters.filterGroup!.values[0] as Record<string, any>
             expect(innerGroup.type).toBe('OR')
             expect(innerGroup.values).toEqual(
                 expectedKeys.map((key) => ({
@@ -174,13 +167,12 @@ describe('logs utils', () => {
                     type: 'log_attribute',
                 }))
             )
-            expect(params.get('dateRange')).toBeNull()
+            expect(filters.dateRange).toBeUndefined()
         })
 
         it('scopes the date range around the timestamp', () => {
-            const { params } = parseUrl(buildLogsSessionUrl('sess-1', undefined, '2026-03-24T12:00:00.000Z'))
-            const dateRange = JSON.parse(params.get('dateRange')!)
-            expect(dateRange).toEqual({
+            const filters = buildLogsSessionFilters('sess-1', undefined, '2026-03-24T12:00:00.000Z')
+            expect(filters.dateRange).toEqual({
                 date_from: '2026-03-24T11:30:00.000Z',
                 date_to: '2026-03-24T12:30:00.000Z',
             })

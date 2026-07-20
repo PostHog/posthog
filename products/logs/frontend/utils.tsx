@@ -2,10 +2,10 @@ import { formatDateRangeLabel } from 'lib/components/DateFilter/DateRangePicker/
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { dayjs } from 'lib/dayjs'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
-import { urls } from 'scenes/urls'
 
 import { AnyPropertyFilter, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
+import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
 import { DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS } from 'products/logs/frontend/logsConfigLogic'
 
 export function formatFilterGroupValues(filterGroup: Record<string, any> | undefined): string[] {
@@ -157,36 +157,38 @@ export function getSessionIdFromLogAttributes(
 // around a single event without drowning it in unrelated logs.
 const SESSION_LOGS_WINDOW_MINUTES = 30
 
-// Builds a logs-scene URL filtered to one session, for linking in from other products
+// Builds logs viewer filters scoped to one session, for other products surfacing logs
 // (error tracking, session replay). Filters on the team's configured session ID keys
 // (OR across keys, exact match), defaulting to the SDK convention; a timestamp scopes
 // the date range to ±30 minutes so old sessions aren't hidden by the default range.
-export function buildLogsSessionUrl(sessionId: string, configuredKeys?: string[], timestamp?: string): string {
+export function buildLogsSessionFilters(
+    sessionId: string,
+    configuredKeys?: string[],
+    timestamp?: string
+): Partial<LogsViewerFilters> {
     const keys = configuredKeys?.length ? configuredKeys : DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS
-    const filterGroup = {
-        type: FilterLogicalOperator.And,
-        values: [
-            {
-                type: FilterLogicalOperator.Or,
-                values: keys.map((key) => ({
-                    key,
-                    value: [sessionId],
-                    operator: PropertyOperator.Exact,
-                    type: PropertyFilterType.LogAttribute,
-                })),
-            },
-        ],
+    const filters: Partial<LogsViewerFilters> = {
+        filterGroup: {
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    type: FilterLogicalOperator.Or,
+                    values: keys.map((key) => ({
+                        key,
+                        value: [sessionId],
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.LogAttribute,
+                    })),
+                },
+            ],
+        },
     }
-    const params = new URLSearchParams({ filterGroup: JSON.stringify(filterGroup) })
     if (timestamp) {
         const center = dayjs(timestamp)
-        params.set(
-            'dateRange',
-            JSON.stringify({
-                date_from: center.subtract(SESSION_LOGS_WINDOW_MINUTES, 'minute').toISOString(),
-                date_to: center.add(SESSION_LOGS_WINDOW_MINUTES, 'minute').toISOString(),
-            })
-        )
+        filters.dateRange = {
+            date_from: center.subtract(SESSION_LOGS_WINDOW_MINUTES, 'minute').toISOString(),
+            date_to: center.add(SESSION_LOGS_WINDOW_MINUTES, 'minute').toISOString(),
+        }
     }
-    return `${urls.logs()}?${params.toString()}`
+    return filters
 }
