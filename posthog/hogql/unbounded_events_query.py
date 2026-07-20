@@ -1,67 +1,147 @@
 """Detect HogQL queries that read the events table without constraining ``timestamp``.
 
-A ``SELECT ... FROM events`` with no bound on ``timestamp`` in any filter position scans the
-whole history of the table. Compiled insight queries (trends, funnels, …) always inject a date
-range, so only hand-written HogQL can end up unbounded. This module flags that shape so query
-execution can surface it as telemetry (see ``posthog/hogql/query.py``) and we can alert on it.
+A ``SELECT ... FROM events`` with no bound on ``timestamp`` scans the whole history of the table.
+Compiled insight queries (trends, funnels, …) always inject a date range, so only hand-written
+HogQL can end up unbounded. This module flags that shape so query execution can surface it as
+telemetry (see ``posthog/hogql/query.py``) and we can alert on it.
 
 Works on raw or resolved ASTs: it uses type info when available and falls back to chain matching
-otherwise, mirroring ``feature_extractor.py``.
+otherwise, mirroring ``feature_extractor.py``. In production it runs on the unresolved AST, so the
+chain-matching paths are what actually decide.
+
+The rule errs toward precision for the alerting use case:
+- A ``timestamp`` bound counts only where it can prune the scan: WHERE / PREWHERE, respecting
+  boolean structure (an ``OR`` bounds only if every branch does). HAVING runs after the full scan,
+  so it never counts.
+- A qualified ``x.timestamp`` counts only when ``x`` names the events table, so a JOINed table's
+  ``timestamp`` filter doesn't mask an unbounded events read.
+- A bound on an *enclosing* SELECT counts too, because ClickHouse pushes such predicates down into
+  the single subquery / CTE feeding it (the common "prefilter in a CTE, bound in the outer query"
+  pattern) — but not across a join or into an independent WHERE/SELECT subquery.
+- A plain ``SELECT ... FROM events LIMIT n`` with no filter or aggregation only reads up to ``n``
+  rows, so it is not a full-history scan and is not flagged (this is the SQL editor's default).
 """
+
+from collections.abc import Iterator
 
 from posthog.hogql import ast
 from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.functions.aggregations import HOGQL_AGGREGATIONS
 from posthog.hogql.visitor import TraversingVisitor
+
+# Lowercased for case-insensitive matching (HogQL accepts ``COUNT`` and ``count``).
+_AGGREGATE_NAMES: set[str] = {name.lower() for name in HOGQL_AGGREGATIONS}
 
 
 def query_reads_events_without_timestamp_filter(node: ast.Expr | None) -> bool:
-    """``True`` iff any SELECT in the tree reads the events table directly while none of its own
-    filter positions (WHERE / PREWHERE / HAVING) reference the events ``timestamp`` column."""
+    """``True`` iff some SELECT in the tree reads the events table with no timestamp bound able to
+    constrain its scan (its own filters, an enclosing SELECT's filters, or a LIMIT-only read)."""
     if node is None:
         return False
-    detector = _UnboundedEventsQueryDetector()
+    detector = _UnboundedEventsQueryDetector(_collect_cte_names(node))
     detector.visit(node)
     return detector.found
 
 
-class _UnboundedEventsQueryDetector(TraversingVisitor):
+def _collect_cte_names(node: ast.Expr) -> set[str]:
+    """Every CTE name defined anywhere in the tree. A ``FROM <name>`` matching one is a CTE
+    reference, not the real events table, even when it is named ``events``."""
+    collector = _CTENameCollector()
+    collector.visit(node)
+    return collector.names
+
+
+class _CTENameCollector(TraversingVisitor):
     def __init__(self) -> None:
         super().__init__()
-        self.found = False
+        self.names: set[str] = set()
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
-        if not self.found:
-            events_ids = _events_table_identifiers(node)
-            if events_ids and not _has_events_timestamp_filter(node, events_ids):
-                self.found = True
-        # Keep walking: a bounded outer query can still wrap an unbounded subquery / CTE.
+        if node.ctes:
+            self.names.update(node.ctes.keys())
         super().visit_select_query(node)
 
 
-def _events_table_identifiers(node: ast.SelectQuery) -> set[str]:
+class _UnboundedEventsQueryDetector(TraversingVisitor):
+    def __init__(self, cte_names: set[str]) -> None:
+        super().__init__()
+        self.cte_names = cte_names
+        self.found = False
+        # Whether the SELECT currently being entered is fed by a timestamp-bounded outer query. Set
+        # only while descending into a bounded SELECT's single FROM source / CTEs, since ClickHouse
+        # pushes an outer predicate down into the table feeding a query — but not across a join or
+        # into an independent WHERE / SELECT-list subquery (``... IN (SELECT … FROM events)``).
+        self._from_bound = False
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        events_ids = _events_table_identifiers(node, self.cte_names)
+        bounded = self._from_bound or _has_events_timestamp_filter(node, events_ids)
+        if not self.found and events_ids and not bounded and not _is_bounded_row_read(node):
+            self.found = True
+
+        outer_from_bound = self._from_bound
+        # A bound pushes down only into a single source (its FROM subquery / consumed CTE). With a
+        # join the predicate may filter only one side, so judge each joined source independently.
+        single_source = node.select_from is not None and node.select_from.next_join is None
+        # FROM subquery and CTEs inherit the bound (predicates push down into the table feeding us).
+        self._from_bound = bounded and single_source
+        self.visit(node.select_from)
+        for cte in (node.ctes or {}).values():
+            self.visit(cte)
+        # Everything else is a fresh scope — a bound here doesn't reach its subqueries.
+        # (Keep in sync with visitor.py's SelectQuery traversal.)
+        self._from_bound = False
+        for array_join in node.array_join_list or []:
+            self.visit(array_join)
+        for column in node.select or []:
+            self.visit(column)
+        self.visit(node.where)
+        self.visit(node.prewhere)
+        self.visit(node.having)
+        self.visit(node.qualify)
+        for group in node.group_by or []:
+            self.visit(group)
+        for order in node.order_by or []:
+            self.visit(order)
+        for interpolate in node.interpolate or []:
+            self.visit(interpolate)
+        self.visit(node.limit_by)
+        self.visit(node.limit)
+        self.visit(node.offset)
+        for window in (node.window_exprs or {}).values():
+            self.visit(window)
+        self._from_bound = outer_from_bound
+
+
+def _iter_joins(node: ast.SelectQuery) -> Iterator[ast.JoinExpr]:
+    join: ast.JoinExpr | None = node.select_from
+    while join is not None:
+        yield join
+        join = join.next_join
+
+
+def _events_table_identifiers(node: ast.SelectQuery, cte_names: set[str]) -> set[str]:
     """Names that refer to the events table in this SELECT's own FROM / JOIN chain — each events
     source's alias (or ``events`` when unaliased). Empty when the SELECT doesn't read events
     directly (nested subqueries are scored on their own). Also used to attribute an unresolved
     ``x.timestamp`` filter to the right table."""
     ids: set[str] = set()
-    join: ast.JoinExpr | None = node.select_from
-    while join is not None:
-        if _is_events_table(join.table):
+    for join in _iter_joins(node):
+        if _is_events_table(join.table, cte_names):
             ids.add("events")
             if join.alias:
                 ids.add(join.alias)
-        join = join.next_join
     return ids
 
 
-def _is_events_table(expr: ast.Expr | None) -> bool:
+def _is_events_table(expr: ast.Expr | None, cte_names: set[str]) -> bool:
     type_ = getattr(expr, "type", None)
     while isinstance(type_, (ast.TableAliasType, ast.ColumnAliasedTableType)):
         type_ = type_.table_type
     if isinstance(type_, ast.TableType) and isinstance(type_.table, EventsTable):
         return True
-    # No type info — fall back to the FROM chain identifier.
-    return isinstance(expr, ast.Field) and bool(expr.chain) and expr.chain[0] == "events"
+    # No type info — match the FROM identifier, but a CTE named "events" shadows the real table.
+    return isinstance(expr, ast.Field) and bool(expr.chain) and expr.chain[0] == "events" and "events" not in cte_names
 
 
 def _has_events_timestamp_filter(node: ast.SelectQuery, events_ids: set[str]) -> bool:
@@ -128,3 +208,40 @@ def _field_is_events_timestamp(expr: ast.Field, events_ids: set[str]) -> bool:
     if expr.chain[-1] != "timestamp":
         return False
     return len(expr.chain) == 1 or expr.chain[-2] in events_ids
+
+
+def _is_bounded_row_read(node: ast.SelectQuery) -> bool:
+    """A plain ``SELECT <cols> FROM events LIMIT n`` — no filter, grouping, aggregation, DISTINCT,
+    or ORDER BY — reads only up to ``n`` rows, so it is not a full-history scan. This is the SQL
+    editor's default (``select * from events limit 100``); top-level selects always get a LIMIT
+    injected before execution, so bare browsing reads land here too. A filter (``WHERE event = 'x'``)
+    can force scanning far back to fill the limit, so any filter disqualifies the read."""
+    if node.limit is None:
+        return False
+    if node.where or node.prewhere or node.having or node.group_by or node.distinct or node.order_by:
+        return False
+    return not _select_list_has_aggregate(node)
+
+
+def _select_list_has_aggregate(node: ast.SelectQuery) -> bool:
+    finder = _AggregateCallFinder()
+    for item in node.select or []:
+        finder.visit(item)
+        if finder.found:
+            return True
+    return False
+
+
+class _AggregateCallFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.found = False
+
+    def visit_call(self, node: ast.Call) -> None:
+        if bool(node.name) and node.name.lower() in _AGGREGATE_NAMES:
+            self.found = True
+            return
+        super().visit_call(node)
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        pass

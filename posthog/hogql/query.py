@@ -657,7 +657,9 @@ class HogQLQueryExecutor:
                 ),
             )
 
-            if "events" in hogql_features.tables:
+            # Only hand-written HogQL can be unbounded — every compiled runner injects a date range —
+            # so gate on it and skip the detector's AST walk for the (much hotter) compiled queries.
+            if self.query_type == "HogQLQuery" and "events" in hogql_features.tables:
                 with self.timings.measure("capture_unbounded_events_query"):
                     self._capture_unbounded_events_query()
 
