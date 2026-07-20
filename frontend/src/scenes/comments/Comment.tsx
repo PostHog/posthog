@@ -372,7 +372,7 @@ export const CommentWithReplies = ({ commentWithReplies, composerLogicProps }: C
                         </LemonButton>
                     ) : null}
                     {/* While the thread is open the reply affordance lives at its bottom instead */}
-                    {!showRail ? replyButton : null}
+                    {!showRail ? <div className="ml-auto">{replyButton}</div> : null}
                 </div>
             ) : null}
 
@@ -396,7 +396,7 @@ export const CommentWithReplies = ({ commentWithReplies, composerLogicProps }: C
                     {isReplyTarget && composerLogicProps ? (
                         <InlineReplyComposer logicProps={composerLogicProps} />
                     ) : (
-                        <div className="flex">{replyButton}</div>
+                        <div className="flex justify-end">{replyButton}</div>
                     )}
                 </div>
             ) : null}
