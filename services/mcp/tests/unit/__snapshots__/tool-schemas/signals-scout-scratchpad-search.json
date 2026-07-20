@@ -23,8 +23,8 @@
             "type": "boolean"
         },
         "limit": {
-            "description": "Max rows to return (default 20, hard cap 500).",
-            "maximum": 500,
+            "description": "Max rows to return (default 20, hard cap 1000).",
+            "maximum": 1000,
             "minimum": 1,
             "type": "number"
         },
