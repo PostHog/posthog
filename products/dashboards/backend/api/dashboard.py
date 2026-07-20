@@ -1750,8 +1750,12 @@ class DashboardSerializer(DashboardMetadataSerializer):
             return None, False
 
         became_deleted = bool(tile_defaults.get("deleted")) and not existing.deleted
-        # `deleted` is raw request input, so test truthiness (a plain `is False` would let `0` through).
-        became_live = existing.deleted and "deleted" in tile_defaults and not tile_defaults["deleted"]
+        # `deleted` is raw request input; coerce it exactly as the ORM will on save, so a value
+        # Django stores as False but Python reads as truthy ("0", "False") can't skip the gate.
+        deleted_field = DashboardTile._meta.get_field("deleted")
+        became_live = (
+            existing.deleted and "deleted" in tile_defaults and not deleted_field.to_python(tile_defaults["deleted"])
+        )
 
         # Un-deleting a tile re-exposes its insight on the dashboard's public link.
         insight = existing.insight
