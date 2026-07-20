@@ -384,6 +384,18 @@ def delete_project_record(project_id: int) -> None:
     Project.objects.filter(id=project_id).delete()
 
 
+def reset_project_pending_deletion(project_id: int) -> None:
+    """Clear a project's pending-deletion lock.
+
+    Called when the deletion workflow fails non-retryably. Without this, ``is_pending_deletion``
+    stays set forever and the project is welded shut on the "Disassembling" screen with no
+    self-service recovery. Clearing it lets the user retry deletion or contact support.
+    """
+    from posthog.models.project import Project
+
+    Project.objects.filter(id=project_id).update(is_pending_deletion=False)
+
+
 def delete_organization_record(organization_id: str) -> None:
     from posthog.models.organization import Organization
 
