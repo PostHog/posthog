@@ -258,6 +258,14 @@ export const resolveSqlV2ReturnVariable = (returnVariable: string): string => {
     return returnVariable.trim() || 'sql_df'
 }
 
+// A dataframe name is referenced as a bare SQL table name and becomes a Python variable, so
+// only a plain identifier can ever be referenced. A blank name is display-only; a non-blank
+// but invalid one (e.g. `people-df`) is treated the same way for collection — it exports
+// nothing, so it never pollutes the dependency graph or schema browser with an unusable name.
+const SQL_V2_FRAME_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
+export const isReferenceableSqlV2FrameName = (returnVariable: string): boolean =>
+    SQL_V2_FRAME_NAME.test(returnVariable.trim())
+
 const buildUniqueSqlV2ReturnVariable = (baseReturnVariable: string, used: Set<string>): string => {
     const normalizedBase = normalizeSqlIdentifier(baseReturnVariable)
     if (!used.has(normalizedBase)) {
@@ -280,11 +288,13 @@ export const getUniqueSqlV2ReturnVariable = (
     fallbackReturnVariable: string
 ): string => {
     const used = new Set<string>()
-    let resolvedReturnVariable = fallbackReturnVariable.trim() ? resolveSqlV2ReturnVariable(fallbackReturnVariable) : ''
+    let resolvedReturnVariable = isReferenceableSqlV2FrameName(fallbackReturnVariable)
+        ? resolveSqlV2ReturnVariable(fallbackReturnVariable)
+        : ''
     let resolvedFromNodes = false
 
     nodes.forEach((node) => {
-        // An unnamed cell binds no dataframe: it claims no name and needs none reserved.
+        // An unnamed or invalid cell binds no dataframe: it claims no name and needs none reserved.
         if (!node.returnVariable) {
             if (node.nodeId === nodeId) {
                 resolvedReturnVariable = ''
@@ -374,9 +384,9 @@ export const collectSqlV2Nodes = (content?: JSONContent | null): SqlV2NodeSummar
             const attrs = node.attrs ?? {}
             const code = typeof attrs.code === 'string' ? attrs.code : ''
             // A missing attribute predates the optional name (legacy default); an explicit
-            // blank means the user left it empty — the cell binds no dataframe.
+            // blank or invalid one binds no dataframe (nothing can reference it).
             const rawReturnVariable = typeof attrs.returnVariable === 'string' ? attrs.returnVariable : 'sql_df'
-            const returnVariable = rawReturnVariable.trim()
+            const returnVariable = isReferenceableSqlV2FrameName(rawReturnVariable)
                 ? buildUniqueSqlV2ReturnVariable(resolveSqlV2ReturnVariable(rawReturnVariable), usedReturnVariables)
                 : ''
             if (returnVariable) {
@@ -489,12 +499,12 @@ export const collectNotebookFrameNodes = (content?: JSONContent | null): Noteboo
             const attrs = node.attrs ?? {}
             const isSql = node.type === NotebookNodeType.SQLV2
             // A missing SQL attribute predates the optional name (legacy 'sql_df' default);
-            // an explicit blank means the cell binds no dataframe — nothing to browse.
+            // an explicit blank or invalid one binds no dataframe — nothing to browse.
             const rawReturnVariable =
                 typeof attrs.returnVariable === 'string' ? attrs.returnVariable : isSql ? 'sql_df' : ''
             let name: string | null
             if (isSql) {
-                name = rawReturnVariable.trim()
+                name = isReferenceableSqlV2FrameName(rawReturnVariable)
                     ? buildUniqueSqlV2ReturnVariable(resolveSqlV2ReturnVariable(rawReturnVariable), usedReturnVariables)
                     : null
                 if (name) {
@@ -789,9 +799,9 @@ export const buildNotebookDependencyGraph = (content?: JSONContent | null): Note
         if (node.type === NotebookNodeType.SQLV2) {
             const attrs = node.attrs ?? {}
             sqlV2Index += 1
-            // Blank name = display-only cell: it exports nothing (see collectSqlV2Nodes).
+            // Blank or invalid name = display-only cell: it exports nothing (see collectSqlV2Nodes).
             const rawReturnVariable = typeof attrs.returnVariable === 'string' ? attrs.returnVariable : 'sql_df'
-            const returnVariable = rawReturnVariable.trim()
+            const returnVariable = isReferenceableSqlV2FrameName(rawReturnVariable)
                 ? buildUniqueSqlV2ReturnVariable(
                       resolveSqlV2ReturnVariable(rawReturnVariable),
                       usedSqlV2ReturnVariables

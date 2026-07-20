@@ -76,6 +76,13 @@ describe('notebookNodeSQLV2Logic', () => {
             expect(collectSqlV2Refs(document, 'self')).toEqual({ sql_df: hogql('c') })
         })
 
+        it('skips cells with an invalid (non-identifier) name', () => {
+            // `people-df` can never be referenced as a bare table name, so it must not be
+            // offered as a ref that a downstream cell would fail to resolve.
+            const document = doc(sqlNode('a', 'people-df'), sqlNode('b', 'good_df'))
+            expect(collectSqlV2Refs(document, 'self')).toEqual({ good_df: hogql('b') })
+        })
+
         it('finds SQLV2 nodes nested inside other content', () => {
             const document = doc({ type: 'column', content: [sqlNode('a', 'df1')] })
             expect(collectSqlV2Refs(document, 'self')).toEqual({ df1: hogql('a') })
