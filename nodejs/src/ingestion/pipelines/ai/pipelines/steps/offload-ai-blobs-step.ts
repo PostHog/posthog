@@ -42,7 +42,6 @@ export function createOffloadAiBlobsStep<T extends OffloadAiBlobsInput>(
             return ok(input)
         }
 
-        const teamId = String(input.team.id)
         const properties = input.normalizedEvent.properties ?? {}
         const rewrittenProps: Record<string, unknown> = {}
         const blobsByHash = new Map<string, DetectedBlob>()
@@ -77,14 +76,14 @@ export function createOffloadAiBlobsStep<T extends OffloadAiBlobsInput>(
         const recordScanMetrics = (): void => {
             textBytesPerProp.forEach((bytes) => aiBlobOffloadTextBytes.observe(bytes))
             if (belowFloorCount > 0) {
-                aiBlobOffloadBelowFloorCounter.labels(teamId).inc(belowFloorCount)
-                aiBlobOffloadBelowFloorBytes.labels(teamId).inc(belowFloorBytes)
+                aiBlobOffloadBelowFloorCounter.inc(belowFloorCount)
+                aiBlobOffloadBelowFloorBytes.inc(belowFloorBytes)
             }
         }
 
         if (blobsByHash.size === 0) {
             recordScanMetrics()
-            aiBlobOffloadEventsCounter.labels(teamId, 'no_blobs').inc()
+            aiBlobOffloadEventsCounter.labels('no_blobs').inc()
             return ok(input)
         }
 
@@ -96,13 +95,13 @@ export function createOffloadAiBlobsStep<T extends OffloadAiBlobsInput>(
 
         recordScanMetrics()
         blobs.forEach((blob, i) => {
-            aiBlobOffloadBlobsCounter.labels(teamId, blob.detector, mimeFamily(blob.mime), outcomes[i]).inc()
+            aiBlobOffloadBlobsCounter.labels(blob.detector, mimeFamily(blob.mime), outcomes[i]).inc()
             aiBlobOffloadBlobBytes.labels(mimeFamily(blob.mime)).observe(blob.bytes.length)
         })
         aiBlobOffloadBlobsPerEvent.observe(blobs.length)
         aiBlobOffloadEventBytes.labels('before').observe(bytesBefore)
         aiBlobOffloadEventBytes.labels('after').observe(bytesAfter)
-        aiBlobOffloadEventsCounter.labels(teamId, 'offloaded').inc()
+        aiBlobOffloadEventsCounter.labels('offloaded').inc()
 
         return ok({
             ...input,

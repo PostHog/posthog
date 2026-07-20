@@ -76,28 +76,28 @@ export const aiBlobOffloadS3Errors = new Counter({
     labelNames: ['op'],
 })
 
+// No team_id labels: AI_BLOB_OFFLOAD_TEAMS accepts '*', and per-team series on these
+// happy-path counters would explode at that point. Per-team usage lives in ClickHouse.
 export const aiBlobOffloadEventsCounter = new Counter({
     name: 'aio_blob_offload_events_total',
     help: 'AI events scanned by the blob offload step',
-    labelNames: ['team_id', 'outcome'], // outcome: no_blobs | offloaded
+    labelNames: ['outcome'], // outcome: no_blobs | offloaded
 })
 
 export const aiBlobOffloadBlobsCounter = new Counter({
     name: 'aio_blob_offload_blobs_total',
     help: 'Blobs detected and stored by the offload step',
-    labelNames: ['team_id', 'detector', 'mime_family', 'outcome'], // outcome: uploaded | fresh | touched
+    labelNames: ['detector', 'mime_family', 'outcome'], // outcome: uploaded | fresh | touched
 })
 
 export const aiBlobOffloadBelowFloorCounter = new Counter({
     name: 'aio_blob_offload_below_floor_total',
     help: 'Binary payloads left inline because they are under the size floor',
-    labelNames: ['team_id'],
 })
 
 export const aiBlobOffloadBelowFloorBytes = new Counter({
     name: 'aio_blob_offload_below_floor_bytes_total',
     help: 'Estimated decoded bytes of binary payloads left inline under the size floor',
-    labelNames: ['team_id'],
 })
 
 export const aiBlobOffloadBlobBytes = new Histogram({
