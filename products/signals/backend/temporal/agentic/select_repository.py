@@ -24,6 +24,7 @@ from products.signals.backend.temporal.agentic import (
     get_or_create_signals_sandbox_env,
     resolve_user_id_for_team,
 )
+from products.signals.backend.temporal.failure_classification import classify_failure_reason
 from products.signals.backend.temporal.types import SignalData
 from products.tasks.backend.facade import api as tasks_facade
 
@@ -196,7 +197,7 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
             team.organization,
             input.report_id,
             result="failed",
-            failure_reason="agentic_activity_error",
+            failure_reason=classify_failure_reason(e),
         )
         # Permanent GitHub App auth failures (installation gone/suspended) won't recover via retry.
         if isinstance(e, GitHubIntegrationError) and e.status_code in {401, 403, 404, 410}:
