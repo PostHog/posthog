@@ -938,7 +938,7 @@ class _LogsGroupByDimensionSerializer(serializers.Serializer):
             '"severity_level", "trace_id", "span_id".'
         ),
     )
-    source = serializers.ChoiceField(
+    source = serializers.ChoiceField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
         choices=list(GROUP_SOURCES),
         default="log",
         help_text=(
