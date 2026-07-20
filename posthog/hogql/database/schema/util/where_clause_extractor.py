@@ -19,9 +19,14 @@ from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
 from posthog.hogql.helpers.timestamp_visitor import is_simple_timestamp_field_expression, is_time_or_interval_constant
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
+from posthog.uuidt import UUIDT
+
 SESSION_BUFFER_DAYS = 3
 DEFAULT_SESSION_LOOKBACK_DAYS = 30
 DEFAULT_SESSION_LOOKBACK_CACHE_TTL_SECONDS = 60
+# beyond this, duplicating the id list into the join subquery risks query-size limits;
+# covers the largest observed production batch (~1.2k ids) at ~13% of max_query_size
+SESSION_ID_LITERAL_PUSHDOWN_MAX_IDS = 2000
 
 
 class WhereClauseExtractor(CloningVisitor):
@@ -588,6 +593,127 @@ def is_events_only_field(node: ast.Field) -> bool:
     if isinstance(table_type, ast.TableType):
         return isinstance(table_type.table, EventsTable)
     return False
+
+
+def _unwrap_field_alias_type(expr_type: Optional[ast.Type]) -> Optional[ast.Type]:
+    while isinstance(expr_type, ast.FieldAliasType):
+        expr_type = expr_type.type
+    return expr_type
+
+
+def _unwrap_table_alias_type(table_type: Optional[ast.Type]) -> Optional[ast.Type]:
+    while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
+        table_type = table_type.table_type
+    return table_type
+
+
+def get_events_session_id_table_type(node: ast.Expr) -> Optional[ast.BaseTableType]:
+    """If the expression resolves to $session_id on the events table, return its (possibly aliased) table type."""
+    from posthog.hogql.database.schema.events import EventsTable  # noqa: PLC0415 - breaks the schema import cycle
+
+    expr_type = _unwrap_field_alias_type(node.type)
+
+    if isinstance(expr_type, ast.FieldType) and expr_type.name == "$session_id":
+        table_type = expr_type.table_type
+    elif (
+        isinstance(expr_type, ast.PropertyType)
+        and expr_type.chain == ["$session_id"]
+        and expr_type.field_type.name == "properties"
+    ):
+        table_type = expr_type.field_type.table_type
+    elif (
+        isinstance(node, ast.JsonSubcolumnAccess)
+        and node.keys == ["$session_id"]
+        and isinstance(_unwrap_field_alias_type(node.expr.type), ast.FieldType)
+    ):
+        field_type = cast(ast.FieldType, _unwrap_field_alias_type(node.expr.type))
+        if field_type.name != "properties":
+            return None
+        table_type = field_type.table_type
+    else:
+        return None
+
+    unwrapped = _unwrap_table_alias_type(table_type)
+    if isinstance(unwrapped, ast.TableType) and isinstance(unwrapped.table, EventsTable):
+        return cast(ast.BaseTableType, table_type)
+    return None
+
+
+def extract_uuid_constants(node: ast.Expr) -> list[ast.Constant]:
+    """Extract UUID string constants from an expression. Returns empty list if any value is not a valid UUID."""
+    if isinstance(node, ast.Constant):
+        return [node] if UUIDT.is_valid_uuid(node.value) else []
+    if isinstance(node, (ast.Tuple, ast.Array)):
+        result: list[ast.Constant] = []
+        for expr in node.exprs:
+            if not isinstance(expr, ast.Constant) or not UUIDT.is_valid_uuid(expr.value):
+                return []
+            result.append(expr)
+        return result
+    return []
+
+
+def build_session_id_literal_pushdown_predicate(
+    outer_node: ast.SelectQuery,
+    join_to_add: LazyJoinToAdd,
+    session_id_v7_field: ast.Expr,
+) -> Optional[ast.Expr]:
+    """Push a literal ``$session_id IN (...)`` events filter into the sessions join subquery.
+
+    Safe ungated: the pushed column is the join key, so pruning the right side of the LEFT
+    JOIN cannot change any row the outer WHERE keeps. Fails open on any other shape.
+    """
+    if outer_node.where is None:
+        return None
+    events_join = _find_join_for_alias(outer_node.select_from, join_to_add.from_table)
+    if events_join is None or not isinstance(events_join.table, ast.Field):
+        return None
+
+    events_table_type = _unwrap_table_alias_type(events_join.table.type)
+    if events_table_type is None:
+        return None
+
+    def flatten_and(expr: ast.Expr) -> list[ast.Expr]:
+        if isinstance(expr, ast.And):
+            return [t for sub in expr.exprs for t in flatten_and(sub)]
+        if isinstance(expr, ast.Call) and expr.name == "and":
+            return [t for sub in expr.args for t in flatten_and(sub)]
+        return [expr]
+
+    for term in flatten_and(outer_node.where):
+        if not isinstance(term, ast.CompareOperation) or term.op not in (
+            CompareOperationOp.In,
+            CompareOperationOp.Eq,
+        ):
+            continue
+        if term.op == CompareOperationOp.Eq and not isinstance(term.right, ast.Constant):
+            continue
+        # only push filters owned by the events occurrence this lazy join hangs off
+        owner = get_events_session_id_table_type(term.left)
+        if owner is None or _unwrap_table_alias_type(owner) is not events_table_type:
+            continue
+        constants = extract_uuid_constants(term.right)
+        if not constants or len(constants) > SESSION_ID_LITERAL_PUSHDOWN_MAX_IDS:
+            continue
+        return ast.CompareOperation(
+            op=CompareOperationOp.In,
+            left=session_id_v7_field,
+            right=ast.Tuple(
+                exprs=[
+                    ast.Call(
+                        name="_toUInt128",
+                        args=[
+                            ast.Call(
+                                name="accurateCastOrNull",
+                                args=[ast.Constant(value=constant.value), ast.Constant(value="UUID")],
+                            )
+                        ],
+                    )
+                    for constant in constants
+                ]
+            ),
+        )
+    return None
 
 
 def build_session_id_v7_pushdown_predicate(
