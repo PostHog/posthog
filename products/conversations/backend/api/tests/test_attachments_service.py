@@ -44,6 +44,20 @@ class TestAttachmentsService(SimpleTestCase):
         )
         assert "please see the screenshot" in text
 
+    def test_build_content_seeds_multiline_text_as_separate_paragraphs(self) -> None:
+        # A single text node collapses newlines to spaces in the renderer, so a multi-line
+        # body must become one paragraph per line.
+        images = [{"url": "https://app.posthog.com/uploaded_media/img", "name": "shot.png"}]
+        _content, rich_content = build_content_with_images("first line\n\nsecond line", None, images, [])
+
+        assert rich_content is not None
+        paragraphs = [
+            "".join(c.get("text", "") for c in n.get("content", []))
+            for n in rich_content["content"]
+            if n["type"] == "paragraph"
+        ]
+        assert paragraphs == ["first line", "second line"]
+
     def test_build_content_no_attachments_returns_unchanged(self) -> None:
         content, rich_content = build_content_with_images("just text", None, [], [])
         assert content == "just text"
