@@ -57,6 +57,12 @@ STALE_WHILE_REVALIDATE_SECONDS = 6 * 60 * 60
 # windows.
 REVALIDATION_DEBOUNCE_SECONDS = 10 * 60
 
+# Fields that shape only the final read, never what gets materialized, so they must not split the debounce
+# key — paging or re-sorting a stale table would otherwise enqueue a rebuild per interaction. Kept
+# deliberately narrow: excluding a field that *does* select precomputes (`select` gates which conversion
+# goals are built) would debounce away a revalidation that was actually needed.
+FINAL_READ_ONLY_FIELDS = frozenset({"limit", "offset", "orderBy", "response", "tags", "dataColorTheme"})
+
 MARKETING_PRECOMPUTE_STALE_SERVED = Counter(
     "marketing_analytics_precompute_stale_served_total",
     "Reads served from expired-within-grace jobs instead of materializing inline (stale-while-revalidate).",
@@ -88,7 +94,11 @@ def marketing_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputatio
 
 
 def _query_shape_key(query: Any) -> str:
-    payload = json.dumps(query.model_dump(mode="json", exclude_none=True), sort_keys=True, default=str)
+    payload = json.dumps(
+        query.model_dump(mode="json", exclude_none=True, exclude=set(FINAL_READ_ONLY_FIELDS)),
+        sort_keys=True,
+        default=str,
+    )
     return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
 

@@ -75,6 +75,27 @@ class TestMarketingLazyPrecompute(BaseTest):
         assert payload["team_id"] == self.team.pk
         assert payload["query"]["kind"] == "MarketingAnalyticsTableQuery"
 
+    @parameterized.expand(
+        [
+            # Paging or re-sorting a stale table is a normal interaction; each one must not buy its own
+            # rebuild of the exact same windows.
+            ("pagination", {"limit": 500, "offset": 100}, 1),
+            ("sort", {"orderBy": [["cost", "DESC"]]}, 1),
+            # `select` gates which conversion goals get built, and a different window is different data.
+            ("select", {"select": ["campaign", "cost"]}, 2),
+            ("date_range", {"dateRange": DateRange(date_from="-30d")}, 2),
+        ]
+    )
+    @mock.patch(_DELAY)
+    def test_debounce_splits_only_on_precompute_identity(self, _name, overrides, expected_enqueues, delay):
+        variant = self.query.model_copy(update=overrides)
+        redis.get_client().delete(f"ma_swr_reval:{self.team.id}:{_query_shape_key(variant)}")
+
+        handle_stale_served(team=self.team, query=self.query)
+        handle_stale_served(team=self.team, query=variant)
+
+        assert delay.call_count == expected_enqueues
+
     @mock.patch(_DELAY)
     @mock.patch(f"{_MODULE}.redis.get_client", side_effect=Exception("redis down"))
     def test_enqueue_failure_still_serves_the_stale_read(self, _redis, delay):
