@@ -283,6 +283,30 @@ describe('hog-log-exec', () => {
             expect(record.body).toContain('***REDACTED***')
         })
 
+        it('rejects transformed fields that exceed the size cap without mutating', async () => {
+            // Capture bounds ingest at 2MB per request; a transformation must not be
+            // able to inflate a stored record past that boundary.
+            const record = createRecord()
+            const originalBody = record.body
+            const outcome = await run(
+                `
+                let rec := record
+                let s := 'xxxxxxxxxxxxxxxx'
+                for (let i := 0; i < 17; i := i + 1) {
+                    s := concat(s, s)
+                }
+                rec.body := s
+                return rec
+                `,
+                record,
+                {},
+                { timeoutMs: 1000 }
+            )
+
+            expect(outcome.status).toBe('failed')
+            expect(record.body).toBe(originalBody)
+        })
+
         it('contains a cyclic returned record instead of throwing out of the executor', async () => {
             // A transformation can build a cycle; the redaction traversal must not
             // recurse forever — an uncaught throw here escapes the per-function

@@ -20,6 +20,10 @@ export const LOG_TRANSFORMATION_MEMORY_LIMIT_BYTES = 8 * 1024 * 1024
  * since a transformation can run hundreds of thousands of times per second. */
 export const MAX_LOG_TRANSFORMATION_PRINT_LOGS = 5
 
+/** Capture bounds whole ingest requests at 2MB; a transformation must not inflate a
+ * single stored field past that boundary. Oversize output is an invalid result. */
+export const MAX_TRANSFORMED_FIELD_BYTES = 1024 * 1024
+
 export interface LogTransformationGlobals {
     project: { id: number; name: string; url: string }
     record: {
@@ -146,13 +150,16 @@ function coerceStringMap(value: unknown): Record<string, string> | null {
         }
         if (typeof entry === 'string') {
             result[key] = entry
-            continue
+        } else {
+            try {
+                result[key] = JSON.stringify(entry)
+            } catch {
+                // Cyclic values can't be encoded; treat the whole result as invalid so
+                // the failure stays inside the executor's normal accounting.
+                return null
+            }
         }
-        try {
-            result[key] = JSON.stringify(entry)
-        } catch {
-            // Cyclic values can't be encoded; treat the whole result as invalid so
-            // the failure stays inside the executor's normal accounting.
+        if (Buffer.byteLength(result[key]) > MAX_TRANSFORMED_FIELD_BYTES) {
             return null
         }
     }
@@ -230,6 +237,9 @@ export function applyTransformResult(record: LogRecord, execResult: unknown): 'm
     let body: string | null | undefined = undefined
     if ('body' in result) {
         if (result.body !== null && typeof result.body !== 'string') {
+            return 'invalid'
+        }
+        if (typeof result.body === 'string' && Buffer.byteLength(result.body) > MAX_TRANSFORMED_FIELD_BYTES) {
             return 'invalid'
         }
         body = result.body
