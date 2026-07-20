@@ -214,9 +214,7 @@ impl Cohort {
                     }
                 }
             }
-            // A leaf we can't resolve here (e.g. a `behavioral` filter) has no cohort
-            // dependency to contribute — count it and move on rather than failing the
-            // whole cohort parse.
+            // No cohort dependency to contribute; count it and continue.
             CohortValuesItem::Unsupported(_) => {
                 common_metrics::inc(COHORT_UNSUPPORTED_FILTER_COUNTER, &[], 1);
             }
@@ -291,9 +289,7 @@ fn evaluate_cohort_item(
         CohortValuesItem::Filter(filter) => {
             evaluate_cohort_filter(filter, target_properties, cohort_matches, team_timezone)
         }
-        // A leaf this evaluator can't resolve from person/group properties (e.g. a
-        // `behavioral` filter) is treated as a non-match, so the cohort's evaluable
-        // leaves still decide membership via their AND/OR combination.
+        // Non-match, so sibling leaves decide membership via their AND/OR combination.
         CohortValuesItem::Unsupported(_) => Ok(false),
     }
 }
@@ -1487,6 +1483,36 @@ mod tests {
         let target_properties = HashMap::from([("plan".to_string(), json!("pro"))]);
         assert!(matches!(
             evaluate_dynamic_cohorts(1, &target_properties, &cohorts, &HashMap::new(), Tz::UTC),
+            Ok(false)
+        ));
+    }
+
+    #[test]
+    fn test_purely_behavioral_cohort_resolves_to_non_match_with_no_dependencies() {
+        // A cohort whose only criterion is behavioral has no evaluable leaves at all:
+        // dependency extraction finds nothing, and evaluation resolves to non-match
+        // instead of aborting the whole cohort parse.
+        let cohort = create_dynamic_cohort_with_filters(
+            1,
+            json!({
+                "properties": {
+                    "type": "OR",
+                    "values": [{
+                        "type": "OR",
+                        "values": [behavioral_leaf_json()]
+                    }]
+                }
+            }),
+        );
+
+        let dependencies = cohort
+            .extract_dependencies()
+            .expect("a purely behavioral cohort must not fail dependency extraction");
+        assert!(dependencies.is_empty());
+
+        let cohorts = vec![cohort];
+        assert!(matches!(
+            evaluate_dynamic_cohorts(1, &HashMap::new(), &cohorts, &HashMap::new(), Tz::UTC),
             Ok(false)
         ));
     }

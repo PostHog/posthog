@@ -175,12 +175,10 @@ pub struct CohortValues {
 ///
 /// `Unsupported` is the catch-all last variant: a leaf whose `type` this evaluator
 /// can't resolve from person/group properties — most commonly a `behavioral` filter,
-/// which needs event history over time. One unsupported leaf no longer aborts parsing
-/// of the whole cohort (which previously failed every referencing flag with
-/// `CohortFiltersParsingError`); it contributes no cohort dependency and is treated as
-/// a non-match during evaluation, so the cohort's evaluable leaves still decide
-/// membership. The payload is discarded via `IgnoredAny` rather than kept as
-/// `serde_json::Value` since nothing reads it, avoiding materializing every
+/// which needs event history over time. An unsupported leaf contributes no cohort
+/// dependency and is a non-match during evaluation, so the cohort's evaluable leaves
+/// still decide membership. The payload is discarded via `IgnoredAny` rather than kept
+/// as `serde_json::Value` since nothing reads it, avoiding materializing every
 /// unsupported leaf on each cohort parse. Because it deserializes any JSON, it must
 /// stay last so real filters and groups are tried first; this also means the whole
 /// type tree can no longer derive `Serialize` (`IgnoredAny` doesn't implement it) —
