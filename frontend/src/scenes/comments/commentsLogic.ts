@@ -190,6 +190,9 @@ export interface commentsLogicActions {
             comment: CommentType
         }
     }
+    revealSelectedComment: () => {
+        value: true
+    }
     sendComposedContent: (asTask?: boolean) => {
         asTask: boolean
     }
@@ -288,7 +291,7 @@ export interface commentsLogicMeta {
             selectedCommentId: string | null,
             sortedComments: CommentType[]
         ) => string | null
-        expandedThreadIds: (threadExpansion: Record<string, boolean>, activeThreadId: string | null) => Set<string>
+        expandedThreadIds: (threadExpansion: Record<string, boolean>, replyingCommentId: string | null) => Set<string>
         isMyComment: (user: UserType | null) => (comment: CommentType) => boolean
         disabledReasonFor: (user: UserType | null) => (comment: CommentType) => string | null
     }
@@ -332,6 +335,7 @@ export const commentsLogic = kea<commentsLogicType>([
         setReplyingComment: (commentId: string | null) => ({ commentId }),
         setSelectedComment: (commentId: string | null) => ({ commentId }),
         setThreadExpanded: (threadId: string, expanded: boolean) => ({ threadId, expanded }),
+        revealSelectedComment: true,
         setCommentContexts: (contexts: Record<string, string>) => ({ contexts }),
         setItemContext: (context: Record<string, any> | null, callback?: (event: { sent: boolean }) => void) => ({
             context,
@@ -617,7 +621,20 @@ export const commentsLogic = kea<commentsLogicType>([
             actions.incrementCommentCount()
             values.richContentEditor?.clear()
         },
+        setSelectedComment: () => {
+            actions.revealSelectedComment()
+        },
+        revealSelectedComment: () => {
+            // A selected reply may live inside a collapsed thread - expand it so it is visible.
+            // One-shot on purpose: the user can still collapse the thread again afterwards.
+            const selected = values.sortedComments.find((comment) => comment.id === values.selectedCommentId)
+            if (selected?.source_comment) {
+                actions.setThreadExpanded(selected.source_comment, true)
+            }
+        },
         loadCommentsSuccess: () => {
+            // Deep links can select a comment before comments have loaded - re-check now
+            actions.revealSelectedComment()
             actions.scrollToLastComment()
         },
     })),
@@ -708,16 +725,16 @@ export const commentsLogic = kea<commentsLogicType>([
         ],
 
         expandedThreadIds: [
-            (s) => [s.threadExpansion, s.activeThreadId],
-            (threadExpansion: Record<string, boolean>, activeThreadId: string | null): Set<string> => {
+            (s) => [s.threadExpansion, s.replyingCommentId],
+            (threadExpansion: Record<string, boolean>, replyingCommentId: string | null): Set<string> => {
                 const expanded = new Set(
                     Object.entries(threadExpansion)
                         .filter(([, isExpanded]) => isExpanded)
                         .map(([threadId]) => threadId)
                 )
-                // The active thread must stay visible - collapsing it would orphan the inline composer
-                if (activeThreadId) {
-                    expanded.add(activeThreadId)
+                // Only the thread being replied to is uncollapsible - it hosts the inline composer
+                if (replyingCommentId) {
+                    expanded.add(replyingCommentId)
                 }
                 return expanded
             },

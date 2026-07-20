@@ -161,6 +161,31 @@ describe('commentsLogic', () => {
         expect(logic.values.expandedThreadIds.has('thread-1')).toBe(true)
     })
 
+    it('lets a selected thread collapse but keeps the reply target open', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/comments': {
+                    results: [makeComment('thread-1'), makeComment('reply-1', 'thread-1')],
+                },
+            },
+        })
+        await expectLogic(logic, () => {
+            logic.actions.loadComments()
+        }).toDispatchActions(['loadCommentsSuccess'])
+
+        // Selecting (clicking) a root comment must not block collapsing its thread
+        logic.actions.setSelectedComment('thread-1')
+        logic.actions.setThreadExpanded('thread-1', true)
+        logic.actions.setThreadExpanded('thread-1', false)
+        expect(logic.values.expandedThreadIds.has('thread-1')).toBe(false)
+
+        // But the thread hosting the inline composer cannot be collapsed out from under it
+        logic.actions.setRichContentEditor(createEditor(null))
+        logic.actions.setReplyingComment('thread-1')
+        logic.actions.setThreadExpanded('thread-1', false)
+        expect(logic.values.expandedThreadIds.has('thread-1')).toBe(true)
+    })
+
     it('expands the thread containing a deep-linked reply', async () => {
         useMocks({
             get: {
