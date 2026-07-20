@@ -167,6 +167,7 @@ the row lists both.
 | customerly                       | HTTP                        | requests                                                        | ✅                          |
 | dagster_cloud                    | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | datadog                          | HTTP                        | requests                                                        | ✅                          |
+| dataforseo                       | HTTP                        | requests                                                        | ✅                          |
 | datahub                          | HTTP                        | requests                                                        | ✅                          |
 | dbt                              | HTTP                        | requests                                                        | ✅                          |
 | decagon                          | HTTP                        | requests                                                        | ✅                          |

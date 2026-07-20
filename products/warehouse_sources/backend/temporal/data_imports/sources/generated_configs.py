@@ -1210,6 +1210,15 @@ class DagsterCloudSourceConfig(config.Config):
 
 
 @config.config
+class DataForSEOSourceConfig(config.Config):
+    api_login: str
+    api_password: str
+    targets: str
+    location_name: str | None = None
+    language_name: str | None = None
+
+
+@config.config
 class DatabricksSourceConfig(config.Config):
     pass
 
@@ -5162,6 +5171,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.DAGSTERCLOUD: DagsterCloudSourceConfig,
         ExternalDataSourceType.DATABRICKS: DatabricksSourceConfig,
         ExternalDataSourceType.DATADOG: DatadogSourceConfig,
+        ExternalDataSourceType.DATAFORSEO: DataForSEOSourceConfig,
         ExternalDataSourceType.DATAHUB: DatahubSourceConfig,
         ExternalDataSourceType.DATASCOPE: DatascopeSourceConfig,
         ExternalDataSourceType.DATORAMA: DatoramaSourceConfig,
