@@ -1,22 +1,27 @@
 """Collate gates must run unconditionally and fail closed on every dependency.
 
 A "collate gate" is the job that emits a required status check by inspecting its
-dependencies' ``needs.*.result``. Two properties keep it honest, and both have
-been violated in production before:
+dependencies' ``needs.*.result``. Two properties keep it honest:
 
 1. ``if: always()`` — the gate must run and emit an explicit verdict. Worker jobs
    should use ``!cancelled()`` so they actually stop when a run is superseded, but
    the gate itself is what branch protection reads, so it has to report.
 
 2. Allowlist **per dependency** — assert ``success``/``skipped`` and block
-   everything else. One bad dependency is enough, so reading result words over the
-   step as a whole would call a mostly-correct gate clean. That is not
-   hypothetical: four gates cleared ``changes`` with a bare ``== 'failure'`` test
-   and then read ``needs.changes.outputs.*``, which is empty on a cancelled job, so
-   the gate took its "nothing to test" exit and reported green with zero tests run.
+   everything else. One bad dependency is enough, so judging the step as a whole
+   would call a mostly-correct gate clean. The trap is a ``changes`` detector
+   cleared with a bare ``== 'failure'`` test: ``cancelled`` passes it, the gate
+   then reads ``needs.changes.outputs.*``, which is empty on a cancelled job, and
+   takes its "nothing to test" exit — green, with zero tests run.
 
-Gates are identified by the repo-wide naming convention: a display name ending in
-"Pass" (e.g. "Django Tests Pass", "Visual regression tests pass").
+Gates are found two ways, because the "name it ``… Pass``" convention is not
+universally followed: by that name, and structurally (``always()`` plus a step
+that reads ``needs.<dep>.result``). Jobs that inspect results without gating
+anything opt out with ``ALLOW_MARKER`` plus a reason.
+
+Keep gate bodies inline. Routing results through a shell function or an ``env:``
+block hides them from the per-dependency pass, which then falls back to the much
+weaker step-wide check that an allowlist appears *somewhere*.
 """
 
 from __future__ import annotations
@@ -27,8 +32,11 @@ from collections.abc import Iterator
 from ..check import CheckResult, Issue, WorkflowCheck
 from ..model import Job, Workflow
 
+ALLOW_MARKER = "hogli-lint: not-a-required-gate"
+
 GATE_NAME = re.compile(r"\bpass$", re.IGNORECASE)
 ALWAYS = re.compile(r"\balways\s*\(\s*\)")
+READS_RESULT = re.compile(r"needs\.[A-Za-z0-9_\-]+\.result")
 
 SAFE_LITERALS = frozenset({"success", "skipped"})
 SAFE_LITERAL = re.compile(rf"""["'](?:{"|".join(sorted(SAFE_LITERALS))})["']""")
@@ -41,14 +49,41 @@ RESULT_ASSERTION = re.compile(
 )
 
 
+def _bash(job: Job) -> str:
+    return "\n".join(step.run for step in job.steps if step.run)
+
+
+def _exempt_jobs(path: str, job_names: frozenset[str]) -> frozenset[str]:
+    """Job ids carrying an allow marker, with a reason, in the comments above them.
+
+    Keyed off the parsed job names rather than indentation depth, so it doesn't
+    care how the file is formatted and can't be fooled by a nested mapping key.
+    """
+    with open(path, encoding="utf-8") as fh:
+        lines = fh.read().splitlines()
+
+    exempt: set[str] = set()
+    for idx, line in enumerate(lines):
+        match = re.match(r"^\s*(?P<job>[A-Za-z0-9_\-]+):\s*$", line)
+        if match is None or match.group("job") not in job_names:
+            continue
+        # Walk up through the contiguous comment block directly above the job key.
+        for above in reversed(lines[:idx]):
+            if not above.strip().startswith("#"):
+                break
+            _, marker, reason = above.partition(ALLOW_MARKER)
+            if marker and reason.strip(" -—:"):
+                exempt.add(match.group("job"))
+                break
+    return frozenset(exempt)
+
+
 def _is_gate(job: Job) -> bool:
     name = job.raw.get("name")
     display = name if isinstance(name, str) else job.name
-    return bool(GATE_NAME.search(display.strip()))
-
-
-def _bash(job: Job) -> str:
-    return "\n".join(step.run for step in job.steps if step.run)
+    if GATE_NAME.search(display.strip()):
+        return True
+    return bool(ALWAYS.search(str(job.raw.get("if") or "")) and READS_RESULT.search(_bash(job)))
 
 
 def _literals_by_dependency(bash: str) -> dict[str, set[str]]:
@@ -93,16 +128,18 @@ class RequiredGateCheck(WorkflowCheck):
     @property
     def fix_hint(self) -> str | None:
         return (
-            "Keep `if: always()` on the gate, and test every dependency as "
-            '`!= "success" && != "skipped"` rather than `== "failure"`. See '
-            ".agents/skills/authoring-ci-workflows/SKILL.md."
+            "Keep `if: always()` on the gate, and test every dependency inline as "
+            '`!= "success" && != "skipped"` rather than `== "failure"`. A job that reads '
+            f"results without gating anything opts out with `# {ALLOW_MARKER} — <reason>`. "
+            "See .agents/skills/authoring-ci-workflows/SKILL.md."
         )
 
     def run(self, workflows: list[Workflow]) -> CheckResult:
         result = CheckResult()
         for wf in workflows:
+            exempt = _exempt_jobs(str(wf.path), frozenset(job.name for job in wf.jobs))
             for job in wf.jobs:
-                if job.is_reusable_call or not _is_gate(job):
+                if job.is_reusable_call or job.name in exempt or not _is_gate(job):
                     continue
                 for message in _problems(job):
                     result.issues.append(Issue(workflow=wf.path.name, job=job.name, message=message, file=str(wf.path)))
