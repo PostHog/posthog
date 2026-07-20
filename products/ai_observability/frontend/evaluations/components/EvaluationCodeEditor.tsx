@@ -335,11 +335,11 @@ export function EvaluationCodeEditor(): JSX.Element {
                             <dt>
                                 <code className={PROPERTY_NAME_CODE_CLASS}>input_text</code>
                             </dt>
-                            <dd className="m-0">Readable text extracted from the input.</dd>
+                            <dd className="m-0">Best-effort readable text extracted from the input.</dd>
                             <dt>
                                 <code className={PROPERTY_NAME_CODE_CLASS}>output_text</code>
                             </dt>
-                            <dd className="m-0">Readable text extracted from the output.</dd>
+                            <dd className="m-0">Best-effort readable text extracted from the output.</dd>
                             <dt>
                                 <code className={PROPERTY_NAME_CODE_CLASS}>properties</code>
                             </dt>
