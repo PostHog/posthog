@@ -8,16 +8,22 @@ import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 
 const EVENT_FILTER_METRIC_KEYS = ['dropped', 'would_be_dropped'] as const
 
+// `color` is a lazy getter so getColorVar runs at access time (render) rather than at module
+// import — resolving the CSS variable only after base.scss is applied avoids a load-order race.
 const EVENT_FILTER_METRICS_INFO: Record<string, { name: string; description: string; color: string }> = {
     dropped: {
         name: 'Dropped',
         description: 'Approximate number of events dropped by the filter in live mode',
-        color: getColorVar('danger'),
+        get color() {
+            return getColorVar('danger')
+        },
     },
     would_be_dropped: {
         name: 'Would be dropped',
         description: 'Approximate number of events that matched the filter in dry run mode (not actually dropped)',
-        color: getColorVar('warning'),
+        get color() {
+            return getColorVar('warning')
+        },
     },
 }
 

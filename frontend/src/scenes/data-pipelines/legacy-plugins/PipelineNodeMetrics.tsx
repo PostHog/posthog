@@ -12,21 +12,29 @@ const LEGACY_PLUGIN_APP_SOURCE = 'legacy_plugin'
 
 const LEGACY_PLUGIN_METRIC_KEYS = ['succeeded', 'succeeded_on_retry', 'failed'] as const
 
+// `color` is a lazy getter so getColorVar runs at access time (render) rather than at module
+// import — resolving the CSS variable only after base.scss is applied avoids a load-order race.
 const LEGACY_PLUGIN_METRICS_INFO: Record<string, { name: string; description: string; color: string }> = {
     succeeded: {
         name: 'Succeeded',
         description: 'Total number of events processed successfully',
-        color: getColorVar('success'),
+        get color() {
+            return getColorVar('success')
+        },
     },
     succeeded_on_retry: {
         name: 'Succeeded on retry',
         description: 'Events that failed initially but succeeded on a later retry',
-        color: getColorVar('success'),
+        get color() {
+            return getColorVar('success')
+        },
     },
     failed: {
         name: 'Failed',
         description: 'Total number of events that had errors during processing — see the Logs tab for details',
-        color: getColorVar('danger'),
+        get color() {
+            return getColorVar('danger')
+        },
     },
 }
 

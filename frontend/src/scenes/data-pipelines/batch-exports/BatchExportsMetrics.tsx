@@ -6,31 +6,43 @@ import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 
+// `color` is a lazy getter so getColorVar runs at access time (render) rather than at module
+// import — resolving the CSS variable only after base.scss is applied avoids a load-order race.
 export const BATCH_EXPORT_METRICS_INFO: Record<string, { name: string; description: string; color: string }> = {
     succeeded: {
         name: 'Success',
         description: 'Total number of runs processed successfully',
-        color: getColorVar('success'),
+        get color() {
+            return getColorVar('success')
+        },
     },
     rows_exported: {
         name: 'Rows exported',
         description: 'Total number of rows successfully exported',
-        color: getColorVar('success'),
+        get color() {
+            return getColorVar('success')
+        },
     },
     failed: {
         name: 'Failure',
         description: 'Total number of runs that had errors during processing',
-        color: getColorVar('danger'),
+        get color() {
+            return getColorVar('danger')
+        },
     },
     failed_billing: {
         name: 'Billing limit',
         description: 'Total number of runs that failed due to exceeding billing limit',
-        color: getColorVar('danger'),
+        get color() {
+            return getColorVar('danger')
+        },
     },
     canceled: {
         name: 'Canceled',
         description: 'Total number of runs that were canceled',
-        color: getColorVar('warning'),
+        get color() {
+            return getColorVar('warning')
+        },
     },
 }
 

@@ -69,6 +69,8 @@ export type EmailMetricRow = {
     blocked: number
 }
 
+// `color` is a lazy getter so getColorVar runs at access time (render) rather than at module
+// import — resolving the CSS variable only after base.scss is applied avoids a load-order race.
 export const WORKFLOW_SUMMARY_METRICS: Record<
     WorkflowSummaryMetric,
     {
@@ -81,13 +83,17 @@ export const WORKFLOW_SUMMARY_METRICS: Record<
     in_progress: {
         name: 'In progress',
         description: 'Total number of workflow runs currently in progress',
-        color: getColorVar('warning'),
+        get color() {
+            return getColorVar('warning')
+        },
         metricNames: ['in_progress'],
     },
     started: {
         name: 'Started',
         description: 'Total number of workflow runs started',
-        color: getColorVar('success'),
+        get color() {
+            return getColorVar('success')
+        },
         metricNames: ['triggered'],
     },
     persons_messaged: {
@@ -100,18 +106,24 @@ export const WORKFLOW_SUMMARY_METRICS: Record<
         name: 'Completed',
         description:
             'Total number of workflow runs that finished — whether they reached the end of the workflow or exited early (for example, by meeting the conversion goal on an exit-on-conversion workflow). This may include runs that began before the selected date range but finished within it.',
-        color: getColorVar('success'),
+        get color() {
+            return getColorVar('success')
+        },
         metricNames: ['succeeded'],
     },
     converted: {
         name: 'Converted',
         description:
             'Total number of conversions recorded for this workflow. A conversion is counted when a person matches the workflow’s conversion goal (property- or event-based), regardless of whether the workflow is set to exit on conversion.',
-        color: getColorVar('purple'),
+        get color() {
+            return getColorVar('purple')
+        },
         metricNames: ['conversion'],
     },
 }
 
+// `color` is a lazy getter so getColorVar runs at access time (render) rather than at module
+// import — resolving the CSS variable only after base.scss is applied avoids a load-order race.
 export const WORKFLOW_EMAIL_METRICS: Record<
     EmailMetric,
     { name: string; description: string; color: string; metricNames: string[] }
@@ -119,39 +131,51 @@ export const WORKFLOW_EMAIL_METRICS: Record<
     email_sent: {
         name: 'Sent',
         description: 'Total number of emails sent to recipients',
-        color: getColorVar('primary'),
+        get color() {
+            return getColorVar('primary')
+        },
         metricNames: ['email_sent'],
     },
     email_delivered: {
         name: 'Delivered',
         description:
             "Total number of emails that were successfully delivered to the recipient's inbox. This is confirmed by the recipient's mail server accepting the email.",
-        color: getColorVar('success'),
+        get color() {
+            return getColorVar('success')
+        },
         metricNames: ['email_delivered'],
     },
     email_failed: {
         name: 'Failed',
         description:
             'Total number of emails that were not attempted to be sent. This typically indicates the PostHog email service determined the email contained a virus.',
-        color: getColorVar('danger'),
+        get color() {
+            return getColorVar('danger')
+        },
         metricNames: ['email_failed'],
     },
     email_opened: {
         name: 'Opened',
         description: 'Total number of emails opened',
-        color: getColorVar('blue'),
+        get color() {
+            return getColorVar('blue')
+        },
         metricNames: ['email_opened'],
     },
     email_link_clicked: {
         name: 'Link clicked',
         description: 'Total number of times links in emails were clicked',
-        color: getColorVar('indigo'),
+        get color() {
+            return getColorVar('indigo')
+        },
         metricNames: ['email_link_clicked'],
     },
     email_bounced: {
         name: 'Bounced',
         description: 'Total number of emails that bounced',
-        color: getColorVar('orange'),
+        get color() {
+            return getColorVar('orange')
+        },
         metricNames: ['email_bounced'],
     },
     email_bounce_prevented: {
@@ -164,13 +188,17 @@ export const WORKFLOW_EMAIL_METRICS: Record<
     email_blocked: {
         name: 'Blocked',
         description: 'Total number of emails that were blocked by the recipient server',
-        color: getColorVar('red'),
+        get color() {
+            return getColorVar('red')
+        },
         metricNames: ['email_blocked'],
     },
     email_spam: {
         name: 'Marked as spam',
         description: 'Total number of emails that were marked as spam by recipient server or recipient email client',
-        color: getColorVar('danger'),
+        get color() {
+            return getColorVar('danger')
+        },
         metricNames: ['email_spam'],
     },
 }

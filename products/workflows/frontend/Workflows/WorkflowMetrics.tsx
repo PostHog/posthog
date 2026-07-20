@@ -29,26 +29,36 @@ const HedgehogGreek = pngHoggie(greekPng)
 
 const OVERVIEW_OPTION_VALUE = '__workflow_overview__'
 
+// `color` is a lazy getter so getColorVar runs at access time (render) rather than at module
+// import — resolving the CSS variable only after base.scss is applied avoids a load-order race.
 export const WORKFLOW_METRICS_INFO: Record<string, { name: string; description: string; color: string }> = {
     succeeded: {
         name: 'Success',
         description: 'Total number of events processed successfully',
-        color: getColorVar('success'),
+        get color() {
+            return getColorVar('success')
+        },
     },
     failed: {
         name: 'Failure',
         description: 'Total number of events that had errors during processing',
-        color: getColorVar('danger'),
+        get color() {
+            return getColorVar('danger')
+        },
     },
     rate_limited: {
         name: 'Rate Limited',
         description: 'Total number of events that were rate limited',
-        color: getColorVar('danger'),
+        get color() {
+            return getColorVar('danger')
+        },
     },
     triggered: {
         name: 'Triggered',
         description: 'Total number of events that were triggered',
-        color: getColorVar('success'),
+        get color() {
+            return getColorVar('success')
+        },
     },
 }
 
