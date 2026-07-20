@@ -9,12 +9,12 @@ import { SurveyResponseDisplay } from 'lib/components/SurveyResponseDisplay/Surv
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { ReplayCaptureDiagnosticsModalButton } from 'scenes/session-recordings/components/ReplayCaptureDiagnosticsModalButton'
 import { hasReplayDiagnosticSignals } from 'scenes/session-recordings/utils/replayCaptureDiagnostics'
 import { urls } from 'scenes/urls'
 
-import { eventIdentityKey } from '~/queries/nodes/DataTable/dataTableLogic'
 import { KNOWN_PROMOTED_PROPERTY_PARENTS } from '~/taxonomy/taxonomy'
 import { PropertyDefinitionType } from '~/types'
 
@@ -26,10 +26,19 @@ import { MCPEventView } from './MCPEventView'
 
 interface EventDetailsProps {
     event: ErrorPropertyTabEvent
+    tableProps?: Partial<LemonTableProps<Record<string, any>>>
 }
 
-export function EventDetails({ event }: EventDetailsProps): JSX.Element {
-    const getEventId = (event: ErrorPropertyTabEvent): string => String(eventIdentityKey(event) ?? '')
+export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Element {
+    const getEventId = (event: ErrorPropertyTabEvent): string => {
+        if ('uuid' in event && event.uuid) {
+            return event.uuid
+        }
+        if ('id' in event && event.id) {
+            return event.id
+        }
+        return ''
+    }
 
     return (
         <EventPropertyTabs
@@ -123,6 +132,7 @@ export function EventDetails({ event }: EventDetailsProps): JSX.Element {
                                     type={PropertyDefinitionType.Event}
                                     properties={properties}
                                     sortProperties
+                                    tableProps={tableProps}
                                     collapsible
                                 />
                             </div>
@@ -141,6 +151,7 @@ export function EventDetails({ event }: EventDetailsProps): JSX.Element {
                                     type={PropertyDefinitionType.Event}
                                     properties={properties}
                                     useDetectedPropertyType={true}
+                                    tableProps={tableProps}
                                     searchable
                                     collapsible
                                 />
@@ -160,6 +171,7 @@ export function EventDetails({ event }: EventDetailsProps): JSX.Element {
                                     type={PropertyDefinitionType.Event}
                                     properties={properties}
                                     useDetectedPropertyType={true}
+                                    tableProps={tableProps}
                                     searchable
                                     collapsible
                                 />
@@ -189,6 +201,7 @@ export function EventDetails({ event }: EventDetailsProps): JSX.Element {
                                     type={PropertyDefinitionType.Event}
                                     properties={properties}
                                     useDetectedPropertyType={['flags', 'properties'].includes(tabKey)}
+                                    tableProps={tableProps}
                                     filterable={tabKey === 'properties'}
                                     sortProperties
                                     // metadata is so short, that serachable is wasted space
