@@ -9,9 +9,8 @@ import {
     aiBlobOffloadBlobBytes,
     aiBlobOffloadBlobsCounter,
     aiBlobOffloadBlobsPerEvent,
-    aiBlobOffloadEventBytes,
+    aiBlobOffloadEventBytesSaved,
     aiBlobOffloadEventsCounter,
-    aiBlobOffloadTextBytes,
 } from '~/ingestion/pipelines/ai/metrics'
 import { PluginEvent } from '~/plugin-scaffold'
 import { Team, ValueMatcher } from '~/types'
@@ -45,11 +44,9 @@ export function createOffloadAiBlobsStep<T extends OffloadAiBlobsInput>(
         const properties = input.normalizedEvent.properties ?? {}
         const rewrittenProps: Record<string, unknown> = {}
         const blobsByHash = new Map<string, DetectedBlob>()
-        const textBytesPerProp: number[] = []
+        let savedChars = 0
         let belowFloorCount = 0
         let belowFloorBytes = 0
-        let bytesBefore = 0
-        let bytesAfter = 0
 
         for (const key of LARGE_AI_PROPERTIES) {
             const value = properties[key]
@@ -59,8 +56,6 @@ export function createOffloadAiBlobsStep<T extends OffloadAiBlobsInput>(
             const extraction = extractBlobs(value, { minBase64Length: config.minBase64Length })
             belowFloorCount += extraction.belowFloorCount
             belowFloorBytes += extraction.belowFloorBytes
-            const afterBytes = Buffer.byteLength(JSON.stringify(extraction.value))
-            textBytesPerProp.push(afterBytes)
             if (extraction.blobs.length === 0) {
                 continue
             }
@@ -68,13 +63,11 @@ export function createOffloadAiBlobsStep<T extends OffloadAiBlobsInput>(
                 blobsByHash.set(blob.hash, blob)
             }
             rewrittenProps[key] = extraction.value
-            bytesBefore += Buffer.byteLength(JSON.stringify(value))
-            bytesAfter += afterBytes
+            savedChars += extraction.savedChars
         }
 
         // Deferred until the step can no longer reject, so retried attempts don't re-count.
-        const recordScanMetrics = (): void => {
-            textBytesPerProp.forEach((bytes) => aiBlobOffloadTextBytes.observe(bytes))
+        const recordBelowFloor = (): void => {
             if (belowFloorCount > 0) {
                 aiBlobOffloadBelowFloorCounter.inc(belowFloorCount)
                 aiBlobOffloadBelowFloorBytes.inc(belowFloorBytes)
@@ -82,7 +75,7 @@ export function createOffloadAiBlobsStep<T extends OffloadAiBlobsInput>(
         }
 
         if (blobsByHash.size === 0) {
-            recordScanMetrics()
+            recordBelowFloor()
             aiBlobOffloadEventsCounter.labels('no_blobs').inc()
             return ok(input)
         }
@@ -93,14 +86,13 @@ export function createOffloadAiBlobsStep<T extends OffloadAiBlobsInput>(
         // pipeline's retry option owns transient failures.
         const outcomes = await Promise.all(blobs.map((blob) => store.ensureStored(input.team.id, blob)))
 
-        recordScanMetrics()
+        recordBelowFloor()
         blobs.forEach((blob, i) => {
             aiBlobOffloadBlobsCounter.labels(blob.detector, mimeFamily(blob.mime), outcomes[i]).inc()
             aiBlobOffloadBlobBytes.labels(mimeFamily(blob.mime)).observe(blob.bytes.length)
         })
         aiBlobOffloadBlobsPerEvent.observe(blobs.length)
-        aiBlobOffloadEventBytes.labels('before').observe(bytesBefore)
-        aiBlobOffloadEventBytes.labels('after').observe(bytesAfter)
+        aiBlobOffloadEventBytesSaved.observe(savedChars)
         aiBlobOffloadEventsCounter.labels('offloaded').inc()
 
         return ok({

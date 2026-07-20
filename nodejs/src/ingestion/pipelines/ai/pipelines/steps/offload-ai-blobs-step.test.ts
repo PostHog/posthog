@@ -1,7 +1,6 @@
 import { isOkResult } from '~/ingestion/framework/results'
 import { BlobStore, EnsureStoredOutcome } from '~/ingestion/pipelines/ai/blob-offload/blob-store'
 import { parseBlobPointer } from '~/ingestion/pipelines/ai/blob-offload/pointer'
-import { aiBlobOffloadTextBytes } from '~/ingestion/pipelines/ai/metrics'
 import { PluginEvent } from '~/plugin-scaffold'
 import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
 import { createTestTeam } from '~/tests/helpers/team'
@@ -87,19 +86,6 @@ describe('offloadAiBlobsStep', () => {
         }
         expect(result.value).toBe(input)
         expect(store.stored).toHaveLength(0)
-    })
-
-    it('records a text-size forecast observation for text-only heavy props', async () => {
-        aiBlobOffloadTextBytes.reset()
-        const store = new FakeBlobStore()
-        const step = createOffloadAiBlobsStep(store, CONFIG)
-        const input = makeInput({ $ai_input: [{ role: 'user', content: 'just text' }] })
-        await step(input)
-        const values = (await aiBlobOffloadTextBytes.get()).values
-        const count = values.find((v) => v.metricName === 'aio_blob_offload_text_bytes_count')?.value ?? 0
-        const sum = values.find((v) => v.metricName === 'aio_blob_offload_text_bytes_sum')?.value ?? 0
-        expect(count).toBe(1)
-        expect(sum).toBeGreaterThan(0)
     })
 
     it('rejects (leaving the event unmodified) when storage fails', async () => {

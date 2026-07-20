@@ -14,6 +14,8 @@ export interface DetectedBlob {
 export interface ExtractionResult {
     value: unknown
     blobs: DetectedBlob[]
+    /** Serialized chars removed by pointer rewrites, summed per occurrence (dedup'd blobs still count each site). */
+    savedChars: number
     belowFloorCount: number
     belowFloorBytes: number
 }
@@ -27,6 +29,7 @@ const CANONICAL_BASE64 = /^[A-Za-z0-9+/]+={0,2}$/
 
 interface Extraction {
     blobsByHash: Map<string, DetectedBlob>
+    savedChars: number
     belowFloorCount: number
     belowFloorBytes: number
     minBase64Length: number
@@ -57,7 +60,12 @@ function extractFromString(state: Extraction, value: string): string {
     if (!match) {
         return value
     }
-    return pointerFor(state, match[2], match[1], 'data_uri') ?? value
+    const pointer = pointerFor(state, match[2], match[1], 'data_uri')
+    if (pointer) {
+        state.savedChars += value.length - pointer.length
+        return pointer
+    }
+    return value
 }
 
 function isBase64String(value: unknown): value is string {
@@ -78,6 +86,7 @@ function extractFromObject(
     ) {
         const pointer = pointerFor(state, obj.data, obj.media_type, 'anthropic_source')
         if (pointer) {
+            state.savedChars += obj.data.length - pointer.length
             return { ...obj, data: pointer }
         }
     }
@@ -86,12 +95,14 @@ function extractFromObject(
     if (geminiMime && MIME.test(geminiMime) && isBase64String(obj.data)) {
         const pointer = pointerFor(state, obj.data, geminiMime, 'gemini_inline_data')
         if (pointer) {
+            state.savedChars += obj.data.length - pointer.length
             return { ...obj, data: pointer }
         }
     }
     if (parentKey === 'input_audio' && typeof obj.format === 'string' && isBase64String(obj.data)) {
         const pointer = pointerFor(state, obj.data, `audio/${obj.format}`, 'openai_input_audio')
         if (pointer) {
+            state.savedChars += obj.data.length - pointer.length
             return { ...obj, data: pointer }
         }
     }
@@ -124,6 +135,7 @@ function extractFromNode(state: Extraction, node: unknown, parentKey: string | n
 export function extractBlobs(value: unknown, opts: { minBase64Length: number }): ExtractionResult {
     const state: Extraction = {
         blobsByHash: new Map(),
+        savedChars: 0,
         belowFloorCount: 0,
         belowFloorBytes: 0,
         minBase64Length: opts.minBase64Length,
@@ -132,6 +144,7 @@ export function extractBlobs(value: unknown, opts: { minBase64Length: number }):
     return {
         value: rewritten,
         blobs: [...state.blobsByHash.values()],
+        savedChars: state.savedChars,
         belowFloorCount: state.belowFloorCount,
         belowFloorBytes: state.belowFloorBytes,
     }

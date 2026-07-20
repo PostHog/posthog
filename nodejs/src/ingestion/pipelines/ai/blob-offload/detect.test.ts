@@ -26,6 +26,9 @@ describe('extractBlobs', () => {
         const rewritten = result.value as typeof input
         const pointer = parseBlobPointer(rewritten[0].content[1].image_url!.url)
         expect(pointer).toEqual({ algo: 'sha256', hash: PNG_HASH, mime: 'image/png', size: PNG_BYTES.length })
+        expect(result.savedChars).toBe(
+            input[0].content[1].image_url!.url.length - rewritten[0].content[1].image_url!.url.length
+        )
         expect(rewritten[0].content[0].text).toBe('what is this?')
         expect(rewritten[0].content[1].image_url!.detail).toBe('high')
         expect(input[0].content[1].image_url!.url.startsWith('data:')).toBe(true) // input not mutated

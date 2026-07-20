@@ -113,15 +113,9 @@ export const aiBlobOffloadBlobsPerEvent = new Histogram({
     buckets: [1, 2, 3, 5, 8, 13, 21],
 })
 
-export const aiBlobOffloadEventBytes = new Histogram({
-    name: 'aio_blob_offload_event_bytes',
-    help: 'Serialized heavy-prop bytes per offloaded event, before and after rewrite',
-    labelNames: ['stage'], // stage: before | after
-    buckets: [4096, 65536, 262144, 1048576, 2097152, 4194304, 8388608],
-})
-
-export const aiBlobOffloadTextBytes = new Histogram({
-    name: 'aio_blob_offload_text_bytes',
-    help: 'Post-extraction heavy-prop text size — sizing data for future size-triggered offload',
+// Row sizes after rewrite: kafka_producer_message_size_bytes{topic_name=<ai_events topic>}.
+export const aiBlobOffloadEventBytesSaved = new Histogram({
+    name: 'aio_blob_offload_event_bytes_saved',
+    help: 'Serialized bytes removed per offloaded event by rewriting payloads to pointers',
     buckets: [4096, 65536, 262144, 1048576, 2097152, 4194304, 8388608],
 })
