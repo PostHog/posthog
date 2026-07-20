@@ -174,6 +174,69 @@ class TestRecalculationService(BaseTest):
         row = ExperimentMetricsRecalculation.objects.get(id=result["id"])
         assert row.trigger == trigger
 
+    @parameterized.expand(
+        [
+            # (name, has_completed_run, offset_from_latest, expect_stamped) — only an exact match with the
+            # latest completed run's query_to is honored; anything else falls back to a fresh window.
+            ("matching_window_is_stamped", True, timedelta(0), True),
+            ("mismatched_window_is_ignored", True, timedelta(hours=1), False),
+            ("no_completed_run_is_ignored", False, timedelta(0), False),
+        ]
+    )
+    def test_request_recalculation_query_to_reuse(
+        self, name: str, has_completed_run: bool, offset_from_latest: timedelta, expect_stamped: bool
+    ):
+        exp = self._launched_experiment(flag_key=f"reuse-{name}")
+        completed_query_to = datetime(2026, 1, 10, tzinfo=UTC)
+        if has_completed_run:
+            ExperimentMetricsRecalculation.objects.create(
+                team=self.team,
+                experiment=exp,
+                status=ExperimentMetricsRecalculation.Status.COMPLETED,
+                query_to=completed_query_to,
+                completed_at=timezone.now(),
+            )
+
+        result = request_recalculation(
+            exp, self.user, "config_change", query_to=completed_query_to + offset_from_latest
+        )
+
+        row = ExperimentMetricsRecalculation.objects.get(id=result["id"])
+        assert row.query_to == (completed_query_to if expect_stamped else None)
+
+    def test_changing_excluded_variants_invalidates_run_results(self):
+        exp = self._launched_experiment(flag_key="reuse-excluded")
+        query_to = datetime(2026, 1, 10, tzinfo=UTC)
+        recalc_fp = compute_recalc_fingerprint(
+            compute_metric_fingerprint(
+                _mean_metric("m1"),
+                exp.start_date,
+                get_experiment_stats_method(exp),
+                exp.exposure_criteria,
+                only_count_matured_users=exp.only_count_matured_users,
+                excluded_variants=exp.excluded_variants,
+            )
+        )
+        ExperimentMetricResult.objects.create(
+            experiment=exp,
+            metric_uuid="m1",
+            fingerprint=recalc_fp,
+            query_from=exp.start_date,
+            query_to=query_to,
+            status=ExperimentMetricResult.Status.COMPLETED,
+            result={"some": "result"},
+        )
+        recalc = ExperimentMetricsRecalculation.objects.create(
+            team=self.team, experiment=exp, metric_uuids=["m1"], query_to=query_to
+        )
+        assert [r["metric_uuid"] for r in get_run_results(recalc)] == ["m1"]
+
+        # Excluding a variant alters what the metric computes, so the cached row must stop matching.
+        exp.excluded_variants = ["test"]
+        exp.save(update_fields=["excluded_variants"])
+        recalc.refresh_from_db()
+        assert get_run_results(recalc) == []
+
     def test_get_latest_recalculation_returns_most_recent_completed(self):
         # get_latest_recalculation filters to status='completed' (powers GET /metrics_recalculation/latest).
         exp = self._launched_experiment()

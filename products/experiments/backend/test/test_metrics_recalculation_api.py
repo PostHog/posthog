@@ -83,6 +83,29 @@ class TestMetricsRecalculationAPI(APIBaseTest):
 
     @mock.patch("products.experiments.backend.presentation.views.sync_connect")
     @mock.patch("products.experiments.backend.presentation.views.asyncio.run")
+    def test_post_query_to_reaches_created_row(self, mock_run, mock_connect):
+        # Wiring guard: the validated query_to must flow from the request body into request_recalculation;
+        # the match/mismatch matrix lives in the service tests.
+        exp = self._launched_experiment()
+        completed_query_to = datetime(2026, 1, 10, tzinfo=UTC)
+        ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            status=ExperimentMetricsRecalculation.Status.COMPLETED,
+            query_to=completed_query_to,
+            completed_at=completed_query_to,
+        )
+        resp = self.client.post(
+            self._post_url(exp.id),
+            {"trigger": "config_change", "query_to": completed_query_to.isoformat()},
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_201_CREATED, resp.content
+        row = ExperimentMetricsRecalculation.objects.get(id=resp.json()["id"])
+        assert row.query_to == completed_query_to
+
+    @mock.patch("products.experiments.backend.presentation.views.sync_connect")
+    @mock.patch("products.experiments.backend.presentation.views.asyncio.run")
     def test_post_is_idempotent_returns_200(self, mock_run, mock_connect):
         exp = self._launched_experiment()
         first = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")

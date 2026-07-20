@@ -1020,6 +1020,12 @@ export const ExperimentsMetricsRecalculationCreateBody = /* @__PURE__ */ zod
             .describe(
                 'What triggered this recalculation (manual is the default for user-initiated runs)\n\n\* `manual` - Manual\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `auto_refresh` - Auto Refresh\n\* `config_change` - Config Change\n\* `experiment_launch` - Experiment Launch\n\* `experiment_stop` - Experiment Stop\n\* `experiment_update` - Experiment Update'
             ),
+        query_to: zod.iso
+            .datetime({ offset: true })
+            .nullish()
+            .describe(
+                "Data-window end to reuse from the latest completed recalculation. When it matches that run's query_to, metrics whose configuration is unchanged skip recomputation; on mismatch a fresh window is pinned and all metrics recompute."
+            ),
     })
     .describe('Request body for triggering a metrics recalculation.')
 

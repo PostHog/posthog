@@ -1196,6 +1196,16 @@ class RecalculateMetricsRequestSerializer(serializers.Serializer):
         default="manual",
         help_text="What triggered this recalculation (manual is the default for user-initiated runs)",
     )
+    query_to = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "Data-window end to reuse from the latest completed recalculation. When it matches that run's "
+            "query_to, metrics whose configuration is unchanged skip recomputation; on mismatch a fresh "
+            "window is pinned and all metrics recompute."
+        ),
+    )
 
 
 class ExperimentMetricsRecalculationSerializer(serializers.Serializer):

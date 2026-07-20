@@ -1072,9 +1072,10 @@ class EnterpriseExperimentsViewSet(
         request_serializer = RecalculateMetricsRequestSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
         trigger = request_serializer.validated_data["trigger"]
+        query_to = request_serializer.validated_data["query_to"]
 
         # request.user is User | AnonymousUser at the DRF level; the viewset enforces auth so it's a User here.
-        result = request_recalculation(experiment, cast(User, request.user), trigger)
+        result = request_recalculation(experiment, cast(User, request.user), trigger, query_to=query_to)
         # Read without mutating — the serializer surfaces is_existing on the response so clients can detect
         # the idempotent-reuse path without inspecting the HTTP status code.
         is_existing = result.get("is_existing", False)

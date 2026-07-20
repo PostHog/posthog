@@ -10,6 +10,8 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from django.db import close_old_connections, transaction
+from django.db.models import F, Value
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 import structlog
@@ -183,7 +185,8 @@ def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> 
     with team_scope(state.team_id, canonical=True):
         # Start: write the data-window end + started_at + initial state under a first-write-wins guard so a
         # Temporal retry of this activity can't move query_to forward (which would orphan any rows persisted by
-        # calc activities still in flight from the prior attempt).
+        # calc activities still in flight from the prior attempt). Coalesce preserves a query_to pre-stamped at
+        # request time (window reuse), so the guard anchors on started_at rather than query_to.
         if update.mark_started:
             # query_to is the run's data-window end, not bare "now": for a stopped experiment
             # experiment_window_end resolves it to end_date (a fixed value), so repeated recalcs reuse the
@@ -191,24 +194,19 @@ def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> 
             # timeseries point on every run. A running experiment still advances with now.
             experiment = Experiment.objects.get(id=state.experiment_id)
             proposed_query_to = experiment_window_end(experiment, timezone.now())
-            won = (
-                ExperimentMetricsRecalculation.objects.filter(id=update.recalculation_id, query_to__isnull=True).update(
-                    query_to=proposed_query_to,
-                    started_at=timezone.now(),
-                    status=update.status or ExperimentMetricsRecalculation.Status.IN_PROGRESS,
-                    total_metrics=update.total_metrics if update.total_metrics is not None else 0,
-                    metric_uuids=update.metric_uuids if update.metric_uuids is not None else [],
-                )
-                == 1
+            ExperimentMetricsRecalculation.objects.filter(id=update.recalculation_id, started_at__isnull=True).update(
+                query_to=Coalesce(F("query_to"), Value(proposed_query_to)),
+                started_at=timezone.now(),
+                status=update.status or ExperimentMetricsRecalculation.Status.IN_PROGRESS,
+                total_metrics=update.total_metrics if update.total_metrics is not None else 0,
+                metric_uuids=update.metric_uuids if update.metric_uuids is not None else [],
             )
-            if won:
-                return proposed_query_to.isoformat()
-            existing_query_to = (
+            final_query_to = (
                 ExperimentMetricsRecalculation.objects.filter(id=update.recalculation_id)
                 .values_list("query_to", flat=True)
                 .first()
             )
-            return existing_query_to.isoformat() if existing_query_to is not None else None
+            return final_query_to.isoformat() if final_query_to is not None else None
 
         # Finish: same first-write-wins guard so a retried mark_completed activity doesn't re-stamp the
         # completion timestamp (and, by symmetry with mark_started, doesn't reopen a closed run).
@@ -509,6 +507,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
             get_experiment_stats_method(experiment),
             experiment.exposure_criteria,
             only_count_matured_users=experiment.only_count_matured_users,
+            excluded_variants=experiment.excluded_variants,
         )
         recalc_fp = compute_recalc_fingerprint(config_fp)
 

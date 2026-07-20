@@ -263,6 +263,29 @@ class TestRecalculationActivities(BaseTest):
         else:
             assert recalc.query_to == now
 
+    def test_mark_started_preserves_prestamped_query_to(self):
+        # Window reuse pre-stamps query_to at request time; mark_started must keep it (rather than pin a
+        # fresh window) while still flipping status/started_at, and return it for the calc activities.
+        exp = self._experiment(flag_key="progress-prestamped")
+        prestamped = timezone.now() - timedelta(hours=1)
+        recalc = ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, query_to=prestamped)
+
+        returned = _update(
+            RecalculationProgressUpdate(
+                recalculation_id=str(recalc.id),
+                status="in_progress",
+                total_metrics=1,
+                metric_uuids=["m1"],
+                mark_started=True,
+            )
+        )
+
+        recalc.refresh_from_db()
+        assert recalc.query_to == prestamped
+        assert recalc.started_at is not None
+        assert recalc.status == "in_progress"
+        assert returned == prestamped.isoformat()
+
     def test_mark_completed_is_first_write_wins_on_retry(self):
         # Symmetric to mark_started: a retried finish activity must not re-stamp completed_at.
         recalc = self._recalc(self._experiment(flag_key="progress-retry-finish"))
@@ -641,6 +664,40 @@ class TestCalculateActivity(BaseTest):
             status=ExperimentMetricResult.Status.COMPLETED,
             result={"stale": True},
         )
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+
+        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+            mock_runner.return_value.run.return_value.model_dump.return_value = {}
+            _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
+
+        mock_runner.assert_called_once()
+
+    def test_excluded_variants_change_recomputes(self):
+        # A cached row computed before a variant was excluded must not satisfy the skip check: the exclusion
+        # set feeds the fingerprint, so the stale row's fingerprint no longer matches and the query re-runs.
+        metric = _mean_metric("m1")
+        exp = self._experiment(flag_key="calc-excluded", metrics=[metric])
+        query_to = datetime.fromisoformat(_QUERY_TO)
+        recalc_fp = compute_recalc_fingerprint(
+            compute_metric_fingerprint(
+                metric,
+                exp.start_date,
+                get_experiment_stats_method(exp),
+                exp.exposure_criteria,
+                only_count_matured_users=exp.only_count_matured_users,
+            )
+        )
+        ExperimentMetricResult.objects.create(
+            experiment=exp,
+            metric_uuid="m1",
+            fingerprint=recalc_fp,
+            query_from=query_to,
+            query_to=query_to,
+            status=ExperimentMetricResult.Status.COMPLETED,
+            result={"stale": True},
+        )
+        exp.excluded_variants = ["test"]
+        exp.save(update_fields=["excluded_variants"])
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
         with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:

@@ -175,6 +175,7 @@ export interface experimentMetricsLogicActions {
             is_existing?: boolean
             poll_count?: number
             recalculation_id: string | null
+            reused_window?: boolean
             succeeded?: number
             total_metrics?: number
             trigger?:
@@ -195,6 +196,7 @@ export interface experimentMetricsLogicActions {
             is_existing?: boolean | undefined
             poll_count?: number | undefined
             recalculation_id: string | null
+            reused_window?: boolean | undefined
             succeeded?: number | undefined
             total_metrics?: number | undefined
             trigger?:
@@ -659,12 +661,21 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                 try {
                     const { projectId, experimentId } = resolvedIds
 
+                    // Reusing the last completed window lets the backend skip unchanged metrics via the
+                    // fingerprint check, so a config change only recomputes the edited metric.
+                    const reusedQueryTo =
+                        trigger === 'config_change' &&
+                        values.currentRecalculation?.status === RECALCULATION_STATUSES.completed
+                            ? values.currentRecalculation.query_to
+                            : undefined
+
                     /**
                      * 201 with a new pending run, or 200 with the already-active one. No results yet.
                      * Create a recalculation workflow. 201: a new run. 200: one is already running, poll it.
                      */
                     const recalculation = await experimentsMetricsRecalculationCreate(String(projectId), experimentId, {
                         trigger,
+                        ...(reusedQueryTo ? { query_to: reusedQueryTo } : {}),
                     })
 
                     /**
@@ -686,6 +697,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                         recalculation_id: recalculation.id,
                         trigger,
                         is_existing: recalculation.is_existing,
+                        reused_window: !!reusedQueryTo,
                     })
 
                     if (
