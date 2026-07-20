@@ -2047,6 +2047,7 @@ class ExternalDataSourceType(StrEnum):
     AXIOM = "Axiom"
     PLIVO = "Plivo"
     DATA_FOR_SEO = "DataForSEO"
+    SLEEKPLAN = "Sleekplan"
 
 
 class ExternalQueryErrorCode(StrEnum):

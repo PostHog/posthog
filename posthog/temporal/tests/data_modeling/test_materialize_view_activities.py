@@ -798,10 +798,6 @@ class TestMaterializeViewActivity:
             unittest.mock.patch(
                 "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", mock_hogql_table
             ),
-            unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.materialize_view.get_query_row_count",
-                return_value=3,
-            ),
         ):
             inputs = MaterializeViewInputs(
                 team_id=ateam.pk,
@@ -841,10 +837,6 @@ class TestMaterializeViewActivity:
             unittest.mock.patch(
                 "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", mock_hogql_table
             ),
-            unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.materialize_view.get_query_row_count",
-                return_value=5,
-            ),
         ):
             inputs = MaterializeViewInputs(
                 team_id=ateam.pk,
@@ -854,7 +846,7 @@ class TestMaterializeViewActivity:
             )
             result = await activity_environment.run(materialize_view_activity, inputs)
             await database_sync_to_async(ajob.refresh_from_db)()
-            assert ajob.rows_expected == 5
+            assert ajob.rows_expected is None
             assert ajob.rows_materialized == 5
             assert result.row_count == 5
 
@@ -897,10 +889,6 @@ class TestMaterializeViewActivity:
             ),
             unittest.mock.patch(
                 "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", mock_hogql_table
-            ),
-            unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.materialize_view.get_query_row_count",
-                return_value=6,
             ),
         ):
             inputs = MaterializeViewInputs(
@@ -957,10 +945,6 @@ class TestMaterializeViewActivity:
             unittest.mock.patch(
                 "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", mock_hogql_table
             ),
-            unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.materialize_view.get_query_row_count",
-                return_value=6,
-            ),
         ):
             inputs = MaterializeViewInputs(
                 team_id=ateam.pk,
@@ -1008,10 +992,6 @@ class TestMaterializeViewActivity:
             ),
             unittest.mock.patch(
                 "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", mock_hogql_table
-            ),
-            unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.materialize_view.get_query_row_count",
-                return_value=0,
             ),
         ):
             inputs = MaterializeViewInputs(
@@ -1061,10 +1041,6 @@ class TestMaterializeViewActivity:
             ),
             unittest.mock.patch(
                 "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", mock_hogql_table
-            ),
-            unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.materialize_view.get_query_row_count",
-                return_value=16,
             ),
             unittest.mock.patch("deltalake.write_deltalake", side_effect=raising_write),
         ):

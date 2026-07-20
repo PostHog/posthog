@@ -661,6 +661,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             runtime_adapter=request.validated_data.get("runtime_adapter"),
             model=request.validated_data.get("model"),
             reasoning_effort=request.validated_data.get("reasoning_effort"),
+            sandbox_environment_id=request.validated_data.get("sandbox_environment_id"),
+            custom_image_id=request.validated_data.get("custom_image_id"),
         )
         if result is None:
             return Response(status=status.HTTP_200_OK)
@@ -1541,6 +1543,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     content=command_params.get("content"),
                     artifact_ids=artifact_ids,
                     actor_user_id=request.user.id,
+                    steer=command_params.get("steer", False),
                 )
             except Exception:
                 # A synchronous web request can't retry the way the Temporal
