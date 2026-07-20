@@ -328,7 +328,7 @@ describe('InstructionsFormatter', () => {
             {
                 name: 'analytics learn topic content',
                 render: (formatter, ctx) =>
-                    formatter.buildClaudeExecHelpEntries(ctx).find((entry) => entry.id === 'analytics')!.content,
+                    formatter.buildClaudeExecLearnGuides(ctx).find((entry) => entry.id === 'analytics')!.content,
                 mustPrecede: ['### Retrieving data', '#### Schema-first workflow'],
             },
             {
@@ -362,7 +362,7 @@ describe('InstructionsFormatter', () => {
         it('advertises governed metrics in the analytics topic description only when the catalog exists', () => {
             const formatter = new InstructionsFormatter()
             const analyticsDescription = (ctx: InstructionsContext): string =>
-                formatter.buildClaudeExecHelpEntries(ctx).find((entry) => entry.id === 'analytics')!.description
+                formatter.buildClaudeExecLearnGuides(ctx).find((entry) => entry.id === 'analytics')!.description
             expect(analyticsDescription({ ...fullCtx, dataCatalogEnabled: true })).toContain('governed metrics')
             expect(analyticsDescription(fullCtx)).toBe('Query or analyze PostHog data, metrics, and events.')
         })
