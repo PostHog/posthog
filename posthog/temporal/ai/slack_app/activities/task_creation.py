@@ -948,13 +948,6 @@ def forward_posthog_code_followup_activity(
     if user_message_ts:
         safe_react(slack.client, channel, user_message_ts, "eyes")
 
-    auth_token = None
-    if actor_user and actor_user.id:
-        distinct_id = actor_user.distinct_id or f"user_{actor_user.id}"
-        auth_token = tasks_facade.create_sandbox_connection_token(
-            task_run.id, user_id=actor_user.id, distinct_id=distinct_id
-        )
-
     uploaded_attachments, attachment_skips = _upload_prepared_slack_attachments(
         tasks_facade,
         task_run_id=task_run.id,
@@ -973,42 +966,24 @@ def forward_posthog_code_followup_activity(
         or user_text
     )
 
-    send_kwargs: dict[str, Any] = {
-        "auth_token": auth_token,
-        "timeout": 90,
-        # Deterministic across activity retries: a retry after a partial failure
-        # (or the in-line resend below) redelivers with the same id, and the
-        # agent-server drops the duplicate instead of applying the message twice.
-        "message_id": _slack_followup_message_id(channel, user_message_ts, thread_ts),
-    }
-    if uploaded_attachments:
-        send_kwargs["artifacts"] = uploaded_attachments
-
-    result = tasks_facade.send_user_message(task_run.id, user_text, **send_kwargs)
-    if not result.success and result.retryable and result.status_code != 504:
-        result = tasks_facade.send_user_message(task_run.id, user_text, **send_kwargs)
-
-    if not result.success:
+    # Queue on the workflow so delivery is ordered with the web path. The
+    # deterministic message id keeps redelivery idempotent.
+    signal_result = tasks_facade.signal_task_run_user_message(
+        task_run.id,
+        mapping.task_id,
+        task_run.team_id,
+        content=user_text,
+        artifact_ids=_uploaded_attachment_ids(uploaded_attachments),
+        message_id=_slack_followup_message_id(channel, user_message_ts, thread_ts),
+    )
+    if signal_result is not True:
         logger.warning(
-            "posthog_code_followup_forwarding_failed",
+            "slack_app_followup_signal_failed",
             channel=channel,
             thread_ts=thread_ts,
-            error=result.error,
-            status_code=result.status_code,
+            task_run_id=str(task_run.id),
+            signal_result=signal_result,
         )
-        if result.retryable and result.status_code == 504:
-            # Agent is still processing — leave the :eyes: reaction up so the thread
-            # reads as in-progress. relayAgentResponse fires when it finishes,
-            # delivering the correct response to Slack.
-            _delete_followup_progress(
-                integration_id=inputs.integration_id,
-                channel=channel,
-                thread_ts=thread_ts,
-                user_message_ts=user_message_ts,
-                mentioning_slack_user_id=mapping.mentioning_slack_user_id,
-            )
-            return True
-
         _set_followup_done_reaction(slack, channel, user_message_ts, "x")
         slack.client.chat_postMessage(
             channel=channel,
@@ -1017,7 +992,7 @@ def forward_posthog_code_followup_activity(
         )
         return True
 
-    # Message delivered; the agent is now working on it, so leave the :eyes: reaction
+    # Message queued; the agent picks it up next, so leave the :eyes: reaction
     # up. relayAgentResponse posts the agent's response once it finishes.
     _delete_followup_progress(
         integration_id=inputs.integration_id,

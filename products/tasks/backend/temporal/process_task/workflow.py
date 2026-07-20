@@ -138,6 +138,9 @@ class ProcessTaskInput:
 class PendingFollowup:
     message: str | None
     artifact_ids: list[str]
+    # Sender-supplied idempotency key (stable across the sender's retries);
+    # None falls back to a workflow-generated id.
+    message_id: str | None = None
 
 
 @dataclass
@@ -690,6 +693,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                             await self._send_followup_to_sandbox(
                                 message=message,
                                 artifact_ids=artifact_ids,
+                                message_id=pending_followup.message_id,
                             )
                             continue
 
@@ -1832,7 +1836,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "artifact_count": len(artifact_ids or []),
             },
         )
-        pending_followup = PendingFollowup(message=message, artifact_ids=artifact_ids or [])
+        pending_followup = PendingFollowup(message=message, artifact_ids=artifact_ids or [], message_id=message_id)
         # Always queue. `deprecate_patch` accepts existing non-deprecated
         # markers from workflows that ran the prior `workflow.patched(...)`
         # gate, so this is safe to deploy alongside in-flight workflows. The
@@ -1887,7 +1891,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             },
         )
 
-    async def _send_followup_to_sandbox(self, message: str | None, artifact_ids: list[str]) -> None:
+    async def _send_followup_to_sandbox(
+        self, message: str | None, artifact_ids: list[str], message_id: str | None = None
+    ) -> None:
         workflow.logger.info(
             "send_followup_dispatch_begin",
             extra={
@@ -1904,7 +1910,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     message=message,
                     posthog_mcp_scopes=self._posthog_mcp_scopes,
                     artifact_ids=artifact_ids,
-                    message_id=str(workflow.uuid4()),
+                    message_id=message_id or str(workflow.uuid4()),
                 ),
                 start_to_close_timeout=timedelta(minutes=35),
                 # The activity heartbeats while blocked on the sync delivery
