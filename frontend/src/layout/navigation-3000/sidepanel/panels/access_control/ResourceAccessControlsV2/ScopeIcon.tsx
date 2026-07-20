@@ -10,6 +10,7 @@ import {
     IconFlask,
     IconHome,
     IconLive,
+    IconListTree,
     IconLlmAnalytics,
     IconMessage,
     IconNotebook,
