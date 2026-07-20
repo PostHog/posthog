@@ -163,7 +163,9 @@ def _process_query_request(
 # the generic endpoint.
 _QUERY_KIND_SCOPES: dict[str, list[str]] = {
     "MetricsQuery": ["metrics:read"],
-    "MCPToolFailureOccurrencesQuery": ["mcp_analytics:read"],
+    # Both scopes listed: this result replaces the view's default query:read
+    # rather than adding to it, and a token must hold every listed scope.
+    "MCPToolFailureOccurrencesQuery": ["query:read", "mcp_analytics:read"],
 }
 
 

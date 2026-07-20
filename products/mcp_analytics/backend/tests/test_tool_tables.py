@@ -369,6 +369,7 @@ class TestMCPToolFailureOccurrencesQueryRunner(_MCPAnalyticsTeamScopedTestMixin,
     @parameterized.expand(
         [
             (["query:read"], 403),
+            (["mcp_analytics:read"], 403),
             (["query:read", "mcp_analytics:read"], 200),
         ]
     )
