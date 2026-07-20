@@ -739,6 +739,7 @@ SPECTACULAR_SETTINGS = {
             "span_attribute",
             "span_resource_attribute",
             "revenue_analytics",
+            "account_custom_property",
             "flag",
             "workflow_variable",
         ],
