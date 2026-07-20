@@ -48,6 +48,31 @@ def fetch_implementation_pr_urls_for_reports(report_ids: list[str]) -> dict[str,
     return result
 
 
+def fetch_implementation_pr_merged_for_reports(report_ids: list[str]) -> set[str]:
+    """Of the supplied reports, those whose implementation PR is merged per the GitHub webhook.
+
+    Companion to `fetch_implementation_pr_urls_for_reports`, resolved over the same association and
+    the same run, so callers can render the real merge state of the PR URL that helper returns
+    instead of inferring it from report status — a report can be resolved without a merged PR.
+    """
+    if not report_ids:
+        return set()
+
+    runs_by_report = SignalReport.associated_task_runs_for_reports(
+        report_ids=[str(report_id) for report_id in report_ids],
+        product=SIGNALS_PRODUCT,
+        type=TASK_RUN_TYPE_IMPLEMENTATION,
+    )
+    pairs: list[tuple[str, str]] = [
+        (report_id, run.task_id) for report_id, runs in runs_by_report.items() for run in runs
+    ]
+    if not pairs:
+        return set()
+
+    merged_task_ids = tasks_facade.get_merged_pr_task_ids([task_id for _, task_id in pairs])
+    return {report_id for report_id, task_id in pairs if task_id in merged_task_ids}
+
+
 PrCloseReason = Literal["suppressed", "snoozed"]
 
 # Left on the PR before it's closed, so anyone looking at the PR sees why it was closed and how to undo it.

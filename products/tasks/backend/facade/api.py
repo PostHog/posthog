@@ -152,6 +152,7 @@ __all__ = [
     "get_code_workflow_config",
     "get_conversation_task_dtos",
     "get_latest_pr_url_by_task",
+    "get_merged_pr_task_ids",
     "get_latest_run_by_task",
     "get_resume_snapshot_carry_state",
     "get_sandbox_custom_image",
@@ -172,6 +173,7 @@ __all__ = [
     "is_internal_debug_team",
     "is_task_controllable_by_user",
     "is_valid_sandbox_env_var_key",
+    "latest_task_run_pr_merged_subquery",
     "latest_task_run_pr_url_subquery",
     "leave_task_presence",
     "list_sandbox_custom_images",
@@ -611,6 +613,41 @@ def latest_task_run_pr_url_subquery(*conditions: Q, **task_run_filter) -> Subque
         .values("output_pr_url_text")[:1],
         output_field=CharField(),
     )
+
+
+def latest_task_run_pr_merged_subquery(*conditions: Q, **task_run_filter) -> Subquery:
+    """``Subquery`` of the webhook-attested merge flag on the same run ``latest_task_run_pr_url_subquery``
+    resolves for the same correlation — so a caller displaying that PR can say whether it merged rather
+    than inferring it. Same filter and ordering, so the two always describe one run. NULL when no
+    PR-bearing run matches; treat that as "not merged"."""
+    return Subquery(
+        TaskRun.objects.filter(*conditions, output__pr_url__isnull=False, **task_run_filter)
+        .exclude(output__pr_url="")
+        .order_by("-created_at")
+        .annotate(output_pr_merged_flag=KeyTextTransform("pr_merged", "output"))
+        .values("output_pr_merged_flag")[:1],
+        output_field=CharField(),
+    )
+
+
+def get_merged_pr_task_ids(task_ids: Iterable[str | UUID]) -> set[str]:
+    """Of the supplied tasks, those whose latest PR-bearing run has a webhook-attested merged PR.
+
+    Batched counterpart to ``latest_task_run_pr_merged_subquery``, matching ``get_latest_pr_url_by_task``
+    run-for-run so the merge flag describes the PR URL that helper returns.
+    """
+    ids = [str(t) for t in task_ids]
+    if not ids:
+        return set()
+    rows = (
+        TaskRun.objects.filter(task_id__in=ids, output__pr_url__isnull=False)
+        .exclude(output__pr_url="")
+        .order_by("task_id", "-created_at", "-id")
+        .annotate(output_pr_merged_flag=KeyTextTransform("pr_merged", "output"))
+        .values("task_id", "output_pr_merged_flag")
+        .distinct("task_id")
+    )
+    return {str(row["task_id"]) for row in rows if row["output_pr_merged_flag"] in ("true", "True")}
 
 
 def get_latest_run_by_task(task_ids: Iterable[str | UUID]) -> dict[str, contracts.TaskRunDTO]:
@@ -2001,12 +2038,18 @@ def set_task_run_output(
         return None
     task = run.task
     # Preserve PR facts a webhook may have written concurrently: this assignment is wholesale,
-    # so a bare `= output` would drop output.pr_url / output.pr_merged recorded out of band.
+    # so a bare `= output` would drop output.pr_url recorded out of band.
     existing = run.output if isinstance(run.output, dict) else {}
     merged = {**output}
-    for key in ("pr_url", "pr_merged"):
-        if not merged.get(key) and existing.get(key):
-            merged[key] = existing[key]
+    if not merged.get("pr_url") and existing.get("pr_url"):
+        merged["pr_url"] = existing["pr_url"]
+    # `pr_merged` is webhook-attested, never caller-supplied: it is GitHub's word that the PR
+    # actually merged, and signals reads it to decide refund finality (billing.report_has_merged_pr).
+    # Callers can reach this write path with a plain task:write token, so an accepted merge flag here
+    # would let a caller forge the merge. Only _record_run_pr_merged (the GitHub webhook) sets it.
+    merged.pop("pr_merged", None)
+    if existing.get("pr_merged"):
+        merged["pr_merged"] = existing["pr_merged"]
     run.output = merged
     run.save(update_fields=["output", "updated_at"])
     if task.json_schema:

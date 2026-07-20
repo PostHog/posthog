@@ -3993,6 +3993,39 @@ class TestTaskRunAPI(BaseTaskAPITest):
         response = self.client.get("/api/projects/@current/tasks/not-a-uuid/runs/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    @parameterized.expand(
+        [
+            ("caller_cannot_forge", None, False),
+            ("webhook_flag_survives_caller_write", True, True),
+        ]
+    )
+    @patch("products.tasks.backend.facade.api._post_slack_update_for_pr")
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    def test_set_output_never_accepts_caller_supplied_pr_merged(
+        self,
+        _name: str,
+        webhook_flag: bool | None,
+        expected: bool,
+        _mock_publish_stream_state_event: MagicMock,
+        _mock_post_slack_update_for_pr: MagicMock,
+    ) -> None:
+        # pr_merged is GitHub's word that the PR merged, and signals reads it to decide refund
+        # finality — so a task:write caller must not be able to write or clear it here.
+        task, run = self._create_run_for_origin(Task.OriginProduct.USER_CREATED)
+        if webhook_flag is not None:
+            run.output = {"pr_url": "https://github.com/posthog/posthog-js/pull/1", "pr_merged": webhook_flag}
+            run.save(update_fields=["output"])
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_output/",
+            {"output": {"pr_url": "https://github.com/posthog/posthog-js/pull/1", "pr_merged": True}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run.refresh_from_db()
+        self.assertEqual((run.output or {}).get("pr_merged", False), expected)
+
     @patch("products.tasks.backend.facade.api._post_slack_update_for_pr")
     @patch("products.tasks.backend.models.TaskRun.emit_progress_event")
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")

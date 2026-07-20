@@ -615,6 +615,27 @@ class TestSignalReportListAPI(APIBaseTest):
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["implementation_pr_url"] == "https://github.com/o/r/pull/7"
 
+    @parameterized.expand(
+        [
+            # The badge reads this flag, so it must track the webhook's merge record rather than the
+            # report status — a resolved report may have been resolved directly, PR still open.
+            ("merged_pr", SignalReport.Status.READY, {"pr_url": "https://github.com/o/r/pull/7", "pr_merged": True}),
+            ("resolved_without_merge", SignalReport.Status.RESOLVED, {"pr_url": "https://github.com/o/r/pull/7"}),
+            ("no_pr_run", SignalReport.Status.RESOLVED, None),
+        ]
+    )
+    def test_implementation_pr_merged_reflects_merge_flag_not_status(self, _name, report_status, output):
+        report = self._create_report(status=report_status)
+        if output is not None:
+            self._create_implementation_task_with_run(report, output=output)
+        expected = bool(output and output.get("pr_merged"))
+
+        list_row = next(r for r in self.client.get(self._list_url()).json()["results"] if r["id"] == str(report.id))
+        detail = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/").json()
+
+        assert list_row["implementation_pr_merged"] is expected
+        assert detail["implementation_pr_merged"] is expected
+
     def test_implementation_pr_url_null_when_no_implementation_task(self):
         report = self._create_report()
 
@@ -1466,19 +1487,59 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            # initial status, expected HTTP code, expected status after the call.
-            # Resolve is allowed only from a researched status or a suppressed (restore) report;
-            # every other status keeps returning 409 (the model state machine is not loosened).
-            ("ready", SignalReport.Status.READY, status.HTTP_200_OK, SignalReport.Status.RESOLVED),
-            ("pending_input", SignalReport.Status.PENDING_INPUT, status.HTTP_200_OK, SignalReport.Status.RESOLVED),
-            ("suppressed", SignalReport.Status.SUPPRESSED, status.HTTP_200_OK, SignalReport.Status.RESOLVED),
-            ("candidate", SignalReport.Status.CANDIDATE, status.HTTP_409_CONFLICT, SignalReport.Status.CANDIDATE),
-            ("in_progress", SignalReport.Status.IN_PROGRESS, status.HTTP_409_CONFLICT, SignalReport.Status.IN_PROGRESS),
-            ("potential", SignalReport.Status.POTENTIAL, status.HTTP_409_CONFLICT, SignalReport.Status.POTENTIAL),
+            # initial status, status before suppression, expected HTTP code, expected status after.
+            # Resolve is allowed only from a researched status, or from an archive that holds a
+            # researched report; every other status keeps returning 409 (the model state machine is
+            # not loosened).
+            ("ready", SignalReport.Status.READY, None, status.HTTP_200_OK, SignalReport.Status.RESOLVED),
+            (
+                "pending_input",
+                SignalReport.Status.PENDING_INPUT,
+                None,
+                status.HTTP_200_OK,
+                SignalReport.Status.RESOLVED,
+            ),
+            (
+                "suppressed_from_ready",
+                SignalReport.Status.SUPPRESSED,
+                SignalReport.Status.READY,
+                status.HTTP_200_OK,
+                SignalReport.Status.RESOLVED,
+            ),
+            # Archived before it was ever researched: resolving would land it in RESOLVED with no
+            # title or summary, so the archive can't launder an unresearched report to resolved.
+            (
+                "suppressed_from_candidate",
+                SignalReport.Status.SUPPRESSED,
+                SignalReport.Status.CANDIDATE,
+                status.HTTP_409_CONFLICT,
+                SignalReport.Status.SUPPRESSED,
+            ),
+            (
+                "suppressed_without_prior_status",
+                SignalReport.Status.SUPPRESSED,
+                None,
+                status.HTTP_409_CONFLICT,
+                SignalReport.Status.SUPPRESSED,
+            ),
+            ("candidate", SignalReport.Status.CANDIDATE, None, status.HTTP_409_CONFLICT, SignalReport.Status.CANDIDATE),
+            (
+                "in_progress",
+                SignalReport.Status.IN_PROGRESS,
+                None,
+                status.HTTP_409_CONFLICT,
+                SignalReport.Status.IN_PROGRESS,
+            ),
+            ("potential", SignalReport.Status.POTENTIAL, None, status.HTTP_409_CONFLICT, SignalReport.Status.POTENTIAL),
         ]
     )
-    def test_resolve_state_transition_by_status(self, _name, initial_status, expected_code, expected_status):
+    def test_resolve_state_transition_by_status(
+        self, _name, initial_status, prior_status, expected_code, expected_status
+    ):
         report = self._create_report(report_status=initial_status)
+        if prior_status is not None:
+            report.status_before_suppression = prior_status
+            report.save(update_fields=["status_before_suppression"])
         response = self.client.post(
             self._state_url(str(report.id)),
             data=json.dumps({"state": "resolved"}),

@@ -83,7 +83,10 @@ from products.signals.backend.billing import (
     report_has_merged_pr,
 )
 from products.signals.backend.facade.api import emit_signal
-from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
+from products.signals.backend.implementation_pr import (
+    fetch_implementation_pr_merged_for_reports,
+    fetch_implementation_pr_urls_for_reports,
+)
 from products.signals.backend.models import (
     ArtefactAttribution,
     AutonomyPriority,
@@ -1094,7 +1097,14 @@ class SignalReportViewSet(
         latest_impl_pr_url = tasks_facade.latest_task_run_pr_url_subquery(
             SignalReport.associated_task_runs_filter(OuterRef(OuterRef("id"))),
         )
-        return queryset.annotate(implementation_pr_url=latest_impl_pr_url)
+        # Resolved over the same run, so the merge flag always describes the PR URL alongside it.
+        latest_impl_pr_merged = tasks_facade.latest_task_run_pr_merged_subquery(
+            SignalReport.associated_task_runs_filter(OuterRef(OuterRef("id"))),
+        )
+        return queryset.annotate(
+            implementation_pr_url=latest_impl_pr_url,
+            implementation_pr_merged=latest_impl_pr_merged,
+        )
 
     def filter_queryset(self, queryset):
         queryset = super().filter_queryset(queryset)
@@ -1159,14 +1169,17 @@ class SignalReportViewSet(
             signal_meta_map = {}
         try:
             implementation_pr_url_map = fetch_implementation_pr_urls_for_reports(report_ids)
+            implementation_pr_merged_ids = fetch_implementation_pr_merged_for_reports(report_ids)
         except Exception:
             logger.exception("signals.enriched_context.implementation_pr_url_failed", report_id=str(report.id))
             implementation_pr_url_map = {}
+            implementation_pr_merged_ids = set()
         return {
             **self.get_serializer_context(),
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
             "scout_names_map": {rid: meta.scout_name for rid, meta in signal_meta_map.items() if meta.scout_name},
             "implementation_pr_url_map": implementation_pr_url_map,
+            "implementation_pr_merged_ids": implementation_pr_merged_ids,
         }
 
     def retrieve(self, request, *args, **kwargs):
@@ -1347,15 +1360,18 @@ class SignalReportViewSet(
         with tracer.start_as_current_span("signals.reports.list.fetch_implementation_pr_urls"):
             try:
                 implementation_pr_url_map = fetch_implementation_pr_urls_for_reports(report_ids)
+                implementation_pr_merged_ids = fetch_implementation_pr_merged_for_reports(report_ids)
             except Exception:
                 logger.exception("signals.reports.list.implementation_pr_url_failed", report_count=len(report_ids))
                 implementation_pr_url_map = {}
+                implementation_pr_merged_ids = set()
 
         context = {
             **self.get_serializer_context(),
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
             "scout_names_map": {rid: meta.scout_name for rid, meta in signal_meta_map.items() if meta.scout_name},
             "implementation_pr_url_map": implementation_pr_url_map,
+            "implementation_pr_merged_ids": implementation_pr_merged_ids,
         }
         serializer = self.get_serializer(reports, many=True, context=context)
 
@@ -1523,6 +1539,17 @@ class SignalReportViewSet(
 
         return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
 
+    def _request_attribution(self) -> ArtefactAttribution:
+        """Attribution for this request, resolved once and reused.
+
+        `resolve_request_attribution` validates the `X-PostHog-Task-Id` header with a DB lookup, and
+        both the request and the team are invariant across a call — so bulk_state, which transitions
+        up to the per-call id cap in a loop, would otherwise repeat the identical query per report.
+        """
+        if not hasattr(self, "_cached_request_attribution"):
+            self._cached_request_attribution = resolve_request_attribution(self.request, self.team.id)
+        return self._cached_request_attribution
+
     def _transition_report_state(
         self,
         report: SignalReport,
@@ -1558,16 +1585,34 @@ class SignalReportViewSet(
                 report.refresh_from_db()
             is_refunded = SignalReportRefund.objects.filter(report_id=report.id).exists()
 
-            # Refund guard: a refunded report can never be billed again (see billing.py), so pulling
-            # it back out of SUPPRESSED would be repeatable free work — both POTENTIAL (restore/snooze)
-            # and RESOLVED can re-promote to candidate on new signals and spawn a fresh PR. The refund
-            # is final, so any un-archive of a refunded report is refused.
-            if (
-                report.status == SignalReport.Status.SUPPRESSED
-                and target_status in (SignalReport.Status.POTENTIAL, SignalReport.Status.RESOLVED)
-                and is_refunded
+            # Refund guard: a refunded report can never be billed again (see billing.py), so putting
+            # it back where the pipeline can pick it up again is repeatable free work. POTENTIAL is
+            # the live status — a potential report re-promotes to candidate on new signals and can
+            # spawn a fresh research run (grouping.py). The refund is final, so any transition of a
+            # refunded report back to POTENTIAL is refused, whether it currently sits in SUPPRESSED
+            # (refund's own archive step) or in RESOLVED (a refunded merged-PR report stays resolved,
+            # so the guard can't key on SUPPRESSED alone). RESOLVED is terminal and never re-promotes,
+            # so resolving a refunded report is refused only out of the archive, to keep the refund's
+            # suppression — and the PR close it triggers — from being undone.
+            if is_refunded and (
+                target_status == SignalReport.Status.POTENTIAL
+                or (report.status == SignalReport.Status.SUPPRESSED and target_status == SignalReport.Status.RESOLVED)
             ):
                 return SignalReportBulkStateOutcome.SKIPPED, "Refunded reports can't be restored."
+
+            # A suppressed report can only resolve if it was researched before it was archived:
+            # "any non-deleted status can be suppressed", so without this an unresearched report
+            # could be laundered candidate → suppressed → resolved and land in RESOLVED with no
+            # title or summary. restore_target_status() encodes the same researched set.
+            if (
+                report.status == SignalReport.Status.SUPPRESSED
+                and target_status == SignalReport.Status.RESOLVED
+                and report.restore_target_status() == SignalReport.Status.POTENTIAL
+            ):
+                return (
+                    SignalReportBulkStateOutcome.SKIPPED,
+                    "Only a researched report can be resolved from the archive.",
+                )
 
             # "potential" on a suppressed report means "restore" (un-archive): return it to the state
             # it held before suppression when that was a researched, user-visible report, instead of
@@ -1606,7 +1651,7 @@ class SignalReportViewSet(
                         user_id=getattr(user, "id", None) if is_authenticated else None,
                         user_uuid=str(user_uuid) if user_uuid else None,
                     ),
-                    attribution=resolve_request_attribution(self.request, self.team.id),
+                    attribution=self._request_attribution(),
                 )
                 # The dismissal prefetch may have been evaluated before this artefact
                 # existed; drop the stale cache so a follow-up serializer re-reads the
@@ -1825,14 +1870,14 @@ class SignalReportViewSet(
                     raise
                 return self._refund_response(existing, already_refunded=True)
 
-            # Refund doubles as archive: suppress the report so it leaves the inbox and, crucially,
-            # can no longer re-promote to candidate on new signals — a refund is final (later PR runs
-            # are never billed), so re-promotion would be repeatable free work. The one exception is a
-            # report resolved by a merged PR: that PR shipped, so it stays put as a genuine terminal
-            # state. A report resolved manually without a merged PR is NOT exempt — it must be
-            # suppressed like any other, otherwise resolve-then-refund would leave refunded work
-            # eligible for re-promotion. Already-suppressed reports need no transition. The dismissal
-            # artefact records the rationale; the structured truth lives on the refund row.
+            # Refund doubles as archive: suppress the report so it leaves the inbox, and so the
+            # dismissal receiver closes the implementation PR that was paid for and then refunded.
+            # The one exception is a report resolved by a merged PR: that PR shipped, so the report
+            # stays put as a genuine terminal state and there is no open PR to close. A report
+            # resolved manually without a merged PR is NOT exempt — its PR may still be open, and
+            # leaving it resolved would let the caller keep the implementation work after the refund.
+            # Already-suppressed reports need no transition. The dismissal artefact records the
+            # rationale; the structured truth lives on the refund row.
             resolved_via_merged_pr = report.status == SignalReport.Status.RESOLVED and pr_merged
             if report.status != SignalReport.Status.SUPPRESSED and not resolved_via_merged_pr:
                 updated_fields = report.transition_to(SignalReport.Status.SUPPRESSED)

@@ -196,6 +196,8 @@ export interface SignalReportApi {
      * @nullable
      */
     readonly implementation_pr_url: string | null
+    /** Whether that implementation PR is merged, per the GitHub webhook. False when there is no PR or it hasn't merged. Report status doesn't imply this: a resolved report may have been resolved directly, without a merged PR. */
+    readonly implementation_pr_merged: boolean
     /** The report's PR refund, when one exists. One refund per report, ever. */
     readonly refund: SignalReportRefundApi | null
     /** Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values). */
