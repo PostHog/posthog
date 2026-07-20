@@ -65,6 +65,10 @@ SANDBOX_RUST_AGENT_SERVER: bool = get_from_env("SANDBOX_RUST_AGENT_SERVER", Fals
 # this is only meaningful alongside SANDBOX_RUST_AGENT_SERVER.
 SANDBOX_RUST_CLAUDE_DRIVER: bool = get_from_env("SANDBOX_RUST_CLAUDE_DRIVER", False, type_cast=str_to_bool)
 
+# Same switch for codex runs (/usr/local/bin/codex-acp-driver); applied by the
+# Rust agent-server to codex runs only.
+SANDBOX_RUST_CODEX_DRIVER: bool = get_from_env("SANDBOX_RUST_CODEX_DRIVER", False, type_cast=str_to_bool)
+
 # client_id of the OAuthApplication used to mint the access token the PostHog setup wizard
 # uses when it runs inside a task sandbox (the "run the wizard in the cloud" onboarding path).
 # It must be the wizard's own app so the LLM gateway authorizes the token like a normal wizard

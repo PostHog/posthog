@@ -127,22 +127,24 @@ RUN set -eux; \
     rm /tmp/rtk.tar.gz && \
     rtk --version
 
-# Optionally install the Rust agent-server + Claude ACP driver (posthog/code
+# Optionally install the Rust agent-server + native ACP drivers (posthog/code
 # rust/README.md). Skipped while the args are empty; once releases exist, pin
 # a tag plus per-arch SHA256s (same pattern as agentsh above). Runs are
-# switched onto them via the SANDBOX_RUST_AGENT_SERVER and
-# SANDBOX_RUST_CLAUDE_DRIVER Django settings.
+# switched onto them via the SANDBOX_RUST_AGENT_SERVER,
+# SANDBOX_RUST_CLAUDE_DRIVER, and SANDBOX_RUST_CODEX_DRIVER Django settings.
 ARG RUST_AGENT_SERVER_TAG=""
 ARG RUST_AGENT_SERVER_SHA256_AMD64=""
 ARG RUST_AGENT_SERVER_SHA256_ARM64=""
 ARG RUST_CLAUDE_DRIVER_SHA256_AMD64=""
 ARG RUST_CLAUDE_DRIVER_SHA256_ARM64=""
+ARG RUST_CODEX_DRIVER_SHA256_AMD64=""
+ARG RUST_CODEX_DRIVER_SHA256_ARM64=""
 RUN set -eux; \
     if [ -n "${RUST_AGENT_SERVER_TAG}" ]; then \
       arch="$(dpkg --print-architecture)"; \
       case "$arch" in \
-        amd64) target="x86_64-unknown-linux-musl"; sha256="${RUST_AGENT_SERVER_SHA256_AMD64}"; driver_sha256="${RUST_CLAUDE_DRIVER_SHA256_AMD64}" ;; \
-        arm64) target="aarch64-unknown-linux-musl"; sha256="${RUST_AGENT_SERVER_SHA256_ARM64}"; driver_sha256="${RUST_CLAUDE_DRIVER_SHA256_ARM64}" ;; \
+        amd64) target="x86_64-unknown-linux-musl"; sha256="${RUST_AGENT_SERVER_SHA256_AMD64}"; claude_sha256="${RUST_CLAUDE_DRIVER_SHA256_AMD64}"; codex_sha256="${RUST_CODEX_DRIVER_SHA256_AMD64}" ;; \
+        arm64) target="aarch64-unknown-linux-musl"; sha256="${RUST_AGENT_SERVER_SHA256_ARM64}"; claude_sha256="${RUST_CLAUDE_DRIVER_SHA256_ARM64}"; codex_sha256="${RUST_CODEX_DRIVER_SHA256_ARM64}" ;; \
         *) echo "Unsupported architecture for rust agent-server: $arch" >&2; exit 1 ;; \
       esac; \
       curl -fsSL -o /tmp/agent-server-rs \
@@ -151,12 +153,19 @@ RUN set -eux; \
       install -m 0755 /tmp/agent-server-rs /usr/local/bin/agent-server-rs && \
       rm /tmp/agent-server-rs && \
       /usr/local/bin/agent-server-rs --help >/dev/null; \
-      if [ -n "${driver_sha256}" ]; then \
+      if [ -n "${claude_sha256}" ]; then \
         curl -fsSL -o /tmp/claude-acp-driver \
           "https://github.com/PostHog/code/releases/download/${RUST_AGENT_SERVER_TAG}/claude-acp-driver-${target}" && \
-        echo "${driver_sha256}  /tmp/claude-acp-driver" | sha256sum -c - && \
+        echo "${claude_sha256}  /tmp/claude-acp-driver" | sha256sum -c - && \
         install -m 0755 /tmp/claude-acp-driver /usr/local/bin/claude-acp-driver && \
         rm /tmp/claude-acp-driver; \
+      fi; \
+      if [ -n "${codex_sha256}" ]; then \
+        curl -fsSL -o /tmp/codex-acp-driver \
+          "https://github.com/PostHog/code/releases/download/${RUST_AGENT_SERVER_TAG}/codex-acp-driver-${target}" && \
+        echo "${codex_sha256}  /tmp/codex-acp-driver" | sha256sum -c - && \
+        install -m 0755 /tmp/codex-acp-driver /usr/local/bin/codex-acp-driver && \
+        rm /tmp/codex-acp-driver; \
       fi; \
     fi
 
