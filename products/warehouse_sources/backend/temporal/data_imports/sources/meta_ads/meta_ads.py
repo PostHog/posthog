@@ -101,7 +101,7 @@ def _fetch_paging_url(url: str, access_token: str) -> Response:
     Saved URLs have ``access_token`` stripped; we pass it via ``params`` at
     request time so the token never persists in Redis or debug logs.
     """
-    return make_tracked_session().get(url, params={"access_token": access_token})
+    return _get_with_transient_retry(lambda: make_tracked_session().get(url, params={"access_token": access_token}))
 
 
 def _clean_account_id(s: str | None) -> str | None:
@@ -284,6 +284,53 @@ def _is_timeout_error(response: Response) -> bool:
         return error.get("code") == 1 and "reduce the amount of data" in message
     except (ValueError, KeyError, AttributeError):
         return False
+
+
+# Meta flags momentary server-side failures with ``error.is_transient`` and asks callers to retry
+# (the dominant case is code 2, "An unexpected error has occurred. Please retry your request later.").
+# The request itself is fine, so a couple of immediate retries with a short backoff usually clears
+# it — keeping a self-recovering blip from failing the whole activity (and surfacing as error-tracking
+# noise) while still letting it propagate, and Temporal retry from saved resume state, if it persists.
+META_TRANSIENT_ERROR_MAX_ATTEMPTS = 4
+
+
+def _is_transient_error(response: Response) -> bool:
+    """Return True for Meta errors Meta itself flags transient via ``error.is_transient``.
+
+    Distinct from the too-much-data timeout (``_is_timeout_error``), which has its own
+    limit-shrinking recovery; a transient error is retried with the request unchanged.
+    """
+    try:
+        error = response.json().get("error", {})
+    except (ValueError, AttributeError):
+        return False
+    return error.get("is_transient") is True
+
+
+def _get_with_transient_retry(issue: collections.abc.Callable[[], Response]) -> Response:
+    """Issue a request, absorbing Meta's transient server errors with a short backoff.
+
+    Re-issuing the same request is safe: a transiently-failed request yielded no rows. Too-much-data
+    timeouts are left for the caller's limit-shrinking path. If it stays transient past the bound the
+    last response is returned unchanged, so the caller raises it as usual (staying retryable upstream).
+    """
+    response = issue()
+    attempt = 1
+    while (
+        attempt < META_TRANSIENT_ERROR_MAX_ATTEMPTS
+        and response.status_code != 200
+        and _is_transient_error(response)
+        and not _is_timeout_error(response)
+    ):
+        _backoff_sleep(attempt)
+        response = issue()
+        attempt += 1
+    return response
+
+
+def _get_initial_request(url: str, params: dict) -> Response:
+    """Issue a first (non-cursor) Graph API request, absorbing Meta's transient server errors."""
+    return _get_with_transient_retry(lambda: make_tracked_session().get(url, params=params))
 
 
 # Meta error codes that indicate a permanent auth or permission problem — the
@@ -470,8 +517,8 @@ def _iter_simple_pagination(
             )
             return _fetch_paging_url(url, access_token)
         if current_limit != PAGE_LIMIT_FALLBACK_SIZES[0]:
-            return make_tracked_session().get(initial_url, params={**params, "limit": current_limit})
-        return make_tracked_session().get(initial_url, params=params)
+            return _get_initial_request(initial_url, {**params, "limit": current_limit})
+        return _get_initial_request(initial_url, params)
 
     response = _issue()
     malformed_json_attempts = 0
@@ -601,7 +648,7 @@ def _iter_time_range_pagination(
             }
 
             chunk_params = {**params, "limit": current_limit, "time_range": json.dumps(chunk_time_range)}
-            response = make_tracked_session().get(url, params=chunk_params)
+            response = _get_initial_request(url, chunk_params)
 
             if response.status_code != 200:
                 # Fallback only happens on the initial chunk request (before any data is yielded).
@@ -639,7 +686,7 @@ def _iter_time_range_pagination(
                 if last_paging_url is not None:
                     response = _fetch_paging_url(_override_limit(last_paging_url, current_limit), access_token)
                 elif chunk_params is not None:
-                    response = make_tracked_session().get(url, params=chunk_params)
+                    response = _get_initial_request(url, chunk_params)
                 else:
                     # Unreachable: on the non-resume path chunk_params is always
                     # set, and on the resume path last_paging_url is always set.

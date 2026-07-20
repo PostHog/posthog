@@ -8,16 +8,27 @@ from unittest.mock import MagicMock, Mock, patch
 
 import structlog
 from parameterized import parameterized
+from requests.exceptions import (
+    ConnectionError as RequestsConnectionError,
+    RequestException,
+    Timeout,
+)
 
 from posthog.schema import ReleaseStatus
 
 from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccountListingError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import TikTokAdsSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.source import TikTokAdsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.utils import TikTokAdsPaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.utils import (
+    TIKTOK_TRANSIENT_ERROR_MESSAGE,
+    TikTokAdsPaginator,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
 
 
@@ -104,6 +115,26 @@ class TestTikTokAdsSource:
         patterns = self.source.get_non_retryable_errors()
         assert not any(pattern in error_message for pattern in patterns)
 
+    @parameterized.expand(
+        [
+            ("connection_reset", RequestsConnectionError("Connection reset by peer")),
+            ("timeout", Timeout("Read timed out")),
+            ("base_request_exception", RequestException("DNS lookup failed")),
+        ]
+    )
+    def test_get_oauth_accounts_maps_transport_failure_to_transient(self, name, exception):
+        """A network failure (DNS/reset/timeout) raises a bare RequestException, not HTTPError,
+        so it must still map to the actionable transient message instead of escaping as a 500."""
+        _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.source"
+        with (
+            patch.object(self.source, "get_oauth_integration", return_value=self.mock_integration),
+            patch(f"{_MODULE}.list_advertisers", side_effect=exception),
+        ):
+            with pytest.raises(IntegrationAccountListingError) as exc_info:
+                self.source.get_oauth_accounts(self.integration_id, self.team_id)
+
+        assert str(exc_info.value) == TIKTOK_TRANSIENT_ERROR_MESSAGE
+
     def test_get_source_config(self):
         """Test source configuration generation."""
         config = self.source.get_source_config
@@ -113,13 +144,15 @@ class TestTikTokAdsSource:
         assert config.releaseStatus == ReleaseStatus.GA
         assert len(config.fields) == 2
 
-        advertiser_field = config.fields[0]
-        assert advertiser_field.name == "advertiser_id"
-        assert hasattr(advertiser_field, "required") and advertiser_field.required is True
-
-        integration_field = config.fields[1]
+        # OAuth field comes first — the account selector below reads from it
+        integration_field = config.fields[0]
         assert integration_field.name == "tiktok_integration_id"
         assert hasattr(integration_field, "kind") and integration_field.kind == "tiktok-ads"
+
+        advertiser_field = config.fields[1]
+        assert advertiser_field.name == "advertiser_id"
+        assert hasattr(advertiser_field, "required") and advertiser_field.required is True
+        assert getattr(advertiser_field, "integrationField", None) == "tiktok_integration_id"
 
     @parameterized.expand(
         [
