@@ -2,6 +2,7 @@ import posthog, { BeforeSendFn, PostHogInterface, SessionRecordingOptions } from
 import { sampleOnProperty } from 'posthog-js/lib/src/extensions/sampling'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dropNetworkErrorExceptions } from 'lib/errorTracking/dropNetworkErrorExceptions'
 import { isOAuthMode } from 'lib/oauth/oauthClient'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 
@@ -56,7 +57,17 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             error_tracking: {
                 __capturePostHogExceptions: true,
             },
-            before_send: options.beforeSend,
+            // `dropNetworkErrorExceptions` is always on — it suppresses transient fetch-failure noise
+            // from the first request. `selfReadOnlyModeLogic` later composes its own filter on top of
+            // this one (rather than clobbering it) once the nav mounts.
+            before_send: [
+                dropNetworkErrorExceptions,
+                ...(Array.isArray(options.beforeSend)
+                    ? options.beforeSend
+                    : options.beforeSend
+                      ? [options.beforeSend]
+                      : []),
+            ],
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true

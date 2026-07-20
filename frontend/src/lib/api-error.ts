@@ -55,3 +55,22 @@ export class ApiError extends Error {
         return 'later'
     }
 }
+
+/**
+ * A fetch that failed at the network level before any HTTP response arrived — a dropped connection,
+ * a request aborted by navigation, a CORS rejection, or an ad blocker. Browsers surface these as a
+ * bare `TypeError` whose message varies by engine (WebKit `Load failed`, Chromium `Failed to fetch`,
+ * Firefox `NetworkError when attempting to fetch resource`). `handleFetch` wraps them in this
+ * dedicated type so callers still see a failure, while the error-tracking `before_send` filter drops
+ * them by name — they're high-volume noise outside our control, not defects. A genuine failure such
+ * as a `SyntaxError` parsing the response body keeps its own type and is still captured.
+ */
+export class NetworkError extends ApiError {
+    constructor(cause?: unknown) {
+        super('Network request failed')
+        this.name = 'NetworkError'
+        if (cause !== undefined) {
+            this.cause = cause
+        }
+    }
+}

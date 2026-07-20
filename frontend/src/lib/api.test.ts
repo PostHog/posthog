@@ -2,6 +2,7 @@ import posthog from 'posthog-js'
 
 import api, { ApiConfig, ApiRequest } from 'lib/api'
 import type { ApiError } from 'lib/api'
+import { NetworkError } from 'lib/api-error'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
@@ -77,6 +78,26 @@ describe('API helper', () => {
                     }
                 )
             ).rejects.toThrow('Query kind mismatch')
+        })
+    })
+
+    describe('network failures', () => {
+        it('wraps a transient fetch failure in NetworkError so error tracking can drop it', async () => {
+            // Safari throws `TypeError: Load failed` when a fetch dies at the network level.
+            fakeFetch.mockRejectedValueOnce(new TypeError('Load failed'))
+
+            await expect(api.query({ kind: NodeKind.HogQLQuery, query: 'select 1' })).rejects.toBeInstanceOf(
+                NetworkError
+            )
+        })
+
+        it('does not treat a non-network fetch rejection as a NetworkError', async () => {
+            // A TypeError whose message is not a known network-failure shape is a real bug, not noise.
+            fakeFetch.mockRejectedValueOnce(new TypeError('undefined is not a function'))
+
+            await expect(api.query({ kind: NodeKind.HogQLQuery, query: 'select 1' })).rejects.not.toBeInstanceOf(
+                NetworkError
+            )
         })
     })
 
