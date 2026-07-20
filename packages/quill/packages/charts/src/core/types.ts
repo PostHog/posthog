@@ -520,22 +520,21 @@ export interface DragRect {
     y1?: number
 }
 
-export interface DateRangeZoomData {
+/** An x-axis range resolved to labels — the shared shape of the drag-selection payloads. */
+export interface LabelRange {
     startLabel: string
     endLabel: string
     startIndex: number
     endIndex: number
 }
 
+export type DateRangeZoomData = LabelRange
+
 /** Payload of a completed 2D brush ({@link ChartProps.onAreaSelect}). The x axis resolves to
  *  labels like `onDateRangeZoom`; the y axis stays in canvas pixels — the core is label-generic
  *  and has no y-band concept, so chart-type adapters map the pixel range onto their own scales
  *  (e.g. the Heatmap converts it to row indices). */
-export interface AreaSelectData {
-    startLabel: string
-    endLabel: string
-    startIndex: number
-    endIndex: number
+export interface AreaSelectData extends LabelRange {
     /** Top of the dragged range in canvas pixels (always <= yPixel1). */
     yPixel0: number
     /** Bottom of the dragged range in canvas pixels. */
