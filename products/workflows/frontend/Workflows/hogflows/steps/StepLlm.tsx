@@ -12,7 +12,7 @@ import {
     LemonTextArea,
 } from '@posthog/lemon-ui'
 
-import { ModelPicker, getModelPickerFooterLink } from 'products/ai_observability/frontend/ModelPicker'
+import { ModelPicker } from 'products/ai_observability/frontend/ModelPicker'
 import { modelPickerLogic } from 'products/ai_observability/frontend/modelPickerLogic'
 
 import { workflowLogic } from '../../workflowLogic'
@@ -30,32 +30,26 @@ const ROLE_OPTIONS: { value: LlmMessage['role']; label: string }[] = [
     { value: 'assistant', label: 'Assistant' },
 ]
 
-// Model picker reused from AI observability, so the workflow step matches the Playground UX. Stores
-// just the model id on the step - the gateway routes by model, so no provider key is threaded here.
+// Model picker reused from AI observability. Workflow LLM calls always run on PostHog-managed keys
+// billed as AI credits, so the picker only offers the trial/credits models and omits the
+// bring-your-own-key affordance (no BYOK groups, no "Add your own API keys" footer).
 function LlmModelPicker({ action }: { action: LlmAction }): JSX.Element {
     const { logicProps } = useValues(workflowLogic)
     const { partialSetWorkflowActionConfig } = useActions(workflowLogic(logicProps))
-    const {
-        hasByokKeys,
-        providerModelGroups,
-        trialProviderModelGroups,
-        byokModelsLoading,
-        trialModelsLoading,
-        providerKeysLoading,
-    } = useValues(modelPickerLogic)
+    const { trialProviderModelGroups, trialModelsLoading } = useValues(modelPickerLogic)
 
-    const groups = hasByokKeys ? providerModelGroups : trialProviderModelGroups
-    const loading = hasByokKeys ? byokModelsLoading || providerKeysLoading : trialModelsLoading
-    const selectedModelName = groups.flatMap((g) => g.models).find((m) => m.id === action.config.model)?.name
+    const selectedModelName = trialProviderModelGroups
+        .flatMap((g) => g.models)
+        .find((m) => m.id === action.config.model)?.name
 
     return (
         <ModelPicker
             model={action.config.model}
             selectedProviderKeyId={null}
             onSelect={(modelId) => partialSetWorkflowActionConfig(action.id, { model: modelId })}
-            groups={groups}
-            loading={loading}
-            footerLink={getModelPickerFooterLink(hasByokKeys)}
+            groups={trialProviderModelGroups}
+            loading={trialModelsLoading}
+            footerLink={null}
             selectedModelName={selectedModelName}
             data-attr="workflow-llm-model-selector"
         />
