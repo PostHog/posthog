@@ -1,14 +1,17 @@
 import json
 import asyncio
+from datetime import datetime
 from textwrap import dedent
 from typing import Any, Literal, cast
 
 import structlog
 from pydantic import BaseModel, Field
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_random_exponential
 
 from posthog.schema import MaxRecordingUniversalFilters, RecordingsQuery
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.session_replay.count_playlist_items import convert_filters_to_recordings_query
@@ -36,6 +39,7 @@ from ee.hogai.session_summaries.tracking import (
     generate_tracking_id,
 )
 from ee.hogai.tool import MaxTool
+from ee.hogai.tool_errors import MaxToolTransientError
 from ee.hogai.utils.state import prepare_reasoning_progress_message
 
 logger = structlog.get_logger(__name__)
@@ -348,6 +352,21 @@ class SummarizeSessionsTool(MaxTool):
             f"When responding to the user, mention this so they know the summary is based on a partial set.\n\n"
         )
 
+    @retry(
+        retry=retry_if_exception_type(ClickHouseAtCapacity),
+        # Re-raise the underlying ClickHouseAtCapacity once attempts are exhausted, not a RetryError.
+        reraise=True,
+        wait=wait_random_exponential(multiplier=0.5, max=8),
+        stop=stop_after_attempt(4),
+    )
+    def _find_sessions_timestamps_with_retry(self, session_ids: list[str]) -> tuple[datetime, datetime]:
+        """Resolve the session group's timestamp bounds, retrying the transient max_ai capacity cap.
+
+        Mirrors the ``ClickHouseAtCapacity`` autoretry our Celery tasks already apply, so a saturated
+        concurrency cap doesn't fail an otherwise valid summarization on the first attempt.
+        """
+        return find_sessions_timestamps(session_ids=session_ids, team=self._team)
+
     async def _summarize_sessions_as_group(
         self,
         session_ids: list[str],
@@ -356,9 +375,18 @@ class SummarizeSessionsTool(MaxTool):
         """Summarize sessions as a group. Returns (summary_str, summary_id, failed_sessions)."""
         from ee.hogai.session_summaries.utils import logging_session_ids
 
-        min_timestamp, max_timestamp = await database_sync_to_async(find_sessions_timestamps, thread_sensitive=False)(
-            session_ids=session_ids, team=self._team
-        )
+        try:
+            min_timestamp, max_timestamp = await database_sync_to_async(
+                self._find_sessions_timestamps_with_retry, thread_sensitive=False
+            )(session_ids)
+        except ClickHouseAtCapacity as err:
+            # The shared max_ai ClickHouse user is concurrency-capped; when it's saturated this
+            # transient error is expected. Retries above have already been exhausted, so surface a
+            # friendly retryable message instead of dumping the raw exception into the chat.
+            raise MaxToolTransientError(
+                "The session recordings service is momentarily at capacity. "
+                "Ask the user to try summarizing these sessions again in a moment."
+            ) from err
         trigger_session_id = self._get_trigger_session_id()
         async with Heartbeater():
             async for update_type, data in execute_summarize_session_group(
