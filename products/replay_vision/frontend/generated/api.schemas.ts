@@ -693,14 +693,12 @@ export const ScannerProviderEnumApi = {
 } as const
 
 /**
- * * `gemini-2.5-flash` - Gemini 2.5 Flash
  * * `gemini-3-flash-preview` - Gemini 3 Flash
  * * `gemini-3.5-flash` - Gemini 3.5 Flash
  */
 export type ScannerModelEnumApi = (typeof ScannerModelEnumApi)[keyof typeof ScannerModelEnumApi]
 
 export const ScannerModelEnumApi = {
-    Gemini25Flash: 'gemini-2.5-flash',
     Gemini3FlashPreview: 'gemini-3-flash-preview',
     Gemini35Flash: 'gemini-3.5-flash',
 } as const
@@ -773,7 +771,6 @@ export interface ReplayScannerApi {
     provider?: ScannerProviderEnumApi
     /** Concrete model to use for this scanner.
      *
-     * * `gemini-2.5-flash` - Gemini 2.5 Flash
      * * `gemini-3-flash-preview` - Gemini 3 Flash
      * * `gemini-3.5-flash` - Gemini 3.5 Flash */
     model: ScannerModelEnumApi
@@ -855,7 +852,6 @@ export interface PatchedReplayScannerApi {
     provider?: ScannerProviderEnumApi
     /** Concrete model to use for this scanner.
      *
-     * * `gemini-2.5-flash` - Gemini 2.5 Flash
      * * `gemini-3-flash-preview` - Gemini 3 Flash
      * * `gemini-3.5-flash` - Gemini 3.5 Flash */
     model?: ScannerModelEnumApi
@@ -1215,7 +1211,6 @@ export interface EstimateRequestApi {
     scanner_id?: string | null
     /** Proposed model; determines `credits_per_observation` in the response.
      *
-     * * `gemini-2.5-flash` - Gemini 2.5 Flash
      * * `gemini-3-flash-preview` - Gemini 3 Flash
      * * `gemini-3.5-flash` - Gemini 3.5 Flash */
     model?: ScannerModelEnumApi

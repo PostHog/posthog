@@ -23048,7 +23048,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `gemini-2.5-flash` - Gemini 2.5 Flash
      * * `gemini-3-flash-preview` - Gemini 3 Flash
      * * `gemini-3.5-flash` - Gemini 3.5 Flash
      */
@@ -23056,7 +23055,6 @@ export namespace Schemas {
 
 
     export const ScannerModelEnum = {
-      Gemini25Flash: 'gemini-2.5-flash',
       Gemini3FlashPreview: 'gemini-3-flash-preview',
       Gemini35Flash: 'gemini-3.5-flash',
     } as const;
@@ -23086,7 +23084,6 @@ export namespace Schemas {
       scanner_id?: string | null;
       /** Proposed model; determines `credits_per_observation` in the response.
        *
-       * * `gemini-2.5-flash` - Gemini 2.5 Flash
        * * `gemini-3-flash-preview` - Gemini 3 Flash
        * * `gemini-3.5-flash` - Gemini 3.5 Flash */
       model?: ScannerModelEnum;
@@ -38526,7 +38523,6 @@ export namespace Schemas {
       provider?: ScannerProviderEnum;
       /** Concrete model to use for this scanner.
        *
-       * * `gemini-2.5-flash` - Gemini 2.5 Flash
        * * `gemini-3-flash-preview` - Gemini 3 Flash
        * * `gemini-3.5-flash` - Gemini 3.5 Flash */
       model: ScannerModelEnum;
@@ -46900,7 +46896,6 @@ export namespace Schemas {
       provider?: ScannerProviderEnum;
       /** Concrete model to use for this scanner.
        *
-       * * `gemini-2.5-flash` - Gemini 2.5 Flash
        * * `gemini-3-flash-preview` - Gemini 3 Flash
        * * `gemini-3.5-flash` - Gemini 3.5 Flash */
       model?: ScannerModelEnum;
