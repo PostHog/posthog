@@ -2093,7 +2093,9 @@ export interface CredentialApi {
  * * `Campfire` - Campfire
  * * `PromptWatch` - PromptWatch
  * * `Crisp` - Crisp
- * * `Kommo` - Kommo\n\* `Axiom` - Axiom\n\* `Plivo` - Plivo
+ * * `Kommo` - Kommo
+ * * `Axiom` - Axiom
+ * * `Plivo` - Plivo
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
