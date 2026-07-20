@@ -22,6 +22,15 @@ import { randomUUID } from 'node:crypto'
 
 import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import type { RequestProperties } from '@/lib/request-properties'
+import {
+    ALL_SUPPORTED_PROTOCOL_VERSIONS,
+    isSupportedProtocolVersion,
+    META_SERVER_INFO,
+    parseRequestProtocolMeta,
+    SERVER_DISCOVER_METHOD,
+    STATELESS_PROTOCOL_VERSION,
+    UNSUPPORTED_PROTOCOL_VERSION_ERROR_CODE,
+} from '@/lib/stateless-protocol'
 
 import { trackInitEvent } from './analytics'
 import type { RedisLike } from './cache/RedisCache'
@@ -41,6 +50,7 @@ const MAX_BODY_BYTES = 1_048_576
 
 const Method = {
     Initialize: 'initialize' as InitializeRequest['method'],
+    Discover: SERVER_DISCOVER_METHOD,
     ToolsList: 'tools/list' as ListToolsRequest['method'],
     ToolsCall: 'tools/call' as CallToolRequest['method'],
     ResourcesList: 'resources/list' as ListResourcesRequest['method'],
@@ -50,7 +60,27 @@ const Method = {
     Ping: 'ping' as PingRequest['method'],
 } as const
 
-const TRACKED_METHODS: Set<string> = new Set([Method.Initialize, Method.ToolsList, Method.ToolsCall])
+const TRACKED_METHODS: Set<string> = new Set([Method.Initialize, Method.Discover, Method.ToolsList, Method.ToolsCall])
+
+// Results the 2026-07-28 spec types as CacheableResult (required ttlMs +
+// cacheScope). Everything here varies per token (scopes, flags, staff gating)
+// or per user (discover instructions), so shared intermediaries must not cache.
+const CACHEABLE_METHODS: Set<string> = new Set([
+    Method.Discover,
+    Method.ToolsList,
+    Method.ResourcesList,
+    Method.ResourcesRead,
+    Method.PromptsList,
+])
+const CACHEABLE_RESULT_TTL_MS = 60_000
+
+const METHOD_NOT_FOUND = Symbol('method-not-found')
+
+const SERVER_CAPABILITIES = {
+    tools: { listChanged: false },
+    resources: { listChanged: false },
+    prompts: { listChanged: false },
+} as const
 
 function isRequest(msg: JSONRPCMessage): msg is JSONRPCRequest {
     return (
@@ -166,30 +196,76 @@ class McpDispatcher {
     ): Promise<JsonRpcResponse> {
         const { id, method, params } = request
 
+        const protocolMeta = parseRequestProtocolMeta(params)
+        if (protocolMeta.protocolVersion && !isSupportedProtocolVersion(protocolMeta.protocolVersion)) {
+            return jsonRpcMethodError(
+                id,
+                UNSUPPORTED_PROTOCOL_VERSION_ERROR_CODE,
+                `Unsupported protocol version: ${protocolMeta.protocolVersion}. Supported versions: ${ALL_SUPPORTED_PROTOCOL_VERSIONS.join(', ')}`
+            )
+        }
+        const stateless = protocolMeta.protocolVersion === STATELESS_PROTOCOL_VERSION
+
         try {
-            switch (method) {
-                case Method.Initialize:
-                    return jsonRpcResult(id, await this.handleInitialize(params, props, state!))
-                case Method.ToolsList:
-                    return jsonRpcResult(id, await this.toolExecutor.handleToolsList(state!))
-                case Method.ToolsCall:
-                    return jsonRpcResult(id, await this.toolExecutor.handleToolCall(params, state!))
-                case Method.ResourcesList:
-                    return jsonRpcResult(id, this.resourceCatalog.getResourcesList())
-                case Method.ResourcesRead:
-                    return jsonRpcResult(id, await this.resourceCatalog.readResource(params))
-                case Method.PromptsList:
-                    return jsonRpcResult(id, this.resourceCatalog.getPromptsList())
-                case Method.PromptsGet:
-                    return jsonRpcResult(id, this.resourceCatalog.getPrompt(params))
-                case Method.Ping:
-                    return jsonRpcResult(id, {})
-                default:
-                    return jsonRpcMethodError(id, ErrorCode.MethodNotFound, 'Method not found')
+            const result = await this.dispatchMethod(method, params, props, state)
+            if (result === METHOD_NOT_FOUND) {
+                return jsonRpcMethodError(id, ErrorCode.MethodNotFound, 'Method not found')
             }
+            return jsonRpcResult(id, stateless ? this.decorateStatelessResult(method, result) : result)
         } catch (error) {
             console.error('[McpDispatcher] Internal error:', error)
             return jsonRpcMethodError(id, ErrorCode.InternalError, 'Internal error')
+        }
+    }
+
+    /** Returns the raw result for the method, or `METHOD_NOT_FOUND` for unknown methods. */
+    private async dispatchMethod(
+        method: string,
+        params: Record<string, unknown> | undefined,
+        props: RequestProperties,
+        state: ResolvedState | undefined
+    ): Promise<unknown> {
+        switch (method) {
+            case Method.Initialize:
+                return await this.handleInitialize(params, props, state!)
+            case Method.Discover:
+                return await this.handleDiscover(props, state!)
+            case Method.ToolsList:
+                return await this.toolExecutor.handleToolsList(state!)
+            case Method.ToolsCall:
+                return await this.toolExecutor.handleToolCall(params, state!)
+            case Method.ResourcesList:
+                return this.resourceCatalog.getResourcesList()
+            case Method.ResourcesRead:
+                return await this.resourceCatalog.readResource(params)
+            case Method.PromptsList:
+                return this.resourceCatalog.getPromptsList()
+            case Method.PromptsGet:
+                return this.resourceCatalog.getPrompt(params)
+            case Method.Ping:
+                return {}
+            default:
+                return METHOD_NOT_FOUND
+        }
+    }
+
+    // 2026-07-28 results carry `resultType`, the server's identity in `_meta`,
+    // and (for CacheableResult methods) client-cache freshness hints. Legacy
+    // requests keep the exact pre-existing wire shape.
+    private decorateStatelessResult(method: string, result: unknown): unknown {
+        const base = result && typeof result === 'object' ? (result as Record<string, unknown>) : {}
+        const existingMeta =
+            base._meta && typeof base._meta === 'object' ? (base._meta as Record<string, unknown>) : undefined
+        return {
+            ...base,
+            resultType: 'complete',
+            ...(CACHEABLE_METHODS.has(method)
+                ? { ttlMs: CACHEABLE_RESULT_TTL_MS, cacheScope: 'private' as const }
+                : {}),
+            _meta: {
+                ...existingMeta,
+                [META_SERVER_INFO]: { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
+            },
         }
     }
 
@@ -198,13 +274,50 @@ class McpDispatcher {
         props: RequestProperties,
         state: ResolvedState
     ): Promise<InitializeResult> {
-        try {
-            const requestedVersion = (params?.protocolVersion as string) ?? LATEST_PROTOCOL_VERSION
-            const protocolVersion = SUPPORTED_PROTOCOL_VERSIONS.includes(requestedVersion)
-                ? requestedVersion
-                : LATEST_PROTOCOL_VERSION
+        // A client that sends `initialize` is speaking the legacy dialect, so
+        // negotiation stays within the SDK's pre-stateless version list — a
+        // 2026-07-28-capable client falling back here gets the newest legacy
+        // version, matching the spec's fallback-negotiation behavior.
+        const requestedVersion = (params?.protocolVersion as string) ?? LATEST_PROTOCOL_VERSION
+        const protocolVersion = SUPPORTED_PROTOCOL_VERSIONS.includes(requestedVersion)
+            ? requestedVersion
+            : LATEST_PROTOCOL_VERSION
 
-            await this.resourceCatalog.revalidateContextMillResources('initialize')
+        const instructions = await this.recordDiscoveryRequest('initialize', props, state)
+
+        return {
+            protocolVersion,
+            capabilities: SERVER_CAPABILITIES,
+            serverInfo: { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
+            ...(instructions ? { instructions } : {}),
+        }
+    }
+
+    // `server/discover` is the stateless counterpart of `initialize`: same
+    // capability/instruction payload, but no version negotiation (each request
+    // self-describes) and no session minting. Server identity rides in the
+    // result `_meta` via `decorateStatelessResult`.
+    private async handleDiscover(props: RequestProperties, state: ResolvedState): Promise<Record<string, unknown>> {
+        const instructions = await this.recordDiscoveryRequest('discover', props, state)
+        return {
+            supportedVersions: [...ALL_SUPPORTED_PROTOCOL_VERSIONS],
+            capabilities: SERVER_CAPABILITIES,
+            ...(instructions ? { instructions } : {}),
+        }
+    }
+
+    /**
+     * Shared side effects of the two discovery entry points (`initialize` and
+     * `server/discover`): context-mill revalidation, init metrics, and the
+     * `$mcp_initialize` analytics event. Returns the per-user instructions.
+     */
+    private async recordDiscoveryRequest(
+        source: 'initialize' | 'discover',
+        props: RequestProperties,
+        state: ResolvedState
+    ): Promise<string | undefined> {
+        try {
+            await this.resourceCatalog.revalidateContextMillResources(source)
             const instructions = this.instructionsBuilder.build(state)
 
             initDurationSeconds.observe(props.requestStartTime ? (Date.now() - props.requestStartTime) / 1000 : 0)
@@ -212,16 +325,7 @@ class McpDispatcher {
 
             void trackInitEvent(state)
 
-            return {
-                protocolVersion,
-                capabilities: {
-                    tools: { listChanged: false },
-                    resources: { listChanged: false },
-                    prompts: { listChanged: false },
-                },
-                serverInfo: { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
-                ...(instructions ? { instructions } : {}),
-            }
+            return instructions
         } catch (error) {
             initTotal.inc({ status: 'error' })
             throw error

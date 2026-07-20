@@ -9,6 +9,7 @@ import {
     type Transport,
 } from '@/lib/request-properties'
 import { getRegionFromRequest } from '@/lib/routing'
+import { parseRequestProtocolMeta } from '@/lib/stateless-protocol'
 import { extractBearerToken, sanitizeHeaderValue } from '@/lib/utils'
 
 import { authFailuresTotal } from './metrics'
@@ -33,21 +34,38 @@ function parseClientInfo(bodyText: string): ClientInfo {
     try {
         const parsed = JSON.parse(bodyText)
         const messages = Array.isArray(parsed) ? parsed : [parsed]
+        // 2026-07-28 stateless clients never send `initialize` — their identity
+        // rides in each request's `_meta`. Prefer an initialize payload when
+        // present (legacy dialect), else fall back to the first `_meta` match.
+        let metaFallback: ClientInfo | undefined
         for (const msg of messages) {
             const rpc = JsonRpcMessageSchema.safeParse(msg)
-            if (!rpc.success || rpc.data.method !== 'initialize') {
+            if (!rpc.success) {
                 continue
             }
-            const params = InitializeParamsSchema.safeParse(rpc.data.params)
-            if (!params.success) {
-                continue
+            if (rpc.data.method === 'initialize') {
+                const params = InitializeParamsSchema.safeParse(rpc.data.params)
+                if (!params.success) {
+                    continue
+                }
+                return {
+                    clientName: sanitizeHeaderValue(params.data.clientInfo?.name),
+                    clientVersion: sanitizeHeaderValue(params.data.clientInfo?.version),
+                    protocolVersion: sanitizeHeaderValue(params.data.protocolVersion),
+                }
             }
-            return {
-                clientName: sanitizeHeaderValue(params.data.clientInfo?.name),
-                clientVersion: sanitizeHeaderValue(params.data.clientInfo?.version),
-                protocolVersion: sanitizeHeaderValue(params.data.protocolVersion),
+            if (!metaFallback) {
+                const meta = parseRequestProtocolMeta(rpc.data.params)
+                if (meta.protocolVersion || meta.clientName) {
+                    metaFallback = {
+                        clientName: sanitizeHeaderValue(meta.clientName),
+                        clientVersion: sanitizeHeaderValue(meta.clientVersion),
+                        protocolVersion: sanitizeHeaderValue(meta.protocolVersion),
+                    }
+                }
             }
         }
+        return metaFallback ?? {}
     } catch {}
     return {}
 }

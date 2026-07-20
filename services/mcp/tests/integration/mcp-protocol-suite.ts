@@ -1672,3 +1672,172 @@ export function defineExecModeTests(
         })
     })
 }
+
+// 2026-07-28 stateless dialect. The official stateless client SDK
+// (@modelcontextprotocol/client v2) is still in beta, so these tests speak the
+// new wire format directly over fetch: no `initialize` handshake, per-request
+// `_meta` carrying the protocol version and client identity, `server/discover`
+// for capability discovery, and `resultType` + server identity stamped on
+// results. The legacy stateful dialect keeps its coverage in the SDK-client
+// suites above — both dialects must pass against the same server.
+export function defineStatelessProtocolTests(
+    label: string,
+    getHarness: () => Promise<ProtocolTestHarness> | ProtocolTestHarness
+): void {
+    describe(`MCP stateless protocol 2026-07-28 (${label})`, () => {
+        const STATELESS_VERSION = '2026-07-28'
+        const META_VERSION_KEY = 'io.modelcontextprotocol/protocolVersion'
+        const META_CLIENT_INFO_KEY = 'io.modelcontextprotocol/clientInfo'
+        const META_SERVER_INFO_KEY = 'io.modelcontextprotocol/serverInfo'
+
+        function statelessParams(params: Record<string, unknown> = {}): Record<string, unknown> {
+            return {
+                ...params,
+                _meta: {
+                    [META_VERSION_KEY]: STATELESS_VERSION,
+                    [META_CLIENT_INFO_KEY]: { name: 'stateless-suite', version: '0.0.1' },
+                },
+            }
+        }
+
+        interface RpcEnvelope {
+            jsonrpc?: string
+            id?: number | string
+            result?: Record<string, unknown> & {
+                resultType?: string
+                ttlMs?: number
+                cacheScope?: string
+                _meta?: Record<string, unknown>
+            }
+            error?: { code?: number; message?: string }
+        }
+
+        async function postSingle(
+            harness: ProtocolTestHarness,
+            method: string,
+            params: Record<string, unknown>,
+            id: number | string = 1,
+            extraHeaders: Record<string, string> = {}
+        ): Promise<{ response: Response; json: RpcEnvelope }> {
+            const response = await harness.fetch(new URL('/mcp', harness.baseUrl), {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${harness.token}`,
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json, text/event-stream',
+                    'x-posthog-mcp-mode': 'tools',
+                    ...extraHeaders,
+                },
+                body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
+            })
+            return { response, json: (await response.json()) as RpcEnvelope }
+        }
+
+        function serverInfoOf(envelope: RpcEnvelope): { name?: string; version?: string } | undefined {
+            return envelope.result?._meta?.[META_SERVER_INFO_KEY] as { name?: string; version?: string } | undefined
+        }
+
+        it('answers server/discover with no prior handshake and no session minting', async () => {
+            const harness = await getHarness()
+            const { response, json } = await postSingle(harness, 'server/discover', statelessParams())
+
+            expect(response.status).toBe(200)
+            expect(json.error).toBeUndefined()
+
+            const result = json.result!
+            expect(result.supportedVersions).toContain(STATELESS_VERSION)
+            // Legacy versions stay advertised so old clients aren't orphaned.
+            expect((result.supportedVersions as string[]).length).toBeGreaterThan(1)
+            expect(result.capabilities).toMatchObject({ tools: { listChanged: false } })
+            expect(typeof result.instructions).toBe('string')
+            expect((result.instructions as string).length).toBeGreaterThan(0)
+
+            // DiscoverResult is a CacheableResult in the 2026-07-28 schema.
+            expect(result.resultType).toBe('complete')
+            expect(typeof result.ttlMs).toBe('number')
+            expect(result.cacheScope).toBe('private')
+            expect(serverInfoOf(json)?.name).toBe('PostHog')
+
+            // Stateless dialect has no protocol-level sessions — the server
+            // must not mint one for discover.
+            expect(response.headers.get('mcp-session-id')).toBeNull()
+        })
+
+        it('serves a tool call with per-request _meta and no handshake', async () => {
+            const harness = await getHarness()
+            const { response, json } = await postSingle(
+                harness,
+                'tools/call',
+                statelessParams({ name: 'organization-get', arguments: {} })
+            )
+
+            expect(response.status).toBe(200)
+            const result = json.result!
+            expect(result.isError).toBeFalsy()
+            expect(Array.isArray(result.content)).toBe(true)
+            expect(result.resultType).toBe('complete')
+            expect(serverInfoOf(json)?.name).toBe('PostHog')
+            // tools/call is not a CacheableResult — no freshness hints.
+            expect(result.ttlMs).toBeUndefined()
+            expect(result.cacheScope).toBeUndefined()
+        })
+
+        it('merges server identity into a tool result that carries its own _meta', async () => {
+            // Only the exec path with a PostHog Code consumer puts `_meta`
+            // (ui.resourceUri) on the call result — the one production shape
+            // that would expose serverInfo stamping clobbering a tool's meta.
+            const harness = await getHarness()
+            const { json } = await postSingle(
+                harness,
+                'tools/call',
+                statelessParams({ name: 'exec', arguments: { command: 'call debug-mcp-ui-apps {}' } }),
+                1,
+                { 'x-posthog-mcp-mode': 'cli', 'x-posthog-mcp-consumer': 'posthog-code' }
+            )
+
+            const meta = json.result?._meta ?? {}
+            expect(serverInfoOf(json)?.name).toBe('PostHog')
+            expect((meta.ui as { resourceUri?: string } | undefined)?.resourceUri).toBeTruthy()
+        })
+
+        it('adds cache freshness hints to tools/list for stateless requests', async () => {
+            const harness = await getHarness()
+            const { json } = await postSingle(harness, 'tools/list', statelessParams())
+
+            const result = json.result!
+            expect((result.tools as unknown[]).length).toBeGreaterThan(0)
+            expect(result.resultType).toBe('complete')
+            expect(result.ttlMs).toBeGreaterThanOrEqual(0)
+            expect(result.cacheScope).toBe('private')
+        })
+
+        it('rejects an unsupported protocol version with UnsupportedProtocolVersionError', async () => {
+            const harness = await getHarness()
+            const { response, json } = await postSingle(
+                harness,
+                'tools/list',
+                { _meta: { [META_VERSION_KEY]: '2099-01-01' } },
+                'bad-version'
+            )
+
+            expect(response.status).toBe(200)
+            expect(json.id).toBe('bad-version')
+            expect(json.error?.code).toBe(-32022)
+            expect(json.error?.message).toContain('2099-01-01')
+        })
+
+        it('keeps the legacy wire shape for requests without protocol _meta', async () => {
+            const harness = await getHarness()
+            const { json } = await postSingle(harness, 'tools/list', {})
+
+            const result = json.result!
+            expect((result.tools as unknown[]).length).toBeGreaterThan(0)
+            // Pre-2026-07-28 clients must see byte-identical result envelopes:
+            // no resultType, no cache hints, no injected _meta.
+            expect(result.resultType).toBeUndefined()
+            expect(result.ttlMs).toBeUndefined()
+            expect(result.cacheScope).toBeUndefined()
+            expect(result._meta).toBeUndefined()
+        })
+    })
+}
