@@ -2,6 +2,7 @@ import dataclasses
 from time import sleep
 from typing import Any, ClassVar, Literal, Optional, Union, cast
 
+import posthoganalytics
 from opentelemetry import trace
 
 from posthog.schema import (
@@ -51,13 +52,15 @@ from posthog.hogql.resolver import Resolver
 from posthog.hogql.resolver_utils import extract_base_table_types, extract_select_queries
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.transforms.preaggregated_table_transformation import do_preaggregated_table_transforms
+from posthog.hogql.unbounded_events_query import query_reads_events_without_timestamp_filter
 from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import clone_expr
 from posthog.hogql.warehouse_warnings import record_warnings
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
+from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead, ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
@@ -654,6 +657,9 @@ class HogQLQueryExecutor:
                 ),
             )
 
+            if "events" in hogql_features.tables:
+                self._capture_unbounded_events_query()
+
             workload = self.workload
             if workload == Workload.DEFAULT and clickhouse_context.workload is not None:
                 workload = clickhouse_context.workload
@@ -712,6 +718,41 @@ class HogQLQueryExecutor:
                     prepared_ast=self.clickhouse_prepared_ast,
                     printed_sql=self.clickhouse_sql,
                 )
+
+    def _capture_unbounded_events_query(self) -> None:
+        """Emit a telemetry event when a query reads the events table with no ``timestamp`` bound.
+
+        A full-history events scan is never intended — compiled insight queries always inject a date
+        range, so this only trips on hand-written HogQL. Emitting it as an event lets us alert on and
+        chase down unbounded queries (they dominate cost on shared/embedded dashboards, where every
+        anonymous view re-runs them). Best-effort: never let telemetry affect query execution.
+        """
+        try:
+            if not is_cloud():
+                return
+            if not query_reads_events_without_timestamp_filter(self.select_query):
+                return
+            tags = get_query_tags()
+            posthoganalytics.capture(
+                distinct_id=str(tags.team_id or self.team.pk),
+                event="unbounded events query",
+                properties={
+                    "team_id": self.team.pk,
+                    "query_type": self.query_type,
+                    "access_method": tags.access_method,
+                    "product": tags.product,
+                    "feature": tags.feature,
+                    "insight_id": tags.insight_id,
+                    "dashboard_id": tags.dashboard_id,
+                    "session_id": tags.session_id,
+                    "client_query_id": tags.client_query_id,
+                    "scene": tags.scene,
+                    "$process_person_profile": False,
+                },
+                groups={"organization": str(tags.org_id)} if tags.org_id else None,
+            )
+        except Exception as e:
+            capture_exception(e, {"component": "capture_unbounded_events_query", "team_id": self.team.pk})
 
     @tracer.start_as_current_span("HogQLQueryExecutor.generate_clickhouse_sql")
     def generate_clickhouse_sql(self) -> tuple[str, HogQLContext]:
