@@ -125,16 +125,14 @@ def build_content_with_images(
         parts.append("\n".join(f"[{f['name']}]({f['url']})" for f in files))
     content = "\n\n".join(parts)
 
-    if not isinstance(rich_content, dict):
-        # No rich_content was built upstream (e.g. Zendesk import passes plain text),
-        # so seed the doc with the text before appending attachments — otherwise the
-        # text is dropped from the UI, which renders rich_content exclusively.
+    created_doc = not isinstance(rich_content, dict)
+    if created_doc:
         rich_content = {"type": "doc", "content": []}
-        if cleaned_text:
-            rich_content["content"].append(
-                {"type": "paragraph", "content": [{"type": "text", "text": cleaned_text}]}
-            )
     rich_nodes = rich_content.setdefault("content", [])
+    # Callers without upstream rich_content (e.g. Zendesk import) pass the text here only.
+    # Seed it as a text node, or the UI — which renders rich_content exclusively — drops it.
+    if created_doc and cleaned_text:
+        rich_nodes.append({"type": "paragraph", "content": [{"type": "text", "text": cleaned_text}]})
     for img in images:
         rich_nodes.append(
             {
