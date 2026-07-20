@@ -52,6 +52,7 @@ from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
+from posthog.api.sharing_publish_gate import check_can_add_insight_to_shared_dashboard
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
@@ -1745,7 +1746,9 @@ class DashboardSerializer(DashboardMetadataSerializer):
         )
 
     @staticmethod
-    def _update_existing_tile_display_fields(instance: Dashboard, tile_data: dict) -> tuple[DashboardTile | None, bool]:
+    def _update_existing_tile_display_fields(
+        instance: Dashboard, tile_data: dict, user: User
+    ) -> tuple[DashboardTile | None, bool]:
         """Update display fields on an existing tile, or skip silently if the id is unknown.
 
         A display-only payload carries no insight/text/button_tile FK, so it cannot satisfy
@@ -1777,6 +1780,18 @@ class DashboardSerializer(DashboardMetadataSerializer):
             return None, False
 
         became_deleted = bool(tile_defaults.get("deleted")) and not existing.deleted
+        # `deleted` is raw request input; coerce it exactly as the ORM will on save, so a value
+        # Django stores as False but Python reads as truthy ("0", "False") can't skip the gate.
+        deleted_field = DashboardTile._meta.get_field("deleted")
+        became_live = (
+            existing.deleted and "deleted" in tile_defaults and not deleted_field.to_python(tile_defaults["deleted"])
+        )
+
+        # Un-deleting a tile re-exposes its insight on the dashboard's public link.
+        insight = existing.insight
+        if became_live and insight is not None:
+            check_can_add_insight_to_shared_dashboard(user, instance, insight.query)
+
         for attr, val in tile_defaults.items():
             setattr(existing, attr, val)
         # update_fields scopes the UPDATE to only the columns we changed, so concurrent writes
@@ -1938,7 +1953,9 @@ class DashboardSerializer(DashboardMetadataSerializer):
             or "transparent_background" in tile_data
         ):
             tile_data.pop("insight", None)  # don't ever update insight tiles here
-            updated_tile, became_deleted = DashboardSerializer._update_existing_tile_display_fields(instance, tile_data)
+            updated_tile, became_deleted = DashboardSerializer._update_existing_tile_display_fields(
+                instance, tile_data, user
+            )
             # The dashboard UI soft-deletes tiles through this PATCH path rather than the
             # delete_tile endpoint, so removal analytics must fire here too.
             if became_deleted and updated_tile is not None:
@@ -2556,6 +2573,11 @@ class DashboardsViewSet(
             if tile.widget is None:
                 raise exceptions.ValidationError("Widget tile is missing its widget.")
             DashboardSerializer._check_widget_tile_product_access(tile.widget, user_access_control)
+        if tile.insight is not None:
+            # The destination's public link must not expose a query the editor can't run.
+            check_can_add_insight_to_shared_dashboard(
+                cast(User, request.user), to_dashboard_obj, tile.insight.query, self.user_access_control
+            )
         try:
             with transaction.atomic():
                 tile.prepare_move_to_dashboard(to_dashboard)
@@ -2629,6 +2651,11 @@ class DashboardsViewSet(
 
             if DashboardTile.objects.filter(dashboard=destination, insight=tile.insight).exists():
                 raise exceptions.ValidationError("This insight is already on the destination dashboard.")
+
+            # The destination's public link must not expose a query the editor can't run.
+            check_can_add_insight_to_shared_dashboard(
+                cast(User, request.user), destination, tile.insight.query, user_access_control
+            )
         elif tile.text is not None:
             if DashboardTile.objects.filter(dashboard=destination, text=tile.text).exists():
                 raise exceptions.ValidationError("This text card is already on the destination dashboard.")
