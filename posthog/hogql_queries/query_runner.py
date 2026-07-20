@@ -1682,6 +1682,18 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self.query_id = query_id or self.query_id
         self._cache_age_override = cache_age_seconds
 
+        # Some queries read live, mutable state that must never be served stale — e.g. HogQL against
+        # system.information_schema.*, which mirrors data-catalog approval/certification status, so a
+        # cached row keeps reporting the pre-change value after a catalog write. Such runners force a
+        # blocking recompute here so every entry point (SQL editor, insights, PostHog AI, MCP) sees the
+        # current state. Async-only and cache-only modes are left as requested — they explicitly opt
+        # out of returning a fresh synchronous result.
+        if (
+            execution_mode not in (ExecutionMode.CALCULATE_ASYNC_ALWAYS, ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
+            and self.requires_fresh_calculation()
+        ):
+            execution_mode = ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+
         # capture_exceptions=False: we capture explicitly at the except boundary below, so benign
         # user-input query errors (USER_ERROR / cancelled / rate-limited) are returned to the user
         # as 4xx without also polluting error tracking with server-side exception noise.
@@ -2305,6 +2317,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def _refresh_frequency(self) -> timedelta:
         return timedelta(minutes=1)
+
+    def requires_fresh_calculation(self) -> bool:
+        """Runners whose results reflect live, mutable state that must never be served stale
+        override this to force a blocking recompute, bypassing cached results. See
+        `HogQLQueryRunner` for the `system.information_schema.*` (data-catalog) case."""
+        return False
 
     def apply_variable_overrides(self, variable_overrides: list[HogQLVariable]):
         """Irreversibly update self.query with provided variable overrides."""
