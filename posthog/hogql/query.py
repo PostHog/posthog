@@ -2,7 +2,6 @@ import dataclasses
 from time import sleep
 from typing import Any, ClassVar, Literal, Optional, Union, cast
 
-import posthoganalytics
 from opentelemetry import trace
 
 from posthog.schema import (
@@ -65,6 +64,7 @@ from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringR
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.ph_client import ph_scoped_capture
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
@@ -734,24 +734,28 @@ class HogQLQueryExecutor:
             if not query_reads_events_without_timestamp_filter(self.select_query):
                 return
             tags = get_query_tags()
-            posthoganalytics.capture(
-                distinct_id=str(tags.team_id or self.team.pk),
-                event="unbounded events query",
-                properties={
-                    "team_id": self.team.pk,
-                    "query_type": self.query_type,
-                    "access_method": tags.access_method,
-                    "product": tags.product,
-                    "feature": tags.feature,
-                    "insight_id": tags.insight_id,
-                    "dashboard_id": tags.dashboard_id,
-                    "session_id": tags.session_id,
-                    "client_query_id": tags.client_query_id,
-                    "scene": tags.scene,
-                    "$process_person_profile": False,
-                },
-                groups={"organization": str(tags.org_id)} if tags.org_id else None,
-            )
+            # ph_scoped_capture (not the global client): query execution also runs in Celery
+            # workers, where the global SDK's background flush may never run before the worker
+            # exits and would silently drop the event.
+            with ph_scoped_capture() as capture:
+                capture(
+                    distinct_id=str(tags.team_id or self.team.pk),
+                    event="unbounded events query",
+                    properties={
+                        "team_id": self.team.pk,
+                        "query_type": self.query_type,
+                        "access_method": tags.access_method,
+                        "product": tags.product,
+                        "feature": tags.feature,
+                        "insight_id": tags.insight_id,
+                        "dashboard_id": tags.dashboard_id,
+                        "session_id": tags.session_id,
+                        "client_query_id": tags.client_query_id,
+                        "scene": tags.scene,
+                        "$process_person_profile": False,
+                    },
+                    groups={"organization": str(tags.org_id)} if tags.org_id else None,
+                )
         except Exception as e:
             capture_exception(e, {"component": "capture_unbounded_events_query", "team_id": self.team.pk})
 

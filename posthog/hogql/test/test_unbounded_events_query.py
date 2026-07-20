@@ -53,6 +53,24 @@ class TestUnboundedEventsQuery(BaseTest):
                 "SELECT * FROM (SELECT count() FROM events WHERE timestamp > now()) AS sub",
                 False,
             ),
+            # A timestamp bound under an OR does not constrain the scan.
+            (
+                "timestamp_under_or",
+                "SELECT count() FROM events WHERE timestamp > now() OR event = 'x'",
+                True,
+            ),
+            # A timestamp bound in every OR branch does constrain it.
+            (
+                "timestamp_in_all_or_branches",
+                "SELECT count() FROM events WHERE (timestamp > now() AND event = 'a') OR (timestamp > now() AND event = 'b')",
+                False,
+            ),
+            # HAVING is post-aggregation and does not bound the scan.
+            (
+                "having_timestamp_not_bounding",
+                "SELECT event, count() FROM events GROUP BY event HAVING max(timestamp) > now()",
+                True,
+            ),
             # No events table at all.
             ("no_events_table", "SELECT id FROM persons", False),
         ]

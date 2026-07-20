@@ -65,10 +65,26 @@ def _is_events_table(expr: ast.Expr | None) -> bool:
 
 
 def _has_events_timestamp_filter(node: ast.SelectQuery, events_ids: set[str]) -> bool:
+    # HAVING is evaluated after aggregation over the full scan, so it never bounds the read —
+    # only WHERE / PREWHERE do.
+    return _expr_bounds_events_timestamp(node.where, events_ids) or _expr_bounds_events_timestamp(
+        node.prewhere, events_ids
+    )
+
+
+def _expr_bounds_events_timestamp(expr: ast.Expr | None, events_ids: set[str]) -> bool:
+    """Whether a filter expression guarantees the events ``timestamp`` is constrained. Respects
+    boolean structure: an ``AND`` bounds if any operand bounds; an ``OR`` bounds only if *every*
+    operand does (``timestamp > x OR event = 'y'`` still admits all history); a leaf bounds when it
+    references the events ``timestamp`` column."""
+    if expr is None:
+        return False
+    if isinstance(expr, ast.And):
+        return any(_expr_bounds_events_timestamp(e, events_ids) for e in expr.exprs)
+    if isinstance(expr, ast.Or):
+        return bool(expr.exprs) and all(_expr_bounds_events_timestamp(e, events_ids) for e in expr.exprs)
     finder = _TimestampFieldFinder(events_ids)
-    for clause in (node.where, node.prewhere, node.having):
-        if clause is not None:
-            finder.visit(clause)
+    finder.visit(expr)
     return finder.found
 
 
