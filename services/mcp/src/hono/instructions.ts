@@ -66,6 +66,7 @@ export class InstructionsBuilder {
             renderUiEnabled: state.renderUiEnabled,
             metadata: state.metadata,
             groupTypes: state.groupTypes,
+            dataCatalogEnabled: state.toolFeatureFlags?.[PRODUCT_DATA_CATALOG_FLAG] === true,
         }
     }
 

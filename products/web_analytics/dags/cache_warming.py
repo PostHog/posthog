@@ -113,7 +113,7 @@ def queries_to_keep_fresh(
                 AND (
                     startsWith(query_type, 'stats_table_')
                     -- Overview strategy variants get their own tags (no_join today,
-                    -- two_phase next); prefix-match like stats_table_ so new variants
+                    -- session_id_set next); prefix-match like stats_table_ so new variants
                     -- can't silently fall out of warming.
                     OR startsWith(query_type, 'web_overview_')
                     OR query_type IN (

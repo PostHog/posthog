@@ -22,7 +22,10 @@
 #   failure" step owns the pass/fail verdict. The shadow strips all of it — no
 #   Trunk posting from a non-blocking timing trial — and so also omits the test
 #   steps' continue-on-error and that verdict step, letting each shard's test
-#   exit code be the verdict directly)
+#   exit code be the verdict directly. Canonical now also gates each quarantine
+#   gate on the TRUNK_UPLOAD_ENABLED repo variable as a kill-switch; since the
+#   shadow strips the gate entirely, that variable is a no-op here and there is
+#   nothing to mirror)
 # - Per-test failure rollup: canonical's django_tests gate uploads product JUnit and, when a
 #   test job fails, downloads that shard's JUnit to list the actual failing tests. The shadow
 #   strips artifact uploads (above), so it has nothing to download and keeps the plain
@@ -986,7 +989,10 @@ jobs:
             - name: Validate owners.yaml identities against GitHub
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
-              run: ./bin/hogli owners:lint --live
+                  CHANGED_FILES: ${{ needs.changes.outputs.product_yamls_files }}
+              # Scoped to the diff: unscoped, one stale slug fails every owners.yaml PR.
+              # xargs re-parses the paths-filter escape format, keeping escaped paths whole.
+              run: printf '%s' "$CHANGED_FILES" | xargs -r ./bin/hogli owners:lint --live
 
     # Migration validation and OpenAPI type generation.
     # This job needs Docker + DB — it checks out master first to run baseline
