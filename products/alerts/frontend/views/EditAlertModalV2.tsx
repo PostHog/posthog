@@ -429,21 +429,22 @@ export function EditAlertModalV2({
                             leadingActions={leadingActions}
                         >
                             <div className="space-y-3">
-                                <AlertEditorFormDetails
-                                    activity={
-                                        alert?.created_by ? (
-                                            <UserActivityIndicator
-                                                at={alert.created_at}
-                                                by={alert.created_by}
-                                                prefix="Created"
-                                            />
-                                        ) : undefined
-                                    }
-                                />
-
                                 <SummaryBanner summary={summary} alertMode={alertMode} />
 
                                 <EditAlertTabs
+                                    nameNode={
+                                        <AlertEditorFormDetails
+                                            activity={
+                                                alert?.created_by ? (
+                                                    <UserActivityIndicator
+                                                        at={alert.created_at}
+                                                        by={alert.created_by}
+                                                        prefix="Created"
+                                                    />
+                                                ) : undefined
+                                            }
+                                        />
+                                    }
                                     previewNode={previewNode}
                                     definitionNode={definitionNode}
                                     scheduleNode={scheduleNode}
@@ -571,6 +572,7 @@ function SummaryBanner({
 }
 
 interface EditAlertTabsProps {
+    nameNode: React.ReactNode
     previewNode: React.ReactNode
     definitionNode: React.ReactNode
     scheduleNode: React.ReactNode
@@ -580,6 +582,7 @@ interface EditAlertTabsProps {
 }
 
 function EditAlertTabs({
+    nameNode,
     previewNode,
     definitionNode,
     scheduleNode,
@@ -600,6 +603,7 @@ function EditAlertTabs({
             ),
             content: (
                 <div className="space-y-3 pt-3">
+                    {nameNode}
                     {previewNode}
                     {definitionNode}
                 </div>
