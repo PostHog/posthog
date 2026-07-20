@@ -109,6 +109,7 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
     public calls: QueryCall[] = []
     public findRows: MockRow[] = []
     public wakeRows: MockRow[] = []
+    public moveRows: MockRow[] = []
     public updateRowCount = 0
 
     constructor() {
@@ -126,6 +127,9 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
             }
             if (sql.includes('SELECT id, state FROM cyclotron_jobs')) {
                 return Promise.resolve({ rows: this.wakeRows, rowCount: this.wakeRows.length })
+            }
+            if (sql.includes('SELECT id, team_id, distinct_id, function_id, action_id, state')) {
+                return Promise.resolve({ rows: this.moveRows, rowCount: this.moveRows.length })
             }
             if (sql.startsWith('UPDATE cyclotron_jobs')) {
                 return Promise.resolve({ rows: [], rowCount: this.updateRowCount })
@@ -1325,6 +1329,77 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             // The bad message is dropped; the valid one still parses.
             expect(result).toHaveLength(1)
             expect((result[0] as HogFunctionInvocationGlobals).event.event).toBe('$insight_alert_firing')
+        })
+    })
+
+    describe('_parsePersonDistinctIdBatch', () => {
+        const rawMove = (overrides: Record<string, any> = {}): any => ({
+            value: Buffer.from(
+                JSON.stringify({
+                    team_id: 1,
+                    distinct_id: 'anon-did',
+                    person_id: 'survivor-uuid',
+                    version: 2,
+                    is_deleted: 0,
+                    ...overrides,
+                })
+            ),
+        })
+
+        it('maps a version>0 repoint to its distinct_id + survivor person', () => {
+            const result = (matcher as any)._parsePersonDistinctIdBatch([rawMove()])
+            expect(result).toEqual([{ teamId: 1, distinctId: 'anon-did', newPersonId: 'survivor-uuid' }])
+        })
+
+        it('drops version-0 inserts, deletions, missing-id and malformed messages', () => {
+            const result = (matcher as any)._parsePersonDistinctIdBatch([
+                rawMove({ version: 0 }), // brand-new distinct_id (person creation), not a repoint
+                rawMove({ is_deleted: 1 }), // distinct_id being deleted
+                rawMove({ person_id: '' }), // no survivor to point at
+                { value: Buffer.from('not json') }, // malformed
+                rawMove(),
+            ])
+            expect(result).toEqual([{ teamId: 1, distinctId: 'anon-did', newPersonId: 'survivor-uuid' }])
+        })
+    })
+
+    describe('processMoveBatch', () => {
+        beforeEach(() => {
+            matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1', team_id: 1 }) })
+        })
+
+        const parkedWaitRow = (overrides: Record<string, any> = {}): any => ({
+            id: 'job-1',
+            team_id: 1,
+            distinct_id: 'anon-did',
+            function_id: 'flow-1',
+            action_id: 'wait_node',
+            state: Buffer.from(JSON.stringify({ state: { personId: 'old-uuid' } })),
+            ...overrides,
+        })
+
+        const lastUpdate = (): QueryCall | undefined =>
+            matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
+
+        it('re-keys a parked wait onto the survivor (person_id column + state.personId)', async () => {
+            matcher.moveRows = [parkedWaitRow()]
+            await matcher.processMoveBatch([{ teamId: 1, distinctId: 'anon-did', newPersonId: 'survivor-uuid' }])
+
+            const update = lastUpdate()
+            expect(update).toBeDefined()
+            // params: [ids, person_ids, states]. The person_id column moves to the survivor...
+            expect(update!.params[1]).toEqual(['survivor-uuid'])
+            const newState = parseJSON((update!.params[2][0] as Buffer).toString('utf-8')) as any
+            // ...and so does the persisted state.personId, so a distinct_id-less re-resolution follows it.
+            expect(newState.state.personId).toBe('survivor-uuid')
+        })
+
+        it('skips a job not parked on a wait_until_condition step, so a delay is never re-keyed', async () => {
+            // action_id points at the trigger (any non-wait step, e.g. a delay) — must be left untouched.
+            matcher.moveRows = [parkedWaitRow({ action_id: 'trigger_node' })]
+            await matcher.processMoveBatch([{ teamId: 1, distinctId: 'anon-did', newPersonId: 'survivor-uuid' }])
+
+            expect(lastUpdate()).toBeUndefined()
         })
     })
 
