@@ -172,7 +172,7 @@ class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             response = self.client.get(f"/api/environments/{self.team.id}/mcp_servers/icon/", data=params)
         assert response.status_code == status.HTTP_200_OK
         service.return_value.get_icon_http_response.assert_called_once_with(
-            "linear.app", theme=expected_theme, fallback="404"
+            "linear.app", theme=expected_theme, fallback="404", team_id=self.team.id
         )
 
     def test_unauthenticated_access(self):

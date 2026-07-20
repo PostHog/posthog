@@ -225,6 +225,7 @@ class MCPServerViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.G
             theme=theme if theme in ("light", "dark") else None,
             # ServerIcon renders its own generic fallback glyph on 404 instead of logo.dev's monogram.
             fallback="404",
+            team_id=self.team_id,
         )
 
 
