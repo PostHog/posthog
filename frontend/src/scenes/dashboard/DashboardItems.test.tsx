@@ -344,7 +344,7 @@ describe('DashboardItems', () => {
         })
 
         const { findByText, getByTestId, getByText } = render(<DashboardItems />)
-        expect(getByText('Dashboard tile 2')).toBeInTheDocument()
+        expect(getByText('Tile')).toBeInTheDocument()
         expect(getByText('There is a problem loading this dashboard tile.')).toHaveAttribute(
             'data-support-only',
             'true'

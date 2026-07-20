@@ -707,24 +707,21 @@ export function InsightErrorState({
                 {title || <span>There was a problem completing this query</span>}
             </h2>
 
-            {!excludeDetail && (
+            {!excludeDetail && !supportOnly && (
                 <div className="mt-4">
-                    {supportOnly ? (
-                        bugReportLink
-                    ) : (
-                        <>
-                            We apologize for this unexpected situation. There are a couple of things you can do:
-                            <ol>
-                                <li>
-                                    First and foremost you can <b>try again</b>. We recommend you wait a moment before
-                                    doing so.
-                                </li>
-                                <li>{bugReportLink}</li>
-                            </ol>
-                        </>
-                    )}
+                    We apologize for this unexpected situation. There are a couple of things you can do:
+                    <ol>
+                        <li>
+                            First and foremost you can <b>try again</b>. We recommend you wait a moment before doing so.
+                        </li>
+                        <li>{bugReportLink}</li>
+                    </ol>
                 </div>
             )}
+
+            {/* supportOnly errors have no retry path, so the bug-report link is the only next step.
+                Render it even when excludeDetail hides the retry guidance (e.g. self-hosted). */}
+            {supportOnly && <div className="mt-4">{bugReportLink}</div>}
 
             {!excludeActions && (
                 <div className="flex gap-2 mt-4">

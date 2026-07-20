@@ -336,13 +336,20 @@ def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, d
         tile.layouts = json.loads(tile.layouts)
 
     try:
-        tile_data = DashboardTileSerializer(tile, many=False, context=tile_context).data
+        tile_data: dict = DashboardTileSerializer(tile, many=False, context=tile_context).data
         return order, tile_data
     except Exception:
         if not tile.insight:
             raise
         logger.exception("Error serializing dashboard tile", tile_id=tile.id)
-        tile_data = DashboardTileErrorSerializer(tile, context=tile_context).data
+        try:
+            tile_data = DashboardTileErrorSerializer(tile, context=tile_context).data
+        except Exception:
+            # The fallback serializer itself failed (e.g. upgrade() re-raising on the same corrupt
+            # query). Fall back to the minimal tile shape so callers still emit an error tile instead
+            # of propagating. No insight metadata is included, so the redaction contract holds.
+            logger.exception("Error serializing dashboard tile error fallback", tile_id=tile.id)
+            tile_data = {"id": tile.id}
         tile_data["error"] = {"type": DASHBOARD_TILE_ERROR_TYPE, "message": DASHBOARD_TILE_ERROR_MESSAGE}
         return order, tile_data
 
@@ -2485,11 +2492,25 @@ class DashboardsViewSet(
                         tile_json = renderer.render({"type": "tile", "order": order, "tile": tile_data}).decode()
                         yield f"data: {tile_json}\n\n".encode()
                     except Exception:
+                        # Emit a tile-shaped error so the frontend appends it via receiveTileFromStream
+                        # and renders DashboardErrorTileItem (with remove + support affordances),
+                        # rather than routing to onError which only shows a transient toast and drops
+                        # the tile. Matches the initial-tiles error shape above.
                         logger.exception("Error serializing dashboard tile", tile_id=tile.id)
-                        error_json = renderer.render(
-                            {"type": "error", "tile_id": tile.id, "error": DASHBOARD_TILE_ERROR_MESSAGE}
+                        error_tile_json = renderer.render(
+                            {
+                                "type": "tile",
+                                "order": order,
+                                "tile": {
+                                    "id": tile.id,
+                                    "error": {
+                                        "type": DASHBOARD_TILE_ERROR_TYPE,
+                                        "message": DASHBOARD_TILE_ERROR_MESSAGE,
+                                    },
+                                },
+                            }
                         ).decode()
-                        yield f"data: {error_json}\n\n".encode()
+                        yield f"data: {error_tile_json}\n\n".encode()
 
                 # Send completion signal
                 complete_json = renderer.render({"type": "complete"}).decode()

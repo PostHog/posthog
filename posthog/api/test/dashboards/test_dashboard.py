@@ -41,7 +41,11 @@ from posthog.user_permissions import UserPermissions
 
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from products.dashboards.backend.access import DashboardAccessMethod
-from products.dashboards.backend.api.dashboard import DashboardSerializer, serialize_tile_with_context
+from products.dashboards.backend.api.dashboard import (
+    DashboardSerializer,
+    DashboardTileErrorSerializer,
+    serialize_tile_with_context,
+)
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.product_analytics.backend.api.insight import InsightSerializer
@@ -3557,6 +3561,63 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             {"type": "DashboardTileError", "message": "There is a problem loading this dashboard tile."},
         )
         self.assertNotIn("boom", json.dumps(dashboard_data))
+
+    def test_streamed_tile_error_falls_back_to_minimal_tile_when_fallback_serializer_fails(self):
+        # If the DashboardTileErrorSerializer fallback itself raises (e.g. upgrade() re-raising on
+        # the same corrupt query), serialize_tile_with_context must still return a minimal error
+        # tile rather than propagating — and must not include any insight metadata.
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="Test Dashboard",
+            created_by=self.user,
+            filters={},
+        )
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Confidential usage",
+            filters={},
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                },
+            },
+        )
+        tile = DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        request = MagicMock()
+        request.user = self.user
+        request.query_params = {}
+        request.data = {}
+        context = {
+            "request": request,
+            "team_id": self.team.id,
+            "get_team": lambda: self.team,
+            "insight_variables": [],
+            "dashboard": dashboard,
+            "raw_results_supported": True,
+            "user_access_control": UserAccessControl(self.user, team=self.team),
+        }
+        with (
+            patch.object(InsightSerializer, "get_result", side_effect=RuntimeError("primary boom")),
+            patch.object(
+                DashboardTileErrorSerializer,
+                "to_representation",
+                side_effect=RuntimeError("fallback boom"),
+            ),
+        ):
+            order, streamed_tile = serialize_tile_with_context(tile, 0, context)
+
+        self.assertEqual(order, 0)
+        self.assertEqual(streamed_tile["id"], tile.id)
+        self.assertEqual(
+            streamed_tile["error"],
+            {"type": "DashboardTileError", "message": "There is a problem loading this dashboard tile."},
+        )
+        # No insight metadata leaks when the fallback serializer itself fails.
+        self.assertNotIn("insight", streamed_tile)
+        self.assertNotIn("Confidential usage", json.dumps(streamed_tile))
 
     def test_create_unlisted_dashboard_creates_tags(self):
         """Test that unlisted dashboards get tags"""

@@ -9,6 +9,8 @@ import { InsightErrorState } from 'scenes/insights/EmptyStates'
 
 import { DashboardTile, QueryBasedInsightModel } from '~/types'
 
+import { getDashboardTileDisplayName } from '../dashboardUtils'
+
 interface DashboardErrorTileItemProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable {
     tile: DashboardTile<QueryBasedInsightModel>
     canEnterEditModeFromEdge?: boolean
@@ -41,7 +43,7 @@ function DashboardErrorTileItemInternal(
             {...divProps}
         >
             <CardMeta
-                topHeading={<span>Dashboard tile {tile.id}</span>}
+                topHeading={<span>{getDashboardTileDisplayName(tile)}</span>}
                 showEditingControls={showEditingControls}
                 onMouseDown={onDragHandleMouseDown}
                 moreButtons={
