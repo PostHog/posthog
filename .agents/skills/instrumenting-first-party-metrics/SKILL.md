@@ -1,6 +1,6 @@
 ---
 name: instrumenting-first-party-metrics
-description: 'How to instrument PostHog''s own Metrics product from PostHog-owned code — record counters, gauges, and histograms that land in posthog.metrics, the same way customers do. Use when adding application metrics in this monorepo (web, Celery, Temporal), when asked to push or ship metrics into posthog metrics, or when unsure whether the SDK in this environment supports posthog.metrics yet. Covers the environment decision (SDK-first per the public docs, OTel fallback when the SDK path is not available), the exact version gates per SDK, what is already wired internally, and how to validate metrics actually arrive.'
+description: "How to instrument PostHog's own Metrics product from PostHog-owned code — record counters, gauges, and histograms that land in posthog.metrics, the same way customers do. Use when adding application metrics in this monorepo (web, Celery, Temporal), when asked to push or ship metrics into posthog metrics, or when unsure whether the SDK in this environment supports posthog.metrics yet. Covers the environment decision (SDK-first per the public docs, OTel fallback when the SDK path is not available), the exact version gates per SDK, what is already wired internally, and how to validate metrics actually arrive."
 ---
 
 # Instrumenting first-party metrics
@@ -11,11 +11,11 @@ Never invent env vars or hand-roll OTel providers — every environment below al
 
 ## Step 1 — identify the environment and pick the path
 
-| Where you are | First choice | Fallback |
-|---|---|---|
-| Monorepo Python (web, Celery, Temporal) | SDK: `posthoganalytics.default_client.metrics` — IF the pinned version supports it (see version gates) | `OtelInstrumentFactory` in `posthog/otel_metrics.py` |
-| Monorepo Node services (`nodejs/`) | — (services don't run posthog-node) | internal twin: `nodejs/src/common/metrics/otel-metrics.ts` |
-| PostHog-owned standalone service / script / other repo | SDK per public docs: `posthog.metrics.count/gauge/histogram` | OTLP env vars per docs (`OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=<host>/i/v1/metrics`, Bearer project token) |
+| Where you are                                          | First choice                                                                                           | Fallback                                                                                                 |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| Monorepo Python (web, Celery, Temporal)                | SDK: `posthoganalytics.default_client.metrics` — IF the pinned version supports it (see version gates) | `OtelInstrumentFactory` in `posthog/otel_metrics.py`                                                     |
+| Monorepo Node services (`nodejs/`)                     | — (services don't run posthog-node)                                                                    | internal twin: `nodejs/src/common/metrics/otel-metrics.ts`                                               |
+| PostHog-owned standalone service / script / other repo | SDK per public docs: `posthog.metrics.count/gauge/histogram`                                           | OTLP env vars per docs (`OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=<host>/i/v1/metrics`, Bearer project token) |
 
 ## Step 2 — check the version gate (don't assume)
 
