@@ -72,6 +72,7 @@ TRUSTED_REACTOR_BOTS = {
     "copilot-pull-request-reviewer[bot]",
     "greptile-apps[bot]",
     "hex-security-app[bot]",
+    "reviewhog[bot]",
     "veria-ai[bot]",
 }
 
@@ -93,6 +94,8 @@ def is_bot_author(user: dict) -> bool:
 # the GitHub App (stamphog[bot]); APPROVE reviews post via the workflow's
 # GITHUB_TOKEN (github-actions[bot]) so they count toward branch protection.
 _SELF_REVIEW_LOGINS = {"stamphog[bot]", "github-actions[bot]"}
+_REVIEWHOG_BOT_LOGIN = "posthog[bot]"
+_REVIEWHOG_STATUS_RE = re.compile(r"<!--\s*reviewhog:status:[0-9a-f-]+\s*-->")
 
 
 def _prompt_worthy_author(login: str | None, association: str | None, is_bot: bool) -> bool:
@@ -164,6 +167,26 @@ def _normalize_discussion_for_prompt(comments_raw: list[dict]) -> list[dict]:
             }
         )
     return normalized
+
+
+def _reviewhog_clean_reactions(comments_raw: list[dict]) -> list[dict]:
+    for comment in reversed(comments_raw):
+        user = comment.get("user") or {}
+        if user.get("login", "").lower() != _REVIEWHOG_BOT_LOGIN or user.get("type") != "Bot":
+            continue
+        body = comment.get("body") or ""
+        if "Found no issues worth raising, so no review was posted." not in body:
+            continue
+        if _REVIEWHOG_STATUS_RE.search(body) is None:
+            continue
+        return [
+            {
+                "user": "reviewhog[bot]",
+                "emoji": "👍",
+                "created_at": comment.get("updated_at") or comment.get("created_at"),
+            }
+        ]
+    return []
 
 
 # GitHub spells reaction contents two ways: REST returns "+1"/"-1", GraphQL
@@ -566,10 +589,12 @@ def fetch_pr(pr_number: int, repo: str, repo_root: Path | None = None) -> PRData
     # an exception here would turn the wait-loop refetch into a spurious WAIT.
     author_is_bot = is_bot_author(pr.get("user", {}))
     discussion: list[dict] = []
+    reviewhog_reactions: list[dict] = []
     if not author_is_bot:
         try:
             discussion_raw = _gh_api(f"repos/{repo}/issues/{pr_number}/comments", paginate=True)
             discussion = _normalize_discussion_for_prompt(discussion_raw)
+            reviewhog_reactions = _reviewhog_clean_reactions(discussion_raw)
         except Exception as exc:
             print(f"warning: discussion fetch failed ({exc}); continuing with no discussion context")  # noqa: T201
 
@@ -599,7 +624,7 @@ def fetch_pr(pr_number: int, repo: str, repo_root: Path | None = None) -> PRData
         review_comments=review_comments,
         check_runs=check_runs_resp.get("check_runs", []),
         author_is_bot=author_is_bot,
-        pr_reactions=pr_reactions,
+        pr_reactions=pr_reactions + reviewhog_reactions,
         body=pr.get("body") or "",
         discussion=discussion,
     )

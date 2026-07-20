@@ -10,6 +10,7 @@ from github import (
     _normalize_discussion_for_prompt,
     _normalize_reviews_for_prompt,
     _reaction_emoji,
+    _reviewhog_clean_reactions,
     _trusted_reactor_predicate,
     is_bot_author,
     parse_provenance_trailers,
@@ -148,6 +149,66 @@ def test_normalize_discussion_filters_by_trust_and_own_comments(
     assert len(normalized) == expected_count
 
 
+def test_reviewhog_clean_status_is_normalized_as_a_trusted_positive() -> None:
+    reactions = _reviewhog_clean_reactions(
+        [
+            {
+                "user": {"login": "posthog[bot]", "type": "Bot"},
+                "body": (
+                    "Found no issues worth raising, so no review was posted.\n\n"
+                    "<!-- reviewhog:status:019f807c-68a6-7d18-b010-85409c5ed4ad -->"
+                ),
+                "created_at": "2026-07-20T17:04:26Z",
+                "updated_at": "2026-07-20T17:05:26Z",
+            }
+        ]
+    )
+
+    assert reactions == [
+        {
+            "user": "reviewhog[bot]",
+            "emoji": "👍",
+            "created_at": "2026-07-20T17:05:26Z",
+        }
+    ]
+
+
+def _clean_reviewhog_body() -> str:
+    return (
+        "Found no issues worth raising, so no review was posted.\n\n"
+        "<!-- reviewhog:status:019f807c-68a6-7d18-b010-85409c5ed4ad -->"
+    )
+
+
+@pytest.mark.parametrize(
+    "login,user_type,body",
+    [
+        pytest.param("posthog[bot]", "User", _clean_reviewhog_body(), id="not-app-bot"),
+        pytest.param("someone[bot]", "Bot", _clean_reviewhog_body(), id="wrong-bot"),
+        pytest.param(
+            "posthog[bot]", "Bot", "Found no issues worth raising, so no review was posted.", id="missing-marker"
+        ),
+        pytest.param(
+            "posthog[bot]",
+            "Bot",
+            "Found 1 should fix.\n<!-- reviewhog:status:019f807c-68a6-7d18-b010-85409c5ed4ad -->",
+            id="not-clean",
+        ),
+    ],
+)
+def test_reviewhog_clean_status_rejects_untrusted_or_non_clean_comments(login: str, user_type: str, body: str) -> None:
+    reactions = _reviewhog_clean_reactions(
+        [
+            {
+                "user": {"login": login, "type": user_type},
+                "body": body,
+            }
+        ]
+    )
+
+    assert reactions == []
+
+
 @pytest.mark.parametrize(
     "content,expected",
     [
@@ -169,6 +230,7 @@ def test_reaction_emoji_normalizes_rest_and_graphql(content: str, expected: str)
         pytest.param("ghost", False, id="deleted-user"),
         pytest.param("", False, id="empty-login"),
         pytest.param("greptile-apps[bot]", True, id="allowlisted-bot"),
+        pytest.param("reviewhog[bot]", True, id="normalized-reviewhog"),
         pytest.param("inkeep[bot]", False, id="unlisted-bot"),
         pytest.param("teammate", True, id="org-member"),
         pytest.param("outsider", False, id="external-non-member"),
