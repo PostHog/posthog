@@ -44,9 +44,15 @@ interface ServerIconProps {
 export function ServerIcon({ iconDomain, serverUrl, size = 32, className }: ServerIconProps): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
     const domain = iconDomain || iconDomainFromServerUrl(serverUrl)
-    const [failedDomain, setFailedDomain] = useState<string | null>(null)
+    // logo.dev picks the logo variant suited to the active background theme.
+    const theme = isDarkModeOn ? 'dark' : 'light'
+    // Failure latches per (domain, theme) — the unit the request URL varies over — so a failed
+    // load in one theme doesn't blank the other, and a theme flip retries after a transient error
+    // (cheap: definitive misses are cached server-side for a day).
+    const iconKey = `${domain}|${theme}`
+    const [failedIconKey, setFailedIconKey] = useState<string | null>(null)
     const dimension = `${size}px`
-    if (domain && failedDomain !== domain) {
+    if (domain && failedIconKey !== iconKey) {
         return (
             <div
                 className={`flex items-center justify-center overflow-hidden rounded-[4px] ${className ?? ''}`}
@@ -54,11 +60,10 @@ export function ServerIcon({ iconDomain, serverUrl, size = 32, className }: Serv
                 style={{ width: dimension, height: dimension }}
             >
                 <img
-                    // logo.dev picks the logo variant suited to the active background theme.
-                    src={serverIconUrl(domain, isDarkModeOn ? 'dark' : 'light')}
+                    src={serverIconUrl(domain, theme)}
                     alt=""
                     style={{ width: dimension, height: dimension }}
-                    onError={() => setFailedDomain(domain)}
+                    onError={() => setFailedIconKey(iconKey)}
                 />
             </div>
         )
