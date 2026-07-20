@@ -15,6 +15,7 @@ with the new URL so every hop is validated and pinned.
 import ipaddress
 import urllib.parse as urlparse
 
+import idna
 import requests
 from requests.adapters import HTTPAdapter
 
@@ -23,6 +24,27 @@ from posthog.security.url_validation import validate_url_and_pin_ips
 
 class SSRFBlockedError(Exception):
     """URL failed SSRF validation. The message is the block reason."""
+
+
+def _canonical_host(hostname: str) -> str:
+    """Return the host in the same ASCII form ``requests`` connects to.
+
+    ``requests`` IDNA-encodes non-ASCII hosts before opening the connection
+    (``éxample.com`` -> ``xn--xample-9ua.com``), so a pin stored under the raw
+    Unicode host would never match the host seen in ``send()`` and the request
+    would silently fall back to a fresh DNS lookup — reopening the rebinding
+    window. Encoding both the stored pin and the lookup identically keeps the
+    match, and the SSRF guarantee, intact.
+    """
+    host = hostname.lower()
+    if host.isascii():
+        return host
+    try:
+        return idna.encode(host, uts46=True).decode("ascii")
+    except idna.IDNAError:
+        # requests rejects such a host during URL prep and never reaches send();
+        # keep the raw value so the map stays consistent if it somehow does.
+        return host
 
 
 class PinnedIPAdapter(HTTPAdapter):
@@ -43,7 +65,7 @@ class PinnedIPAdapter(HTTPAdapter):
         self._current_original_host: str | None = None
 
     def pin(self, hostname: str, ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> None:
-        self._pin_map[hostname.lower()] = str(ip)
+        self._pin_map[_canonical_host(hostname)] = str(ip)
 
     def send(  # type: ignore[override]
         self,
@@ -55,25 +77,33 @@ class PinnedIPAdapter(HTTPAdapter):
         proxies: dict[str, str] | None = None,
     ) -> requests.Response:
         parsed = urlparse.urlparse(request.url or "")
-        host = (parsed.hostname or "").lower()
+        host = _canonical_host(parsed.hostname or "")
         ip_str = self._pin_map.get(host)
 
-        if ip_str is not None:
-            self._current_original_host = host
-
-            ip_netloc = f"[{ip_str}]" if ":" in ip_str else ip_str
-            if parsed.port:
-                ip_netloc = f"{ip_netloc}:{parsed.port}"
-
-            request.url = urlparse.urlunparse((parsed.scheme, ip_netloc, parsed.path, parsed.params, parsed.query, ""))
-
-            original_netloc = host
-            if parsed.port:
-                original_netloc = f"{host}:{parsed.port}"
-            if request.headers is not None:
-                request.headers["Host"] = original_netloc
-        else:
+        if ip_str is None:
+            # Fail closed: an adapter that pinned at least one host must refuse a
+            # request it can't match rather than let requests re-resolve DNS —
+            # that re-resolution is the rebinding window pinning exists to close.
+            # An empty map means pinning was intentionally skipped (e.g. the dev
+            # SSRF bypass), so pass the request through untouched.
+            if self._pin_map:
+                raise SSRFBlockedError(f"No validated pin for host {host!r}; refusing to connect")
             self._current_original_host = None
+            return super().send(request, stream=stream, timeout=timeout, verify=verify, cert=cert, proxies=proxies)
+
+        self._current_original_host = host
+
+        ip_netloc = f"[{ip_str}]" if ":" in ip_str else ip_str
+        if parsed.port:
+            ip_netloc = f"{ip_netloc}:{parsed.port}"
+
+        request.url = urlparse.urlunparse((parsed.scheme, ip_netloc, parsed.path, parsed.params, parsed.query, ""))
+
+        original_netloc = host
+        if parsed.port:
+            original_netloc = f"{host}:{parsed.port}"
+        if request.headers is not None:
+            request.headers["Host"] = original_netloc
 
         return super().send(request, stream=stream, timeout=timeout, verify=verify, cert=cert, proxies=proxies)
 
