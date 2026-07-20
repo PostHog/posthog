@@ -116,14 +116,24 @@ const GroupByDimensionPickers = (): JSX.Element => {
     const { groupBys } = useValues(logsViewerConfigLogic)
     const { addGroupBy, removeGroupByAt, replaceGroupByAt } = useActions(logsViewerConfigLogic)
 
-    // Keys already used by another dimension are excluded from every group tab: re-picking
-    // one would either duplicate a dimension or silently no-op (the reducer guards both).
+    // A dimension's identity is (source, key), and the reducer allows the same key from
+    // different sources (resource `env` and log `env` are distinct combinations). So exclude a
+    // key from a tab only when picking it there would resolve to a source that's already used —
+    // re-picking that exact (source, key) would duplicate a dimension or silently no-op (the
+    // reducer guards both), but the cross-source combination stays available.
     const excludedForPill = (pillIndex: number | null): Partial<Record<TaxonomicFilterGroupType, string[]>> => {
-        const usedKeys = groupBys.filter((_, i) => i !== pillIndex).map((d) => d.key)
+        const used = groupBys.filter((_, i) => i !== pillIndex)
+        const usedKeysForTab = (groupType: TaxonomicFilterGroupType): string[] =>
+            used.filter((d) => resolveGroupBySource(d.key, groupType) === d.source).map((d) => d.key)
         return {
-            [TaxonomicFilterGroupType.Logs]: [...BASE_EXCLUDED_KEYS, ...usedKeys],
-            [TaxonomicFilterGroupType.LogAttributes]: [...BASE_EXCLUDED_KEYS, ...usedKeys],
-            [TaxonomicFilterGroupType.LogResourceAttributes]: usedKeys,
+            [TaxonomicFilterGroupType.Logs]: [...BASE_EXCLUDED_KEYS, ...usedKeysForTab(TaxonomicFilterGroupType.Logs)],
+            [TaxonomicFilterGroupType.LogAttributes]: [
+                ...BASE_EXCLUDED_KEYS,
+                ...usedKeysForTab(TaxonomicFilterGroupType.LogAttributes),
+            ],
+            [TaxonomicFilterGroupType.LogResourceAttributes]: usedKeysForTab(
+                TaxonomicFilterGroupType.LogResourceAttributes
+            ),
         }
     }
 
