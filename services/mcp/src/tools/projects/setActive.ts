@@ -17,27 +17,57 @@ export const setActiveHandler: ToolBase<typeof schema, Result>['handler'] = asyn
     const { projectId } = params
     const projectIdStr = projectId.toString()
 
-    await context.cache.set('projectId', projectIdStr)
+    const activeOrgId = (await context.cache.get('orgId')) ?? 'unknown'
 
-    // Fetch fresh project data and cache it
-    let project: CachedProject | undefined
+    // Validate before committing the session: only switch to a project the user
+    // can actually access. Previously the projectId was cached before the fetch,
+    // so a bad id (or a project the session can't reach) silently "succeeded" and
+    // every later call failed with an opaque error instead.
     const projectResult = await context.api.projects().get({ projectId: projectIdStr })
-    if (projectResult.success) {
-        project = projectResult.data
-        await context.cache.set(`cachedProject:${projectIdStr}` as const, project)
-        await context.cache.set(`cachedProjectFetchedAt:${projectIdStr}` as const, Date.now())
+    if (!projectResult.success) {
+        throw new Error(
+            `Could not switch to project ${projectIdStr}: it was not found or you don't have access to it from the active organization (${activeOrgId}). ` +
+                'If the project belongs to a different organization, call `organizations-get` to list your organizations, then `switch-organization` to the one that owns it, and retry. ' +
+                'Use `projects-get` to see the projects available in the active organization.'
+        )
     }
 
-    // Read cached user and org for full metadata block
-    const distinctId = (await context.cache.get('distinctId')) ?? 'unknown'
-    const orgId = (await context.cache.get('orgId')) ?? 'unknown'
-    const user = (await context.cache.get(`cachedUser:${distinctId}` as const)) as CachedUser | undefined
-    const org = (await context.cache.get(`cachedOrg:${orgId}` as const)) as CachedOrg | undefined
+    const project: CachedProject = projectResult.data
+    await context.cache.set('projectId', projectIdStr)
+    await context.cache.set(`cachedProject:${projectIdStr}` as const, project)
+    await context.cache.set(`cachedProjectFetchedAt:${projectIdStr}` as const, Date.now())
 
+    // Keep the active organization consistent with the project we just selected.
+    // Switching to a project in another organization would otherwise leave
+    // org-scoped tools pointed at the wrong organization.
+    let orgId = activeOrgId
+    let org: CachedOrg | undefined
+    let switchedOrg = false
+    const projectOrgId = project.organization
+    if (projectOrgId && projectOrgId !== activeOrgId) {
+        await context.cache.set('orgId', projectOrgId)
+        orgId = projectOrgId
+        switchedOrg = true
+        const orgResult = await context.api.organizations().get({ orgId: projectOrgId })
+        if (orgResult.success) {
+            org = orgResult.data
+            await context.cache.set(`cachedOrg:${projectOrgId}` as const, org)
+            await context.cache.set(`cachedOrgFetchedAt:${projectOrgId}` as const, Date.now())
+        }
+    }
+
+    // Read cached user (and org, when we didn't just fetch it) for the metadata block
+    const distinctId = (await context.cache.get('distinctId')) ?? 'unknown'
+    const user = (await context.cache.get(`cachedUser:${distinctId}` as const)) as CachedUser | undefined
+    if (!org) {
+        org = (await context.cache.get(`cachedOrg:${orgId}` as const)) as CachedOrg | undefined
+    }
+
+    const orgNote = switchedOrg ? ` (also switched the active organization to ${orgId} to match)` : ''
     const metadata = buildActiveEnvironmentContextPrompt(user, org, project, context.api.publicBaseUrl)
     const text = metadata
-        ? `Switched to project ${projectId}.\n\nCurrent context:\n${metadata}`
-        : `Switched to project ${projectId}`
+        ? `Switched to project ${projectId}${orgNote}.\n\nCurrent context:\n${metadata}`
+        : `Switched to project ${projectId}${orgNote}`
 
     return {
         content: [{ type: 'text', text }],
