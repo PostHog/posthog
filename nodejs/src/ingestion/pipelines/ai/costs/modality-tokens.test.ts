@@ -440,11 +440,19 @@ describe('extractModalityTokens()', () => {
                 ephemeral_1h_input_tokens: 100,
             },
         }
+        const vercelBedrockUsage = {
+            cacheDetails: [
+                { ttl: 'T5M', inputTokens: 148 },
+                { ttl: 'T1H', inputTokens: 100 },
+            ],
+        }
 
         it.each([
             {
                 name: 'direct Anthropic usage',
                 usage: anthropicUsage,
+                expected5mTokens: 148,
+                expected1hTokens: 100,
             },
             {
                 name: 'Vercel usage.raw',
@@ -453,6 +461,8 @@ describe('extractModalityTokens()', () => {
                         raw: anthropicUsage,
                     },
                 },
+                expected5mTokens: 148,
+                expected1hTokens: 100,
             },
             {
                 name: 'Vercel providerMetadata.anthropic.usage',
@@ -463,16 +473,60 @@ describe('extractModalityTokens()', () => {
                         },
                     },
                 },
+                expected5mTokens: 148,
+                expected1hTokens: 100,
             },
-        ])('extracts Anthropic cache creation tokens by TTL from $name', ({ usage }) => {
+            {
+                name: 'Vercel providerMetadata.amazonBedrock.usage with only one-hour writes',
+                usage: {
+                    providerMetadata: {
+                        amazonBedrock: {
+                            usage: { cacheDetails: [{ ttl: 'T1H', inputTokens: 100 }] },
+                        },
+                    },
+                },
+                expected5mTokens: 0,
+                expected1hTokens: 100,
+            },
+            {
+                name: 'legacy providerMetadata.bedrock.usage with only five-minute writes',
+                usage: {
+                    providerMetadata: {
+                        bedrock: {
+                            usage: { cacheDetails: [{ ttl: '5m', inputTokens: 148 }] },
+                        },
+                    },
+                },
+                expected5mTokens: 148,
+                expected1hTokens: 0,
+            },
+            {
+                name: 'Vercel providerMetadata with both Bedrock aliases',
+                usage: {
+                    providerMetadata: {
+                        amazonBedrock: { usage: vercelBedrockUsage },
+                        bedrock: {
+                            usage: {
+                                cacheDetails: [
+                                    { ttl: '5m', inputTokens: 999 },
+                                    { ttl: '1h', inputTokens: 999 },
+                                ],
+                            },
+                        },
+                    },
+                },
+                expected5mTokens: 148,
+                expected1hTokens: 100,
+            },
+        ])('extracts cache creation tokens by TTL from $name', ({ usage, expected5mTokens, expected1hTokens }) => {
             const event = createAIEvent({
                 $ai_usage: usage,
             })
 
             const result = extractModalityTokens(event)
 
-            expect(result.properties['$ai_cache_creation_5m_input_tokens']).toBe(148)
-            expect(result.properties['$ai_cache_creation_1h_input_tokens']).toBe(100)
+            expect(result.properties['$ai_cache_creation_5m_input_tokens']).toBe(expected5mTokens)
+            expect(result.properties['$ai_cache_creation_1h_input_tokens']).toBe(expected1hTokens)
             expect(result.properties['$ai_usage']).toBeUndefined()
         })
 

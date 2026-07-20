@@ -37,6 +37,7 @@ const modalityOf = (detail: Record<string, unknown>): string | null => {
 
 type ExtractionSource =
     | 'anthropic_cache'
+    | 'bedrock_cache'
     | 'gemini_input'
     | 'gemini_output'
     | 'gemini_cache'
@@ -225,6 +226,49 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
             }
         }
 
+        const extractBedrockCacheCreation = (metadata: Record<string, unknown>): void => {
+            const amazonBedrockMetadata = metadata['amazonBedrock']
+            const bedrockMetadata = isObject(amazonBedrockMetadata) ? amazonBedrockMetadata : metadata['bedrock']
+            if (!isObject(bedrockMetadata) || !isObject(bedrockMetadata['usage'])) {
+                return
+            }
+
+            const cacheDetails = bedrockMetadata['usage']['cacheDetails']
+            if (!Array.isArray(cacheDetails)) {
+                return
+            }
+
+            let fiveMinuteTokens = 0
+            let oneHourTokens = 0
+            let foundCacheDetails = false
+
+            for (const detail of cacheDetails) {
+                if (!isObject(detail)) {
+                    continue
+                }
+
+                const inputTokens = detail['inputTokens']
+                const ttl = typeof detail['ttl'] === 'string' ? detail['ttl'].toLowerCase() : null
+                if (typeof inputTokens !== 'number' || !Number.isFinite(inputTokens) || inputTokens < 0) {
+                    continue
+                }
+
+                if (ttl === 't5m' || ttl === '5m') {
+                    fiveMinuteTokens += inputTokens
+                    foundCacheDetails = true
+                } else if (ttl === 't1h' || ttl === '1h') {
+                    oneHourTokens += inputTokens
+                    foundCacheDetails = true
+                }
+            }
+
+            if (foundCacheDetails) {
+                event.properties['$ai_cache_creation_5m_input_tokens'] = fiveMinuteTokens
+                event.properties['$ai_cache_creation_1h_input_tokens'] = oneHourTokens
+                extractedSources.add('bedrock_cache')
+            }
+        }
+
         // Walk each `usage`-shaped metadata object encountered across the SDK
         // wrapper variants and pull every modality breakdown it exposes.
         // Gemini metadata arrives camelCased through the Vercel AI SDK and
@@ -261,6 +305,7 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
         const providerMetadata = (usage as Record<string, unknown>)['providerMetadata']
         if (isObject(providerMetadata)) {
             extractFromMetadata(providerMetadata['google'])
+            extractBedrockCacheCreation(providerMetadata)
 
             // Anthropic's original usage is also available in provider metadata.
             const anthropicProviderMetadata = providerMetadata['anthropic']
@@ -278,6 +323,7 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
             const rawProviderMetadata = rawUsage['providerMetadata']
             if (isObject(rawProviderMetadata)) {
                 extractFromMetadata(rawProviderMetadata['google'])
+                extractBedrockCacheCreation(rawProviderMetadata)
             }
 
             const rawUsageUsage = rawUsage['usage']
