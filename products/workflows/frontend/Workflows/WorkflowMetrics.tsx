@@ -4,7 +4,7 @@ import { useMemo } from 'react'
 
 import * as greekPng from '@posthog/brand/hoggies/png/greek'
 import { IconLetter } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonSelect, ProfilePicture, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonSelect, LemonSelectOptions, ProfilePicture, Spinner } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { getColorVar } from 'lib/colors'
@@ -23,7 +23,7 @@ import { HogFlowBatchJob } from './hogflows/types'
 import { PushMetricsSummary } from './PushMetricsSummary'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 import { WorkflowMetricsSummary } from './WorkflowMetricsSummary'
-import { type EmailMetric, buildEmailMetricInvocationSearchParams } from './workflowMetricsSummaryLogic'
+import { type EmailMetric, METRIC_COLORS, buildEmailMetricInvocationSearchParams } from './workflowMetricsSummaryLogic'
 
 const HedgehogGreek = pngHoggie(greekPng)
 
@@ -33,27 +33,28 @@ export const WORKFLOW_METRICS_INFO: Record<string, { name: string; description: 
     succeeded: {
         name: 'Success',
         description: 'Total number of events processed successfully',
-        color: getColorVar('success'),
+        color: METRIC_COLORS['Success'],
     },
     failed: {
         name: 'Failure',
         description: 'Total number of events that had errors during processing',
-        color: getColorVar('danger'),
+        color: METRIC_COLORS['Failure'],
     },
     rate_limited: {
         name: 'Rate Limited',
         description: 'Total number of events that were rate limited',
-        color: getColorVar('danger'),
+        color: METRIC_COLORS['Rate Limited'],
     },
     triggered: {
         name: 'Triggered',
         description: 'Total number of events that were triggered',
-        color: getColorVar('success'),
+        color: METRIC_COLORS['Triggered'],
     },
 }
 
 function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
     const logicKey = `hog-flow-metrics-${props.id}`
+    const { searchParams } = useValues(router)
 
     const logic = appMetricsLogic({
         logicKey,
@@ -63,6 +64,9 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
             appSource: 'hog_flow',
             appSourceId: props.id,
             breakdownBy: 'metric_name',
+            // Seed the drilled-in step from ?action= so a refreshed or shared metrics link restores it.
+            // Subsequent changes (clicks, back/forward) are synced by workflowSceneLogic's urlToAction.
+            instanceId: (searchParams.action as string) || undefined,
         },
     })
 
@@ -70,7 +74,6 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
 
     const { appMetricsTrendsLoading, appMetricsTrends, getSingleTrendSeries, params, getDateRangeAbsolute } =
         useValues(logic)
-    const { setParams } = useActions(logic)
 
     const selectedAction = workflow.actions.find((action) => action.id === params.instanceId)
 
@@ -81,27 +84,34 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
                       ...appMetricsTrends,
                       series: appMetricsTrends.series.map((series) => ({
                           ...series,
-                          color: WORKFLOW_METRICS_INFO[series.name as keyof typeof WORKFLOW_METRICS_INFO]?.color,
+                          name:
+                              WORKFLOW_METRICS_INFO[series.name as keyof typeof WORKFLOW_METRICS_INFO]?.name ??
+                              series.name,
                       })),
                   }
                 : null,
         [appMetricsTrends]
     )
 
-    const workflowStepOptions = useMemo(
+    const workflowStepOptions: LemonSelectOptions<string> = useMemo(
         () => [
             {
-                label: 'Overview',
-                value: OVERVIEW_OPTION_VALUE,
+                options: [{ label: 'Whole workflow', value: OVERVIEW_OPTION_VALUE }],
             },
-            ...workflow.actions.map((action) => {
-                const Step = getHogFlowStep(action, hogFunctionTemplatesById)
-                return {
-                    label: action.name,
-                    icon: Step?.icon,
-                    value: action.id,
-                }
-            }),
+            {
+                // A titled section makes it obvious you can drill into a single step's metrics.
+                title: 'Per step',
+                options: workflow.actions
+                    .filter((action) => action.id !== 'trigger_node')
+                    .map((action) => {
+                        const Step = getHogFlowStep(action, hogFunctionTemplatesById)
+                        return {
+                            label: action.name,
+                            icon: Step?.icon,
+                            value: action.id,
+                        }
+                    }),
+            },
         ],
         [workflow.actions, hogFunctionTemplatesById]
     )
@@ -112,30 +122,36 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
             return
         }
         const { dateFrom, dateTo } = getDateRangeAbsolute()
-        const searchParams = buildEmailMetricInvocationSearchParams(
+        const invocationSearchParams = buildEmailMetricInvocationSearchParams(
             metricKey,
             dateFrom.toISOString(),
             dateTo.toISOString()
         )
-        if (searchParams) {
-            router.actions.push(urls.workflow(props.id, 'invocations'), searchParams)
+        if (invocationSearchParams) {
+            router.actions.push(urls.workflow(props.id, 'invocations'), invocationSearchParams)
         }
+    }
+
+    // Reflect the selected step in the URL (?action=) so it survives refresh/share/back-forward. The
+    // actual params.instanceId update is applied by workflowSceneLogic's urlToAction watching this.
+    const selectMetricsAction = (actionId?: string): void => {
+        if (!props.id) {
+            return
+        }
+        const { action: _prev, ...rest } = searchParams
+        router.actions.push(urls.workflow(props.id, 'metrics'), actionId ? { ...rest, action: actionId } : rest)
     }
 
     return (
         <div className="flex flex-col gap-2" data-attr="workflow-metrics">
-            <div className="flex flex-row gap-2 flex-wrap justify-between">
+            <div className="flex flex-row gap-2 flex-wrap justify-end items-center">
                 <div className="flex flex-row gap-2 items-center flex-wrap">
+                    <span className="text-muted text-xs whitespace-nowrap">Metrics for</span>
                     <LemonSelect
                         size="small"
-                        options={workflowStepOptions.filter((option) => option.value !== 'trigger_node')}
+                        options={workflowStepOptions}
                         value={params.instanceId ?? OVERVIEW_OPTION_VALUE}
-                        onChange={(value) =>
-                            setParams({
-                                ...params,
-                                instanceId: value === OVERVIEW_OPTION_VALUE ? undefined : value,
-                            })
-                        }
+                        onChange={(value) => selectMetricsAction(value === OVERVIEW_OPTION_VALUE ? undefined : value)}
                     />
                     {selectedAction?.type === 'function_email' && props.id ? (
                         <LemonButton
@@ -155,7 +171,7 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
                 <WorkflowMetricsSummary
                     logicKey={logicKey}
                     id={props.id ?? ''}
-                    onSelectAction={(actionId) => setParams({ ...params, instanceId: actionId })}
+                    onSelectAction={(actionId) => selectMetricsAction(actionId)}
                     onMetricClick={onEmailMetricClick}
                 />
             ) : selectedAction?.type === 'function_email' ? (
@@ -178,7 +194,11 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
                             />
                         ))}
                     </div>
-                    <AppMetricsTrends appMetricsTrends={modifiedAppMetricsTrends} loading={appMetricsTrendsLoading} />
+                    <AppMetricsTrends
+                        appMetricsTrends={modifiedAppMetricsTrends}
+                        loading={appMetricsTrendsLoading}
+                        seriesColors={METRIC_COLORS}
+                    />
                 </>
             )}
         </div>
@@ -237,38 +257,46 @@ function BatchJobMetrics({ job }: { job: HogFlowBatchJob }): JSX.Element {
                       ...appMetricsTrends,
                       series: appMetricsTrends.series.map((series) => ({
                           ...series,
-                          color: WORKFLOW_METRICS_INFO[series.name as keyof typeof WORKFLOW_METRICS_INFO]?.color,
+                          name:
+                              WORKFLOW_METRICS_INFO[series.name as keyof typeof WORKFLOW_METRICS_INFO]?.name ??
+                              series.name,
                       })),
                   }
                 : null,
         [appMetricsTrends]
     )
 
-    const workflowStepOptions = useMemo(
+    const workflowStepOptions: LemonSelectOptions<string> = useMemo(
         () => [
             {
-                label: 'Overview',
-                value: OVERVIEW_OPTION_VALUE,
+                options: [{ label: 'Whole workflow', value: OVERVIEW_OPTION_VALUE }],
             },
-            ...workflow.actions.map((action) => {
-                const Step = getHogFlowStep(action, hogFunctionTemplatesById)
-                return {
-                    label: action.name,
-                    icon: Step?.icon,
-                    value: action.id,
-                }
-            }),
+            {
+                // A titled section makes it obvious you can drill into a single step's metrics.
+                title: 'Per step',
+                options: workflow.actions
+                    .filter((action) => action.id !== 'trigger_node')
+                    .map((action) => {
+                        const Step = getHogFlowStep(action, hogFunctionTemplatesById)
+                        return {
+                            label: action.name,
+                            icon: Step?.icon,
+                            value: action.id,
+                        }
+                    }),
+            },
         ],
         [workflow.actions, hogFunctionTemplatesById]
     )
 
     return (
         <div className="flex flex-col gap-2">
-            <div className="flex flex-row gap-2 flex-wrap justify-between">
+            <div className="flex flex-row gap-2 flex-wrap justify-end items-center">
                 <div className="flex flex-row gap-2 items-center flex-wrap">
+                    <span className="text-muted text-xs whitespace-nowrap">Metrics for</span>
                     <LemonSelect
                         size="small"
-                        options={workflowStepOptions.filter((option) => option.value !== 'trigger_node')}
+                        options={workflowStepOptions}
                         value={params.instanceId ?? OVERVIEW_OPTION_VALUE}
                         onChange={(value) =>
                             setParams({
@@ -318,7 +346,11 @@ function BatchJobMetrics({ job }: { job: HogFlowBatchJob }): JSX.Element {
                             />
                         ))}
                     </div>
-                    <AppMetricsTrends appMetricsTrends={modifiedAppMetricsTrends} loading={appMetricsTrendsLoading} />
+                    <AppMetricsTrends
+                        appMetricsTrends={modifiedAppMetricsTrends}
+                        loading={appMetricsTrendsLoading}
+                        seriesColors={METRIC_COLORS}
+                    />
                 </>
             )}
         </div>
