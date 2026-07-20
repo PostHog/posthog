@@ -252,6 +252,21 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         assert len(body["results"]) == 1
         assert body["results"][0]["result"] == {"ok": True}
 
+    def test_get_latest_prefers_timeseries_fallback_over_first_active_run(self):
+        # Reload during the first-ever run: the pending run has no results yet, so returning it would blank
+        # out the timeseries data on screen. The fallback keeps the results visible while active_run rides
+        # along so the client still polls the executing run.
+        exp = self._launched_experiment(flag_key="ts-fallback-active")
+        self._store_timeseries_point(exp, "m1", datetime(2026, 2, 2, tzinfo=UTC))
+        active = ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, status="pending")
+
+        resp = self.client.get(self._latest_url(exp.id))
+        assert resp.status_code == status.HTTP_200_OK, resp.content
+        body = resp.json()
+        assert body["result_source"] == "timeseries_fallback"
+        assert body["results"][0]["result"] == {"ok": True}
+        assert body["active_run"] == {"id": str(active.id), "status": "pending"}
+
     def test_get_latest_still_404_when_no_recalc_and_no_timeseries(self):
         exp = self._launched_experiment(flag_key="ts-empty")
         resp = self.client.get(self._latest_url(exp.id))

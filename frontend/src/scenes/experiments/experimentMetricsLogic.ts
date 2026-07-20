@@ -577,7 +577,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     applyResults(recalculation)
 
                     /**
-                     * if there's an active recalculation running, schedule pooling of
+                     * if there's an active recalculation running, schedule polling of
                      * the active recalculation status
                      */
                     if (recalculation.active_run) {

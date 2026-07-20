@@ -270,9 +270,11 @@ def request_recalculation(experiment: Experiment, user: User, trigger: str = "ma
             ).values_list("id", flat=True)
         )
         if stale_ids:
+            # No completed_at: that stamp is reserved for the workflow finalize step, and its absence is
+            # what keeps superseded/tombstone rows out of get_latest_recalculation.
             ExperimentMetricsRecalculation.objects.filter(
                 team=experiment.team, experiment=experiment, id__in=stale_ids
-            ).update(status=ExperimentMetricsRecalculation.Status.FAILED, completed_at=timezone.now())
+            ).update(status=ExperimentMetricsRecalculation.Status.FAILED)
             _recalculation_stale_cleanup_counter.inc(len(stale_ids))
             transaction.on_commit(lambda: _cancel_superseded_workflows([str(stale_id) for stale_id in stale_ids]))
 
@@ -310,8 +312,12 @@ def get_latest_recalculation(experiment: Experiment) -> ExperimentMetricsRecalcu
         return (
             ExperimentMetricsRecalculation.objects.filter(team=experiment.team, experiment=experiment)
             .filter(
+                # completed_at is only ever stamped by the workflow's finalize step, so it separates runs
+                # that really finished from trigger-failure tombstones (status flipped to FAILED at create
+                # time, never started). Keying on metric_errors instead would hide a failed run whose
+                # failures live only in result rows.
                 Q(status=ExperimentMetricsRecalculation.Status.COMPLETED)
-                | (Q(status=ExperimentMetricsRecalculation.Status.FAILED) & ~Q(metric_errors={}))
+                | (Q(status=ExperimentMetricsRecalculation.Status.FAILED) & Q(completed_at__isnull=False))
             )
             .order_by("-created_at")
             .first()

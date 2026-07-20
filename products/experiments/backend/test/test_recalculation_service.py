@@ -207,13 +207,18 @@ class TestRecalculationService(BaseTest):
             ("stale_in_progress", {"status": "in_progress", "started_at": "old"}, False, False, False),
             ("completed", {"status": "completed"}, False, False, True),
             (
-                "failed_with_errors",
-                {"status": "failed", "metric_errors": {"m1": {"message": "boom"}}},
+                "failed_finalized_with_errors",
+                {"status": "failed", "completed_at": "now", "metric_errors": {"m1": {"message": "boom"}}},
                 False,
                 False,
                 True,
             ),
-            ("failed_without_errors", {"status": "failed"}, False, False, False),
+            # Finalized run whose failures live only in FAILED result rows (crash between the result write
+            # and the metric_errors write): still the latest terminal run, must not be hidden.
+            ("failed_finalized_without_errors", {"status": "failed", "completed_at": "now"}, False, False, True),
+            # No completed_at means the finalize step never ran: a trigger-failure tombstone or a
+            # superseded row. Nothing to display, must not shadow older results.
+            ("failed_tombstone", {"status": "failed"}, False, False, False),
         ]
     )
     def test_latest_and_active_row_eligibility(
@@ -227,6 +232,8 @@ class TestRecalculationService(BaseTest):
                 kwargs["started_at"] = timezone.now()
             elif kwargs.get("started_at") == "old":
                 kwargs["started_at"] = timezone.now() - timedelta(hours=2)
+            if kwargs.get("completed_at") == "now":
+                kwargs["completed_at"] = timezone.now()
             row = ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, **kwargs)
             if stale_created_at:
                 # created_at uses auto_now_add so it has to be moved after create.

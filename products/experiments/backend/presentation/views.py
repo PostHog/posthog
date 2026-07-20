@@ -1122,14 +1122,21 @@ class EnterpriseExperimentsViewSet(
         active_run = {"id": str(active.id), "status": active.status} if active is not None else None
         recalc = get_latest_recalculation(experiment)
 
-        if (run := recalc or active) is not None:
-            return Response(_serialize_recalculation(run, active_run=active_run))
+        if recalc is not None:
+            return Response(_serialize_recalculation(recalc, active_run=active_run))
 
-        # Cold start: no runs worth showing. Fall back to the latest timeseries data as a read-only
-        # placeholder so the user sees results immediately. Pure read, no workflow start.
+        # Cold start: no terminal run worth showing. Fall back to the latest timeseries data as a read-only
+        # placeholder so the user sees results immediately, even while a first run is active (its pending
+        # payload would blank them out); an active run still rides along for polling. Pure read, no
+        # workflow start.
         fallback = build_timeseries_cold_start_payload(experiment)
         if fallback is not None:
+            if active_run is not None:
+                fallback["active_run"] = active_run
             return Response(ExperimentMetricsRecalculationSerializer(fallback).data)
+
+        if active is not None:
+            return Response(_serialize_recalculation(active, active_run=active_run))
 
         return Response({"detail": "No completed recalculation found"}, status=404)
 
