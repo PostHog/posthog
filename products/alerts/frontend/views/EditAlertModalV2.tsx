@@ -408,20 +408,30 @@ export function EditAlertModalV2({
 
                                 <SummaryBanner summary={summary} alertMode={alertMode} />
 
-                                <AlertEditorSection title="Monitor">
-                                    <div className="space-y-3">
-                                        {previewNode}
-                                        {definitionNode}
+                                <div className="rounded border border-border p-4">
+                                    <AlertEditorSection title="Monitor">
+                                        <div className="space-y-3">
+                                            {previewNode}
+                                            {definitionNode}
+                                        </div>
+                                    </AlertEditorSection>
+                                </div>
+
+                                <div className="rounded border border-border p-4">
+                                    <AlertEditorSection title="Schedule">{scheduleNode}</AlertEditorSection>
+                                </div>
+
+                                <div className="rounded border border-border p-4">
+                                    <AlertEditorSection title="Notifications">{notifyNode}</AlertEditorSection>
+                                </div>
+
+                                <div className="rounded border border-border p-4">{advancedNode}</div>
+
+                                {alertId && alert ? (
+                                    <div className="rounded border border-border p-4">
+                                        <AlertHistorySection alertId={alert.id} />
                                     </div>
-                                </AlertEditorSection>
-
-                                <AlertEditorSection title="Schedule">{scheduleNode}</AlertEditorSection>
-
-                                <AlertEditorSection title="Notifications">{notifyNode}</AlertEditorSection>
-
-                                {advancedNode}
-
-                                {alertId && alert ? <AlertHistorySection alertId={alert.id} /> : null}
+                                ) : null}
                             </div>
                         </AlertEditor>
                     )}
