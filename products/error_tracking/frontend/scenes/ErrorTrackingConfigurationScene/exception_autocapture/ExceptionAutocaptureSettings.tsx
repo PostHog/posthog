@@ -25,7 +25,7 @@ export function ExceptionAutocaptureToggle(): JSX.Element {
             <AccessControlAction
                 resourceType={AccessControlResourceType.Project}
                 minAccessLevel={AccessControlLevel.Admin}
-                userAccessLevel={currentTeam?.user_access_level ?? AccessControlLevel.Admin}
+                userAccessLevel={currentTeam?.user_access_level}
             >
                 <LemonSwitch
                     id="posthog-autocapture-exceptions-switch"
