@@ -62,7 +62,11 @@ jest.mock('scenes/surveys/utils/opportunityDetection', () => ({
 }))
 
 jest.mock('scenes/insights/EmptyStates', () => ({
-    InsightErrorState: ({ title }: { title: string }) => <div data-attr="insight-error-state">{title}</div>,
+    InsightErrorState: ({ title, supportOnly }: { title: string; supportOnly?: boolean }) => (
+        <div data-attr="insight-error-state" data-support-only={supportOnly ? 'true' : undefined}>
+            {title}
+        </div>
+    ),
 }))
 
 jest.mock('~/exporter/exporterViewLogic', () => ({
@@ -87,7 +91,7 @@ jest.mock('lib/components/Cards/InsightCard', () => ({
         tile: { id: number }
         showResizeHandles: boolean
         apiErrored?: boolean
-        apiError?: Error & { status?: number; detail?: string | null }
+        apiError?: Error & { status?: number; detail?: string | null; code?: string | null }
     }) => (
         <div
             data-attr="insight-card"
@@ -96,6 +100,7 @@ jest.mock('lib/components/Cards/InsightCard', () => ({
             data-api-errored={apiErrored ? 'true' : undefined}
             data-api-error-status={apiError?.status}
             data-api-error-detail={apiError?.detail ?? undefined}
+            data-api-error-code={apiError?.code ?? undefined}
         />
     ),
 }))
@@ -340,7 +345,10 @@ describe('DashboardItems', () => {
 
         const { findByText, getByRole, getByText } = render(<DashboardItems />)
         expect(getByText('Dashboard tile 2')).toBeInTheDocument()
-        expect(getByText('There is a problem loading this dashboard tile.')).toBeInTheDocument()
+        expect(getByText('There is a problem loading this dashboard tile.')).toHaveAttribute(
+            'data-support-only',
+            'true'
+        )
 
         fireEvent.click(getByRole('button', { name: 'more' }))
         fireEvent.click(await findByText('Remove from dashboard'))
@@ -393,6 +401,7 @@ describe('DashboardItems', () => {
 
         expect(insightCard).toHaveAttribute('data-api-errored', 'true')
         expect(insightCard).toHaveAttribute('data-api-error-status', '500')
+        expect(insightCard).toHaveAttribute('data-api-error-code', 'dashboard_tile_error')
         expect(insightCard).toHaveAttribute('data-api-error-detail', 'There is a problem loading this dashboard tile.')
     })
 })

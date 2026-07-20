@@ -548,7 +548,10 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                 const isErrorTile = !!tile.error
                                 const apiErrored = isErrorTile || refreshStatus[insight.short_id]?.errored || false
                                 const apiError = isErrorTile
-                                    ? new ApiError(undefined, 500, undefined, { detail: tile.error!.message })
+                                    ? new ApiError(undefined, 500, undefined, {
+                                          detail: tile.error!.message,
+                                          code: 'dashboard_tile_error',
+                                      })
                                     : refreshStatus[insight.short_id]?.error
                                 const loadingQueued = isErrorTile ? false : isRefreshingQueued(insight.short_id)
                                 const loading = isErrorTile ? false : isRefreshing(insight.short_id)

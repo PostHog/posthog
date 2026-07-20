@@ -646,6 +646,7 @@ export interface InsightErrorStateProps {
     queryId?: string | null
     excludeDetail?: boolean
     excludeActions?: boolean
+    supportOnly?: boolean
     fixWithAIComponent?: JSX.Element
     onRetry?: () => void
 }
@@ -656,6 +657,7 @@ export function InsightErrorState({
     queryId,
     excludeDetail = false,
     excludeActions = false,
+    supportOnly = false,
     fixWithAIComponent,
     onRetry,
 }: InsightErrorStateProps): JSX.Element {
@@ -676,6 +678,17 @@ export function InsightErrorState({
         excludeDetail = true // We don't provide support for self-hosted instances
     }
 
+    const bugReportLink = (
+        <Link
+            data-attr="insight-error-bug-report"
+            onClick={() => {
+                openSupportForm({ kind: 'bug', target_area: 'analytics' })
+            }}
+        >
+            If this persists, submit a bug report.
+        </Link>
+    )
+
     return (
         <div
             data-attr="insight-empty-state"
@@ -691,22 +704,20 @@ export function InsightErrorState({
 
             {!excludeDetail && (
                 <div className="mt-4">
-                    We apologize for this unexpected situation. There are a couple of things you can do:
-                    <ol>
-                        <li>
-                            First and foremost you can <b>try again</b>. We recommend you wait a moment before doing so.
-                        </li>
-                        <li>
-                            <Link
-                                data-attr="insight-error-bug-report"
-                                onClick={() => {
-                                    openSupportForm({ kind: 'bug', target_area: 'analytics' })
-                                }}
-                            >
-                                If this persists, submit a bug report.
-                            </Link>
-                        </li>
-                    </ol>
+                    {supportOnly ? (
+                        bugReportLink
+                    ) : (
+                        <>
+                            We apologize for this unexpected situation. There are a couple of things you can do:
+                            <ol>
+                                <li>
+                                    First and foremost you can <b>try again</b>. We recommend you wait a moment before
+                                    doing so.
+                                </li>
+                                <li>{bugReportLink}</li>
+                            </ol>
+                        </>
+                    )}
                 </div>
             )}
 
