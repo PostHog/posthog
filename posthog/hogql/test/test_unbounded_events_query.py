@@ -35,6 +35,18 @@ class TestUnboundedEventsQuery(BaseTest):
                 "(SELECT distinct_id FROM events WHERE timestamp > now())",
                 True,
             ),
+            # A timestamp filter on a JOINed non-events table does not bound the events read.
+            (
+                "join_other_table_timestamp_not_events",
+                "SELECT count() FROM events AS e JOIN some_table AS s ON s.id = e.person_id WHERE s.timestamp > now()",
+                True,
+            ),
+            # A timestamp filter qualified with the events alias does bound it.
+            (
+                "join_events_alias_timestamp_bounded",
+                "SELECT count() FROM events AS e JOIN some_table AS s ON s.id = e.person_id WHERE e.timestamp > now()",
+                False,
+            ),
             # A bounded outer query wrapping a bounded subquery is fine.
             (
                 "bounded_subquery_only",

@@ -658,7 +658,8 @@ class HogQLQueryExecutor:
             )
 
             if "events" in hogql_features.tables:
-                self._capture_unbounded_events_query()
+                with self.timings.measure("capture_unbounded_events_query"):
+                    self._capture_unbounded_events_query()
 
             workload = self.workload
             if workload == Workload.DEFAULT and clickhouse_context.workload is not None:

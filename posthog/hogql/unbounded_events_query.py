@@ -30,21 +30,28 @@ class _UnboundedEventsQueryDetector(TraversingVisitor):
         self.found = False
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
-        if not self.found and _select_reads_events(node) and not _has_events_timestamp_filter(node):
-            self.found = True
+        if not self.found:
+            events_ids = _events_table_identifiers(node)
+            if events_ids and not _has_events_timestamp_filter(node, events_ids):
+                self.found = True
         # Keep walking: a bounded outer query can still wrap an unbounded subquery / CTE.
         super().visit_select_query(node)
 
 
-def _select_reads_events(node: ast.SelectQuery) -> bool:
-    """Whether this SELECT's own FROM / JOIN chain reads the events table (ignores subqueries —
-    each nested SELECT is scored on its own filters)."""
+def _events_table_identifiers(node: ast.SelectQuery) -> set[str]:
+    """Names that refer to the events table in this SELECT's own FROM / JOIN chain — each events
+    source's alias (or ``events`` when unaliased). Empty when the SELECT doesn't read events
+    directly (nested subqueries are scored on their own). Also used to attribute an unresolved
+    ``x.timestamp`` filter to the right table."""
+    ids: set[str] = set()
     join: ast.JoinExpr | None = node.select_from
     while join is not None:
         if _is_events_table(join.table):
-            return True
+            ids.add("events")
+            if join.alias:
+                ids.add(join.alias)
         join = join.next_join
-    return False
+    return ids
 
 
 def _is_events_table(expr: ast.Expr | None) -> bool:
@@ -57,8 +64,8 @@ def _is_events_table(expr: ast.Expr | None) -> bool:
     return isinstance(expr, ast.Field) and bool(expr.chain) and expr.chain[0] == "events"
 
 
-def _has_events_timestamp_filter(node: ast.SelectQuery) -> bool:
-    finder = _TimestampFieldFinder()
+def _has_events_timestamp_filter(node: ast.SelectQuery, events_ids: set[str]) -> bool:
+    finder = _TimestampFieldFinder(events_ids)
     for clause in (node.where, node.prewhere, node.having):
         if clause is not None:
             finder.visit(clause)
@@ -66,12 +73,13 @@ def _has_events_timestamp_filter(node: ast.SelectQuery) -> bool:
 
 
 class _TimestampFieldFinder(TraversingVisitor):
-    def __init__(self) -> None:
+    def __init__(self, events_ids: set[str]) -> None:
         super().__init__()
+        self.events_ids = events_ids
         self.found = False
 
     def visit_field(self, node: ast.Field) -> None:
-        if _looks_like_events_timestamp(node):
+        if _field_is_events_timestamp(node, self.events_ids):
             self.found = True
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
@@ -79,9 +87,10 @@ class _TimestampFieldFinder(TraversingVisitor):
         pass
 
 
-def _looks_like_events_timestamp(expr: ast.Field) -> bool:
-    """``True`` iff ``expr`` references the events table's ``timestamp`` column.
-    Mirrors ``_looks_like_event_field`` from the feature extractor."""
+def _field_is_events_timestamp(expr: ast.Field, events_ids: set[str]) -> bool:
+    """``True`` iff ``expr`` references the events table's ``timestamp`` column. Uses type info
+    when resolved; otherwise falls back to the chain, attributing a qualified ``x.timestamp`` only
+    when ``x`` names the events table (so a JOINed table's ``timestamp`` filter doesn't count)."""
     if not expr.chain:
         return False
 
@@ -98,5 +107,8 @@ def _looks_like_events_timestamp(expr: ast.Field) -> bool:
             table_type = table_type.table_type
         return isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable)
 
-    # No type info — fall back to last-identifier chain match (covers ``timestamp``, ``e.timestamp``).
-    return expr.chain[-1] == "timestamp"
+    # No type info — fall back to the chain. Bare ``timestamp`` counts; a qualified ``x.timestamp``
+    # counts only when ``x`` is an events-table identifier in this SELECT.
+    if expr.chain[-1] != "timestamp":
+        return False
+    return len(expr.chain) == 1 or expr.chain[-2] in events_ids
