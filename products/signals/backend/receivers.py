@@ -202,8 +202,11 @@ _SNAPSHOT_ARTEFACT_FIELDS = [
 
 def _is_dismissal_transition(previous_status: str, new_status: str) -> bool:
     """Whether this transition is one the state API writes dismissal feedback for: a dismissal
-    (into suppressed) or a snooze (researched report back to potential)."""
-    return new_status == SignalReport.Status.SUPPRESSED or (
+    (into suppressed), a snooze (researched report back to potential), or a resolve (where the
+    reason/note records why the work was considered done). Must stay in step with the artefact-write
+    branch in SignalReportViewSet._transition_report_state, or feedback the API persisted is dropped
+    from the label stream."""
+    return new_status in (SignalReport.Status.SUPPRESSED, SignalReport.Status.RESOLVED) or (
         new_status == SignalReport.Status.POTENTIAL and previous_status in _SNOOZE_SOURCE_STATUSES
     )
 

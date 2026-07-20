@@ -213,8 +213,12 @@ def report_has_merged_pr(report_id: str | uuid.UUID) -> bool:
     Reads `output.pr_merged`, the flag the tasks GitHub webhook persists when a PR merges — the
     factual record of a merge, independent of report status. A report can now reach RESOLVED without
     a merged PR (a user or agent can resolve it directly), so status alone no longer attests a merge.
-    Same fail-closed team-agreement guards as `_bridges_with_pr_run`: the merge flag and the team
-    checks resolve against the same `TaskRun` row.
+
+    Same billable-run definition as `_bridges_with_pr_run`, and for the same fail-closed reason: the
+    GitHub PR URL prefix, the merge flag, and the four team checks all sit in one `filter()` so they
+    resolve against the same `TaskRun` row. Without the URL condition a run carrying a merge flag but
+    no billable GitHub PR would attest a merge that the billing path doesn't recognise, and the refund
+    would leave such a report resolved (and its PR unclosed) on the strength of it.
     """
     return SignalReportTask.objects.filter(
         relationship=_IMPLEMENTATION,
@@ -222,6 +226,7 @@ def report_has_merged_pr(report_id: str | uuid.UUID) -> bool:
         task__team_id=F("team_id"),
         report__team_id=F("team_id"),
         task__runs__team_id=F("team_id"),
+        task__runs__output__pr_url__startswith=_GITHUB_PR_URL_PREFIX,
         task__runs__output__pr_merged=True,
     ).exists()
 

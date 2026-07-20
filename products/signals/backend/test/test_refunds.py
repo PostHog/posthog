@@ -308,6 +308,32 @@ class TestSignalReportRefundAPI(APIBaseTest):
         assert mock_report.call_args.kwargs["properties"]["pr_merged"] is expected
 
     @freeze_time(_NOW)
+    def test_merge_flag_on_non_github_run_does_not_attest_a_merge(self, _flag):
+        # A billable GitHub run makes the report refundable, while a second implementation run
+        # carries a merge flag on a URL the billing path never counts. That flag must not attest a
+        # merge: if it did, the refund would leave the report resolved and its real PR unclosed.
+        report = _make_report(self.team, status=SignalReport.Status.RESOLVED)
+        _make_pr_run(
+            self.team,
+            report,
+            created_at=datetime(2026, 6, 10, tzinfo=UTC),
+            output={"pr_url": "https://github.com/x/y/pull/1"},
+        )
+        _make_pr_run(
+            self.team,
+            report,
+            created_at=datetime(2026, 6, 11, tzinfo=UTC),
+            output={"pr_url": "https://gitlab.example.com/x/y/-/merge_requests/1", "pr_merged": True},
+        )
+
+        with patch("products.signals.backend.views.report_user_action") as mock_report:
+            assert self._refund(report).status_code == status.HTTP_200_OK
+
+        assert mock_report.call_args.kwargs["properties"]["pr_merged"] is False
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.SUPPRESSED
+
+    @freeze_time(_NOW)
     def test_restore_of_refunded_report_is_blocked(self, _flag):
         report = self._report_with_pr(pr_created_at=datetime(2026, 6, 10, tzinfo=UTC))
         assert self._refund(report).status_code == status.HTTP_200_OK
