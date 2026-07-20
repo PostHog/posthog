@@ -765,10 +765,7 @@ export function DataTable({
                             }
                             if (result && !Array.isArray(result)) {
                                 return (
-                                    <EventDetails
-                                        event={result as EventType}
-                                        tableProps={EVENT_DETAIL_TABLE_PROPS}
-                                    />
+                                    <EventDetails event={result as EventType} tableProps={EVENT_DETAIL_TABLE_PROPS} />
                                 )
                             }
                         },
