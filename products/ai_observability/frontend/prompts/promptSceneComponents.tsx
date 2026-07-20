@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 import { Suspense, useRef } from 'react'
 
-import { IconColumns, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
+import { IconColumns, IconMarkdown, IconMarkdownFilled, IconPlusSmall } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -16,6 +16,7 @@ import {
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -24,6 +25,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -39,6 +41,7 @@ import { CreatePromptExperimentModal } from './CreatePromptExperimentModal'
 import { createPromptExperimentModalLogic } from './createPromptExperimentModalLogic'
 import { PromptAnalyticsScope, isPrompt, llmPromptLogic } from './llmPromptLogic'
 import { promptExperimentsLogic } from './promptExperimentsLogic'
+import { PromptLabelPicker } from './PromptLabelPicker'
 import { PROMPT_NAME_MAX_LENGTH } from './utils'
 
 const MonacoDiffEditor = lazyWithRetry(() => import('lib/components/MonacoDiffEditor'))
@@ -790,8 +793,10 @@ export function PromptVersionSidebar({
     searchParams: Record<string, any>
     readOnly?: boolean
 }): JSX.Element {
-    const { compareVersion } = useValues(llmPromptLogic)
-    const { setCompareVersion } = useActions(llmPromptLogic)
+    const { compareVersion, labelsByVersion, labelPickerVersion } = useValues(llmPromptLogic)
+    const { setCompareVersion, openLabelPicker, requestRemoveLabel } = useActions(llmPromptLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const labelsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_PROMPT_LABELS]
 
     return (
         <aside className="w-full shrink-0 xl:sticky xl:top-4 xl:mt-3 xl:w-80">
@@ -860,6 +865,44 @@ export function PromptVersionSidebar({
                                 </div>
                                 {versionPrompt.created_by?.email ? (
                                     <div className="mt-1 text-xs text-secondary">{versionPrompt.created_by.email}</div>
+                                ) : null}
+                                {labelsEnabled ? (
+                                    <div
+                                        className="mt-1.5 flex flex-wrap items-center gap-1"
+                                        // The card is a Link; label actions must not navigate. Capture-phase
+                                        // preventDefault runs before child handlers that stopPropagation
+                                        // (e.g. LemonTag's close button), which would otherwise let the
+                                        // anchor's native navigation through.
+                                        onClickCapture={(e) => e.preventDefault()}
+                                        onClick={(e) => e.stopPropagation()}
+                                    >
+                                        {(labelsByVersion[versionPrompt.version] ?? []).map((label) => (
+                                            <LemonTag
+                                                key={label.name}
+                                                type="completion"
+                                                size="small"
+                                                closable={!readOnly}
+                                                onClose={readOnly ? undefined : () => requestRemoveLabel(label.name)}
+                                                data-attr={`llma-prompt-label-${label.name}`}
+                                            >
+                                                {label.name}
+                                            </LemonTag>
+                                        ))}
+                                        {!readOnly &&
+                                            (labelPickerVersion === versionPrompt.version ? (
+                                                <PromptLabelPicker version={versionPrompt.version} />
+                                            ) : (
+                                                <LemonButton
+                                                    size="xsmall"
+                                                    icon={<IconPlusSmall />}
+                                                    onClick={() => openLabelPicker(versionPrompt.version)}
+                                                    tooltip="Point a label at this version"
+                                                    data-attr={`llma-prompt-add-label-${versionPrompt.version}`}
+                                                >
+                                                    Add label
+                                                </LemonButton>
+                                            ))}
+                                    </div>
                                 ) : null}
                             </>
                         )

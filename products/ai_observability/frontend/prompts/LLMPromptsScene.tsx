@@ -7,9 +7,12 @@ import { Link } from '@posthog/lemon-ui'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -36,6 +39,8 @@ export function LLMPromptsScene(): JSX.Element {
     const { prompts, promptsLoading, sorting, pagination, filters, promptCountLabel, shouldShowEmptyState } =
         useValues(llmPromptsLogic)
     const { searchParams } = useValues(router)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const labelsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_PROMPT_LABELS]
     const promptUrl = (name: string): string => combineUrl(urls.aiObservabilityPrompt(name), searchParams).url
 
     const columns: LemonTableColumns<LLMPrompt> = [
@@ -86,6 +91,28 @@ export function LLMPromptsScene(): JSX.Element {
                 return <span className="text-muted-alt">{prompt.version_count}</span>
             },
         },
+        ...(labelsEnabled
+            ? ([
+                  {
+                      title: 'Labels',
+                      key: 'labels',
+                      render: function renderLabels(_, prompt) {
+                          if (!prompt.all_labels?.length) {
+                              return <span className="text-muted-alt">–</span>
+                          }
+                          return (
+                              <div className="flex flex-wrap gap-1">
+                                  {prompt.all_labels.map((label) => (
+                                      <LemonTag key={label.name} type="completion" size="small">
+                                          {label.name}: v{label.version}
+                                      </LemonTag>
+                                  ))}
+                              </div>
+                          )
+                      },
+                  },
+              ] as LemonTableColumns<LLMPrompt>)
+            : []),
         atColumn('created_at', 'Latest version created') as LemonTableColumn<LLMPrompt, keyof LLMPrompt | undefined>,
         {
             width: 0,
