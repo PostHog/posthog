@@ -451,7 +451,9 @@ export function ConfigChangeCards({
                     </div>
                 )}
                 {structuredFields.length > 0 && (
-                    <div className="flex flex-col gap-3">
+                    <div className="relative flex flex-col gap-3">
+                        {/* A quiet divider down the middle to separate the current and new columns. */}
+                        <div className="absolute inset-y-0 left-1/2 border-l" aria-hidden />
                         <div className="grid grid-cols-2 gap-3 text-xs font-medium text-muted border-b pb-1">
                             <span>Current</span>
                             <span>New</span>
