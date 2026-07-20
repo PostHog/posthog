@@ -89,7 +89,8 @@ concurrency:
 ## Required-check gates
 
 The "gate" is the collate job that emits the required status check by reading `needs.*.result`.
-By convention its display name ends in `Pass` (`Django Tests Pass`, `Visual regression tests pass`).
+By convention its display name ends in `Pass` (`Django Tests Pass`, `Visual regression tests pass`), but `WF007` also finds gates structurally — `always()` plus a step that reads `needs.<dep>.result` — because the convention is not universally followed.
+A job that inspects results without gating anything opts out with `# hogli-lint: not-a-required-gate — <reason>` above the job key.
 Gates and the workers they inspect need **opposite** conditions:
 
 | Job     | Condition          | Why                                                                           |
@@ -105,13 +106,14 @@ Three rules for the gate body:
 1. **Allowlist every dependency, never denylist.** Assert `success`/`skipped` and fail everything else.
    A dependency tested only against `== 'failure'` lets `cancelled` through, and one bad dependency is enough — a gate that clears four correctly and one with a bare `failure` test is still wrong.
    The trap is the `changes` detector: clearing it with `== 'failure'` and then reading `needs.changes.outputs.*` reports green on cancellation, because those outputs are empty and the gate takes its "nothing to test" exit.
-   Four gates shipped exactly that.
 2. **`needs` every job that produces coverage.**
    If a job's failure would only cascade into a downstream job being _skipped_, the gate reads that as a pass and you get a green check with zero tests run.
    Name the upstream job explicitly.
 3. **Legitimate skips must still pass.** A frontend-only PR skips backend jobs by design.
+4. **Keep the tests inline**, one `if` per dependency.
+   Routing results through a shell function or an `env:` block hides them from `WF007`'s per-dependency pass, which then falls back to only checking that an allowlist appears somewhere in the step — so a denylisted dependency alongside an allowlisted one goes unnoticed.
 
-`WF007` enforces 1 and the `always()` condition.
+`WF007` enforces 1, 4, and the `always()` condition.
 Rule 2 is not mechanically checkable, because "reporting job" and "coverage job" look identical to a linter. It is on you and the reviewer.
 
 ## Checkout / clone — shallow by default

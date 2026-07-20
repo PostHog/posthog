@@ -876,10 +876,9 @@ class TestRegistry:
             assert isinstance(result, CheckResult)
 
 
-# Fixtures mirror the real gate shapes in ci-oauth-proxy.yml, ci-proto.yml and
-# ci-rust.yml: a `changes` detector cleared with a bare `== "failure"`, then its
-# outputs read to decide "nothing to test". Those outputs are empty on a
-# cancelled job, so the gate exits 0 green with no tests run.
+# The shape these fixtures guard against: a `changes` detector cleared with a bare
+# `== "failure"`, then its outputs read to decide "nothing to test". Those outputs
+# are empty on a cancelled job, so the gate exits 0 green with no tests run.
 def _gate(body: str, condition: str = "always()") -> str:
     return f"""
     name: ci-thing
@@ -923,7 +922,7 @@ MIXED_BODY = SAFE_BODY.replace(
     """if [[ "${{ needs.changes.result }}" == "failure" ]]; then""",
 )
 
-# ci-rust.yml cleared two dependencies this way while allowlisting the rest.
+# Two dependencies denylisted while the rest are allowlisted.
 TWO_BAD_BODY = MIXED_BODY.replace(
     """if [[ "${{ needs.changes.outputs.thing }}" != "true" ]]; then""",
     """if [[ "${{ needs.affected.result }}" == "failure" ]]; then
@@ -987,17 +986,17 @@ class TestRequiredGateCheck:
         _write(tmp_path, "ci-thing.yml", content)
         assert RequiredGateCheck().run(_read_all(tmp_path)).issues == []
 
-    def test_flags_only_the_denylisted_dependency(self, tmp_path: Path) -> None:
-        _write(tmp_path, "ci-thing.yml", _gate(MIXED_BODY))
+    @pytest.mark.parametrize(
+        "body,expected_deps",
+        [(MIXED_BODY, ["changes"]), (TWO_BAD_BODY, ["affected", "changes"])],
+        ids=["one-denylisted-among-allowlisted", "two-denylisted-among-allowlisted"],
+    )
+    def test_flags_exactly_the_denylisted_dependencies(
+        self, tmp_path: Path, body: str, expected_deps: list[str]
+    ) -> None:
+        _write(tmp_path, "ci-thing.yml", _gate(body))
         issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
-        assert len(issues) == 1
-        assert "'changes'" in issues[0].message
-        assert "build" not in issues[0].message
-
-    def test_flags_every_denylisted_dependency(self, tmp_path: Path) -> None:
-        _write(tmp_path, "ci-thing.yml", _gate(TWO_BAD_BODY))
-        issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
-        assert sorted(i.message.split("'")[1] for i in issues) == ["affected", "changes"]
+        assert sorted(i.message.split("'")[1] for i in issues) == expected_deps
 
     @pytest.mark.parametrize(
         "content,expected",
@@ -1031,6 +1030,28 @@ class TestRequiredGateCheck:
             """,
         )
         assert RequiredGateCheck().run(_read_all(tmp_path)).issues == []
+
+    # A gate named off-convention is still a gate: two shipped that way and went
+    # unchecked while the rule keyed on the name alone.
+    def test_finds_gate_not_named_pass(self, tmp_path: Path) -> None:
+        _write(tmp_path, "ci-thing.yml", _gate(MIXED_BODY).replace("Thing Tests Pass", "Thing code quality"))
+        issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
+        assert [i.message.split("'")[1] for i in issues] == ["changes"]
+
+    def test_allow_marker_exempts_a_non_gate_job(self, tmp_path: Path) -> None:
+        marked = _gate(MIXED_BODY).replace(
+            "      thing_tests:",
+            "      # hogli-lint: not-a-required-gate — decides a side effect, emits no check\n      thing_tests:",
+        )
+        _write(tmp_path, "ci-thing.yml", marked.replace("Thing Tests Pass", "Thing decision"))
+        assert RequiredGateCheck().run(_read_all(tmp_path)).issues == []
+
+    def test_allow_marker_requires_a_reason(self, tmp_path: Path) -> None:
+        marked = _gate(MIXED_BODY).replace(
+            "      thing_tests:", "      # hogli-lint: not-a-required-gate\n      thing_tests:"
+        )
+        _write(tmp_path, "ci-thing.yml", marked.replace("Thing Tests Pass", "Thing decision"))
+        assert RequiredGateCheck().run(_read_all(tmp_path)).issues != []
 
 
 class TestLiveTreeSmoke:

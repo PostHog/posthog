@@ -694,16 +694,12 @@ jobs:
         steps:
             - name: Check all MCP jobs
               run: |
-                  # Allowlist, not denylist: anything that is not success or a
-                  # legitimate skip (cancelled, timed out) has to block the gate.
-                  check() {
-                    if [[ "$2" != "success" && "$2" != "skipped" ]]; then
-                      echo "$1 did not succeed (result: $2)."
-                      exit 1
-                    fi
-                  }
-
-                  check "Change detection" "${{ needs.changes.result }}"
+                  # Block cancelled too: outputs are empty then, so the "no relevant
+                  # changes" exit below would report green.
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+                    echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
+                    exit 1
+                  fi
 
                   # Pass if no MCP changes detected (jobs were skipped)
                   if [[ "${{ needs.changes.outputs.mcp }}" != "true" ]]; then
@@ -711,9 +707,24 @@ jobs:
                     exit 0
                   fi
 
-                  check "MCP build" "${{ needs.build.result }}"
-                  check "MCP unit tests" "${{ needs.unit-tests.result }}"
-                  check "MCP integration tests" "${{ needs.integration-tests.result }}"
-                  check "MCP snapshot commit job" "${{ needs.handle-snapshots.result }}"
+                  if [[ "${{ needs.build.result }}" != "success" && "${{ needs.build.result }}" != "skipped" ]]; then
+                    echo "MCP build did not succeed (result: ${{ needs.build.result }})."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.unit-tests.result }}" != "success" && "${{ needs.unit-tests.result }}" != "skipped" ]]; then
+                    echo "MCP unit tests did not succeed (result: ${{ needs.unit-tests.result }})."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.integration-tests.result }}" != "success" && "${{ needs.integration-tests.result }}" != "skipped" ]]; then
+                    echo "MCP integration tests did not succeed (result: ${{ needs.integration-tests.result }})."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.handle-snapshots.result }}" != "success" && "${{ needs.handle-snapshots.result }}" != "skipped" ]]; then
+                    echo "MCP snapshot commit job did not succeed (result: ${{ needs.handle-snapshots.result }})."
+                    exit 1
+                  fi
 
                   echo "All MCP checks passed."
