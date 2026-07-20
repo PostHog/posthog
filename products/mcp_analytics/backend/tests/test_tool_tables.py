@@ -334,7 +334,8 @@ class TestMCPToolFailureOccurrencesQueryRunner(_MCPAnalyticsTeamScopedTestMixin,
             timestamp=now,
         )
         # Pre-capture event: no $mcp_error_message on the event must surface as an empty string.
-        self._emit(distinct_id="d2", error_type="internal", timestamp=now - timedelta(minutes=5))
+        # '{}' is the SDK's no-intent sentinel — normalized to empty like the sibling runners.
+        self._emit(distinct_id="d2", error_type="internal", intent="{}", timestamp=now - timedelta(minutes=5))
         flush_persons_and_events()
 
         rows = self._run("internal")
@@ -345,6 +346,7 @@ class TestMCPToolFailureOccurrencesQueryRunner(_MCPAnalyticsTeamScopedTestMixin,
         assert "goal" in rows[0].intent
         assert rows[0].harness == "Claude.ai"
         assert rows[1].error_message == ""
+        assert rows[1].intent == ""
 
     def test_excludes_non_errored_other_tools_and_old_sdk_events(self) -> None:
         self._emit(distinct_id="match", error_type="internal")

@@ -688,6 +688,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: false,
     },
+    [NodeKind.MCPToolFailureOccurrencesQuery]: {
+        name: 'MCP tool failure occurrences',
+        description: 'Individual errored calls within one failure bucket of an MCP tool.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
 }
 
 export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = {
