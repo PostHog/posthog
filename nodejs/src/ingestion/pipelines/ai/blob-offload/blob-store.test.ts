@@ -30,7 +30,7 @@ describe('S3BlobStore', () => {
     })
 
     function store(): S3BlobStore {
-        return new S3BlobStore(s3, { bucket: 'blobs', prefix: 'p/', touchAfterMs: 20 * 3600 * 1000 })
+        return new S3BlobStore(s3, { bucket: 'blobs', prefix: 'p/', touchAfterMs: 20 * 3600 * 1000, timeoutMs: 30000 })
     }
 
     it('uploads on miss with the content-addressed key and mime', async () => {
@@ -110,6 +110,7 @@ describe('S3BlobStore', () => {
             AI_BLOB_S3_REGION: 'us-east-1',
             AI_BLOB_S3_ACCESS_KEY_ID: '',
             AI_BLOB_S3_SECRET_ACCESS_KEY: '',
+            AI_BLOB_S3_TIMEOUT_MS: 30000,
             AI_BLOB_OFFLOAD_TOUCH_AFTER_HOURS: 20,
         }
         expect(buildAiBlobStore({ ...base, AI_BLOB_S3_BUCKET: '' })).toBeNull()
@@ -123,6 +124,7 @@ describe('S3BlobStore', () => {
             AI_BLOB_S3_REGION: 'us-east-1',
             AI_BLOB_S3_ACCESS_KEY_ID: '',
             AI_BLOB_S3_SECRET_ACCESS_KEY: '',
+            AI_BLOB_S3_TIMEOUT_MS: 30000,
             AI_BLOB_OFFLOAD_TOUCH_AFTER_HOURS: 20,
         }
         expect(buildAiBlobStore(base)).not.toBeNull()

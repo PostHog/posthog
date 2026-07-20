@@ -12,6 +12,7 @@ interface S3BlobStoreConfig {
     bucket: string
     prefix: string
     touchAfterMs: number
+    timeoutMs: number
 }
 
 export class S3BlobStore implements BlobStore {
@@ -48,19 +49,25 @@ export class S3BlobStore implements BlobStore {
     ): Promise<EnsureStoredOutcome> {
         const Bucket = this.config.bucket
         const Key = this.key(teamId, blob.hash)
+        const abort = (): { abortSignal: AbortSignal } => ({
+            abortSignal: AbortSignal.timeout(this.config.timeoutMs),
+        })
 
         let lastModified: Date | undefined
         try {
             const head = await this.timed(
                 'head',
-                () => this.s3.send(new HeadObjectCommand({ Bucket, Key })),
+                () => this.s3.send(new HeadObjectCommand({ Bucket, Key }), abort()),
                 (error): boolean => !(error instanceof Error && error.name === 'NotFound')
             )
             lastModified = head.LastModified
         } catch (error) {
             if (error instanceof Error && error.name === 'NotFound') {
                 await this.timed('put', () =>
-                    this.s3.send(new PutObjectCommand({ Bucket, Key, Body: blob.bytes, ContentType: blob.mime }))
+                    this.s3.send(
+                        new PutObjectCommand({ Bucket, Key, Body: blob.bytes, ContentType: blob.mime }),
+                        abort()
+                    )
                 )
                 return 'uploaded'
             }
@@ -81,7 +88,8 @@ export class S3BlobStore implements BlobStore {
                     CopySource: `${Bucket}/${Key}`,
                     MetadataDirective: 'REPLACE',
                     ContentType: blob.mime,
-                })
+                }),
+                abort()
             )
         )
         return 'touched'
@@ -95,6 +103,7 @@ export interface AiBlobS3Config {
     AI_BLOB_S3_REGION: string
     AI_BLOB_S3_ACCESS_KEY_ID: string
     AI_BLOB_S3_SECRET_ACCESS_KEY: string
+    AI_BLOB_S3_TIMEOUT_MS: number
     AI_BLOB_OFFLOAD_TOUCH_AFTER_HOURS: number
 }
 
@@ -117,5 +126,6 @@ export function buildAiBlobStore(config: AiBlobS3Config): S3BlobStore | null {
         bucket: config.AI_BLOB_S3_BUCKET,
         prefix: config.AI_BLOB_S3_PREFIX,
         touchAfterMs: config.AI_BLOB_OFFLOAD_TOUCH_AFTER_HOURS * 3600 * 1000,
+        timeoutMs: config.AI_BLOB_S3_TIMEOUT_MS,
     })
 }

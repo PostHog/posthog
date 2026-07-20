@@ -216,6 +216,7 @@ export type IngestionConsumerConfig = {
     AI_BLOB_S3_REGION: string
     AI_BLOB_S3_ACCESS_KEY_ID: string
     AI_BLOB_S3_SECRET_ACCESS_KEY: string
+    AI_BLOB_S3_TIMEOUT_MS: number
     AI_BLOB_OFFLOAD_TEAMS: string
     AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH: number
     AI_BLOB_OFFLOAD_TOUCH_AFTER_HOURS: number
@@ -341,6 +342,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         AI_BLOB_S3_REGION: 'us-east-1',
         AI_BLOB_S3_ACCESS_KEY_ID: '',
         AI_BLOB_S3_SECRET_ACCESS_KEY: '',
+        AI_BLOB_S3_TIMEOUT_MS: 30000,
         AI_BLOB_OFFLOAD_TEAMS: '',
         AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH: 8192,
         AI_BLOB_OFFLOAD_TOUCH_AFTER_HOURS: 20,

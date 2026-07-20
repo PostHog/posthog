@@ -62,6 +62,7 @@ export type AiConsumerConfig = CommonIngestionConsumerConfig &
         | 'AI_BLOB_S3_REGION'
         | 'AI_BLOB_S3_ACCESS_KEY_ID'
         | 'AI_BLOB_S3_SECRET_ACCESS_KEY'
+        | 'AI_BLOB_S3_TIMEOUT_MS'
         | 'AI_BLOB_OFFLOAD_TEAMS'
         | 'AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH'
         | 'AI_BLOB_OFFLOAD_TOUCH_AFTER_HOURS'
