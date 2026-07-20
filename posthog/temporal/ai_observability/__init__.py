@@ -1,6 +1,8 @@
 from posthog.temporal.ai_observability.eval_reports.activities import (
+    check_count_triggered_eval_report_activity,
+    check_count_triggered_eval_reports_activity,
     deliver_report_activity,
-    fetch_count_triggered_eval_reports_activity,
+    fetch_count_triggered_eval_report_candidates_activity,
     fetch_due_eval_reports_activity,
     prepare_report_context_activity,
     run_eval_report_agent_activity,
@@ -151,7 +153,9 @@ ACTIVITIES = [
     emit_cluster_events_activity,
     # Evaluation report activities
     fetch_due_eval_reports_activity,
-    fetch_count_triggered_eval_reports_activity,
+    fetch_count_triggered_eval_report_candidates_activity,
+    check_count_triggered_eval_report_activity,
+    check_count_triggered_eval_reports_activity,
     prepare_report_context_activity,
     run_eval_report_agent_activity,
     store_report_run_activity,

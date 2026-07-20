@@ -10,8 +10,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, InsightShortId } from '~/types'
 
-import { subscriptionsLogic } from '../Subscriptions/subscriptionsLogic'
-import { urlForSubscriptions } from '../Subscriptions/utils'
+import { subscriptionsLogic } from 'products/subscriptions/frontend/components/Subscriptions/subscriptionsLogic'
+import { urlForSubscriptions } from 'products/subscriptions/frontend/components/Subscriptions/utils'
 
 interface InsightSubscribeProminentButtonProps {
     insightShortId: InsightShortId

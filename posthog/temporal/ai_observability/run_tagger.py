@@ -617,13 +617,19 @@ class RunTaggerWorkflow(PostHogWorkflow):
                     error_type = details.get("error_type")
 
                     if error_type in (
+                        "provider_key_required",
                         "trial_limit_reached",
                         "key_invalid",
                         "parse_error",
                         "model_not_allowed",
                         "no_default_model",
                     ):
-                        if error_type in ("trial_limit_reached", "model_not_allowed", "no_default_model"):
+                        if error_type in (
+                            "provider_key_required",
+                            "trial_limit_reached",
+                            "model_not_allowed",
+                            "no_default_model",
+                        ):
                             await temporalio.workflow.execute_activity(
                                 disable_tagger_activity,
                                 args=[tagger["id"], tagger["team_id"]],
@@ -631,6 +637,7 @@ class RunTaggerWorkflow(PostHogWorkflow):
                                 retry_policy=RetryPolicy(maximum_attempts=2),
                             )
                             if error_type in (
+                                "provider_key_required",
                                 "trial_limit_reached",
                                 "model_not_allowed",
                             ) and temporalio.workflow.patched("trial-usage-email"):

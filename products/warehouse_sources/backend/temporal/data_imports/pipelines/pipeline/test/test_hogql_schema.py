@@ -13,6 +13,7 @@ class TestHogQLSchemaJsonDetection:
             ("plain_string_first", ["plain text", '{"key": "value"}'], "StringDatabaseField"),
             ("null_then_json", [None, '{"key": "value"}'], "StringJSONDatabaseField"),
             ("all_nulls", [None, None], "StringDatabaseField"),
+            ("empty_column", [], "StringDatabaseField"),
         ]
     )
     def test_json_detection_from_first_non_null_value(self, _name, values, expected_type):
@@ -20,6 +21,22 @@ class TestHogQLSchemaJsonDetection:
         table = pa.table({"col": pa.array(values, type=pa.string())})
         schema.add_pyarrow_table(table)
         assert schema.schema["col"] == expected_type
+
+    def test_json_detection_across_chunk_boundary(self):
+        # First chunk all-null, JSON only in a later chunk: scan must cross chunks, not stop at [0].
+        column = pa.chunked_array([[None, None], ['{"a": 1}']], type=pa.string())
+        schema = HogQLSchema()
+        schema.add_pyarrow_table(pa.table({"col": column}))
+        assert schema.schema["col"] == "StringJSONDatabaseField"
+
+    def test_string_upgrades_to_json_on_later_table(self):
+        # All-null first table classifies as plain string; a later table with JSON must still upgrade.
+        schema = HogQLSchema()
+        schema.add_pyarrow_table(pa.table({"col": pa.array([None, None], type=pa.string())}))
+        assert schema.schema["col"] == "StringDatabaseField"
+
+        schema.add_pyarrow_table(pa.table({"col": pa.array(['{"a": 1}'], type=pa.string())}))
+        assert schema.schema["col"] == "StringJSONDatabaseField"
 
 
 class TestAddPyarrowSchema:

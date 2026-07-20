@@ -121,7 +121,8 @@ def _request(
 ) -> Response:
     """Proxy a request to the duckgres provisioning API, gated on the org's feature flag.
 
-    Paths starting with "/" are org-scoped (`/api/v1/orgs/{org}{path}`); others are global
+    An empty path targets the org resource itself (`/api/v1/orgs/{org}`, e.g. to delete it);
+    paths starting with "/" are org-scoped (`/api/v1/orgs/{org}{path}`); others are global
     API paths (`/api/v1/{path}`).
 
     `require_enabled` gates on the user-facing `data-warehouse-scene` flag and is the right
@@ -144,7 +145,9 @@ def _request(
             status=status.HTTP_501_NOT_IMPLEMENTED,
         )
 
-    if path.startswith("/"):
+    if path == "":
+        url = f"{base_url.rstrip('/')}/api/v1/orgs/{org_id}"
+    elif path.startswith("/"):
         url = f"{base_url.rstrip('/')}/api/v1/orgs/{org_id}{path}"
     else:
         url = f"{base_url.rstrip('/')}/api/v1/{path}"
@@ -208,6 +211,12 @@ def provision(
         "/provision",
         json_body={
             "database_name": database_name,
+            # The provisioning team is the warehouse's default team: duckgres pins it so
+            # queries without an explicit team resolve to this environment's tables. It's
+            # required — duckgres denies a provision without it. In-product this is the
+            # calling (currently active) team; in the Django admin it's the mandatory team
+            # field on the provision form.
+            "default_team_id": team_id,
             "ducklake": {"enabled": True},
             "metadata_store": {"type": "cnpg-shard"},
             "data_store": {"type": "s3bucket"},
@@ -279,7 +288,7 @@ def _persist_duckgres_server(organization_id: UUID | str, database_name: str | N
     the row can be reconciled later from the warehouse status.
     """
     # Keep ducklake.common (and its duckdb dependency) off the API import path.
-    from posthog.ducklake.common import upsert_duckgres_server_for_org  # noqa: PLC0415
+    from posthog.ducklake.common import default_bucket_region, upsert_duckgres_server_for_org  # noqa: PLC0415
 
     # The control plane is the single owner of the bucket name — it provisions
     # the bucket, pins the name on the Duckling CR's spec.dataStore.bucketName,
@@ -289,9 +298,10 @@ def _persist_duckgres_server(organization_id: UUID | str, database_name: str | N
     # old to return it) leaves the column unset — upsert treats None as "leave
     # unset" — and status_for()'s self-heal fills it in on the next status read.
     bucket: str | None = body.get("bucket")
-    # Region from the response too when present, so a future CP outside us-east-1
-    # isn't silently mis-recorded; None when there's no bucket to region.
-    bucket_region: str | None = (body.get("bucket_region") or "us-east-1") if bucket else None
+    # Region from the response too when present, so a CP outside this deployment's
+    # home region isn't silently mis-recorded; the fallback is the deployment's own
+    # managed-warehouse region. None when there's no bucket to region.
+    bucket_region: str | None = (body.get("bucket_region") or default_bucket_region()) if bucket else None
 
     try:
         connection = _present_connection({"database": database_name, "username": body.get("username", "root")})
@@ -342,6 +352,17 @@ def enable_backfill(
 
 def deprovision(organization_id: UUID | str, require_enabled: bool = True) -> Response:
     return _request("POST", organization_id, "/deprovision", require_enabled=require_enabled)
+
+
+def delete_org(organization_id: UUID | str, require_enabled: bool = True) -> Response:
+    """Delete the org's provisioning record once teardown has finished, freeing its warehouse name.
+
+    `deprovision` tears the warehouse down (status goes deleting → deleted); this removes the
+    now-empty org row from the control plane so its `database_name` can be reused. Deprovision
+    teardown has no terminal failed state (the provisioner retries indefinitely), so callers
+    should only issue this once the warehouse status reports `deleted`.
+    """
+    return _request("DELETE", organization_id, "", require_enabled=require_enabled)
 
 
 def status_for(organization_id: UUID | str) -> Response:
@@ -418,7 +439,10 @@ def _reconcile_bucket_from_status(organization_id: UUID | str, body: dict) -> No
         # External data stores / not-yet-backfilled ducklings report no bucket —
         # nothing authoritative to copy.
         return
-    bucket_region = body.get("bucket_region") or "us-east-1"
+    # Keep ducklake.common (and its duckdb dependency) off the API import path.
+    from posthog.ducklake.common import default_bucket_region  # noqa: PLC0415
+
+    bucket_region = body.get("bucket_region") or default_bucket_region()
     try:
         from posthog.ducklake.models import DuckgresServer  # noqa: PLC0415
 

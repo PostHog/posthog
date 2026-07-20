@@ -6,7 +6,7 @@ import { IconCollapse, IconExpand } from '@posthog/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 
-import { getStickyColumnInfo } from './columnUtils'
+import { getStickyColumnInfo } from './columnLayoutUtils'
 import { ExpandableConfig, LemonTableColumn, LemonTableColumnGroup, TableCellRepresentation } from './types'
 
 export interface TableRowProps<T extends Record<string, any>> {

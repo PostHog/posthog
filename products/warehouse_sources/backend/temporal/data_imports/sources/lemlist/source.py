@@ -36,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LemlistSource(ResumableSource[LemlistSourceConfig, LemlistResumeConfig]):
+    api_docs_url = "https://developer.lemlist.com/api-reference"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.LEMLIST
@@ -47,7 +49,6 @@ class LemlistSource(ResumableSource[LemlistSourceConfig, LemlistResumeConfig]):
             category=DataWarehouseSourceCategory.SALES,
             label="Lemlist",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your lemlist API key to sync your lemlist data into the PostHog Data warehouse.
 
 You can generate an API key in your lemlist **Settings > Integrations** page.""",

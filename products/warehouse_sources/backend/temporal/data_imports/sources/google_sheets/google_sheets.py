@@ -6,6 +6,7 @@ from typing import Any, Optional, TypeVar
 from django.conf import settings
 
 import gspread
+import requests
 from cachetools import Cache, TTLCache, cached
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2 import service_account
@@ -81,6 +82,30 @@ _SPREADSHEET_NOT_FOUND_MESSAGE = (
 T = TypeVar("T")
 
 
+def _assert_unique_normalized_column_names(headers: list[str]) -> None:
+    """Fail early when two header cells collapse to the same column name.
+
+    Sheet headers become table column names via `NamingConvention`, which is case-insensitive and
+    collapses spaces/punctuation — so headers that look distinct ("Task ID" vs "task_id") map to the
+    same column. gspread only rejects *exact* duplicate headers, so these near-duplicates slip past it
+    and fail much later with an opaque "duplicate column name" deep in table creation, after the sync
+    has already started. Detect the collision up front and raise an actionable message naming the
+    offending headers instead. Exact duplicates are left to gspread's own check."""
+    seen: dict[str, str] = {}
+    for header in headers:
+        if not header or not header.strip():
+            continue
+        normalized = NamingConvention.normalize_identifier(header)
+        previous = seen.get(normalized)
+        if previous is not None and previous != header:
+            raise Exception(
+                f'Column headers "{previous}" and "{header}" collapse to the same column name '
+                f'"{normalized}" when synced. Column headers must stay unique after PostHog normalizes '
+                f"them (it ignores case, spaces, and punctuation). Rename one of them and resync."
+            )
+        seen[normalized] = header
+
+
 def _is_retryable_api_error(e: gspread.exceptions.APIError) -> bool:
     """Decide whether a gspread APIError is a transient error worth retrying.
 
@@ -119,8 +144,25 @@ def _retry_on_transient_api_error(execute: Callable[[], T]) -> T:
     while True:
         try:
             return execute()
-        except gspread.exceptions.APIError as e:
-            if not _is_retryable_api_error(e) or attempts >= max_attempts:
+        except (
+            gspread.exceptions.APIError,
+            requests.exceptions.ConnectionError,
+            requests.exceptions.Timeout,
+            requests.exceptions.ChunkedEncodingError,
+        ) as e:
+            # A dropped connection or read timeout is raised by `requests` before gspread can wrap
+            # it in an APIError, so the status-code check never sees it, and the tracked adapter's
+            # transport retries are already spent by the time it reaches us. It's a transient
+            # network blip, so retry inline like a 5xx; APIErrors still gate on their status. Once
+            # the budget is spent, let it bubble so Temporal retries the activity.
+            #
+            # `ChunkedEncodingError` is listed separately because a connection reset mid-download
+            # surfaces as one: `requests` catches the underlying urllib3 `ProtocolError` while
+            # streaming the response body and re-raises it as `ChunkedEncodingError`, which is a
+            # sibling of `ConnectionError` in the `requests` hierarchy (not a subclass), so the
+            # `ConnectionError` entry above would not catch it.
+            is_retryable = _is_retryable_api_error(e) if isinstance(e, gspread.exceptions.APIError) else True
+            if not is_retryable or attempts >= max_attempts:
                 raise
 
             jitter = random.uniform(-jitter_in_seconds, jitter_in_seconds)
@@ -222,6 +264,8 @@ def google_sheets_source(
     worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id)
 
     headers = _retry_on_transient_api_error(lambda: worksheet.get_all_values("1:1"))  # Get the first row
+    if len(headers) > 0:
+        _assert_unique_normalized_column_names(headers[0])
     primary_keys = None
     if len(headers) > 0 and "id" in headers[0]:
         primary_keys = ["id"]

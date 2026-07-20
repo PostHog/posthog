@@ -6,6 +6,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.models.user import User
 
 from products.web_analytics.backend.recap import build_team_recap
 from products.web_analytics.backend.serializers import (
@@ -68,7 +69,12 @@ class WebAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         query_serializer = _DigestQuerySerializer(data=request.query_params)
         query_serializer.is_valid(raise_exception=True)
         params = query_serializer.validated_data
-        digest = build_team_digest(self.team, days=params["days"], compare=params["compare"])
+        digest = build_team_digest(
+            self.team,
+            days=params["days"],
+            compare=params["compare"],
+            user=request.user if isinstance(request.user, User) else None,
+        )
         serializer = self.get_serializer(instance=digest)
         return Response(serializer.data)
 
@@ -110,6 +116,11 @@ class WebAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         query_serializer = _DigestQuerySerializer(data=request.query_params)
         query_serializer.is_valid(raise_exception=True)
         params = query_serializer.validated_data
-        recap = build_team_recap(self.team, days=params["days"], compare=params["compare"])
+        recap = build_team_recap(
+            self.team,
+            days=params["days"],
+            compare=params["compare"],
+            user=request.user if isinstance(request.user, User) else None,
+        )
         serializer = WebAnalyticsRecapResponseSerializer(instance=recap, context=self.get_serializer_context())
         return Response(serializer.data)

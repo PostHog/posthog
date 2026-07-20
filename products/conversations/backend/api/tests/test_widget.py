@@ -694,6 +694,42 @@ class TestWidgetIdentityVerification(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         ticket = Ticket.objects.get(id=response.json()["ticket_id"])
         self.assertEqual(ticket.distinct_id, self.distinct_id)
+        self.assertTrue(ticket.identity_verified)
+
+    def test_anonymous_message_creates_unverified_ticket(self):
+        # A widget_session_id-only (no HMAC) request is not server-attested.
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            {
+                "widget_session_id": self.widget_session_id,
+                "distinct_id": self.distinct_id,
+                "message": "Anonymous hello",
+            },
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ticket = Ticket.objects.get(id=response.json()["ticket_id"])
+        self.assertFalse(ticket.identity_verified)
+
+    def test_verified_message_promotes_anonymous_ticket(self):
+        # An existing anonymous ticket becomes verified once an HMAC-verified
+        # message with the matching distinct_id lands on it.
+        ticket = self._create_ticket()
+        self.assertFalse(ticket.identity_verified)
+
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": self.identity_hash,
+                "message": "Now verified",
+                "ticket_id": str(ticket.id),
+            },
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ticket.refresh_from_db()
+        self.assertTrue(ticket.identity_verified)
 
     def test_send_message_existing_ticket_ownership_by_distinct_id(self):
         ticket = self._create_ticket()

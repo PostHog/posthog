@@ -9,7 +9,7 @@ import { useSecondRender } from 'lib/hooks/useSecondRender'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { ToolbarContainer } from '~/toolbar/ToolbarContainer'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
-import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ToolbarProps } from '~/types'
 
 import { TOOLBAR_ID } from './utils'
@@ -39,35 +39,38 @@ export function ToolbarApp(props: ToolbarProps = {}): JSX.Element {
                   styleLink.rel = 'stylesheet'
                   styleLink.type = 'text/css'
 
+                  // The stylesheet is the app entry's CSS, emitted as a hashless copy inside
+                  // dist/toolbar/ next to the JS. It must be fetched from there — its url()
+                  // references (fonts) are relative, so they only resolve alongside the
+                  // toolbar/assets/ directory it was built with.
+                  //
                   // When __POSTHOG_TOOLBAR_PUBLIC_PATH__ is baked in at build
                   // time (posthog-js versioned bundle), load the CSS from the
                   // same versioned URL as the JS bundle. The version is the
                   // cache key, so no cache-busting query param is needed.
                   //
                   // Otherwise (i.e. posthog/posthog's own deploys), fall back to
-                  // serving toolbar.css from the API host alongside toolbar.js,
-                  // with a 5-minute cache-buster on the unversioned URL.
+                  // serving it from the API host alongside toolbar.js, with a
+                  // 5-minute cache-buster on the unversioned URL.
                   if (__POSTHOG_TOOLBAR_PUBLIC_PATH__) {
-                      styleLink.href = `${__POSTHOG_TOOLBAR_PUBLIC_PATH__}toolbar.css`
+                      styleLink.href = `${__POSTHOG_TOOLBAR_PUBLIC_PATH__}toolbar/toolbar-app.css`
                   } else {
                       const fiveMinutesInMillis = 5 * 60 * 1000
                       const timestampToNearestFiveMinutes =
                           Math.floor(Date.now() / fiveMinutesInMillis) * fiveMinutesInMillis
-                      styleLink.href = `${apiHost}/static/toolbar.css?t=${timestampToNearestFiveMinutes}`
+                      styleLink.href = `${apiHost}/static/toolbar/toolbar-app.css?t=${timestampToNearestFiveMinutes}`
                   }
 
                   styleLink.onload = () => setDidLoadStyles(true)
                   // Without onerror the toolbar silently stays invisible when the
                   // CSS 404s (didLoadStyles never flips to true). That masks
-                  // misconfigured apiHost / rejected URLs. Surface the failure
-                  // via logger + telemetry and render the toolbar anyway —
-                  // missing styles is a worse UX than nothing.
+                  // misconfigured apiHost / rejected URLs. A failed stylesheet
+                  // request is expected on customer pages (ad blockers, offline,
+                  // misconfigured hosts), so surface it via logger + telemetry -
+                  // not error tracking - and render the toolbar anyway; missing
+                  // styles is a worse UX than nothing.
                   styleLink.onerror = () => {
                       toolbarLogger.error('config', 'Failed to load toolbar.css', { href: styleLink.href })
-                      captureToolbarException(
-                          new Error(`Failed to load toolbar.css from ${styleLink.href}`),
-                          'toolbar_css_load'
-                      )
                       toolbarPosthogJS.capture('toolbar css load failed', { href: styleLink.href })
                       setDidLoadStyles(true)
                   }

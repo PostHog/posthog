@@ -1,13 +1,11 @@
-import {
-    HedgehogChartHog,
-    HedgehogConstruction1,
-    HedgehogDirector,
-    HedgehogExperiment,
-    HedgehogMagnifyingGlass,
-    HedgehogReadingIsMagic,
-    HedgehogReporter,
-    HedgehogRoboHog,
-} from '@posthog/brand/hoggies'
+import * as chartHog from '@posthog/brand/hoggies/png/chart-hog'
+import * as construction1 from '@posthog/brand/hoggies/png/construction-1'
+import * as director from '@posthog/brand/hoggies/png/director'
+import * as experiment from '@posthog/brand/hoggies/png/experiment'
+import * as magnifyingGlass from '@posthog/brand/hoggies/png/magnifying-glass'
+import * as readingIsMagic from '@posthog/brand/hoggies/png/reading-is-magic'
+import * as reporter from '@posthog/brand/hoggies/png/reporter'
+import * as roboHog from '@posthog/brand/hoggies/png/robo-hog'
 import {
     IconBolt,
     IconBuilding,
@@ -38,12 +36,22 @@ import {
     IconWarning,
 } from '@posthog/icons'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { ExplorerHog, FeatureFlagHog, MailHog } from 'lib/components/hedgehogs'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { type AvailableOnboardingProducts, type OnboardingProduct } from '~/types'
+
+const HedgehogChartHog = pngHoggie(chartHog)
+const HedgehogConstruction1 = pngHoggie(construction1)
+const HedgehogDirector = pngHoggie(director)
+const HedgehogExperiment = pngHoggie(experiment)
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlass)
+const HedgehogReadingIsMagic = pngHoggie(readingIsMagic)
+const HedgehogReporter = pngHoggie(reporter)
+const HedgehogRoboHog = pngHoggie(roboHog)
 
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string; color?: string }>> = {
     IconBolt,
@@ -326,6 +334,23 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         iconColor: 'rgb(182 42 217)',
         url: urls.mcpAnalyticsDashboard(),
         scene: Scene.MCPAnalytics,
+        setupEffort: 'low',
+    },
+    [ProductKey.CONVERSATIONS]: {
+        name: 'Support',
+        description: 'Receive customer questions over web, email, Slack, and Microsoft Teams',
+        userCentricDescription: 'Triage, assign, and automate customer support in PostHog',
+        capabilities: ['In-app chat widget', 'Email, Slack & Teams channels', 'Direct conversations API'],
+        valueProps: [
+            { title: 'In-app widget', problem: 'Let customers reach you without leaving your product' },
+            { title: 'Multi-channel inbox', problem: 'Handle email, Slack, and Teams tickets in one place' },
+            { title: 'Direct API', problem: 'Build your own support UI on top of the conversations API' },
+        ],
+        hedgehog: HedgehogReporter,
+        icon: 'IconMessage',
+        iconColor: 'var(--color-product-support-light)',
+        url: urls.supportTickets(),
+        scene: Scene.SupportTickets,
         setupEffort: 'low',
     },
 }

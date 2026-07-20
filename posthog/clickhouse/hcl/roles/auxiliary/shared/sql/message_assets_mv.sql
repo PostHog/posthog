@@ -1,0 +1,21 @@
+SELECT
+  team_id,
+  function_kind,
+  function_id,
+  parent_run_id,
+  invocation_id,
+  action_id,
+  kind,
+  distinct_id,
+  person_id,
+  recipient,
+  subject,
+  status,
+  sent_at,
+  version,
+  is_deleted,
+  html,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_message_assets

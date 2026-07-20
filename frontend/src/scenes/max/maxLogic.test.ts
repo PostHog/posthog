@@ -87,6 +87,28 @@ describe('maxLogic', () => {
         })
     })
 
+    it('does not set autoRun for #panel=max:!Foo when the new panel view is active', async () => {
+        // In the new view the prompt is consumed by phaiSidePanelComposerSeedLogic; autoRun here too
+        // would make the hidden legacy thread fire askMax on top of the new composer's submit.
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true })
+
+        sidePanelStateLogic.mount()
+        await expectLogic(sidePanelStateLogic, () => {
+            sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max, '!Foo')
+        }).toDispatchActions(['openSidePanel'])
+
+        logic = maxLogic({ panelId: SIDE_PANEL_PANEL_ID })
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({
+            autoRun: false,
+            question: 'Foo',
+        })
+
+        featureFlagLogic.unmount()
+    })
+
     it('does not reset conversation when 404 occurs during active message generation', async () => {
         router.actions.push('', {}, { panel: 'max' })
         sidePanelStateLogic.mount()

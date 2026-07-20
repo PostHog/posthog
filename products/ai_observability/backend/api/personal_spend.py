@@ -7,32 +7,45 @@ analytics team. Scoped to a single `ai_product` via the required `product`
 query param; see `SUPPORTED_PRODUCTS` for the currently accepted values.
 
 Endpoint:
-- GET /api/llm_analytics/@me/spend/?product=<ai_product>&date_from=-30d&date_to=&limit=50&refresh=false
+- GET /api/llm_analytics/@me/spend/?product=<ai_product>&date_from=-30d&date_to=&limit=50&refresh=false&bucket_minutes=5
 """
 
 from __future__ import annotations
 
 import re
+import hmac
+import json
+import time
+import hashlib
 import datetime
 from typing import Any, cast
 from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
+from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
-from django.http import HttpRequest, HttpResponseRedirect
+from django.http import HttpRequest, HttpResponseBase, HttpResponseRedirect
 
+import requests
 import structlog
 from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, permissions, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.schema import HogQLQueryModifiers
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.auth import (
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    SessionAuthentication,
+    WebhookSignatureAuthentication,
+)
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models import Team, User
 from posthog.permissions import APIScopePermission
@@ -48,6 +61,13 @@ SUPPORTED_PRODUCTS = frozenset({"posthog_code"})
 
 DEFAULT_DATE_FROM = "-30d"
 MAX_WINDOW_DAYS = 90
+# The most calendar days a MAX_WINDOW_DAYS window can touch: partial days at both edges.
+BY_DAY_MAX_ROWS = MAX_WINDOW_DAYS + 1
+# Sub-day series are only useful (and cheap) over short windows; a "last 24h"
+# view is the intended consumer. The cap bounds the series length regardless of
+# bucket size: 600 buckets is 50 hours at 5-minute buckets and 25 days hourly.
+BUCKET_MINUTES_CHOICES = [5, 15, 30, 60]
+MAX_TIME_BUCKETS = 600
 _RELATIVE_DATE_RE = re.compile(r"^-?\d+[hdwmqyHDWMQY](Start|End)?$")
 
 MIN_LIMIT = 1
@@ -63,9 +83,13 @@ def _internal_team_id() -> int:
     return settings.LLM_ANALYTICS_INTERNAL_TEAM_ID
 
 
-def _cache_key(email: str, date_from: str, date_to: str | None, product: str, limit: int) -> str:
+def _cache_key(
+    email: str, date_from: str, date_to: str | None, product: str, limit: int, bucket_minutes: int | None
+) -> str:
     to_slot = date_to or "_now"
-    return f"personal_spend:{email}:{date_from}:{to_slot}:{product}:{limit}"
+    # Suffix only when set, so bucketless requests keep their pre-bucket_minutes cache keys.
+    bucket_slot = f":{bucket_minutes}" if bucket_minutes else ""
+    return f"personal_spend:{email}:{date_from}:{to_slot}:{product}:{limit}{bucket_slot}"
 
 
 def _parse_date_param(value: str, field: str, now: datetime.datetime) -> datetime.datetime:
@@ -96,6 +120,40 @@ def _resolve_window(date_from: str, date_to: str | None) -> tuple[datetime.datet
         raise exceptions.ValidationError(
             {"date_from": f"Window between `date_from` and `date_to` cannot exceed {MAX_WINDOW_DAYS} days."}
         )
+    return from_dt, to_dt
+
+
+def _resolve_and_validate_window(
+    date_from: str, date_to: str | None, bucket_minutes: int | None
+) -> tuple[datetime.datetime, datetime.datetime]:
+    """Resolve the window and enforce the bucket cap on the resolved bounds. Shared by
+    the US compute path and the EU proxy, which must run this before its cache lookup:
+    with relative dates the same raw cache key can be cached while the resolved window
+    is under the cap and resolve over it moments later."""
+    from_dt, to_dt = _resolve_window(date_from, date_to)
+    if bucket_minutes is not None:
+        bucket_seconds = bucket_minutes * 60
+        # Count the bucket starts the window can actually produce rows for (unaligned
+        # edges add partial buckets), so `by_bucket` never exceeds MAX_TIME_BUCKETS rows.
+        from_bucket = int(from_dt.timestamp() // bucket_seconds)
+        to_ts = to_dt.timestamp()
+        last_bucket = int(to_ts // bucket_seconds)
+        if to_ts % bucket_seconds == 0:
+            # `date_to` is exclusive (`timestamp < date_to`), so an end aligned exactly
+            # on a bucket boundary can never produce a row in its own bucket.
+            last_bucket -= 1
+        n_buckets = last_bucket - from_bucket + 1
+        if n_buckets > MAX_TIME_BUCKETS:
+            max_hours = bucket_minutes * MAX_TIME_BUCKETS // 60
+            raise exceptions.ValidationError(
+                {
+                    "bucket_minutes": (
+                        f"A window this large would span more than {MAX_TIME_BUCKETS} buckets at "
+                        f"{bucket_minutes}-minute resolution; narrow the window to under {max_hours} hours, "
+                        "or pick a larger bucket size."
+                    )
+                }
+            )
     return from_dt, to_dt
 
 
@@ -142,6 +200,21 @@ class _SpendQueryParamsSerializer(serializers.Serializer):
         required=False,
         default=False,
         help_text="If true, bypass the result cache and re-run the underlying queries against ClickHouse.",
+    )
+    # No allow_null and no default: either would mark the generated schema nullable, and
+    # typed clients would then advertise `bucket_minutes: null`, which serializes to the
+    # literal string "null" in a GET query and gets rejected. Omitted means "no by_bucket".
+    bucket_minutes = serializers.ChoiceField(
+        choices=BUCKET_MINUTES_CHOICES,
+        required=False,
+        help_text=(
+            "When set, additionally return a `by_bucket` breakdown: a time-ascending UTC cost series for "
+            "the scoped product at this bucket size in minutes, with per-bucket cost split into uncached "
+            "input / output / cache read / cache creation components plus the matching token sums. "
+            f"Supported bucket sizes: {', '.join(str(c) for c in BUCKET_MINUTES_CHOICES)}. The window may "
+            f"span at most {MAX_TIME_BUCKETS} buckets of the chosen size (e.g. 50 hours at 5-minute "
+            "buckets)."
+        ),
     )
 
     def validate_product(self, value: str) -> str:
@@ -201,6 +274,63 @@ class _ModelBreakdownRowSerializer(serializers.Serializer):
     cost_usd = serializers.FloatField(help_text="Total cost in USD for this model.")
     input_tokens = serializers.IntegerField(help_text="Sum of `$ai_input_tokens` for this model.")
     output_tokens = serializers.IntegerField(help_text="Sum of `$ai_output_tokens` for this model.")
+
+
+class _DayBreakdownRowSerializer(serializers.Serializer):
+    day = serializers.DateField(help_text="UTC calendar day the events fall on (`toDate(timestamp)`).")
+    event_count = serializers.IntegerField(
+        help_text="Number of $ai_generation + $ai_embedding events on this day for the scoped product."
+    )
+    cost_usd = serializers.FloatField(help_text="Total cost in USD on this day for the scoped product.")
+
+
+class _BucketBreakdownRowSerializer(serializers.Serializer):
+    bucket_start = serializers.DateTimeField(
+        help_text="UTC start of the time bucket the events fall in (`toStartOfInterval(timestamp, ...)`)."
+    )
+    event_count = serializers.IntegerField(
+        help_text="Number of $ai_generation + $ai_embedding events in this bucket for the scoped product."
+    )
+    cost_usd = serializers.FloatField(
+        help_text=(
+            "Total cost in USD in this bucket (sum of `$ai_total_cost_usd`). Authoritative: the component "
+            "columns below can sum to less than this when the cost breakdown was unavailable for some "
+            "events; render any remainder as uncategorized rather than assuming the components reconcile."
+        )
+    )
+    input_cost_usd = serializers.FloatField(
+        help_text=(
+            "Cost of uncached (full-price) input tokens in USD, derived per event as `$ai_input_cost_usd` "
+            "minus the cache read/write costs (the stored input cost includes them), clamped at zero. "
+            "The four component columns are disjoint: they sum to `cost_usd` when the full breakdown is "
+            "present, so they can be stacked without double counting cache costs."
+        )
+    )
+    output_cost_usd = serializers.FloatField(help_text="Cost of output tokens in USD (sum of `$ai_output_cost_usd`).")
+    cache_read_cost_usd = serializers.FloatField(
+        help_text="Cost of prompt-cache reads in USD (sum of `$ai_cache_read_cost_usd`)."
+    )
+    cache_creation_cost_usd = serializers.FloatField(
+        help_text=(
+            "Cost of prompt-cache writes in USD (sum of `$ai_cache_creation_cost_usd`). A spike here with "
+            "near-zero cache reads is the signature of a cold session being revived: the full conversation "
+            "context is re-written to the cache at the cache-write rate instead of being read back cheaply."
+        )
+    )
+    input_tokens = serializers.IntegerField(
+        help_text=(
+            "Sum of `$ai_input_tokens` in this bucket. Whether cached tokens are included follows the "
+            "provider's reporting (`$ai_cache_reporting_exclusive`): Anthropic-style events exclude them, "
+            "OpenAI-style events include them, so don't stack this with the cache token sums."
+        )
+    )
+    output_tokens = serializers.IntegerField(help_text="Sum of `$ai_output_tokens` in this bucket.")
+    cache_read_input_tokens = serializers.IntegerField(
+        help_text="Sum of `$ai_cache_read_input_tokens` (prompt tokens served from cache) in this bucket."
+    )
+    cache_creation_input_tokens = serializers.IntegerField(
+        help_text="Sum of `$ai_cache_creation_input_tokens` (prompt tokens written to cache) in this bucket."
+    )
 
 
 class _TopTraceRowSerializer(serializers.Serializer):
@@ -270,6 +400,43 @@ class _ModelBreakdownSerializer(serializers.Serializer):
     )
 
 
+class _DayBreakdownSerializer(serializers.Serializer):
+    items = _DayBreakdownRowSerializer(
+        many=True,
+        help_text=(
+            "One row per UTC day that has events, ordered by day ascending. Days with no events are "
+            "omitted — zero-fill client-side when rendering a continuous series."
+        ),
+    )
+    truncated = serializers.BooleanField(
+        help_text=(
+            "Effectively always false: `by_day` ignores `limit` because truncating a time series by "
+            f"cost would be meaningless, and the {MAX_WINDOW_DAYS}-day window cap already bounds the "
+            "series length."
+        )
+    )
+
+
+class _BucketBreakdownSerializer(serializers.Serializer):
+    items = _BucketBreakdownRowSerializer(
+        many=True,
+        help_text=(
+            "One row per UTC time bucket that has events, ordered by bucket start ascending. Buckets with "
+            "no events are omitted; zero-fill client-side when rendering a continuous series."
+        ),
+    )
+    bucket_minutes = serializers.IntegerField(
+        help_text="Bucket size in minutes the series was computed at; echoes the request `bucket_minutes`."
+    )
+    truncated = serializers.BooleanField(
+        help_text=(
+            "Effectively always false: `by_bucket` ignores `limit` because truncating a time series by "
+            f"cost would be meaningless, and the {MAX_TIME_BUCKETS}-bucket window cap already bounds the "
+            "series length."
+        )
+    )
+
+
 class _TopTracesSerializer(serializers.Serializer):
     items = _TopTraceRowSerializer(many=True, help_text="Rows of top traces by cost, ordered by cost descending.")
     truncated = serializers.BooleanField(
@@ -286,6 +453,16 @@ class PersonalSpendAnalysisResponseSerializer(serializers.Serializer):
     )
     by_tool = _ToolBreakdownSerializer(help_text="Spend grouped by tool. Scoped to `product` when set.")
     by_model = _ModelBreakdownSerializer(help_text="Spend grouped by `$ai_model`. Scoped to `product` when set.")
+    by_day = _DayBreakdownSerializer(
+        help_text="Spend grouped by UTC day, ordered ascending. Scoped to `product`. Not subject to `limit`."
+    )
+    by_bucket = _BucketBreakdownSerializer(
+        required=False,
+        help_text=(
+            "Spend grouped by UTC time bucket with per-bucket cost/token components, ordered ascending. "
+            "Scoped to `product`. Only present when the request set `bucket_minutes`."
+        ),
+    )
     top_traces = _TopTracesSerializer(
         help_text=(
             "Deprecated — always returns `{items: [], truncated: false}`. Trace IDs are opaque strings "
@@ -529,7 +706,231 @@ def _fetch_by_model(
     return _truncate(rows, limit)
 
 
-class PersonalSpendViewSet(viewsets.ViewSet):
+def _fetch_by_day(
+    team: Team,
+    email: str,
+    from_dt: datetime.datetime,
+    to_dt: datetime.datetime,
+    product: str,
+) -> dict[str, Any]:
+    query = parse_select(
+        """
+        SELECT
+            toDate(timestamp) AS day,
+            count() AS event_count,
+            round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS cost_usd
+        FROM events
+        WHERE {event_in}
+            AND {product_filter}
+            AND {email_filter}
+            AND {timestamp_filter}
+        GROUP BY day
+        ORDER BY day ASC
+        LIMIT {limit}
+        """
+    )
+    result = execute_hogql_query(
+        query=query,
+        placeholders={
+            "event_in": _event_in(["$ai_generation", "$ai_embedding"]),
+            "product_filter": _product_filter(product),
+            "email_filter": _email_filter(email),
+            "timestamp_filter": _timestamp_filter(from_dt, to_dt),
+            # Not the request `limit`: truncating a time series by cost makes no sense, and the
+            # window cap already bounds the row count. +1 is the truncation probe row.
+            "limit": ast.Constant(value=BY_DAY_MAX_ROWS + 1),
+        },
+        team=team,
+        # HogQL wraps `timestamp` in the team's configurable timezone by default, which would
+        # shift the day buckets; days here are documented as UTC, so pin them.
+        modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
+        query_type="PersonalSpendByDay",
+    )
+    rows = [
+        {
+            "day": row[0],
+            "event_count": int(row[1] or 0),
+            "cost_usd": float(row[2] or 0.0),
+        }
+        for row in (result.results or [])
+    ]
+    return _truncate(rows, BY_DAY_MAX_ROWS)
+
+
+def _fetch_by_bucket(
+    team: Team,
+    email: str,
+    from_dt: datetime.datetime,
+    to_dt: datetime.datetime,
+    product: str,
+    bucket_minutes: int,
+) -> dict[str, Any]:
+    # The stored $ai_input_cost_usd INCLUDES prompt-cache read/write costs: on events
+    # carrying the cache cost columns, input + output reconciles to total and the cache
+    # costs sit inside input (verified against production events; the ingestion cost
+    # pipeline prices cache tokens inside input cost the same way). Uncached input is
+    # therefore derived per event as input minus cache read/write, clamped at zero so a
+    # future switch to exclusive reporting degrades to undercounting rather than
+    # double-subtracting. Events without the cache columns carry no cached tokens, so
+    # the subtraction is a no-op there. Fallback-priced events carry only
+    # $ai_total_cost_usd, so the components can undershoot cost_usd; the serializer
+    # help_text tells clients to render the remainder as uncategorized.
+    query = parse_select(
+        """
+        SELECT
+            toStartOfInterval(timestamp, toIntervalMinute({bucket_minutes})) AS bucket_start,
+            count() AS event_count,
+            round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS cost_usd,
+            round(sum(greatest(
+                toFloat(properties.$ai_input_cost_usd)
+                    - coalesce(toFloat(properties.$ai_cache_read_cost_usd), 0)
+                    - coalesce(toFloat(properties.$ai_cache_creation_cost_usd), 0),
+                0
+            )), 6) AS input_cost_usd,
+            round(sum(toFloat(properties.$ai_output_cost_usd)), 6) AS output_cost_usd,
+            round(sum(toFloat(properties.$ai_cache_read_cost_usd)), 6) AS cache_read_cost_usd,
+            round(sum(toFloat(properties.$ai_cache_creation_cost_usd)), 6) AS cache_creation_cost_usd,
+            sum(toFloat(properties.$ai_input_tokens)) AS input_tokens,
+            sum(toFloat(properties.$ai_output_tokens)) AS output_tokens,
+            sum(toFloat(properties.$ai_cache_read_input_tokens)) AS cache_read_input_tokens,
+            sum(toFloat(properties.$ai_cache_creation_input_tokens)) AS cache_creation_input_tokens
+        FROM events
+        WHERE {event_in}
+            AND {product_filter}
+            AND {email_filter}
+            AND {timestamp_filter}
+        GROUP BY bucket_start
+        ORDER BY bucket_start ASC
+        LIMIT {limit}
+        """
+    )
+    result = execute_hogql_query(
+        query=query,
+        placeholders={
+            "bucket_minutes": ast.Constant(value=bucket_minutes),
+            "event_in": _event_in(["$ai_generation", "$ai_embedding"]),
+            "product_filter": _product_filter(product),
+            "email_filter": _email_filter(email),
+            "timestamp_filter": _timestamp_filter(from_dt, to_dt),
+            # Not the request `limit`; same reasoning as by_day. +1 is the truncation probe row.
+            "limit": ast.Constant(value=MAX_TIME_BUCKETS + 1),
+        },
+        team=team,
+        # Buckets are documented as UTC; pin them like by_day does.
+        modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
+        query_type="PersonalSpendByBucket",
+    )
+    rows = [
+        {
+            "bucket_start": row[0],
+            "event_count": int(row[1] or 0),
+            "cost_usd": float(row[2] or 0.0),
+            "input_cost_usd": float(row[3] or 0.0),
+            "output_cost_usd": float(row[4] or 0.0),
+            "cache_read_cost_usd": float(row[5] or 0.0),
+            "cache_creation_cost_usd": float(row[6] or 0.0),
+            "input_tokens": int(row[7] or 0),
+            "output_tokens": int(row[8] or 0),
+            "cache_read_input_tokens": int(row[9] or 0),
+            "cache_creation_input_tokens": int(row[10] or 0),
+        }
+        for row in (result.results or [])
+    ]
+    return {**_truncate(rows, MAX_TIME_BUCKETS), "bucket_minutes": bucket_minutes}
+
+
+def _compute_spend_analysis(
+    *,
+    email: str,
+    date_from: str,
+    date_to: str | None,
+    product: str,
+    limit: int,
+    refresh: bool,
+    # Defaulted: callers splat validated_data, which omits the key entirely when
+    # the request didn't set it (the field has no serializer-level default).
+    bucket_minutes: int | None = None,
+) -> dict[str, Any]:
+    """Cached, email-scoped spend analysis shared by the US viewset and the
+    cross-region receiver. Expects already-validated params."""
+    from_dt, to_dt = _resolve_and_validate_window(date_from, date_to, bucket_minutes)
+
+    cache_key = _cache_key(email, date_from, date_to, product, limit, bucket_minutes)
+
+    if not refresh:
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+    team_id = _internal_team_id()
+    try:
+        team = Team.objects.get(pk=team_id)
+    except Team.DoesNotExist:
+        logger.exception("personal_spend.team_missing", team_id=team_id)
+        raise exceptions.NotFound("Internal analytics team is not provisioned on this deployment.")
+
+    # Tag the underlying ClickHouse reads with the LLM_ANALYTICS product so they show up
+    # in the existing per-product Prometheus + cost-attribution dashboards alongside the
+    # rest of AI observability traffic. Wraps every call into `_fetch_*` -> HogQL.
+    with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=team_id):
+        summary = _fetch_summary(team, email, from_dt, to_dt, product)
+        by_tool = _fetch_by_tool(team, email, from_dt, to_dt, product, limit)
+        scoped = summary["scoped_cost_usd"] or 0.0
+        # `cost_usd` in by_tool can exceed scoped_cost_usd because multi-tool generations
+        # contribute to every tool. `share_of_scoped` is independent per row, so agents can
+        # present headline percentages directly without reconciling sums.
+        for row in by_tool["items"]:
+            row["share_of_scoped"] = (row["cost_usd"] / scoped) if scoped > 0 else 0.0
+
+        payload = {
+            "summary": summary,
+            "by_product": _fetch_by_product(team, email, from_dt, to_dt, limit),
+            "by_tool": by_tool,
+            "by_model": _fetch_by_model(team, email, from_dt, to_dt, product, limit),
+            "by_day": _fetch_by_day(team, email, from_dt, to_dt, product),
+            **(
+                {"by_bucket": _fetch_by_bucket(team, email, from_dt, to_dt, product, bucket_minutes)}
+                if bucket_minutes is not None
+                else {}
+            ),
+            # Deprecated — trace IDs are opaque and unactionable in the UI. Returned empty so
+            # existing consumers don't crash while they remove the rendering. Drop the field
+            # entirely once no consumer reads it.
+            "top_traces": {"items": [], "truncated": False},
+        }
+
+    response_data = PersonalSpendAnalysisResponseSerializer(payload).data
+    cache.set(cache_key, response_data, timeout=CACHE_TIMEOUT_SECONDS)
+    return response_data
+
+
+class _PersonalSpendUserViewSet(viewsets.ViewSet):
+    """Base with the auth surface shared by the US viewset and the EU proxy so
+    the regions stay indistinguishable to clients. The US internal receiver
+    relies on this EU-side throttling as its only rate limit."""
+
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    permission_classes = [permissions.IsAuthenticated, APIScopePermission]
+    # Identity-scoped (`/@me/...`): the caller reads their own spend, not data
+    # nested under a team or project. `scope_object = "user"` matches the shape
+    # of `/api/users/@me/` — APIScopePermission already exempts the `user`
+    # bucket from team/org scoping, so we don't need
+    # `dangerously_skip_scoped_team_enforcement` here. `user:read` is a clean
+    # superset of "read your own spend": anyone trusted with `user:read`
+    # already learns the more sensitive identity facts on `/api/users/@me/`,
+    # and the wildcard `*` plus OAuth identity tokens (MCP) inherit access
+    # the same way they do for every other `user`-scoped endpoint.
+    scope_object = "user"
+    throttle_classes = [PersonalSpendBurstThrottle, PersonalSpendSustainedThrottle, PersonalSpendDailyThrottle]
+
+    def _require_email(self, request: Request) -> str:
+        email = cast(User, request.user).email
+        if not email:
+            raise exceptions.PermissionDenied("User has no email on record; cannot scope spend analysis.")
+        return email
+
+
+class PersonalSpendViewSet(_PersonalSpendUserViewSet):
     """
     Returns the requesting user's personal LLM spend analysis across PostHog products.
 
@@ -555,28 +956,9 @@ class PersonalSpendViewSet(viewsets.ViewSet):
     `SUPPORTED_PRODUCTS` for the currently accepted values. `by_product` always
     returns the full cross-product breakdown. The endpoint is only registered
     on US Cloud + dev/test envs; hobby / self-hosted deploys never see this
-    URL; EU deploys receive a 302 to the US URL.
+    URL; EU deploys serve it via `PersonalSpendEUProxyViewSet` (or a 302 to
+    the US URL while the cross-region secret is unprovisioned).
     """
-
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [permissions.IsAuthenticated, APIScopePermission]
-    # Identity-scoped (`/@me/...`): the caller reads their own spend, not data
-    # nested under a team or project. `scope_object = "user"` matches the shape
-    # of `/api/users/@me/` — APIScopePermission already exempts the `user`
-    # bucket from team/org scoping, so we don't need
-    # `dangerously_skip_scoped_team_enforcement` here. `user:read` is a clean
-    # superset of "read your own spend": anyone trusted with `user:read`
-    # already learns the more sensitive identity facts on `/api/users/@me/`,
-    # and the wildcard `*` plus OAuth identity tokens (MCP) inherit access
-    # the same way they do for every other `user`-scoped endpoint.
-    scope_object = "user"
-
-    def get_throttles(self):
-        return [
-            PersonalSpendBurstThrottle(),
-            PersonalSpendSustainedThrottle(),
-            PersonalSpendDailyThrottle(),
-        ]
 
     @extend_schema(
         operation_id="llm_analytics_personal_spend_list",
@@ -593,74 +975,28 @@ class PersonalSpendViewSet(viewsets.ViewSet):
             "Return a structured personal LLM spend analysis for the requesting user. Pass "
             "`date_from` / `date_to` (absolute like `2026-04-23` or relative like `-7d`) to bound "
             "the window — defaults to the last 30 days, max 90 days. The `product=<ai_product>` "
-            "query param is required and scopes the tool / model / trace breakdowns to a single "
+            "query param is required and scopes the tool / model / day / trace breakdowns to a single "
             f"product; supported values: {', '.join(sorted(SUPPORTED_PRODUCTS))}. `by_product` is "
-            "always returned for cross-product visibility. Use `refresh=true` to bypass the "
-            "5-minute response cache."
+            "always returned for cross-product visibility. `by_day` returns a day-ascending spend "
+            "series for the scoped product. Pass `bucket_minutes` (5, 15, 30, or 60; the window may span "
+            f"at most {MAX_TIME_BUCKETS} buckets) to additionally get `by_bucket`, a time-ascending "
+            "series with per-bucket cost split into uncached input / output / cache read / cache creation "
+            "components. Use `refresh=true` to bypass the 5-minute response cache."
         ),
         tags=["AI observability"],
     )
     def list(self, request: Request) -> Response:
-        user = cast(User, request.user)
-        email = user.email
-        if not email:
-            raise exceptions.PermissionDenied("User has no email on record; cannot scope spend analysis.")
+        email = self._require_email(request)
 
         params = _SpendQueryParamsSerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
-        date_from = params.validated_data["date_from"]
-        date_to = params.validated_data["date_to"]
-        product = params.validated_data["product"]
-        limit = params.validated_data["limit"]
-        refresh = params.validated_data["refresh"]
 
-        from_dt, to_dt = _resolve_window(date_from, date_to)
-
-        cache_key = _cache_key(email, date_from, date_to, product, limit)
-
-        if not refresh:
-            cached = cache.get(cache_key)
-            if cached is not None:
-                return Response(cached, status=status.HTTP_200_OK)
-
-        team_id = _internal_team_id()
-        try:
-            team = Team.objects.get(pk=team_id)
-        except Team.DoesNotExist:
-            logger.exception("personal_spend.team_missing", team_id=team_id)
-            raise exceptions.NotFound("Internal analytics team is not provisioned on this deployment.")
-
-        # Tag the underlying ClickHouse reads with the LLM_ANALYTICS product so they show up
-        # in the existing per-product Prometheus + cost-attribution dashboards alongside the
-        # rest of AI observability traffic. Wraps every call into `_fetch_*` -> HogQL.
-        with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=team_id):
-            summary = _fetch_summary(team, email, from_dt, to_dt, product)
-            by_tool = _fetch_by_tool(team, email, from_dt, to_dt, product, limit)
-            scoped = summary["scoped_cost_usd"] or 0.0
-            # `cost_usd` in by_tool can exceed scoped_cost_usd because multi-tool generations
-            # contribute to every tool. `share_of_scoped` is independent per row, so agents can
-            # present headline percentages directly without reconciling sums.
-            for row in by_tool["items"]:
-                row["share_of_scoped"] = (row["cost_usd"] / scoped) if scoped > 0 else 0.0
-
-            payload = {
-                "summary": summary,
-                "by_product": _fetch_by_product(team, email, from_dt, to_dt, limit),
-                "by_tool": by_tool,
-                "by_model": _fetch_by_model(team, email, from_dt, to_dt, product, limit),
-                # Deprecated — trace IDs are opaque and unactionable in the UI. Returned empty so
-                # existing consumers don't crash while they remove the rendering. Drop the field
-                # entirely once no consumer reads it.
-                "top_traces": {"items": [], "truncated": False},
-            }
-
-        response_data = PersonalSpendAnalysisResponseSerializer(payload).data
-        cache.set(cache_key, response_data, timeout=CACHE_TIMEOUT_SECONDS)
+        response_data = _compute_spend_analysis(email=email, **params.validated_data)
         return Response(response_data, status=status.HTTP_200_OK)
 
 
 _EU_REDIRECT_TARGET = "https://us.posthog.com/api/llm_analytics/@me/spend/"
-_EU_REDIRECT_FORWARDED_PARAMS = frozenset({"date_from", "date_to", "product", "limit", "refresh"})
+_EU_REDIRECT_FORWARDED_PARAMS = frozenset({"date_from", "date_to", "product", "limit", "refresh", "bucket_minutes"})
 
 
 def personal_spend_eu_redirect(request: HttpRequest) -> HttpResponseRedirect:
@@ -669,6 +1005,9 @@ def personal_spend_eu_redirect(request: HttpRequest) -> HttpResponseRedirect:
     EU PostHog Cloud forwards its product LLM telemetry to PostHog Cloud US, so the
     spend analysis only runs there. Returning a 302 makes the new home discoverable
     instead of serving a silent 404. Callers still need a US-valid auth token.
+
+    Now only the fallback path of `PersonalSpendEUProxyViewSet`, used while
+    `PERSONAL_SPEND_CROSS_REGION_SECRET` is not provisioned.
 
     The target host is hardcoded — only an allowlist of known params is forwarded
     (re-encoded via `urlencode`) so a malicious caller cannot smuggle extra path or
@@ -679,3 +1018,165 @@ def personal_spend_eu_redirect(request: HttpRequest) -> HttpResponseRedirect:
     if safe_params:
         target = f"{target}?{urlencode(safe_params)}"
     return HttpResponseRedirect(target)
+
+
+# EU → US cross-region proxy: spend data only lives on US Cloud and EU
+# credentials are not valid there, so the EU deployment authenticates the
+# caller itself and asserts the verified email to a US-side internal endpoint
+# over an HMAC-signed server-to-server call (same pattern as the Slack app's
+# cross-region probe in products/slack_app/backend/api.py).
+
+CROSS_REGION_SIGNATURE_HEADER = "X-PostHog-Spend-Signature"
+CROSS_REGION_TIMESTAMP_HEADER = "X-PostHog-Spend-Timestamp"
+# Fast connect failure; cold spend runs take a few seconds of ClickHouse time.
+CROSS_REGION_TIMEOUT_SECONDS = (3, 15)
+_CROSS_REGION_INTERNAL_PATH = "/api/llm_analytics/internal/spend/"
+
+
+def _cross_region_target_url() -> str:
+    # Under DEBUG a single instance plays both regions (Slack proxy's dev topology).
+    if settings.DEBUG:
+        return f"{settings.SITE_URL}{_CROSS_REGION_INTERNAL_PATH}"
+    return f"https://us.posthog.com{_CROSS_REGION_INTERNAL_PATH}"
+
+
+def sign_cross_region_spend_request(body: bytes, secret: str, *, timestamp: int | None = None) -> tuple[str, str]:
+    """HMAC-SHA256 hexdigest over `v0:{ts}:{body}`; the sending half of
+    `PersonalSpendCrossRegionAuthentication`. Returns (signature, timestamp)."""
+    ts = str(int(time.time()) if timestamp is None else timestamp)
+    hmac_input = f"v0:{ts}:{body.decode('utf-8')}"
+    digest = hmac.new(secret.encode("utf-8"), hmac_input.encode("utf-8"), digestmod=hashlib.sha256).hexdigest()
+    return digest, ts
+
+
+class PersonalSpendCrossRegionAuthentication(WebhookSignatureAuthentication):
+    """HMAC verification for the EU→US personal-spend proxy. The base class
+    fails closed on missing headers, unset secret, stale timestamp, or digest
+    mismatch; the asserted identity lives in the signed body, not `request.user`."""
+
+    def get_signature_header(self) -> str:
+        return CROSS_REGION_SIGNATURE_HEADER
+
+    def get_timestamp_header(self) -> str:
+        return CROSS_REGION_TIMESTAMP_HEADER
+
+    def build_hmac_input(self, timestamp: str, body: str) -> str:
+        return f"v0:{timestamp}:{body}"
+
+    def get_signing_secret(self, request: Request) -> str | None:
+        return settings.PERSONAL_SPEND_CROSS_REGION_SECRET or None
+
+    def authenticate(self, request: Request) -> tuple[AnonymousUser, Any] | None:
+        try:
+            return super().authenticate(request)
+        except UnicodeDecodeError:
+            # The base class decodes the raw body before verifying; garbage
+            # bytes must be an auth failure, not a 500.
+            raise exceptions.AuthenticationFailed("Invalid request body encoding.")
+
+
+class _InternalSpendRequestSerializer(_SpendQueryParamsSerializer):
+    """The EU proxy's payload: the standard query params plus the EU-verified email."""
+
+    email = serializers.EmailField(required=True, allow_blank=False)
+
+
+class PersonalSpendInternalViewSet(viewsets.ViewSet):
+    """US-side receiver for the EU personal-spend proxy (US + dev/test only).
+    The asserted `email` is trusted because the body is HMAC-signed with the
+    region-shared secret; the EU side authenticates and throttles the user
+    before the hop, so no throttles here."""
+
+    authentication_classes = [PersonalSpendCrossRegionAuthentication]
+    permission_classes = []
+    throttle_classes = []
+
+    @extend_schema(exclude=True)
+    def create(self, request: Request) -> Response:
+        params = _InternalSpendRequestSerializer(data=request.data)
+        params.is_valid(raise_exception=True)
+
+        return Response(_compute_spend_analysis(**params.validated_data), status=status.HTTP_200_OK)
+
+
+class _CrossRegionUpstreamError(exceptions.APIException):
+    status_code = status.HTTP_502_BAD_GATEWAY
+    default_detail = "Spend analysis is temporarily unavailable."
+    default_code = "cross_region_upstream_unavailable"
+
+
+class PersonalSpendEUProxyViewSet(_PersonalSpendUserViewSet):
+    """EU `/api/llm_analytics/@me/spend/`: authenticates locally, fetches from
+    US server-side. Falls back to the 302 redirect while the secret is unset."""
+
+    @extend_schema(
+        operation_id="llm_analytics_personal_spend_eu_list",
+        parameters=[_SpendQueryParamsSerializer],
+        responses={200: PersonalSpendAnalysisResponseSerializer},
+        description="EU mirror of the personal spend endpoint — proxies to PostHog Cloud US, where the data lives.",
+        tags=["AI observability"],
+    )
+    def list(self, request: Request) -> HttpResponseBase:
+        secret = settings.PERSONAL_SPEND_CROSS_REGION_SECRET
+        if not secret:
+            return personal_spend_eu_redirect(request._request)
+
+        email = self._require_email(request)
+
+        # Validate in-region so bad requests 400 without paying for the hop. The window
+        # check must precede the cache lookup: the cache is keyed on the raw date
+        # strings, so a relative window cached while under the bucket cap could
+        # otherwise keep serving after it resolves over the cap.
+        params = _SpendQueryParamsSerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        data = params.validated_data
+        _resolve_and_validate_window(data["date_from"], data["date_to"], data.get("bucket_minutes"))
+
+        # Same cache as the US compute path, so repeat loads skip the cross-region hop.
+        cache_key = _cache_key(
+            email, data["date_from"], data["date_to"], data["product"], data["limit"], data.get("bucket_minutes")
+        )
+        if not data["refresh"]:
+            cached = cache.get(cache_key)
+            if cached is not None:
+                return Response(cached, status=status.HTTP_200_OK)
+
+        # Omit None-valued params (serializer defaults) so the internal receiver's
+        # non-nullable fields (e.g. bucket_minutes) accept the payload.
+        body = json.dumps({**{k: v for k, v in data.items() if v is not None}, "email": email}).encode("utf-8")
+        signature, ts = sign_cross_region_spend_request(body, secret)
+        try:
+            upstream = requests.post(
+                _cross_region_target_url(),
+                data=body,
+                headers={
+                    "Content-Type": "application/json",
+                    CROSS_REGION_SIGNATURE_HEADER: signature,
+                    CROSS_REGION_TIMESTAMP_HEADER: ts,
+                },
+                timeout=CROSS_REGION_TIMEOUT_SECONDS,
+            )
+        except requests.RequestException as exc:
+            logger.exception("personal_spend.cross_region_proxy_failed", error=str(exc))
+            raise _CrossRegionUpstreamError()
+
+        if upstream.status_code == status.HTTP_200_OK:
+            try:
+                payload = upstream.json()
+            except ValueError:
+                logger.exception("personal_spend.cross_region_proxy_bad_json")
+                raise _CrossRegionUpstreamError()
+            cache.set(cache_key, payload, timeout=CACHE_TIMEOUT_SECONDS)
+            return Response(payload, status=status.HTTP_200_OK)
+
+        # Relay caller-attributable upstream errors; anything else (including a
+        # 401 secret mismatch between regions) is a 502.
+        if upstream.status_code in (status.HTTP_400_BAD_REQUEST, status.HTTP_429_TOO_MANY_REQUESTS):
+            try:
+                detail = upstream.json()
+            except ValueError:
+                detail = {"detail": f"Upstream error {upstream.status_code}"}
+            return Response(detail, status=upstream.status_code)
+
+        logger.error("personal_spend.cross_region_proxy_non_success", status_code=upstream.status_code)
+        raise _CrossRegionUpstreamError()

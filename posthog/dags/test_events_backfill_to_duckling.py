@@ -42,15 +42,16 @@ from posthog.dags.events_backfill_to_duckling import (
     _resolve_duckling_target,
     _resolve_table_names,
     _set_table_partitioning,
+    _stale_run_outcome,
     _validate_identifier,
     delete_events_partition_data,
     duckling_events_backfill_job,
+    duckling_events_daily_backfill_sensor,
     duckling_events_full_backfill_sensor,
     duckling_persons_backfill_job,
     export_events_to_duckling_s3,
     export_persons_full_to_duckling_s3,
     export_persons_to_duckling_s3,
-    get_months_in_range,
     get_s3_url_for_clickhouse,
     is_full_export_partition,
     parse_partition_key,
@@ -59,6 +60,8 @@ from posthog.dags.events_backfill_to_duckling import (
     register_persons_files_with_duckling,
     table_exists,
 )
+
+from products.data_warehouse.backend.facade.backfill_status import BackfillOutcome, get_months_in_range
 
 
 @pytest.fixture(autouse=True)
@@ -672,6 +675,7 @@ class TestFullBackfillSensorEarliestDate:
     @patch("posthog.dags.events_backfill_to_duckling.get_earliest_event_date_for_team")
     @patch("posthog.dags.events_backfill_to_duckling.DuckgresServerTeam")
     @patch("posthog.dags.events_backfill_to_duckling.timezone")
+    @patch("posthog.dags.events_backfill_to_duckling.stale_running_partitions", new=MagicMock(return_value=[]))
     def test_earliest_date_clamped(
         self,
         _name,
@@ -708,6 +712,7 @@ class TestFullBackfillSensorEarliestDate:
     @patch("posthog.dags.events_backfill_to_duckling.get_earliest_event_date_for_team")
     @patch("posthog.dags.events_backfill_to_duckling.DuckgresServerTeam")
     @patch("posthog.dags.events_backfill_to_duckling.timezone")
+    @patch("posthog.dags.events_backfill_to_duckling.stale_running_partitions", new=MagicMock(return_value=[]))
     def test_no_events_returns_empty(self, mock_tz, mock_backfill_cls, mock_get_earliest):
         from dagster import DagsterInstance, SensorResult, build_sensor_context
 
@@ -748,10 +753,14 @@ class TestFullBackfillSensorEarliestDate:
         with (
             patch("posthog.dags.events_backfill_to_duckling.timezone") as mock_tz,
             patch("posthog.dags.events_backfill_to_duckling.DuckgresServerTeam") as mock_cls,
+            patch("posthog.dags.events_backfill_to_duckling.ManagedWarehouseBackfillPartition") as mock_projection,
+            patch("posthog.dags.events_backfill_to_duckling.record_backfill_outcome"),
+            patch("posthog.dags.events_backfill_to_duckling.stale_running_partitions", return_value=[]),
             patch("posthog.dags.events_backfill_to_duckling.get_earliest_event_date_for_team") as mock_ge,
         ):
             mock_tz.now.return_value = now
             mock_cls.objects.filter.return_value.order_by.return_value = backfills
+            mock_projection.objects.unscoped.return_value.filter.return_value.values_list.return_value = []
             if isinstance(get_earliest, list):
                 mock_ge.side_effect = get_earliest
             else:
@@ -772,14 +781,37 @@ class TestFullBackfillSensorEarliestDate:
     def test_round_robin_interleaves_teams(self):
         # Two teams with the same range → emission alternates team by month index, so the
         # FIFO queue drains both fairly rather than finishing team 1's whole history first.
+        # The current month (2020-03) is excluded — it's the daily sensor's job.
         backfills = [self._bf(1), self._bf(2)]
         result, _ = self._run_full_sensor(
             backfills, now=datetime(2020, 3, 10, 12, 0, 0), get_earliest=datetime(2020, 1, 1)
         )
         keys = [rr.partition_key for rr in result.run_requests]
-        assert keys == ["1_2020-01", "2_2020-01", "1_2020-02", "2_2020-02", "1_2020-03", "2_2020-03"]
+        assert keys == ["1_2020-01", "2_2020-01", "1_2020-02", "2_2020-02"]
         # Every full-backfill run is tagged so the next tick's in-flight count excludes daily runs.
         assert all(rr.tags.get("duckling_backfill_type") == "full" for rr in result.run_requests)
+
+    def test_excludes_current_in_progress_month(self):
+        # The full backfill stops at the end of last month; the current, in-progress month
+        # (2020-03) is owned by the daily sensor and must never be emitted as a monthly
+        # partition (it would race the daily runs for the same team-days).
+        result, _ = self._run_full_sensor(
+            [self._bf(1, earliest=date(2020, 1, 1))],
+            now=datetime(2020, 3, 10, 12, 0, 0),
+            get_earliest=None,
+        )
+        keys = [rr.partition_key for rr in result.run_requests]
+        assert keys == ["1_2020-01", "1_2020-02"]
+
+    def test_team_with_only_current_month_history_gets_nothing(self):
+        # A team whose earliest event is in the current month has no complete month to
+        # full-backfill, so the sensor emits nothing for it — the daily sensor covers it.
+        result, _ = self._run_full_sensor(
+            [self._bf(1, earliest=date(2020, 3, 2))],
+            now=datetime(2020, 3, 10, 12, 0, 0),
+            get_earliest=None,
+        )
+        assert result.run_requests == []
 
     def test_skips_existing_partitions(self):
         result, _ = self._run_full_sensor(
@@ -790,7 +822,7 @@ class TestFullBackfillSensorEarliestDate:
         )
         keys = [rr.partition_key for rr in result.run_requests]
         assert "1_2020-01" not in keys
-        assert keys == ["1_2020-02", "1_2020-03"]
+        assert keys == ["1_2020-02"]
 
     def test_does_not_requery_cached_earliest(self):
         result, mock_ge = self._run_full_sensor(
@@ -799,7 +831,7 @@ class TestFullBackfillSensorEarliestDate:
             get_earliest=None,
         )
         mock_ge.assert_not_called()
-        assert [rr.partition_key for rr in result.run_requests] == ["1_2020-01", "1_2020-02"]
+        assert [rr.partition_key for rr in result.run_requests] == ["1_2020-01"]
 
     def test_caps_earliest_lookups_per_tick(self):
         # 7 unresolved teams, cap is 5 → only 5 ClickHouse lookups this tick; the other two
@@ -840,6 +872,7 @@ class TestFullBackfillSensorEarliestDate:
         with (
             patch("posthog.dags.events_backfill_to_duckling.timezone") as mock_tz,
             patch("posthog.dags.events_backfill_to_duckling.DuckgresServerTeam") as mock_cls,
+            patch("posthog.dags.events_backfill_to_duckling.stale_running_partitions", return_value=[]),
             patch("posthog.dags.events_backfill_to_duckling.get_earliest_event_date_for_team"),
         ):
             mock_tz.now.return_value = datetime(2020, 2, 10, 12, 0, 0)
@@ -851,6 +884,129 @@ class TestFullBackfillSensorEarliestDate:
 
         runs_filter = mock_get_runs.call_args.kwargs["filters"]
         assert runs_filter.tags == {"duckling_backfill_type": "full"}
+
+
+class TestStaleRunOutcome:
+    # A stuck-RUNNING row may only be resolved from a run that provably ended — resolving a live
+    # or queued run would overwrite the terminal state its own process is about to write.
+    @parameterized.expand(
+        [
+            ("lost_run", None, BackfillOutcome.FAILED),
+            ("succeeded", "SUCCESS", BackfillOutcome.SUCCEEDED),
+            ("failed", "FAILURE", BackfillOutcome.FAILED),
+            ("canceled", "CANCELED", BackfillOutcome.FAILED),
+            ("still_running", "STARTED", None),
+            ("queued", "QUEUED", None),
+        ]
+    )
+    def test_resolves_only_provably_ended_runs(self, _name, status_name, expected):
+        from dagster import DagsterRunStatus
+
+        run = None
+        if status_name is not None:
+            run = MagicMock()
+            run.status = DagsterRunStatus[status_name]
+
+        assert _stale_run_outcome(run) == expected
+
+
+class TestDailyBackfillSensor:
+    @staticmethod
+    def _team(team_id: int):
+        m = MagicMock()
+        m.team_id = team_id
+        return m
+
+    @staticmethod
+    def _daily_keys(team_id: int, start: date, end: date) -> list[str]:
+        # Build expected partition keys the same way prod does (strftime), so a formatting bug
+        # (e.g. a hand-rolled zero-pad that breaks on two-digit days) would be caught.
+        keys = []
+        d = start
+        while d <= end:
+            keys.append(f"{team_id}_{d.strftime('%Y-%m-%d')}")
+            d += timedelta(days=1)
+        return keys
+
+    def _run_daily(self, backfills, *, now, existing=None, get_runs=None):
+        from dagster import DagsterInstance, build_sensor_context
+
+        with (
+            patch("posthog.dags.events_backfill_to_duckling.timezone") as mock_tz,
+            patch("posthog.dags.events_backfill_to_duckling.DuckgresServerTeam") as mock_cls,
+        ):
+            mock_tz.now.return_value = now
+            mock_cls.objects.filter.return_value = backfills
+
+            instance = DagsterInstance.ephemeral()
+            if existing:
+                instance.add_dynamic_partitions("duckling_events_backfill", list(existing))
+
+            context = build_sensor_context(instance=instance)
+            if get_runs is not None:
+                with patch.object(instance, "get_runs", return_value=get_runs):
+                    return duckling_events_daily_backfill_sensor(context)
+            return duckling_events_daily_backfill_sensor(context)
+
+    def test_steady_state_creates_only_yesterday(self):
+        # Established team already has every current-month day except yesterday → only
+        # yesterday (2020-03-09) is new, matching the pre-catch-up behavior.
+        existing = [f"1_2020-03-0{d}" for d in range(1, 9)]  # 2020-03-01 .. 2020-03-08
+        result = self._run_daily([self._team(1)], now=datetime(2020, 3, 10, 12, 0, 0), existing=existing)
+        assert [rr.partition_key for rr in result.run_requests] == ["1_2020-03-09"]
+
+    def test_catches_up_current_month_for_newly_enabled_team(self):
+        # A team with no existing partitions (just enabled) gets every current-month day from
+        # the 1st through yesterday, closing the gap the full-backfill sensor won't cover.
+        # now=the 15th so the range crosses the single/two-digit day boundary (01..14).
+        result = self._run_daily([self._team(1)], now=datetime(2020, 3, 15, 12, 0, 0))
+        keys = [rr.partition_key for rr in result.run_requests]
+        assert keys == self._daily_keys(1, date(2020, 3, 1), date(2020, 3, 14))
+
+    def test_first_of_month_is_noop(self):
+        # On the 1st, yesterday is in the previous month (owned by that month's now-complete
+        # full-backfill partition), so the daily sensor creates nothing.
+        result = self._run_daily([self._team(1)], now=datetime(2020, 3, 1, 12, 0, 0))
+        assert result.run_requests == []
+
+    def test_retries_only_yesterday_not_older_days(self):
+        # All current-month days already exist and their last run failed, but only yesterday
+        # (2020-03-09) is retried — older caught-up days are left alone, keeping the per-tick
+        # run lookup to one query per team.
+        from dagster import DagsterRunStatus
+
+        existing = [f"1_2020-03-0{d}" for d in range(1, 10)]  # 2020-03-01 .. 2020-03-09
+        failed = MagicMock()
+        failed.status = DagsterRunStatus.FAILURE
+        failed.run_id = "deadbeefcafef00d"
+        result = self._run_daily(
+            [self._team(1)], now=datetime(2020, 3, 10, 12, 0, 0), existing=existing, get_runs=[failed]
+        )
+        keys = [rr.partition_key for rr in result.run_requests]
+        assert keys == ["1_2020-03-09"]
+        assert result.run_requests[0].run_key == "1_2020-03-09_retry_deadbeef"
+
+    def test_catchup_is_bounded_per_tick_but_yesterday_always_emitted(self):
+        # With the catch-up cap at 3 and two freshly enabled teams on 2020-03-05 (older days
+        # 01/02/03, yesterday 04): the first team exhausts the cap with its three older days,
+        # the second team's older days are dropped this tick, but BOTH teams still get
+        # yesterday so freshness never starves behind the backlog.
+        with patch(
+            "posthog.dags.events_backfill_to_duckling.DAILY_BACKFILL_MAX_CATCHUP_PARTITIONS_PER_TICK",
+            3,
+        ):
+            result = self._run_daily(
+                [self._team(1), self._team(2)],
+                now=datetime(2020, 3, 5, 12, 0, 0),
+            )
+        keys = [rr.partition_key for rr in result.run_requests]
+        assert keys == [
+            "1_2020-03-01",
+            "1_2020-03-02",
+            "1_2020-03-03",
+            "1_2020-03-04",
+            "2_2020-03-04",
+        ]
 
 
 class TestGetClusterRetry:

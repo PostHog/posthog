@@ -9,9 +9,11 @@ each stage as a pure function over numpy arrays / dataclasses makes the
 algorithm validatable without touching ClickHouse, Postgres, or the embedding
 service.
 
-Why ``$mcp_intent`` per-event for v1: a session-level summarised-intent table is
-being built in parallel. ``fetch_intent_corpus`` is the only function that needs
-to change when that table lands — swap its body to read from the new source.
+Intent sources: the corpus is built from the ``$mcp_intent`` recorded on tool-call
+events (the first intent of each session, sampled from ClickHouse), overlaid with
+the LLM-generated session summaries from ``posthog_mcp_session`` where those exist.
+Event intents give scale without any LLM dependency; summaries, generated on
+demand, win per session because they condense the whole session's intents.
 """
 
 import math
@@ -79,22 +81,53 @@ class IntentRecord:
 
 # Intent corpus -----------------------------------------------------------
 
-# Per-session tool stats: for each session_id we know about in Postgres, what
-# tools were called and how often. Joined in Python with the session→intent
-# map from Postgres so the same intent string can aggregate across sessions.
-# TODO(mcp-sessions): when the parallel-team posthog_mcp_session table ships,
-# change MCPSession.objects.filter(...) below to point at the real model.
+# Bound on sessions sampled from ClickHouse for the corpus. Keeps the IN-tuple
+# in the two per-session queries below at a sane size; with
+# DEFAULT_TOP_N_INTENTS=500 a larger sample only adds long-tail singletons.
+MAX_CORPUS_SESSIONS = 2000
+
+# Event-sourced intents are free text written by the calling agent — clip them
+# so one oversized value can't blow up embedding requests (the worker's model
+# has a token ceiling) or bloat the snapshot blob. Real intents are one or two
+# sentences; anything past this length adds no clustering signal.
+MAX_INTENT_TEXT_LENGTH = 1000
+
+# First (chronological) $mcp_intent per session — the agent's opening task
+# statement, used as the session's representative intent unless an on-demand
+# LLM summary exists in Postgres. Ordering by cityHash64(session_id) is a
+# deterministic pseudo-random sample: unbiased across the window (newest-first
+# would collapse the corpus to the last few hours at production volume) and
+# stable across reruns, so repeat runs re-hit the embedding cache.
+# NB: `$session_id` is the materialised events column ('' when absent), NOT the
+# `properties.` accessor — same rationale as logic.py's session SQL.
+_SESSION_FIRST_INTENT_SQL = """
+SELECT
+    $session_id AS session_id,
+    argMin(toString(properties.$mcp_intent), timestamp) AS first_intent
+FROM events
+WHERE event = {event}
+    AND timestamp >= now() - INTERVAL {lookback_days} DAY
+    AND $session_id != ''
+    AND coalesce(toString(properties.$mcp_intent), '') != ''
+GROUP BY session_id
+ORDER BY cityHash64(session_id)
+LIMIT {max_sessions}
+"""
+
+# Per-session tool stats: for each session in the corpus, what tools were
+# called and how often. Joined in Python with the session→intent map so the
+# same intent string can aggregate across sessions.
 # TODO(intent-routing): chaining is by $session_id today; swap to
 # $mcp_session_id once tool calls carry it consistently.
 _SESSION_TOOL_STATS_SQL = """
 SELECT
-    properties.$session_id AS session_id,
+    $session_id AS session_id,
     toString(properties.$mcp_tool_name) AS tool_name,
     countIf(toString(properties.$mcp_is_error) NOT IN ('true', '1')) AS success_count,
     countIf(toString(properties.$mcp_is_error) IN ('true', '1')) AS error_count
 FROM events
 WHERE event = {event}
-    AND properties.$session_id IN {session_ids}
+    AND $session_id IN {session_ids}
     AND properties.$mcp_tool_name IS NOT NULL
     AND properties.$mcp_tool_name != ''
     AND timestamp >= now() - INTERVAL {lookback_days} DAY
@@ -105,7 +138,7 @@ GROUP BY session_id, tool_name
 # arraySort on (timestamp, tool) tuples preserves call order.
 _SESSION_JOURNEY_SQL = """
 SELECT
-    properties.$session_id AS session_id,
+    $session_id AS session_id,
     arrayMap(
         x -> x.2,
         arraySort(
@@ -116,7 +149,7 @@ SELECT
     countIf(toString(properties.$mcp_is_error) IN ('true', '1')) > 0 AS had_error
 FROM events
 WHERE event = {event}
-    AND properties.$session_id IN {session_ids}
+    AND $session_id IN {session_ids}
     AND properties.$mcp_tool_name IS NOT NULL
     AND properties.$mcp_tool_name != ''
     AND timestamp >= now() - INTERVAL {lookback_days} DAY
@@ -131,32 +164,52 @@ def fetch_intent_corpus(
 ) -> tuple[list[IntentRecord], dict[str, str]]:
     """Return ``(records, intent_by_session)`` for clustering.
 
-    The intent text comes from posthog_mcp_session (Postgres), one row per
-    MCP session. Tool stats come from ClickHouse $mcp_tool_call events joined
-    by session_id. Same intent string repeated across sessions aggregates.
+    Each session's intent text is the first ``$mcp_intent`` it recorded (sampled
+    from ClickHouse, capped at ``MAX_CORPUS_SESSIONS``), overridden by the
+    on-demand LLM summary from posthog_mcp_session where one exists — the
+    summary condenses the whole session, so it wins. Tool stats come from
+    ClickHouse $mcp_tool_call events joined by session_id. Same intent string
+    repeated across sessions aggregates.
 
     ``intent_by_session`` is exposed so callers can later join session-level
     data (e.g. journey aggregation) back to the cluster a session belongs to.
 
-    ``lookback_days`` bounds both stores to the same window: session intent
-    rows are filtered by ``created_at`` (when the intent was generated, since
-    intents are produced on demand), and the joined ClickHouse query filters by
-    event timestamp.
+    ``lookback_days`` bounds both stores to the same window: event queries
+    filter by timestamp, and session intent rows are filtered by ``created_at``
+    (when the intent was generated, since intents are produced on demand).
     """
-    window_start = timezone.now() - timedelta(days=lookback_days)
-    session_rows = list(
-        MCPSession.objects.filter(team=team, created_at__gte=window_start).values_list("session_id", "intent")
+    intent_query = parse_select(
+        _SESSION_FIRST_INTENT_SQL,
+        placeholders={
+            "event": ast.Constant(value=MCP_TOOL_CALL_EVENT),
+            "lookback_days": ast.Constant(value=lookback_days),
+            "max_sessions": ast.Constant(value=MAX_CORPUS_SESSIONS),
+        },
     )
-    if not session_rows:
-        return [], {}
+    with tags_context(product=Product.MCP, feature=Feature.QUERY, team_id=team.id):
+        intent_response = execute_hogql_query(query=intent_query, team=team)
 
-    # Map session_id -> intent_text (last write wins per session).
-    # Skip the summariser's "no intents recorded" placeholder — clustering
-    # it produces a meaningless pseudo-cluster of sessions with nothing in
-    # common except that their tool calls had no $mcp_intent property.
+    # Map session_id -> intent_text. Skip the summariser's "no intents
+    # recorded" placeholder — clustering it produces a meaningless
+    # pseudo-cluster of sessions with nothing in common except that their
+    # tool calls had no $mcp_intent property.
     intent_by_session: dict[str, str] = {}
+    for row in intent_response.results or []:
+        session_id = str(row[0] or "")
+        text = str(row[1] or "").strip()[:MAX_INTENT_TEXT_LENGTH]
+        if not session_id or not text or text == NO_INTENT_RECORDED_FALLBACK:
+            continue
+        intent_by_session[session_id] = text
+
+    # Overlay LLM-generated session summaries, and include summarised sessions
+    # the event sample missed (e.g. generated for a session whose events sit
+    # just outside the sampled set).
+    window_start = timezone.now() - timedelta(days=lookback_days)
+    session_rows = MCPSession.objects.filter(team=team, created_at__gte=window_start).values_list(
+        "session_id", "intent"
+    )
     for session_id, intent_text in session_rows:
-        text = (intent_text or "").strip()
+        text = (intent_text or "").strip()[:MAX_INTENT_TEXT_LENGTH]
         if not session_id or not text or text == NO_INTENT_RECORDED_FALLBACK:
             continue
         intent_by_session[session_id] = text

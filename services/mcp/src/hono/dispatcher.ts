@@ -20,6 +20,7 @@ import type {
 import GUIDELINES from '@shared/guidelines.md'
 import { randomUUID } from 'node:crypto'
 
+import { mapErrorToAuthResponse } from '@/lib/auth-errors'
 import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import type { RequestProperties } from '@/lib/request-properties'
 
@@ -143,7 +144,21 @@ class McpDispatcher {
         }
 
         const needsState = requests.some((r) => TRACKED_METHODS.has(r.method))
-        const state = needsState ? await this.stateResolver.resolve(props) : undefined
+        let state: ResolvedState | undefined
+        try {
+            state = needsState ? await this.stateResolver.resolve(props) : undefined
+        } catch (error) {
+            // A failed resolution still fails the handshake for the client, so count
+            // it in mcp_init_total — otherwise MCPServerHighInitErrorRate only sees
+            // failures past this point. Auth failures (expired tokens, missing scopes)
+            // are client-side and dominate resolution errors, so they get their own
+            // status to keep the alert on `status="error"` meaningful. The rethrow
+            // surfaces as a 401/403/500 upstream via handleCatchError.
+            if (hasInit) {
+                initTotal.inc({ status: mapErrorToAuthResponse(error) ? 'auth_error' : 'error' })
+            }
+            throw error
+        }
 
         const headers: Record<string, string> = { 'Content-Type': 'application/json' }
         if (props.mcpSessionId) {
@@ -205,7 +220,7 @@ class McpDispatcher {
                 : LATEST_PROTOCOL_VERSION
 
             await this.resourceCatalog.revalidateContextMillResources('initialize')
-            const instructions = await this.instructionsBuilder.build(props, state)
+            const instructions = this.instructionsBuilder.build(state)
 
             initDurationSeconds.observe(props.requestStartTime ? (Date.now() - props.requestStartTime) / 1000 : 0)
             initTotal.inc({ status: 'success' })
@@ -223,7 +238,7 @@ class McpDispatcher {
                 ...(instructions ? { instructions } : {}),
             }
         } catch (error) {
-            initTotal.inc({ status: 'error' })
+            initTotal.inc({ status: mapErrorToAuthResponse(error) ? 'auth_error' : 'error' })
             throw error
         }
     }

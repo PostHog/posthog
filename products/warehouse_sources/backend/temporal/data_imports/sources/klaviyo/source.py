@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Optional, cast
 
 from posthog.schema import (
@@ -13,7 +14,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     SourceInputs,
     SourceResponse,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    VersionDeprecation,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -21,6 +26,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import KlaviyoSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.constants import (
+    KLAVIYO_API_VERSION_2024_10_15,
+    KLAVIYO_API_VERSION_2026_07_15,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.klaviyo import (
     KlaviyoResumeConfig,
     klaviyo_source,
@@ -36,6 +45,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class KlaviyoSource(ResumableSource[KlaviyoSourceConfig, KlaviyoResumeConfig]):
+    supported_versions = (KLAVIYO_API_VERSION_2024_10_15, KLAVIYO_API_VERSION_2026_07_15)
+    default_version = KLAVIYO_API_VERSION_2026_07_15
+    api_docs_url = "https://developers.klaviyo.com"
+    # Klaviyo retires a revision two years after release, falling forward / returning 410 thereafter.
+    deprecated_versions = (VersionDeprecation(version=KLAVIYO_API_VERSION_2024_10_15, sunset_at=date(2026, 10, 15)),)
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -106,24 +121,28 @@ Make sure to grant the following read permissions:
     ) -> list[SourceSchema]:
         # Events are immutable - append-only is the only sync mode
         append_only_endpoints = {"events"}
+        # The fan-out's incremental lookback intentionally re-pulls a window of rows each run; only
+        # merge dedupes those on the primary key, append would materialize them as duplicates.
+        merge_only_endpoints = {"list_profiles"}
 
         def _description(endpoint: str) -> str | None:
             if endpoint == "events":
                 return "Only syncs the last 365 days on initial sync"
             if KLAVIYO_ENDPOINTS[endpoint].fan_out_over_lists:
-                return "Maps which profiles belong to which list as {list_id, profile_id} rows. Full refresh only"
+                return (
+                    "Maps which profiles belong to which list as {list_id, profile_id, joined_group_at} rows. "
+                    "Incremental syncs pick up new joins and re-joins; profiles removed from a list are only "
+                    "reflected on a full refresh"
+                )
             return None
 
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = KLAVIYO_ENDPOINTS[endpoint]
-            # Fan-out endpoints have no server-side incremental filter, so they're full refresh only.
-            has_incremental = (
-                INCREMENTAL_FIELDS.get(endpoint, None) is not None and not endpoint_config.fan_out_over_lists
-            )
+            has_incremental = INCREMENTAL_FIELDS.get(endpoint, None) is not None
             return SourceSchema(
                 name=endpoint,
                 supports_incremental=has_incremental and endpoint not in append_only_endpoints,
-                supports_append=has_incremental,
+                supports_append=has_incremental and endpoint not in merge_only_endpoints,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=endpoint_config.should_sync_default,
                 description=_description(endpoint),
@@ -157,6 +176,7 @@ Make sure to grant the following read permissions:
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

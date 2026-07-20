@@ -100,6 +100,20 @@
 .filter-form button:hover {
     opacity: 0.85;
 }
+.restriction-link {
+    display: inline-block;
+    padding: 2px 8px;
+    background: var(--primary);
+    color: var(--header-link-color, #fff);
+    border-radius: 4px;
+    font-size: 11px;
+    text-decoration: none;
+    white-space: nowrap;
+}
+.restriction-link:hover {
+    opacity: 0.85;
+    color: var(--header-link-color, #fff);
+}
 </style>
 {% endblock %}
 
@@ -178,10 +192,12 @@
                     <tr>
                         <th scope="col">Rank</th>
                         <th scope="col">Key</th>
+                        <th scope="col">Token</th>
                         <th scope="col">Value</th>
                         <th scope="col">Count</th>
                         <th scope="col">Pipeline</th>
                         <th scope="col">Lane</th>
+                        <th scope="col"></th>
                     </tr>
                 </thead>
                 <tbody>
@@ -189,10 +205,16 @@
                     <tr>
                         <td>{{ forloop.counter }}</td>
                         <td>{{ entry.key }}</td>
+                        <td>{{ entry.token }}</td>
                         <td>{{ entry.value }}</td>
                         <td>{{ entry.count }}</td>
                         <td>{{ entry.pipeline }}</td>
                         <td>{{ entry.lane }}</td>
+                        <td>
+                            {% if entry.restrictions_url %}
+                            <a href="{{ entry.restrictions_url }}" class="restriction-link">Restrictions</a>
+                            {% endif %}
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>

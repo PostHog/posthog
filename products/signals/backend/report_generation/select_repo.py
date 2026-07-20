@@ -14,6 +14,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from posthog.sync import database_sync_to_async
+
+from products.signals.backend.agent_runtime import STEP_REPO_SELECTION, resolve_agent_runtime
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.repo_selection import (
     REPO_SELECTION_DUMMY_REPOSITORY,
@@ -62,6 +65,11 @@ async def select_repository_for_team(
     — Signals/custom agents have no picker fallback, so callers treat ``repository=None`` as
     "no match / requires human input".
     """
+    # Resolved at the single repo-selection chokepoint so both callers (custom agent +
+    # report flow) pick it up.
+    agent_runtime = await database_sync_to_async(resolve_agent_runtime, thread_sensitive=False)(
+        team_id, STEP_REPO_SELECTION
+    )
     try:
         return await select_repository(
             team_id=team_id,
@@ -73,6 +81,9 @@ async def select_repository_for_team(
             sandbox_environment_id=sandbox_environment_id,
             verbose=verbose,
             output_fn=output_fn,
+            model=agent_runtime.model,
+            runtime_adapter=agent_runtime.runtime_adapter,
+            reasoning_effort=agent_runtime.reasoning_effort,
         )
     except RepoSelectionRejectedError as exc:
         # Preserve legacy behavior: surface validation reject as null with reason so callers'

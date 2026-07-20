@@ -72,9 +72,8 @@ class DeleteTeamsDataWorkflow(PostHogWorkflow):
     """Delete all child data and the team rows for a set of teams.
 
     The reusable core: composed as a child workflow by both ``DeleteProjectDataWorkflow``
-    and ``DeleteOrganizationWorkflow``. Mirrors the phase order of the legacy
-    ``_delete_teams_and_data`` Celery path, with each phase as an independently retryable,
-    heartbeating activity.
+    and ``DeleteOrganizationWorkflow``. Each deletion phase runs as an independently
+    retryable, heartbeating activity.
     """
 
     inputs_cls = DeleteTeamsDataWorkflowInputs
@@ -156,7 +155,7 @@ async def _delete_teams_data_child(inputs: DeleteTeamsDataWorkflowInputs, workfl
 
 @temporalio.workflow.defn(name="delete-project-data")
 class DeleteProjectDataWorkflow(PostHogWorkflow):
-    """Replaces ``delete_project_data_and_notify_task`` — project or environment-only deletion."""
+    """Durable project or environment-only deletion."""
 
     inputs_cls = DeleteProjectDataWorkflowInputs
 
@@ -189,7 +188,7 @@ class DeleteProjectDataWorkflow(PostHogWorkflow):
 
 @temporalio.workflow.defn(name="delete-organization")
 class DeleteOrganizationWorkflow(PostHogWorkflow):
-    """Replaces ``delete_organization_data_and_notify_task``."""
+    """Durable organization deletion."""
 
     inputs_cls = DeleteOrganizationWorkflowInputs
 

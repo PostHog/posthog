@@ -1,6 +1,8 @@
 import datetime as dt
 from typing import Any
 
+from parameterized import parameterized
+
 from products.replay_vision.backend.temporal.events_tool import (
     EventsIndex,
     build_events_index,
@@ -135,3 +137,33 @@ class TestDispatchEventsTool:
     def test_rejects_unknown_tool(self) -> None:
         result = dispatch_events_tool(_Call("something_else", {}), _index([], {}))
         assert "error" in result
+
+    @parameterized.expand(
+        [
+            ("float_string", "30.7"),
+            ("float", 30.0),
+            ("int_string", "30"),
+        ]
+    )
+    def test_coerces_numeric_rec_t_variants(self, _label: str, rec_t: Any) -> None:
+        rows = [_row("u1", "$rageclick", None, "url_1", None, "click", [])]
+        result = dispatch_events_tool(_Call("get_events_around", {"rec_t": rec_t}), _index(rows, {"u1": 30_000}))
+        assert [e["rec_t"] for e in result["events"]] == [30]
+
+    @parameterized.expand(
+        [
+            ("null", None),
+            ("prose", "about 30"),
+            ("boolean", True),
+            ("nan", "nan"),
+        ]
+    )
+    def test_malformed_rec_t_returns_error_to_model_instead_of_raising(self, _label: str, rec_t: Any) -> None:
+        result = dispatch_events_tool(_Call("get_events_around", {"rec_t": rec_t}), _index([], {}))
+        assert "rec_t" in result["error"]
+
+    def test_malformed_window_falls_back_to_default(self) -> None:
+        rows = [_row("u1", "$rageclick", None, "url_1", None, "click", [])]
+        index = _index(rows, {"u1": 30_000})
+        result = dispatch_events_tool(_Call("get_events_around", {"rec_t": 30, "window_s": "wide"}), index)
+        assert len(result["events"]) == 1

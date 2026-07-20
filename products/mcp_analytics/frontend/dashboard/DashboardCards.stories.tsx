@@ -103,6 +103,7 @@ function metric(value: number, previousValue: number, sparkline: number[], goodD
         previousValue,
         deltaPct: previousValue ? ((value - previousValue) / previousValue) * 100 : null,
         sparkline,
+        sparklineLabels: sparkline.map((_, i) => `2026-06-${String(10 + i).padStart(2, '0')} 00:00:00`),
         goodDirection,
     }
 }
@@ -141,8 +142,10 @@ export const KeyMetrics: Story = {
         <div className="w-[960px]">
             <KpiTiles
                 kpis={KPIS}
+                users={metric(1840, 1655, [], 'up')}
                 intentClusterCount={metric(6, 0, [], 'up')}
                 kpisLoading={false}
+                usersLoading={false}
                 theme={buildTheme()}
             />
         </div>

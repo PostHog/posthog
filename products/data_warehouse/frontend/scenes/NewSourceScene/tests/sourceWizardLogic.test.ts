@@ -261,9 +261,24 @@ describe('sourceWizardLogic', () => {
             expect(res).toEqual({ payload: {} })
         })
 
-        it('returns errors for an invalid prefix', () => {
-            const res = getErrorsForFields([], { prefix: '@@@', payload: {} })
-            expect(res.prefix).toBeTruthy()
+        // Warehouse-mode prefixes must satisfy the backend `validate_source_prefix` rules so an
+        // invalid prefix is caught in the wizard rather than only after the create request fails.
+        it.each([
+            ['@@@', true],
+            ['my-prefix', true], // hyphen — rejected by the backend, previously allowed here
+            ['2things', true], // leading digit
+            ['___', true], // only underscores
+            [' my ', true], // backend strips only underscores, not whitespace
+            ['my_prefix', false],
+            ['_leading', false],
+            ['', false], // empty prefix is allowed
+        ])('validates warehouse-mode prefix %p', (prefix, expectError) => {
+            const res = getErrorsForFields([], { prefix, payload: {} })
+            if (expectError) {
+                expect(res.prefix).toBeTruthy()
+            } else {
+                expect(res.prefix).toBeUndefined()
+            }
         })
 
         it('requires name for direct mode', () => {
@@ -745,6 +760,48 @@ describe('sourceWizardLogic', () => {
                 expect(byTable['public.customers'].should_sync).toBe(true)
                 expect(byTable['public.invoices'].should_sync).toBe(true)
                 expect(byTable['public.charges'].should_sync).toBe(false)
+            } finally {
+                unmount()
+            }
+        })
+
+        it('explains why Next is disabled on the schema step when no table is selected', () => {
+            const { logic, unmount } = mountWithSchemas([buildSchema({ table: 'Customer', should_sync: false })])
+
+            try {
+                logic.actions.setStep(3)
+                expect(logic.values.canGoNext).toBe(false)
+                expect(logic.values.nextButtonDisabledReason).toEqual('Select at least one table to sync')
+            } finally {
+                unmount()
+            }
+        })
+
+        it('explains why Next is disabled when a selected table has no sync method', () => {
+            const { logic, unmount } = mountWithSchemas([
+                buildSchema({ table: 'Customer', should_sync: true, sync_type: null }),
+            ])
+
+            try {
+                logic.actions.setStep(3)
+                expect(logic.values.canGoNext).toBe(false)
+                expect(logic.values.nextButtonDisabledReason).toEqual(
+                    'Choose a sync method for each table you want to sync'
+                )
+            } finally {
+                unmount()
+            }
+        })
+
+        it('clears the disabled reason once a selected table has a sync method', () => {
+            const { logic, unmount } = mountWithSchemas([
+                buildSchema({ table: 'Customer', should_sync: true, sync_type: 'full_refresh' }),
+            ])
+
+            try {
+                logic.actions.setStep(3)
+                expect(logic.values.canGoNext).toBe(true)
+                expect(logic.values.nextButtonDisabledReason).toBeNull()
             } finally {
                 unmount()
             }

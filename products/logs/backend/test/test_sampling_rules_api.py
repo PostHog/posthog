@@ -199,6 +199,67 @@ class TestLogsSamplingRulesAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
+    # Well-formed but vacuous shapes: they pass Pydantic validation, but the worker's
+    # matchFilterGroup returns false for empty groups, so the rule silently never
+    # applies. Worst on rate_limit, where `{"type": "AND", "values": []}` reads like
+    # "cap everything" but caps nothing (omitting filter_group entirely is how to
+    # match all logs).
+    VACUOUS_FILTER_GROUPS = [
+        ("outer_empty", {"type": "AND", "values": []}),
+        ("inner_empty", {"type": "AND", "values": [{"type": "AND", "values": []}]}),
+        (
+            "empty_group_beside_leaf",
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "service.name",
+                                "operator": "exact",
+                                "value": "api",
+                                "type": "log_resource_attribute",
+                            },
+                            {"type": "OR", "values": []},
+                        ],
+                    }
+                ],
+            },
+        ),
+    ]
+
+    @parameterized.expand(
+        [
+            (f"{rule_type}_{shape_label}", rule_type, base_config, shape)
+            for shape_label, shape in VACUOUS_FILTER_GROUPS
+            for rule_type, base_config in [("path_drop", {"patterns": []}), ("rate_limit", {"kb_per_second": 100})]
+        ]
+    )
+    def test_create_rejects_vacuous_filter_group(self, _label, rule_type, base_config, vacuous):
+        response = self.client.post(
+            self.base_url,
+            self._payload(rule_type=rule_type, config={**base_config, "filter_group": vacuous}),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "at least one filter" in str(response.json()), response.json()
+
+    def test_patch_unrelated_fields_succeeds_when_stored_filter_group_is_vacuous(self):
+        # Rows that predate the vacuous-group validator may carry an empty group;
+        # a PATCH that doesn't rewrite config (e.g. disabling the rule) must not 400.
+        rule = LogsExclusionRule.objects.create(
+            team_id=self.team.pk,
+            name="legacy empty group",
+            enabled=True,
+            priority=0,
+            rule_type=LogsExclusionRule.RuleType.RATE_LIMIT,
+            config={"kb_per_second": 100, "filter_group": {"type": "AND", "values": []}},
+        )
+        response = self.client.patch(f"{self.base_url}{rule.id}/", {"enabled": False}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["enabled"] is False
+
     def test_create_path_drop_rejects_filter_group_nested_too_deeply(self):
         # 20 nested AND groups around a single leaf — well past the cap of 16.
         # Worker recurses per record, so an unbounded depth is a stack-overflow + CPU footgun.

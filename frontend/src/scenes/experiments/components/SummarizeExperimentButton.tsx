@@ -11,6 +11,8 @@ import { useMaxTool } from 'scenes/max/useMaxTool'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+
 import { experimentLogic } from '../experimentLogic'
 import { isLaunched } from '../experimentsLogic'
 
@@ -84,6 +86,12 @@ function useExperimentSummaryMaxTool(): ReturnType<typeof useMaxTool> {
             }
         },
     })
+
+    useAttachedContext(
+        shouldShowMaxSummaryTool
+            ? [{ type: 'experiment', key: experiment.id, label: experiment.name || 'Unnamed experiment' }]
+            : null
+    )
 
     return maxToolResult
 }

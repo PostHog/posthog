@@ -1,0 +1,8 @@
+// Scoped to this picker's dropdown only: let each option's label fill the row so the
+// metadata can right-align. Avoids changing the shared LemonInputSelect for everyone.
+.SurveyPickerSelect__dropdown {
+    .LemonButton__content > span {
+        flex: 1;
+        min-width: 0;
+    }
+}

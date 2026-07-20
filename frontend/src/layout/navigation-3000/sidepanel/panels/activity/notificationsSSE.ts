@@ -32,7 +32,8 @@ export function connectToNotificationsSSE(
                 hooks.onFirstMessage?.()
             }
             try {
-                const notification = JSON.parse(event.data) as InAppNotification
+                const parsed = JSON.parse(event.data) as InAppNotification
+                const notification = { ...parsed, archivable: parsed.archivable ?? false }
                 onNotification(notification)
             } catch {
                 // Ignore malformed messages

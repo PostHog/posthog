@@ -5,6 +5,11 @@ export type TicketAssignee = {
     id: string | number
 } | null
 
+export type AssigneeFilterEntry = 'unassigned' | NonNullable<TicketAssignee>
+
+/** Mirrors the entry cap the tickets list endpoint applies to the `assignee` param. */
+export const MAX_ASSIGNEE_FILTER_ENTRIES = 100
+
 export type UserAssignee = {
     id: number
     type: 'user'

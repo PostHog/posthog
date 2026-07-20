@@ -7,7 +7,9 @@ import {
     IconClock,
     IconCompass,
     IconDatabase,
+    IconEye,
     IconGithub,
+    IconGraph,
     IconList,
     IconReceipt,
     IconRefresh,
@@ -17,7 +19,7 @@ import {
 } from '@posthog/icons'
 import { LemonTagType } from '@posthog/lemon-ui'
 
-import { InboxSortDirection, InboxSortField } from './logics/inboxFiltersLogic'
+import type { InboxSortDirection, InboxSortField } from './logics/inboxFiltersLogic'
 import { SignalReportPriority } from './types'
 
 /**
@@ -31,6 +33,22 @@ export const PRIORITY_TAG_TYPE: Record<SignalReportPriority, LemonTagType> = {
     P2: 'caution', // amber
     P3: 'highlight', // blue
     P4: 'muted', // gray
+}
+
+/**
+ * Human meaning of each priority code, mirroring the criteria the research agent judges against
+ * (see products/signals/backend/report_generation/research.py). Surfaced in the priority badge
+ * tooltip and the priority filter so users don't have to guess what P0–P4 mean.
+ */
+export const PRIORITY_MEANING: Record<SignalReportPriority, { label: string; description: string }> = {
+    P0: {
+        label: 'Critical',
+        description: 'Production errors, a broken core flow, data loss, or a security vulnerability.',
+    },
+    P1: { label: 'High', description: 'Significant user-facing impact or a clear regression.' },
+    P2: { label: 'Medium', description: 'A clear improvement opportunity, or a contained issue with workarounds.' },
+    P3: { label: 'Low', description: 'A minor improvement or low-impact issue.' },
+    P4: { label: 'Minimal', description: 'Cosmetic or negligible impact, or an optional investigation.' },
 }
 
 /** Matching CSS accent per priority, for non-LemonTag surfaces (filter dots, monograms). */
@@ -62,6 +80,7 @@ export const INBOX_SORT_OPTIONS: InboxSortOption[] = [
 
 export const INBOX_SOURCE_OPTIONS: { value: string; label: string; icon: JSX.Element }[] = [
     { value: 'session_replay', label: 'Session replay', icon: <IconRewindPlay /> },
+    { value: 'replay_vision', label: 'Replay vision', icon: <IconEye /> },
     { value: 'error_tracking', label: 'Error tracking', icon: <IconBug /> },
     { value: 'llm_analytics', label: 'AI observability', icon: <IconBrain /> },
     { value: 'github', label: 'GitHub', icon: <IconGithub /> },
@@ -69,6 +88,7 @@ export const INBOX_SOURCE_OPTIONS: { value: string; label: string; icon: JSX.Ele
     { value: 'zendesk', label: 'Zendesk', icon: <IconReceipt /> },
     { value: 'conversations', label: 'Conversations', icon: <IconSupport /> },
     { value: 'pganalyze', label: 'pganalyze', icon: <IconDatabase /> },
+    { value: 'analytics', label: 'Product analytics', icon: <IconGraph /> },
     { value: 'signals_scout', label: 'Scout', icon: <IconCompass /> },
 ]
 

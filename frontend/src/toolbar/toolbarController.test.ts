@@ -9,6 +9,12 @@ import {
     setToolbarRefs,
 } from '~/toolbar/toolbarController'
 
+// The toolbar logger mirrors intentional error/auth paths to the console (its job on
+// customer pages); tests exercise those paths on purpose, so stub the boundary.
+jest.mock('~/toolbar/toolbarLogger', () => ({
+    toolbarLogger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+}))
+
 global.fetch = jest.fn(() =>
     Promise.resolve({
         ok: true,
@@ -117,6 +123,17 @@ describe('PostHogToolbarController', () => {
     })
 
     describe('authenticate()', () => {
+        // toolbarConfigLogic's authenticate flow narrates progress via toolbarLogger by design
+        let consoleInfoSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            consoleInfoSpy = jest.spyOn(console, 'info').mockImplementation()
+        })
+
+        afterEach(() => {
+            consoleInfoSpy.mockRestore()
+        })
+
         it('calls authenticate action on toolbarConfigLogic when loaded and not authenticated', () => {
             const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
             logic.mount()

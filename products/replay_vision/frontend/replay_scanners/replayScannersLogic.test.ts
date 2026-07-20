@@ -15,10 +15,10 @@ import {
 import { ScannerConfig, ScannerType, ReplayScanner } from './types'
 
 const quotaFixture = makeQuotaFixture({
-    monthly_quota: 1000,
-    usage_this_month: 100,
+    credit_limit: 1000,
+    credits_used: 100,
     remaining: 900,
-    projected_monthly_observations: 500,
+    projected_monthly_credits: 500,
 })
 
 function defaultConfigForType(scannerType: ScannerType): ScannerConfig {
@@ -322,13 +322,13 @@ describe('replayScannersLogic', () => {
             quotaLogic.mount()
             quotaLogic.actions.loadQuotaSuccess(quotaFixture)
             logic.actions.loadScannersSuccess(
-                [makeScanner({ id: 'a', enabled: true, estimated_monthly_observations: 200 })],
+                [makeScanner({ id: 'a', enabled: true, estimated_monthly_credits: 200 })],
                 1
             )
 
             logic.actions.toggleScannerEnabled('a') // disabling → subtract the stored estimate
 
-            expect(quotaLogic.values.quota?.projected_monthly_observations).toBe(300)
+            expect(quotaLogic.values.quota?.projected_monthly_credits).toBe(300)
             quotaLogic.unmount()
         })
 
@@ -338,17 +338,17 @@ describe('replayScannersLogic', () => {
             quotaLogic.actions.loadQuotaSuccess(quotaFixture)
             logic.actions.loadScannersSuccess(
                 [
-                    makeScanner({ id: 'a', enabled: true, estimated_monthly_observations: 200 }),
-                    makeScanner({ id: 'b', name: 'other', enabled: false, estimated_monthly_observations: 999 }),
+                    makeScanner({ id: 'a', enabled: true, estimated_monthly_credits: 200 }),
+                    makeScanner({ id: 'b', name: 'other', enabled: false, estimated_monthly_credits: 999 }),
                 ],
                 2
             )
 
             logic.actions.deleteScanner('b') // disabled — contributes nothing to the sum
-            expect(quotaLogic.values.quota?.projected_monthly_observations).toBe(500)
+            expect(quotaLogic.values.quota?.projected_monthly_credits).toBe(500)
 
             logic.actions.deleteScanner('a')
-            expect(quotaLogic.values.quota?.projected_monthly_observations).toBe(300)
+            expect(quotaLogic.values.quota?.projected_monthly_credits).toBe(300)
             quotaLogic.unmount()
         })
 
@@ -362,13 +362,13 @@ describe('replayScannersLogic', () => {
             quotaLogic.mount()
             quotaLogic.actions.loadQuotaSuccess(quotaFixture)
             logic.actions.loadScannersSuccess(
-                [makeScanner({ id: 'a', enabled: true, estimated_monthly_observations: 200 })],
+                [makeScanner({ id: 'a', enabled: true, estimated_monthly_credits: 200 })],
                 1
             )
 
             await expectLogic(logic, () => logic.actions.deleteScanner('a')).toFinishAllListeners()
 
-            expect(quotaLogic.values.quota?.projected_monthly_observations).toBe(500)
+            expect(quotaLogic.values.quota?.projected_monthly_credits).toBe(500)
             quotaLogic.unmount()
         })
     })
@@ -378,5 +378,24 @@ describe('replayScannersLogic', () => {
             chartDateFrom: '-90d',
             chartDateTo: null,
         })
+    })
+
+    it('clamps back to the last valid page when the requested page is past the shrunken result set', async () => {
+        // e.g. the last scanner on page 2 was just deleted: offset=50 is now empty while count says one page.
+        useMocks({
+            get: {
+                '/api/projects/:team/vision/scanners/': ({ request }: { request: Request }) => {
+                    const offset = Number(new URL(request.url).searchParams.get('offset') ?? 0)
+                    return offset > 0
+                        ? [200, { results: [], count: 50 }]
+                        : [200, { results: [makeScanner({ id: 'a' })], count: 50 }]
+                },
+            },
+        })
+
+        await expectLogic(logic, () => logic.actions.setScannersFilters({ page: 2 })).toFinishAllListeners()
+
+        expect(logic.values.filters.page).toBe(1)
+        expect(logic.values.scanners).toHaveLength(1)
     })
 })

@@ -13,19 +13,31 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
 
     Algorithm Overview:
     ──────────────────
-    This optimizer works in a single top-down pass through the query tree:
+    This optimizer makes two top-down passes through the query tree: the first only collects
+    demands, the second prunes with the complete demand set. A CTE can be consumed by nodes
+    visited after it — notably sibling UNION branches — so pruning must wait for the full walk.
+
+    Each pass runs these phases per query:
 
     Phase 1 - Register: Map subquery types to AST nodes for demand tracking
     Phase 2 - Collect: Gather column demands from WHERE/GROUP BY/ORDER BY/etc
     Phase 3 - Propagate: For demanded columns, visit their source to propagate to child queries
     Phase 4 - Recurse: Visit child subqueries (repeat phases 1-4)
-    Phase 5 - Prune: Remove unreferenced asterisk columns from this query
+    Phase 5 - Prune: Remove unreferenced asterisk columns from this query (second pass only)
     """
 
     def __init__(self):
         super().__init__()
         self.demands: dict[int, set[str]] = defaultdict(set)
         self.subquery_map: dict[int, ast.SelectQuery | ast.SelectSetQuery] = {}
+        # True during the first pass; gates pruning to the second (see class docstring)
+        self.collecting: bool = False
+
+    def optimize(self, node: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery | ast.SelectSetQuery:
+        self.collecting = True
+        self.visit(node)
+        self.collecting = False
+        return cast(ast.SelectQuery | ast.SelectSetQuery, self.visit(node))
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         # Phase 1: Register subqueries and CTEs for demand tracking
@@ -68,10 +80,11 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         if node.select_from:
             self.visit(node.select_from)
 
-        # Phase 5: Prune unreferenced asterisk columns from this query and CTEs
-        self._prune_columns(node)
-        if node.ctes:
-            self._prune_cte_columns(node.ctes)
+        # Phase 5: Prune unreferenced asterisk columns from this query and CTEs (second pass only)
+        if not self.collecting:
+            self._prune_columns(node)
+            if node.ctes:
+                self._prune_cte_columns(node.ctes)
 
         return node
 
@@ -290,4 +303,4 @@ def pushdown_projections(node: _T_AST, context: HogQLContext) -> _T_AST:
     if not isinstance(node, (ast.SelectQuery, ast.SelectSetQuery)):
         return node
     optimizer = ProjectionPushdownOptimizer()
-    return cast(_T_AST, optimizer.visit(node))
+    return cast(_T_AST, optimizer.optimize(node))

@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { userLogic } from 'scenes/userLogic'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -17,8 +18,18 @@ import { customPropertyDefinitionsLogic } from './customPropertyDefinitionsLogic
 const DEFINITIONS_URL = '/api/projects/:team_id/custom_property_definitions/'
 const DEFINITION_URL = '/api/projects/:team_id/custom_property_definitions/:id/'
 const SAVED_QUERIES_URL = '/api/environments/:team_id/warehouse_saved_queries/'
+const WAREHOUSE_TABLES_URL = '/api/environments/:team_id/warehouse_tables/'
 const SOURCES_URL = '/api/projects/:team_id/custom_property_sources/'
 const SOURCE_URL = '/api/projects/:team_id/custom_property_sources/:id/'
+const PROPERTY_DEFINITIONS_URL = '/api/projects/:team_id/property_definitions/'
+
+// Loosely-typed warehouse table — the logic only reads id/name/external_schema.id.
+const buildTable = (overrides: Record<string, any> = {}): any => ({
+    id: 'table-1',
+    name: 'users',
+    external_schema: { id: 'schema-1', name: 'users' },
+    ...overrides,
+})
 
 const buildSource = (overrides: Partial<CustomPropertySourceApi> = {}): CustomPropertySourceApi =>
     ({
@@ -45,6 +56,7 @@ const buildDefinition = (overrides: Partial<CustomPropertyDefinitionApi> = {}): 
         display_type: 'currency',
         is_big_number: true,
         source: null,
+        references: [],
         created_at: '2026-01-01T00:00:00Z',
         created_by: 1,
         updated_at: '2026-01-01T00:00:00Z',
@@ -64,8 +76,13 @@ const defaultMocks = (): Parameters<typeof useMocks>[0] => ({
     get: {
         [DEFINITIONS_URL]: { count: 1, results: [buildDefinition()] },
         [SAVED_QUERIES_URL]: { count: 1, results: [buildView()] },
+        [WAREHOUSE_TABLES_URL]: { count: 1, results: [buildTable()] },
+        [PROPERTY_DEFINITIONS_URL]: { count: 1, results: [{ id: 'p1', name: 'existing_prop' }] },
     },
-    post: { [DEFINITIONS_URL]: buildDefinition({ id: 'def-2' }), [SOURCES_URL]: buildSource() },
+    post: {
+        [DEFINITIONS_URL]: buildDefinition({ id: 'def-2' }),
+        [SOURCES_URL]: buildSource(),
+    },
     patch: { [DEFINITION_URL]: buildDefinition(), [SOURCE_URL]: buildSource() },
     delete: { [DEFINITION_URL]: {}, [SOURCE_URL]: {} },
 })
@@ -86,7 +103,10 @@ describe('customPropertyDefinitionsLogic', () => {
         } as any
         initKeaTests()
         userLogic.mount()
+        jest.spyOn(window, 'open').mockReturnValue(null)
     })
+
+    afterEach(resumeKeaLoadersErrors)
 
     it('loads definitions on mount', async () => {
         useMocks(defaultMocks())
@@ -96,11 +116,13 @@ describe('customPropertyDefinitionsLogic', () => {
             .toMatchValues({ definitions: [expect.objectContaining({ id: 'def-1', name: 'ARR' })] })
     })
 
-    it('hydrates the form when editing a definition', async () => {
+    it('hydrates the form, including the source fields, when editing a synced definition', async () => {
         useMocks(defaultMocks())
         mountLogic()
-        const definition = buildDefinition()
-        await expectLogic(logic, () => logic.actions.openEditModal(definition)).toFinishAllListeners()
+        const definition = buildDefinition({ source: buildSource() })
+        await expectLogic(logic, () => logic.actions.openEditModal(definition))
+            .toDispatchActions(['loadSavedQueries', 'loadSavedQueriesSuccess'])
+            .toFinishAllListeners()
 
         expect(logic.values.modalVisible).toBe(true)
         expect(logic.values.editingDefinition).toEqual(definition)
@@ -109,8 +131,36 @@ describe('customPropertyDefinitionsLogic', () => {
             description: '',
             displayType: 'currency',
             isBigNumber: true,
+            options: [],
+            targetType: 'account',
+            sourceMode: 'data_warehouse',
+            savedQuery: 'view-1',
+            sourceColumn: 'mrr',
+            keyColumn: 'org_id',
+            warehouseTable: null,
+            columnMappings: [{ column: '', property: '' }],
+            isEnabled: true,
         })
     })
+
+    it.each([
+        [
+            'workflow references',
+            { references: [{ id: 'flow-1', name: 'Flow', status: 'draft', type: 'workflow' }] },
+            'workflow',
+        ],
+        ['no source or references', {}, 'manual'],
+    ] as [string, Partial<CustomPropertyDefinitionApi>, string][])(
+        'derives the source mode when editing a definition with %s',
+        async (_, overrides, expectedMode) => {
+            useMocks(defaultMocks())
+            mountLogic()
+            await expectLogic(logic, () =>
+                logic.actions.openEditModal(buildDefinition(overrides))
+            ).toFinishAllListeners()
+            expect(logic.values.customPropertyForm.sourceMode).toBe(expectedMode)
+        }
+    )
 
     it('creates a definition, reloads, and closes the modal', async () => {
         useMocks(defaultMocks())
@@ -136,6 +186,7 @@ describe('customPropertyDefinitionsLogic', () => {
         useMocks({
             ...defaultMocks(),
             patch: {
+                ...defaultMocks().patch,
                 [DEFINITION_URL]: async ({ request }) => {
                     patchedBody = (await request.json()) as Record<string, any>
                     return buildDefinition()
@@ -181,65 +232,151 @@ describe('customPropertyDefinitionsLogic', () => {
             .toMatchValues({ definitions: [] })
     })
 
-    it('loads warehouse views and hydrates the form when configuring an existing source', async () => {
-        useMocks(defaultMocks())
-        mountLogic()
-        await expectLogic(logic, () => logic.actions.openSourceModal(buildDefinition({ source: buildSource() })))
-            .toDispatchActions(['loadSavedQueries', 'loadSavedQueriesSuccess'])
-            .toFinishAllListeners()
-
-        expect(logic.values.sourceModalVisible).toBe(true)
-        expect(logic.values.customPropertySourceForm).toEqual({
-            savedQuery: 'view-1',
-            sourceColumn: 'mrr',
-            keyColumn: 'org_id',
-            isEnabled: true,
+    it('treats an already-deleted definition (404) as a successful delete', async () => {
+        silenceKeaLoadersErrors() // the 404 loader failure is the scenario under test
+        useMocks({
+            ...defaultMocks(),
+            delete: { ...defaultMocks().delete, [DEFINITION_URL]: () => [404, { detail: 'Not found.' }] },
         })
+        mountLogic()
+        await expectLogic(logic).toDispatchActions(['loadDefinitionsSuccess'])
+        // A 404 refreshes the table instead of surfacing a failure toast/exception.
+        await expectLogic(logic, () => logic.actions.deleteDefinition({ id: 'def-1' })).toDispatchActions([
+            'deleteDefinitionFailure',
+            'loadDefinitions',
+        ])
     })
 
     it('exposes the selected view columns for the pickers', async () => {
         useMocks(defaultMocks())
         mountLogic()
-        await expectLogic(logic, () => logic.actions.openSourceModal(buildDefinition())).toDispatchActions([
-            'loadSavedQueriesSuccess',
-        ])
-        logic.actions.setCustomPropertySourceFormValue('savedQuery', 'view-1')
+        await expectLogic(logic, () => logic.actions.openCreateModal()).toDispatchActions(['loadSavedQueriesSuccess'])
+        logic.actions.setCustomPropertyFormValue('savedQuery', 'view-1')
         expect(logic.values.selectedSourceColumns).toEqual(['org_id', 'mrr'])
     })
 
-    it('creates a source for a definition without one', async () => {
-        let postedBody: Record<string, any> | null = null
+    it('creates the definition and then its source when saving in data warehouse mode', async () => {
+        let sourceBody: Record<string, any> | null = null
         useMocks({
             ...defaultMocks(),
             post: {
                 ...defaultMocks().post,
                 [SOURCES_URL]: async ({ request }) => {
-                    postedBody = (await request.json()) as Record<string, any>
+                    sourceBody = (await request.json()) as Record<string, any>
                     return buildSource()
                 },
             },
         })
         mountLogic()
-        logic.actions.openSourceModal(buildDefinition())
-        logic.actions.setCustomPropertySourceFormValues({
+        logic.actions.openCreateModal()
+        logic.actions.setCustomPropertyFormValues({
+            name: 'MRR',
+            sourceMode: 'data_warehouse',
             savedQuery: 'view-1',
             sourceColumn: 'mrr',
             keyColumn: 'org_id',
             isEnabled: true,
         })
 
-        await expectLogic(logic, () => logic.actions.submitCustomPropertySourceForm()).toDispatchActions([
-            'submitCustomPropertySourceFormSuccess',
-            'loadDefinitions',
-            'closeSourceModal',
+        await expectLogic(logic, () => logic.actions.submitCustomPropertyForm()).toDispatchActions([
+            'setEditingDefinition',
+            'submitCustomPropertyFormSuccess',
         ])
-        expect(postedBody).toEqual({
-            definition: 'def-1',
+        // The source must be attached to the definition id returned by the create call.
+        expect(sourceBody).toEqual({
+            definition: 'def-2',
             saved_query: 'view-1',
             source_column: 'mrr',
             key_column: 'org_id',
             is_enabled: true,
         })
+    })
+
+    it('creates a person-target definition and binds it to a warehouse schema', async () => {
+        let definitionBody: Record<string, any> | null = null
+        let sourceBody: Record<string, any> | null = null
+        useMocks({
+            ...defaultMocks(),
+            post: {
+                ...defaultMocks().post,
+                [DEFINITIONS_URL]: async ({ request }) => {
+                    definitionBody = (await request.json()) as Record<string, any>
+                    return buildDefinition({ id: 'def-2', target_type: 'person' })
+                },
+                [SOURCES_URL]: async ({ request }) => {
+                    sourceBody = (await request.json()) as Record<string, any>
+                    return buildSource()
+                },
+            },
+        })
+        mountLogic()
+        await expectLogic(logic, () => logic.actions.openCreateModal()).toDispatchActions([
+            'loadWarehouseTablesSuccess',
+        ])
+        logic.actions.setCustomPropertyFormValues({
+            name: 'Plan tier',
+            targetType: 'person',
+            warehouseTable: 'table-1',
+            keyColumn: 'distinct_id',
+            columnMappings: [
+                { column: 'plan', property: 'plan_tier' },
+                // A half-filled row is dropped rather than sent.
+                { column: '', property: '' },
+            ],
+            isEnabled: true,
+        })
+
+        await expectLogic(logic, () => logic.actions.submitCustomPropertyForm()).toDispatchActions([
+            'setEditingDefinition',
+            'submitCustomPropertyFormSuccess',
+        ])
+        expect(definitionBody).toMatchObject({ name: 'Plan tier', target_type: 'person' })
+        // The person source binds to the table's schema id, not the table id, with the mapped columns.
+        expect(sourceBody).toEqual({
+            definition: 'def-2',
+            external_data_schema: 'schema-1',
+            column_property_map: { plan: 'plan_tier' },
+            key_column: 'distinct_id',
+            is_enabled: true,
+        })
+    })
+
+    it('resolves the selected table schema id and serialized column map for the person source', async () => {
+        useMocks(defaultMocks())
+        mountLogic()
+        await expectLogic(logic, () => logic.actions.openCreateModal()).toDispatchActions([
+            'loadWarehouseTablesSuccess',
+        ])
+        logic.actions.setCustomPropertyFormValues({
+            targetType: 'person',
+            warehouseTable: 'table-1',
+            columnMappings: [
+                { column: ' plan ', property: ' plan_tier ' },
+                { column: 'seats', property: '' },
+            ],
+        })
+        expect(logic.values.selectedWarehouseSchemaId).toBe('schema-1')
+        // Trims and drops incomplete pairs.
+        expect(logic.values.serializedColumnPropertyMap).toEqual({ plan: 'plan_tier' })
+    })
+
+    it('warns when a person mapping targets an identity or already-existing property', async () => {
+        useMocks(defaultMocks())
+        mountLogic()
+        await expectLogic(logic, () => logic.actions.openCreateModal()).toDispatchActions([
+            'loadPersonPropertyDefinitionsSuccess',
+        ])
+        logic.actions.setCustomPropertyFormValue('columnMappings', [
+            { column: 'a', property: 'plan_tier' }, // fine
+            { column: 'b', property: 'email' }, // identity property
+            { column: 'c', property: '$browser' }, // $-prefixed
+            { column: 'd', property: 'existing_prop' }, // already defined on persons
+        ])
+        const warnings = logic.values.columnMappingWarnings
+        expect(warnings[0]).toBeNull()
+        expect(warnings[1]).toContain('identity property')
+        expect(warnings[2]).toContain('identity property')
+        expect(warnings[3]).toContain('already exists')
     })
 
     it('updates an existing source via PATCH without the create-only fields', async () => {
@@ -255,22 +392,118 @@ describe('customPropertyDefinitionsLogic', () => {
             },
         })
         mountLogic()
-        logic.actions.openSourceModal(buildDefinition({ source: buildSource() }))
-        logic.actions.setCustomPropertySourceFormValue('isEnabled', false)
+        logic.actions.openEditModal(buildDefinition({ source: buildSource() }))
+        logic.actions.setCustomPropertyFormValue('isEnabled', false)
 
-        await expectLogic(logic, () => logic.actions.submitCustomPropertySourceForm()).toDispatchActions([
-            'submitCustomPropertySourceFormSuccess',
+        await expectLogic(logic, () => logic.actions.submitCustomPropertyForm()).toDispatchActions([
+            'submitCustomPropertyFormSuccess',
         ])
         expect(patchedBody).toEqual({ source_column: 'mrr', key_column: 'org_id', is_enabled: false })
     })
 
-    it('removes a source and closes the modal', async () => {
+    it('saves an existing person source even when its warehouse table is no longer selectable', async () => {
+        // The table + column map are create-only and hidden on edit, so form validation must not
+        // require a re-selected warehouse table — only key_column and is_enabled stay editable.
+        let patchedBody: Record<string, any> | null = null
+        useMocks({
+            ...defaultMocks(),
+            get: { ...defaultMocks().get, [WAREHOUSE_TABLES_URL]: { count: 0, results: [] } },
+            patch: {
+                ...defaultMocks().patch,
+                [SOURCE_URL]: async ({ request }) => {
+                    patchedBody = (await request.json()) as Record<string, any>
+                    return buildSource()
+                },
+            },
+        })
+        mountLogic()
+        logic.actions.openEditModal(
+            buildDefinition({
+                target_type: 'person',
+                source: buildSource({
+                    saved_query: null,
+                    source_column: null,
+                    key_column: 'distinct_id',
+                    column_property_map: { plan: 'plan_tier' },
+                } as Partial<CustomPropertySourceApi>),
+            })
+        )
+        logic.actions.setCustomPropertyFormValue('isEnabled', false)
+
+        await expectLogic(logic, () => logic.actions.submitCustomPropertyForm()).toDispatchActions([
+            'submitCustomPropertyFormSuccess',
+        ])
+        expect(patchedBody).toEqual({ key_column: 'distinct_id', is_enabled: false })
+    })
+
+    it('deletes the source when saving after switching away from data warehouse mode', async () => {
+        let sourceDeleted = false
+        useMocks({
+            ...defaultMocks(),
+            delete: {
+                ...defaultMocks().delete,
+                [SOURCE_URL]: () => {
+                    sourceDeleted = true
+                    return [204, null]
+                },
+            },
+        })
+        mountLogic()
+        logic.actions.openEditModal(buildDefinition({ source: buildSource() }))
+        logic.actions.setCustomPropertyFormValue('sourceMode', 'manual')
+
+        await expectLogic(logic, () => logic.actions.submitCustomPropertyForm()).toDispatchActions([
+            'submitCustomPropertyFormSuccess',
+        ])
+        expect(sourceDeleted).toBe(true)
+    })
+
+    it('fails the workflow CTA with a field error when the name is missing', async () => {
+        silenceKeaLoadersErrors() // the MissingNameError loader failure is the scenario under test
         useMocks(defaultMocks())
         mountLogic()
-        const definition = buildDefinition({ source: buildSource() })
-        await expectLogic(logic, () => logic.actions.removeSource({ definition })).toDispatchActions([
-            'removeSourceSuccess',
-            'closeSourceModal',
+        logic.actions.openCreateModal()
+
+        await expectLogic(logic, () => logic.actions.createWorkflowForProperty()).toDispatchActions([
+            'createWorkflowForPropertyFailure',
+            'setCustomPropertyFormManualErrors',
         ])
+        expect(window.open).not.toHaveBeenCalled()
+    })
+
+    it('creates the property and opens the new-workflow editor', async () => {
+        useMocks(defaultMocks())
+        mountLogic()
+        logic.actions.openCreateModal()
+        logic.actions.setCustomPropertyFormValues({ name: 'Health score', sourceMode: 'workflow' })
+
+        await expectLogic(logic, () => logic.actions.createWorkflowForProperty()).toDispatchActions([
+            // The definition must be created first — the workflow action references it by id.
+            'setEditingDefinition',
+            'createWorkflowForPropertySuccess',
+        ])
+        expect(window.open).toHaveBeenCalledWith('/workflows/new/workflow', '_blank')
+    })
+
+    it('opens the editor without re-creating an already-existing property', async () => {
+        let definitionCreated = false
+        useMocks({
+            ...defaultMocks(),
+            post: {
+                ...defaultMocks().post,
+                [DEFINITIONS_URL]: () => {
+                    definitionCreated = true
+                    return buildDefinition({ id: 'def-2' })
+                },
+            },
+        })
+        mountLogic()
+        logic.actions.openEditModal(buildDefinition())
+
+        await expectLogic(logic, () => logic.actions.createWorkflowForProperty()).toDispatchActions([
+            'createWorkflowForPropertySuccess',
+        ])
+        expect(definitionCreated).toBe(false)
+        expect(window.open).toHaveBeenCalledWith('/workflows/new/workflow', '_blank')
     })
 })

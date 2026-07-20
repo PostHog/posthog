@@ -10,6 +10,7 @@ from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization
+from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 
@@ -36,8 +37,10 @@ class TestSCIMRequestLogCapture(APILicensedTest):
             verified_at="2024-01-01T00:00:00Z",
         )
         self.plain_token, hashed_token = generate_scim_token()
-        self.domain._scim_enabled = True
-        self.domain._scim_bearer_token = hashed_token
+        config = IdentityProviderConfig.objects.create(
+            organization=self.organization, scim_enabled=True, scim_bearer_token=hashed_token
+        )
+        self.domain.identity_provider_config = config
         self.domain.save()
 
     def test_get_request_creates_log(self):

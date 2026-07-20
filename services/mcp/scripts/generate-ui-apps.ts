@@ -24,6 +24,7 @@ import { MCP_ROOT_DIR, ROOT_DIR } from './utils'
 import {
     type CategoryConfig,
     CategoryConfigSchema,
+    type ResolvedCustomUiApp,
     type ResolvedDetailUiApp,
     type ResolvedListUiApp,
     type UiAppConfig,
@@ -112,6 +113,15 @@ function resolveListApp(
         list_data_type: raw.list_data_type ?? `${singularPascal}ListData`,
         item_data_type: raw.item_data_type ?? `${singularPascal}Data`,
         view_component: raw.view_component ?? `${pascal}View`,
+    }
+}
+
+function resolveCustomApp(raw: Extract<UiAppConfig, { type: 'custom' }>): ResolvedCustomUiApp {
+    return {
+        type: 'custom',
+        app_name: raw.app_name,
+        description: raw.description,
+        ...(raw.render_ui ? { render_ui: raw.render_ui } : {}),
     }
 }
 
@@ -230,12 +240,17 @@ if (container) {
 type DispatchApp =
     | { appKey: string; type: 'detail'; config: ResolvedDetailUiApp }
     | { appKey: string; type: 'list'; config: ResolvedListUiApp }
+    | {
+          appKey: string
+          type: 'custom'
+          config: ResolvedCustomUiApp & { render_ui: NonNullable<ResolvedCustomUiApp['render_ui']> }
+      }
 
 /**
  * Generates the dispatch module consumed by the `render-ui` umbrella app. It maps
- * each detail/list app key to a render function so `render-ui` can fetch a tool
- * result and mount the matching view. Custom apps are excluded — they have no
- * convention view component to dispatch to.
+ * each app key with a reusable view to a render function so `render-ui` can fetch
+ * a tool result and mount the matching view. Custom apps opt in by declaring
+ * `render_ui` because their entry points have no convention view component.
  */
 function generateDispatchModule(apps: DispatchApp[]): string {
     // Merge named imports per component_import path (multiple apps from the same
@@ -250,10 +265,16 @@ function generateDispatchModule(apps: DispatchApp[]): string {
         if (app.type === 'detail') {
             addImport(app.config.component_import, `type ${app.config.data_type}`)
             addImport(app.config.component_import, app.config.view_component)
-        } else {
+        } else if (app.type === 'list') {
             addImport(app.config.component_import, `type ${app.config.item_data_type}`)
             addImport(app.config.component_import, `type ${app.config.list_data_type}`)
             addImport(app.config.component_import, app.config.view_component)
+        } else {
+            const { component_import, data_type, view_component } = app.config.render_ui
+            if (data_type) {
+                addImport(component_import, `type ${data_type}`)
+            }
+            addImport(component_import, view_component)
         }
     }
 
@@ -277,6 +298,11 @@ function generateDispatchModule(apps: DispatchApp[]): string {
                     return `    '${app.appKey}': ({ data, openLink }) => <${view_component} ${view_prop}={data as ${data_type}} ${link_prop}={openLink} />,`
                 }
                 return `    '${app.appKey}': ({ data }) => <${view_component} ${view_prop}={data as ${data_type}} />,`
+            }
+            if (app.type === 'custom') {
+                const { data_type, view_component, view_prop } = app.config.render_ui
+                const dataExpression = data_type ? `data as ${data_type}` : 'data'
+                return `    '${app.appKey}': ({ data }) => <${view_component} ${view_prop}={${dataExpression}} />,`
             }
             const pascalName = kebabToPascal(app.appKey)
             return `    '${app.appKey}': ({ data, app }) => <${pascalName}Content data={data as ${app.config.list_data_type}} app={app} />,`
@@ -353,8 +379,8 @@ ${uriMapEntries},
 }
 
 /**
- * App keys with a generated detail/list view that the \`render-ui\` umbrella tool
- * can render. Excludes custom apps, which have no convention view component.
+ * App keys with a reusable view that the \`render-ui\` umbrella tool can render.
+ * Custom apps are included only when they explicitly configure \`render_ui\`.
  */
 export const DISPATCHABLE_APP_KEYS: UiAppKey[] = [
 ${dispatchableEntries},
@@ -464,6 +490,14 @@ function main(): void {
                 })
             } else {
                 // type: custom — entry point is handwritten, appDir matches appKey directly
+                const resolved = resolveCustomApp(appConfig)
+                if (resolved.render_ui) {
+                    dispatchApps.push({
+                        appKey,
+                        type: 'custom',
+                        config: { ...resolved, render_ui: resolved.render_ui },
+                    })
+                }
                 registryEntries.push({
                     appKey,
                     appDir: appKey,
@@ -551,6 +585,7 @@ export {
     generateListApp,
     generateRegistry,
     kebabToPascal,
+    resolveCustomApp,
     resolveDetailApp,
     resolveListApp,
     toConstName,

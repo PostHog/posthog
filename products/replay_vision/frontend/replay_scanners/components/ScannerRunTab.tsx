@@ -1,8 +1,8 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconEye, IconPlay } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTable, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTable, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -13,18 +13,13 @@ import {
     SessionRecordingPlaylistLogicProps,
     sessionRecordingsPlaylistLogic,
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType, SessionRecordingType } from '~/types'
 
 import { ObservationStatusTag } from '../../components/ObservationCard'
-import { visionScannersObservationsList } from '../../generated/api'
-import type { ReplayObservationApi } from '../../generated/api.schemas'
 import { replayScannerLogic } from '../replayScannerLogic'
-
-type RowObservation = { id: string; status: ReplayObservationApi['status'] }
-const IN_PROGRESS_STATUSES = new Set<string>(['pending', 'running'])
+import { IN_PROGRESS_STATUSES, scannerRunTabLogic } from '../scannerRunTabLogic'
 
 /** Manual entry: scan one session by pasting its recording ID. */
 function ScanBySessionId({ scannerId }: { scannerId: string }): JSX.Element {
@@ -92,115 +87,14 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
     const { filters, totalFiltersCount, sessionRecordings, sessionRecordingsResponseLoading, hasNext } =
         useValues(sessionRecordingsPlaylistLogic)
     const { setFilters, resetFilters, maybeLoadSessionRecordings } = useActions(sessionRecordingsPlaylistLogic)
-    const { currentTeamId } = useValues(teamLogic)
-    const { triggeringOnDemandObservation, onDemandObservationSuccessCount } = useValues(
-        replayScannerLogic({ id: scannerId })
-    )
-    const { triggerOnDemandObservation } = useActions(replayScannerLogic({ id: scannerId }))
+    const { observationBySession, pendingId, refreshingObservations } = useValues(scannerRunTabLogic({ scannerId }))
+    const { setVisibleSessionIds, startScan } = useActions(scannerRunTabLogic({ scannerId }))
 
-    // `pendingId` bridges the gap between clicking Scan and its observation showing up in the fetch below — it
-    // stays set until the observation lands (so the spinner never flickers back to the button), and is released
-    // on trigger failure. `pendingStartCount` lets us tell a queued scan from a failed one.
-    const [pendingId, setPendingId] = useState<string | null>(null)
-    const pendingStartCount = useRef(0)
-
-    // A scanner observes each session at most once. Look up each visible recording's observation (id + status):
-    // in-progress rows show a spinner, settled rows link to the result. Refetch after each scan and poll while
-    // anything visible is still running (or queued), so a row swaps spinner → "View observation" on its own.
-    const [observationBySession, setObservationBySession] = useState<Map<string, RowObservation>>(new Map())
-    // Drives the table's loading bar on foreground refetches (initial load, post-scan). Background polls
-    // reload silently so the table stays interactable instead of blanking on each tick.
-    const [refreshingObservations, setRefreshingObservations] = useState(false)
+    // Sync the playlist's visible rows into the logic, which owns the observation lookup and polling.
     const visibleIdsKey = sessionRecordings.map((recording) => recording.id).join(',')
-
-    const refetchObservations = useCallback(
-        async (background = false) => {
-            const ids = visibleIdsKey ? visibleIdsKey.split(',') : []
-            if (!currentTeamId || ids.length === 0) {
-                return
-            }
-            if (!background) {
-                setRefreshingObservations(true)
-            }
-            try {
-                const response = await visionScannersObservationsList(String(currentTeamId), scannerId, {
-                    session_id: visibleIdsKey,
-                    limit: ids.length,
-                })
-                setObservationBySession((prev) => {
-                    const next = new Map(prev)
-                    for (const observation of response.results ?? []) {
-                        next.set(observation.session_id, { id: observation.id, status: observation.status })
-                    }
-                    return next
-                })
-            } catch {
-                // Best-effort enrichment — on failure we just leave the rows scannable.
-            } finally {
-                // Only the foreground path touches the flag — a background poll resolving mid-flight must
-                // not clear an overlay a concurrent foreground fetch is still showing.
-                if (!background) {
-                    setRefreshingObservations(false)
-                }
-            }
-        },
-        [visibleIdsKey, currentTeamId, scannerId]
-    )
-
-    // Initial load + whenever a scan is triggered (which creates a new pending observation to pick up).
     useEffect(() => {
-        void refetchObservations()
-    }, [refetchObservations, onDemandObservationSuccessCount])
-
-    // Release the bridge if the trigger failed (no new observation was queued) — on success we keep it until the
-    // observation appears in the fetch, avoiding a one-frame flicker back to the button.
-    useEffect(() => {
-        if (triggeringOnDemandObservation || !pendingId) {
-            return
-        }
-        const failed = onDemandObservationSuccessCount <= pendingStartCount.current
-        if (failed) {
-            setPendingId(null)
-        }
-    }, [triggeringOnDemandObservation, onDemandObservationSuccessCount, pendingId])
-
-    // Once the queued observation lands, the bridge is no longer needed (its in-progress status drives the spinner).
-    useEffect(() => {
-        if (pendingId && observationBySession.has(pendingId)) {
-            setPendingId(null)
-        }
-    }, [observationBySession, pendingId])
-
-    const visibleIds = visibleIdsKey ? visibleIdsKey.split(',') : []
-    const anyInProgress = visibleIds.some((id) => {
-        const observation = observationBySession.get(id)
-        return !!observation && IN_PROGRESS_STATUSES.has(observation.status)
-    })
-
-    // Poll while a visible row is running or a scan is queued, so the spinner settles into the result button.
-    const shouldPoll = anyInProgress || pendingId !== null
-    useEffect(() => {
-        if (!shouldPoll) {
-            return
-        }
-        const interval = setInterval(() => {
-            // Skip polling while the browser tab is backgrounded; it resumes on the next tick when visible again.
-            if (document.visibilityState === 'visible') {
-                // Background reload — keeps the table interactable instead of blanking it each tick.
-                void refetchObservations(true)
-            }
-        }, 4000)
-        return () => clearInterval(interval)
-    }, [shouldPoll, refetchObservations])
-
-    const startScan = (sessionId: string): void => {
-        if (triggeringOnDemandObservation || pendingId) {
-            return
-        }
-        pendingStartCount.current = onDemandObservationSuccessCount
-        setPendingId(sessionId)
-        triggerOnDemandObservation(sessionId, true)
-    }
+        setVisibleSessionIds(visibleIdsKey ? visibleIdsKey.split(',') : [])
+    }, [visibleIdsKey, setVisibleSessionIds])
 
     const columns: LemonTableColumns<SessionRecordingType> = [
         {
@@ -229,16 +123,12 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
             title: 'Status',
             key: 'status',
             render: (_, recording) => {
-                const observation = observationBySession.get(recording.id)
+                const observation = observationBySession[recording.id]
                 if (observation) {
                     return <ObservationStatusTag status={observation.status} />
                 }
                 if (pendingId === recording.id) {
-                    return (
-                        <LemonTag type="warning">
-                            <Spinner className="mr-1" /> Scanning
-                        </LemonTag>
-                    )
+                    return <ObservationStatusTag status="running" />
                 }
                 return <span className="text-muted italic">Not scanned</span>
             },
@@ -249,7 +139,7 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
             // Fixed width so Scan recording / View observation occupy the same width as the cell swaps.
             width: 184,
             render: (_, recording) => {
-                const observation = observationBySession.get(recording.id)
+                const observation = observationBySession[recording.id]
                 const settled = observation && !IN_PROGRESS_STATUSES.has(observation.status)
                 // In-flight or queued — the Status pill carries the spinner, so here we just disable the button.
                 const scanning =

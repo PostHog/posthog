@@ -5,7 +5,10 @@ from uuid import uuid4
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
-from posthog.demo.products.hedgebox.taxonomy import (
+from posthog.models import Team
+from posthog.models.event.util import create_event
+
+from products.demo.backend.facade.api import (
     SITE_URL,
     URL_FILES,
     URL_HOME,
@@ -14,9 +17,6 @@ from posthog.demo.products.hedgebox.taxonomy import (
     URL_PRICING,
     URL_SIGNUP,
 )
-from posthog.models import Team
-from posthog.models.event.util import create_event
-
 from products.web_analytics.backend.hogql_queries.bot_ua_fixtures import BOT_USER_AGENTS
 
 # Crawl patterns per bot category - bots visit different pages based on their purpose

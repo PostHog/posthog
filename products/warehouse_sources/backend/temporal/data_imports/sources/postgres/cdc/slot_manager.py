@@ -36,7 +36,7 @@ def cdc_pg_connection(source: ExternalDataSource, connect_timeout: int = 15) -> 
     # that doesn't speak SSL fails with "server does not support SSL, but SSL was required".
     require_ssl = source_requires_ssl(source, config)
 
-    with source_impl.with_ssh_tunnel(config) as (host, port):
+    with source_impl.with_ssh_tunnel(config, source.team_id) as (host, port):
         conn = _connect_to_postgres(
             host=host,
             port=port,

@@ -70,19 +70,6 @@ pub fn uuid_v7_from_datetime<Tz: TimeZone>(datetime: DateTime<Tz>) -> Uuid {
     uuid_v7(datetime.timestamp_millis().max(0) as u64)
 }
 
-pub fn extract_lib_version(form: &EventFormData, params: &EventQuery) -> Option<String> {
-    let form_lv = form.lib_version.as_ref();
-    let params_lv = params.lib_version.as_ref();
-    if form_lv.is_some_and(|lv| !lv.is_empty()) {
-        return Some(form_lv.unwrap().clone());
-    }
-    if params_lv.is_some_and(|lv| !lv.is_empty()) {
-        return Some(params_lv.unwrap().clone());
-    }
-
-    None
-}
-
 // the compression hint can be tucked away any number of places depending on the SDK submitting the request...
 pub fn extract_compression(
     form: &EventFormData,
@@ -113,15 +100,16 @@ pub fn extract_compression(
 
 // have we decoded sufficiently have a urlencoded data payload of the expected form yet?
 pub fn is_likely_urlencoded_form(payload: &[u8]) -> bool {
-    [
-        &b"data="[..],
-        &b"ver="[..],
-        &b"_="[..],
-        &b"ip="[..],
-        &b"compression="[..],
-    ]
-    .iter()
-    .any(|target: &&[u8]| payload.starts_with(target))
+    let prefix = &payload[..std::cmp::min(payload.len(), MAX_CHARS_TO_CHECK)];
+
+    [&b"data="[..], &b"_="[..], &b"ip="[..], &b"compression="[..]]
+        .iter()
+        .any(|target: &&[u8]| {
+            prefix.starts_with(target)
+                || prefix
+                    .windows(target.len() + 1)
+                    .any(|window| window[0] == b'&' && &window[1..] == *target)
+        })
 }
 
 // relatively cheap check for base64 encoded payload since these can show up at

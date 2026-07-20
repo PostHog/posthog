@@ -31,5 +31,6 @@ class NotificationData:
     source_type: SourceType | None = None
     source_id: str | None = None
     priority: Priority = Priority.NORMAL
+    archivable: bool = False
     metadata: dict[str, Any] | None = None
     resolver: RecipientsResolver | None = field(default=None, compare=False)

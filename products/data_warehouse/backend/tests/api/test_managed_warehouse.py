@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
 from rest_framework.response import Response
 
 from posthog.ducklake.models import DuckgresServer, DuckgresServerTeam
@@ -59,13 +60,39 @@ def test_provision_persists_duckgres_server_on_success(mock_request: MagicMock) 
 @pytest.mark.django_db
 @override_settings(CLOUD_DEPLOYMENT="US", DUCKGRES_PG_PORT=5432)
 @patch("products.data_warehouse.backend.presentation.views.managed_warehouse._request")
-def test_provision_persists_bucket_returned_by_control_plane(mock_request: MagicMock) -> None:
+def test_provision_sends_default_team_id_to_control_plane(mock_request: MagicMock) -> None:
+    # duckgres denies a provision without a default team, so the provisioning team must be
+    # forwarded as default_team_id in the outbound body.
+    org = Organization.objects.create(name="Org")
+    team = Team.objects.create(organization=org)
+    mock_request.return_value = Response(
+        {"status": "provisioning started", "org": str(org.id), "username": "root", "password": "secret"},
+        status=202,
+    )
+
+    managed_warehouse.provision(org.id, "my-warehouse", team.id, "events")
+
+    json_body = mock_request.call_args.kwargs["json_body"]
+    assert json_body["default_team_id"] == team.id
+
+
+@parameterized.expand(
+    [
+        ("US", "posthog-duckling-0194d6405db400006cde48d6114c0f99-mw-prod-us", "us-east-1"),
+        ("EU", "posthog-duckling-0194d6405db400006cde48d6114c0f99-mw-prod-eu", "eu-central-1"),
+    ]
+)
+@pytest.mark.django_db
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse._request")
+def test_provision_persists_bucket_returned_by_control_plane(
+    deployment: str, cp_bucket: str, expected_region: str, mock_request: MagicMock
+) -> None:
     # When the control plane returns the authoritative bucket name, persist it
     # verbatim instead of re-deriving — the CP owns the naming rule (it pins the
     # same name on the Duckling CR), and the local derivation has drifted from it.
+    # A CP response without a region falls back to the deployment's home region.
     org = Organization.objects.create(name="Org")
     team = Team.objects.create(organization=org)
-    cp_bucket = "posthog-duckling-0194d6405db400006cde48d6114c0f99-mw-prod-us"
     mock_request.return_value = Response(
         {
             "status": "provisioning started",
@@ -77,13 +104,14 @@ def test_provision_persists_bucket_returned_by_control_plane(mock_request: Magic
         status=202,
     )
 
-    resp = managed_warehouse.provision(org.id, "my-warehouse", team.id, "events")
+    with override_settings(CLOUD_DEPLOYMENT=deployment, DUCKGRES_PG_PORT=5432):
+        resp = managed_warehouse.provision(org.id, "my-warehouse", team.id, "events")
 
     assert resp.status_code == 202
     server = DuckgresServer.objects.get(organization_id=org.id)
     # Verbatim, not the locally-derived f"posthog-duckling-{org.id}-prod-us".
     assert server.bucket == cp_bucket
-    assert server.bucket_region == "us-east-1"
+    assert server.bucket_region == expected_region
 
 
 @pytest.mark.django_db
@@ -112,9 +140,9 @@ def test_provision_enables_backfill_for_calling_team_only(mock_request: MagicMoc
 @pytest.mark.django_db
 @override_settings(CLOUD_DEPLOYMENT="EU", DUCKGRES_PG_PORT=5432)
 @patch("products.data_warehouse.backend.presentation.views.managed_warehouse._request")
-def test_provision_persists_server_without_bucket_when_region_unsupported(mock_request: MagicMock) -> None:
-    # EU has no managed-warehouse bucket convention, so bucket derivation raises. The
-    # connection row (with the one-time password) must still be persisted.
+def test_provision_on_eu_deployment_persists_eu_host(mock_request: MagicMock) -> None:
+    # An EU deployment must present the eu.postwh.com zone in the persisted connection.
+    # A CP response without a bucket leaves the column unset here too.
     org = Organization.objects.create(name="Org")
     team = Team.objects.create(organization=org)
     mock_request.return_value = Response(
@@ -126,6 +154,7 @@ def test_provision_persists_server_without_bucket_when_region_unsupported(mock_r
 
     assert resp.status_code == 202
     server = DuckgresServer.objects.get(organization_id=org.id)
+    assert server.host == "my-warehouse.dw.eu.postwh.com"
     assert server.password == "secret"
     assert server.bucket is None
 
@@ -145,6 +174,7 @@ def test_provision_does_not_persist_on_failure(mock_request: MagicMock) -> None:
 
 
 @pytest.mark.django_db
+@override_settings(CLOUD_DEPLOYMENT="US")
 @patch("products.data_warehouse.backend.presentation.views.managed_warehouse._request")
 def test_status_for_self_heals_stale_bucket(mock_request: MagicMock) -> None:
     # A row with a stale (locally-derived) bucket converges to the CP-reported
@@ -460,3 +490,20 @@ def test_enable_backfill_refuses_to_set_a_suffix_on_a_legacy_shared_team(mock_en
 
     assert resp.status_code == 400
     assert DuckgresServerTeam.objects.get(team_id=team.id).table_suffix is None
+
+
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.is_enabled", return_value=True)
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.internal_requests")
+@override_settings(DUCKGRES_API_URL="http://duckgres.invalid", DUCKGRES_INTERNAL_SECRET="s")
+def test_delete_org_issues_delete_to_org_root(mock_internal: MagicMock, _mock_enabled: MagicMock) -> None:
+    # Guards the empty-path branch in _request: delete_org must hit the org resource itself,
+    # /api/v1/orgs/{org}, not a suffixed org path or the global /api/v1/ route.
+    org_id = uuid4()
+    mock_internal.request.return_value = MagicMock(status_code=200, **{"json.return_value": {"status": "deleted"}})
+
+    resp = managed_warehouse.delete_org(org_id)
+
+    assert resp.status_code == 200
+    method, url = mock_internal.request.call_args.args
+    assert method == "DELETE"
+    assert url == f"http://duckgres.invalid/api/v1/orgs/{org_id}"

@@ -9,18 +9,24 @@ from posthog.models.utils import UUIDTModel
 
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
-from .evaluations import EvaluationTarget
+from .evaluation_configs import REPORTABLE_OUTPUT_TYPES_BY_TARGET
 
 
 class EvaluationReportQuerySet(models.QuerySet):
+    def reportable(self) -> "EvaluationReportQuerySet":
+        reportable_filter = models.Q()
+        for target, output_types in REPORTABLE_OUTPUT_TYPES_BY_TARGET.items():
+            reportable_filter |= models.Q(
+                evaluation__target=target,
+                evaluation__output_type__in=output_types,
+            )
+        return self.filter(reportable_filter)
+
     def deliverable(self) -> "EvaluationReportQuerySet":
-        # Reports run a generation-oriented agent, so trace-target evals never deliver — this
-        # also covers evals switched from generation to trace after a report was created.
-        return self.filter(
+        return self.reportable().filter(
             enabled=True,
             deleted=False,
             evaluation__deleted=False,
-            evaluation__target=EvaluationTarget.GENERATION,
         )
 
 
@@ -33,7 +39,7 @@ class EvaluationReport(UUIDTModel):
         # Count-based: fire every N new eval results, subject to cooldown + daily cap.
         EVERY_N = "every_n"
 
-    TRIGGER_THRESHOLD_MIN = 10
+    TRIGGER_THRESHOLD_MIN = 100
     TRIGGER_THRESHOLD_MAX = 10_000
     TRIGGER_THRESHOLD_DEFAULT = 100
     COOLDOWN_MINUTES_MIN = 60
@@ -51,6 +57,9 @@ class EvaluationReport(UUIDTModel):
         indexes = [
             models.Index(fields=["team", "-created_at", "id"]),
             models.Index(fields=["next_delivery_date", "enabled", "deleted"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=["evaluation"], name="unique_evaluation_report_per_evaluation"),
         ]
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
@@ -172,6 +181,7 @@ def validate_report_rrule(rrule_string: str) -> None:
 class EvaluationReportRun(UUIDTModel):
     class DeliveryStatus(models.TextChoices):
         PENDING = "pending"
+        GENERATED = "generated"
         DELIVERED = "delivered"
         PARTIAL_FAILURE = "partial_failure"
         FAILED = "failed"

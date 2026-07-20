@@ -1,4 +1,5 @@
-from collections.abc import Container
+from collections.abc import Callable, Container
+from uuid import UUID
 
 from django.db import transaction
 from django.utils import timezone
@@ -6,14 +7,17 @@ from django.utils import timezone
 import structlog
 from temporalio import activity
 
+from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import FailureKind, IneligibleSessionKind
 from products.replay_vision.backend.temporal.metrics import (
-    REPLAY_VISION_FAILURE_KINDS,
-    REPLAY_VISION_INELIGIBLE_KINDS,
-    REPLAY_VISION_OBSERVATIONS,
+    record_credits_consumed,
+    record_failure_kind,
+    record_ineligible_kind,
+    record_observation,
+    record_observation_e2e,
 )
 from products.replay_vision.backend.temporal.types import (
     MarkObservationFailedInputs,
@@ -51,29 +55,50 @@ def mark_observation_running_activity(inputs: MarkObservationRunningInputs) -> N
     )
 
 
+def mark_observation_terminal(
+    *,
+    observation_id: UUID,
+    status: ObservationStatus,
+    error_reason: str,
+    scanner_type: str,
+    valid_kinds: Container[str],
+    count_kind: Callable[[str], None],
+) -> bool:
+    """Flip pending/running → `status` and record metrics/logs; idempotent no-op against already-terminal rows."""
+    updated = ReplayObservation.objects.filter(
+        pk=observation_id,
+        status__in=[ObservationStatus.PENDING, ObservationStatus.RUNNING],
+    ).update(
+        status=status,
+        error_reason=error_reason,
+        completed_at=timezone.now(),
+    )
+    if not updated:
+        return False  # No state transition — retry against an already-terminal row.
+    kind = _kind_from_error_reason(error_reason, valid_kinds)
+    record_observation(status.value, scanner_type)
+    count_kind(kind)
+    logger.info(
+        f"replay_vision.observation.{status.value}",
+        observation_id=str(observation_id),
+        scanner_type=scanner_type,
+        kind=kind,
+        error_reason=error_reason,
+    )
+    return True
+
+
 @activity.defn
 @track_activity()
 def mark_observation_failed_activity(inputs: MarkObservationFailedInputs) -> None:
     """Flip pending/running → failed. Idempotent: FAILED is not in the source filter."""
-    updated = ReplayObservation.objects.filter(
-        pk=inputs.observation_id,
-        status__in=[ObservationStatus.PENDING, ObservationStatus.RUNNING],
-    ).update(
+    mark_observation_terminal(
+        observation_id=inputs.observation_id,
         status=ObservationStatus.FAILED,
         error_reason=inputs.error_reason,
-        completed_at=timezone.now(),
-    )
-    if not updated:
-        return  # No state transition — retry against an already-terminal row.
-    kind = _kind_from_error_reason(inputs.error_reason, _FAILURE_KIND_VALUES)
-    REPLAY_VISION_OBSERVATIONS.labels(status="failed", scanner_type=inputs.scanner_type).inc()
-    REPLAY_VISION_FAILURE_KINDS.labels(kind=kind, scanner_type=inputs.scanner_type).inc()
-    logger.info(
-        "replay_vision.observation.failed",
-        observation_id=str(inputs.observation_id),
         scanner_type=inputs.scanner_type,
-        kind=kind,
-        error_reason=inputs.error_reason,
+        valid_kinds=_FAILURE_KIND_VALUES,
+        count_kind=lambda kind: record_failure_kind(kind, inputs.scanner_type),
     )
 
 
@@ -81,25 +106,13 @@ def mark_observation_failed_activity(inputs: MarkObservationFailedInputs) -> Non
 @track_activity()
 def mark_observation_ineligible_activity(inputs: MarkObservationIneligibleInputs) -> None:
     """Flip pending/running → ineligible. Idempotent: INELIGIBLE is not in the source filter."""
-    updated = ReplayObservation.objects.filter(
-        pk=inputs.observation_id,
-        status__in=[ObservationStatus.PENDING, ObservationStatus.RUNNING],
-    ).update(
+    mark_observation_terminal(
+        observation_id=inputs.observation_id,
         status=ObservationStatus.INELIGIBLE,
         error_reason=inputs.error_reason,
-        completed_at=timezone.now(),
-    )
-    if not updated:
-        return  # No state transition — retry against an already-terminal row.
-    kind = _kind_from_error_reason(inputs.error_reason, _INELIGIBLE_KIND_VALUES)
-    REPLAY_VISION_OBSERVATIONS.labels(status="ineligible", scanner_type=inputs.scanner_type).inc()
-    REPLAY_VISION_INELIGIBLE_KINDS.labels(kind=kind).inc()
-    logger.info(
-        "replay_vision.observation.ineligible",
-        observation_id=str(inputs.observation_id),
         scanner_type=inputs.scanner_type,
-        kind=kind,
-        error_reason=inputs.error_reason,
+        valid_kinds=_INELIGIBLE_KIND_VALUES,
+        count_kind=lambda kind: record_ineligible_kind(kind),
     )
 
 
@@ -119,15 +132,26 @@ def mark_observation_succeeded_activity(inputs: MarkObservationSucceededInputs) 
         if not updated:
             return  # No state transition — retry against an already-terminal row.
         # Write the usage receipt in the same transaction as the transition so a crash can't undercount.
-        obs = ReplayObservation.objects.values("team__organization_id", "created_at").get(pk=inputs.observation_id)
-        ReplayObservationUsage.objects.get_or_create(
+        obs = ReplayObservation.objects.values(
+            "team_id", "team__organization_id", "created_at", "scanner_snapshot__model"
+        ).get(pk=inputs.observation_id)
+        model = obs["scanner_snapshot__model"] or ""
+        credits = observation_credits_for_model(model)
+        _, receipt_created = ReplayObservationUsage.objects.get_or_create(
             observation_id=inputs.observation_id,
             defaults={
                 "organization_id": obs["team__organization_id"],
+                "team_id": obs["team_id"],
                 "observation_created_at": obs["created_at"],
+                "model": model,
+                "credits": credits,
             },
         )
-    REPLAY_VISION_OBSERVATIONS.labels(status="succeeded", scanner_type=inputs.scanner_type).inc()
+    record_observation("succeeded", inputs.scanner_type)
+    record_observation_e2e(inputs.scanner_type, (timezone.now() - obs["created_at"]).total_seconds())
+    if receipt_created:
+        # Gate on the receipt so a lost-result retry can't double count the burn rate.
+        record_credits_consumed(inputs.scanner_type, model, credits)
     logger.info(
         "replay_vision.observation.succeeded",
         observation_id=str(inputs.observation_id),

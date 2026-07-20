@@ -89,6 +89,8 @@ Focus on:
 - Trends or patterns worth attention
 - The specific step or segment driving the pattern, if identifiable
 
+Values are already formatted in the units shown (e.g. "4d 4h", "$1,200", "37%"). Quote them exactly as given; do not recompute, reunit, or reformat them.
+
 The most recent data point in a trend often covers an incomplete time period (e.g. today's count so far vs yesterday's full-day count). Do not treat a low final data point as a decline unless the trend across earlier complete periods also shows a decline.
 
 Keep it brief and actionable."""
@@ -105,6 +107,8 @@ Focus on:
 - Changes of 10% or more in key metrics
 - New trends or reversals in direction
 - The specific step or segment driving the change, if identifiable
+
+Values are already formatted in the units shown (e.g. "4d 4h", "$1,200", "37%"). Quote them exactly as given; do not recompute, reunit, or reformat them. When describing a change as "from X to Y", X must be the previous value and Y the current value, so the direction matches the numbers (a fall means X is larger than Y).
 
 The most recent data point in a trend often covers an incomplete time period (e.g. today's count so far vs yesterday's full-day count). Do not treat a low final data point as a decline unless the trend across earlier complete periods also shows a decline.
 

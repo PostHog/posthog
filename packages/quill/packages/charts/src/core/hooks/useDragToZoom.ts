@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 
 import { dragRectToLabelRange, isInPlotArea } from '../interaction'
 import type { LabelPosition } from '../interaction'
-import type { ChartDimensions, ChartScales, DateRangeZoomData, DragRect } from '../types'
+import type { AreaSelectData, ChartDimensions, ChartScales, DateRangeZoomData, DragRect } from '../types'
 import { useLatest } from './useLatest'
 
 // Movement (px) required before a mousedown becomes a drag rather than a click.
@@ -10,6 +10,10 @@ const DRAG_THRESHOLD_PX = 4
 
 interface UseDragToZoomOptions {
     onDateRangeZoom?: (data: DateRangeZoomData) => void
+    /** 2D brush: the drag also tracks the vertical range, the selection rect clamps to it, and
+     *  the completed gesture reports the y pixel span alongside the label range. Takes
+     *  precedence over `onDateRangeZoom` when both are set. */
+    onAreaSelect?: (data: AreaSelectData) => void
     scales: ChartScales | null
     dimensions: ChartDimensions | null
     labels: string[]
@@ -37,6 +41,7 @@ interface UseDragToZoomResult {
  *  selection from mousedown to mouseup and emits the spanned label range via `onDateRangeZoom`. */
 export function useDragToZoom({
     onDateRangeZoom,
+    onAreaSelect,
     scales,
     dimensions,
     labels,
@@ -52,24 +57,38 @@ export function useDragToZoom({
     const labelsRef = useLatest(labels)
     const labelPositionsRef = useLatest(labelPositions)
     const onDateRangeZoomRef = useLatest(onDateRangeZoom)
+    const onAreaSelectRef = useLatest(onAreaSelect)
     const onDragActivateRef = useLatest(onDragActivate)
+    // Stable across renders — flips only when the consumer adds/removes the callback, like zoomEnabled.
+    const trackY = !!onAreaSelect
 
     const completeDrag = useCallback(
-        (mouseX: number) => {
+        (mouseX: number, mouseY: number) => {
             const origin = dragOriginRef.current
             if (!origin) {
                 return
             }
             if (origin.active) {
                 const range = dragRectToLabelRange({ x0: origin.x, x1: mouseX }, labelPositionsRef.current)
-                if (range && onDateRangeZoomRef.current) {
+                if (range) {
                     const currentLabels = labelsRef.current
-                    onDateRangeZoomRef.current({
+                    const labelRange = {
                         startLabel: currentLabels[range.startIndex],
                         endLabel: currentLabels[range.endIndex],
                         startIndex: range.startIndex,
                         endIndex: range.endIndex,
-                    })
+                    }
+                    // Area-select wins over date-range zoom when both are set (a consumer wiring
+                    // both would otherwise double-apply the x range).
+                    if (onAreaSelectRef.current) {
+                        onAreaSelectRef.current({
+                            ...labelRange,
+                            yPixel0: Math.min(origin.y, mouseY),
+                            yPixel1: Math.max(origin.y, mouseY),
+                        })
+                    } else if (onDateRangeZoomRef.current) {
+                        onDateRangeZoomRef.current(labelRange)
+                    }
                 }
                 // Swallow the trailing `click` that the browser fires after the gesture's mouseup.
                 // shouldSwallowClick() clears this synchronously on that click; the timer is the
@@ -86,13 +105,13 @@ export function useDragToZoom({
             dragOriginRef.current = null
             setDragRect(null)
         },
-        [labelPositionsRef, labelsRef, onDateRangeZoomRef]
+        [labelPositionsRef, labelsRef, onDateRangeZoomRef, onAreaSelectRef]
     )
 
     // Global mouseup catches gestures that end outside the chart wrapper. Gate on a stable
-    // boolean rather than the `onDateRangeZoom` identity so an inline-arrow prop (the common
-    // case) doesn't re-subscribe this window listener on every parent render.
-    const zoomEnabled = !!onDateRangeZoom && interactionAxis === 'x'
+    // boolean rather than the callback identities so an inline-arrow prop (the common case)
+    // doesn't re-subscribe this window listener on every parent render.
+    const zoomEnabled = (!!onDateRangeZoom || !!onAreaSelect) && interactionAxis === 'x'
     useEffect(() => {
         if (!zoomEnabled) {
             return
@@ -102,8 +121,10 @@ export function useDragToZoom({
                 return
             }
             const wrapper = wrapperRef.current
-            const mouseX = wrapper ? e.clientX - wrapper.getBoundingClientRect().left : 0
-            completeDrag(mouseX)
+            const rect = wrapper?.getBoundingClientRect()
+            const mouseX = rect ? e.clientX - rect.left : 0
+            const mouseY = rect ? e.clientY - rect.top : 0
+            completeDrag(mouseX, mouseY)
         }
         window.addEventListener('mouseup', handler)
         return () => window.removeEventListener('mouseup', handler)
@@ -145,12 +166,14 @@ export function useDragToZoom({
                 onDragActivateRef.current()
             }
             if (origin.active) {
-                setDragRect({ x0: origin.x, x1: mouseX })
+                setDragRect(
+                    trackY ? { x0: origin.x, x1: mouseX, y0: origin.y, y1: mouseY } : { x0: origin.x, x1: mouseX }
+                )
                 return true
             }
             return false
         },
-        [onDragActivateRef]
+        [onDragActivateRef, trackY]
     )
 
     const shouldSwallowClick = useCallback((): boolean => {

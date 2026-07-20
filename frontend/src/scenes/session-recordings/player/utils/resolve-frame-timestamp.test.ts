@@ -77,7 +77,7 @@ describe('resolveFrameTimestamp', () => {
                 segmentKind: 'gap' as const,
                 prev: state(0, undefined),
                 expectedTs: 500 + FPS_1X,
-                expectedStuck: 0,
+                expectedStuck: 1,
                 expectedAdvance: true,
             },
             {
@@ -87,7 +87,7 @@ describe('resolveFrameTimestamp', () => {
                 segmentKind: 'gap' as const,
                 prev: state(0, undefined),
                 expectedTs: undefined,
-                expectedStuck: 0,
+                expectedStuck: 1,
                 expectedAdvance: true,
             },
             {
@@ -97,7 +97,7 @@ describe('resolveFrameTimestamp', () => {
                 segmentKind: 'window' as const,
                 prev: state(0, undefined),
                 expectedTs: undefined,
-                expectedStuck: 0,
+                expectedStuck: 1,
                 expectedAdvance: false,
             },
             {
@@ -137,7 +137,7 @@ describe('resolveFrameTimestamp', () => {
                 segmentKind: 'buffer' as const,
                 prev: state(0, undefined),
                 expectedTs: undefined,
-                expectedStuck: 0,
+                expectedStuck: 1,
                 expectedAdvance: false,
             },
             {
@@ -147,7 +147,7 @@ describe('resolveFrameTimestamp', () => {
                 segmentKind: undefined,
                 prev: state(0, undefined),
                 expectedTs: undefined,
-                expectedStuck: 0,
+                expectedStuck: 1,
                 expectedAdvance: false,
             },
         ])('$name', ({ rrwebTs, currentTs, segmentKind, prev, expectedTs, expectedStuck, expectedAdvance }) => {
@@ -253,8 +253,8 @@ describe('resolveFrameTimestamp', () => {
                 expect(result.resolvedTimestamp).toBeCloseTo(currentTs + FPS_1X, 1)
                 currentTs = result.resolvedTimestamp!
                 frameState = result.newState
-                // stuck counter stays at 0 because undefined !== undefined doesn't increment
-                expect(frameState.stuckFrames).toBe(0)
+                // Repeated undefined rrweb times match the previous frame, so the stuck counter climbs; the gap rule drives the advance regardless.
+                expect(frameState.stuckFrames).toBe(i + 1)
             }
         })
     })

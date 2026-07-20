@@ -21,6 +21,7 @@ import { isMarkdownNotebookContent } from './Notebook/markdownNotebookV2'
 import { notebookLogic } from './Notebook/notebookLogic'
 import { notebookSettingsLogic } from './Notebook/notebookSettingsLogic'
 import { notebookPanelLogic } from './NotebookPanel/notebookPanelLogic'
+import { isKernelUiEnabled } from './utils'
 
 const RESOURCE_TYPE = 'notebook'
 
@@ -35,49 +36,33 @@ export function NotebookSceneMenuBar({ shortId }: { shortId: string }): JSX.Elem
 function NotebookSceneMenuBarInner({ shortId }: { shortId: string }): JSX.Element {
     const logic = notebookLogic({ shortId })
     const { notebook, showHistory, isLocalOnly, content } = useValues(logic)
-    const { openShareModal, duplicateNotebook, exportJSON, downloadMarkdown, copyMarkdown, setShowHistory } =
-        useActions(logic)
+    const { openShareModal, duplicateNotebook, downloadMarkdown, copyMarkdown, setShowHistory } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { showTableOfContents, isExpanded, isMarkdownExpanded, showKernelInfo } = useValues(notebookSettingsLogic)
-    const { setShowTableOfContents, setIsExpanded, setIsMarkdownExpanded, setShowKernelInfo } =
-        useActions(notebookSettingsLogic)
+    const { isMarkdownExpanded, showKernelInfo } = useValues(notebookSettingsLogic)
+    const { setIsMarkdownExpanded, setShowKernelInfo } = useActions(notebookSettingsLogic)
     const { selectNotebook } = useActions(notebookPanelLogic)
-    const isMarkdownNotebook = isMarkdownNotebookContent(content)
     const canDelete = !isLocalOnly && !notebook?.is_template
-    const showKernelToggle = !!featureFlags[FEATURE_FLAGS.NOTEBOOK_PYTHON]
-    const isContentWidthExpanded = isMarkdownNotebook ? isMarkdownExpanded : isExpanded
-    const setContentWidthExpanded = isMarkdownNotebook ? setIsMarkdownExpanded : setIsExpanded
+    // The kernel info panel only renders for markdown (V2) notebooks, so hide the toggle elsewhere
+    const showKernelToggle = isKernelUiEnabled(featureFlags) && isMarkdownNotebookContent(content)
 
     return (
         <SceneMenuBar>
             <SceneMenuBarMenu label="File" dataAttr={`${RESOURCE_TYPE}-menubar-file`}>
                 <SceneMenuBarSubMenu label="Export">
-                    {isMarkdownNotebook ? (
-                        <>
-                            <SceneMenuBarItem
-                                onClick={() => downloadMarkdown()}
-                                data-attr={`${RESOURCE_TYPE}-menubar-download-markdown`}
-                            >
-                                <IconDownload />
-                                Download markdown
-                            </SceneMenuBarItem>
-                            <SceneMenuBarItem
-                                onClick={() => copyMarkdown()}
-                                data-attr={`${RESOURCE_TYPE}-menubar-copy-markdown`}
-                            >
-                                <IconCopy />
-                                Copy markdown
-                            </SceneMenuBarItem>
-                        </>
-                    ) : (
-                        <SceneMenuBarItem
-                            onClick={() => exportJSON()}
-                            data-attr={`${RESOURCE_TYPE}-menubar-export-json`}
-                        >
-                            <IconDownload />
-                            Export JSON
-                        </SceneMenuBarItem>
-                    )}
+                    <SceneMenuBarItem
+                        onClick={() => downloadMarkdown()}
+                        data-attr={`${RESOURCE_TYPE}-menubar-download-markdown`}
+                    >
+                        <IconDownload />
+                        Download .md
+                    </SceneMenuBarItem>
+                    <SceneMenuBarItem
+                        onClick={() => copyMarkdown()}
+                        data-attr={`${RESOURCE_TYPE}-menubar-copy-markdown`}
+                    >
+                        <IconCopy />
+                        Copy markdown
+                    </SceneMenuBarItem>
                 </SceneMenuBarSubMenu>
                 <SceneMenuBarItem
                     opensFloatingUi
@@ -119,19 +104,9 @@ function NotebookSceneMenuBarInner({ shortId }: { shortId: string }): JSX.Elemen
                 </SceneMenuBarCheckboxItem>
             </SceneMenuBarMenu>
             <SceneMenuBarMenu label="View" dataAttr={`${RESOURCE_TYPE}-menubar-view`}>
-                {/* Table of contents only applies to rich (non-markdown) notebooks. */}
-                {!isMarkdownNotebook && (
-                    <SceneMenuBarCheckboxItem
-                        checked={showTableOfContents}
-                        onCheckedChange={(checked) => setShowTableOfContents(checked)}
-                        data-attr={`${RESOURCE_TYPE}-menubar-toc`}
-                    >
-                        Table of contents
-                    </SceneMenuBarCheckboxItem>
-                )}
                 <SceneMenuBarCheckboxItem
-                    checked={isContentWidthExpanded}
-                    onCheckedChange={(checked) => setContentWidthExpanded(checked)}
+                    checked={isMarkdownExpanded}
+                    onCheckedChange={(checked) => setIsMarkdownExpanded(checked)}
                     data-attr={`${RESOURCE_TYPE}-menubar-fill-width`}
                 >
                     Fill content width

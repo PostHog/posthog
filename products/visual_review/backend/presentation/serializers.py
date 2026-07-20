@@ -99,8 +99,8 @@ class RunSerializer(DataclassSerializer):
         help_text=(
             "How this row matched the `search` query parameter: `exact` (the term is a "
             "case-insensitive substring of branch/run type, a commit SHA prefix, or an exact PR "
-            "number) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. "
-            "Null when the list is not filtered by `search`."
+            "number) or `similar` (a fuzzy trigram match, returned only when no exact match "
+            "exists). Null when the list is not filtered by `search`."
         ),
     )
 

@@ -89,7 +89,7 @@ function Header({
                 {state === DefinitionPopoverState.View && (
                     <div className="definition-popover-header-row-buttons flex gap-4 text-[0.8125rem] click-outside-block">
                         {!hideEdit && isViewable && <Link onClick={onEdit}>Edit</Link>}
-                        {!hideView && isViewable && (
+                        {!hideView && isViewable && viewFullDetailUrl && (
                             <Link
                                 target={openDetailInNewTab ? '_blank' : undefined}
                                 to={viewFullDetailUrl}

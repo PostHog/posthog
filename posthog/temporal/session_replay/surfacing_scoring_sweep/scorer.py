@@ -17,12 +17,15 @@ from __future__ import annotations
 import os
 import tempfile
 import threading
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 import numpy as np
 import pandas as pd
-import xgboost as xgb
 import structlog
+
+if TYPE_CHECKING:
+    import xgboost as xgb
 
 from posthog.storage import object_storage
 from posthog.temporal.session_replay.surfacing_scoring_sweep.feature_schema import assert_serving_schema_parity
@@ -82,6 +85,11 @@ def _load_booster() -> xgb.Booster:
 
     On first load: runs assert_serving_schema_parity and caches feature_names.
     """
+    # Deferred: xgboost dlopens libomp at import, which can fail on machines without an OpenMP
+    # runtime. This module is imported (via the package __init__) by the shared temporal worker,
+    # and a scoring-only native dep must not stop every other workflow from loading.
+    import xgboost as xgb  # noqa: PLC0415 — keeps the heavy native dep off the worker's import path
+
     global _BOOSTER, _FEATURE_NAMES
     cached_booster = _BOOSTER
     if cached_booster is not None:
@@ -172,6 +180,8 @@ def predict(df: pd.DataFrame) -> np.ndarray:
     path and skips re-validation. Returned array is positionally aligned
     with `df.index`.
     """
+    import xgboost as xgb  # noqa: PLC0415 — keeps the heavy native dep off the worker's import path
+
     booster = _load_booster()
     feature_names = get_feature_names()
 

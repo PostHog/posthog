@@ -74,6 +74,36 @@ in `relevant_commit_hashes` to map to a user with a `SignalUserAutonomyConfig` w
 priority threshold (personal or team default) covers the report's priority — otherwise the
 report will be saved but no `Task` will be created.
 
+## Seeding billable reports (refund testing)
+
+`seed_refund_test_data` drops five minimal reports covering the refund/exemption matrix:
+PR-run-today (refund takes the `excluded` path), PR-run-4-days-ago (`credited` path — calls the
+billing dispute endpoint), PR-run-last-month (out of the billing period — the Refund button
+renders disabled with the reason), billing-exempt with a PR ("Free" badge with health-check
+tooltip; refund hidden), and no-PR (target for `exempt_signal_report_billing`). Re-run freely —
+a report can only be refunded once.
+
+```bash
+python manage.py seed_refund_test_data --team-id 1
+```
+
+`seed_inbox_data` reports are billable too (runs are recorded via the production dual-write),
+but their runs are created "now", so refunds on them always take the excluded path.
+Environment prerequisites (feature flag, local billing service): "Testing refunds locally"
+in `../../ARCHITECTURE.md`.
+
+## Re-ingesting reports
+
+`reingest_signal_report` deletes specific reports and re-emits their signals through the active
+pipeline (same `SignalReportReingestionWorkflow` as the API `reingest` action), so they regroup
+and re-research from scratch:
+
+```bash
+python manage.py reingest_signal_report --team-id 1 <report-uuid> [<report-uuid> ...]
+```
+
+For a full-team wipe + reingest, use `reingest_team_signals --team-id 1` (add `--delete` for delete-only).
+
 ## Session summary (video-based)
 
 Test the SummarizeSingleSessionWorkflow with full video validation:
@@ -129,7 +159,7 @@ python manage.py run_signals_scout --team-id 1 --skill-name signals-scout-genera
 The team must have a `SignalScoutConfig` row for the scout (the coordinator auto-creates
 one; the command also seeds it). Configs default to `emit=False` — the scout runs and
 logs but `emit_finding` writes nothing, so no finding reaches the Signals inbox until you
-flip `emit=True` on that scout's config (e.g. via the `signals-scout-config-update` MCP tool).
+flip `emit=True` on that scout's config (e.g. via the `scout-config-update` MCP tool).
 
 ### Canonical skill sync
 

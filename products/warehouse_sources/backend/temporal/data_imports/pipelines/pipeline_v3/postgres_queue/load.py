@@ -13,6 +13,8 @@ only needs to raise on failure.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from asgiref.sync import sync_to_async
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
@@ -23,6 +25,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 
 
-async def process_batch(batch: PendingBatch) -> None:
+async def process_batch(batch: PendingBatch, verify_ownership: Callable[[], None] | None = None) -> None:
     """Load a single batch into Delta Lake, reusing the existing processor."""
-    await sync_to_async(process_message)(batch.to_export_signal())
+    # thread_sensitive=False: the default single-thread executor would cap the pod's
+    # real parallelism at 1; process_message is self-contained, so cross-thread is safe.
+    await sync_to_async(process_message, thread_sensitive=False)(
+        batch.to_export_signal(), verify_ownership=verify_ownership
+    )

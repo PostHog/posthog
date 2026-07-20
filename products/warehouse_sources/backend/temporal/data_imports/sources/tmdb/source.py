@@ -36,6 +36,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TMDbSource(ResumableSource[TMDbSourceConfig, TMDbResumeConfig]):
+    supported_versions = ("3",)
+    default_version = "3"
+    api_docs_url = "https://developer.themoviedb.org/reference/intro/getting-started"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.TMDB
@@ -52,7 +56,6 @@ Create a free API key (v3 auth) in your [TMDB account settings](https://www.them
             iconPath="/static/services/tmdb.png",
             docsUrl="https://posthog.com/docs/cdp/sources/tmdb",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

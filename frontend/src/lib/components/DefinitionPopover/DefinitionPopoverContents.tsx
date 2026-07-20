@@ -663,7 +663,7 @@ function DefinitionEdit(): JSX.Element {
                 )}
                 <LemonDivider className="DefinitionPopover mt-0" />
                 <div className="flex items-center justify-between gap-2 click-outside-block">
-                    {!hideView && isViewable && type !== TaxonomicFilterGroupType.Events ? (
+                    {!hideView && isViewable && viewFullDetailUrl && type !== TaxonomicFilterGroupType.Events ? (
                         <LemonButton
                             sideIcon={<IconOpenInNew style={{ marginLeft: 4, fontSize: '1rem' }} />}
                             disabledReason={definitionLoading ? 'Loading…' : undefined}

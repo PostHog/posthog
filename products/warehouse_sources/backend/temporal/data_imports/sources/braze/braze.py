@@ -77,7 +77,11 @@ def _build_params(config: BrazeEndpointConfig, cursor: int, modified_after: str 
     if config.pagination == "page":
         params = {"page": cursor}
     else:
-        params = {"limit": config.page_size, "offset": cursor}
+        # Braze's offset endpoints reject offset=0 (offset must be a positive integer),
+        # so omit it on the first page — equivalent to skipping nothing.
+        params = {"limit": config.page_size}
+        if cursor:
+            params["offset"] = cursor
 
     if modified_after and config.modified_after_param:
         params[config.modified_after_param] = modified_after

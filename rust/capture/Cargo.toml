@@ -12,6 +12,7 @@ workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
+arc-swap = { workspace = true }
 async-compression = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true }
@@ -26,7 +27,10 @@ lifecycle = { path = "../common/lifecycle" }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
 common-alloc = { path = "../common/alloc" }
+common-compression = { path = "../common/compression" }
 common-continuous-profiling = { path = "../common/continuous_profiling" }
+common-ingestion-warnings = { path = "../common/ingestion_warnings" }
+common-kafka = { path = "../common/kafka" }
 common-redis = { path = "../common/redis" }
 common-types = { path = "../common/types" }
 limiters = { path = "../common/limiters" }

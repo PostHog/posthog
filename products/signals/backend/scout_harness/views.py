@@ -63,11 +63,7 @@ from products.signals.backend.scout_harness.config_registry import (
     ensure_scout_category,
     register_missing_configs,
 )
-from products.signals.backend.scout_harness.lazy_seed import (
-    HARNESS_SEEDED_BY,
-    canonical_skill_names,
-    sync_canonical_skills,
-)
+from products.signals.backend.scout_harness.lazy_seed import scout_skill_origin, sync_canonical_skills
 from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM, STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.serializers import (
     EditReportRequestSerializer,
@@ -302,6 +298,7 @@ def _to_reviewer_inputs(entries: list[dict] | None) -> list[ReviewerInput] | Non
         ReviewerInput(
             github_login=entry.get("github_login"),
             user_uuid=str(entry["user_uuid"]) if entry.get("user_uuid") else None,
+            reason=entry.get("reason") or None,
         )
         for entry in entries
     ]
@@ -431,17 +428,18 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={
             200: OpenApiResponse(
                 response=FleetFindingsSummarySerializer,
-                description="Fleet-wide tally of recently emitted findings.",
+                description="Fleet-wide tally of recent scout output — findings and report activity.",
             ),
         },
-        summary="Summarise recently emitted findings across the fleet",
+        summary="Summarise recent scout output across the fleet",
         description=(
-            "Return a cheap fleet-wide tally of the findings the scout troop emitted in the recent window — "
-            "the total count, the number of distinct scouts behind them, and the latest emission time. "
-            "Backs the 'Scout findings' callout so it renders from one query instead of the client paging "
-            "through the whole runs window. Counts only runs that emitted at least one finding "
-            "(`emitted_count > 0`) within the last `window_hours` (default 72), capped to the most recent "
-            "120 emitted runs so the count matches what the findings list renders. Strictly team-scoped."
+            "Return a cheap fleet-wide tally of the output the scout troop produced in the recent window — "
+            "the finding count, the distinct reports authored/edited via the report channel, the number of "
+            "distinct scouts behind them, and the latest output time. Backs the 'Scout findings' callout so "
+            "it renders from one query instead of the client paging through the whole runs window. Counts "
+            "runs that emitted at least one finding (`emitted_count > 0`) or authored/edited an inbox report "
+            "within the last `window_hours` (default 72), capped to the most recent 120 such runs so the "
+            "count matches what the findings list renders. Strictly team-scoped."
         ),
         operation_id="signals_scout_runs_findings_summary",
     )
@@ -767,6 +765,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "finding_id": result.finding_id,
                     "emitted": result.emitted,
                     "skipped_reason": result.skipped_reason,
+                    "remediation": result.remediation,
                 }
             ).data,
             status=status.HTTP_200_OK,
@@ -885,6 +884,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "emitted": result.emitted,
                     "skipped_reason": result.skipped_reason,
                     "safety_explanation": result.safety_explanation,
+                    "remediation": result.remediation,
                 }
             ).data,
             status=status.HTTP_200_OK,
@@ -1099,7 +1099,7 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     pagination_class = None
 
     # The DRF default `list` operation_id would be `signals_scout_project_profile_list`,
-    # which renders as `signals-scout-project-profile-list` in the MCP. The agent-facing
+    # which renders as `scout-project-profile-list` in the MCP. The agent-facing
     # tool is semantically a "get the current profile" (singleton), not a "list" — override
     # the id so it matches the tool name in tools.yaml and the scout's bootstrap step.
     @validated_request(
@@ -1306,23 +1306,7 @@ class _ScoutSkillInfo:
     """
 
     description: str
-    origin: str  # "canonical" | "custom" — see `_scout_origin`.
-
-
-def _scout_origin(skill_name: str, metadata: dict | None) -> str:
-    """Classify a scout by who owns its skill row.
-
-    A scout is `canonical` when the harness seeded its skill row (tagged
-    `metadata.seeded_by=HARNESS_SEEDED_BY`) **and** its name is one the harness actually ships
-    on disk (`products/signals/skills/`); otherwise it's a team's hand-authored `custom` scout.
-    Both halves matter: `duplicate_skill()` copies a source row's metadata verbatim — including
-    `seeded_by` — so a team fork of a bundled scout inherits the seed tag, but a fork can never
-    take a canonical name (the canonical row already owns it), so the name guard reclassifies it
-    as `custom`. The name set is derived from disk, so it never goes stale the way a hardcoded
-    list would.
-    """
-    is_harness_seeded = (metadata or {}).get("seeded_by") == HARNESS_SEEDED_BY
-    return "canonical" if is_harness_seeded and skill_name in canonical_skill_names() else "custom"
+    origin: str  # "canonical" | "custom" — see `lazy_seed.scout_skill_origin`.
 
 
 def _skill_info_for(team_id: int, skill_names: list[str]) -> dict[str, _ScoutSkillInfo]:
@@ -1340,7 +1324,7 @@ def _skill_info_for(team_id: int, skill_names: list[str]) -> dict[str, _ScoutSki
         "name", "description", "metadata"
     )
     return {
-        name: _ScoutSkillInfo(description=description or "", origin=_scout_origin(name, metadata))
+        name: _ScoutSkillInfo(description=description or "", origin=scout_skill_origin(name, metadata))
         for name, description, metadata in rows
     }
 

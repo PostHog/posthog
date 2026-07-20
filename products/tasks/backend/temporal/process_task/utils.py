@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Optional
@@ -11,34 +12,38 @@ from django.conf import settings
 from pydantic import BaseModel
 
 from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.user import User
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
 from posthog.temporal.oauth import TOKEN_EXPIRATION_SECONDS, PosthogMcpScopes, has_write_scopes
 
-from products.mcp_store.backend.facade.api import get_active_installations
+from products.mcp_store.backend.facade.api import get_installations_for_sandbox
 from products.tasks.backend.constants import (
+    ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS,
     DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
-    DEFAULT_SANDBOX_WORKING_DIR,
     SNAPSHOT_KIND_DIRECTORY,
     SNAPSHOT_KIND_FILESYSTEM,
     InitialPermissionMode,
     SnapshotKind,
     filter_user_sandbox_env_vars,
 )
+from products.tasks.backend.exceptions import CredentialUnavailableError
+
+# Re-exported so existing activity/workflow imports keep working after the move to
+# logic/services (non-temporal callers import run_actor directly).
+from products.tasks.backend.logic.services.run_actor import (
+    get_actor_distinct_id as get_actor_distinct_id,
+    get_task_run_actor_user as get_task_run_actor_user,
+    get_task_run_credential_user as get_task_run_credential_user,
+    is_slack_interaction_state as is_slack_interaction_state,
+)
 from products.tasks.backend.redis import get_tasks_cache
 
 if TYPE_CHECKING:
     from posthog.models.user import User
 
-    from products.tasks.backend.models import SandboxSnapshot, Task
+    from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 
 logger = logging.getLogger(__name__)
-
-_ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS = frozenset(
-    {
-        DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
-        DEFAULT_SANDBOX_WORKING_DIR,
-    }
-)
 
 
 class PrAuthorshipMode(StrEnum):
@@ -49,7 +54,7 @@ class PrAuthorshipMode(StrEnum):
 class GitHubCredentialSource(StrEnum):
     # Caller-supplied static token on the run request; owned by the caller, un-refreshable by us.
     CALLER_TOKEN = "caller_token"
-    # Task creator's refreshable server-side UserIntegration.
+    # Acting user's refreshable server-side UserIntegration.
     SERVER_INTEGRATION = "server_integration"
 
 
@@ -125,6 +130,13 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
     ),
+    "claude-sonnet-5": (
+        ReasoningEffort.LOW,
+        ReasoningEffort.MEDIUM,
+        ReasoningEffort.HIGH,
+        ReasoningEffort.XHIGH,
+        ReasoningEffort.MAX,
+    ),
     "claude-sonnet-4-6": (
         ReasoningEffort.LOW,
         ReasoningEffort.MEDIUM,
@@ -141,13 +153,18 @@ CODEX_XHIGH_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
     *CODEX_REASONING_EFFORTS,
     ReasoningEffort.XHIGH,
 )
+CODEX_MAX_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
+    *CODEX_XHIGH_REASONING_EFFORTS,
+    ReasoningEffort.MAX,
+)
 CODEX_XHIGH_REASONING_MODELS: frozenset[str] = frozenset({"gpt-5.5"})
+CODEX_MAX_REASONING_MODELS: frozenset[str] = frozenset({"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"})
 
 # Canonical list of Codex models. The runtime technically accepts any
 # `gpt-*` identifier passed through, but only models on this list are
 # considered tested and surfaced in pickers. Extend when a new Codex model
 # ships.
-CODEX_MODELS: tuple[str, ...] = ("gpt-5", "gpt-5.5")
+CODEX_MODELS: tuple[str, ...] = ("gpt-5", "gpt-5.5", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna")
 
 
 def get_models_for_runtime_adapter(runtime_adapter: RuntimeAdapter | str | None) -> tuple[str, ...]:
@@ -191,7 +208,10 @@ def get_supported_reasoning_efforts(
     if adapter_value == RuntimeAdapter.CLAUDE.value:
         return CLAUDE_REASONING_EFFORTS_BY_MODEL.get(model, ())
     if adapter_value == RuntimeAdapter.CODEX.value:
-        if model.lower() in CODEX_XHIGH_REASONING_MODELS:
+        normalized_model = model.lower()
+        if normalized_model in CODEX_MAX_REASONING_MODELS:
+            return CODEX_MAX_REASONING_EFFORTS
+        if normalized_model in CODEX_XHIGH_REASONING_MODELS:
             return CODEX_XHIGH_REASONING_EFFORTS
         return CODEX_REASONING_EFFORTS
 
@@ -219,21 +239,35 @@ def get_reasoning_effort_error(
     )
 
 
-def normalize_directory_resume_snapshot_mount_path(snapshot_mount_path: object) -> str:
+def normalize_directory_resume_snapshot_mount_path(snapshot_mount_path: object) -> str | None:
+    """Resolve where a directory resume snapshot may be mounted; ``None`` means "don't use it".
+
+    A snapshot's content layout matches the path it was captured from, so a stored path outside
+    the allowlist (notably the legacy "/tmp" default, whose mount replaced the live system temp
+    dir and killed the sandbox) cannot be remapped to a safe path — the snapshot is unusable and
+    the resume must fall back to a fresh sandbox.
+    """
     if not snapshot_mount_path:
         return DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH
-    if isinstance(snapshot_mount_path, str) and snapshot_mount_path in _ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS:
+    if isinstance(snapshot_mount_path, str) and snapshot_mount_path in ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS:
         return snapshot_mount_path
 
     logger.warning(
-        "Ignoring unsupported directory resume snapshot mount path",
+        "Directory resume snapshot has an unsupported mount path; invalidating the snapshot",
         extra={"snapshot_mount_path": snapshot_mount_path},
     )
-    return DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH
+    return None
+
+
+def is_resume_snapshot_usable(kind: SnapshotKind, mount_path: str | None) -> bool:
+    """Whether a stored snapshot may be restored into a new sandbox; False falls back to a fresh one.
+    A directory snapshot whose stored mount path was invalidated (legacy "/tmp" captures) can't be restored."""
+    return not (kind == SNAPSHOT_KIND_DIRECTORY and mount_path is None)
 
 
 class RunState(BaseModel, extra="allow"):
     pr_authorship_mode: PrAuthorshipMode | None = None
+    auto_publish: bool | None = None
     github_credential_source: GitHubCredentialSource | None = None
     pr_base_branch: str | None = None
     home_quick_action: str | None = None
@@ -270,6 +304,24 @@ class RunState(BaseModel, extra="allow"):
             return None
         return normalize_directory_resume_snapshot_mount_path(self.snapshot_mount_path)
 
+    def resume_snapshot_is_usable(self) -> bool:
+        """See ``is_resume_snapshot_usable`` — callers must provision fresh when False."""
+        return is_resume_snapshot_usable(self.resume_snapshot_kind(), self.resume_snapshot_mount_path())
+
+    def resume_snapshot_carry_state(self) -> dict[str, Any]:
+        """State keys a successor run must copy (always the full set, never the external ID
+        alone) to resume from this run's snapshot; ``{}`` when there is no usable snapshot."""
+        if not self.snapshot_external_id or not self.resume_snapshot_is_usable():
+            return {}
+        carried: dict[str, Any] = {
+            "snapshot_external_id": self.snapshot_external_id,
+            "snapshot_kind": self.resume_snapshot_kind(),
+        }
+        mount_path = self.resume_snapshot_mount_path()
+        if mount_path is not None:
+            carried["snapshot_mount_path"] = mount_path
+        return carried
+
 
 def parse_run_state(state: dict[str, Any] | None) -> RunState:
     return RunState.model_validate(state or {})
@@ -279,6 +331,11 @@ def parse_run_state(state: dict[str, Any] | None) -> RunState:
 class SnapshotMetadata:
     kind: SnapshotKind
     mount_path: str | None
+
+    @property
+    def is_usable(self) -> bool:
+        """See ``is_resume_snapshot_usable`` — same invalidation rule."""
+        return is_resume_snapshot_usable(self.kind, self.mount_path)
 
 
 def get_sandbox_snapshot_metadata(snapshot: SandboxSnapshot) -> SnapshotMetadata:
@@ -304,23 +361,33 @@ GITHUB_USER_TOKEN_CACHE_TTL_SECONDS = 6 * 60 * 60
 MCP_TOKEN_REFRESH_INTERVAL_SECONDS = TOKEN_EXPIRATION_SECONDS / 2  # 3 hours
 
 
-def _mcp_token_issued_cache_key(run_id: str) -> str:
-    return f"posthog_ai:task-run-mcp-token-issued:{run_id}"
+def sandbox_identity_scope(run_id: str, state: dict[str, Any] | None) -> str:
+    """Cache scope for marks describing a run's live sandbox.
 
-
-def mark_mcp_token_issued(run_id: str) -> None:
-    """Record that a fresh MCP token was issued to the sandbox for this run.
-
-    The cache entry self-expires after MCP_TOKEN_REFRESH_INTERVAL_SECONDS, so
-    `should_refresh_mcp_token` returns True again past that window.
+    Keyed on the sandbox id so a replacement sandbox (fresh provision,
+    snapshot restore, workflow retry) starts unmarked — nothing ever needs
+    clearing. Falls back to the run id when state has no sandbox id yet.
     """
-    get_tasks_cache().set(_mcp_token_issued_cache_key(run_id), True, timeout=MCP_TOKEN_REFRESH_INTERVAL_SECONDS)
+    return (state or {}).get("sandbox_id") or run_id
 
 
-def should_refresh_mcp_token(run_id: str) -> bool:
-    """Return True if no MCP token has been issued for this run within the
-    last MCP_TOKEN_REFRESH_INTERVAL_SECONDS window."""
-    return get_tasks_cache().get(_mcp_token_issued_cache_key(run_id)) is None
+def _sandbox_mcp_session_cache_key(scope: str) -> str:
+    return f"tasks:sandbox-mcp-session:{scope}"
+
+
+def mark_sandbox_mcp_session(scope: str, user_id: int) -> None:
+    """Record whose OAuth token the sandbox's live MCP session holds.
+
+    Self-expires after MCP_TOKEN_REFRESH_INTERVAL_SECONDS, so an absent
+    entry always reads as "must refresh".
+    """
+    get_tasks_cache().set(_sandbox_mcp_session_cache_key(scope), user_id, timeout=MCP_TOKEN_REFRESH_INTERVAL_SECONDS)
+
+
+def get_sandbox_mcp_session_user(scope: str) -> int | None:
+    """User id the sandbox's MCP session was last bound to within the
+    freshness window, or None when unknown."""
+    return get_tasks_cache().get(_sandbox_mcp_session_cache_key(scope))
 
 
 @dataclass(frozen=True)
@@ -355,14 +422,16 @@ def get_sandbox_api_url() -> str:
 def get_user_mcp_server_configs(
     token: str,
     team_id: int,
-    user_id: int,
+    user_id: int | None = None,
     *,
+    include_personal: bool = True,
     interaction_origin: str | None = None,
 ) -> list[McpServerConfig]:
-    """Fetch the user's MCP Store installations and return sandbox configs.
+    """Fetch MCP Store installations for sandbox use and return configs.
 
-    Uses the mcp_store facade to get active installations, then builds
-    McpServerConfig entries with full proxy URLs and auth headers.
+    Always includes shared (team-wide) installations. When
+    ``include_personal`` is True and a ``user_id`` is provided, the user's
+    personal installations are included too.
 
     The `x-posthog-mcp-consumer` header is set on every config so the agent's
     identity propagates through the MCP Store proxy to whichever upstream MCP
@@ -372,7 +441,11 @@ def get_user_mcp_server_configs(
 
     Returns an empty list on errors (non-fatal).
     """
-    installations = get_active_installations(team_id, user_id)
+    installations = get_installations_for_sandbox(
+        team_id,
+        user_id=user_id,
+        include_personal=include_personal,
+    )
     api_base = get_sandbox_api_url().rstrip("/")
     consumer = _resolve_mcp_consumer(interaction_origin)
 
@@ -391,6 +464,101 @@ def get_user_mcp_server_configs(
         )
 
     return configs
+
+
+def build_imported_mcp_server_configs(
+    imported_servers: Any,
+    existing_names: Iterable[str],
+) -> list[McpServerConfig]:
+    """Sandbox configs for client-imported MCP servers (TaskRun.imported_mcp_servers).
+
+    Entries whose name collides with an already-resolved server (the PostHog MCP
+    or an MCP Store installation) are dropped — existing servers win. Malformed
+    entries are skipped rather than failing the launch; the shape was validated
+    at run creation, so this only guards against drift in stored data.
+    """
+    if not isinstance(imported_servers, list):
+        return []
+    # Case-insensitive dedup to match the serializer's validation (reserved names
+    # and within-list duplicates are compared lowercased); existing servers win.
+    taken = {n.lower() for n in existing_names}
+    configs: list[McpServerConfig] = []
+    for server in imported_servers:
+        if not isinstance(server, dict):
+            continue
+        name = server.get("name")
+        url = server.get("url")
+        if not isinstance(name, str) or not name or not isinstance(url, str) or not url:
+            continue
+        name_lower = name.lower()
+        if name_lower in taken:
+            continue
+        taken.add(name_lower)
+        server_type = server.get("type")
+        headers = [
+            {"name": header["name"], "value": header["value"]}
+            for header in server.get("headers") or []
+            if isinstance(header, dict) and isinstance(header.get("name"), str) and isinstance(header.get("value"), str)
+        ]
+        configs.append(
+            McpServerConfig(
+                type=server_type if server_type in ("http", "sse") else "http",
+                name=name,
+                url=url,
+                headers=headers,
+            )
+        )
+    return configs
+
+
+def get_relayed_mcp_server_names(task_run: TaskRun, existing_names: Iterable[str]) -> list[str]:
+    """Names of desktop-only MCP servers relayed into the run (TaskRun.relayed_mcp_servers).
+
+    Names whose entry collides with an already-resolved MCP config (the PostHog MCP, an MCP Store
+    installation, or an imported server) are dropped — existing servers win. Malformed entries are
+    skipped rather than failing the launch; the shape was validated at run creation, so this only
+    guards against drift in stored data.
+
+    Not adapter-gated (unlike imported servers): the relay endpoints are loopback HTTP servers in
+    the sandbox that always accept the connection and return an HTTP response (a relayed result, or
+    a 503 on a genuine mid-run desktop disconnect). Codex's reachability probe treats any HTTP
+    response — including a 503 — as reachable and only prunes on a transport failure, so a relay
+    endpoint never gets pruned from a codex session the way an unreachable remote URL would.
+    """
+    relayed_servers = task_run.relayed_mcp_servers
+    if not isinstance(relayed_servers, list):
+        return []
+    # Case-insensitive dedup to match the serializer's validation (reserved names
+    # and within-list duplicates are compared lowercased); existing servers win.
+    taken = {n.lower() for n in existing_names}
+    names: list[str] = []
+    for server in relayed_servers:
+        if not isinstance(server, dict):
+            continue
+        name = server.get("name")
+        if not isinstance(name, str) or not name:
+            continue
+        name_lower = name.lower()
+        if name_lower in taken:
+            continue
+        taken.add(name_lower)
+        names.append(name)
+    return names
+
+
+def get_imported_mcp_server_configs(task_run: TaskRun, existing_names: Iterable[str]) -> list[McpServerConfig]:
+    """Sandbox configs for the run's client-imported MCP servers.
+
+    Claude-only for now: codex-acp hard-fails the session when any configured
+    MCP server is unreachable and the sandbox does no reachability pruning (an
+    unset adapter defaults to claude). Used both at launch and when a mid-run
+    refresh_session replaces the session's server list — the agent treats that
+    list as authoritative, so leaving these out would drop them from the run.
+    """
+    runtime_adapter = (task_run.state or {}).get("runtime_adapter")
+    if runtime_adapter not in (None, RuntimeAdapter.CLAUDE.value):
+        return []
+    return build_imported_mcp_server_configs(task_run.imported_mcp_servers, existing_names)
 
 
 def _resolve_mcp_consumer(interaction_origin: str | None) -> str:
@@ -476,10 +644,81 @@ def get_github_token(github_integration_id: int) -> Optional[str]:
     integration = Integration.objects.get(id=github_integration_id)
     github_integration = GitHubIntegration(integration)
 
+    if github_integration.installation_unavailable():
+        raise CredentialUnavailableError(
+            "GitHub App installation for this integration is uninstalled or suspended",
+            {"github_integration_id": github_integration_id},
+        )
     if github_integration.access_token_expired():
         github_integration.refresh_access_token()
 
     return github_integration.integration.access_token or None
+
+
+# Downscope for sandboxes that only gather evidence (commit history, PR metadata) and must not be
+# able to write anywhere. Every permission here must be one the PostHog GitHub App holds, or the
+# mint 422s: contents/metadata back `gh api repos/.../commits`, pull_requests backs PR lookups.
+READONLY_SANDBOX_GITHUB_PERMISSIONS: dict[str, str] = {
+    "contents": "read",
+    "metadata": "read",
+    "pull_requests": "read",
+}
+
+
+def can_mint_readonly_github_token(team_id: int) -> bool:
+    """Whether `get_readonly_github_token` has a team-level integration to mint from.
+
+    Cheap preflight for callers that condition user-visible behavior (e.g. prompt guidance naming
+    `gh`) on the token actually being obtainable — the flag alone can't tell a team that never
+    connected GitHub from one that did. Same team-level-only rule as the mint itself; never raises.
+    """
+    try:
+        return _resolve_mintable_team_integration(team_id) is not None
+    except Exception:
+        logger.warning("Failed to resolve GitHub integration for team %d", team_id, exc_info=True)
+        return False
+
+
+def _resolve_mintable_team_integration(team_id: int) -> GitHubIntegration | None:
+    """The team-level integration a read-only mint may use, or None.
+
+    Refuses the resolver's org-owner personal-integration fallback (its installation can span
+    repos never connected to this team) and installations already marked permanently gone by a
+    prior failed mint — re-minting those storms GitHub with doomed calls until the customer
+    reconnects.
+    """
+    # Deferred to break a circular import — repo_selection.agent transitively imports the
+    # process-task workflow, which imports this module.
+    from products.tasks.backend.logic.repo_selection.agent import resolve_team_github_integration  # noqa: PLC0415
+
+    integration = resolve_team_github_integration(team_id)
+    if not isinstance(integration, GitHubIntegration) or integration.installation_unavailable():
+        return None
+    return integration
+
+
+def get_readonly_github_token(team_id: int) -> Optional[str]:
+    """Mint an ephemeral read-only GitHub token for a repo-less sandbox, or None.
+
+    Resolves the same integration the repo-selection agent would use for this team, then mints an
+    installation token downscoped to read-only permissions. Team-level installations only: the
+    resolver's org-owner fallback returns a *personal* integration whose installation can span
+    repositories never connected to this team, and an unpinned mint against it would read them
+    all — a scheduled scout must never widen its reach beyond what the team itself connected.
+    The scoped token is never persisted — the integration's cached token stays the
+    full-permission credential other flows share. Returns None (never raises) when the team has
+    no usable team-level integration or the mint fails: read access is an evidence-gathering
+    nicety, and its absence must not fail the run.
+    """
+    try:
+        integration = _resolve_mintable_team_integration(team_id)
+        if integration is None:
+            logger.info("No mintable team-level GitHub integration for team %d, skipping read-only token", team_id)
+            return None
+        return integration.mint_scoped_installation_token(READONLY_SANDBOX_GITHUB_PERMISSIONS)
+    except Exception:
+        logger.warning("Failed to mint read-only GitHub token for team %d", team_id, exc_info=True)
+        return None
 
 
 def get_user_github_token(github_user_integration_id: str) -> Optional[str]:
@@ -556,17 +795,19 @@ def get_user_github_integration(
 def resolve_user_github_integration_for_task(
     task: Task,
     *,
+    actor_user: User | None = None,
     repository: str | None = None,
     allow_refresh: bool = False,
 ) -> UserGitHubIntegration | None:
     """Resolve the UserIntegration that should author a task's GitHub writes."""
-    if task.created_by is None:
+    user = actor_user or task.created_by
+    if user is None:
         return None
 
     normalized_repository = _normalize_repository(repository or task.repository)
     selected_id = str(task.github_user_integration_id) if task.github_user_integration_id else None
     user_github_integration = get_user_github_integration(
-        task.created_by,
+        user,
         github_user_integration_id=selected_id,
         repository=normalized_repository,
         allow_refresh=allow_refresh,
@@ -581,7 +822,7 @@ def resolve_user_github_integration_for_task(
     if team_installation_id:
         integration = (
             UserIntegration.objects.filter(
-                user=task.created_by,
+                user=user,
                 kind="github",
                 integration_id=team_installation_id,
             )
@@ -596,7 +837,7 @@ def resolve_user_github_integration_for_task(
             return UserGitHubIntegration(integration)
 
     return get_user_github_integration(
-        task.created_by,
+        user,
         repository=normalized_repository,
         allow_refresh=allow_refresh,
     )
@@ -649,6 +890,7 @@ def get_sandbox_github_token(
     run_id: str,
     state: dict[str, Any] | None = None,
     created_by: User | None = None,
+    actor_user: User | None = None,
     task: Task | None = None,
     github_user_integration_id: str | None = None,
     repository: str | None = None,
@@ -659,14 +901,18 @@ def get_sandbox_github_token(
 
     1. Caller-supplied token cached at run-create time (backward compat for the
        PostHog Code CLI — wins when present so self-managed tokens still work).
-    2. Server-side ``UserIntegration`` for the task creator, refreshing on demand.
+    2. Server-side ``UserIntegration`` for the acting user, refreshing on demand.
     3. Team ``Integration`` token for legacy runs that predate persisted user identity.
 
     ``BOT`` authorship falls through to the team's ``Integration`` installation token.
     """
     pr_authorship_mode: PrAuthorshipMode | None
+    slack_interaction = is_slack_interaction_state(state)
+    created_by = actor_user or created_by
     if task is not None:
-        created_by = task.created_by
+        if actor_user is None and slack_interaction:
+            actor_user = get_task_run_credential_user(task, state)
+        created_by = actor_user or (task.created_by if not slack_interaction else None)
         repository = repository or task.repository
         github_user_integration_id = github_user_integration_id or (
             str(task.github_user_integration_id) if task.github_user_integration_id else None
@@ -677,6 +923,8 @@ def get_sandbox_github_token(
         pr_authorship_mode = run_state.pr_authorship_mode
 
     if pr_authorship_mode == PrAuthorshipMode.USER:
+        if task is not None and slack_interaction and created_by is None:
+            raise ReauthorizationRequired(f"Slack run {run_id} requires an acting user with GitHub repo access.")
         cached = get_cached_github_user_token(run_id)
         if cached:
             return cached
@@ -691,6 +939,7 @@ def get_sandbox_github_token(
         if task is not None:
             user_github_integration = resolve_user_github_integration_for_task(
                 task,
+                actor_user=created_by,
                 repository=repository,
                 allow_refresh=True,
             )
@@ -702,7 +951,7 @@ def get_sandbox_github_token(
                 allow_refresh=True,
             )
         if user_github_integration is None:
-            if github_integration_id is None:
+            if github_integration_id is None or slack_interaction:
                 raise ReauthorizationRequired(
                     f"User-authored run {run_id} requires a linked GitHub account with repo access."
                 )
@@ -723,9 +972,15 @@ def get_sandbox_github_token(
         try:
             token: str | None = resolve_coordinated_user_token(user_github_integration)
         except ReauthorizationRequired:
+            if slack_interaction:
+                raise
             token = None
         if token is not None:
             return token
+        if slack_interaction:
+            raise ReauthorizationRequired(
+                f"User-authored run {run_id} requires a linked GitHub account with repo access."
+            )
         return get_github_token(github_integration_id)
     elif pr_authorship_mode == PrAuthorshipMode.BOT:
         if github_integration_id is not None:
@@ -821,14 +1076,14 @@ def get_pr_authorship_mode(task: Task, state: dict[str, Any] | None = None) -> P
 def get_git_identity_env_vars(task: Task, state: dict[str, Any] | None = None) -> dict[str, str]:
     """Return git author/committer env vars for the sandbox.
 
-    Runs with user authorship are attributed to the user who created the task.
+    Runs with user authorship are attributed to the acting user.
     Bot-authored runs fall back to the Dockerfile defaults ("PostHog Code" /
     code@posthog.com).
     """
     if get_pr_authorship_mode(task, state) != PrAuthorshipMode.USER:
         return {}
 
-    user = task.created_by
+    user = get_task_run_credential_user(task, state)
     if user is None:
         return {}
 
@@ -841,3 +1096,27 @@ def get_git_identity_env_vars(task: Task, state: dict[str, Any] | None = None) -
         "GIT_COMMITTER_NAME": name,
         "GIT_COMMITTER_EMAIL": email,
     }
+
+
+def _message_actor_cache_key(run_id: str, message_id: str) -> str:
+    return f"tasks:followup-actor:{run_id}:{message_id}"
+
+
+# Bounds how long after delivery a turn can finish and still get exact
+# per-message attribution; longer turns fall back to the run-state actors.
+MESSAGE_ACTOR_TTL_SECONDS = 2 * 60 * 60
+
+
+def record_message_actor(run_id: str, message_id: str, slack_user_id: str) -> None:
+    """Correlate a delivered message with its sender's Slack id, so a relay
+    echoing the message id can tag the exact speaker it answers. The sandbox
+    only ever echoes an opaque id — resolution happens against actors this
+    server recorded itself, so a compromised sandbox cannot pick an arbitrary
+    mention target."""
+    get_tasks_cache().set(
+        _message_actor_cache_key(run_id, message_id), slack_user_id, timeout=MESSAGE_ACTOR_TTL_SECONDS
+    )
+
+
+def get_message_actor(run_id: str, message_id: str) -> str | None:
+    return get_tasks_cache().get(_message_actor_cache_key(run_id, message_id))

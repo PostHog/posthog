@@ -1,19 +1,31 @@
 /**
- * Custom-tool upload pipeline: parse → AST shape check → esbuild → emit
- * `compiled.js`. Runs inside the `PUT /tools/:id` handler so shape failures
- * surface at upload time, not at session-start.
+ * Custom-tool upload pipeline: parse → AST shape check → capability walk →
+ * esbuild → emit `compiled.js`. Runs inside the `PUT /tools/:id` handler so
+ * failures surface at upload time, not at session-start.
  *
- * Two distinct checks:
+ * Two AST passes:
  *
- *   1. **AST shape check** — pure source-text analysis via the TypeScript
+ *   1. **Shape check** — pure source-text analysis via the TypeScript
  *      compiler API. Walks the syntax tree without executing user code.
  *      Confirms exactly one `export default <ObjectLiteral>` with an
  *      `actions` property whose `default` entry is a function-shaped node.
  *      No `vm.runInContext`, no Modal sandbox — nothing runs, nothing to
  *      sandbox.
  *
- *   2. **esbuild transform** — TS → CJS, the same output the runner has
- *      loaded since day one. Runs only if the AST check passed.
+ *   2. **Capability extraction** — collects metadata the authoring UI
+ *      surfaces on each tool (secret names referenced via
+ *      `ctx.secrets.ref(...)`). Best-effort; only static string-literal
+ *      args are picked up.
+ *
+ * There is deliberately NO source-level allow/deny list of modules or
+ * constructs. The sandbox is the security boundary (Docker
+ * `--network=none`, Modal `blockNetwork:true`, `--cap-drop=ALL`), tools are
+ * human-authored, and a compile-time ban only limits what authors can build
+ * without adding protection. What a tool can *reach* is an infrastructure
+ * question, not a lint question — see `docs/custom-tools.md`.
+ *
+ * If the shape check passes, **esbuild transform** runs (TS → CJS,
+ * `node20`, the same output the runner has loaded since day one).
  *
  * Failures bubble up as structured `ToolCompileError` objects. Each carries
  * a `kind` discriminator + a one-line `message` the caller (and the
@@ -42,12 +54,29 @@ export interface ToolCompileError {
     column?: number
 }
 
+/**
+ * Capabilities the authoring UI surfaces on each tool. Best-effort: pulled
+ * from a static AST walk over the source, so dynamic constructions (a
+ * secret name in a variable, computed property access) won't appear. The
+ * `dynamic_secret_refs` flag is true when at least one `ctx.secrets.ref()`
+ * call had a non-string-literal argument — the author needs to know there
+ * are references we couldn't enumerate.
+ */
+export interface ToolCapabilities {
+    /** Distinct secret names referenced via `ctx.secrets.ref('NAME')`. Sorted. */
+    secret_refs: string[]
+    /** True when at least one `ctx.secrets.ref(...)` call had a non-literal arg. */
+    dynamic_secret_refs: boolean
+}
+
 export interface CompileTypedToolResult {
     ok: boolean
     /** When ok: the CJS-shaped compiled.js the runner will load at session start. */
     compiled_js?: string
     /** Always present; empty when ok. */
     errors: ToolCompileError[]
+    /** When ok: best-effort capability metadata for the authoring UI. */
+    capabilities?: ToolCapabilities
 }
 
 /**
@@ -63,10 +92,12 @@ export async function compileTypedTool(args: { tool_id: string; source: string }
         ts.ScriptKind.TS
     )
 
-    const astErrors = checkExportShape(sf)
-    if (astErrors.length > 0) {
-        return { ok: false, errors: astErrors }
+    const shapeErrors = checkExportShape(sf)
+    if (shapeErrors.length > 0) {
+        return { ok: false, errors: shapeErrors }
     }
+
+    const capabilities = extractCapabilities(sf)
 
     try {
         const out = await esbuildTransform(args.source, {
@@ -74,7 +105,7 @@ export async function compileTypedTool(args: { tool_id: string; source: string }
             format: 'cjs',
             target: 'node20',
         })
-        return { ok: true, compiled_js: out.code, errors: [] }
+        return { ok: true, compiled_js: out.code, errors: [], capabilities }
     } catch (err) {
         return {
             ok: false,
@@ -273,4 +304,143 @@ function findProperty(obj: ts.ObjectLiteralExpression, name: string): ts.Propert
 
 function isCallable(node: ts.Expression): boolean {
     return ts.isArrowFunction(node) || ts.isFunctionExpression(node)
+}
+
+// ─── Capability extraction ──────────────────────────────────────────
+//
+// Walks the source for `ctx.secrets.ref('NAME')` calls and collects the
+// literal secret names. Pure static analysis with two precision dials:
+//
+//   - **Receiver match is tight**: only `ctx.secrets.ref(...)` is collected,
+//     not `<anyIdent>.secrets.ref(...)`. The convention documented in
+//     `docs/custom-tools.md` and in the `CustomToolContext` JSDoc names the
+//     parameter `ctx`. False positives from unrelated `client.secrets.ref`
+//     SDK chains would mislead the UI; the trade-off is that an author
+//     renaming `ctx` loses the static list — that case still surfaces via
+//     the `dynamic_secret_refs` flag below.
+//
+//   - **Dynamic flag is conservative**: set when we see *any* reference to
+//     `ctx.secrets` that the static collector can't fully resolve — alias
+//     (`const r = ctx.secrets.ref; r('X')`), destructure (`const {ref} =
+//     ctx.secrets`), computed access (`ctx['secrets']['ref'](...)`),
+//     optional chain (`ctx.secrets?.ref(...)`), non-literal `ref(...)` arg.
+//     A `true` value tells the UI "the static list is incomplete; treat as
+//     advisory." Silent under-reporting is the failure mode we're avoiding.
+//
+// Both decisions are tested.
+
+function extractCapabilities(sf: ts.SourceFile): ToolCapabilities {
+    const names = new Set<string>()
+    let dynamic = false
+
+    /** A `ctx.secrets.ref(...)` call with the exact static receiver shape. */
+    function isCtxSecretsRefCall(call: ts.CallExpression): boolean {
+        const fn = call.expression
+        if (!ts.isPropertyAccessExpression(fn)) {
+            return false
+        }
+        // .ref
+        if (!ts.isIdentifier(fn.name) || fn.name.text !== 'ref') {
+            return false
+        }
+        // .secrets
+        const inner = fn.expression
+        if (!ts.isPropertyAccessExpression(inner)) {
+            return false
+        }
+        if (!ts.isIdentifier(inner.name) || inner.name.text !== 'secrets') {
+            return false
+        }
+        // Receiver must be the literal identifier `ctx`. Other identifiers
+        // (`client.secrets.ref` from a third-party SDK) would over-collect.
+        return ts.isIdentifier(inner.expression) && inner.expression.text === 'ctx'
+    }
+
+    /** Any access to `ctx.secrets` (member, element, optional chain) — the
+     *  signal that the author touched the secrets surface in a way the
+     *  static collector may not have captured. */
+    function isCtxSecretsAccess(node: ts.Node): boolean {
+        // `ctx.secrets` / `ctx?.secrets`
+        if (ts.isPropertyAccessExpression(node)) {
+            return (
+                ts.isIdentifier(node.expression) &&
+                node.expression.text === 'ctx' &&
+                ts.isIdentifier(node.name) &&
+                node.name.text === 'secrets'
+            )
+        }
+        // `ctx['secrets']` / `ctx?.['secrets']`
+        if (ts.isElementAccessExpression(node)) {
+            return (
+                ts.isIdentifier(node.expression) &&
+                node.expression.text === 'ctx' &&
+                ts.isStringLiteral(node.argumentExpression) &&
+                node.argumentExpression.text === 'secrets'
+            )
+        }
+        return false
+    }
+
+    /** Destructure of `ctx`: `const { secrets } = ctx` — author pulled
+     *  `secrets` off `ctx` into a local; downstream `.ref` calls are
+     *  outside our static collector's receiver shape. */
+    function isCtxSecretsDestructure(node: ts.Node): boolean {
+        if (!ts.isVariableDeclaration(node)) {
+            return false
+        }
+        if (!node.initializer || !ts.isIdentifier(node.initializer) || node.initializer.text !== 'ctx') {
+            return false
+        }
+        if (!ts.isObjectBindingPattern(node.name)) {
+            return false
+        }
+        for (const el of node.name.elements) {
+            // `secrets` or `secrets: <alias>` from the `ctx` object
+            const sourceName = el.propertyName ?? el.name
+            if (ts.isIdentifier(sourceName) && sourceName.text === 'secrets') {
+                return true
+            }
+        }
+        return false
+    }
+
+    function visit(node: ts.Node): void {
+        if (ts.isCallExpression(node) && isCtxSecretsRefCall(node)) {
+            const [arg] = node.arguments
+            if (arg && ts.isStringLiteral(arg)) {
+                names.add(arg.text)
+            } else {
+                dynamic = true
+            }
+        } else if (isCtxSecretsAccess(node)) {
+            // Allow the static-call shape to pass without flagging. The
+            // `ctx.secrets` in `ctx.secrets.ref(...)` IS a PropertyAccess
+            // and would be matched here too — exclude it when its parent
+            // is the receiver of a matched static call. Anything else
+            // (`ctx.secrets` standalone, `ctx.secrets.foo()`,
+            // `ctx['secrets']`, etc.) is an alias / unexpected use → flag.
+            const parent = node.parent
+            const isStaticRefReceiver =
+                parent &&
+                ts.isPropertyAccessExpression(parent) &&
+                ts.isIdentifier(parent.name) &&
+                parent.name.text === 'ref' &&
+                parent.parent &&
+                ts.isCallExpression(parent.parent) &&
+                parent.parent.expression === parent &&
+                isCtxSecretsRefCall(parent.parent)
+            if (!isStaticRefReceiver) {
+                dynamic = true
+            }
+        } else if (isCtxSecretsDestructure(node)) {
+            dynamic = true
+        }
+        ts.forEachChild(node, visit)
+    }
+
+    visit(sf)
+    return {
+        secret_refs: [...names].sort(),
+        dynamic_secret_refs: dynamic,
+    }
 }
