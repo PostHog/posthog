@@ -590,6 +590,14 @@ SPECTACULAR_SETTINGS = {
         "EmailReputationStateEnum": "products.workflows.backend.models.email_reputation.EmailReputationSnapshot.State",
         "MCPAuthTypeEnum": "products.mcp_store.backend.models.AUTH_TYPE_CHOICES",
         "MCPInstallationScopeEnum": ["personal", "shared"],
+        "MCPServiceAccountStatusEnum": "products.mcp_store.backend.models.SERVICE_ACCOUNT_STATUS_CHOICES",
+        "MCPServerCategoryEnum": "products.mcp_store.backend.models.CATEGORY_CHOICES",
+        "MCPToolApprovalStateEnum": "products.mcp_store.backend.models.APPROVAL_STATES",
+        "MCPPolicyPresetEnum": "products.mcp_store.backend.models.POLICY_PRESET_CHOICES",
+        "MCPAuditDecisionEnum": "products.mcp_store.backend.models.AUDIT_DECISION_CHOICES",
+        # Keeps agent_platform's approval-request enum on its pre-collision name now
+        # that mcp_store also has a "decision" field.
+        "DecisionEnum": ["approve", "reject"],
         "TaskRunStatusEnum": "products.tasks.backend.models.TaskRun.Status",
         # Inline-choices variant of TaskRun.Status (labels == values), shared by
         # TaskRunUpdate.status and ExperimentFlagCleanupTask.run_status.

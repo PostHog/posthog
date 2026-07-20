@@ -177,6 +177,7 @@
             "type": "mcp_analytics",
             "intents": ["mcp_analytics"]
         },
+        { "path": "MCP servers", "category": "AI engineering", "iconType": "tools", "type": null, "intents": [] },
         {
             "path": "Metrics",
             "category": "App monitoring",

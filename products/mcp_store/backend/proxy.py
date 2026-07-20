@@ -5,6 +5,7 @@ from urllib.parse import urljoin, urlparse
 
 from django.http import HttpResponse, StreamingHttpResponse
 from django.http.response import HttpResponseBase
+from django.utils import timezone
 
 import httpx
 import structlog
@@ -15,8 +16,9 @@ from posthog.settings import SERVER_GATEWAY_INTERFACE
 
 from ee.hogai.utils.asgi import SyncIterableToAsync
 
-from .models import MCPServerInstallation, MCPServerInstallationTool
+from .models import MCPAuditEvent, MCPGatewayServer, MCPServerInstallation, MCPServerInstallationTool
 from .oauth import TokenRefreshError, is_token_expiring, refresh_installation_token
+from .policy import GatewayCaller, PolicyContext
 
 logger = structlog.get_logger(__name__)
 
@@ -207,13 +209,36 @@ def _is_tools_call(item: Any) -> bool:
     return isinstance(item, dict) and item.get("method") == "tools/call"
 
 
+def _gateway_decision(policy_context: PolicyContext, tool: MCPServerInstallationTool) -> tuple[str, bool]:
+    """Map a resolved policy onto an audit decision and whether to block.
+
+    approved via the caller's own scope (or a legacy per-installation approval)
+    reads as a human having approved it; approved via team baseline/rule is
+    auto. needs_approval blocks at the proxy — approval happens in PostHog, not
+    inline — and is recorded as pending."""
+    resolved = policy_context.resolve(tool.tool_name, tool.description)
+    if resolved.state == "do_not_use":
+        return "blocked", True
+    if resolved.state == "needs_approval":
+        return "pending", True
+    if resolved.decided_by in ("scope", "legacy"):
+        return "approved", False
+    return "auto", False
+
+
 def _evaluate_tool_call(
-    tools_by_name: dict[str, MCPServerInstallationTool], item: dict[str, Any]
+    tools_by_name: dict[str, MCPServerInstallationTool],
+    item: dict[str, Any],
+    policy_context: PolicyContext | None = None,
+    audit_entries: list[tuple[str, str]] | None = None,
 ) -> dict[str, Any] | None:
     """Check a single JSON-RPC item against the installation's tool approval state.
 
     Returns a JSON-RPC error object to send back (short-circuiting the upstream
-    call), or ``None`` to let the call pass through.
+    call), or ``None`` to let the call pass through. With a ``policy_context``,
+    the effective state comes from the gateway policy engine instead of the raw
+    per-installation approval flag, and each decision is appended to
+    ``audit_entries`` as ``(tool_name, decision)``.
     """
     if not _is_tools_call(item):
         return None
@@ -240,6 +265,24 @@ def _evaluate_tool_call(
             f"Tool '{tool_name}' is no longer available on the upstream server",
         )
 
+    if policy_context is not None:
+        decision, blocked = _gateway_decision(policy_context, tool)
+        if audit_entries is not None:
+            audit_entries.append((tool_name, decision))
+        if not blocked:
+            return None
+        if decision == "pending":
+            return _jsonrpc_error(
+                request_id,
+                TOOL_NEEDS_APPROVAL_CODE,
+                f"Tool '{tool_name}' requires approval before it can be called",
+            )
+        return _jsonrpc_error(
+            request_id,
+            TOOL_DISABLED_CODE,
+            f"Tool '{tool_name}' is blocked by team policy",
+        )
+
     if tool.approval_state == "approved":
         return None
     if tool.approval_state == "needs_approval":
@@ -260,6 +303,8 @@ def _evaluate_tool_call(
 def enforce_tool_approval(
     installation: MCPServerInstallation,
     data: dict[str, Any] | list[Any],
+    policy_context: PolicyContext | None = None,
+    audit_entries: list[tuple[str, str]] | None = None,
 ) -> HttpResponse | None:
     """Inspect a JSON-RPC body and short-circuit tools/call that isn't approved.
 
@@ -277,7 +322,7 @@ def enforce_tool_approval(
         any_blocked = False
         any_passthrough = False
         for item in data:
-            blocked = _evaluate_tool_call(tools_by_name, item)
+            blocked = _evaluate_tool_call(tools_by_name, item, policy_context, audit_entries)
             if blocked is not None:
                 responses.append(blocked)
                 any_blocked = True
@@ -312,13 +357,47 @@ def enforce_tool_approval(
     if not _is_tools_call(data):
         return None
     tools_by_name = {t.tool_name: t for t in installation.tools.all()}
-    blocked = _evaluate_tool_call(tools_by_name, data)
+    blocked = _evaluate_tool_call(tools_by_name, data, policy_context, audit_entries)
     if blocked is None:
         return None
     return HttpResponse(json.dumps(blocked), content_type="application/json", status=200)
 
 
-def proxy_mcp_request(request: Any, installation: MCPServerInstallation) -> HttpResponseBase:
+def _write_audit_events(
+    installation: MCPServerInstallation,
+    gateway_server: MCPGatewayServer,
+    caller: GatewayCaller,
+    actor_label: str,
+    entries: list[tuple[str, str]],
+) -> None:
+    """Best-effort audit trail — a failed insert must never break the proxy."""
+    try:
+        for tool_name, decision in entries:
+            MCPAuditEvent(
+                team_id=installation.team_id,
+                gateway_server=gateway_server,
+                installation=installation,
+                actor_user_id=caller.user_id,
+                actor_service_account_id=caller.service_account_id,
+                actor_label=actor_label,
+                server_name=gateway_server.name,
+                tool_name=tool_name,
+                decision=decision,
+            ).save()
+        if any(decision in ("auto", "approved") for _, decision in entries):
+            MCPServerInstallation.objects.filter(pk=installation.pk).update(last_used_at=timezone.now())
+    except Exception:
+        logger.exception("Failed to write MCP gateway audit events", installation_id=str(installation.id))
+
+
+def proxy_mcp_request(
+    request: Any,
+    installation: MCPServerInstallation,
+    *,
+    caller: GatewayCaller | None = None,
+    gateway_server: MCPGatewayServer | None = None,
+    actor_label: str = "",
+) -> HttpResponseBase:
     allowed, error = is_url_allowed(installation.url)
     if not allowed:
         logger.warning("SSRF: blocked proxy request", url=installation.url, reason=error)
@@ -337,7 +416,20 @@ def proxy_mcp_request(request: Any, installation: MCPServerInstallation) -> Http
             status=400,
         )
 
-    if enforcement_response := enforce_tool_approval(installation, data):
+    policy_context: PolicyContext | None = None
+    audit_entries: list[tuple[str, str]] = []
+    if gateway_server is not None and caller is not None:
+        policy_context = PolicyContext(
+            team_id=installation.team_id,
+            caller=caller,
+            gateway_server=gateway_server,
+            installation=installation,
+        )
+
+    enforcement_response = enforce_tool_approval(installation, data, policy_context, audit_entries)
+    if gateway_server is not None and caller is not None and audit_entries:
+        _write_audit_events(installation, gateway_server, caller, actor_label, audit_entries)
+    if enforcement_response:
         return enforcement_response
 
     body = json.dumps(data).encode()

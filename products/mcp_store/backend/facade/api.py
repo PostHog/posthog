@@ -86,9 +86,10 @@ def get_active_installations(team_id: int, user_id: int) -> list[ActiveInstallat
     try:
         # list() evaluates the lazy queryset here so DB errors hit this handler.
         installations = list(
-            MCPServerInstallation.objects.filter(
-                team_id=team_id, user_id=user_id, is_enabled=True, scope="personal"
-            ).select_related("template")
+            MCPServerInstallation.objects.filter(team_id=team_id, user_id=user_id, is_enabled=True, scope="personal")
+            .filter(Q(gateway_server__isnull=True) | Q(gateway_server__is_team_enabled=True))
+            .exclude(gateway_server__member_revocations__user_id=user_id)
+            .select_related("template")
         )
     except Exception as e:
         logger.warning("Error fetching MCP installations", error=str(e), team_id=team_id)
@@ -129,11 +130,15 @@ def get_installations_for_sandbox(
             scope_filter = scope_filter | Q(scope="personal", user_id=user_id)
 
         # list() evaluates the lazy queryset here so DB errors hit this handler.
-        installations = list(
+        queryset = (
             MCPServerInstallation.objects.filter(team_id=team_id, is_enabled=True)
             .filter(scope_filter)
+            .filter(Q(gateway_server__isnull=True) | Q(gateway_server__is_team_enabled=True))
             .select_related("template")
         )
+        if user_id is not None:
+            queryset = queryset.exclude(gateway_server__member_revocations__user_id=user_id)
+        installations = list(queryset)
     except Exception as e:
         logger.warning("Error fetching MCP installations for sandbox", error=str(e), team_id=team_id)
         return []
