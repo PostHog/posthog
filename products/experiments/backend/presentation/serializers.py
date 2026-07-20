@@ -1411,11 +1411,6 @@ class RunningTimeCalculationResultSerializer(serializers.Serializer):
     )
 
 
-# Upper bound on session_ids per session_metric_hits request — one recordings-playlist page.
-# Over-limit requests are rejected with a 400, never silently truncated.
-MAX_SESSION_METRIC_HITS_SESSIONS = 100
-
-
 class ExperimentSessionMetricHitSerializer(serializers.Serializer):
     """One experiment metric with at least one matching event in a session recording."""
 
@@ -1430,34 +1425,6 @@ class ExperimentSessionMetricHitSerializer(serializers.Serializer):
     )
     first_timestamp = serializers.DateTimeField(
         help_text="Timestamp of the first event in the session matching the metric."
-    )
-
-
-class SessionMetricHitsRequestSerializer(serializers.Serializer):
-    """Request body for resolving which of an experiment's metrics fired in a batch of sessions."""
-
-    session_ids = serializers.ListField(
-        child=serializers.CharField(
-            allow_blank=False, help_text="ID of a session recording to scan for the experiment's metric events."
-        ),
-        allow_empty=False,
-        max_length=MAX_SESSION_METRIC_HITS_SESSIONS,
-        help_text=(
-            "Session recording IDs to scan for the experiment's metric events. "
-            f"At most {MAX_SESSION_METRIC_HITS_SESSIONS} per request."
-        ),
-    )
-
-
-class SessionMetricHitsResponseSerializer(serializers.Serializer):
-    """Which of an experiment's metrics fired in each of the requested sessions."""
-
-    results = serializers.DictField(
-        child=ExperimentSessionMetricHitSerializer(many=True),
-        help_text=(
-            "Map of session recording ID to the experiment's metrics with at least one matching event in that "
-            "session, sorted by first occurrence. Sessions with no metric hits are omitted from the map."
-        ),
     )
 
 

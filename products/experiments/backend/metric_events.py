@@ -6,8 +6,8 @@ experiment's metrics (inline primary + secondary and saved/shared, via the share
 of sessions for those events. Data-warehouse sources have no session events, so metrics whose
 every source is a data-warehouse node are marked non-linkable and skipped by the scan.
 
-Consumed by two API surfaces: the per-experiment `session_metric_hits` batch action and the
-additive `metrics_in_session` fields on the single-session `session_context` endpoint.
+Consumed by the additive `metrics_in_session` fields on the single-session `session_context`
+endpoint.
 """
 
 import logging
