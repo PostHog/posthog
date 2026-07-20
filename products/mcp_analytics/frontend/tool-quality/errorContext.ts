@@ -20,6 +20,13 @@ function absoluteUrl(path: string): string {
     return `${window.location.origin}${addProjectIdIfMissing(path)}`
 }
 
+// A fence one backtick longer than the longest run inside the content, so client-supplied
+// error text can never close the block early (mirrors MarkdownNotebook's getCodeBlockFence).
+function codeFenceFor(content: string): string {
+    const longestRun = Math.max(2, ...Array.from(content.matchAll(/`+/g), (m) => m[0].length))
+    return '`'.repeat(longestRun + 1)
+}
+
 /**
  * Paste-ready markdown block describing one MCP tool failure, aimed at handing to a coding
  * agent ("please fix") or seeding a task description. Shared by the occurrences drill-down's
@@ -38,11 +45,13 @@ export function formatErrorContext(ctx: MCPErrorContext): string {
         lines.push(`- Session: ${ctx.sessionId}`)
     }
     if (ctx.intent && ctx.intent !== '{}') {
-        lines.push(`- Agent intent: ${ctx.intent}`)
+        // Client-supplied text: collapse newlines so it can't spill out of its list item.
+        lines.push(`- Agent intent: ${ctx.intent.replace(/\s*\n\s*/g, ' ').trim()}`)
     }
     lines.push('')
     if (ctx.errorMessage) {
-        lines.push('Error message:', '```', ctx.errorMessage, '```')
+        const fence = codeFenceFor(ctx.errorMessage)
+        lines.push('Error message:', fence, ctx.errorMessage, fence)
     } else {
         lines.push('Error message: not captured (event predates error message capture).')
     }

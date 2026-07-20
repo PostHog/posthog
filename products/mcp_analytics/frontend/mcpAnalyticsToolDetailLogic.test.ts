@@ -118,6 +118,49 @@ describe('failure drill-down', () => {
         }
     )
 
+    // Guards the stale-response race: bucket A selected, then bucket B before A resolves.
+    // Without the loader breakpoint, A's late response would overwrite B's occurrences
+    // while the modal header still shows B.
+    it('discards a superseded bucket load so a slow earlier bucket cannot overwrite the latest one', async () => {
+        const logic = mcpAnalyticsToolDetailLogic({ toolName: 'query_run' })
+        logic.mount()
+        const occurrenceFor = (id: string): Record<string, string> => ({
+            timestamp: '2026-07-15 00:00:00',
+            distinct_id: id,
+            session_id: 's1',
+            harness: 'Claude Code',
+            intent: '',
+            error_message: `boom from ${id}`,
+            error_status: '',
+        })
+        let resolveSlowA: (value: unknown) => void = () => {}
+        const slowA = new Promise((resolve) => {
+            resolveSlowA = resolve
+        })
+        jest.spyOn(mockApi, 'query')
+            .mockImplementationOnce(() => slowA as any)
+            .mockImplementationOnce(() => Promise.resolve({ results: [occurrenceFor('bucketB')] }))
+
+        const bucket = (errorType: string): any => ({
+            message: errorType,
+            error_type: errorType,
+            error_status: '',
+            occurrences: 1,
+            last_seen: '2026-07-15 00:00:00',
+            harnesses: [],
+        })
+        await expectLogic(logic, () => {
+            logic.actions.selectFailure(bucket('api_5xx'))
+            logic.actions.selectFailure(bucket('internal'))
+        }).toDispatchActions(['loadFailureOccurrencesSuccess'])
+        expect(logic.values.failureOccurrences).toEqual([occurrenceFor('bucketB')])
+
+        // Bucket A's request resolves late — its stale result must be discarded.
+        resolveSlowA({ results: [occurrenceFor('bucketA')] })
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        expect(logic.values.failureOccurrences).toEqual([occurrenceFor('bucketB')])
+    })
+
     it('clears the previous bucket occurrences when deselecting', async () => {
         const logic = mcpAnalyticsToolDetailLogic({ toolName: 'query_run' })
         logic.mount()

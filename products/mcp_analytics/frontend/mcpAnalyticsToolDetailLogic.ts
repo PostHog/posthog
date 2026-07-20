@@ -487,7 +487,10 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
         failureOccurrences: [
             [] as MCPToolFailureOccurrenceItem[],
             {
-                loadFailureOccurrences: async (bucket: MCPToolFailureItem): Promise<MCPToolFailureOccurrenceItem[]> => {
+                loadFailureOccurrences: async (
+                    bucket: MCPToolFailureItem,
+                    breakpoint
+                ): Promise<MCPToolFailureOccurrenceItem[]> => {
                     const response = (await api.query({
                         kind: NodeKind.MCPToolFailureOccurrencesQuery,
                         toolName: props.toolName,
@@ -497,6 +500,9 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
                         errorStatus: bucket.error_status || undefined,
                         dateRange: values.dateRange,
                     })) as { results?: MCPToolFailureOccurrenceItem[] }
+                    // Bail if a newer bucket was selected while this request was in flight,
+                    // so a slow earlier bucket can't overwrite the latest one.
+                    breakpoint()
                     return response?.results ?? []
                 },
             },

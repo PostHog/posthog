@@ -177,6 +177,20 @@ function ResultTable({
                                 key={i}
                                 className={onRowClick ? 'cursor-pointer hover:bg-fill-highlight-50' : undefined}
                                 onClick={onRowClick ? () => onRowClick(i) : undefined}
+                                // A bare <tr> isn't keyboard-operable — mirror the tracing tables'
+                                // pattern so the drill-down opens on Enter/Space too.
+                                role={onRowClick ? 'button' : undefined}
+                                tabIndex={onRowClick ? 0 : undefined}
+                                onKeyDown={
+                                    onRowClick
+                                        ? (e: React.KeyboardEvent) => {
+                                              if (e.key === 'Enter' || e.key === ' ') {
+                                                  e.preventDefault()
+                                                  onRowClick(i)
+                                              }
+                                          }
+                                        : undefined
+                                }
                             >
                                 {columns.map((col, ci) => (
                                     <TableCell key={ci} align={col.align} expand={col.expand}>
