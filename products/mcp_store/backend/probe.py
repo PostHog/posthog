@@ -44,6 +44,7 @@ _AUTHORIZE_ALIVE_STATUSES = (200, 302, 303)
 _AUTHORIZE_FOLLOWABLE_STATUSES = (301, 307, 308)
 
 AuthFlavor = Literal["open", "oauth_dcr", "oauth_shared", "api_key_or_unknown"]
+_InitializeOutcome = Literal["open", "auth_required", "failed"]
 
 
 @dataclass
@@ -64,9 +65,10 @@ class ProbeResult:
             return False
         if self.auth_flavor == "oauth_dcr":
             return self.dcr_registered and self.authorize_endpoint_ok
-        # oauth_shared needs manually provisioned shared client credentials, so it
-        # can never auto-activate; open and api-key servers just need to speak MCP.
-        return self.auth_flavor in ("open", "api_key_or_unknown")
+        # oauth_shared needs manually provisioned shared client credentials, and
+        # api_key_or_unknown carries no MCP evidence (a bare 401/403 could be any
+        # protected endpoint) — neither may auto-activate.
+        return self.auth_flavor == "open"
 
 
 def probe_mcp_server(url: str) -> ProbeResult:
@@ -81,15 +83,26 @@ def probe_mcp_server(url: str) -> ProbeResult:
 
 
 def _run_probe(url: str, result: ProbeResult) -> None:
-    initialize_open = _probe_initialize(url, result)
-    if not result.speaks_mcp:
+    outcome = _probe_initialize(url, result)
+    if outcome == "failed":
         return
 
-    metadata = _discover_metadata(url, result, auth_required=not initialize_open)
+    metadata = _discover_metadata(url, result, auth_required=outcome == "auth_required")
     if metadata is None:
-        result.auth_flavor = "open" if initialize_open else "api_key_or_unknown"
+        if outcome == "open":
+            result.auth_flavor = "open"
+            return
+        # A bare 401/403 is indistinguishable from any auth-walled endpoint, so
+        # without OAuth metadata there is no evidence the server speaks MCP.
+        result.auth_flavor = "api_key_or_unknown"
+        result.errors.append(
+            "Initialize was rejected and no OAuth metadata was discovered; cannot verify the server speaks MCP"
+        )
         return
 
+    # OAuth protected-resource metadata (RFC 9728) served for this URL is the
+    # strongest MCP evidence available without credentials.
+    result.speaks_mcp = True
     result.oauth_metadata = metadata
     client_id = _register_probe_client(metadata, result)
     if client_id is None:
@@ -106,8 +119,14 @@ def _probe_redirect_uri() -> str:
     return f"{settings.SITE_URL}/api/mcp_store/oauth_redirect/"
 
 
-def _probe_initialize(url: str, result: ProbeResult) -> bool:
-    """Run the MCP initialize handshake. Returns True when the server answered it without auth."""
+def _probe_initialize(url: str, result: ProbeResult) -> _InitializeOutcome:
+    """Run the MCP initialize handshake.
+
+    "open" means the server completed the handshake without auth (MCP verified);
+    "auth_required" means it rejected the call with 401/403, which proves nothing
+    about MCP until OAuth discovery corroborates it; "failed" means it did not
+    respond like an MCP server.
+    """
     payload = {
         "jsonrpc": "2.0",
         "id": 1,
@@ -126,24 +145,22 @@ def _probe_initialize(url: str, result: ProbeResult) -> bool:
         response = pinned_request("POST", url, json=payload, headers=headers, timeout=TIMEOUT)
     except SSRFBlockedError as exc:
         result.errors.append(f"MCP server URL blocked by SSRF protection: {exc}")
-        return False
+        return "failed"
     except requests.RequestException as exc:
         result.errors.append(f"MCP initialize request failed: {exc}")
-        return False
+        return "failed"
 
     result.reachable = True
     if 300 <= response.status_code < 400:
         # A redirect target never went through SSRF validation, and a catalog URL
         # should point at the MCP endpoint itself — refuse rather than follow.
         result.errors.append(f"MCP initialize returned a redirect (HTTP {response.status_code}); not following it")
-        return False
+        return "failed"
     if response.status_code in _AUTH_REQUIRED_STATUSES:
-        # Auth-gated servers reject initialize before speaking JSON-RPC; still plausibly MCP.
-        result.speaks_mcp = True
-        return False
+        return "auth_required"
     if response.status_code != 200:
         result.errors.append(f"MCP initialize returned HTTP {response.status_code}")
-        return False
+        return "failed"
 
     rpc_result = _jsonrpc_result(response)
     if rpc_result is None:
@@ -151,13 +168,13 @@ def _probe_initialize(url: str, result: ProbeResult) -> bool:
         result.errors.append(
             f"MCP initialize returned HTTP 200 without a JSON-RPC result (content-type: {content_type})"
         )
-        return False
+        return "failed"
 
     result.speaks_mcp = True
     server_info = rpc_result.get("serverInfo")
     if isinstance(server_info, dict):
         result.server_info = server_info
-    return True
+    return "open"
 
 
 def _iter_sse_data(body: str) -> Iterator[str]:

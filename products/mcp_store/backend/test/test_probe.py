@@ -158,18 +158,19 @@ class TestProbeMCPServer(SimpleTestCase):
         self.assertFalse(result.passed_activation_gate)
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
-    def test_auth_required_without_metadata_is_api_key_or_unknown(self, _name, status_code):
+    def test_auth_required_without_metadata_is_unverified_and_fails_gate(self, _name, status_code):
         result, _post, _get, _pinned = self._probe(
             post_routes={SERVER_URL: _mock_response(status_code, text="denied", content_type="text/plain")},
         )
 
         self.assertTrue(result.reachable)
-        self.assertTrue(result.speaks_mcp)
+        self.assertFalse(result.speaks_mcp)
         self.assertEqual(result.auth_flavor, "api_key_or_unknown")
         self.assertIsNone(result.oauth_metadata)
         self.assertFalse(result.dcr_registered)
         self.assertTrue(any(error.startswith("OAuth discovery failed") for error in result.errors))
-        self.assertTrue(result.passed_activation_gate)
+        self.assertTrue(any("cannot verify the server speaks MCP" in error for error in result.errors))
+        self.assertFalse(result.passed_activation_gate)
 
     @parameterized.expand(
         [
@@ -279,7 +280,7 @@ class TestPassedActivationGate(SimpleTestCase):
             ("open_reachable_mcp", "open", True, True, False, False, True),
             ("open_not_mcp", "open", True, False, False, False, False),
             ("open_unreachable", "open", False, False, False, False, False),
-            ("api_key_reachable_mcp", "api_key_or_unknown", True, True, False, False, True),
+            ("api_key_never_auto_activates", "api_key_or_unknown", True, True, False, False, False),
             ("oauth_dcr_full_pass", "oauth_dcr", True, True, True, True, True),
             ("oauth_dcr_authorize_down", "oauth_dcr", True, True, True, False, False),
             ("oauth_dcr_not_registered", "oauth_dcr", True, True, False, True, False),
