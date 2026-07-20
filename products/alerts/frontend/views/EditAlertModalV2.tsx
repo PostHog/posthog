@@ -392,7 +392,7 @@ export function EditAlertModalV2({
                             onSubmitAttempted={setAlertFormSubmitAttempted}
                             leadingActions={leadingActions}
                         >
-                            <div className="deprecated-space-y-6">
+                            <div className="space-y-3">
                                 <AlertEditorFormDetails
                                     enabled={{ checked: alertForm.enabled, dataAttr: 'alertForm-enabled' }}
                                     activity={
@@ -408,7 +408,7 @@ export function EditAlertModalV2({
 
                                 <SummaryBanner summary={summary} alertMode={alertMode} />
 
-                                <div className="rounded border border-border p-4">
+                                <div className="rounded border border-border p-3">
                                     <AlertEditorSection title="Monitor">
                                         <div className="space-y-3">
                                             {previewNode}
@@ -417,18 +417,18 @@ export function EditAlertModalV2({
                                     </AlertEditorSection>
                                 </div>
 
-                                <div className="rounded border border-border p-4">
+                                <div className="rounded border border-border p-3">
                                     <AlertEditorSection title="Schedule">{scheduleNode}</AlertEditorSection>
                                 </div>
 
-                                <div className="rounded border border-border p-4">
+                                <div className="rounded border border-border p-3">
                                     <AlertEditorSection title="Notifications">{notifyNode}</AlertEditorSection>
                                 </div>
 
-                                <div className="rounded border border-border p-4">{advancedNode}</div>
+                                <div className="rounded border border-border p-3">{advancedNode}</div>
 
                                 {alertId && alert ? (
-                                    <div className="rounded border border-border p-4">
+                                    <div className="rounded border border-border p-3">
                                         <AlertHistorySection alertId={alert.id} />
                                     </div>
                                 ) : null}
