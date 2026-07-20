@@ -365,3 +365,23 @@ async def test_activity_surfaces_default_team_repoints(activity_environment) -> 
         result = await activity_environment.run(poll_duckgres_usage, PollDuckgresUsageInputs())
 
     assert result.default_team_repoints == {ORG: TEAM_ID}
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_duplicate_rows_are_deduped_and_alerted(activity_environment) -> None:
+    # duckgres emits the same billing key twice (a contract violation): keep one
+    # (summing would double-bill), alert, and still ack the closed day.
+    row = _row(dt.date(2026, 7, 6), cpu_seconds=100)
+    dup_response = UsageResponse(
+        watermark_low=dt.datetime(2026, 7, 5, 23, 59, 59, tzinfo=dt.UTC),
+        watermark_high=dt.datetime(2026, 7, 7, 12, 39, tzinfo=dt.UTC),
+        rows=[row, row],
+    )
+    is_conf, fetch, cap, log = _patched(dup_response)
+    with is_conf, fetch, cap as mock_capture, log:
+        result = await activity_environment.run(poll_duckgres_usage, PollDuckgresUsageInputs())
+
+    assert result.rows_written == 1  # deduped, not two rows
+    mock_capture.assert_called_once()  # DuckgresDuplicateRows
+    assert result.ack_watermark == DAY_6_END.isoformat()  # still acks

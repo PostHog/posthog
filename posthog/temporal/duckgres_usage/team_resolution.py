@@ -21,9 +21,17 @@ be elected, or the repoint makes the under-billing permanent. Rows for an org
 with no billable team at all are dropped and surfaced.
 """
 
+import datetime as dt
 import dataclasses
+from collections.abc import Callable
+from decimal import Decimal
+from typing import TypeVar
 
 from posthog.temporal.duckgres_usage.client import StorageRow, UsageRow
+
+_Row = TypeVar("_Row", UsageRow, StorageRow)
+_ComputeKey = tuple[dt.date, int, str, Decimal, Decimal]
+_StorageKey = tuple[dt.date, int]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -38,6 +46,35 @@ class ResolvedTeams:
     # a deleted/unbillable default — mapped to the elected billable team. The caller
     # repoints duckgres at the source; an org with any billable row is left alone.
     default_team_repoints: dict[str, int] = dataclasses.field(default_factory=dict)
+    # Rows duckgres emitted more than once for the same billing key (a contract
+    # violation). We keep one — summing would double-bill — and the caller alerts.
+    duplicate_row_count: int = 0
+
+
+def _compute_key(row: UsageRow) -> _ComputeKey:
+    return (row.date, row.team_id, row.query_source, row.cpu, row.mem_gib)
+
+
+def _storage_key(row: StorageRow) -> _StorageKey:
+    return (row.date, row.team_id)
+
+
+def _dedup_raw(rows: list[_Row], key: Callable[[_Row], tuple]) -> tuple[list[_Row], int]:
+    """Drop rows duckgres emitted more than once for the same billing key — a
+    contract violation (its API serves one row per key per day). Left in, they would
+    either crash the mirror's unique insert or, once re-attributed, double-bill in
+    the fold. Keep the first; return the drop count so the caller can alert."""
+    seen: set[tuple] = set()
+    out: list[_Row] = []
+    dropped = 0
+    for row in rows:
+        k = key(row)
+        if k in seen:
+            dropped += 1
+            continue
+        seen.add(k)
+        out.append(row)
+    return out, dropped
 
 
 def resolve_billing_teams(compute_rows: list[UsageRow], storage_rows: list[StorageRow]) -> ResolvedTeams:
@@ -52,15 +89,21 @@ def resolve_billing_teams(compute_rows: list[UsageRow], storage_rows: list[Stora
     # repointed — permanent under-billing).
     from posthog.tasks.usage_report import billable_teams_queryset
 
+    # Drop raw duplicates first (a duckgres contract violation), so the fold below only
+    # ever sums *re-attribution* collisions — never double-bills a duplicate.
+    compute_rows, compute_dupes = _dedup_raw(compute_rows, _compute_key)
+    storage_rows, storage_dupes = _dedup_raw(storage_rows, _storage_key)
+    duplicate_row_count = compute_dupes + storage_dupes
+
     team_ids = {row.team_id for row in compute_rows} | {row.team_id for row in storage_rows}
     if not team_ids:
-        return ResolvedTeams(compute_rows, storage_rows, set())
+        return ResolvedTeams(compute_rows, storage_rows, set(), duplicate_row_count=duplicate_row_count)
 
     billable = billable_teams_queryset()
     billable_team_ids = set(billable.filter(id__in=team_ids).values_list("id", flat=True))
     dead_team_ids = team_ids - billable_team_ids
     if not dead_team_ids:
-        return ResolvedTeams(compute_rows, storage_rows, set())
+        return ResolvedTeams(compute_rows, storage_rows, set(), duplicate_row_count=duplicate_row_count)
 
     orgs_to_reattribute = {row.org_id for row in compute_rows if row.team_id in dead_team_ids} | {
         row.org_id for row in storage_rows if row.team_id in dead_team_ids
@@ -86,8 +129,8 @@ def resolve_billing_teams(compute_rows: list[UsageRow], storage_rows: list[Stora
         if elected_team is not None and org_id not in orgs_with_billable_row:
             default_team_repoints[org_id] = elected_team
 
-    def reattribute(rows: list) -> list:
-        out = []
+    def reattribute(rows: list[_Row]) -> list[_Row]:
+        out: list[_Row] = []
         for row in rows:
             if row.team_id in billable_team_ids:
                 out.append(row)
@@ -103,16 +146,16 @@ def resolve_billing_teams(compute_rows: list[UsageRow], storage_rows: list[Stora
         _fold_storage(reattribute(storage_rows)),
         orphaned_org_ids,
         default_team_repoints,
+        duplicate_row_count,
     )
 
 
 def _fold_compute(rows: list[UsageRow]) -> list[UsageRow]:
-    # Re-attribution can land two dead teams on one surrogate at the same billing
-    # key; sum them, or the mirror's unique key rejects the second on bulk_create.
-    # A no-op when nothing collides (order preserved).
-    by_key: dict[tuple, UsageRow] = {}
+    # After _dedup_raw, any remaining collision is a re-attribution merge (two dead
+    # teams onto one surrogate) — sum it. A no-op when nothing collides (order preserved).
+    by_key: dict[_ComputeKey, UsageRow] = {}
     for row in rows:
-        key = (row.date, row.team_id, row.query_source, row.cpu, row.mem_gib)
+        key = _compute_key(row)
         existing = by_key.get(key)
         by_key[key] = (
             row
@@ -127,9 +170,9 @@ def _fold_compute(rows: list[UsageRow]) -> list[UsageRow]:
 
 
 def _fold_storage(rows: list[StorageRow]) -> list[StorageRow]:
-    by_key: dict[tuple, StorageRow] = {}
+    by_key: dict[_StorageKey, StorageRow] = {}
     for row in rows:
-        key = (row.date, row.team_id)
+        key = _storage_key(row)
         existing = by_key.get(key)
         by_key[key] = (
             row

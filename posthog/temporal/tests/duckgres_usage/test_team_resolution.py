@@ -242,3 +242,28 @@ def test_demo_stamped_rows_are_remapped_to_a_billable_team() -> None:
     result = resolve_billing_teams([_compute(DEMO, str(org.id))], [])
 
     assert [r.team_id for r in result.compute_rows] == [real.id]
+
+
+def test_raw_duplicate_rows_are_deduped_not_summed() -> None:
+    org, (t0, _) = _org_with_teams()
+    # duckgres emits the same billing key twice (a contract violation). Summing them
+    # in the fold would double-bill, so keep one and surface the drop.
+    row = _compute(t0.id, str(org.id), cpu_seconds=100)
+    result = resolve_billing_teams([row, row], [])
+
+    assert len(result.compute_rows) == 1
+    assert result.compute_rows[0].cpu_seconds == 100  # kept one — NOT summed to 200
+    assert result.duplicate_row_count == 1
+
+
+def test_reattribution_collision_still_sums_not_deduped() -> None:
+    # Two *distinct* dead teams folded onto one surrogate is a legit merge — still summed,
+    # not mistaken for a duplicate.
+    org, (t0, _) = _org_with_teams()
+    result = resolve_billing_teams(
+        [_compute(DEAD, str(org.id), cpu_seconds=100), _compute(DEAD_2, str(org.id), cpu_seconds=50)], []
+    )
+
+    assert len(result.compute_rows) == 1
+    assert result.compute_rows[0].cpu_seconds == 150  # summed
+    assert result.duplicate_row_count == 0  # not a raw duplicate

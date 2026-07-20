@@ -86,6 +86,12 @@ class DuckgresRepointFailed(Exception):
     persistent failure (org 404, auth) must be visible like the other anomalies."""
 
 
+class DuckgresDuplicateRows(Exception):
+    """Duckgres emitted the same billing key more than once (a contract violation —
+    its API serves one row per key per day). We kept one of each and dropped the
+    rest (summing would double-bill); the duplicate itself is a duckgres bug."""
+
+
 @activity.defn(name="poll-duckgres-usage")
 async def poll_duckgres_usage(inputs: PollDuckgresUsageInputs) -> PollDuckgresUsageResult:
     async with Heartbeater():
@@ -123,7 +129,7 @@ async def poll_duckgres_usage(inputs: PollDuckgresUsageInputs) -> PollDuckgresUs
         watermark_to_record = ack_at if should_ack else None
         if watermark_to_record is not None and recorded is not None:
             watermark_to_record = max(watermark_to_record, recorded)
-        rows_written, orphaned_org_ids, default_team_repoints = await database_sync_to_async(_persist)(
+        rows_written, orphaned_org_ids, default_team_repoints, duplicate_rows = await database_sync_to_async(_persist)(
             response, watermark_to_record
         )
 
@@ -153,6 +159,13 @@ async def poll_duckgres_usage(inputs: PollDuckgresUsageInputs) -> PollDuckgresUs
                 DuckgresUsageOrphanedTeam(
                     f"dropped managed-warehouse usage for {len(orphaned_org_ids)} org(s) whose team was "
                     f"deleted with no billable team to re-attribute to: {sorted(orphaned_org_ids)}"
+                )
+            )
+        if duplicate_rows:
+            capture_exception(
+                DuckgresDuplicateRows(
+                    f"duckgres emitted {duplicate_rows} duplicate usage row(s) for the same billing key; "
+                    "kept one of each and dropped the rest"
                 )
             )
 
@@ -217,10 +230,12 @@ def _read_recorded_watermark() -> dt.datetime | None:
     return cursor.last_acked_watermark if cursor is not None else None
 
 
-def _persist(response: UsageResponse, watermark_to_record: dt.datetime | None) -> tuple[int, set[str], dict[str, int]]:
-    # Re-attribute rows under a deleted team to a live team in the same org
-    # before persisting, so the (live-teams-only) usage-report gather doesn't
-    # drop them. Needs the Team table, so it runs here in the sync DB context.
+def _persist(
+    response: UsageResponse, watermark_to_record: dt.datetime | None
+) -> tuple[int, set[str], dict[str, int], int]:
+    # Re-attribute rows under a non-billable team to a billable team in the same
+    # org before persisting, so the (billable-teams-only) usage-report gather
+    # doesn't drop them. Needs the Team table, so it runs here in the sync DB context.
     resolution = resolve_billing_teams(response.rows, response.storage_rows)
     resolved = dataclasses.replace(response, rows=resolution.compute_rows, storage_rows=resolution.storage_rows)
     with transaction.atomic():
@@ -229,4 +244,4 @@ def _persist(response: UsageResponse, watermark_to_record: dt.datetime | None) -
             DuckgresUsageCursor.objects.update_or_create(
                 singleton=1, defaults={"last_acked_watermark": watermark_to_record}
             )
-    return rows_written, resolution.orphaned_org_ids, resolution.default_team_repoints
+    return rows_written, resolution.orphaned_org_ids, resolution.default_team_repoints, resolution.duplicate_row_count
