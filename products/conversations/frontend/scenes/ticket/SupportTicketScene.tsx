@@ -404,7 +404,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     {user?.id != null &&
                                         !(assignee?.type === 'user' && String(assignee.id) === String(user.id)) && (
                                             <LemonButton
-                                                size="small"
+                                                size="xxsmall"
                                                 type="tertiary"
                                                 onClick={() => setAssignee({ type: 'user', id: user.id })}
                                             >
