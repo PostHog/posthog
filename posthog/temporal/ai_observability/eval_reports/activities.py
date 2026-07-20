@@ -2,7 +2,7 @@
 
 import datetime as dt
 from collections import defaultdict
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 from zoneinfo import ZoneInfo
 
 import temporalio.activity
@@ -276,11 +276,12 @@ def _check_count_triggered_eval_reports_batch(
             counts = _count_eval_results_for_reports(
                 team,
                 [
-                    (
-                        report_id,
-                        str(report.evaluation_id),
-                        since,
-                        get_outcome_definition(report.evaluation.output_type).event_predicate,
+                    _CountEntry(
+                        key=report_id,
+                        evaluation_id=str(report.evaluation_id),
+                        since=since,
+                        event_predicate=get_outcome_definition(report.evaluation.output_type).event_predicate,
+                        target_predicate=target_event_predicate(report.evaluation.target),
                     )
                     for report_id, report, since in chunk
                 ],
@@ -333,17 +334,25 @@ def _count_eval_results_for_report(report: "EvaluationReport", since: dt.datetim
     return int(rows[0][0] or 0)
 
 
+class _CountEntry(NamedTuple):
+    key: str
+    evaluation_id: str
+    since: dt.datetime
+    event_predicate: str
+    target_predicate: str
+
+
 def _count_eval_results_for_reports(
     team: "Team",
-    entries: list[tuple[str, str, dt.datetime, str]],
+    entries: list[_CountEntry],
 ) -> dict[str, int]:
     """Count `$ai_evaluation` events for many reports in a single ClickHouse query.
 
-    Each entry is (key, evaluation_id, since, event_predicate). We emit one `countIf`
-    column per entry, each carrying the exact per-report predicate (evaluation_id +
-    output-type `event_predicate` + `timestamp >= since`), so every count equals what the
-    single-report query would return. The shared WHERE only narrows the scan (its `IN` set
-    and `min(since)` never exclude a row any countIf would have counted). Returns {key: count}.
+    We emit one `countIf` column per entry, each carrying the exact per-report predicate
+    (evaluation_id + output-type `event_predicate` + `target_predicate` + `timestamp >=
+    since`), so every count equals what the single-report query would return. The shared
+    WHERE only narrows the scan (its `IN` set and `min(since)` never exclude a row any
+    countIf would have counted). Returns {key: count}.
     """
     from posthog.hogql.parser import parse_expr, parse_select
     from posthog.hogql.query import execute_hogql_query
@@ -355,28 +364,29 @@ def _count_eval_results_for_reports(
 
     # evaluation_id and since go in as ast.Constant placeholders (no interpolation to audit);
     # `since` stays a datetime so HogQL prints toDateTime64(..., 6, <team_tz>) — a bare string
-    # would shift by the team's offset. event_predicate is a trusted internal output-type
-    # definition (never user input), interpolated to match the single-report query exactly.
-    # Columns are read positionally below, so no aliases are needed.
+    # would shift by the team's offset. The predicates are trusted internal output-type and
+    # target definitions (never user input), interpolated to match the single-report query
+    # exactly. Columns are read positionally below, so no aliases are needed.
     select_columns: list[ast.Expr] = [
-        # nosemgrep: hogql-fstring-audit (the predicate comes from fixed internal output-type definitions)
+        # nosemgrep: hogql-fstring-audit (the predicates come from fixed internal definitions)
         parse_expr(
-            f"countIf(properties.$ai_evaluation_id = {{evaluation_id}} AND {event_predicate} AND timestamp >= {{since}})",
+            f"countIf(properties.$ai_evaluation_id = {{evaluation_id}}"
+            f" AND {entry.event_predicate} AND {entry.target_predicate} AND timestamp >= {{since}})",
             placeholders={
-                "evaluation_id": ast.Constant(value=evaluation_id),
-                "since": ast.Constant(value=since),
+                "evaluation_id": ast.Constant(value=entry.evaluation_id),
+                "since": ast.Constant(value=entry.since),
             },
         )
-        for _key, evaluation_id, since, event_predicate in entries
+        for entry in entries
     ]
 
-    unique_evaluation_ids = list(dict.fromkeys(evaluation_id for _key, evaluation_id, _since, _pred in entries))
+    unique_evaluation_ids = list(dict.fromkeys(entry.evaluation_id for entry in entries))
     query = parse_select(
         "SELECT 1 FROM events WHERE event = '$ai_evaluation' "
         "AND properties.$ai_evaluation_id IN {evaluation_ids} AND timestamp >= {min_since}",
         placeholders={
             "evaluation_ids": ast.Tuple(exprs=[ast.Constant(value=e) for e in unique_evaluation_ids]),
-            "min_since": ast.Constant(value=min(since for _key, _evaluation_id, since, _pred in entries)),
+            "min_since": ast.Constant(value=min(entry.since for entry in entries)),
         },
     )
     assert isinstance(query, ast.SelectQuery)
@@ -388,9 +398,9 @@ def _count_eval_results_for_reports(
 
     rows = result.results or []
     if not rows:
-        return {key: 0 for key, _evaluation_id, _since, _pred in entries}
+        return {entry.key: 0 for entry in entries}
     row = rows[0]
-    return {entries[index][0]: int(row[index] or 0) for index in range(len(entries))}
+    return {entries[index].key: int(row[index] or 0) for index in range(len(entries))}
 
 
 def _find_nth_eval_timestamp(

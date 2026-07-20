@@ -539,7 +539,14 @@ class TestBatchedCountTriggeredQuery(ClickhouseTestMixin, BaseTest):
     NOW = dt.datetime(2026, 6, 1, 12, 0, tzinfo=dt.UTC)
 
     def _create_report(
-        self, team: Team, *, threshold: int, since: dt.datetime, name: str, output_type: str = "boolean"
+        self,
+        team: Team,
+        *,
+        threshold: int,
+        since: dt.datetime,
+        name: str,
+        output_type: str = "boolean",
+        target: str = "generation",
     ) -> EvaluationReport:
         if output_type == "sentiment":
             evaluation_type, evaluation_config = "sentiment", {"source": "user_messages"}
@@ -552,6 +559,7 @@ class TestBatchedCountTriggeredQuery(ClickhouseTestMixin, BaseTest):
             evaluation_config=evaluation_config,
             output_type=output_type,
             output_config={},
+            target=target,
             enabled=True,
             conditions=[{"id": "c1", "rollout_percentage": 100, "properties": []}],
         )
@@ -668,6 +676,47 @@ class TestBatchedCountTriggeredQuery(ClickhouseTestMixin, BaseTest):
         self.assertIsNone(by_id[str(sentiment_report.id)].skipped_reason)
         self.assertTrue(by_id[str(sentiment_report.id)].due)
         self.assertTrue(by_id[str(boolean_report.id)].due)
+
+    def test_trace_target_reports_exclude_generation_events(self):
+        # The batched countIf must carry the evaluation's target predicate like the
+        # single-report query does: after an evaluation switches to the trace target,
+        # stale generation-target events must not keep counting toward the threshold.
+        switched = self._create_report(self.team, threshold=2, since=self.T0, name="switched", target="trace")
+        for index, (ts, target_type) in enumerate(
+            [
+                # Two generation-shaped events (tagged + untagged legacy) and one trace event:
+                # counting the generation ones would wrongly cross the threshold of 2.
+                (self.T0 + dt.timedelta(hours=1), "generation_uuid"),
+                (self.T0 + dt.timedelta(minutes=90), None),
+                (self.T0 + dt.timedelta(hours=2), "trace_id"),
+            ]
+        ):
+            properties = {"$ai_evaluation_id": str(switched.evaluation_id)}
+            if target_type is not None:
+                properties["$ai_target_type"] = target_type
+            _create_event(
+                team=self.team,
+                event="$ai_evaluation",
+                distinct_id=f"switched-{index}",
+                timestamp=ts,
+                properties=properties,
+            )
+
+        # Trace events must still count for a trace report (the predicate isn't over-strict).
+        trace_only = self._create_report(self.team, threshold=1, since=self.T0, name="trace-only", target="trace")
+        _create_event(
+            team=self.team,
+            event="$ai_evaluation",
+            distinct_id="trace-only-0",
+            timestamp=self.T0 + dt.timedelta(hours=1),
+            properties={"$ai_evaluation_id": str(trace_only.evaluation_id), "$ai_target_type": "trace_id"},
+        )
+
+        results = _check_count_triggered_eval_reports_batch([str(switched.id), str(trace_only.id)], self.NOW)
+
+        by_id = {r.report_id: r for r in results}
+        self.assertFalse(by_id[str(switched.id)].due)
+        self.assertTrue(by_id[str(trace_only.id)].due)
 
     def test_since_boundary_respects_non_utc_team_timezone(self):
         # `since` is passed as an ast.Constant datetime so ClickHouse compares the same absolute
