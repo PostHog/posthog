@@ -183,19 +183,26 @@ export const webAnalyticsFilterLogic = kea<webAnalyticsFilterLogicType>([
                     }
 
                     const similarFilterExists = oldPropertyFilters.some(
-                        (f) => f.type === type && f.key === key && f.operator === PropertyOperator.Exact
+                        (f) => f.type === type && f.key === key
                     )
 
                     if (similarFilterExists) {
                         // if there's already a matching property, turn it off or merge them
                         return oldPropertyFilters
                             .map((f: WebAnalyticsPropertyFilter) => {
-                                if (
-                                    f.key !== key ||
-                                    f.type !== type ||
-                                    ![PropertyOperator.Exact, PropertyOperator.IsNotSet].includes(f.operator)
-                                ) {
+                                if (f.key !== key || f.type !== type) {
                                     return f
+                                }
+                                // An existing filter on the same key uses a different operator (e.g. `contains`).
+                                // Replace it with an exact match on the clicked value rather than appending a
+                                // contradictory second filter for the same key.
+                                if (![PropertyOperator.Exact, PropertyOperator.IsNotSet].includes(f.operator)) {
+                                    return {
+                                        type,
+                                        key,
+                                        operator: PropertyOperator.Exact,
+                                        value,
+                                    } as const
                                 }
                                 const oldValue = (Array.isArray(f.value) ? f.value : [f.value]).filter(isNotNil)
                                 let newValue: PropertyFilterBaseValue[]
