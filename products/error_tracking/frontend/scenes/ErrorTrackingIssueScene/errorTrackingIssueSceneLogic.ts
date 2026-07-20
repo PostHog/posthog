@@ -204,9 +204,9 @@ export interface errorTrackingIssueSceneLogicActions {
     }
     linkExternalReference: (
         integrationId: IntegrationType['id'],
-        externalContext: Record<string, string | number>
+        externalContext: Record<string, number | string>
     ) => {
-        externalContext: Record<string, string | number>
+        externalContext: Record<string, number | string>
         integrationId: number
     }
     linkExternalReferenceFailure: (
@@ -228,7 +228,7 @@ export interface errorTrackingIssueSceneLogicActions {
             status: ErrorTrackingIssueStatus
         } | null,
         payload?: {
-            externalContext: Record<string, string | number>
+            externalContext: Record<string, number | string>
             integrationId: number
         }
     ) => {
@@ -243,7 +243,7 @@ export interface errorTrackingIssueSceneLogicActions {
             status: ErrorTrackingIssueStatus
         } | null
         payload?: {
-            externalContext: Record<string, string | number>
+            externalContext: Record<string, number | string>
             integrationId: number
         }
     }
@@ -640,7 +640,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         }),
         linkExternalReference: (
             integrationId: IntegrationType['id'],
-            externalContext: Record<string, string | number>
+            externalContext: Record<string, number | string>
         ) => ({
             integrationId,
             externalContext,

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
 import posthog from 'posthog-js'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconPlus } from '@posthog/icons'
 import { LemonDialog, LemonInput, LemonInputSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
