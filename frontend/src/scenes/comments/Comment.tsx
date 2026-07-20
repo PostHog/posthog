@@ -2,7 +2,7 @@ import { generateText } from '@tiptap/core'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useRef } from 'react'
+import { Fragment, useEffect, useRef } from 'react'
 
 import { IconChevronDown, IconChevronRight, IconEllipsis, IconEye, IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonMenu, LemonTag, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
@@ -252,8 +252,8 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
         <div
             ref={ref}
             className={clsx(
-                'Comment group border rounded-lg bg-surface-primary px-2 py-1',
-                isHighlighted && 'border-accent',
+                'Comment group px-2 py-1',
+                isHighlighted && 'bg-fill-highlight-50',
                 !isEditing && 'cursor-pointer'
             )}
             data-comment-id={comment.id}
@@ -334,7 +334,7 @@ export const CommentWithReplies = ({ commentWithReplies, composerLogicProps }: C
     const isReplyTarget = isTopLevel && replyingCommentId === commentWithReplies.id
     const isActiveThread = activeThreadId === commentWithReplies.id
     const isExpanded = expandedThreadIds.has(commentWithReplies.id)
-    const showRail = (replies.length > 0 && isExpanded) || isReplyTarget
+    const showReplies = (replies.length > 0 && isExpanded) || isReplyTarget
 
     const replyButton =
         isTopLevel && !isReplyTarget ? (
@@ -350,18 +350,19 @@ export const CommentWithReplies = ({ commentWithReplies, composerLogicProps }: C
     // TODO: Permissions
 
     return (
-        <div className="relative flex flex-col gap-1">
+        <div
+            className={clsx('border rounded-lg bg-surface-primary overflow-hidden', isActiveThread && 'border-accent')}
+        >
             {comment ? (
                 <Comment comment={comment} />
             ) : (
-                <div className="border rounded border-dashed p-2 font-semibold italic bg-surface-primary text-secondary">
-                    Deleted comment
-                </div>
+                <div className="px-2 py-1 font-semibold italic text-secondary">Deleted comment</div>
             )}
 
-            {isTopLevel && (replies.length > 0 || !showRail) ? (
-                <div className="ml-4 flex items-center gap-1">
-                    {replies.length > 0 ? (
+            {replies.length > 0 ? (
+                <>
+                    <LemonDivider className="my-0" />
+                    <div className="flex items-center gap-1 px-2 py-1">
                         <LemonButton
                             size="xsmall"
                             icon={isExpanded ? <IconChevronDown /> : <IconChevronRight />}
@@ -370,35 +371,33 @@ export const CommentWithReplies = ({ commentWithReplies, composerLogicProps }: C
                         >
                             {replies.length === 1 ? '1 reply' : `${replies.length} replies`}
                         </LemonButton>
-                    ) : null}
-                    {/* While the thread is open the reply affordance lives at its bottom instead */}
-                    {!showRail ? <div className="ml-auto">{replyButton}</div> : null}
-                </div>
+                        {/* While the thread is open the reply affordance lives at its bottom instead */}
+                        {!showReplies ? <div className="ml-auto">{replyButton}</div> : null}
+                    </div>
+                </>
             ) : null}
 
-            {showRail ? (
-                <div
-                    className={clsx(
-                        'ml-4 flex flex-col gap-2 border-l-2 pl-3',
-                        isActiveThread ? 'border-accent' : 'border-bold'
-                    )}
-                >
-                    {replies.map((x) => (
-                        <CommentWithReplies
-                            key={x.id}
-                            commentWithReplies={{
-                                id: x.id,
-                                comment: x,
-                                replies: [],
-                            }}
-                        />
-                    ))}
-                    {isReplyTarget && composerLogicProps ? (
+            {showReplies
+                ? replies.map((reply) => (
+                      <Fragment key={reply.id}>
+                          <LemonDivider className="my-0" />
+                          <Comment comment={reply} />
+                      </Fragment>
+                  ))
+                : null}
+
+            {isReplyTarget && composerLogicProps ? (
+                <>
+                    <LemonDivider className="my-0" />
+                    <div className="p-2">
                         <InlineReplyComposer logicProps={composerLogicProps} />
-                    ) : (
-                        <div className="flex justify-end">{replyButton}</div>
-                    )}
-                </div>
+                    </div>
+                </>
+            ) : replyButton && (replies.length === 0 || showReplies) ? (
+                <>
+                    <LemonDivider className="my-0" />
+                    <div className="flex justify-end px-2 py-1">{replyButton}</div>
+                </>
             ) : null}
         </div>
     )
