@@ -111,6 +111,7 @@ pub async fn handle_issue_spiking(
         issue,
         computed_baseline,
         current_bucket_value,
+        assignee,
     } = notification;
     let IssueNotificationContext {
         issue_id,
@@ -159,7 +160,8 @@ pub async fn handle_issue_spiking(
         &context.internal_events_topic,
         meta.notification_id,
         &issue,
-        event_properties.fingerprint(),
+        assignee,
+        &event_properties,
         detected_at,
         computed_baseline,
         current_bucket_value,

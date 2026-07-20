@@ -879,10 +879,17 @@ class TestModelMapping:
 
         assert map_to_bedrock_model("us.anthropic.claude-sonnet-4-6") == "us.anthropic.claude-sonnet-4-6"
 
-    def test_maps_to_eu_profile_for_eu_regions(self) -> None:
+    @pytest.mark.parametrize(
+        "anthropic_model,expected_bedrock_model",
+        [
+            pytest.param("claude-opus-4-6", "eu.anthropic.claude-opus-4-6-v1", id="opus_4_6"),
+            pytest.param("claude-fable-5", "global.anthropic.claude-fable-5", id="fable_5"),
+        ],
+    )
+    def test_maps_to_available_profile_for_eu_regions(self, anthropic_model: str, expected_bedrock_model: str) -> None:
         from llm_gateway.api.anthropic import map_to_bedrock_model
 
-        assert map_to_bedrock_model("claude-opus-4-6", region_name="eu-west-1") == "eu.anthropic.claude-opus-4-6-v1"
+        assert map_to_bedrock_model(anthropic_model, region_name="eu-west-1") == expected_bedrock_model
 
     def test_raises_for_unknown_model(self) -> None:
         from llm_gateway.api.anthropic import map_to_bedrock_model
