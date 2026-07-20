@@ -1,1 +1,1 @@
-0018_alter_notificationevent_notification_type
+0019_remove_notificationevent_archivable
