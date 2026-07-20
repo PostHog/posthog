@@ -47,6 +47,15 @@ A click without preceding pointer movement is an interesting signal, but it is n
 Keyboard navigation, touch input, accessibility tools, stationary cursors, remote desktops, automated tests, and missing replay data can produce similar behavior.
 Agents can also change over time or synthesize human-looking movement.
 
+Interaction timing may be another useful signal.
+The intervals between clicks, pointer movement, typing, scrolling, and page responses may differ in regularity, burstiness, or entropy between people and browser agents.
+The useful direction is not obvious in advance: an agent may be more mechanically regular, or its model and environment may introduce more variable delays than a person.
+This should be measured across tools and tasks rather than encoded as an assumption.
+
+There is also a difference between classifying a complete session and deciding who controls the browser at a particular moment.
+A session may contain long idle periods, human intervention, an agent handoff, or a mix of interaction modes.
+The first product can reasonably classify a session as a whole, but it should not imply that every action in that session was performed by an agent.
+
 The goal should therefore not be to identify every agent.
 The initial goal should be:
 
@@ -103,6 +112,8 @@ A session property alone would leave users to discover the capability and assemb
 ### Classification contract
 
 PostHog should produce a versioned, session-level result with enough information to support multiple product surfaces.
+This initial contract describes the session overall rather than making a claim about who controlled the browser at every point in time.
+A future time-window classification could support mixed human-agent sessions if experiments show it is reliable and useful.
 
 The conceptual output is:
 
@@ -191,8 +202,10 @@ The study should answer:
 
 - Is there a high-precision region that identifies useful agent traffic?
 - Which behavioral signals generalize across agent tools and tasks?
+- Do inter-action timing distributions, cadence, burstiness, or entropy generalize across tools and tasks?
 - Which human input modes create false positives?
 - How often is existing telemetry sufficient to classify a session?
+- Can short rolling windows be classified reliably, or is a complete session required?
 - What additional content-free signals, if any, materially improve performance?
 - Does the resulting classification enable useful aggregate product insights?
 
@@ -352,6 +365,8 @@ Customers are specifically interested in agent traffic they did not instrument o
 - Which human input modes must be covered before alpha, especially keyboard and accessibility use?
 - How should automated tests and synthetic monitoring be classified?
 - How should the model handle agents that synthesize realistic pointer movement?
+- Are agents consistently more or less temporally regular than people, or is timing useful only in combination with other signals?
+- Should the product classify only complete sessions, or identify likely agent-controlled intervals within a mixed session?
 - How often must models be reevaluated as agent tools and browser-control strategies change?
 
 ### Customer value
