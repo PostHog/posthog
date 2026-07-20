@@ -66,6 +66,7 @@ impl Event for CapturingSink {
 
 async fn setup_analytics_router_with_restriction(
     restriction_type: RestrictionType,
+    restriction_pipeline: Pipeline,
     token: &str,
     ai_routing: AiRouting,
     ai_events_overflow_enabled: bool,
@@ -87,11 +88,14 @@ async fn setup_analytics_router_with_restriction(
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
 
-    let service = EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
+    let service = EventRestrictionService::new(
+        Pipeline::for_capture_mode(CaptureMode::Events),
+        Duration::from_secs(300),
+    );
 
     let mut manager = RestrictionManager::new();
     manager.insert_restrictions(
-        Pipeline::Analytics,
+        restriction_pipeline,
         token,
         vec![Restriction {
             restriction_type,
@@ -213,6 +217,7 @@ async fn test_analytics_drop_event_restriction() {
     let restricted_token = "phc_restricted_drop_token";
     let (router, sink) = setup_analytics_router_with_restriction(
         RestrictionType::DropEvent,
+        Pipeline::Analytics,
         restricted_token,
         AiRouting::Primary,
         false,
@@ -249,6 +254,7 @@ async fn test_analytics_redirect_to_dlq_restriction() {
     let restricted_token = "phc_restricted_dlq_token";
     let (router, sink) = setup_analytics_router_with_restriction(
         RestrictionType::RedirectToDlq,
+        Pipeline::Analytics,
         restricted_token,
         AiRouting::Primary,
         false,
@@ -295,6 +301,7 @@ async fn test_analytics_force_overflow_restriction() {
     let restricted_token = "phc_restricted_overflow_token";
     let (router, sink) = setup_analytics_router_with_restriction(
         RestrictionType::ForceOverflow,
+        Pipeline::Analytics,
         restricted_token,
         AiRouting::Primary,
         false,
@@ -338,14 +345,12 @@ async fn test_analytics_force_overflow_restriction() {
 
 #[tokio::test]
 async fn test_analytics_force_overflow_restriction_applies_to_diverted_ai_event() {
-    // NOTE: during the transitional period, $ai_* events arriving on the
-    // analytics endpoints are governed by Pipeline::Analytics restrictions,
-    // which is why AI events show up in this file. Pipeline::Ai restrictions
-    // exist but only apply to the dedicated AI endpoints (/i/v0/ai, OTel); if
-    // diverted AI events later switch to them, this coverage moves out too.
+    // A $ai_* event diverted onto the AI lane is governed by ai-scoped
+    // restrictions — the same Pipeline::Ai slice the dedicated AI endpoints
+    // consult — so this test inserts its ForceOverflow under Pipeline::Ai.
     //
-    // A ForceOverflow restriction must follow a $ai_* event onto the AI lane:
-    // with secondary routing and the overflow valve armed, the event keeps
+    // The restriction must follow the event onto the lane: with secondary
+    // routing and the overflow valve armed, the event keeps
     // DataType::AiEvents and carries force_overflow (the sink maps that pair
     // to the AI overflow topic, never the analytics one). Catches the
     // restriction pipeline or the router dropping restrictions for diverted
@@ -353,6 +358,7 @@ async fn test_analytics_force_overflow_restriction_applies_to_diverted_ai_event(
     let restricted_token = "phc_restricted_overflow_ai_token";
     let (router, sink) = setup_analytics_router_with_restriction(
         RestrictionType::ForceOverflow,
+        Pipeline::Ai,
         restricted_token,
         AiRouting::Secondary,
         true,
@@ -403,6 +409,7 @@ async fn test_analytics_skip_person_processing_restriction() {
     let restricted_token = "phc_restricted_skip_person_token";
     let (router, sink) = setup_analytics_router_with_restriction(
         RestrictionType::SkipPersonProcessing,
+        Pipeline::Analytics,
         restricted_token,
         AiRouting::Primary,
         false,
@@ -449,6 +456,7 @@ async fn test_analytics_restriction_does_not_apply_to_other_tokens() {
     let restricted_token = "phc_restricted_token";
     let (router, sink) = setup_analytics_router_with_restriction(
         RestrictionType::DropEvent,
+        Pipeline::Analytics,
         restricted_token,
         AiRouting::Primary,
         false,

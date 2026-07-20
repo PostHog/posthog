@@ -327,10 +327,10 @@ pub async fn process_events(
     // tagged only for `analytics` will never silently drop an exception event
     // on the way to the error tracking topic, and vice versa. Data types
     // without a pipeline (heatmaps, ingestion warnings, snapshots) flow
-    // through unrestricted. `AiEvents` stays on the analytics pipeline, so a
-    // diverted AI event is still subject to drop/DLQ/redirect restrictions
-    // (a restriction redirect_to_topic beats the AI topic in the sink), while
-    // force_overflow leaves it on the AI lane -- both mirroring v1.
+    // through unrestricted. `AiEvents` looks up the `ai` pipeline: a diverted
+    // AI event is governed by ai-scoped restrictions (drop/DLQ/redirect still
+    // win over the lane, redirect_to_topic beats the AI topic in the sink,
+    // force_overflow keeps it on the AI lane) -- mirroring v1.
     if let Some(ref service) = restriction_service {
         let mut filtered_events = Vec::with_capacity(events.len());
         let now_ts = context.now.timestamp();
@@ -1194,11 +1194,18 @@ mod tests {
         assert_eq!(pageview.metadata.redirect_to_topic, None);
     }
 
-    /// AI events stay on the analytics restriction pipeline (v1 derives the
-    /// pipeline from the event name, not the destination), so an
-    /// analytics-scoped DropEvent must drop a diverted `$ai_*` event too.
+    /// A diverted `$ai_*` event is governed by ai-scoped restrictions (the
+    /// same slice the dedicated AI endpoints consult), not analytics ones:
+    /// an ai-scoped DropEvent drops it, an analytics-scoped one must not
+    /// cross pipelines into the AI lane.
+    #[rstest]
+    #[case::ai_scoped_drop_applies(Pipeline::Ai, true)]
+    #[case::analytics_scoped_drop_does_not_cross(Pipeline::Analytics, false)]
     #[tokio::test]
-    async fn test_process_events_drop_restriction_applies_to_ai_events() {
+    async fn test_process_events_drop_restriction_on_diverted_ai_events(
+        #[case] restriction_pipeline: Pipeline,
+        #[case] expect_dropped: bool,
+    ) {
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
@@ -1214,11 +1221,13 @@ mod tests {
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
-        let service =
-            EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
+        let service = EventRestrictionService::new(
+            vec![Pipeline::Analytics, Pipeline::Ai],
+            Duration::from_secs(300),
+        );
         let mut manager = RestrictionManager::new();
         manager.insert_restrictions(
-            Pipeline::Analytics,
+            restriction_pipeline,
             "test_token",
             vec![Restriction {
                 restriction_type: RestrictionType::DropEvent,
@@ -1243,14 +1252,20 @@ mod tests {
         .await
         .unwrap();
 
-        assert!(sink.get_events().is_empty());
+        let captured = sink.get_events();
+        if expect_dropped {
+            assert!(captured.is_empty());
+        } else {
+            assert_eq!(captured.len(), 1);
+            assert_eq!(captured[0].metadata.data_type, DataType::AiEvents);
+        }
     }
 
-    /// A restriction-driven RedirectToTopic still applies to a diverted
-    /// `$ai_*` event: the event keeps its AI lane, but the stamped redirect
-    /// beats the data type in the sink so operators can reroute an AI token's
-    /// traffic ad hoc, matching v1 where the restriction overwrites
-    /// `Destination::AiEvents` with `Destination::Custom`.
+    /// An ai-scoped RedirectToTopic applies to a diverted `$ai_*` event: the
+    /// event keeps its AI lane, but the stamped redirect beats the data type
+    /// in the sink so operators can reroute an AI token's traffic ad hoc,
+    /// matching v1 where the restriction overwrites `Destination::AiEvents`
+    /// with `Destination::Custom`.
     #[tokio::test]
     async fn test_process_events_restriction_redirect_applies_to_ai_events() {
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
@@ -1268,11 +1283,13 @@ mod tests {
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
-        let service =
-            EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
+        let service = EventRestrictionService::new(
+            vec![Pipeline::Analytics, Pipeline::Ai],
+            Duration::from_secs(300),
+        );
         let mut manager = RestrictionManager::new();
         manager.insert_restrictions(
-            Pipeline::Analytics,
+            Pipeline::Ai,
             "test_token",
             vec![Restriction {
                 restriction_type: RestrictionType::RedirectToTopic,

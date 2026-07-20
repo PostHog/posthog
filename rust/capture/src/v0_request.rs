@@ -207,15 +207,15 @@ impl DataType {
     /// don't share Redis-backed restriction config with any other pipeline,
     /// so they're not subject to `EventRestrictionService` lookups.
     ///
-    /// `AiEvents` stays on the analytics pipeline: v1 derives the restriction
-    /// pipeline from the event name (`$ai_*` → analytics) regardless of the
-    /// AI destination, so diverted AI events remain subject to
-    /// analytics-scoped restrictions in both pipelines.
+    /// `AiEvents` maps to the `ai` restriction pipeline: an event diverted to
+    /// the AI lane is governed by ai-scoped restrictions, the same slice the
+    /// dedicated AI endpoints consult. Non-diverted `$ai_*` events classify
+    /// as `AnalyticsMain` and stay under analytics restrictions. v1 derives
+    /// the same mapping from `Destination::pipeline`.
     pub fn pipeline(self) -> Option<Pipeline> {
         match self {
-            Self::AnalyticsMain | Self::AnalyticsHistorical | Self::AiEvents => {
-                Some(Pipeline::Analytics)
-            }
+            Self::AnalyticsMain | Self::AnalyticsHistorical => Some(Pipeline::Analytics),
+            Self::AiEvents => Some(Pipeline::Ai),
             Self::ExceptionErrorTracking => Some(Pipeline::ErrorTracking),
             Self::ClientIngestionWarning | Self::HeatmapMain | Self::SnapshotMain => None,
         }

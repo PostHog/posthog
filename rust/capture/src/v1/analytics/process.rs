@@ -17,7 +17,6 @@ use super::response::BatchResponse;
 use super::types::{Batch, Event, EventResult, Options, WrappedEvent};
 use crate::event_restrictions::{EventContext, EventRestrictionService};
 use crate::global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter};
-use crate::v0_request::DataType;
 use limiters::overflow::{OverflowLimiter, OverflowLimiterResult};
 use tracing::Level;
 
@@ -581,14 +580,13 @@ async fn apply_restrictions(
             continue;
         }
 
-        // Derive the pipeline from the event name so each event is matched
-        // against the correct restriction slice (Analytics vs ErrorTracking).
-        // `pipeline() == None` for heatmaps / ingestion warnings / snapshots
-        // → they pass through unrestricted, exactly as v0 does. Both flags
-        // are irrelevant to the pipeline split: historical and AI events all
-        // resolve to the analytics pipeline either way.
-        let Some(pipeline) = DataType::from_event_name(&event.event.event, false, false).pipeline()
-        else {
+        // Derive the pipeline from the destination so each event is matched
+        // against the correct restriction slice (Analytics vs ErrorTracking
+        // vs Ai) — an event diverted to the AI lane is governed by ai-scoped
+        // restrictions, not analytics ones. `pipeline() == None` for heatmaps
+        // / ingestion warnings → they pass through unrestricted, exactly as
+        // v0 does (v0 derives the same mapping from `DataType::pipeline`).
+        let Some(pipeline) = event.destination.pipeline() else {
             continue;
         };
 
@@ -1614,18 +1612,22 @@ mod tests {
         assert_eq!(ev.destination, Destination::Overflow);
     }
 
-    /// A ForceOverflow restriction reroutes a diverted AI event to the AI
-    /// overflow destination when the valve is armed, and (as before the
-    /// valve existed) leaves it untouched when not.
+    /// A diverted AI event consults ai-scoped restrictions: an ai-scoped
+    /// ForceOverflow reroutes it to the AI overflow destination when the
+    /// valve is armed and leaves it untouched when not, while an
+    /// analytics-scoped ForceOverflow never crosses into the AI lane.
     #[rstest::rstest]
-    #[case::armed(true, Destination::AiEventsOverflow)]
-    #[case::unarmed(false, Destination::AiEvents)]
+    #[case::armed(Pipeline::Ai, true, Destination::AiEventsOverflow)]
+    #[case::unarmed(Pipeline::Ai, false, Destination::AiEvents)]
+    #[case::analytics_scoped_does_not_cross(Pipeline::Analytics, true, Destination::AiEvents)]
     #[tokio::test]
     async fn restrictions_force_overflow_ai_events_gated_on_valve(
+        #[case] restriction_pipeline: Pipeline,
         #[case] ai_events_overflow_enabled: bool,
         #[case] expected_destination: Destination,
     ) {
-        let service = restriction_service(
+        let service = restriction_service_for_pipeline(
+            restriction_pipeline,
             "phc_token",
             vec![Restriction {
                 restriction_type: RestrictionType::ForceOverflow,

@@ -5,6 +5,8 @@ use std::fmt;
 use common_types::CapturedEventHeaders;
 use uuid::Uuid;
 
+use crate::event_restrictions::Pipeline;
+
 /// Kafka topic routing for a processed event.
 /// `Drop` means the event should not be produced at all.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -35,6 +37,24 @@ impl Destination {
     /// pipeline into a dedicated AI lane, just like heatmaps/exceptions.
     pub fn is_analytics_pipeline(&self) -> bool {
         matches!(self, Self::AnalyticsMain | Self::AnalyticsHistorical)
+    }
+
+    /// Restriction pipeline this destination is governed by, if any. Mirrors
+    /// legacy `DataType::pipeline`: the AI lane (including its overflow arm)
+    /// consults ai-scoped restrictions, the analytics lanes consult analytics
+    /// ones. `None` destinations flow through unrestricted — either they have
+    /// no shared restriction config (heatmaps, ingestion warnings) or they are
+    /// themselves restriction/terminal outcomes (Dlq, Custom, Drop).
+    pub fn pipeline(&self) -> Option<Pipeline> {
+        match self {
+            Self::AnalyticsMain | Self::AnalyticsHistorical | Self::Overflow => {
+                Some(Pipeline::Analytics)
+            }
+            Self::AiEvents | Self::AiEventsOverflow => Some(Pipeline::Ai),
+            Self::ExceptionErrorTracking => Some(Pipeline::ErrorTracking),
+            Self::HeatmapMain | Self::ClientIngestionWarning | Self::Dlq | Self::Custom(_) => None,
+            Self::Drop => None,
+        }
     }
 
     /// Stable, low-cardinality metric tag. `Custom(_)` collapses to "custom"
