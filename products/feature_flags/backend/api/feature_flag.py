@@ -12,7 +12,7 @@ from typing import Any, Optional, cast
 
 from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Count, Prefetch, Q, QuerySet, deletion
 
 import grpc
@@ -1170,16 +1170,21 @@ class FeatureFlagSerializer(
                     group["rollout_percentage"] = 100
 
     def validate_key(self, value):
-        exclude_kwargs = {}
-        if self.instance:
-            exclude_kwargs = {"pk": cast(FeatureFlag, self.instance).pk}
+        instance = cast(Optional[FeatureFlag], self.instance)
 
-        if (
-            FeatureFlag.objects.filter(key=value, team__project_id=self.context["project_id"])
-            .exclude(**exclude_kwargs)
-            .exists()
-        ):
-            raise serializers.ValidationError("There is already a feature flag with this key.", code="unique")
+        # Editing a flag without changing its key can never introduce a duplicate: the row
+        # already owns this key. Skip the uniqueness read entirely in that case so a sibling
+        # row in another environment (the key check is project-scoped, but a project can span
+        # multiple environments where the same key legitimately exists once per environment) or
+        # a lagging read replica can't produce a false "key already exists" error on an edit
+        # that never touched the key. Genuine collisions on write are still caught by the
+        # "unique key for team" DB constraint inside update()'s locked transaction.
+        if instance is None or value != instance.key:
+            unique_qs = FeatureFlag.objects.filter(key=value, team__project_id=self.context["project_id"])
+            if instance is not None:
+                unique_qs = unique_qs.exclude(pk=instance.pk)
+            if unique_qs.exists():
+                raise serializers.ValidationError("There is already a feature flag with this key.", code="unique")
 
         if not re.match(r"^[a-zA-Z0-9_-]+$", value):
             raise serializers.ValidationError(
@@ -1947,39 +1952,50 @@ class FeatureFlagSerializer(
 
         version = request.data.get("version", -1)
 
-        with transaction.atomic():
-            # select_for_update locks the database row so we ensure version updates are atomic.
-            # Uses objects_including_soft_deleted so that restoring a soft-deleted flag
-            # (setting deleted=False) can acquire the lock.
-            locked_instance = FeatureFlag.objects_including_soft_deleted.select_for_update().get(pk=instance.pk)
-            locked_version = locked_instance.version or 0
+        try:
+            with transaction.atomic():
+                # select_for_update locks the database row so we ensure version updates are atomic.
+                # Uses objects_including_soft_deleted so that restoring a soft-deleted flag
+                # (setting deleted=False) can acquire the lock.
+                locked_instance = FeatureFlag.objects_including_soft_deleted.select_for_update().get(pk=instance.pk)
+                locked_version = locked_instance.version or 0
 
-            # NOW check for conflicts after all transformations
-            if version != -1 and version != locked_version:
-                original_flag = request.data.get("original_flag", {})
-                conflicting_changes = self._get_conflicting_changes(
-                    locked_instance,
-                    validated_data,
-                    original_flag,
-                )
-                if len(conflicting_changes) > 0:
-                    raise Conflict(
-                        f"The feature flag was updated by {locked_instance.last_modified_by.email if locked_instance.last_modified_by else 'another user'} since you started editing it. Please refresh and try again."
+                # NOW check for conflicts after all transformations
+                if version != -1 and version != locked_version:
+                    original_flag = request.data.get("original_flag", {})
+                    conflicting_changes = self._get_conflicting_changes(
+                        locked_instance,
+                        validated_data,
+                        original_flag,
                     )
-                validated_data = self._discard_unchanged_stale_fields(validated_data, original_flag)
+                    if len(conflicting_changes) > 0:
+                        raise Conflict(
+                            f"The feature flag was updated by {locked_instance.last_modified_by.email if locked_instance.last_modified_by else 'another user'} since you started editing it. Please refresh and try again."
+                        )
+                    validated_data = self._discard_unchanged_stale_fields(validated_data, original_flag)
 
-            # Continue with the update
-            validated_data["version"] = locked_version + 1
-            old_key = instance.key
+                # Continue with the update
+                validated_data["version"] = locked_version + 1
+                old_key = instance.key
 
-            # Clear any soft-deleted tombstone on `new_key` so the (team, key)
-            # unique constraint doesn't block the rename. Mirrors create().
-            new_key = validated_data.get("key")
-            if new_key and new_key != old_key and validated_data.get("deleted", instance.deleted) is False:
-                self._free_key_held_by_soft_deleted_flags(new_key, exclude_pk=instance.pk)
+                # Clear any soft-deleted tombstone on `new_key` so the (team, key)
+                # unique constraint doesn't block the rename. Mirrors create().
+                new_key = validated_data.get("key")
+                if new_key and new_key != old_key and validated_data.get("deleted", instance.deleted) is False:
+                    self._free_key_held_by_soft_deleted_flags(new_key, exclude_pk=instance.pk)
 
-            with ImpersonatedContext(request):
-                instance = super().update(instance, validated_data)
+                with ImpersonatedContext(request):
+                    instance = super().update(instance, validated_data)
+        except IntegrityError as e:
+            # The "unique key for team" DB constraint is the authoritative guard on key
+            # uniqueness. A concurrent create or rename can slip a duplicate in between the
+            # unlocked validate_key read and this locked write; translate that constraint
+            # violation into the same clean field error instead of surfacing a 500.
+            if "unique key for team" in str(e):
+                raise serializers.ValidationError(
+                    {"key": [exceptions.ErrorDetail("There is already a feature flag with this key.", code="unique")]}
+                ) from e
+            raise
 
         # Continue with the update outside of the transaction. This is an intentional choice
         # to avoid deadlocks. Not to mention, before making the concurrency changes, these

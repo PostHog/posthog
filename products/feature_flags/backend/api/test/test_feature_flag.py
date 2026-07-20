@@ -586,6 +586,23 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         existing_flag.refresh_from_db()
         self.assertEqual(existing_flag.name, "Beta feature 3")
 
+    def test_can_update_flag_when_sibling_environment_shares_key(self):
+        # A project can span multiple environments (teams) where the same flag key legitimately
+        # exists once per environment. Editing a flag without touching its key must not be blocked
+        # by the sibling row in the other environment.
+        sibling_team = Team.objects.create(organization=self.organization, project=self.team.project)
+        FeatureFlag.objects.create(team=sibling_team, created_by=self.user, key="shared-key")
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="shared-key", name="Original")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"name": "Renamed", "key": "shared-key"},
+        )
+
+        self.assertEqual(response.status_code, 200, response.json())
+        flag.refresh_from_db()
+        self.assertEqual(flag.name, "Renamed")
+
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_group_type_index_feature_flag(self, mock_report_user_action):
         feature_flag = self.client.post(
