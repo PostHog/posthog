@@ -1,9 +1,12 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 import type { CommentType } from '~/types'
 
-import type { Ticket } from '../../types'
+import type { TicketAssignee } from '../../components/Assignee'
+import type { Ticket, TicketStatus } from '../../types'
 import { EmailReplyBlockedReason, getEmailReplyBlockedReason, supportTicketSceneLogic } from './supportTicketSceneLogic'
 
 const FEEDBACK_STORAGE_KEY = 'conversations_ai_reply_feedback'
@@ -14,13 +17,30 @@ jest.mock('~/lib/api', () => {
         __esModule: true,
         default: {
             ...actual.default,
+            comments: {
+                ...actual.default?.comments,
+                create: jest.fn().mockResolvedValue(undefined),
+                list: jest.fn().mockResolvedValue({ results: [] }),
+            },
+            persons: {
+                ...actual.default?.persons,
+                list: jest.fn().mockResolvedValue({ results: [] }),
+            },
             conversationsTickets: {
                 ...actual.default?.conversationsTickets,
                 submitAiFeedback: jest.fn().mockResolvedValue(undefined),
+                get: jest.fn(),
+                update: jest.fn(),
+                list: jest.fn().mockResolvedValue({ results: [] }),
             },
         },
     }
 })
+
+jest.mock('products/business_knowledge/frontend/generated/api', () => ({
+    businessKnowledgeGapSuggestionsList: jest.fn().mockResolvedValue({ results: [] }),
+    businessKnowledgeGapSuggestionsDismissCreate: jest.fn().mockResolvedValue(undefined),
+}))
 
 import api from '~/lib/api'
 
@@ -247,5 +267,63 @@ describe('supportTicketSceneLogic replyRecipientDescription', () => {
     ])('%s', (_name, overrides, expected) => {
         logic.actions.setTicket({ ...makeTicket(), ...overrides })
         expect(logic.values.replyRecipientDescription).toBe(expected)
+    })
+})
+
+describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+
+    const commentsCreateMock = api.comments.create as jest.Mock
+    const ticketGetMock = api.conversationsTickets.get as jest.Mock
+    const ticketUpdateMock = api.conversationsTickets.update as jest.Mock
+
+    // Unlike makeTicket(), API responses always carry priority/assignee; without them the
+    // hasUnsavedChanges comparison against the seeded local reducers never settles to false.
+    const loadedTicket = (): Ticket => ({ ...makeTicket(), priority: 'medium', assignee: null }) as Ticket
+
+    beforeEach(async () => {
+        initKeaTests()
+        commentsCreateMock.mockReset().mockResolvedValue(undefined)
+        ticketGetMock.mockReset().mockResolvedValue(loadedTicket())
+        ticketUpdateMock.mockReset()
+        // A non-'new', dash-free id: sendMessage early-returns on 'new' and loadTicket
+        // treats ids containing '-' as UUIDs to redirect.
+        logic = supportTicketSceneLogic({ id: 42 })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['setTicket'])
+    })
+
+    // "Send and set status" must persist through the same PATCH as the "Save changes" button,
+    // and only auto-assign the current user when the ticket has no assignee.
+    test.each<[string, TicketAssignee, TicketStatus, TicketAssignee]>([
+        ['auto-assigns the current user when unassigned', null, 'resolved', { type: 'user', id: MOCK_DEFAULT_USER.id }],
+        ['keeps an existing assignee', { type: 'role', id: 'role-1' }, 'on_hold', { type: 'role', id: 'role-1' }],
+    ])('%s', async (_name, presetAssignee, statusAfterSend, expectedAssignee) => {
+        if (presetAssignee) {
+            logic.actions.setAssignee(presetAssignee)
+        }
+        ticketUpdateMock.mockResolvedValue({ ...loadedTicket(), status: statusAfterSend, assignee: expectedAssignee })
+
+        await expectLogic(logic, () => {
+            logic.actions.sendMessage('hello', null, false, undefined, statusAfterSend)
+        }).toDispatchActions(['updateTicket', 'setTicket'])
+
+        expect(ticketUpdateMock).toHaveBeenCalledWith(
+            '42',
+            expect.objectContaining({ status: statusAfterSend, assignee: expectedAssignee })
+        )
+        expect(logic.values.status).toBe(statusAfterSend)
+        expect(logic.values.hasUnsavedChanges).toBe(false)
+    })
+
+    it('does not update the ticket when the send fails', async () => {
+        commentsCreateMock.mockRejectedValue(new Error('request failed'))
+
+        await expectLogic(logic, () => {
+            logic.actions.sendMessage('hello', null, false, undefined, 'resolved')
+        }).toFinishAllListeners()
+
+        expect(ticketUpdateMock).not.toHaveBeenCalled()
+        expect(logic.values.status).toBe('open')
     })
 })
