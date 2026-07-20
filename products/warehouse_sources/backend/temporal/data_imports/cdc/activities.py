@@ -34,6 +34,7 @@ from posthog.utils import get_machine_id
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
+    complete_schema_run,
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -1502,28 +1503,18 @@ class CDCExtractActivity:
     def _repaint_schema_healthy(self, schema: ExternalDataSchema, now: dt.datetime) -> bool:
         """Mark a schema COMPLETED after a successful run, respecting the absorbing broken state.
 
-        The sweeper can mark the source broken while a run is in flight (see jobs.py for the
-        loader-side twin of this guard); repainting here would hide the breakage from the UI and
-        the failure digest. Returns whether the repaint happened.
+        The marker check and the repaint run in one locked transaction (complete_schema_run) —
+        checking here on the in-memory copy would race the sweeper marking the source broken and
+        overwrite its FAILED with a stale COMPLETED. Returns whether the repaint happened.
         """
         try:
-            # The heartbeat records liveness (this run happened), independent of health — and its
-            # locked merge refreshes the in-memory config, so the marker checks below see the
-            # sweeper's latest state.
+            # The heartbeat records liveness (this run happened), independent of health.
             self._record_run_heartbeat(schema, now)
+            if not complete_schema_run(schema, last_synced_at=now):
+                self._schema_log(schema).info("cdc_success_repaint_skipped_broken")
+                return False
         except ExternalDataSchema.DoesNotExist:
             return False
-        config = schema.sync_type_config or {}
-        if config.get("cdc_broken"):
-            self._schema_log(schema).info("cdc_success_repaint_skipped_broken")
-            return False
-        if config.get("cdc_extraction_paused"):
-            # A successful run proves extraction is running again; drop the stale marker.
-            self._update_schema_sync_type_config(schema, removes=["cdc_extraction_paused"])
-        schema.status = ExternalDataSchema.Status.COMPLETED
-        schema.latest_error = None
-        schema.last_synced_at = now
-        schema.save(update_fields=["status", "latest_error", "last_synced_at", "updated_at"])
         return True
 
     def _finalize_success(self) -> None:

@@ -843,6 +843,37 @@ def update_sync_type_config_keys(
         return config
 
 
+def complete_schema_run(schema: ExternalDataSchema, *, last_synced_at: datetime) -> bool:
+    """Mark a schema COMPLETED after a successful run, atomically with the broken-state check.
+
+    The sweeper can mark the source broken at any moment; checking ``cdc_broken`` outside the
+    row lock would let a stale instance repaint the schema healthy right after the sweeper wrote
+    FAILED, hiding the breakage from the UI and the failure digest (the loader-side twin of this
+    guard lives in jobs.update_external_job_status, which already checks under its own lock).
+    Clears a stale ``cdc_extraction_paused`` marker — a successful run proves extraction resumed.
+    Returns whether the repaint happened; the passed instance is refreshed either way.
+    """
+    with transaction.atomic():
+        fresh = ExternalDataSchema.objects.select_for_update().get(id=schema.id, team_id=schema.team_id)
+        config = fresh.sync_type_config or {}
+        repainted = not config.get("cdc_broken")
+        if repainted:
+            config.pop("cdc_extraction_paused", None)
+            fresh.sync_type_config = config
+            fresh.status = ExternalDataSchema.Status.COMPLETED
+            fresh.latest_error = None
+            fresh.last_synced_at = last_synced_at
+            fresh.save(
+                update_fields=["sync_type_config", "status", "latest_error", "last_synced_at", "updated_at"],
+                skip_activity_log=True,
+            )
+    schema.sync_type_config = fresh.sync_type_config
+    schema.status = fresh.status
+    schema.latest_error = fresh.latest_error
+    schema.last_synced_at = fresh.last_synced_at
+    return repainted
+
+
 def mark_initial_sync_complete(schema_id: str | uuid.UUID, team_id: int) -> None:
     """Mark a schema's first successful sync complete. Shared by the V2 pipelines and the V3 loader.
 

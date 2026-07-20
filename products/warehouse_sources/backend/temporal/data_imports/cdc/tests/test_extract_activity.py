@@ -128,13 +128,35 @@ def _fake_update_schema_sync_type_config(schema, *, updates=None, removes=None, 
             setattr(schema, field, value)
 
 
+def _fake_complete_schema_run(schema, *, last_synced_at):
+    """Stand-in for complete_schema_run mirroring its contract on the in-memory mock schema:
+    a broken marker blocks the repaint, otherwise the paused marker clears and the schema
+    repaints COMPLETED. The real locked-transaction semantics are covered by
+    tests/test_models.py::TestCompleteSchemaRun."""
+    config = schema.sync_type_config or {}
+    if config.get("cdc_broken"):
+        return False
+    config.pop("cdc_extraction_paused", None)
+    schema.sync_type_config = config
+    schema.status = ExternalDataSchema.Status.COMPLETED
+    schema.latest_error = None
+    schema.last_synced_at = last_synced_at
+    return True
+
+
 @pytest.fixture(autouse=True)
 def _stub_sync_type_config_merge():
     """Route every activity sync_type_config write onto the in-memory mock schema (no DB)."""
-    with patch.object(
-        CDCExtractActivity,
-        "_update_schema_sync_type_config",
-        side_effect=_fake_update_schema_sync_type_config,
+    with (
+        patch.object(
+            CDCExtractActivity,
+            "_update_schema_sync_type_config",
+            side_effect=_fake_update_schema_sync_type_config,
+        ),
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.complete_schema_run",
+            side_effect=_fake_complete_schema_run,
+        ),
     ):
         yield
 
@@ -2604,6 +2626,7 @@ class TestSuccessRepaintGuards:
     def test_broken_schema_keeps_failed_state_and_paused_marker_clears(self, finalize):
         source = _make_source()
         broken = _make_schema("broken_table", source=source)
+        broken.status = "Failed"
         broken.sync_type_config["cdc_broken"] = {"reason": "auto_dropped_critical_lag"}
         recovered = _make_schema("recovered_table", source=source)
         recovered.sync_type_config["cdc_extraction_paused"] = {"reason": "auth_failed"}
@@ -2615,8 +2638,8 @@ class TestSuccessRepaintGuards:
             act.reader = MagicMock(last_commit_end_lsn=None)
             act._handle_no_changes([])
 
-        broken.save.assert_not_called()
-        recovered.save.assert_called_once()
+        assert broken.status == "Failed"
+        assert "cdc_broken" in broken.sync_type_config
         assert recovered.status == ExternalDataSchema.Status.COMPLETED
         # A successful run proves extraction resumed; the stale pause marker must not keep the
         # digest email reporting "paused, action required".
