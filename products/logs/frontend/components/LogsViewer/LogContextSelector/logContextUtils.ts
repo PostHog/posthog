@@ -1,10 +1,13 @@
-import { dayjs } from 'lib/dayjs'
-
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
 import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
-import { SessionIdMatch, getSessionIdWithKey } from 'products/logs/frontend/utils'
+import {
+    SESSION_LOGS_WINDOW_MINUTES,
+    SessionIdMatch,
+    buildDateRangeAround,
+    getSessionIdWithKey,
+} from 'products/logs/frontend/utils'
 
 export type LogContextType = 'surrounding_service' | 'surrounding_all' | 'trace' | 'session'
 
@@ -16,7 +19,6 @@ export interface LogContextOption {
 
 const SURROUNDING_WINDOW_MINUTES = 1
 const TRACE_WINDOW_MINUTES = 5
-const SESSION_WINDOW_MINUTES = 30
 
 function getServiceName(log: ParsedLogMessage): string | null {
     const resourceAttrs = log.resource_attributes as Record<string, unknown> | undefined
@@ -26,14 +28,6 @@ function getServiceName(log: ParsedLogMessage): string | null {
 
 function getSessionMatch(log: ParsedLogMessage, configuredKeys?: string[]): SessionIdMatch | null {
     return getSessionIdWithKey(log.attributes, log.resource_attributes, configuredKeys)
-}
-
-function buildDateRangeAround(timestamp: string, windowMinutes: number): { date_from: string; date_to: string } {
-    const center = dayjs(timestamp)
-    return {
-        date_from: center.subtract(windowMinutes, 'minute').toISOString(),
-        date_to: center.add(windowMinutes, 'minute').toISOString(),
-    }
 }
 
 function buildFilterGroup(key: string, value: string, propertyType: PropertyFilterType): UniversalFiltersGroup {
@@ -129,7 +123,7 @@ export function buildContextFilters(
             const session = getSessionMatch(log, configuredKeys)
             return {
                 ...base,
-                dateRange: buildDateRangeAround(log.timestamp, SESSION_WINDOW_MINUTES),
+                dateRange: buildDateRangeAround(log.timestamp, SESSION_LOGS_WINDOW_MINUTES),
                 filterGroup: session
                     ? buildFilterGroup(
                           session.key,

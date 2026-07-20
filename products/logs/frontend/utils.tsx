@@ -153,9 +153,16 @@ export function getSessionIdFromLogAttributes(
     return getSessionIdWithKey(attributes, resourceAttributes, configuredKeys)?.value ?? null
 }
 
-// Matches SESSION_WINDOW_MINUTES in logContextUtils — wide enough to cover a session
-// around a single event without drowning it in unrelated logs.
-const SESSION_LOGS_WINDOW_MINUTES = 30
+// Wide enough to cover a session around a single event without drowning it in unrelated logs.
+export const SESSION_LOGS_WINDOW_MINUTES = 30
+
+export function buildDateRangeAround(timestamp: string, windowMinutes: number): { date_from: string; date_to: string } {
+    const center = dayjs(timestamp)
+    return {
+        date_from: center.subtract(windowMinutes, 'minute').toISOString(),
+        date_to: center.add(windowMinutes, 'minute').toISOString(),
+    }
+}
 
 // Builds logs viewer filters scoped to one session, for other products surfacing logs
 // (error tracking, session replay). Filters on the team's configured session ID keys
@@ -184,11 +191,7 @@ export function buildLogsSessionFilters(
         },
     }
     if (timestamp) {
-        const center = dayjs(timestamp)
-        filters.dateRange = {
-            date_from: center.subtract(SESSION_LOGS_WINDOW_MINUTES, 'minute').toISOString(),
-            date_to: center.add(SESSION_LOGS_WINDOW_MINUTES, 'minute').toISOString(),
-        }
+        filters.dateRange = buildDateRangeAround(timestamp, SESSION_LOGS_WINDOW_MINUTES)
     }
     return filters
 }

@@ -1,3 +1,5 @@
+import { UniversalFiltersGroup } from '~/types'
+
 import {
     buildLogsSessionFilters,
     formatFilterGroupValues,
@@ -157,7 +159,7 @@ describe('logs utils', () => {
         ])('%s', (_, configuredKeys, expectedKeys) => {
             const filters = buildLogsSessionFilters('sess-1', configuredKeys)
 
-            const innerGroup = filters.filterGroup!.values[0] as Record<string, any>
+            const innerGroup = filters.filterGroup!.values[0] as UniversalFiltersGroup
             expect(innerGroup.type).toBe('OR')
             expect(innerGroup.values).toEqual(
                 expectedKeys.map((key) => ({
