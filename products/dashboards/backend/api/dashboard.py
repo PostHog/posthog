@@ -802,7 +802,7 @@ class SharedDashboardWidgetMetadataSerializer(serializers.ModelSerializer):
 
 class DashboardTileSerializer(serializers.ModelSerializer):
     id: serializers.IntegerField = serializers.IntegerField(required=False)
-    insight = InsightSerializer()
+    insight: InsightBasicSerializer = InsightSerializer()
     text = TextSerializer()
     button_tile = ButtonTileSerializer()
     widget = DashboardWidgetSerializer(required=False, allow_null=True)

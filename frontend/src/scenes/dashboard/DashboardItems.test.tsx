@@ -343,14 +343,14 @@ describe('DashboardItems', () => {
             return {}
         })
 
-        const { findByText, getByRole, getByText } = render(<DashboardItems />)
+        const { findByText, getByTestId, getByText } = render(<DashboardItems />)
         expect(getByText('Dashboard tile 2')).toBeInTheDocument()
         expect(getByText('There is a problem loading this dashboard tile.')).toHaveAttribute(
             'data-support-only',
             'true'
         )
 
-        fireEvent.click(getByRole('button', { name: 'more' }))
+        fireEvent.click(getByTestId('more-button'))
         fireEvent.click(await findByText('Remove from dashboard'))
         expect(mockRemoveTile).toHaveBeenCalledWith(errorTile)
     })
