@@ -7,8 +7,8 @@ import { LemonButton, LemonInput, LemonSwitch, LemonTable, LemonTag, ProfilePict
 
 import { urls } from 'scenes/urls'
 
-import { mcpGatewayLogic } from './mcpGatewayLogic'
 import { toProfileUser } from './gatewayUtils'
+import { mcpGatewayLogic } from './mcpGatewayLogic'
 
 export function GatewayTeamAndAgents(): JSX.Element {
     const { serviceAccounts, members, serviceAccountsLoading, membersLoading } = useValues(mcpGatewayLogic)
@@ -110,7 +110,9 @@ export function GatewayTeamAndAgents(): JSX.Element {
                         {
                             title: 'Member',
                             key: 'member',
-                            render: (_, member) => <ProfilePicture user={toProfileUser(member.user)} size="md" showName />,
+                            render: (_, member) => (
+                                <ProfilePicture user={toProfileUser(member.user)} size="md" showName />
+                            ),
                         },
                         {
                             title: 'Role',

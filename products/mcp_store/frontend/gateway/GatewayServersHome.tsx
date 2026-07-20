@@ -8,8 +8,8 @@ import { urls } from 'scenes/urls'
 
 import { MCPGatewayServerApi } from '../generated/api.schemas'
 import { ServerIcon } from '../scene/icons'
-import { GATEWAY_CATEGORY_LABELS, mcpGatewayLogic } from './mcpGatewayLogic'
 import { toProfileUser } from './gatewayUtils'
+import { GATEWAY_CATEGORY_LABELS, mcpGatewayLogic } from './mcpGatewayLogic'
 
 export function GatewayServersHome(): JSX.Element {
     const { filteredServers, serversLoading, searchQuery, categoryFilter, categoryCounts, isAdmin, servers } =

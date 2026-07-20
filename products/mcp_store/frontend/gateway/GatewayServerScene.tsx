@@ -42,7 +42,9 @@ export function GatewayServerScene(): JSX.Element {
                 <div className="flex-1">
                     <div className="flex items-center gap-2">
                         <h1 className="mb-0">{server.name}</h1>
-                        {isAdmin && server.auth_mode === 'shared' && <LemonTag type="muted">🔑 Shared credential</LemonTag>}
+                        {isAdmin && server.auth_mode === 'shared' && (
+                            <LemonTag type="muted">🔑 Shared credential</LemonTag>
+                        )}
                         {isAdmin && !server.is_team_enabled && <LemonTag type="muted">Off</LemonTag>}
                     </div>
                     <div className="text-secondary">{server.description || server.url}</div>

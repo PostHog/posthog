@@ -28,11 +28,7 @@ export const POLICY_OPTIONS: { value: MCPToolApprovalStateEnumApi; label: string
 ]
 
 /** Small colored summary of how many tools sit in each policy state. */
-export function PolicySummary({
-    counts,
-}: {
-    counts: Record<MCPToolApprovalStateEnumApi, number>
-}): JSX.Element {
+export function PolicySummary({ counts }: { counts: Record<MCPToolApprovalStateEnumApi, number> }): JSX.Element {
     return (
         <div className="flex items-center gap-2 text-xs">
             <span className="flex items-center gap-1">

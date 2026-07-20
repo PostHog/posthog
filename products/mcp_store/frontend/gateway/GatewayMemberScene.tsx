@@ -71,11 +71,7 @@ export function GatewayMemberScene(): JSX.Element {
                                 </div>
                             </div>
                             {isConnected && (
-                                <LemonButton
-                                    size="xsmall"
-                                    type="secondary"
-                                    to={urls.mcpGatewayServer(server.id)}
-                                >
+                                <LemonButton size="xsmall" type="secondary" to={urls.mcpGatewayServer(server.id)}>
                                     Tool policies
                                 </LemonButton>
                             )}

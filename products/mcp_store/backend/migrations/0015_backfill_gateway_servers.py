@@ -1,3 +1,5 @@
+from typing import Any
+
 from django.db import migrations
 
 
@@ -11,14 +13,14 @@ def backfill_gateway_servers(apps, schema_editor):
     MCPServerInstallation = apps.get_model("mcp_store", "MCPServerInstallation")
     MCPGatewayServer = apps.get_model("mcp_store", "MCPGatewayServer")
 
-    servers_by_key: dict[tuple[int, str], object] = {}
+    servers_by_key: dict[tuple[int, str], Any] = {}
     installations = (
         MCPServerInstallation.objects.filter(gateway_server__isnull=True)
         .select_related("template")
         .order_by("created_at")
         .iterator(chunk_size=500)
     )
-    pending_links: list = []
+    pending_links: list[Any] = []
     for installation in installations:
         key = (installation.team_id, installation.url)
         server = servers_by_key.get(key)

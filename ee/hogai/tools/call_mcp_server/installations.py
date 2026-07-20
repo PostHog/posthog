@@ -94,13 +94,14 @@ def _get_tool_approval_states(installation_id: str, user: User | None = None) ->
     legacy = {row["tool_name"]: ("do_not_use" if row["removed_at"] else row["approval_state"]) for row in rows}
 
     installation = MCPServerInstallation.objects.filter(id=installation_id).select_related("gateway_server").first()
-    if installation is None or installation.gateway_server_id is None or user is None:
+    gateway_server = installation.gateway_server if installation else None
+    if installation is None or gateway_server is None or user is None:
         return legacy
 
     context = PolicyContext(
         team_id=installation.team_id,
         caller=GatewayCaller(kind="member", user_id=user.id),
-        gateway_server=installation.gateway_server,
+        gateway_server=gateway_server,
         installation=installation,
     )
     resolved: dict[str, str] = {}

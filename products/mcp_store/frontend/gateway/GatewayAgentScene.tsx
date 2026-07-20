@@ -57,17 +57,10 @@ export function GatewayAgentScene(): JSX.Element {
                     <div className="text-secondary">{account.description}</div>
                 </div>
                 <div className="flex items-center gap-2">
-                    <LemonButton
-                        type="secondary"
-                        onClick={() => toggleAccountStatus(account.id, !paused)}
-                    >
+                    <LemonButton type="secondary" onClick={() => toggleAccountStatus(account.id, !paused)}>
                         {paused ? 'Resume agent' : 'Pause agent'}
                     </LemonButton>
-                    <LemonButton
-                        status="danger"
-                        type="secondary"
-                        onClick={() => deleteServiceAccount(account.id)}
-                    >
+                    <LemonButton status="danger" type="secondary" onClick={() => deleteServiceAccount(account.id)}>
                         Delete
                     </LemonButton>
                 </div>
@@ -91,7 +84,11 @@ export function GatewayAgentScene(): JSX.Element {
                             tooltip="The token is only shown in full when created or rotated"
                             onClick={() => void copyToClipboard(account.token_mask, 'masked token')}
                         />
-                        <LemonButton size="xsmall" type="secondary" onClick={() => rotateServiceAccountToken(account.id)}>
+                        <LemonButton
+                            size="xsmall"
+                            type="secondary"
+                            onClick={() => rotateServiceAccountToken(account.id)}
+                        >
                             Rotate…
                         </LemonButton>
                     </div>

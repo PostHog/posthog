@@ -903,7 +903,9 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                     content_type="application/json",
                     status=403,
                 )
-            if MCPMemberServerRevocation.objects.filter(gateway_server=gateway_server, user=request.user).exists():
+            if MCPMemberServerRevocation.objects.filter(
+                gateway_server=gateway_server, user=cast(User, request.user)
+            ).exists():
                 return HttpResponse(
                     '{"error": "Your access to this server has been turned off by an admin"}',
                     content_type="application/json",
@@ -920,7 +922,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             installation,
             caller=caller,
             gateway_server=gateway_server,
-            actor_label=request.user.email or "",
+            actor_label=cast(User, request.user).email or "",
         )
 
     @validated_request(

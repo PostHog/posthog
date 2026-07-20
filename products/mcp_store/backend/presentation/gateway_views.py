@@ -704,7 +704,8 @@ class MCPGatewayServerViewSet(
     def _resolve_scope(self, data: dict) -> tuple[str, User | None, MCPServiceAccount | None]:
         scope_type = data.get("scope_type", "team")
         if scope_type == "member":
-            user_id = data.get("scope_user_id") or self.request.user.id
+            raw_user_id = data.get("scope_user_id")
+            user_id = int(raw_user_id) if raw_user_id is not None else cast(User, self.request.user).id
             membership_exists = OrganizationMembership.objects.filter(
                 organization_id=self.team.organization_id, user_id=user_id
             ).exists()
@@ -1197,8 +1198,6 @@ class MCPGatewayMemberViewSet(GatewayAdminMixin, TeamAndOrgViewSetMixin, viewset
 
         rows = []
         for membership in memberships:
-            if membership.user is None:
-                continue
             rows.append(
                 {
                     "user": UserBasicSerializer(membership.user).data,

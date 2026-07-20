@@ -147,9 +147,9 @@ class PolicyContext:
 
         config = TeamMCPGatewayConfig.objects.for_team(team_id).first()
         if config is None:
-            self._preset = ""
+            self.preset = ""
         else:
-            self._preset = config.member_default_preset if caller.kind == "member" else config.agent_default_preset
+            self.preset = config.member_default_preset if caller.kind == "member" else config.agent_default_preset
 
         self._legacy_rows: dict[str, str] = {}
         if installation is not None and caller.kind == "member":
@@ -173,7 +173,7 @@ class PolicyContext:
     def team_state(self, tool_name: str, description: str = "") -> str | None:
         if tool_name in self._team_rows:
             return self._team_rows[tool_name]
-        return member_preset_team_state(self._preset, tool_name, description)
+        return member_preset_team_state(self.preset, tool_name, description)
 
     def resolve(self, tool_name: str, description: str = "") -> ResolvedPolicy:
         team_state = self.team_state(tool_name, description)
@@ -194,7 +194,7 @@ class PolicyContext:
         if tool_name in self._team_rows:
             return ResolvedPolicy(state=self._team_rows[tool_name], decided_by="team", team_state=team_state)
 
-        preset_state = member_preset_team_state(self._preset, tool_name, description)
+        preset_state = member_preset_team_state(self.preset, tool_name, description)
         if preset_state is not None:
             return ResolvedPolicy(state=preset_state, decided_by="preset", team_state=team_state)
 

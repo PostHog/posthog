@@ -14,9 +14,9 @@ import { GatewayAuditLog } from './GatewayAuditLog'
 import { GatewayServersHome } from './GatewayServersHome'
 import { GatewayTeamAndAgents } from './GatewayTeamAndAgents'
 import { GatewayTeamSettings } from './GatewayTeamSettings'
-import { NewTokenModal } from './NewTokenModal'
 import { mcpGatewayLogic } from './mcpGatewayLogic'
 import { GatewayTab, mcpGatewaySceneLogic } from './mcpGatewaySceneLogic'
+import { NewTokenModal } from './NewTokenModal'
 
 export const scene: SceneExport = {
     component: McpGatewayScene,

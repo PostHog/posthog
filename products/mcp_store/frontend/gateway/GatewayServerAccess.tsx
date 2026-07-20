@@ -122,7 +122,13 @@ export function GatewayAccessSection(): JSX.Element | null {
                         ))}
                     </div>
                 )}
-                <LemonButton className="mt-2" size="small" type="secondary" to={undefined} disabledReason="Share access from the agent's detail page">
+                <LemonButton
+                    className="mt-2"
+                    size="small"
+                    type="secondary"
+                    to={undefined}
+                    disabledReason="Share access from the agent's detail page"
+                >
                     + Share access with an agent
                 </LemonButton>
             </div>

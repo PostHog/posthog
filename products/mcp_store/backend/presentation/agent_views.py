@@ -10,7 +10,7 @@ personal token — and every tools/call resolves through the same policy engine
 as members, under the agent's own scope.
 """
 
-from typing import Any
+from typing import Any, cast
 
 from django.http import HttpResponse
 from django.http.response import HttpResponseBase
@@ -90,7 +90,7 @@ class MCPGatewayAgentViewSet(viewsets.ViewSet):
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """The agent's server catalog: every enabled server it has access to,
         with each tool's effective policy state."""
-        account = request.auth
+        account = cast(MCPServiceAccount, request.auth)
         results = []
         for server in self._accessible_servers(account):
             context = PolicyContext(
@@ -133,7 +133,9 @@ class MCPGatewayAgentViewSet(viewsets.ViewSet):
     @action(detail=True, methods=["post"], url_path="proxy", renderer_classes=[MCPProxyRenderer])
     def proxy(self, request: Request, pk: str | None = None, *args: Any, **kwargs: Any) -> HttpResponseBase:
         """Proxy one MCP request to the server as this agent."""
-        account = request.auth
+        account = cast(MCPServiceAccount, request.auth)
+        if not pk:
+            return HttpResponse('{"error": "Server not found"}', content_type="application/json", status=404)
         try:
             server = (
                 MCPGatewayServer.objects.for_team(account.team_id)

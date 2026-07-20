@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { LemonButton, LemonDivider, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
-import { useState } from 'react'
 
 import { MCPPolicyPresetEnumApi } from '../generated/api.schemas'
 import { AudienceEnumApi } from '../generated/api.schemas'
