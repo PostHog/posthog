@@ -310,14 +310,12 @@ class TestSessionIdentityGate:
         assert get_sandbox_mcp_session_user("sb-2") == 42
         assert cache.get(_sandbox_mcp_session_cache_key("run-1")) == 42  # untouched
 
-    def test_transition_with_no_configs_leaves_previous_binding(
+    def test_transition_with_no_configs_fails_closed(
         self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh
     ):
-        # The prior actor holds the live session, but the new actor resolves no
-        # MCP configs. An empty-list refresh is a no-op on the agent-server, so
-        # we neither send it nor rebind: the binding stays on the previous actor
-        # (who still holds the live session) rather than falsely flipping to the
-        # new one.
+        # The prior actor holds the live session and the new actor resolves no MCP
+        # configs, so an empty-list refresh can neither rebind nor tear it down.
+        # Reject the turn rather than run it against the prior actor's session.
         mock_oauth.return_value = "fresh-token"
         mock_ph_configs.return_value = []
         mock_user_configs.return_value = []
@@ -326,9 +324,26 @@ class TestSessionIdentityGate:
         actor = MagicMock(id=42)
         safe = _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", None, actor_user=actor, state=None)
 
-        assert safe is True  # best-effort: delivery proceeds
+        assert safe is False  # fail closed: prior session may still be live
         mock_send_refresh.assert_not_called()
         assert get_sandbox_mcp_session_user("run-1") == 99  # binding unchanged
+
+    def test_unknown_binding_with_no_configs_runs(
+        self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh
+    ):
+        # No recorded prior actor and no MCP configs to establish a session: there
+        # is nothing to leak, so the turn runs rather than being blocked just
+        # because MCP is unavailable. The binding is recorded for later transitions.
+        mock_oauth.return_value = "fresh-token"
+        mock_ph_configs.return_value = []
+        mock_user_configs.return_value = []
+
+        actor = MagicMock(id=42)
+        safe = _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", None, actor_user=actor, state=None)
+
+        assert safe is True
+        mock_send_refresh.assert_not_called()
+        assert get_sandbox_mcp_session_user("run-1") == 42  # binding recorded
 
 
 class TestSendFollowupActivityRefreshOrdering:

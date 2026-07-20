@@ -322,18 +322,18 @@ def _refresh_sandbox_mcp(
 
     if not mcp_configs:
         if is_transition:
-            # The new actor resolves no MCP configs, and an empty-list refresh is
-            # a notification-only no-op on the agent-server (see
-            # send_refresh_session) — it cannot tear down the previous actor's
-            # live session. So we neither send nor rebind: leave the binding on
-            # the previous actor, which accurately describes the live session,
-            # and re-attempt on their next message. Only reachable on deployments
-            # without a resolvable MCP URL (get_sandbox_ph_mcp_configs is
-            # otherwise never empty), so best-effort delivery is acceptable.
-            logger.info("refresh_mcp_no_configs_on_transition", run_id=run_id, previous_user_id=bound_user_id)
-            return True
-        # First bind for this sandbox and the actor has no MCP configs: there is
-        # no prior session to tear down, so just record the binding.
+            # A prior actor holds the live session and this actor resolves no MCP
+            # configs, so an empty-list refresh (a no-op on the agent-server)
+            # can neither rebind it nor tear it down. Fail closed rather than run
+            # the turn against the previous actor's retained session.
+            logger.info(
+                "refresh_mcp_no_configs_on_transition_fail_closed", run_id=run_id, previous_user_id=bound_user_id
+            )
+            return False
+        # No recorded prior actor and no MCP configs to establish a session:
+        # there is nothing to leak, so let the turn run rather than block the
+        # agent just because MCP is unavailable. Record the binding so a later
+        # actor transition is still detected.
         mark_sandbox_mcp_session(scope, actor_user.id)
         logger.info("refresh_mcp_skipped_no_configs", run_id=run_id)
         return True
