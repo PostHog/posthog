@@ -32,9 +32,11 @@ class Migration(migrations.Migration):
                 (
                     "team",
                     models.ForeignKey(
+                        blank=True,
                         db_column="execution_team_id",
                         db_constraint=False,
-                        on_delete=django.db.models.deletion.DO_NOTHING,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
                         related_name="+",
                         to="posthog.team",
                     ),
@@ -46,9 +48,10 @@ class Migration(migrations.Migration):
                 ("enabled", models.BooleanField(default=True)),
                 (
                     "metric",
-                    models.CharField(choices=[("spend", "Spend"), ("usage", "Usage")], default="spend", max_length=20),
+                    models.CharField(choices=[("spend", "Spend")], default="spend", max_length=20),
                 ),
                 ("currency", models.CharField(default="USD", max_length=3)),
+                ("configuration_revision", models.PositiveIntegerField(default=1)),
                 (
                     "threshold_type",
                     models.CharField(
@@ -84,6 +87,8 @@ class Migration(migrations.Migration):
                 ("cooldown_hours", models.PositiveSmallIntegerField(default=24)),
                 ("snooze_until", models.DateTimeField(blank=True, null=True)),
                 ("next_check_at", models.DateTimeField(blank=True, null=True)),
+                ("pending_evaluation_date", models.DateField(blank=True, null=True)),
+                ("retry_attempt_count", models.PositiveSmallIntegerField(default=0)),
                 ("last_checked_at", models.DateTimeField(blank=True, null=True)),
                 ("last_notified_at", models.DateTimeField(blank=True, null=True)),
                 ("consecutive_failures", models.PositiveIntegerField(default=0)),
@@ -96,6 +101,91 @@ class Migration(migrations.Migration):
                     models.Index(fields=["organization_id", "-created_at"], name="billing_alert_org_created_idx"),
                     models.Index(fields=["enabled", "next_check_at"], name="billing_alert_scheduler_idx"),
                     models.Index(fields=["organization_id", "enabled", "state"], name="billing_alert_org_state_idx"),
+                ],
+                "constraints": [
+                    models.CheckConstraint(
+                        condition=models.Q(("baseline_window_days__gte", 1)),
+                        name="billing_alert_baseline_window_positive",
+                    ),
+                    models.CheckConstraint(
+                        condition=models.Q(("check_interval_hours__in", (1, 2, 3, 4, 6, 8, 12, 24))),
+                        name="billing_alert_supported_interval",
+                    ),
+                    models.CheckConstraint(
+                        condition=models.Q(("minimum_value__gte", 0)),
+                        name="billing_alert_minimum_nonnegative",
+                    ),
+                    models.CheckConstraint(
+                        condition=models.Q(
+                            ("threshold_percentage__gt", 0),
+                            ("threshold_percentage__isnull", False),
+                            ("threshold_type", "relative_increase"),
+                        )
+                        | models.Q(
+                            ("threshold_type__in", ("absolute_value", "absolute_increase")),
+                            ("threshold_value__gte", 0),
+                            ("threshold_value__isnull", False),
+                        ),
+                        name="billing_alert_threshold_configuration_valid",
+                    ),
+                ],
+            },
+        ),
+        migrations.CreateModel(
+            name="BillingAlertEvaluationClaim",
+            fields=[
+                (
+                    "id",
+                    models.UUIDField(
+                        default=posthog.models.utils.uuid7,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
+                    ),
+                ),
+                ("organization_id", models.UUIDField(db_index=True)),
+                ("evaluation_date", models.DateField()),
+                ("configuration_revision", models.PositiveIntegerField()),
+                ("delivery_uuid", models.UUIDField(default=posthog.models.utils.uuid7, editable=False, unique=True)),
+                (
+                    "status",
+                    models.CharField(
+                        choices=[
+                            ("pending", "Pending"),
+                            ("evaluating", "Evaluating"),
+                            ("retryable", "Retryable"),
+                            ("completed", "Completed"),
+                            ("superseded", "Superseded"),
+                        ],
+                        default="pending",
+                        max_length=20,
+                    ),
+                ),
+                ("lease_expires_at", models.DateTimeField(blank=True, null=True)),
+                ("next_retry_at", models.DateTimeField(blank=True, null=True)),
+                ("attempt_count", models.PositiveIntegerField(default=0)),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                (
+                    "alert",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="evaluation_claims",
+                        to="billing_alerts.billingalertconfiguration",
+                    ),
+                ),
+            ],
+            options={
+                "db_table": "billing_alerts_evaluation_claim",
+                "indexes": [
+                    models.Index(fields=["organization_id", "-created_at"], name="billing_claim_org_created_idx"),
+                    models.Index(fields=["status", "next_retry_at"], name="billing_claim_retry_idx"),
+                ],
+                "constraints": [
+                    models.UniqueConstraint(
+                        fields=("alert", "evaluation_date", "configuration_revision"),
+                        name="unique_billing_alert_evaluation_claim",
+                    )
                 ],
             },
         ),
@@ -125,13 +215,16 @@ class Migration(migrations.Migration):
                         max_length=32,
                     ),
                 ),
+                ("source", models.CharField(choices=[("scheduled", "Scheduled"), ("manual", "Manual")], max_length=16)),
+                ("attempt_number", models.PositiveIntegerField()),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("organization_id", models.UUIDField(db_index=True)),
                 ("evaluation_date", models.DateField(blank=True, null=True)),
                 ("period_start", models.DateTimeField(blank=True, null=True)),
                 ("period_end", models.DateTimeField(blank=True, null=True)),
                 (
                     "metric",
-                    models.CharField(choices=[("spend", "Spend"), ("usage", "Usage")], max_length=20),
+                    models.CharField(choices=[("spend", "Spend")], max_length=20),
                 ),
                 ("current_value", models.DecimalField(blank=True, decimal_places=6, max_digits=20, null=True)),
                 ("baseline_value", models.DecimalField(blank=True, decimal_places=6, max_digits=20, null=True)),
@@ -172,6 +265,14 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 (
+                    "claim",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="attempts",
+                        to="billing_alerts.billingalertevaluationclaim",
+                    ),
+                ),
+                (
                     "team",
                     models.ForeignKey(
                         db_constraint=False,
@@ -194,9 +295,8 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="billingalertevent",
             constraint=models.UniqueConstraint(
-                condition=models.Q(evaluation_date__isnull=False, kind="check"),
-                fields=("alert", "kind", "evaluation_date"),
-                name="unique_billing_alert_check_event_date",
+                fields=("claim", "attempt_number"),
+                name="unique_billing_alert_evaluation_attempt",
             ),
         ),
     ]

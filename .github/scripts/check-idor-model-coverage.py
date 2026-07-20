@@ -89,11 +89,6 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # RoleMembership has a direct user FK but org is indirect (via role), so the
         # script sees it as user_scoped while semgrep correctly has it in org_scoped.
         "RoleMembership",
-        # Billing alerts are scoped by organization_id. The Team FK is execution_team_id,
-        # used only as the HogFunction execution context, so the team-FK heuristic would
-        # incorrectly classify these as team-scoped.
-        "BillingAlertConfiguration",
-        "BillingAlertEvent",
         # --- Ingestion/event tables (not queried by user-supplied ID) ---
         "CoreEvent",
         "ElementGroup",
@@ -371,6 +366,14 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
     user_scoped: set[str] = set()
     no_scope: set[str] = set()
 
+    # These models use a plain organization_id and keep Team only as a delivery context.
+    # Classify them as organization-scoped so the IDOR Semgrep rules cover their lookups.
+    organization_scoped_by_id = {
+        "BillingAlertConfiguration",
+        "BillingAlertEvaluationClaim",
+        "BillingAlertEvent",
+    }
+
     for model in apps.get_models():
         model_name = model.__name__
 
@@ -380,6 +383,10 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
 
         # Skip proxy models
         if model._meta.proxy:
+            continue
+
+        if model_name in organization_scoped_by_id:
+            org_scoped.add(model_name)
             continue
 
         # Check for FK fields and plain team_id (ProductTeamModel uses BigIntegerField)
