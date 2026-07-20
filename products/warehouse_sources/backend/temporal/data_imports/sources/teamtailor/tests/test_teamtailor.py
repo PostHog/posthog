@@ -69,7 +69,7 @@ def _wire(mock_make_session: MagicMock, responses: list[Any]) -> tuple[requests.
             raise result
         return result
 
-    session.send = mock.MagicMock(side_effect=_send)  # type: ignore[method-assign]
+    cast(Any, session).send = mock.MagicMock(side_effect=_send)
     mock_make_session.return_value = session
     return session, sent
 
@@ -199,7 +199,7 @@ class TestAuthHeaders:
             captured.update(prepared.headers)
             return prepared
 
-        session.prepare_request = mock.MagicMock(side_effect=_prepare)  # type: ignore[method-assign]
+        cast(Any, session).prepare_request = mock.MagicMock(side_effect=_prepare)
         _rows("candidates", _make_manager())
 
         assert captured["Authorization"] == "Token token=tt-key"
