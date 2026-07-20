@@ -777,6 +777,12 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             "invalid_client": "The OAuth2 token endpoint rejected the client credentials (invalid_client). Check the configured client_id, client secret, and token URL.",
             "invalid_grant": "The OAuth2 token endpoint rejected the grant (invalid_grant) — a refresh token may have expired or been revoked. Re-enter the OAuth2 credentials.",
             OAUTH2_PERMANENT_ERROR_MARKER: "The OAuth2 token endpoint rejected the request and the configuration must change before the sync can succeed. Check the configured OAuth2 credentials, token URL, grant type, and scopes.",
+            # The endpoint returned non-JSON content (an HTML or plain-text error page, a
+            # login redirect) on an otherwise-successful response. The request shape is
+            # manifest-driven and deterministic, so retrying re-fetches the same body —
+            # stop and point at the config the user can change. Matches the stable prefix
+            # RESTClientNonRetryableError uses, not the variable URL that follows.
+            "Non-JSON response from": "The upstream API returned a non-JSON response (for example an HTML or plain-text error page) instead of data. Check that the resource's URL and path in the manifest point at a JSON API endpoint and that any required authentication is configured, then try again.",
         }
 
     def _assemble_manifest(self, config: CustomSourceConfig) -> dict[str, Any]:
