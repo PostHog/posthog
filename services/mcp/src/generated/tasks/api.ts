@@ -219,6 +219,14 @@ export const TasksCreateBody = /* @__PURE__ */ zod
                 "When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead."
             ),
         channel: zod.string().nullish().describe('Channel this task is owned by (the channel it was kicked off in).'),
+        sandbox_environment_id: zod
+            .string()
+            .nullish()
+            .describe('Sandbox environment selected for matching a pre-warmed cloud run. Not persisted on the task.'),
+        custom_image_id: zod
+            .string()
+            .nullish()
+            .describe('Custom image selected for matching a pre-warmed cloud run. Not persisted on the task.'),
         runtime: zod
             .enum(['acp', 'pi'])
             .describe('* `acp` - ACP\n* `pi` - Pi')

@@ -33,6 +33,8 @@ const TasksCreateSchema = TasksCreateBody.omit({
     pending_user_artifact_ids: true,
     auto_publish: true,
     channel: true,
+    sandbox_environment_id: true,
+    custom_image_id: true,
     runtime: true,
 }).extend({
     description: TasksCreateBody.shape['description']
