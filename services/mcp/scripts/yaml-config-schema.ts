@@ -185,6 +185,14 @@ export const ToolConfigSchema = z
                  * returns the full `include` set. Requires `include`; incompatible with `exclude`.
                  */
                 selectable: z.boolean().optional(),
+                /** Wrap user-authored response data in an explicit informational-only tag boundary. */
+                informational_wrapper: z
+                    .object({
+                        tag: z.string().regex(/^[a-z][a-z0-9-]*$/),
+                        purpose: z.string().min(1).optional(),
+                    })
+                    .strict()
+                    .optional(),
             })
             .strict()
             .refine((data) => !(data.include?.length && data.exclude?.length), {

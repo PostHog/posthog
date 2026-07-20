@@ -389,23 +389,34 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         if channel_detail and channel_detail in [d.value for d in ChannelDetail]:
             queryset = queryset.filter(channel_detail=channel_detail)
 
-        assignee = self.request.query_params.get("assignee")
-        if assignee:
-            if assignee.lower() == "unassigned":
-                queryset = queryset.filter(assignment__isnull=True)
-            elif assignee.startswith("user:"):
-                try:
-                    user_id = int(assignee[5:])
-                    queryset = queryset.filter(assignment__user_id=user_id)
-                except ValueError:
-                    pass
-            elif assignee.startswith("role:"):
-                try:
-                    role_id = uuid.UUID(assignee[5:])
-                except (ValueError, AttributeError):
-                    pass
-                else:
-                    queryset = queryset.filter(assignment__role_id=role_id)
+        assignee_param = self.request.query_params.get("assignee")
+        if assignee_param:
+            user_ids: list[int] = []
+            role_ids: list[uuid.UUID] = []
+            include_unassigned = False
+            for raw_entry in assignee_param.split(",")[:100]:
+                entry = raw_entry.strip()
+                if entry.lower() == "unassigned":
+                    include_unassigned = True
+                elif entry.startswith("user:"):
+                    try:
+                        user_ids.append(int(entry[5:]))
+                    except ValueError:
+                        pass
+                elif entry.startswith("role:"):
+                    try:
+                        role_ids.append(uuid.UUID(entry[5:]))
+                    except (ValueError, AttributeError):
+                        pass
+            assignee_q = Q()
+            if user_ids:
+                assignee_q |= Q(assignment__user_id__in=user_ids)
+            if role_ids:
+                assignee_q |= Q(assignment__role_id__in=role_ids)
+            if include_unassigned:
+                assignee_q |= Q(assignment__isnull=True)
+            if assignee_q:
+                queryset = queryset.filter(assignee_q)
 
         date_from = self.request.query_params.get("date_from")
         if date_from and date_from != "all":
@@ -649,8 +660,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 description=(
-                    "Filter by assignee. Use `unassigned` for tickets with no assignee, "
-                    "`user:<user_id>` for a specific user, or `role:<role_uuid>` for a role."
+                    "Filter by assignee. Accepts a single value or a comma-separated list "
+                    "(matches any, max 100 entries). Each entry is `unassigned` (no assignee), "
+                    "`user:<user_id>`, or `role:<role_uuid>`, e.g. `assignee=unassigned,user:123`."
                 ),
             ),
             OpenApiParameter(

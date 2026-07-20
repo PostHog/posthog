@@ -2,6 +2,8 @@
 
 "find / which / do we have / what's our X chart" questions about PostHog-created entities are SQL searches against `system.*` (`system.insights`, `system.dashboards`, `system.cohorts`, `system.feature_flags`, `system.experiments`, `system.surveys`, `system.notebooks`), **not** `*-list` walks.
 
+This routing is for finding **saved artifacts** (a chart, dashboard, cohort, flag). "What data / tables / events do we have available?" is a schema question instead — answer it from `system.information_schema.tables` (and `read-data-schema` for events), not by searching `system.insights`.
+
 Required order on every run, no shortcuts — schema first, every run:
 
 1. Confirm the table's columns with an `execute-sql` against `system.information_schema.columns`, e.g. `SELECT column_name, data_type, description FROM system.information_schema.columns WHERE table_name = 'system.insights'`. Schema markdown in skills/references (`models-*.md`, `querying-posthog-data` docs) is documentation, **not** a substitute — query the schema.

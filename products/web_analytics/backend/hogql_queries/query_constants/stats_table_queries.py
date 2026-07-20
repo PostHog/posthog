@@ -187,6 +187,10 @@ GROUP BY session_id, breakdown_value
 # (bucketed by session start), instead of routing both through the events↔sessions
 # lazy join. The join shape re-executes the sessions subquery on every shard of the
 # events cluster, so for unfiltered queries these variants read ~10× fewer rows.
+# The filter placeholders ({event_filters}, {bounce_sessions_filter},
+# {time_on_page_filters}) are constant-true for the unfiltered no-join strategies;
+# the session-id-set strategies fill them with events-side filters and a
+# session-id IN filter so filtered queries share the same two-scan shape.
 NO_JOIN_PATH_BOUNCE_QUERY = """
 SELECT
     counts.breakdown_value AS "context.columns.breakdown_value",
@@ -205,6 +209,7 @@ FROM (
         {events_session_id_present},
         or(events.event == '$pageview', events.event == '$screen'),
         {inside_timestamp_periods},
+        {event_filters},
     )
     GROUP BY breakdown_value
 ) AS counts
@@ -217,6 +222,7 @@ LEFT JOIN (
     WHERE and(
         {inside_session_periods},
         or(sessions.$pageview_count > 0, sessions.$screen_count > 0),
+        {bounce_sessions_filter},
     )
     GROUP BY breakdown_value
 ) AS bounce
@@ -253,6 +259,7 @@ FROM (
         {events_session_id_present},
         or(events.event == '$pageview', events.event == '$screen'),
         {inside_timestamp_periods},
+        {event_filters},
     )
     GROUP BY breakdown_value
 ) AS counts
@@ -274,6 +281,7 @@ LEFT JOIN (
         {time_on_page_breakdown_value} IS NOT NULL,
         events.properties.`$prev_pageview_duration` IS NOT NULL,
         {inside_timestamp_periods},
+        {time_on_page_filters},
     )
     GROUP BY breakdown_value
 ) AS time_on_page
@@ -288,6 +296,7 @@ LEFT JOIN (
     WHERE and(
         {inside_session_periods},
         or(sessions.$pageview_count > 0, sessions.$screen_count > 0),
+        {bounce_sessions_filter},
     )
     GROUP BY breakdown_value
 ) AS bounce
