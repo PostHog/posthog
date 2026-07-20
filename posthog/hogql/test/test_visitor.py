@@ -1,16 +1,30 @@
+import sys
+import copy
+
 from posthog.test.base import BaseTest
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.hogql import ast
 from posthog.hogql.ast import AST_CLASSES, HogQLXAttribute, HogQLXTag, UUIDType
 from posthog.hogql.base import _VISIT_NAME_REPLACEMENTS, AST, camel_case_pattern
+from posthog.hogql.constants import MAX_QUERY_DEPTH
 from posthog.hogql.errors import (
     InternalHogQLError,
     NotImplementedError as HogQLNotImplementedError,
+    QueryError,
 )
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, Visitor
+
+
+def _deeply_nested_expr(depth: int) -> ast.Expr:
+    node: ast.Expr = ast.Constant(value=1)
+    for _ in range(depth):
+        node = ast.Not(expr=node)
+    return node
 
 
 class TestVisitor(BaseTest):
@@ -249,3 +263,29 @@ class TestVisitor(BaseTest):
     def test_order_expr_rejects_invalid_direction(self, _name: str, direction: str):
         with self.assertRaises(ValueError):
             ast.OrderExpr(expr=ast.Field(chain=["col"]), order=direction)  # type: ignore[arg-type]
+
+
+class TestVisitorRecursionGuard(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("cloning_visitor", lambda expr: CloningVisitor().visit(expr)),
+            ("deepcopy", lambda expr: copy.deepcopy(expr)),
+        ]
+    )
+    def test_deep_nesting_raises_query_error_not_recursion_error(self, _name, run):
+        # Nested far past what the interpreter can recurse through. Without the guards in
+        # Visitor.visit / AST.__deepcopy__ this escaped as a raw RecursionError; assertRaises
+        # fails on that (it isn't a QueryError), which is exactly the regression we're locking in.
+        with self.assertRaises(QueryError):
+            run(_deeply_nested_expr(5000))
+
+    def test_depth_cap_fires_before_recursion_limit(self):
+        # With ample interpreter headroom, the logical MAX_QUERY_DEPTH cap is what stops the walk
+        # (mirroring the parser), rather than relying on stack exhaustion.
+        original_limit = sys.getrecursionlimit()
+        sys.setrecursionlimit(MAX_QUERY_DEPTH * 8)
+        try:
+            with self.assertRaises(QueryError):
+                TraversingVisitor().visit(_deeply_nested_expr(MAX_QUERY_DEPTH + 5))
+        finally:
+            sys.setrecursionlimit(original_limit)

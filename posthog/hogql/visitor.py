@@ -4,7 +4,8 @@ from typing import Any, Generic, Optional, TypeVar
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectSetNode
 from posthog.hogql.base import AST, Expr
-from posthog.hogql.errors import BaseHogQLError
+from posthog.hogql.constants import MAX_QUERY_DEPTH
+from posthog.hogql.errors import BaseHogQLError, QueryError
 from posthog.hogql.utils import is_simple_value
 
 T = TypeVar("T")
@@ -26,17 +27,34 @@ def clear_locations(expr: T_AST) -> T_AST:
 
 
 class Visitor(Generic[T]):
+    # Live traversal depth, tracked so a deeply-nested query surfaces a clean HogQL error
+    # instead of a raw RecursionError. Every recursive walk goes through visit(), so counting
+    # here bounds every stage (resolve/clone/print). Class-level default means subclasses that
+    # skip super().__init__() still start at zero.
+    _visit_depth: int = 0
+
     def visit(self, node: AST | None) -> T:
         if node is None:
             return node  # type: ignore
 
+        depth = self._visit_depth + 1
+        self._visit_depth = depth
         try:
+            if depth > MAX_QUERY_DEPTH:
+                raise QueryError("Query is too deeply nested")
             return node.accept(self)
+        except RecursionError:
+            # Each AST level costs several Python frames, so a walk can exhaust the interpreter's
+            # recursion limit before the MAX_QUERY_DEPTH cap above. Convert it to a clean error
+            # rather than letting a host-level stack overflow escape the query pipeline.
+            raise QueryError("Query is too deeply nested", start=node.start, end=node.end)
         except BaseHogQLError as e:
             if e.start is None or e.end is None:
                 e.start = node.start
                 e.end = node.end
             raise
+        finally:
+            self._visit_depth = depth - 1
 
 
 class TraversingVisitor(Visitor[None]):
