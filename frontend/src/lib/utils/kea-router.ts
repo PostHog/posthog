@@ -7,6 +7,8 @@ const pathsWithoutProjectId = [
     'me',
     'instance',
     'organization',
+    'organization-deactivated',
+    'organization-pending-deletion',
     'preflight',
     'login',
     'signup',
