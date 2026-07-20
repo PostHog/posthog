@@ -790,7 +790,13 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         values:
                             is_static && values.staticCohortMode !== 'criteria'
                                 ? undefined
-                                : filters.properties.values.map(validateGroup),
+                                : filters.properties.values.map((group, index, groups) =>
+                                      validateGroup(
+                                          group,
+                                          filters.properties.type,
+                                          groups.filter((_, i) => i !== index)
+                                      )
+                                  ),
                     },
                 },
             }),

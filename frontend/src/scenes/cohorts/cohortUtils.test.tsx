@@ -1,5 +1,5 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
+import { BehavioralFilterKey, CohortClientErrors } from 'scenes/cohorts/CohortFilters/types'
 import { cleanBehavioralTypeCriteria, determineFilterType, validateGroup } from 'scenes/cohorts/cohortUtils'
 
 import { AnyCohortCriteriaType, BehavioralEventType, CohortCriteriaGroupFilter, FilterLogicalOperator } from '~/types'
@@ -86,6 +86,48 @@ describe('validateGroup', () => {
 
         // Exercises the `.join(', ')` and the `are` (vs `is a`) pluralization in the changed expression.
         expect(errors.id).toContain("'legacy_unknown_type', 'Did not complete event' are negative cohort criteria")
+    })
+
+    const negationGroup: CohortCriteriaGroupFilter = {
+        type: FilterLogicalOperator.And,
+        values: [
+            {
+                type: BehavioralFilterKey.Behavioral,
+                value: BehavioralEventType.PerformEvent,
+                negation: true,
+            },
+        ],
+    }
+    const positiveSiblingGroup: CohortCriteriaGroupFilter = {
+        type: FilterLogicalOperator.And,
+        values: [
+            {
+                type: BehavioralFilterKey.Behavioral,
+                value: BehavioralEventType.PerformEvent,
+                negation: false,
+            },
+        ],
+    }
+
+    it('allows a negation alone in its group when a sibling group has a positive criterion and outer op is AND', () => {
+        // The reported bug: a "Did not complete event" negation in its own group, matched against a
+        // positive criterion in a sibling group under the top-level "Match all criteria" (AND) operator.
+        const errors = validateGroup(negationGroup, FilterLogicalOperator.And, [positiveSiblingGroup])
+
+        expect(errors.id).toBeUndefined()
+    })
+
+    it('still rejects a negation alone in its group when the outer operator is OR', () => {
+        // Under OR the sibling group is unioned, not intersected, so it cannot bound the negation.
+        const errors = validateGroup(negationGroup, FilterLogicalOperator.Or, [positiveSiblingGroup])
+
+        expect(errors.id).toContain(CohortClientErrors.NegationCriteriaMissingOther)
+    })
+
+    it('still rejects a negation alone in its group when no sibling group has a positive criterion', () => {
+        const errors = validateGroup(negationGroup, FilterLogicalOperator.And, [negationGroup])
+
+        expect(errors.id).toContain(CohortClientErrors.NegationCriteriaMissingOther)
     })
 })
 
