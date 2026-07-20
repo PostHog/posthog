@@ -173,7 +173,9 @@ export const MARKDOWN_NODE_DEFINITIONS: {
     {
         tagName: 'SQLV2',
         category: 'SQL',
-        label: 'SQL (v2)',
+        // The single SQL node once the legacy SQL cells are deprecated (they render but
+        // are not insertable), so it reads as plain "SQL" in the insert menu.
+        label: 'SQL',
         insertCommand: {
             aliases: ['data', 'sql'],
             // New cells get a durable nodeId up front: parsed markdown block ids are content

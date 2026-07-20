@@ -280,10 +280,18 @@ export const getUniqueSqlV2ReturnVariable = (
     fallbackReturnVariable: string
 ): string => {
     const used = new Set<string>()
-    let resolvedReturnVariable = resolveSqlV2ReturnVariable(fallbackReturnVariable)
+    let resolvedReturnVariable = fallbackReturnVariable.trim() ? resolveSqlV2ReturnVariable(fallbackReturnVariable) : ''
     let resolvedFromNodes = false
 
     nodes.forEach((node) => {
+        // An unnamed cell binds no dataframe: it claims no name and needs none reserved.
+        if (!node.returnVariable) {
+            if (node.nodeId === nodeId) {
+                resolvedReturnVariable = ''
+                resolvedFromNodes = true
+            }
+            return
+        }
         const baseReturnVariable = resolveSqlV2ReturnVariable(node.returnVariable)
         const uniqueReturnVariable = buildUniqueSqlV2ReturnVariable(baseReturnVariable, used)
         used.add(normalizeSqlIdentifier(uniqueReturnVariable))
@@ -294,7 +302,7 @@ export const getUniqueSqlV2ReturnVariable = (
         }
     })
 
-    if (!resolvedFromNodes) {
+    if (!resolvedFromNodes && resolvedReturnVariable) {
         resolvedReturnVariable = buildUniqueSqlV2ReturnVariable(resolvedReturnVariable, used)
     }
 
@@ -365,11 +373,15 @@ export const collectSqlV2Nodes = (content?: JSONContent | null): SqlV2NodeSummar
         if (node.type === NotebookNodeType.SQLV2) {
             const attrs = node.attrs ?? {}
             const code = typeof attrs.code === 'string' ? attrs.code : ''
-            const baseReturnVariable = resolveSqlV2ReturnVariable(
-                typeof attrs.returnVariable === 'string' ? attrs.returnVariable : 'sql_df'
-            )
-            const returnVariable = buildUniqueSqlV2ReturnVariable(baseReturnVariable, usedReturnVariables)
-            usedReturnVariables.add(normalizeSqlIdentifier(returnVariable))
+            // A missing attribute predates the optional name (legacy default); an explicit
+            // blank means the user left it empty — the cell binds no dataframe.
+            const rawReturnVariable = typeof attrs.returnVariable === 'string' ? attrs.returnVariable : 'sql_df'
+            const returnVariable = rawReturnVariable.trim()
+                ? buildUniqueSqlV2ReturnVariable(resolveSqlV2ReturnVariable(rawReturnVariable), usedReturnVariables)
+                : ''
+            if (returnVariable) {
+                usedReturnVariables.add(normalizeSqlIdentifier(returnVariable))
+            }
             nodes.push({
                 nodeId: attrs.nodeId ?? '',
                 code,
@@ -771,11 +783,17 @@ export const buildNotebookDependencyGraph = (content?: JSONContent | null): Note
         if (node.type === NotebookNodeType.SQLV2) {
             const attrs = node.attrs ?? {}
             sqlV2Index += 1
-            const baseReturnVariable = resolveSqlV2ReturnVariable(
-                typeof attrs.returnVariable === 'string' ? attrs.returnVariable : 'sql_df'
-            )
-            const returnVariable = buildUniqueSqlV2ReturnVariable(baseReturnVariable, usedSqlV2ReturnVariables)
-            usedSqlV2ReturnVariables.add(normalizeSqlIdentifier(returnVariable))
+            // Blank name = display-only cell: it exports nothing (see collectSqlV2Nodes).
+            const rawReturnVariable = typeof attrs.returnVariable === 'string' ? attrs.returnVariable : 'sql_df'
+            const returnVariable = rawReturnVariable.trim()
+                ? buildUniqueSqlV2ReturnVariable(
+                      resolveSqlV2ReturnVariable(rawReturnVariable),
+                      usedSqlV2ReturnVariables
+                  )
+                : ''
+            if (returnVariable) {
+                usedSqlV2ReturnVariables.add(normalizeSqlIdentifier(returnVariable))
+            }
             const code = typeof attrs.code === 'string' ? attrs.code : ''
             nodes.push({
                 nodeId: attrs.nodeId ?? '',
