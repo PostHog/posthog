@@ -8,7 +8,6 @@ import {
     LemonInput,
     LemonModal,
     LemonSegmentedButton,
-    LemonSwitch,
     LemonTag,
     LemonTagType,
     LemonTextArea,
@@ -274,7 +273,7 @@ function FieldValueEditor({
         )
     }
     if (kind === 'flag') {
-        return <LemonSwitch checked={!!value} onChange={onChange} label={value ? 'Enabled' : 'Disabled'} />
+        return <BooleanTag value={!!value} onClick={() => onChange(!value)} />
     }
     return <LemonTextArea value={String(value ?? '')} onChange={onChange} minRows={2} />
 }
