@@ -87,8 +87,8 @@ export function CreateOrganizationModal({
                     </p>
                     <p className="mb-0">
                         You're signed in as <strong>{user?.email}</strong>. If your invite went to a different address,{' '}
-                        <Link onClick={() => logout()}>log out</Link> and sign back in with that email. Otherwise, create
-                        your own organization below.
+                        <Link onClick={() => logout()}>log out</Link> and sign back in with that email. Otherwise,
+                        create your own organization below.
                     </p>
                 </LemonBanner>
             )}
