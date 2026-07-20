@@ -163,6 +163,8 @@ pub struct IssueSpiking {
     pub issue: IssueNotificationContext,
     pub computed_baseline: f64,
     pub current_bucket_value: f64,
+    #[serde(default)]
+    pub assignee: Option<String>,
 }
 
 /// Issue state captured when the ingestion transition happened.

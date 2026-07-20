@@ -713,6 +713,12 @@ class TaskRunRelayMessageRequestSerializer(serializers.Serializer):
         max_length=10000,
         help_text="Joined message body. Used when text_parts is absent.",
     )
+    message_id = serializers.CharField(
+        max_length=128,
+        required=False,
+        allow_null=True,
+        help_text="Id of the user message this turn answers, when the agent-server echoes it.",
+    )
     # Kept optional for forward/backward compatibility during rollout; will be aligned once deployed.
     text_parts = serializers.ListField(
         child=serializers.CharField(max_length=10000, allow_blank=True),
