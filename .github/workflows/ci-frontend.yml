@@ -21,9 +21,6 @@ permissions:
     pull-requests: write
     actions: read
 
-env:
-    RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
-
 jobs:
     # Job to decide if we should run frontend ci
     # See .github/actions/paths-filter/README.md for filter semantics

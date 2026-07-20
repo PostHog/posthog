@@ -66,7 +66,6 @@ env:
     DISPLAY: ':99.0'
     # this is a fake key so this workflow can run for external contributors as they do not have access to secrets (that we don't need here)
     OIDC_RSA_PRIVATE_KEY: ${{ vars.OIDC_RSA_FAKE_PRIVATE_KEY }}
-    RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
     SANDBOX_JWT_PRIVATE_KEY: ${{ vars.OIDC_RSA_FAKE_PRIVATE_KEY }}
 
 permissions:
@@ -851,8 +850,7 @@ jobs:
 
             - name: Run product tests
               id: run-product-tests
-              # continue-on-error so the quarantine gate below is the verdict — it passes when
-              # every failure is an already-quarantined flake, fails otherwise.
+              # continue-on-error so the "Fail on test failure" step below is the verdict.
               continue-on-error: true
               # --force: discover already decided this product needs testing, skip turbo cache
               # --log-order=stream: stream pytest output live instead of buffering until completion
@@ -2660,8 +2658,7 @@ jobs:
             - name: Run Core tests
               id: run-core-tests
               # continue-on-error so a test failure doesn't fail the job here; the
-              # quarantine gate at the end of the job is the verdict — it passes when
-              # every failure is an already-quarantined flake, fails otherwise.
+              # "Fail on test failure" step at the end of the job is the verdict.
               continue-on-error: true
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
               env:
@@ -2799,7 +2796,7 @@ jobs:
 
             - name: Run Temporal tests
               id: run-temporal-tests
-              # continue-on-error: the quarantine gate at the end of the job is the verdict.
+              # continue-on-error: the "Fail on test failure" step at the end of the job is the verdict.
               # See "Run Core tests".
               continue-on-error: true
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}

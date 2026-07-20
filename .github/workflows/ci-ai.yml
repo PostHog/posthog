@@ -7,9 +7,6 @@ concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
     cancel-in-progress: true # We only want one AI CI run per PR concurrently
 
-env:
-    RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
-
 jobs:
     eval:
         timeout-minutes: 45

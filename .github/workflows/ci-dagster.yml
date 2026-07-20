@@ -38,7 +38,6 @@ env:
     DISPLAY: ':99.0'
     # this is a fake key so this workflow can run for external contributors as they do not have access to secrets (that we don't need here)
     OIDC_RSA_PRIVATE_KEY: ${{ vars.OIDC_RSA_FAKE_PRIVATE_KEY }}
-    RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
 
 jobs:
     # Verify the path filter below stays in sync with what dagster files

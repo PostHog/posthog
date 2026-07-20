@@ -23,9 +23,6 @@ permissions:
     contents: read
     pull-requests: read
 
-env:
-    RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
-
 jobs:
     changes:
         runs-on: ubuntu-latest
@@ -81,8 +78,7 @@ jobs:
 
             - name: Run tests
               id: run-tests
-              # continue-on-error so the quarantine gate below is the verdict — it passes when
-              # every failure is an already-quarantined flake, fails otherwise.
+              # continue-on-error so the "Fail on test failure" step below is the verdict.
               continue-on-error: true
               env:
                   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

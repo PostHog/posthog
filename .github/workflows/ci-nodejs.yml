@@ -15,7 +15,6 @@ env:
     OBJECT_STORAGE_BUCKET: 'posthog'
     # set the max buffer size small enough that the functional tests behave the same in CI as when running locally
     SESSION_RECORDING_MAX_BUFFER_SIZE_KB: 1024
-    RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -357,8 +356,7 @@ jobs:
 
             - name: Test with Jest
               id: run-jest
-              # continue-on-error so the quarantine gate below is the verdict — it passes when
-              # every failure is an already-quarantined flake, fails otherwise.
+              # continue-on-error so the "Fail on test failure" step below is the verdict.
               continue-on-error: true
               env:
                   # Below DB name has `test_` prepended, as that's how Django (ran above) creates the test DB

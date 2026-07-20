@@ -22,9 +22,6 @@ permissions:
     contents: read
     pull-requests: read
 
-env:
-    RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
-
 jobs:
     changes:
         runs-on: ubuntu-24.04
