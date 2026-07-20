@@ -12,8 +12,8 @@ import { HOG_EVAL_EXAMPLES } from '../hogEvalExamples'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import { HogTestResult } from '../types'
 
-const GLOBAL_NAME_CODE_CLASS = 'font-medium text-sm bg-fill-primary px-1.5 py-0.5 rounded'
-const PROPERTY_NAME_CODE_CLASS = 'font-medium text-xs bg-fill-primary px-1 py-0.5 rounded'
+const GLOBAL_NAME_CODE_CLASS = 'font-medium text-sm text-primary bg-fill-highlight-100 px-1.5 py-0.5 rounded'
+const PROPERTY_NAME_CODE_CLASS = 'font-medium text-xs text-primary bg-fill-highlight-100 px-1 py-0.5 rounded'
 
 const HOG_EVAL_COMMON_GLOBALS = {
     evaluation_events: [
