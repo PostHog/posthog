@@ -2568,6 +2568,7 @@ def signal_task_run_user_message(
     actor_user_id: int | None = None,
     message_id: str | None = None,
     actor_slack_user_id: str | None = None,
+    steer: bool = False,
 ) -> bool | None:
     """Queue a user_message follow-up signal on the run's workflow.
 
@@ -2587,7 +2588,15 @@ def signal_task_run_user_message(
         return None
     try:
         context = {"actor_slack_user_id": actor_slack_user_id} if actor_slack_user_id else None
-        signal_task_followup_message(run.workflow_id, content, artifact_ids, message_id, actor_user_id, context)
+        signal_task_followup_message(
+            run.workflow_id,
+            content,
+            artifact_ids,
+            message_id,
+            actor_user_id,
+            context,
+            steer=steer,
+        )
     except RPCError as e:
         if e.status == RPCStatusCode.NOT_FOUND:
             logger.warning("Follow-up signal target workflow gone for task run %s", run.id)
