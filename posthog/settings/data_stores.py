@@ -479,6 +479,10 @@ if get_from_env("POSTHOG_REPLAY_VISION_REDIS_HOST", ""):
         os.getenv("POSTHOG_REPLAY_VISION_REDIS_PORT", "6379"),
     )
 
+# The LLM gateway caches per-team quota state in its own Redis (llm_gateway/services/quota_resolver.py).
+# The central-Redis default only suits single-Redis setups; cloud must point this at the gateway's instance.
+LLM_GATEWAY_REDIS_URL = os.getenv("LLM_GATEWAY_REDIS_URL", REDIS_URL)
+
 if not REDIS_URL:
     raise ImproperlyConfigured(
         "Env var REDIS_URL or POSTHOG_REDIS_HOST is absolutely required to run this software.\n"

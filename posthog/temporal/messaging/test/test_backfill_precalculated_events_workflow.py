@@ -1,9 +1,16 @@
+import uuid
+import datetime as dt
+
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import temporalio.exceptions
+from confluent_kafka import KafkaException
 from parameterized import parameterized
+from temporalio.testing import ActivityEnvironment
 
+from posthog.clickhouse.client import sync_execute
+from posthog.models.event.util import create_event
 from posthog.temporal.messaging.backfill_precalculated_events_workflow import (
     BackfillPrecalculatedEventsInputs,
     backfill_precalculated_events_activity,
@@ -55,6 +62,25 @@ class TestFlushKafkaBatchAsync:
 
         assert result == 2
         mock_thread.assert_called_once_with(kafka_producer.flush)
+
+    @pytest.mark.asyncio
+    async def test_raises_when_a_message_failed_to_deliver(self):
+        # A failed delivery must surface as an error, not a silently-inflated success
+        # count: the caller relies on this raising to retry the batch instead of treating
+        # an undelivered row as corrected.
+        kafka_producer = Mock()
+        delivered = Mock()
+        failed = Mock()
+        failed.get.side_effect = KafkaException("broker not available")
+
+        with patch(
+            "posthog.temporal.messaging.backfill_precalculated_events_workflow.asyncio.to_thread"
+        ) as mock_thread:
+            mock_thread.return_value = None
+            with pytest.raises(RuntimeError, match="1/2 messages"):
+                await flush_kafka_batch_async(
+                    kafka_results=[delivered, failed], kafka_producer=kafka_producer, team_id=1, logger=Mock()
+                )
 
 
 class TestEvaluateEventCombinedFiltersSync:
@@ -209,6 +235,70 @@ class TestBackfillPrecalculatedEventsActivity:
 
         assert result.events_processed == 0
         assert result.events_produced == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+class TestBackfillResolvesMergedPersons:
+    async def test_backfill_resolves_person_id_through_overrides(self, team):
+        old_person, new_person, plain_person = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        timestamp = dt.datetime(2024, 1, 1, 12, 0, tzinfo=dt.UTC)
+
+        # Event ingested while did-merged still resolved to old_person; the distinct_id was
+        # later merged onto new_person (recorded in person_distinct_id_overrides).
+        merged_event_uuid = uuid.uuid4()
+        create_event(merged_event_uuid, "$pageview", team, "did-merged", timestamp, person_id=old_person)
+        sync_execute(
+            """
+            INSERT INTO person_distinct_id_overrides (team_id, distinct_id, person_id, version)
+            VALUES
+            """,
+            [(team.pk, "did-merged", str(new_person), 1)],
+        )
+        # Control: never merged, must keep its ingestion-time person_id.
+        plain_event_uuid = uuid.uuid4()
+        create_event(plain_event_uuid, "$pageview", team, "did-plain", timestamp, person_id=plain_person)
+
+        match_all_filter = BehavioralEventFilter(
+            condition_hash="hash-1",
+            bytecode=["_H", 1, Operation.TRUE],
+            cohort_ids=[1],
+            event_name="$pageview",
+            time_value=30,
+            time_interval="day",
+        )
+        inputs = BackfillPrecalculatedEventsInputs(
+            team_id=team.pk,
+            filter_storage_key="key",
+            cohort_ids=[1],
+            start_time="2024-01-01 00:00:00",
+            end_time="2024-01-02 00:00:00",
+        )
+
+        mock_producer = MagicMock()
+        with (
+            patch(
+                "posthog.temporal.messaging.backfill_precalculated_events_workflow.get_event_filters",
+                return_value=([match_all_filter], ["$pageview"], {}),
+            ),
+            patch(
+                "posthog.temporal.messaging.backfill_precalculated_events_workflow.get_producer",
+                return_value=mock_producer,
+            ),
+        ):
+            result = await ActivityEnvironment().run(backfill_precalculated_events_activity, inputs)
+
+        assert result.events_processed == 2
+        assert result.events_produced == 2
+
+        person_id_by_event_uuid = {
+            call.kwargs["data"]["uuid"]: call.kwargs["data"]["person_id"]
+            for call in mock_producer.produce.call_args_list
+        }
+        assert person_id_by_event_uuid == {
+            str(merged_event_uuid): str(new_person),
+            str(plain_event_uuid): str(plain_person),
+        }
 
 
 class TestBackfillPrecalculatedEventsInputs:
