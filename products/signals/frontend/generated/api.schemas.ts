@@ -122,6 +122,49 @@ export interface SignalReportRefundApi {
     readonly created_at: string
 }
 
+/**
+ * * `pending` - Pending
+ * * `verified` - Verified
+ * * `regressed` - Regressed
+ * * `inconclusive` - Inconclusive
+ */
+export type SignalFixVerificationStatusEnumApi =
+    (typeof SignalFixVerificationStatusEnumApi)[keyof typeof SignalFixVerificationStatusEnumApi]
+
+export const SignalFixVerificationStatusEnumApi = {
+    Pending: 'pending',
+    Verified: 'verified',
+    Regressed: 'regressed',
+    Inconclusive: 'inconclusive',
+} as const
+
+export interface SignalFixVerificationApi {
+    readonly id: string
+    /** Post-merge outcome of the fix PR: 'pending' (still inside the soak window), 'verified' (stayed quiet through the soak window), 'regressed' (the issue recurred and a new report was opened), or 'inconclusive' (the report left resolved through another door, so no outcome can be attributed).
+     *
+     * * `pending` - Pending
+     * * `verified` - Verified
+     * * `regressed` - Regressed
+     * * `inconclusive` - Inconclusive */
+    readonly status: SignalFixVerificationStatusEnumApi
+    /** The merged implementation PR whose fix is being verified. */
+    readonly pr_url: string
+    /** When the soak window ends; quiet until here counts as verified. */
+    readonly verify_after: string
+    /**
+     * When the outcome was settled; null while pending.
+     * @nullable
+     */
+    readonly checked_at: string | null
+    /**
+     * The recurrence report that proved the fix did not hold; set only when regressed.
+     * @nullable
+     */
+    readonly regressed_report: string | null
+    /** When the verification was scheduled (the PR merge). */
+    readonly created_at: string
+}
+
 export type RefundIneligibilityReasonEnumApi =
     (typeof RefundIneligibilityReasonEnumApi)[keyof typeof RefundIneligibilityReasonEnumApi]
 
@@ -198,6 +241,8 @@ export interface SignalReportApi {
     readonly implementation_pr_url: string | null
     /** The report's PR refund, when one exists. One refund per report, ever. */
     readonly refund: SignalReportRefundApi | null
+    /** Post-merge verification of the fix PR that resolved this report, when one exists. Distinguishes 'resolved (unverified)' from 'verified fixed' and 'fix regressed'. */
+    readonly fix_verification: SignalFixVerificationApi | null
     /** Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values). */
     readonly refund_ineligibility_reason: RefundIneligibilityReasonEnumApi | null
     /** Non-null when this report is system-marked never-billable (PostHog-system origin, e.g. a health-check scout finding) — its implementation PRs are free and cannot be refunded because nothing was charged.

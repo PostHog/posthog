@@ -21,6 +21,7 @@ from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES
 from .models import (
     AutonomyPriority,
+    SignalFixVerification,
     SignalReport,
     SignalReportArtefact,
     SignalReportRefund,
@@ -336,6 +337,38 @@ class SignalReportRefundSerializer(serializers.ModelSerializer):
         return obj.billing_synced_at is not None
 
 
+class SignalFixVerificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SignalFixVerification
+        fields = [
+            "id",
+            "status",
+            "pr_url",
+            "verify_after",
+            "checked_at",
+            "regressed_report",
+            "created_at",
+        ]
+        read_only_fields = fields
+        extra_kwargs = {
+            "status": {
+                "help_text": (
+                    "Post-merge outcome of the fix PR: 'pending' (still inside the soak window), "
+                    "'verified' (stayed quiet through the soak window), 'regressed' (the issue "
+                    "recurred and a new report was opened), or 'inconclusive' (the report left "
+                    "resolved through another door, so no outcome can be attributed)."
+                )
+            },
+            "pr_url": {"help_text": "The merged implementation PR whose fix is being verified."},
+            "verify_after": {"help_text": "When the soak window ends; quiet until here counts as verified."},
+            "checked_at": {"help_text": "When the outcome was settled; null while pending."},
+            "regressed_report": {
+                "help_text": "The recurrence report that proved the fix did not hold; set only when regressed."
+            },
+            "created_at": {"help_text": "When the verification was scheduled (the PR merge)."},
+        }
+
+
 class SignalReportSerializer(serializers.ModelSerializer):
     artefact_count = serializers.IntegerField(read_only=True)
     refund_ineligibility_reason = serializers.SerializerMethodField(
@@ -372,6 +405,12 @@ class SignalReportSerializer(serializers.ModelSerializer):
     refund = serializers.SerializerMethodField(
         help_text="The report's PR refund, when one exists. One refund per report, ever.",
     )
+    fix_verification = serializers.SerializerMethodField(
+        help_text=(
+            "Post-merge verification of the fix PR that resolved this report, when one exists. "
+            "Distinguishes 'resolved (unverified)' from 'verified fixed' and 'fix regressed'."
+        ),
+    )
 
     class Meta:
         model = SignalReport
@@ -396,6 +435,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "scout_name",
             "implementation_pr_url",
             "refund",
+            "fix_verification",
             "refund_ineligibility_reason",
             "billing_exempt_reason",
         ]
@@ -519,6 +559,14 @@ class SignalReportSerializer(serializers.ModelSerializer):
         if refund is None:
             return None
         return SignalReportRefundSerializer(refund).data
+
+    @extend_schema_field(SignalFixVerificationSerializer(allow_null=True))
+    def get_fix_verification(self, obj: SignalReport) -> dict | None:
+        # Reverse OneToOne, same degradation pattern as `refund` above.
+        verification = getattr(obj, "fix_verification", None)
+        if verification is None:
+            return None
+        return SignalFixVerificationSerializer(verification).data
 
     @extend_schema_field(
         serializers.ChoiceField(
