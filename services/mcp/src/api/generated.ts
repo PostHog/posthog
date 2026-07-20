@@ -61432,6 +61432,16 @@ export namespace Schemas {
          * @nullable
          */
       channel?: string | null;
+      /**
+         * Sandbox environment selected for matching a pre-warmed cloud run. Not persisted on the task.
+         * @nullable
+         */
+      sandbox_environment_id?: string | null;
+      /**
+         * Custom image selected for matching a pre-warmed cloud run. Not persisted on the task.
+         * @nullable
+         */
+      custom_image_id?: string | null;
       /** Agent protocol and harness used for this task's runs. Defaults to ACP when omitted.
        *
        * * `acp` - ACP
@@ -63504,6 +63514,16 @@ export namespace Schemas {
        * * `xhigh` - xhigh
        * * `max` - max */
       reasoning_effort?: ReasoningEffortEnum | null;
+      /**
+         * Optional sandbox environment to provision before the task is submitted.
+         * @nullable
+         */
+      sandbox_environment_id?: string | null;
+      /**
+         * Optional custom base image to provision before the task is submitted; takes precedence over the environment's image.
+         * @nullable
+         */
+      custom_image_id?: string | null;
     }
 
     /**
