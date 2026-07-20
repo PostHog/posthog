@@ -650,34 +650,34 @@ function QuarantineRegister(): JSX.Element {
         {
             title: 'Selector',
             key: 'id',
-            render: (_, row) => (
-                <div className="flex max-w-[28rem] flex-col gap-0.5">
-                    <Tooltip title={row.id}>
-                        <span className="truncate font-mono text-xs">{row.id}</span>
-                    </Tooltip>
-                    <div className="flex items-center gap-1.5">
-                        <LemonTag type="option" size="small">
-                            {row.selectorKind}
-                        </LemonTag>
-                        {row.runner !== 'pytest' && (
-                            <Tooltip
-                                title={
-                                    ENFORCED_RUNNERS.includes(row.runner)
-                                        ? 'Enforced by the Jest adapter.'
-                                        : 'No enforcement adapter yet. This entry is informational.'
-                                }
-                            >
-                                <LemonTag
-                                    type={ENFORCED_RUNNERS.includes(row.runner) ? 'option' : 'muted'}
-                                    size="small"
+            render: (_, row) => {
+                const isEnforced = ENFORCED_RUNNERS.includes(row.runner)
+                return (
+                    <div className="flex max-w-[28rem] flex-col gap-0.5">
+                        <Tooltip title={row.id}>
+                            <span className="truncate font-mono text-xs">{row.id}</span>
+                        </Tooltip>
+                        <div className="flex items-center gap-1.5">
+                            <LemonTag type="option" size="small">
+                                {row.selectorKind}
+                            </LemonTag>
+                            {row.runner !== 'pytest' && (
+                                <Tooltip
+                                    title={
+                                        isEnforced
+                                            ? 'Enforced by the Jest adapter.'
+                                            : 'No enforcement adapter yet. This entry is informational.'
+                                    }
                                 >
-                                    {row.runner}
-                                </LemonTag>
-                            </Tooltip>
-                        )}
+                                    <LemonTag type={isEnforced ? 'option' : 'muted'} size="small">
+                                        {row.runner}
+                                    </LemonTag>
+                                </Tooltip>
+                            )}
+                        </div>
                     </div>
-                </div>
-            ),
+                )
+            },
         },
         {
             title: 'Mode',
