@@ -153,7 +153,7 @@ export const VisionScannersListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            'Sort scanners by name, created_at, updated_at, scanner_type, enabled, sampling_rate, or created_by. Prefix with `-` for descending.'
+            'Sort scanners by name, created_at, updated_at, scanner_type, enabled, sampling_rate, created_by, credits_this_month. Prefix with `-` for descending.'
         ),
     scanner_type: zod
         .string()

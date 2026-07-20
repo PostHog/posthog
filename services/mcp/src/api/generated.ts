@@ -39024,6 +39024,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly estimated_monthly_credits: number | null;
+      /** Credits this scanner's succeeded observations consumed in the current billing period (1 credit = $0.01). Matches the window of the org-wide quota meter. */
+      readonly credits_this_month: number;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at: string;
       readonly created_at: string;
@@ -47507,6 +47509,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly estimated_monthly_credits?: number | null;
+      /** Credits this scanner's succeeded observations consumed in the current billing period (1 credit = $0.01). Matches the window of the org-wide quota meter. */
+      readonly credits_this_month?: number;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at?: string;
       readonly created_at?: string;
@@ -70262,7 +70266,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort scanners by name, created_at, updated_at, scanner_type, enabled, sampling_rate, or created_by. Prefix with `-` for descending.
+     * Sort scanners by name, created_at, updated_at, scanner_type, enabled, sampling_rate, created_by, credits_this_month. Prefix with `-` for descending.
      */
     order_by?: string;
     /**
@@ -72255,7 +72259,7 @@ export namespace Schemas {
 
     export type ConversationsTicketsListParams = {
     /**
-     * Filter by assignee. Use `unassigned` for tickets with no assignee, `user:<user_id>` for a specific user, or `role:<role_uuid>` for a role.
+     * Filter by assignee. Accepts a single value or a comma-separated list (matches any, max 100 entries). Each entry is `unassigned` (no assignee), `user:<user_id>`, or `role:<role_uuid>`, e.g. `assignee=unassigned,user:123`.
      */
     assignee?: string;
     /**
@@ -79232,7 +79236,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort scanners by name, created_at, updated_at, scanner_type, enabled, sampling_rate, or created_by. Prefix with `-` for descending.
+     * Sort scanners by name, created_at, updated_at, scanner_type, enabled, sampling_rate, created_by, credits_this_month. Prefix with `-` for descending.
      */
     order_by?: string;
     /**
