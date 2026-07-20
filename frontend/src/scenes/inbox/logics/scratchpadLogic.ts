@@ -20,6 +20,14 @@ const SEARCH_DEBOUNCE_MS = 300
 // walking past the cap; a team that routinely exceeds 1000 wants that wired into a "load
 // more" here, not a bigger single read.
 const SCRATCHPAD_FETCH_LIMIT = 1000
+// Bodies are an unbounded TextField clamped at 50k chars on write, so a full-fat window of
+// 1000 entries is a payload nobody needs: the card renders a 2-line clamp until you open it.
+// Pull previews for the list and fetch the one body you expand. Sized well past two lines so
+// the overwhelming majority of notes arrive complete and never need the second read.
+export const SCRATCHPAD_PREVIEW_CHARS = 1200
+// The expand-time lookup re-runs the search against one key. `text` also matches content, so ask
+// for a few rows and pick the exact key out rather than assuming it sorts first.
+const SCRATCHPAD_KEY_LOOKUP_LIMIT = 5
 
 /** One namespace cluster in the "By topic" view: the raw prefix, a friendly label, and its entries. */
 export interface ScratchpadNamespaceGroup {
@@ -42,6 +50,14 @@ export function humanizeNamespace(namespace: string): string {
     return namespace.replace(/[-_]/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase())
 }
 
+/** Whether a listed entry's body may have been cut short by the preview projection. The API
+ * truncates with a bare slice and sends no "there's more" marker, so preview-length is the only
+ * signal available. A body sitting exactly on the boundary re-fetches once and resolves to the
+ * same text, which is why this is the cheap direction to be wrong in. */
+export function isPreviewTruncated(content: string | null | undefined): boolean {
+    return (content?.length ?? 0) >= SCRATCHPAD_PREVIEW_CHARS
+}
+
 /**
  * Read-only view over the scout fleet's durable memory (`SignalScratchpad`). Owns the entry list,
  * the debounced search text (wired straight to the endpoint's `?text=` ILIKE), and the recent /
@@ -55,6 +71,10 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
         setSearchText: (searchText: string) => ({ searchText }),
         setGrouping: (grouping: ScratchpadGrouping) => ({ grouping }),
         toggleNamespace: (namespace: string) => ({ namespace }),
+        toggleEntry: (key: string) => ({ key }),
+        loadFullContent: (key: string) => ({ key }),
+        loadFullContentSuccess: (key: string, content: string) => ({ key, content }),
+        loadFullContentFailure: (key: string) => ({ key }),
     }),
 
     loaders(({ values }) => ({
@@ -70,6 +90,7 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
                     const results = await signalsScoutScratchpadSearch(String(teamId), {
                         text: text || undefined,
                         limit: SCRATCHPAD_FETCH_LIMIT,
+                        content_max_chars: SCRATCHPAD_PREVIEW_CHARS,
                     })
                     // Drop a stale response if the search moved on while this request was in flight.
                     breakpoint()
@@ -100,6 +121,33 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
                 toggleNamespace: (state, { namespace }) =>
                     state.includes(namespace) ? state.filter((n) => n !== namespace) : [...state, namespace],
                 setGrouping: () => [],
+            },
+        ],
+        // Which entry cards are open. Lives here rather than in the card's own state so the
+        // listener below can hang the full-body fetch off the same toggle.
+        expandedKeys: [
+            [] as string[],
+            {
+                toggleEntry: (state, { key }) =>
+                    state.includes(key) ? state.filter((k) => k !== key) : [...state, key],
+            },
+        ],
+        // Full bodies fetched on expand, keyed by entry key. Dropped on every reload since a new
+        // search returns a different set of entries (and possibly newer bodies for the same keys).
+        fullContentByKey: [
+            {} as Record<string, string>,
+            {
+                loadFullContentSuccess: (state, { key, content }) => ({ ...state, [key]: content }),
+                loadEntriesSuccess: () => ({}),
+            },
+        ],
+        loadingContentKeys: [
+            [] as string[],
+            {
+                loadFullContent: (state, { key }) => (state.includes(key) ? state : [...state, key]),
+                loadFullContentSuccess: (state, { key }) => state.filter((k) => k !== key),
+                loadFullContentFailure: (state, { key }) => state.filter((k) => k !== key),
+                loadEntriesSuccess: () => [],
             },
         ],
     }),
@@ -134,10 +182,58 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
         ],
     }),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         setSearchText: async (_, breakpoint) => {
             await breakpoint(SEARCH_DEBOUNCE_MS)
             actions.loadEntries()
+        },
+
+        // Opening a card is the only moment a full body is worth fetching — and only when the
+        // preview actually cut one off. Collapsing, re-opening a cached entry, or opening a note
+        // that arrived whole all stay local.
+        toggleEntry: ({ key }) => {
+            if (!values.expandedKeys.includes(key)) {
+                return
+            }
+            if (key in values.fullContentByKey || values.loadingContentKeys.includes(key)) {
+                return
+            }
+            const entry = values.entries?.find((e) => e.key === key)
+            if (entry && isPreviewTruncated(entry.content)) {
+                actions.loadFullContent(key)
+            }
+        },
+
+        loadFullContent: async ({ key }, breakpoint) => {
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                actions.loadFullContentFailure(key)
+                return
+            }
+            let results: ScratchpadEntryApi[]
+            try {
+                // No retrieve-by-key route exists, so re-run the search scoped to this key. `text`
+                // is an ILIKE across key *and* content, so match the key exactly rather than
+                // trusting the first row back.
+                results = await signalsScoutScratchpadSearch(String(teamId), {
+                    text: key,
+                    limit: SCRATCHPAD_KEY_LOOKUP_LIMIT,
+                })
+            } catch {
+                // The preview stays on screen, so a failure costs the reader the tail of one note
+                // rather than the whole card.
+                actions.loadFullContentFailure(key)
+                return
+            }
+            // Outside the catch: a stale-response breakpoint throws to unwind, and swallowing it
+            // here would mark a superseded request as failed.
+            breakpoint()
+            const match = results.find((entry) => entry.key === key)
+            if (match) {
+                actions.loadFullContentSuccess(key, match.content ?? '')
+                return
+            }
+            actions.loadFullContentFailure(key)
         },
     })),
 
