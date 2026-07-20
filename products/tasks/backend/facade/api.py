@@ -4207,6 +4207,13 @@ def run_task(
         if prev_wizard_head_branch:
             extra_state["wizard_head_branch"] = prev_wizard_head_branch
 
+        # A read-only GitHub grant describes how the task was created, not one run — without the
+        # carry-forward, a resumed successor of a repo-less read-only run falls through to the
+        # full credential path and regains the write-capable token. (The key is PATCH-protected,
+        # so this server-side copy is the only way it reaches a successor run.)
+        if (previous_run.state or {}).get("github_read_access") is True:
+            extra_state["github_read_access"] = True
+
         if prev_state.sandbox_environment_id and sandbox_environment_id is None:
             sandbox_environment_id = prev_state.sandbox_environment_id
 
