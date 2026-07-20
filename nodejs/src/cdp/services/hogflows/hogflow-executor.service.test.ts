@@ -22,6 +22,7 @@ import { RecipientTokensService } from '../messaging/recipient-tokens.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
+import { EmailSuppressionService, emailSuppressionConfigFromEnv } from '../messaging/email-suppression.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
@@ -68,6 +69,7 @@ describe('Hogflow Executor', () => {
             new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
             hub.encryptedFields
         )
+        const emailSuppressionService = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
         const emailService = new EmailService(
             {
                 sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
@@ -79,7 +81,8 @@ describe('Hogflow Executor', () => {
             new TeamWorkflowsConfigService(hub.postgres),
             hub.ENCRYPTION_SALT_KEYS,
             hub.SITE_URL,
-            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
+            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
+            emailSuppressionService
         )
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         const hogExecutor = new HogExecutorService(
@@ -103,7 +106,7 @@ describe('Hogflow Executor', () => {
             hogExecutor
         )
         const recipientsManager = new RecipientsManagerService(hub.postgres)
-        const recipientPreferencesService = new RecipientPreferencesService(recipientsManager)
+        const recipientPreferencesService = new RecipientPreferencesService(recipientsManager, emailSuppressionService)
         // Stubbed to always allow: this suite covers executor routing and flow control,
         // not MX validation (email-validation.service.test.ts does), and the real
         // service would fire live DNS lookups for the fixture recipients here.
@@ -927,6 +930,79 @@ describe('Hogflow Executor', () => {
                 const messages = result.logs.map((l) => l.message).join('\n')
                 expect(messages).toContain('Still, Original')
                 expect(messages).not.toContain('Edited')
+            })
+
+            // The cases above wake at the natural time; these wake EARLY — as the timing-edit
+            // reschedule sweep (#66380) and the subscription matcher do. Early wake must be
+            // behaviourally idempotent: the run re-parks at its unchanged target (never advancing
+            // currentAction, so the job row's action_id keeps naming the wait step), or runs the
+            // step's new handler when the type changed under it. Bulk-rescheduling parked jobs is
+            // only safe while these hold.
+            describe('early wakes (reschedule sweep contract)', () => {
+                it('a delay woken early with unchanged config re-parks at its original target', async () => {
+                    const hogFlow = createHogFlow({
+                        actions: { delay: { type: 'delay', config: { delay_duration: '7d' } } },
+                        edges: [
+                            { from: 'trigger', to: 'delay', type: 'continue' },
+                            { from: 'delay', to: 'exit', type: 'continue' },
+                        ],
+                    })
+                    const invocation = parkAt(hogFlow, 'delay', Duration.fromObject({ days: 2 }).toMillis())
+
+                    const result = await executor.execute(invocation)
+
+                    expect(result.finished).toBe(false)
+                    expect(result.invocation.queueScheduledAt?.toMillis()).toBe(
+                        invocation.state.currentAction!.startedAtTimestamp + Duration.fromObject({ days: 7 }).toMillis()
+                    )
+                    expect(result.invocation.state.currentAction?.id).toBe('delay')
+                })
+
+                it('a time window woken early with unchanged config re-parks at the original window start', async () => {
+                    // The window is closed at the fixed test time (2025-01-01T00:00:00Z)
+                    const hogFlow = createHogFlow({
+                        actions: {
+                            window: {
+                                type: 'wait_until_time_window',
+                                config: { time: ['10:00', '11:00'], day: 'any', timezone: 'UTC' },
+                            },
+                        },
+                        edges: [
+                            { from: 'trigger', to: 'window', type: 'continue' },
+                            { from: 'window', to: 'exit', type: 'continue' },
+                        ],
+                    })
+                    const invocation = parkAt(hogFlow, 'window', 60 * 60 * 1000)
+
+                    const result = await executor.execute(invocation)
+
+                    expect(result.finished).toBe(false)
+                    expect(result.invocation.queueScheduledAt?.toUTC().toISO()).toBe('2025-01-01T10:00:00.000Z')
+                    expect(result.invocation.state.currentAction?.id).toBe('window')
+                })
+
+                it("a step whose type changed while a run was parked on it runs the new type's handler on wake", async () => {
+                    const hogFlow = createHogFlow({
+                        actions: { delay: { type: 'delay', config: { delay_duration: '7d' } } },
+                        edges: [
+                            { from: 'trigger', to: 'delay', type: 'continue' },
+                            { from: 'delay', to: 'exit', type: 'continue' },
+                        ],
+                    })
+                    const invocation = parkAt(hogFlow, 'delay', Duration.fromObject({ days: 2 }).toMillis())
+                    editFlow(hogFlow, (flow) => {
+                        const action = flow.actions.find((a) => a.id === 'delay')!
+                        action.type = 'wait_until_time_window'
+                        action.config = { time: 'any', day: 'any', timezone: 'UTC' } as any
+                    })
+
+                    const result = await executor.execute(invocation)
+
+                    // The always-open window handler runs and the run advances
+                    expect(result.finished).toBe(true)
+                    expect(result.error).toBeUndefined()
+                    expect(result.invocation.state.currentAction?.id).toBe('exit')
+                })
             })
         })
 

@@ -177,6 +177,7 @@ from .couchbase.source import CouchbaseSource
 from .coupa.source import CoupaSource
 from .coveralls.source import CoverallsSource
 from .crates_io.source import CratesIOSource
+from .crisp.source import CrispSource
 from .criteo.source import CriteoSource
 from .cronitor.source import CronitorSource
 from .crunchbase.source import CrunchbaseSource
@@ -402,6 +403,7 @@ from .klarna.source import KlarnaSource
 from .klaus.source import KlausSource
 from .klaviyo.source import KlaviyoSource
 from .knock.source import KnockSource
+from .kommo.source import KommoSource
 from .kong_konnect.source import KongKonnectSource
 from .koyeb.source import KoyebSource
 from .kubecost.source import KubecostSource
@@ -595,6 +597,7 @@ from .printify.source import PrintifySource
 from .productboard.source import ProductboardSource
 from .productive.source import ProductiveSource
 from .prompting_company.source import PromptingCompanySource
+from .promptwatch.source import PromptWatchSource
 from .pulumi_cloud.source import PulumiCloudSource
 from .pylon.source import PylonSource
 from .pypi.source import PyPISource

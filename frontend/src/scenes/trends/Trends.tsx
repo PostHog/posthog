@@ -165,7 +165,13 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
     return (
         <>
             {series && (
-                <div className={embedded ? 'InsightCard__viz' : `TrendsInsight TrendsInsight--${display}`}>
+                <div
+                    className={
+                        embedded
+                            ? `InsightCard__viz InsightCard__viz--${display}`
+                            : `TrendsInsight TrendsInsight--${display}`
+                    }
+                >
                     <Suspense
                         fallback={
                             <WrappingLoadingSkeleton fullWidth>

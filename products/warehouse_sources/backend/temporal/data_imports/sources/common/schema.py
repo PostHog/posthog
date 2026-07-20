@@ -1,6 +1,8 @@
+from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass, field
+from typing import Any
 
-from products.warehouse_sources.backend.types import IncrementalField
+from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 # Preference order (lowercased) for auto-selecting an incremental field. Columns that
 # advance on every write (`updated_at`) catch late-arriving updates that creation-only
@@ -50,6 +52,12 @@ class SourceSchema:
     # this so each incremental run re-reads a trailing window instead of freezing a day
     # at its first-imported value. Only consumed for schemas synced incrementally.
     default_incremental_lookback_seconds: int | None = None
+    # Source-specific keys merged into the persisted `sync_type_config.schema_metadata` at
+    # schema creation, for sources that namespace tables by something other than a SQL
+    # schema (e.g. GitHub stores {"source_repository", "source_endpoint"} per repo table).
+    # The SQL sources' location keys above (source_catalog/source_schema/source_table_name)
+    # stay separate: their persistence is gated on column-selection/direct-query paths.
+    schema_metadata: dict[str, Any] | None = None
 
 
 def _select_incremental_field(incremental_fields: list[IncrementalField]) -> IncrementalField | None:
@@ -64,19 +72,44 @@ def _select_incremental_field(incremental_fields: list[IncrementalField]) -> Inc
     return candidates[0]
 
 
+def build_default_sync_settings(source_schema: SourceSchema) -> dict[str, Any]:
+    """Default sync settings for one discovered table.
+
+    Picks ``incremental`` when the source supports it and a tracking column exists (cheapest
+    ongoing sync), else ``append`` when supported, else ``full_refresh``. Never picks ``cdc``
+    or ``webhook`` — both need prerequisites (Postgres setup, webhook registration) and
+    explicit opt-in.
+    """
+    chosen = _select_incremental_field(source_schema.incremental_fields)
+    if source_schema.supports_incremental and chosen is not None:
+        sync_type = "incremental"
+    elif source_schema.supports_append and chosen is not None:
+        sync_type = "append"
+    else:
+        sync_type = "full_refresh"
+
+    settings: dict[str, Any] = {"sync_type": sync_type}
+    if sync_type in ("incremental", "append") and chosen is not None:
+        settings["incremental_field"] = chosen["field"]
+        settings["incremental_field_type"] = str(chosen.get("field_type") or chosen.get("type"))
+    if sync_type == "incremental" and source_schema.default_incremental_lookback_seconds is not None:
+        settings["incremental_field_lookback_seconds"] = source_schema.default_incremental_lookback_seconds
+    if source_schema.detected_primary_keys:
+        settings["primary_key_columns"] = source_schema.detected_primary_keys
+    return settings
+
+
 def build_default_schemas(source_schemas: list[SourceSchema]) -> list[dict]:
     """Build a default ``schemas`` payload for one-shot source creation.
 
-    Enables every discovered table the source marks as default-on and picks a sync type per
-    table: ``incremental`` when the source supports it and a tracking column exists (cheapest
-    ongoing sync), else ``append`` when supported, else ``full_refresh``. Never defaults to
-    ``cdc`` — that needs Postgres prerequisites and explicit opt-in. Webhook-only tables start
-    disabled because webhook registration needs the created source; the setup flow attempts it
-    right after creation and, on success, switches webhook-capable tables to the webhook sync
-    method. These polling defaults are also the fallback when that registration fails. Tables
-    with ``should_sync_default=False`` also start disabled: sources use it for tables whose
-    sync needs grants beyond what source creation validated, and the schema picker already
-    honors it, so one-shot setup must not force-enable what the picker would leave off.
+    Enables every discovered table the source marks as default-on, with each table's sync
+    settings from ``build_default_sync_settings``. Webhook-only tables start disabled because
+    webhook registration needs the created source; the setup flow attempts it right after
+    creation and, on success, switches webhook-capable tables to the webhook sync method.
+    These polling defaults are also the fallback when that registration fails. Tables with
+    ``should_sync_default=False`` also start disabled: sources use it for tables whose sync
+    needs grants beyond what source creation validated, and the schema picker already honors
+    it, so one-shot setup must not force-enable what the picker would leave off.
     """
     schemas: list[dict] = []
     for source_schema in source_schemas:
@@ -84,19 +117,69 @@ def build_default_schemas(source_schemas: list[SourceSchema]) -> list[dict]:
             schemas.append({"name": source_schema.name, "should_sync": False})
             continue
 
-        chosen = _select_incremental_field(source_schema.incremental_fields)
-        if source_schema.supports_incremental and chosen is not None:
-            sync_type = "incremental"
-        elif source_schema.supports_append and chosen is not None:
-            sync_type = "append"
-        else:
-            sync_type = "full_refresh"
+        schemas.append({"name": source_schema.name, "should_sync": True, **build_default_sync_settings(source_schema)})
+    return schemas
 
-        entry: dict = {"name": source_schema.name, "should_sync": True, "sync_type": sync_type}
-        if sync_type in ("incremental", "append") and chosen is not None:
-            entry["incremental_field"] = chosen["field"]
-            entry["incremental_field_type"] = str(chosen.get("field_type") or chosen.get("type"))
-        if source_schema.detected_primary_keys:
-            entry["primary_key_columns"] = source_schema.detected_primary_keys
-        schemas.append(entry)
+
+def incremental_field(
+    field: str,
+    field_type: IncrementalFieldType = IncrementalFieldType.DateTime,
+    label: str | None = None,
+) -> IncrementalField:
+    """Build an ``IncrementalField`` for a settings.py endpoint catalog.
+
+    Replaces the hand-written 4-key dict (``label``/``type``/``field``/``field_type``) that most
+    sources repeat per endpoint, where ``type`` and ``field_type`` are almost always the same value
+    and ``label`` defaults to the field name — a frequent copy-paste bug source.
+    """
+    return {"label": label or field, "type": field_type, "field": field, "field_type": field_type}
+
+
+def build_endpoint_schemas(
+    endpoints: Iterable[str],
+    incremental_fields: Mapping[str, list[IncrementalField]],
+    names: list[str] | None = None,
+    *,
+    append_only: Collection[str] = (),
+    merge_only: Collection[str] = (),
+    descriptions: Mapping[str, str] | None = None,
+    should_sync_default: Mapping[str, bool] | None = None,
+    supports_webhooks: Collection[str] = (),
+) -> list[SourceSchema]:
+    """Build the ``SourceSchema`` list for a static endpoint-catalog source's ``get_schemas``.
+
+    Collapses the near-universal ``for endpoint in ENDPOINTS: SourceSchema(...)`` loop plus the
+    identical ``names`` filter tail. An endpoint with incremental fields defaults to
+    ``supports_incremental=True`` and ``supports_append=True`` (the dominant pattern). Overrides:
+
+    - ``append_only``: endpoints that support append but not incremental merge.
+    - ``merge_only``: endpoints that support incremental merge but not append.
+    - ``descriptions`` / ``should_sync_default`` / ``supports_webhooks``: per-endpoint metadata.
+
+    ``names`` (the schema-picker filter) keeps only the requested endpoints when set.
+    """
+    descriptions = descriptions or {}
+    should_sync_default = should_sync_default or {}
+    schemas = []
+    for name in endpoints:
+        fields = incremental_fields.get(name)
+        # Match the hand-written loop's `.get(name) is not None`: a mapping entry (even an
+        # explicit `[]`) counts as incremental, a missing one doesn't.
+        has_incremental = fields is not None
+        schemas.append(
+            SourceSchema(
+                name=name,
+                supports_incremental=has_incremental and name not in append_only,
+                supports_append=has_incremental and name not in merge_only,
+                incremental_fields=fields or [],
+                description=descriptions.get(name),
+                should_sync_default=should_sync_default.get(name, True),
+                supports_webhooks=name in supports_webhooks,
+            )
+        )
+
+    if names is not None:
+        names_set = set(names)
+        schemas = [s for s in schemas if s.name in names_set]
+
     return schemas

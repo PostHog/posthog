@@ -1,10 +1,55 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "properties": {
-        "orgId": {
-            "type": "string"
+    "anyOf": [
+        {
+            "properties": {
+                "orgId": {
+                    "description": "The organization to switch to: the `id` returned by `organizations-list` (a UUID-like string, not the organization name). Use `organizations-list` to resolve a name to its id.",
+                    "type": "string"
+                }
+            },
+            "required": ["orgId"],
+            "type": "object"
+        },
+        {
+            "properties": {
+                "id": {
+                    "description": "Alias for `orgId`. Accepts the `id` returned by `organizations-list` / `organization-get`.",
+                    "type": "string"
+                }
+            },
+            "required": ["id"],
+            "type": "object"
+        },
+        {
+            "properties": {
+                "organizationId": {
+                    "description": "Alias for `orgId`. Accepts the `id` returned by `organizations-list` / `organization-get`.",
+                    "type": "string"
+                }
+            },
+            "required": ["organizationId"],
+            "type": "object"
+        },
+        {
+            "properties": {
+                "organization_id": {
+                    "description": "Alias for `orgId`. Accepts the `id` returned by `organizations-list` / `organization-get`.",
+                    "type": "string"
+                }
+            },
+            "required": ["organization_id"],
+            "type": "object"
+        },
+        {
+            "properties": {
+                "org_id": {
+                    "description": "Alias for `orgId`. Accepts the `id` returned by `organizations-list` / `organization-get`.",
+                    "type": "string"
+                }
+            },
+            "required": ["org_id"],
+            "type": "object"
         }
-    },
-    "required": ["orgId"],
-    "type": "object"
+    ]
 }

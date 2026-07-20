@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class FlyIoSource(SimpleSource[FlyIoSourceConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://fly.io/docs/machines/api/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -94,6 +95,12 @@ Create an organization-scoped token with `fly tokens create org` (or from the **
             # the sync. Match the stable status text and base host, not the per-request path.
             "401 Client Error: Unauthorized for url: https://api.machines.dev": "Your Fly.io API token is invalid or expired. Create a new token with `fly tokens create org` and reconnect.",
             "403 Client Error: Forbidden for url: https://api.machines.dev": "Your Fly.io API token does not have access to this organization or resource. Check the token's scope and reconnect.",
+            # Fly.io accepts the token (auth is checked before anything else, so a bad token is a
+            # 401/403 handled above) but rejects the request itself. The org slug validates against
+            # the apps endpoint yet the org-scoped machines/volumes endpoints refuse it, so the
+            # request is deterministically bad and retrying just resends it. Match the stable status
+            # text and base host, not the per-request path (which carries the org slug).
+            "400 Client Error: Bad Request for url: https://api.machines.dev": "Fly.io rejected the request for this organization. Check that the organization slug is correct (find it with `fly orgs list`) and that your token can access that organization, then reconnect.",
         }
 
     def get_schemas(

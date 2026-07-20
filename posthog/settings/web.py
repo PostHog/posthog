@@ -14,6 +14,13 @@ from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
 logger = structlog.get_logger(__name__)
 
 ####
+# Deprecated insight `dashboards` field: two-phase removal. While False (phase 1), every caller
+# still receives the field and usage is metered by access method; flipping to True (phase 2)
+# enforces the `include_dashboards` opt-in for non-first-party callers. Env-toggleable so the
+# enforcement can be reverted without a code change.
+INSIGHT_DASHBOARDS_OPT_IN_ENFORCED = get_from_env("INSIGHT_DASHBOARDS_OPT_IN_ENFORCED", False, type_cast=str_to_bool)
+
+####
 # django-axes
 
 # lockout after too many attempts
@@ -35,6 +42,7 @@ PRODUCTS_APPS = [
     "products.analytics_platform.backend.apps.AnalyticsPlatformConfig",
     "products.early_access_features.backend.apps.EarlyAccessFeaturesConfig",
     "products.tasks.backend.apps.TasksConfig",
+    "products.stamphog.backend.apps.StamphogConfig",
     "products.links.backend.apps.LinksConfig",
     "products.field_notes.backend.apps.FieldNotesConfig",
     "products.revenue_analytics.backend.apps.RevenueAnalyticsConfig",
@@ -97,6 +105,7 @@ PRODUCTS_APPS = [
     "products.growth.backend.apps.GrowthConfig",
     "products.reminders.backend.apps.RemindersConfig",
     "products.approvals.backend.apps.ApprovalsConfig",
+    "products.pulse.backend.apps.PulseConfig",
     "products.data_catalog.backend.apps.DataCatalogConfig",
 ]
 
@@ -553,6 +562,7 @@ SPECTACULAR_SETTINGS = {
         "EvaluationTargetEnum": "products.ai_observability.backend.models.evaluations.EvaluationTarget",
         "IntegrationKindEnum": "posthog.models.integration.Integration.IntegrationKind",
         "TicketStatusEnum": "products.conversations.backend.models.constants.Status",
+        "BatchImportStatusEnum": "products.managed_migrations.backend.models.batch_imports.BatchImport.Status",
         "HealthIssueStatusEnum": "posthog.models.health_issue.HealthIssue.Status",
         "HealthIssueSeverityEnum": "posthog.models.health_issue.HealthIssue.Severity",
         "IngestionWarningSeverityEnum": "posthog.api.ingestion_warnings_v2.INGESTION_WARNING_SEVERITIES",
@@ -566,6 +576,9 @@ SPECTACULAR_SETTINGS = {
         "MCPAuthTypeEnum": "products.mcp_store.backend.models.AUTH_TYPE_CHOICES",
         "MCPInstallationScopeEnum": ["personal", "shared"],
         "TaskRunStatusEnum": "products.tasks.backend.models.TaskRun.Status",
+        # Inline-choices variant of TaskRun.Status (labels == values), shared by
+        # TaskRunUpdate.status and ExperimentFlagCleanupTask.run_status.
+        "RunStatusEnum": ["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],
         "TaskRunEnvironmentEnum": "products.tasks.backend.models.TaskRun.Environment",
         "ModelEnum": "products.batch_exports.backend.models.batch_export.BatchExport.Model",
         "RecurrenceIntervalEnum": "products.reminders.backend.models.reminder.Reminder.RecurrenceInterval",
@@ -579,6 +592,9 @@ SPECTACULAR_SETTINGS = {
         "VisionAlertMetricEnum": "products.replay_vision.backend.models.vision_action.AlertMetric",
         "VisionAlertDirectionEnum": "products.replay_vision.backend.models.vision_action.AlertDirection",
         "AutonomyPriorityEnum": "products.signals.backend.models.AutonomyPriority",
+        "TriggerEnum": "products.experiments.backend.models.experiment.ExperimentMetricsRecalculation.Trigger",
+        "ProductBriefTriggerEnum": "products.pulse.backend.models.ProductBrief.Trigger",
+        "ProductBriefStatusEnum": "products.pulse.backend.models.ProductBrief.Status",
         "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.facade.enums.SEARCH_DOCUMENT_TYPES",
         "BatchExportRunStatusEnum": "products.batch_exports.backend.models.batch_export.BatchExportRun.Status",
         "HeatmapType": "products.web_analytics.backend.models.heatmap_saved.SavedHeatmap.Type",
@@ -608,10 +624,8 @@ SPECTACULAR_SETTINGS = {
             "not_configured",
             "waiting",
             "backfilling",
-            "catching_up",
             "up_to_date",
             "needs_attention",
-            "unknown",
             "sync_paused",
         ],
         # Full signal taxonomy on the report `signals` endpoint; the source-config serializer's
@@ -1179,3 +1193,27 @@ _NO_JOIN_DEFAULT_ROLLOUT_PERCENT = 100 if (CLOUD_DEPLOYMENT or "").upper() in ("
 WEB_ANALYTICS_NO_JOIN_ROLLOUT_PERCENT: int = get_from_env(
     "WEB_ANALYTICS_NO_JOIN_ROLLOUT_PERCENT", _NO_JOIN_DEFAULT_ROLLOUT_PERCENT, type_cast=int
 )
+
+
+# Teams whose *filtered* web overview queries (event-property filters only) run as two
+# independent scans linked by a session-id set: the events side evaluates the filters and
+# collects the matching session ids, then the sessions side aggregates only over that id
+# set (pushed below the per-session GROUP BY, executed once via GLOBAL IN instead of per
+# shard). Allowlist only — no percent rollout yet. Defaults to the Cloud dogfooding team
+# (project 2) on US Cloud, where the pattern was validated against prod; empty on EU
+# (pending its ClickHouse upgrade + verification) and on self-hosted, where project id 2
+# is an arbitrary customer.
+_SESSION_ID_SET_DEFAULT_TEAM_IDS = "2" if (CLOUD_DEPLOYMENT or "").upper() == "US" and not TEST else ""
+WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS: list[int] = [
+    int(team_id)
+    for team_id in get_list(get_from_env("WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS", _SESSION_ID_SET_DEFAULT_TEAM_IDS))
+]
+# Admission control for long-lived SSE streams: the maximum number of streams
+# one worker process serves concurrently. Above the cap, sse_streaming_response()
+# returns 503 with a jittered Retry-After instead of opening the stream, keeping
+# processes unpinned and health probes responsive. Recovery depends on the
+# client: HTTP-level retriers honor Retry-After, but a native EventSource treats
+# any non-200 as fatal (readyState CLOSED, no auto-reconnect) and ignores the
+# header, so those consumers must reconnect from their onerror handler.
+# 0 rejects every stream (emergency lever).
+SSE_MAX_CONCURRENT_STREAMS_PER_PROCESS = get_from_env("SSE_MAX_CONCURRENT_STREAMS_PER_PROCESS", 500, type_cast=int)

@@ -92,3 +92,16 @@ def get_task_run_credential_user(task: Task, state: dict[str, Any] | None = None
 
 def get_actor_distinct_id(actor: User) -> str:
     return actor.distinct_id or f"user_{actor.id}"
+
+
+def slack_actor_state_updates(*, user_id: int, slack_user_id: str | None = None) -> dict[str, Any]:
+    """Run-state updates recording the Slack user currently steering a run.
+
+    The keys are load-bearing: credential resolution reads
+    ``slack_actor_user_id`` and reply tagging reads
+    ``slack_actor_slack_user_id`` — every writer must build them here.
+    """
+    updates: dict[str, Any] = {"slack_actor_user_id": user_id}
+    if slack_user_id:
+        updates["slack_actor_slack_user_id"] = slack_user_id
+    return updates

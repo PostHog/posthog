@@ -228,6 +228,13 @@ export class PluginServer implements NodeServer {
                 const batchResolverProducer = this.config.CYCLOTRON_NODE_DATABASE_URL
                     ? new CyclotronV2Manager({
                           pool: { dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL, maxConnections: 5 },
+                          rescheduleFloorSeconds: this.config.CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS,
+                          rescheduleWakeRatePerSecond: this.config.CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND,
+                          rescheduleMinWindowSeconds: this.config.CYCLOTRON_NODE_RESCHEDULE_MIN_WINDOW_SECONDS,
+                          rescheduleMaxWindowSeconds: this.config.CYCLOTRON_NODE_RESCHEDULE_MAX_WINDOW_SECONDS,
+                          rescheduleChunkSize: this.config.CYCLOTRON_NODE_RESCHEDULE_CHUNK_SIZE,
+                          rescheduleMaxChunksPerCall: this.config.CYCLOTRON_NODE_RESCHEDULE_MAX_CHUNKS_PER_CALL,
+                          rescheduleChunkSleepMs: this.config.CYCLOTRON_NODE_RESCHEDULE_CHUNK_SLEEP_MS,
                       })
                     : null
                 const api = new CdpApi(
@@ -273,6 +280,8 @@ export class PluginServer implements NodeServer {
                         maxTouchCount: this.config.CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT,
                         cleanupGraceMs: this.config.CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS,
                         poisonRecoveryEnabled: this.config.CYCLOTRON_NODE_POISON_PILL_RECOVERY_ENABLED,
+                        stallBackoffBaseMs: this.config.CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_BASE_MS,
+                        stallBackoffMaxMs: this.config.CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_MAX_MS,
                     },
                     invocationResults
                 )
