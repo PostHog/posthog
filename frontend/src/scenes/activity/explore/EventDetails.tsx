@@ -130,6 +130,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                 </LemonBanner>
                                 <PropertiesTable
                                     type={PropertyDefinitionType.Event}
+                                    virtualized
                                     properties={properties}
                                     sortProperties
                                     tableProps={tableProps}
@@ -149,6 +150,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                 </p>
                                 <PropertiesTable
                                     type={PropertyDefinitionType.Event}
+                                    virtualized
                                     properties={properties}
                                     useDetectedPropertyType={true}
                                     tableProps={tableProps}
@@ -169,6 +171,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                 </p>
                                 <PropertiesTable
                                     type={PropertyDefinitionType.Event}
+                                    virtualized
                                     properties={properties}
                                     useDetectedPropertyType={true}
                                     tableProps={tableProps}
@@ -199,6 +202,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                 )}
                                 <PropertiesTable
                                     type={PropertyDefinitionType.Event}
+                                    virtualized
                                     properties={properties}
                                     useDetectedPropertyType={['flags', 'properties'].includes(tabKey)}
                                     tableProps={tableProps}
