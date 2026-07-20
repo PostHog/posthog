@@ -1753,8 +1753,9 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         # Un-deleting a tile re-exposes its insight on the dashboard's public link.
         became_live = existing.deleted and tile_defaults.get("deleted") is False
-        if became_live and existing.insight_id is not None:
-            check_can_add_insight_to_shared_dashboard(user, instance, existing.insight.query)
+        insight = existing.insight
+        if became_live and insight is not None:
+            check_can_add_insight_to_shared_dashboard(user, instance, insight.query)
 
         for attr, val in tile_defaults.items():
             setattr(existing, attr, val)
