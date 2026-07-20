@@ -1,9 +1,9 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
-import type { GroupBySourceEnumApi } from 'products/logs/frontend/generated/api.schemas'
+import type { LogsGroupBySourceEnumApi } from 'products/logs/frontend/generated/api.schemas'
 
 // Maps the picker's taxonomic group onto the group-by endpoint's source vocabulary.
-export const TAXONOMIC_GROUP_TO_SOURCE: Partial<Record<TaxonomicFilterGroupType, GroupBySourceEnumApi>> = {
+export const TAXONOMIC_GROUP_TO_SOURCE: Partial<Record<TaxonomicFilterGroupType, LogsGroupBySourceEnumApi>> = {
     [TaxonomicFilterGroupType.Logs]: 'column',
     [TaxonomicFilterGroupType.LogAttributes]: 'log',
     [TaxonomicFilterGroupType.LogResourceAttributes]: 'resource',
@@ -18,7 +18,7 @@ export const TAXONOMIC_GROUP_TO_SOURCE: Partial<Record<TaxonomicFilterGroupType,
 // This mirrors the backend dict by hand; `groupBySource.test.ts` fails if the two drift apart.
 export const GROUPABLE_COLUMN_KEYS = new Set<string>(['severity_level', 'trace_id', 'span_id'])
 
-export function resolveGroupBySource(key: string, groupType: TaxonomicFilterGroupType): GroupBySourceEnumApi {
+export function resolveGroupBySource(key: string, groupType: TaxonomicFilterGroupType): LogsGroupBySourceEnumApi {
     if (GROUPABLE_COLUMN_KEYS.has(key)) {
         return 'column'
     }

@@ -3,6 +3,8 @@ import json
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+from django.urls import resolve
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -46,8 +48,9 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def _run(
         self,
-        group_by: str,
+        group_by: str = "",
         group_by_source: str = "log",
+        group_bys: list[tuple[str, str]] | None = None,
         order_groups_by: str = "log_count",
         group_limit: int = 100,
         service_names: list[str] | None = None,
@@ -64,6 +67,7 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
             query=query,
             group_by=group_by,
             group_by_source=group_by_source,
+            group_bys=group_bys,
             order_groups_by=order_groups_by,
             group_limit=group_limit,
         )
@@ -91,8 +95,20 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert results["total_logs"] == 5
         assert results["truncated"] is False
         s1, s2 = results["groups"]
-        assert s1 == {"value": "s1", "log_count": 3, "error_count": 2, "last_seen": "2026-06-23T12:02:00+00:00"}
-        assert s2 == {"value": "s2", "log_count": 2, "error_count": 0, "last_seen": "2026-06-23T12:06:00+00:00"}
+        assert s1 == {
+            "value": "s1",
+            "values": ["s1"],
+            "log_count": 3,
+            "error_count": 2,
+            "last_seen": "2026-06-23T12:02:00+00:00",
+        }
+        assert s2 == {
+            "value": "s2",
+            "values": ["s2"],
+            "log_count": 2,
+            "error_count": 0,
+            "last_seen": "2026-06-23T12:06:00+00:00",
+        }
 
     @parameterized.expand(
         [
@@ -172,6 +188,73 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert [g["value"] for g in results["groups"]] == ["s1"]
 
+    @freeze_time(_FROZEN_NOW)
+    def test_combined_dimensions_group_by_value_tuples(self) -> None:
+        # Combined grouping must count per value-combination with values in request order;
+        # a row missing one of the log-attribute dimensions is not a group member.
+        self._insert(
+            [
+                self._log(attributes={"session_id": "s1"}, severity="error", minute=0),
+                self._log(attributes={"session_id": "s1"}, severity="error", minute=1),
+                self._log(attributes={"session_id": "s1"}, severity="info", minute=2),
+                self._log(attributes={"session_id": "s2"}, severity="info", minute=3),
+                # No session_id: excluded from groups and totals.
+                self._log(severity="info", minute=4),
+            ]
+        )
+
+        results = self._run(group_bys=[("session_id", "log"), ("severity_level", "column")])
+
+        assert results["total_groups"] == 3
+        assert results["total_logs"] == 4
+        assert [(g["values"], g["log_count"], g["error_count"]) for g in results["groups"]] == [
+            (["s1", "error"], 2, 2),
+            (["s1", "info"], 1, 0),
+            (["s2", "info"], 1, 0),
+        ]
+
+    @freeze_time(_FROZEN_NOW)
+    def test_combined_resource_dimension_joins_without_fanout(self) -> None:
+        # A resource dimension inside a combination still translates via the fingerprint
+        # join; broken composition would drop rows (missed join) or double-count (fan-out).
+        self._insert(
+            [
+                self._log(resource_attributes={"env": "prod", "region": "us"}, severity="error", minute=0),
+                self._log(resource_attributes={"env": "prod", "region": "us"}, severity="info", minute=1),
+                self._log(resource_attributes={"env": "dev", "region": "us"}, severity="info", minute=2),
+                # No env attribute: the INNER JOIN drops it from groups and totals.
+                self._log(resource_attributes={"region": "us"}, severity="info", minute=3),
+            ]
+        )
+
+        results = self._run(group_bys=[("env", "resource"), ("severity_level", "column")])
+
+        assert results["total_groups"] == 3
+        assert results["total_logs"] == 3
+        assert [(g["values"], g["log_count"]) for g in results["groups"]] == [
+            (["dev", "info"], 1),
+            (["prod", "error"], 1),
+            (["prod", "info"], 1),
+        ]
+
+    @parameterized.expand(
+        [
+            ("too_many_dimensions", [("a", "log"), ("b", "log"), ("c", "log"), ("d", "log"), ("e", "log")]),
+            ("duplicate_dimensions", [("session_id", "log"), ("session_id", "log")]),
+            ("empty_dimensions", []),
+        ]
+    )
+    def test_invalid_group_bys_raise(self, _name: str, group_bys: list[tuple[str, str]]) -> None:
+        query = LogsQuery(
+            dateRange=_WINDOW,
+            filterGroup=PropertyGroupFilter(type=FilterLogicalOperator.AND_, values=[]),
+            severityLevels=[],
+            serviceNames=[],
+            searchTerm=None,
+        )
+        with self.assertRaises(ValueError):
+            LogsGroupByQueryRunner(team=self.team, query=query, group_bys=group_bys)
+
     @parameterized.expand(
         [
             ("missing_group_by", "", "log", "log_count"),
@@ -201,6 +284,15 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestGroupByAPI(ClickhouseTestMixin, APIBaseTest):
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        # The process's first request imports the URLconf, which transitively pulls
+        # langchain's pydantic.v1 shim — an import that crashes if it first runs under
+        # freeze_time (FakeDate breaks pydantic.v1's date metaclass). Load it unfrozen
+        # so no frozen test is the one to trigger it.
+        resolve("/")
+
     @freeze_time(_FROZEN_NOW)
     def test_endpoint_returns_grouped_results(self) -> None:
         sync_execute(
@@ -232,8 +324,65 @@ class TestGroupByAPI(ClickhouseTestMixin, APIBaseTest):
         data = response.json()
         assert data["total_groups"] == 1
         assert data["groups"] == [
-            {"value": "s1", "log_count": 1, "error_count": 1, "last_seen": "2026-06-23T12:00:00+00:00"}
+            {
+                "value": "s1",
+                "values": ["s1"],
+                "log_count": 1,
+                "error_count": 1,
+                "last_seen": "2026-06-23T12:00:00+00:00",
+            }
         ]
+
+    @freeze_time(_FROZEN_NOW)
+    def test_endpoint_accepts_combined_dimensions(self) -> None:
+        # Wiring guard for the groupBys request shape: the view must parse the dimension
+        # list (not fall back to the legacy single-key fields) and surface per-dimension
+        # values in order.
+        sync_execute(
+            "INSERT INTO logs FORMAT JSONEachRow\n"
+            + json.dumps(
+                {
+                    "team_id": self.team.id,
+                    "timestamp": "2026-06-23 12:00:00.000000",
+                    "body": "log line",
+                    "severity_text": "error",
+                    "service_name": "api",
+                    "attributes_map_str": {"session_id__str": "s1"},
+                }
+            )
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/logs/group-by",
+            data={
+                "query": {
+                    "dateRange": {"date_from": "2026-06-23T12:00:00Z", "date_to": "2026-06-23T13:00:00Z"},
+                    "groupBys": [
+                        {"key": "session_id", "source": "log"},
+                        {"key": "severity_level", "source": "column"},
+                    ],
+                }
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert [g["values"] for g in data["groups"]] == [["s1", "error"]]
+
+    def test_endpoint_rejects_too_many_dimensions(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/logs/group-by",
+            data={
+                "query": {
+                    "dateRange": {"date_from": "-1h"},
+                    "groupBys": [{"key": f"k{i}", "source": "log"} for i in range(5)],
+                }
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_endpoint_rejects_missing_group_by(self) -> None:
         response = self.client.post(

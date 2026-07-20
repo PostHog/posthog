@@ -51,6 +51,7 @@ from products.logs.backend.count_ranges_query_runner import (
 from products.logs.backend.group_by_query_runner import (
     DEFAULT_GROUP_LIMIT,
     GROUP_SOURCES,
+    MAX_GROUP_DIMENSIONS,
     MAX_GROUP_LIMIT,
     ORDER_FIELDS,
     LogsGroupByQueryRunner,
@@ -929,6 +930,24 @@ class _LogsPatternsDiffResponseSerializer(serializers.Serializer):
     )
 
 
+class _LogsGroupByDimensionSerializer(serializers.Serializer):
+    key = serializers.CharField(
+        help_text=(
+            'The key this dimension groups by — an attribute key (e.g. "session_id", "service.name") '
+            'or, when source is "column", one of the top-level log fields: '
+            '"severity_level", "trace_id", "span_id".'
+        ),
+    )
+    source = serializers.ChoiceField(
+        choices=list(GROUP_SOURCES),
+        default="log",
+        help_text=(
+            'Where this dimension\'s key lives: "log" for log-level attributes, "resource" for '
+            'resource-level attributes, "column" for top-level log fields.'
+        ),
+    )
+
+
 class _LogsGroupByBodySerializer(serializers.Serializer):
     dateRange = _DateRangeSerializer(
         required=False,
@@ -956,10 +975,11 @@ class _LogsGroupByBodySerializer(serializers.Serializer):
         help_text="Property filters applied before grouping. Same shape as the query-logs endpoint.",
     )
     groupBy = serializers.CharField(
+        required=False,
         help_text=(
             'The key to group logs by — an attribute key (e.g. "session_id", "service.name") or, '
             'when groupBySource is "column", one of the top-level log fields: '
-            '"severity_level", "trace_id", "span_id".'
+            '"severity_level", "trace_id", "span_id". Ignored when groupBys is provided.'
         ),
     )
     groupBySource = serializers.ChoiceField(
@@ -967,7 +987,18 @@ class _LogsGroupByBodySerializer(serializers.Serializer):
         default="log",
         help_text=(
             'Where the grouping key lives: "log" for log-level attributes, "resource" for '
-            'resource-level attributes, "column" for top-level log fields.'
+            'resource-level attributes, "column" for top-level log fields. Ignored when groupBys is provided.'
+        ),
+    )
+    groupBys = serializers.ListField(
+        child=_LogsGroupByDimensionSerializer(),
+        required=False,
+        min_length=1,
+        max_length=MAX_GROUP_DIMENSIONS,
+        help_text=(
+            "Ordered group-by dimensions to combine (a group is one combination of per-dimension "
+            f"values), up to {MAX_GROUP_DIMENSIONS}. Takes precedence over groupBy/groupBySource; "
+            "one of the two must be provided."
         ),
     )
     orderGroupsBy = serializers.ChoiceField(
@@ -992,7 +1023,13 @@ class _LogsGroupByRequestSerializer(serializers.Serializer):
 
 
 class _LogsGroupByGroupSerializer(serializers.Serializer):
-    value = serializers.CharField(help_text="The grouped attribute value identifying this group.")
+    value = serializers.CharField(
+        help_text="The first dimension's grouped value. Kept for single-dimension callers; prefer `values`."
+    )
+    values = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="This group's values, one per requested dimension, in request order.",
+    )
     log_count = serializers.IntegerField(help_text="Number of matching logs in this group.")
     error_count = serializers.IntegerField(
         help_text='Number of matching logs in this group at severity "error" or "fatal".',
@@ -1500,11 +1537,17 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         query = self._filtered_logs_query(query_data)
 
         try:
+            raw_dimensions = query_data.get("groupBys")
+            if raw_dimensions is not None:
+                if not isinstance(raw_dimensions, list) or not all(isinstance(d, dict) for d in raw_dimensions):
+                    raise ValueError("groupBys must be a list of {key, source} objects")
+                group_bys = [(str(d.get("key", "")), str(d.get("source", "log"))) for d in raw_dimensions]
+            else:
+                group_bys = [(query_data.get("groupBy", ""), query_data.get("groupBySource", "log"))]
             runner = LogsGroupByQueryRunner(
                 team=self.team,
                 query=query,
-                group_by=query_data.get("groupBy", ""),
-                group_by_source=query_data.get("groupBySource", "log"),
+                group_bys=group_bys,
                 order_groups_by=query_data.get("orderGroupsBy", "log_count"),
                 group_limit=int(query_data.get("limit", DEFAULT_GROUP_LIMIT)),
             )
@@ -1520,7 +1563,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             request.user,
             "logs group by queried",
             {
-                "group_by_source": query_data.get("groupBySource", "log"),
+                "group_by_source": group_bys[0][1],
+                "group_dimensions": len(group_bys),
                 "order_groups_by": query_data.get("orderGroupsBy", "log_count"),
                 "groups_count": len(results.get("groups", [])),
                 "truncated": results.get("truncated"),

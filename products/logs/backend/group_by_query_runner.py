@@ -1,4 +1,5 @@
-from typing import TYPE_CHECKING
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, NamedTuple
 from zoneinfo import ZoneInfo
 
 from posthog.schema import CachedLogsQueryResponse, LogsQuery
@@ -28,6 +29,10 @@ MAX_EXECUTION_TIME = 60
 DEFAULT_GROUP_LIMIT = 100
 MAX_GROUP_LIMIT = 500
 
+# Cap on combined group-by dimensions: each extra dimension multiplies group cardinality
+# and widens the GROUP BY tuple, while the scan cost stays roughly flat.
+MAX_GROUP_DIMENSIONS = 4
+
 # Top-level log fields exposed as grouping keys (source="column"), mapped to the
 # HogQL expression that yields their display value. trace_id/span_id are stored
 # base64-encoded; hex is what users see in trace UIs.
@@ -40,6 +45,12 @@ GROUPABLE_COLUMNS: dict[str, str] = {
 GROUP_SOURCES = ("log", "resource", "column")
 ORDER_FIELDS = ("log_count", "error_count", "last_seen")
 
+
+class GroupByDimension(NamedTuple):
+    key: str
+    source: str
+
+
 # Whole-set totals as window aggregates over the grouped rows: computed in one unsorted
 # pass, so the ORDER BY + LIMIT below can heap-select the top-N instead of fully sorting
 # every group, and the outer select only consumes N rows instead of the whole group set.
@@ -47,19 +58,21 @@ _TOTALS_WINDOW = "count() OVER () AS group_count, sum(log_count) OVER () AS log_
 
 
 class LogsGroupByQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMixin):
-    """Aggregates matching logs into groups by one attribute (or top-level field).
+    """Aggregates matching logs into groups by one or more attributes (or top-level fields).
 
-    Log attributes and top-level columns group in a single scan over the main `logs`
-    table: the attribute maps live on the row (`Map(LowCardinality(String), String)`
-    with bloom-filter key indexes), so grouping needs no join. Resource attributes are
-    constant per `resource_fingerprint` (the hash of the whole resource map, part of
-    the sort key), so that path instead aggregates by the fingerprint — never reading
-    the wide `resource_attributes` map — and translates fingerprint → value through the
-    exploded `log_attributes` rollup, like LogFacetValuesQueryRunner's resource path.
-    One query returns the top-N groups AND the total distinct-group/log counts, by
-    nesting the GROUP BY in a subquery and collecting `groupArray(N)` + `count()` +
-    `sum()` in the outer select — the same shape LogAttributesQueryRunner uses for its
-    keys-only path.
+    Grouping accepts up to MAX_GROUP_DIMENSIONS ordered dimensions; a group is the
+    combination of its per-dimension values (GROUP BY tuple). Log attributes and
+    top-level columns group in a single scan over the main `logs` table: the attribute
+    maps live on the row (`Map(LowCardinality(String), String)` with bloom-filter key
+    indexes), so grouping needs no join. Resource attributes are constant per
+    `resource_fingerprint` (the hash of the whole resource map, part of the sort key),
+    so those dimensions instead aggregate by the fingerprint — never reading the wide
+    `resource_attributes` map — and translate fingerprint → value through the exploded
+    `log_attributes` rollup, one INNER JOIN per resource dimension, like
+    LogFacetValuesQueryRunner's resource path. One query returns the top-N groups AND
+    the total distinct-group/log counts, by nesting the GROUP BY in a subquery and
+    collecting `groupArray(N)` + `count()` + `sum()` in the outer select — the same
+    shape LogAttributesQueryRunner uses for its keys-only path.
 
     The group-by parameters are runner constructor args, not query-model fields, so the
     runner must be invoked via `calculate()` (which the logs API does) — never through
@@ -73,23 +86,31 @@ class LogsGroupByQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
         self,
         query: LogsQuery,
         *args,
-        group_by: str,
+        group_by: str = "",
         group_by_source: str = "log",
+        group_bys: Sequence[tuple[str, str]] | None = None,
         order_groups_by: str = "log_count",
         group_limit: int = DEFAULT_GROUP_LIMIT,
         **kwargs,
     ):
         super().__init__(query, *args, **kwargs)
-        if not group_by:
-            raise ValueError("group_by is required")
-        if group_by_source not in GROUP_SOURCES:
-            raise ValueError(f"group_by_source must be one of {GROUP_SOURCES}")
-        if group_by_source == "column" and group_by not in GROUPABLE_COLUMNS:
-            raise ValueError(f"group_by must be one of {tuple(GROUPABLE_COLUMNS)} when group_by_source is 'column'")
+        if group_bys is None:
+            group_bys = [(group_by, group_by_source)]
+        if not 1 <= len(group_bys) <= MAX_GROUP_DIMENSIONS:
+            raise ValueError(f"group_bys must contain between 1 and {MAX_GROUP_DIMENSIONS} dimensions")
+        dimensions = [GroupByDimension(key=key, source=source) for key, source in group_bys]
+        for dimension in dimensions:
+            if not dimension.key:
+                raise ValueError("group_by is required")
+            if dimension.source not in GROUP_SOURCES:
+                raise ValueError(f"group_by_source must be one of {GROUP_SOURCES}")
+            if dimension.source == "column" and dimension.key not in GROUPABLE_COLUMNS:
+                raise ValueError(f"group_by must be one of {tuple(GROUPABLE_COLUMNS)} when group_by_source is 'column'")
+        if len(set(dimensions)) != len(dimensions):
+            raise ValueError("group_bys must not contain duplicate dimensions")
         if order_groups_by not in ORDER_FIELDS:
             raise ValueError(f"order_groups_by must be one of {ORDER_FIELDS}")
-        self.group_by = group_by
-        self.group_by_source = group_by_source
+        self.group_bys = dimensions
         self.order_groups_by = order_groups_by
         self.group_limit = max(1, min(group_limit, MAX_GROUP_LIMIT))
 
@@ -118,129 +139,128 @@ class LogsGroupByQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
             merge_tree_max_bytes_to_use_cache=MAX_READ_BYTES,
         )
 
-    def _group_expr(self) -> ast.Expr:
+    def _dimension_expr(self, dimension: GroupByDimension) -> ast.Expr:
         # Map keys are bound chain members / parsed from a fixed allowlist — the user-supplied
         # key can never be interpolated as SQL (same contract as column_expressions.path_to_expr).
-        if self.group_by_source == "log":
+        # Resource dimensions never come through here: they aggregate by resource_fingerprint
+        # and translate to values via the log_attributes rollup join.
+        if dimension.source == "log":
             # Log attributes are physically stored in type-suffixed maps (`attributes_map_str`).
             # Read the key with a bare arrayElement on the physical map: the property-resolver
             # route (`attributes.key__str`) wraps the read in a has() guard that defeats the
             # bucketed map serialization and reads every key bucket, ~5x the bytes. A missing
-            # key yields '' here instead of NULL — both are excluded by the `_where` coalesce
+            # key yields '' here instead of NULL — both are excluded by the WHERE coalesce
             # filter, so group results are identical. An explicit Call (not ArrayAccess) keeps
             # the resolver from folding the subscript back into a property chain.
             return ast.Call(
                 name="arrayElement",
-                args=[ast.Field(chain=["attributes_map_str"]), ast.Constant(value=f"{self.group_by}__str")],
+                args=[ast.Field(chain=["attributes_map_str"]), ast.Constant(value=f"{dimension.key}__str")],
             )
-        if self.group_by_source == "resource":
-            return ast.Field(chain=["resource_attributes", self.group_by])
-        return parse_expr(GROUPABLE_COLUMNS[self.group_by])
+        return parse_expr(GROUPABLE_COLUMNS[dimension.key])
 
     def to_query(self) -> ast.SelectQuery:
-        if self.group_by_source == "resource":
-            return self._resource_query()
-        # nosemgrep: hogql-fstring-audit - only interpolates the int self.group_limit and the module-level _TOTALS_WINDOW constant (no user input); the grouping key flows in as an ast.Constant placeholder
-        query = parse_select(
-            f"""
-            SELECT
-                groupArray({self.group_limit})((group_value, log_count, error_count, last_seen)) AS groups,
-                coalesce(any(group_count), 0) AS total_groups,
-                coalesce(any(log_count_sum), 0) AS total_logs
-            FROM (
-                SELECT
-                    group_value, log_count, error_count, last_seen,
-                    {_TOTALS_WINDOW}
-                FROM (
-                    SELECT
-                        {{group_expr}} AS group_value,
-                        count() AS log_count,
-                        countIf(lower(severity_text) IN ('error', 'fatal')) AS error_count,
-                        max(timestamp) AS last_seen
-                    FROM logs
-                    WHERE {{where}}
-                    GROUP BY group_value
-                )
-                ORDER BY {{order_field}} DESC, group_value ASC
-                LIMIT {self.group_limit}
-            )
-            """,
-            placeholders={
-                # Fresh AST nodes per placeholder — resolution annotates nodes in place.
-                "group_expr": self._group_expr(),
-                "where": self._where(),
-                "order_field": ast.Field(chain=[self.order_groups_by]),
-            },
-        )
-        assert isinstance(query, ast.SelectQuery)
-        return query
+        # One generated alias (g0..gN) per dimension, in request order; the aliases are
+        # module-generated strings, so interpolating them into the template is safe.
+        aliases = [f"g{i}" for i in range(len(self.group_bys))]
+        scan_dims = [(a, d) for a, d in zip(aliases, self.group_bys) if d.source != "resource"]
+        resource_dims = [(a, d) for a, d in zip(aliases, self.group_bys) if d.source == "resource"]
 
-    def _resource_query(self) -> ast.SelectQuery:
-        # Resource attributes are fixed per resource_fingerprint (the fingerprint IS the
-        # hash of the whole map), so the scan aggregates by the sort-key UInt64 alone and
-        # the fingerprint → attribute-value translation comes from the log_attributes
-        # rollup — the wide resource_attributes map is never read. The INNER JOIN doubles
-        # as the "has this attribute, non-empty" filter the map path expresses via
-        # coalesce(...) != '': fingerprints without the key (or with '' as the value)
-        # have no mapping row, so their logs drop out of groups and totals alike.
-        # nosemgrep: hogql-fstring-audit - only interpolates the int self.group_limit and the module-level _TOTALS_WINDOW constant (no user input); attribute_key/date bounds flow in as ast.Constant placeholders
-        query = parse_select(
-            f"""
+        placeholders: dict[str, ast.Expr] = {"order_field": ast.Field(chain=[self.order_groups_by])}
+
+        # Scan over `logs`: group by the non-resource dimension expressions plus (when any
+        # resource dimension exists) the fingerprint. Rows without a non-resource dimension's
+        # attribute are not a group: a missing map key reads as NULL (property-group scrub) or
+        # '' (native subscript), and HogQL's `!=` lets NULL through, so both are excluded via
+        # coalesce. Fresh AST nodes per placeholder — resolution annotates nodes in place.
+        where_exprs = self._base_where()
+        scan_cols = []
+        for alias, dimension in scan_dims:
+            placeholders[f"expr_{alias}"] = self._dimension_expr(dimension)
+            where_exprs.append(
+                parse_expr("coalesce({expr}, '') != ''", placeholders={"expr": self._dimension_expr(dimension)})
+            )
+            scan_cols.append(f"{{expr_{alias}}} AS {alias}")
+        placeholders["where"] = ast.And(exprs=where_exprs)
+        if resource_dims:
+            scan_cols.append("resource_fingerprint")
+        scan_group_cols = [alias for alias, _ in scan_dims] + (["resource_fingerprint"] if resource_dims else [])
+        scan_sql = f"""
             SELECT
-                groupArray({self.group_limit})((group_value, log_count, error_count, last_seen)) AS groups,
-                coalesce(any(group_count), 0) AS total_groups,
-                coalesce(any(log_count_sum), 0) AS total_logs
-            FROM (
-                SELECT
-                    group_value, log_count, error_count, last_seen,
-                    {_TOTALS_WINDOW}
-                FROM (
-                    SELECT
-                        mapping.group_value AS group_value,
-                        sum(agg.log_count) AS log_count,
-                        sum(agg.error_count) AS error_count,
-                        max(agg.last_seen) AS last_seen
-                    FROM (
-                        SELECT
-                            resource_fingerprint,
-                            count() AS log_count,
-                            countIf(lower(severity_text) IN ('error', 'fatal')) AS error_count,
-                            max(timestamp) AS last_seen
-                        FROM logs
-                        WHERE {{where}}
-                        GROUP BY resource_fingerprint
-                    ) AS agg
+                {", ".join(scan_cols)},
+                count() AS log_count,
+                countIf(lower(severity_text) IN ('error', 'fatal')) AS error_count,
+                max(timestamp) AS last_seen
+            FROM logs
+            WHERE {{where}}
+            GROUP BY {", ".join(scan_group_cols)}
+        """
+
+        if resource_dims:
+            # Resource attributes are fixed per resource_fingerprint (the fingerprint IS the
+            # hash of the whole map), so the scan aggregates by the sort-key UInt64 alone and
+            # each resource dimension's fingerprint → value translation comes from the
+            # log_attributes rollup — the wide resource_attributes map is never read. The
+            # INNER JOIN doubles as that dimension's "has this attribute, non-empty" filter:
+            # fingerprints without the key (or with '' as the value) have no mapping row, so
+            # their logs drop out of groups and totals alike.
+            join_sql_parts = []
+            for alias, dimension in resource_dims:
+                placeholders[f"attribute_key_{alias}"] = ast.Constant(value=dimension.key)
+                # Pruning only: the mapping is time-invariant, but bounding time_bucket keeps
+                # the rollup read to the parts covering the window. The rollup's time_bucket is
+                # toStartOfInterval(timestamp, 10min), so a log with timestamp >= date_from can
+                # only land in a bucket >= toStartOfInterval(date_from, 10min) — the tightest
+                # lower bound that still covers every in-window row (matches LogFacetValues).
+                placeholders[f"date_from_{alias}"] = ast.Constant(value=self.query_date_range.date_from())
+                placeholders[f"date_to_{alias}"] = ast.Constant(value=self.query_date_range.date_to())
+                join_sql_parts.append(f"""
                     INNER JOIN (
                         SELECT
                             resource_fingerprint,
                             any(attribute_value) AS group_value
                         FROM log_attributes
                         WHERE attribute_type = 'resource'
-                            AND attribute_key = {{attribute_key}}
+                            AND attribute_key = {{attribute_key_{alias}}}
                             AND attribute_value != ''
-                            AND time_bucket >= toStartOfInterval({{date_from}}, toIntervalMinute(10))
-                            AND time_bucket <= {{date_to}}
+                            AND time_bucket >= toStartOfInterval({{date_from_{alias}}}, toIntervalMinute(10))
+                            AND time_bucket <= {{date_to_{alias}}}
                         GROUP BY resource_fingerprint
-                    ) AS mapping
-                    ON agg.resource_fingerprint = mapping.resource_fingerprint
-                    GROUP BY group_value
-                )
-                ORDER BY {{order_field}} DESC, group_value ASC
+                    ) AS mapping_{alias}
+                    ON agg.resource_fingerprint = mapping_{alias}.resource_fingerprint
+                """)
+            grouped_cols = [f"agg.{alias} AS {alias}" for alias, _ in scan_dims] + [
+                f"mapping_{alias}.group_value AS {alias}" for alias, _ in resource_dims
+            ]
+            grouped_sql = f"""
+                SELECT
+                    {", ".join(grouped_cols)},
+                    sum(agg.log_count) AS log_count,
+                    sum(agg.error_count) AS error_count,
+                    max(agg.last_seen) AS last_seen
+                FROM ({scan_sql}) AS agg
+                {" ".join(join_sql_parts)}
+                GROUP BY {", ".join(aliases)}
+            """
+        else:
+            grouped_sql = scan_sql
+
+        # nosemgrep: hogql-fstring-audit - only interpolates the int self.group_limit, the module-level _TOTALS_WINDOW constant, and generated g0..gN aliases (no user input); grouping keys and date bounds flow in as ast placeholders
+        query = parse_select(
+            f"""
+            SELECT
+                groupArray({self.group_limit})((tuple({", ".join(aliases)}), log_count, error_count, last_seen)) AS groups,
+                coalesce(any(group_count), 0) AS total_groups,
+                coalesce(any(log_count_sum), 0) AS total_logs
+            FROM (
+                SELECT
+                    {", ".join(aliases)}, log_count, error_count, last_seen,
+                    {_TOTALS_WINDOW}
+                FROM ({grouped_sql})
+                ORDER BY {{order_field}} DESC, {", ".join(f"{alias} ASC" for alias in aliases)}
                 LIMIT {self.group_limit}
             )
             """,
-            placeholders={
-                "where": ast.And(exprs=self._base_where()),
-                "attribute_key": ast.Constant(value=self.group_by),
-                # Pruning only: the mapping is time-invariant, but bounding time_bucket keeps
-                # the rollup read to the parts covering the window. The rollup's time_bucket is
-                # toStartOfInterval(timestamp, 10min), so a log with timestamp >= date_from can
-                # only land in a bucket >= toStartOfInterval(date_from, 10min) — the tightest
-                # lower bound that still covers every in-window row (matches LogFacetValues).
-                "date_from": ast.Constant(value=self.query_date_range.date_from()),
-                "date_to": ast.Constant(value=self.query_date_range.date_to()),
-                "order_field": ast.Field(chain=[self.order_groups_by]),
-            },
+            placeholders=placeholders,
         )
         assert isinstance(query, ast.SelectQuery)
         return query
@@ -258,17 +278,6 @@ class LogsGroupByQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
                 },
             ),
         ]
-
-    def _where(self) -> ast.Expr:
-        # Rows without the grouping attribute are not a group: a missing map key reads as
-        # NULL (property-group scrub) or '' (native subscript), and HogQL's `!=` lets NULL
-        # through, so both must be excluded via coalesce.
-        return ast.And(
-            exprs=[
-                *self._base_where(),
-                parse_expr("coalesce({group_expr}, '') != ''", placeholders={"group_expr": self._group_expr()}),
-            ]
-        )
 
     def _calculate(self) -> LogsQueryResponse:
         # The group-by templates only reference posthog-native tables (logs, log_attributes)
@@ -297,12 +306,15 @@ class LogsGroupByQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
         groups_raw, total_groups, total_logs = response.results[0] if response.results else ([], 0, 0)
         groups = [
             {
-                "value": value,
+                # `value` mirrors the first dimension for single-dimension callers; `values`
+                # carries every dimension's value in request order.
+                "value": values[0],
+                "values": list(values),
                 "log_count": int(log_count),
                 "error_count": int(error_count),
                 "last_seen": last_seen.replace(tzinfo=ZoneInfo("UTC")).isoformat(),
             }
-            for value, log_count, error_count, last_seen in groups_raw
+            for values, log_count, error_count, last_seen in groups_raw
         ]
         return LogsQueryResponse(
             results={

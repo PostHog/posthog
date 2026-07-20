@@ -29318,20 +29318,6 @@ export namespace Schemas {
       readonly created_at: string;
     }
 
-    /**
-     * * `log` - log
-     * * `resource` - resource
-     * * `column` - column
-     */
-    export type GroupBySourceEnum = typeof GroupBySourceEnum[keyof typeof GroupBySourceEnum];
-
-
-    export const GroupBySourceEnum = {
-      Log: 'log',
-      Resource: 'resource',
-      Column: 'column',
-    } as const;
-
     export interface GroupType {
       readonly group_type: string;
       readonly group_type_index: number;
@@ -34460,6 +34446,20 @@ export namespace Schemas {
       filters: LogsAlertStateChangeSignalExtraFilters;
       url: string;
     }
+
+    /**
+     * * `log` - log
+     * * `resource` - resource
+     * * `column` - column
+     */
+    export type LogsGroupBySourceEnum = typeof LogsGroupBySourceEnum[keyof typeof LogsGroupBySourceEnum];
+
+
+    export const LogsGroupBySourceEnum = {
+      Log: 'log',
+      Resource: 'resource',
+      Column: 'column',
+    } as const;
 
     export type LogsListWidgetCatalogEntryOpenApiWidgetType = typeof LogsListWidgetCatalogEntryOpenApiWidgetType[keyof typeof LogsListWidgetCatalogEntryOpenApiWidgetType];
 
@@ -64376,6 +64376,17 @@ export namespace Schemas {
       results: _LogFacetValue[];
     }
 
+    export interface _LogsGroupByDimension {
+      /** The key this dimension groups by — an attribute key (e.g. "session_id", "service.name") or, when source is "column", one of the top-level log fields: "severity_level", "trace_id", "span_id". */
+      key: string;
+      /** Where this dimension's key lives: "log" for log-level attributes, "resource" for resource-level attributes, "column" for top-level log fields.
+       *
+       * * `log` - log
+       * * `resource` - resource
+       * * `column` - column */
+      source?: LogsGroupBySourceEnum;
+    }
+
     export interface _LogsGroupByBody {
       /** Date range to aggregate over. Defaults to last hour. */
       dateRange?: _DateRange;
@@ -64387,14 +64398,20 @@ export namespace Schemas {
       searchTerm?: string;
       /** Property filters applied before grouping. Same shape as the query-logs endpoint. */
       filterGroup?: _LogPropertyFilter[];
-      /** The key to group logs by — an attribute key (e.g. "session_id", "service.name") or, when groupBySource is "column", one of the top-level log fields: "severity_level", "trace_id", "span_id". */
-      groupBy: string;
-      /** Where the grouping key lives: "log" for log-level attributes, "resource" for resource-level attributes, "column" for top-level log fields.
+      /** The key to group logs by — an attribute key (e.g. "session_id", "service.name") or, when groupBySource is "column", one of the top-level log fields: "severity_level", "trace_id", "span_id". Ignored when groupBys is provided. */
+      groupBy?: string;
+      /** Where the grouping key lives: "log" for log-level attributes, "resource" for resource-level attributes, "column" for top-level log fields. Ignored when groupBys is provided.
        *
        * * `log` - log
        * * `resource` - resource
        * * `column` - column */
-      groupBySource?: GroupBySourceEnum;
+      groupBySource?: LogsGroupBySourceEnum;
+      /**
+         * Ordered group-by dimensions to combine (a group is one combination of per-dimension values), up to 4. Takes precedence over groupBy/groupBySource; one of the two must be provided.
+         * @minItems 1
+         * @maxItems 4
+         */
+      groupBys?: _LogsGroupByDimension[];
       /** Aggregate to rank groups by (descending): "log_count" for the noisiest groups, "error_count" for the most failing, "last_seen" for the most recent.
        *
        * * `log_count` - log_count
@@ -64410,8 +64427,10 @@ export namespace Schemas {
     }
 
     export interface _LogsGroupByGroup {
-      /** The grouped attribute value identifying this group. */
+      /** The first dimension's grouped value. Kept for single-dimension callers; prefer `values`. */
       value: string;
+      /** This group's values, one per requested dimension, in request order. */
+      values: string[];
       /** Number of matching logs in this group. */
       log_count: number;
       /** Number of matching logs in this group at severity "error" or "fatal". */

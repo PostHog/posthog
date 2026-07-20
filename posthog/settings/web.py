@@ -568,6 +568,8 @@ SPECTACULAR_SETTINGS = {
         "IngestionWarningSeverityEnum": "posthog.api.ingestion_warnings_v2.INGESTION_WARNING_SEVERITIES",
         # Disambiguates from the same-valued inline enum on the signals LogsAlertStateChangeSignalExtra contract.
         "LogsAlertThresholdOperatorEnum": "products.logs.backend.models.LogsAlertConfiguration.ThresholdOperator",
+        # Shared by _LogsGroupByBody.groupBySource and _LogsGroupByDimension.source (labels == values).
+        "LogsGroupBySourceEnum": ["log", "resource", "column"],
         "LLMProviderEnum": "products.ai_observability.backend.models.provider_keys.LLMProvider",
         "EvaluationReportFrequencyEnum": (
             "products.ai_observability.backend.models.evaluation_reports.EvaluationReport.Frequency"
