@@ -15,7 +15,8 @@ export interface AssigneeDropdownProps {
 }
 
 export function AssigneeDropdown({ assignee, onChange }: AssigneeDropdownProps): JSX.Element {
-    const { search, filteredRoles, filteredMembers, rolesLoading, membersLoading } = useValues(assigneeSelectLogic)
+    const { search, filteredRoles, otherFilteredMembers, currentUserMember, rolesLoading, membersLoading } =
+        useValues(assigneeSelectLogic)
     const { setSearch } = useActions(assigneeSelectLogic)
 
     return (
@@ -33,6 +34,21 @@ export function AssigneeDropdown({ assignee, onChange }: AssigneeDropdownProps):
                         >
                             Remove assignee
                         </LemonButton>
+                    </li>
+                )}
+
+                {currentUserMember && (
+                    <li>
+                        <AssigneeItem
+                            item={{
+                                id: currentUserMember.user.id,
+                                type: 'user',
+                                user: currentUserMember.user,
+                            }}
+                            type="user"
+                            onSelect={onChange}
+                            activeId={assignee?.id}
+                        />
                     </li>
                 )}
 
@@ -60,19 +76,21 @@ export function AssigneeDropdown({ assignee, onChange }: AssigneeDropdownProps):
                     }
                 />
 
-                <Section
-                    title="Users"
-                    loading={membersLoading}
-                    search={!!search}
-                    type="user"
-                    items={filteredMembers.map((member) => ({
-                        id: member.user.id,
-                        type: 'user' as const,
-                        user: member.user,
-                    }))}
-                    onSelect={onChange}
-                    activeId={assignee?.id}
-                />
+                {(!!search || membersLoading || otherFilteredMembers.length > 0) && (
+                    <Section
+                        title="Users"
+                        loading={membersLoading}
+                        search={!!search}
+                        type="user"
+                        items={otherFilteredMembers.map((member) => ({
+                            id: member.user.id,
+                            type: 'user' as const,
+                            user: member.user,
+                        }))}
+                        onSelect={onChange}
+                        activeId={assignee?.id}
+                    />
+                )}
             </ul>
         </div>
     )
