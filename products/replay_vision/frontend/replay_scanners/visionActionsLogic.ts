@@ -234,7 +234,10 @@ export const visionActionsLogic = kea<visionActionsLogicType>([
             }
             try {
                 const response = await visionActionsList(String(teamId), { scanner: props.scannerId, limit: 100 })
-                actions.loadActionsSuccess(response.results ?? [])
+                // The scanner's built-in daily digest lives on the Observations tab (ScannerDigestCard),
+                // not in this table — so the table lists only the summaries and alerts a user created, and
+                // its empty state is meaningful again.
+                actions.loadActionsSuccess((response.results ?? []).filter((a) => !a.is_scanner_digest))
             } catch (error: any) {
                 lemonToast.error(`Failed to load summaries${error.detail ? `: ${error.detail}` : ''}`)
                 actions.loadActionsFailure()

@@ -58,6 +58,19 @@ describe('visionActionsLogic', () => {
             })
     })
 
+    it("filters out the scanner's built-in digest — it lives on the Observations tab, not this table", async () => {
+        const digest = { ...action('digest'), is_scanner_digest: true } as VisionActionApi
+        useMocks({
+            get: {
+                '/api/projects/:team/vision/actions/': { results: [digest, action('a')], count: 2 },
+            },
+        })
+        logic.actions.loadActions()
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({ visionActions: [expect.objectContaining({ id: 'a' })] })
+    })
+
     it('toggleActionEnabled optimistically flips the row and marks it in-flight', async () => {
         await expectLogic(logic, () => {
             logic.actions.loadActionsSuccess([action('a', true)])

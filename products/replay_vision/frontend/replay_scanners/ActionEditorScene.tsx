@@ -547,7 +547,6 @@ function DeliverySection(): JSX.Element {
 export function ActionEditorSceneComponent(): JSX.Element {
     const { isNew, actionLoading, loadedAction, actionForm, isActionFormSubmitting, effectiveScannerId, scannerName } =
         useValues(actionEditorSceneLogic)
-    const { setActionFormValue } = useActions(actionEditorSceneLogic)
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
     const { featureFlagsTimedOut } = useValues(appLogic)
 
@@ -582,7 +581,7 @@ export function ActionEditorSceneComponent(): JSX.Element {
     }
 
     const isAlert = actionForm.mode === VisionActionModeEnumApi.Alert
-    const noun = isAlert ? 'alert' : 'group summary'
+    const noun = isAlert ? 'alert' : 'summary'
     const title = isNew
         ? scannerName
             ? `New ${noun} for ${scannerName}`
@@ -621,23 +620,6 @@ export function ActionEditorSceneComponent(): JSX.Element {
                                     autoFocus
                                 />
                             </LemonField>
-
-                            <div>
-                                <h4 className="mb-1">Type</h4>
-                                <LemonSegmentedButton
-                                    size="small"
-                                    value={actionForm.mode}
-                                    onChange={(value) => setActionFormValue('mode', value)}
-                                    options={[
-                                        {
-                                            value: VisionActionModeEnumApi.GroupSummary,
-                                            label: 'Scheduled group summary',
-                                        },
-                                        { value: VisionActionModeEnumApi.Alert, label: 'Alert' },
-                                    ]}
-                                    data-attr="vision-action-mode"
-                                />
-                            </div>
 
                             {!isAlert && (
                                 <div>
