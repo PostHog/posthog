@@ -432,16 +432,41 @@ describe('extractModalityTokens()', () => {
     })
 
     describe('cache modality extraction', () => {
-        it('extracts Anthropic cache creation tokens by TTL', () => {
-            const event = createAIEvent({
-                $ai_usage: {
-                    input_tokens: 2048,
-                    cache_creation_input_tokens: 248,
-                    cache_creation: {
-                        ephemeral_5m_input_tokens: 148,
-                        ephemeral_1h_input_tokens: 100,
+        const anthropicUsage = {
+            input_tokens: 2048,
+            cache_creation_input_tokens: 248,
+            cache_creation: {
+                ephemeral_5m_input_tokens: 148,
+                ephemeral_1h_input_tokens: 100,
+            },
+        }
+
+        it.each([
+            {
+                name: 'direct Anthropic usage',
+                usage: anthropicUsage,
+            },
+            {
+                name: 'Vercel usage.raw',
+                usage: {
+                    usage: {
+                        raw: anthropicUsage,
                     },
                 },
+            },
+            {
+                name: 'Vercel providerMetadata.anthropic.usage',
+                usage: {
+                    providerMetadata: {
+                        anthropic: {
+                            usage: anthropicUsage,
+                        },
+                    },
+                },
+            },
+        ])('extracts Anthropic cache creation tokens by TTL from $name', ({ usage }) => {
+            const event = createAIEvent({
+                $ai_usage: usage,
             })
 
             const result = extractModalityTokens(event)

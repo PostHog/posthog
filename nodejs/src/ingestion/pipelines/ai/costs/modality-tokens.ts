@@ -245,6 +245,12 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
 
         extractFromMetadata(usage)
 
+        // @posthog/ai preserves raw Vercel usage under usage.raw.
+        const usageDetails = (usage as Record<string, unknown>)['usage']
+        if (isObject(usageDetails)) {
+            extractFromMetadata(usageDetails['raw'])
+        }
+
         // Vercel AI SDK with rawResponse at top level: { rawResponse: { usageMetadata: {...} } }
         const topLevelRawResponse = (usage as Record<string, unknown>)['rawResponse']
         if (isObject(topLevelRawResponse)) {
@@ -255,6 +261,12 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
         const providerMetadata = (usage as Record<string, unknown>)['providerMetadata']
         if (isObject(providerMetadata)) {
             extractFromMetadata(providerMetadata['google'])
+
+            // Anthropic's original usage is also available in provider metadata.
+            const anthropicProviderMetadata = providerMetadata['anthropic']
+            if (isObject(anthropicProviderMetadata)) {
+                extractFromMetadata(anthropicProviderMetadata['usage'])
+            }
         }
 
         // Vercel AI SDK V3 / nested rawUsage variants:

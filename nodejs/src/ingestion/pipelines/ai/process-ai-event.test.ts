@@ -895,10 +895,32 @@ describe('processAiEvent()', () => {
             event.properties!.$ai_output_tokens = 100
             event.properties!.$ai_cache_creation_input_tokens = 300
             event.properties!.$ai_usage = {
-                cache_creation_input_tokens: 300,
-                cache_creation: {
-                    ephemeral_5m_input_tokens: 100,
-                    ephemeral_1h_input_tokens: 200,
+                usage: {
+                    inputTokens: {
+                        total: 1300,
+                        noCache: 1000,
+                        cacheRead: 0,
+                        cacheWrite: 300,
+                    },
+                    outputTokens: { total: 100, text: 100, reasoning: 0 },
+                    raw: {
+                        cache_creation_input_tokens: 300,
+                        cache_creation: {
+                            ephemeral_5m_input_tokens: 100,
+                            ephemeral_1h_input_tokens: 200,
+                        },
+                    },
+                },
+                providerMetadata: {
+                    anthropic: {
+                        usage: {
+                            cache_creation_input_tokens: 300,
+                            cache_creation: {
+                                ephemeral_5m_input_tokens: 100,
+                                ephemeral_1h_input_tokens: 200,
+                            },
+                        },
+                    },
                 },
             }
 
