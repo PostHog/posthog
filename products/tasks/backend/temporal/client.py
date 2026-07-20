@@ -465,10 +465,15 @@ def execute_build_sandbox_image_workflow(image_id: str, team_id: int, *, refresh
     )
 
 
-def signal_task_followup_message(workflow_id: str, message: str | None, artifact_ids: list[str]) -> None:
+def signal_task_followup_message(
+    workflow_id: str,
+    message: str | None,
+    artifact_ids: list[str],
+    message_id: str | None = None,
+) -> None:
     client = sync_connect()
     handle = client.get_workflow_handle(workflow_id)
-    asyncio.run(handle.signal("send_followup_message", args=[message, artifact_ids]))
+    asyncio.run(handle.signal("send_followup_message", args=[message, artifact_ids, message_id]))
 
 
 def signal_agent_text_delta(workflow_id: str, text: str) -> None:
