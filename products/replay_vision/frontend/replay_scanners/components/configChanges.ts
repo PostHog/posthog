@@ -59,32 +59,17 @@ export type FieldEditorKind = 'prompt' | 'tags' | 'scale' | 'length' | 'flag' | 
 export interface FieldEditorMeta {
     kind: FieldEditorKind
     label: string
-    description?: string
 }
 
-// Labels and descriptions mirror the scanner configuration editor so both surfaces read the same.
+// Labels mirror the scanner configuration tab so both surfaces read the same.
 const FIELD_EDITORS: Record<string, FieldEditorMeta> = {
     prompt: { kind: 'prompt', label: 'Prompt' },
     tags: { kind: 'tags', label: 'Tag vocabulary' },
     scale: { kind: 'scale', label: 'Scale' },
     length: { kind: 'length', label: 'Summary length' },
-    multi_label: {
-        kind: 'flag',
-        label: 'Allow multiple tags per session',
-        description: 'Otherwise the model picks exactly one tag from your vocabulary.',
-    },
-    allow_freeform_tags: {
-        kind: 'flag',
-        label: 'Allow freeform tags',
-        description: 'Lets the model emit tags outside your tag vocabulary.',
-    },
-    allow_inconclusive: {
-        kind: 'flag',
-        label: 'Allow inconclusive verdicts',
-        description:
-            "Lets the model answer inconclusive when the recording doesn't contain enough evidence to decide. " +
-            'Otherwise it must commit to yes or no.',
-    },
+    multi_label: { kind: 'flag', label: 'Multiple tags per session' },
+    allow_freeform_tags: { kind: 'flag', label: 'Freeform tags' },
+    allow_inconclusive: { kind: 'flag', label: 'Allow inconclusive verdicts' },
 }
 
 /** Editor kind and label for a config field, falling back on the value's type for unknown fields. */

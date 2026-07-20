@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconExpand45, IconRevert } from '@posthog/icons'
+import { IconExpand45, IconPencil, IconRevert } from '@posthog/icons'
 import {
     LemonButton,
+    LemonCard,
     LemonInput,
     LemonModal,
     LemonSegmentedButton,
@@ -17,6 +18,7 @@ import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { objectsEqual } from 'lib/utils/objects'
 
+import { CardHeader } from '../../components/CardHeader'
 import type { ReplayScannerPromptSuggestionApi } from '../../generated/api.schemas'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { scannerQualityLogic } from '../scannerQualityLogic'
@@ -239,6 +241,9 @@ function FieldValueEditor({
             />
         )
     }
+    if (kind === 'flag') {
+        return <LemonSwitch checked={!!value} onChange={onChange} label={value ? 'On' : 'Off'} />
+    }
     return <LemonTextArea value={String(value ?? '')} onChange={onChange} minRows={2} />
 }
 
@@ -329,78 +334,60 @@ export function ConfigChangeCards({
         ? changedFields(changes).map(({ field }) => field)
         : Object.keys(suggested).sort((a, b) => (a === 'prompt' ? -1 : b === 'prompt' ? 1 : 0))
 
+    const rows = fieldNames.map((field) => {
+        const fieldChanges = changes.filter((change) => change.field === field)
+        const value = readOnly ? suggested[field] : fieldValues[field]
+        const { kind, label } = fieldEditor(field, value)
+        // The configuration tab labels the summarizer's prompt "Additional context"; read the same way here.
+        const fieldLabel = field === 'prompt' && scanner?.scanner_type === 'summarizer' ? 'Additional context' : label
+        const edited = !readOnly && !objectsEqual(value, suggested[field])
+        return (
+            <div key={field}>
+                <div className="flex items-center justify-between gap-2 mb-0.5">
+                    <span className="text-xs text-muted">{fieldLabel}</span>
+                    {edited && (
+                        <LemonButton
+                            size="xsmall"
+                            type="secondary"
+                            icon={<IconRevert />}
+                            onClick={() => setFieldValue(suggestion.id, field, suggested[field])}
+                            tooltip="Revert to the suggested value"
+                            data-attr="vision-quality-revert-field"
+                        >
+                            Revert
+                        </LemonButton>
+                    )}
+                </div>
+                {readOnly ? (
+                    <FieldValueReadOnly
+                        kind={kind as ScannerConfigChange['kind']}
+                        suggestion={suggestion}
+                        isDarkModeOn={isDarkModeOn}
+                        fieldChanges={fieldChanges}
+                    />
+                ) : (
+                    <FieldValueEditor
+                        kind={kind}
+                        value={value}
+                        onChange={(newValue) => setFieldValue(suggestion.id, field, newValue)}
+                        basePrompt={suggestion.base_prompt}
+                        isDarkModeOn={isDarkModeOn}
+                        tagChanges={fieldChanges}
+                    />
+                )}
+                <FieldRationales fieldChanges={fieldChanges} />
+            </div>
+        )
+    })
+
+    // Past recommendations sit inside a history card already, so they skip the extra Behavior card.
+    if (readOnly) {
+        return <div className="flex flex-col gap-3">{rows}</div>
+    }
     return (
-        <div className="space-y-4">
-            {fieldNames.map((field) => {
-                const fieldChanges = changes.filter((change) => change.field === field)
-                const value = readOnly ? suggested[field] : fieldValues[field]
-                const { kind, label, description } = fieldEditor(field, value)
-                // The configurator labels the summarizer's prompt "Additional context"; read the same way here.
-                const fieldLabel =
-                    field === 'prompt' && scanner?.scanner_type === 'summarizer' ? 'Additional context' : label
-                const edited = !readOnly && !objectsEqual(value, suggested[field])
-                const revert = edited ? (
-                    <LemonButton
-                        size="xsmall"
-                        type="secondary"
-                        icon={<IconRevert />}
-                        onClick={() => setFieldValue(suggestion.id, field, suggested[field])}
-                        tooltip="Revert to the suggested value"
-                        data-attr="vision-quality-revert-field"
-                    >
-                        Revert
-                    </LemonButton>
-                ) : null
-
-                // Flags render as the configurator's switch rows: switch left, title and description beside it.
-                if (kind === 'flag' && !readOnly) {
-                    return (
-                        <div key={field} className="space-y-1">
-                            <div className="flex items-center justify-between gap-2">
-                                <div className="flex items-center gap-2">
-                                    <LemonSwitch
-                                        checked={!!value}
-                                        onChange={(checked) => setFieldValue(suggestion.id, field, checked)}
-                                    />
-                                    <div>
-                                        <div className="text-sm font-medium">{fieldLabel}</div>
-                                        {description && <div className="text-xs text-muted">{description}</div>}
-                                    </div>
-                                </div>
-                                {revert}
-                            </div>
-                            <FieldRationales fieldChanges={fieldChanges} />
-                        </div>
-                    )
-                }
-
-                return (
-                    <div key={field} className="space-y-2">
-                        <div className="flex items-center justify-between gap-2">
-                            <label className="text-sm font-medium">{fieldLabel}</label>
-                            {revert}
-                        </div>
-                        {readOnly ? (
-                            <FieldValueReadOnly
-                                kind={kind as ScannerConfigChange['kind']}
-                                suggestion={suggestion}
-                                isDarkModeOn={isDarkModeOn}
-                                fieldChanges={fieldChanges}
-                            />
-                        ) : (
-                            <FieldValueEditor
-                                kind={kind}
-                                value={value}
-                                onChange={(newValue) => setFieldValue(suggestion.id, field, newValue)}
-                                basePrompt={suggestion.base_prompt}
-                                isDarkModeOn={isDarkModeOn}
-                                tagChanges={fieldChanges}
-                            />
-                        )}
-                        <FieldRationales fieldChanges={fieldChanges} />
-                    </div>
-                )
-            })}
-        </div>
+        <LemonCard className="p-4" hoverEffect={false}>
+            <CardHeader icon={<IconPencil />} title="Behavior" />
+            <div className="flex flex-col gap-3">{rows}</div>
+        </LemonCard>
     )
 }
