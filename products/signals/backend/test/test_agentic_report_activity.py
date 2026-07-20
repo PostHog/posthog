@@ -1,6 +1,7 @@
 import json
 import random
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
@@ -11,6 +12,7 @@ import pytest_asyncio
 from asgiref.sync import sync_to_async
 
 from posthog.models import Organization, Team, User
+from posthog.models.integration import GitHubIntegrationError
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user_integration import UserIntegration
 from posthog.sync import database_sync_to_async
@@ -29,7 +31,7 @@ from products.signals.backend.report_generation.research import (
     _resolve_priority_response,
     run_multi_turn_research,
 )
-from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.report_generation.select_repo import RepoSelectionResult, select_repository_for_team
 from products.signals.backend.temporal.agentic.report import (
     RunAgenticReportInput,
     _parse_artefact_content,
@@ -238,6 +240,30 @@ async def test_select_repository_activity_no_repo(monkeypatch, ateam):
 
     assert result.repository is None
     assert "No GitHub repositories" in result.reason
+
+
+@pytest.mark.asyncio
+async def test_select_repository_for_team_collapses_github_error(monkeypatch):
+    # When GitHub can't list the team's repos (installation gone, token expired, rate-limited) and
+    # there's no cached snapshot, listing raises GitHubIntegrationError. Signals has no picker
+    # fallback, so this must become a null result rather than crash the report-generation run.
+    monkeypatch.setattr(
+        "products.signals.backend.report_generation.select_repo.resolve_agent_runtime",
+        lambda team_id, step: SimpleNamespace(model=None, runtime_adapter=None, reasoning_effort=None),
+    )
+
+    async def raise_github_error(*args, **kwargs):
+        raise GitHubIntegrationError("GitHubIntegration: failed to list repositories")
+
+    monkeypatch.setattr(
+        "products.signals.backend.report_generation.select_repo.select_repository",
+        raise_github_error,
+    )
+
+    result = await select_repository_for_team(team_id=1, user_id=1, request_section="some request")
+
+    assert result.repository is None
+    assert "GitHub repositories" in result.reason
 
 
 @pytest.mark.asyncio
