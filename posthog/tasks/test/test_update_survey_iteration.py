@@ -73,6 +73,7 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
         log = ActivityLog.objects.get(scope="Survey", item_id=str(self.recurring_survey.id), activity="updated")
         self.assertIsNone(log.user)
         self.assertTrue(log.is_system)
+        assert log.detail is not None
         self.assertEqual(log.detail["changes"][0]["field"], "end_date")
 
     def test_huge_iteration_frequency_does_not_crash_task(self) -> None:
