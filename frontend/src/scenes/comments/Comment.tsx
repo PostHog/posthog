@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useRef } from 'react'
 
-import { IconChevronDown, IconChevronRight, IconEllipsis, IconEye, IconPencil, IconTrash } from '@posthog/icons'
+import { IconChevronRight, IconEllipsis, IconEye, IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonMenu, LemonTag, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
@@ -377,7 +377,9 @@ export const CommentWithReplies = ({ commentWithReplies, composerLogicProps }: C
                     <>
                         <LemonDivider className="my-0" />
                         <div className="flex items-center gap-1 px-2 py-1 text-xs text-secondary">
-                            {isExpanded ? <IconChevronDown /> : <IconChevronRight />}
+                            <IconChevronRight
+                                className={clsx('size-3 shrink-0 transition-transform', isExpanded && 'rotate-90')}
+                            />
                             <span>{replies.length === 1 ? '1 reply' : `${replies.length} replies`}</span>
                             {/* While the thread is open the reply affordance lives at its bottom instead */}
                             {!showReplies ? <div className="ml-auto">{replyButton}</div> : null}
