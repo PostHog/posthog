@@ -43,7 +43,7 @@ export interface logsAlertingLogicActions {
     deleteAlert: (id: string) => {
         id: string
     }
-    loadAlerts: () => any
+    loadAlerts: (_?: any) => any
     loadAlertsFailure: (
         error: string,
         errorObject?: any
