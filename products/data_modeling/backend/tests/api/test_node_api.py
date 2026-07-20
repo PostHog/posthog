@@ -117,6 +117,31 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["dag_name"], self.dag_id)
 
+    def test_node_response_includes_suspension_state(self):
+        suspension = {"at": "2026-07-16T00:00:00+00:00", "reason": "Timeout exceeded", "job_id": "job-1"}
+        self.view_node.properties = {"system": {"suspended": {"clickhouse": suspension}}}
+        self.view_node.save()
+
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["suspended"], {"clickhouse": suspension})
+
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{self.table_node.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(response.json()["suspended"])
+
+    def test_node_response_normalizes_legacy_suspension_state(self):
+        self.view_node.properties = {"system": {"suspended": {"duckdb": True}}}
+        self.view_node.save()
+
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["suspended"],
+            {"duckdb": {"at": None, "reason": None, "job_id": None}},
+        )
+
     def test_dag_ids_action(self):
         another_dag = DAG.objects.create(team=self.team, name="another_dag")
         Node.objects.create(

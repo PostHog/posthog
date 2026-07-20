@@ -9,7 +9,7 @@ from django.db import models
 from django.db.models import OuterRef, Subquery
 
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from rest_framework import filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -28,6 +28,14 @@ from products.data_modeling.backend.facade.models import DAG, Edge, Node, NodeTy
 from products.warehouse_sources.backend.facade.models import sync_frequency_interval_to_sync_frequency
 
 
+class NodeSuspensionEntrySerializer(serializers.Serializer):
+    at = serializers.DateTimeField(allow_null=True, help_text="When the node was suspended, if available.")
+    reason = serializers.CharField(
+        allow_null=True, help_text="Error from the failing run that triggered the suspension, if available."
+    )
+    job_id = serializers.CharField(allow_null=True, help_text="ID of the triggering data modeling job, if available.")
+
+
 class NodeSerializer(serializers.ModelSerializer):
     upstream_count = serializers.SerializerMethodField(read_only=True)
     downstream_count = serializers.SerializerMethodField(read_only=True)
@@ -36,6 +44,10 @@ class NodeSerializer(serializers.ModelSerializer):
     user_tag = serializers.SerializerMethodField(read_only=True)
     sync_interval = serializers.SerializerMethodField(read_only=True)
     dag_name = serializers.SerializerMethodField(read_only=True)
+    suspended = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="Suspension state keyed by materialization engine, set after repeated consecutive failures; null when the node is not suspended.",
+    )
     dag = TeamScopedPrimaryKeyRelatedField(queryset=DAG.objects.all())
 
     class Meta:
@@ -56,6 +68,7 @@ class NodeSerializer(serializers.ModelSerializer):
             "last_run_status",
             "user_tag",
             "sync_interval",
+            "suspended",
         ]
         read_only_fields = [
             "upstream_count",
@@ -64,6 +77,7 @@ class NodeSerializer(serializers.ModelSerializer):
             "last_run_status",
             "user_tag",
             "sync_interval",
+            "suspended",
             "dag_name",
             "saved_query_id",
         ]
@@ -88,6 +102,23 @@ class NodeSerializer(serializers.ModelSerializer):
 
     def get_user_tag(self, node: Node) -> str | None:
         return node.properties.get("user", {}).get("tag")
+
+    @extend_schema_field(serializers.DictField(child=NodeSuspensionEntrySerializer(), allow_null=True))
+    def get_suspended(self, node: Node) -> dict[str, Any] | None:
+        suspended = (node.properties or {}).get("system", {}).get("suspended")
+        if not isinstance(suspended, dict):
+            return None
+
+        normalized_suspensions = {
+            str(engine): self._normalize_suspension_entry(entry) for engine, entry in suspended.items() if entry
+        }
+        return normalized_suspensions or None
+
+    @staticmethod
+    def _normalize_suspension_entry(entry: Any) -> dict[str, Any]:
+        if not isinstance(entry, dict):
+            return {"at": None, "reason": None, "job_id": None}
+        return {"at": entry.get("at"), "reason": entry.get("reason"), "job_id": entry.get("job_id")}
 
     def get_sync_interval(self, node: Node) -> str | None:
         if node.saved_query:

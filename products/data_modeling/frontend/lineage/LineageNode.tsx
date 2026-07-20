@@ -3,7 +3,7 @@ import clsx from 'clsx'
 import React, { useCallback, useState } from 'react'
 
 import { IconActivity, IconClockRewind, IconPencil, IconPlay, IconPlayFilled, IconTarget } from '@posthog/icons'
-import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { ElkDirection, NodeHandle } from 'scenes/data-warehouse/scene/modeling/types'
@@ -28,6 +28,7 @@ export type LineageNodeShape = Pick<
     | 'upstream_count'
     | 'downstream_count'
     | 'user_tag'
+    | 'suspended'
 >
 
 export interface LineageNodeState {
@@ -88,6 +89,33 @@ function StatusDot({ status }: { status?: DataModelingJobStatus }): JSX.Element 
                     !status && 'bg-surface-primary'
                 )}
             />
+        </Tooltip>
+    )
+}
+
+export function SuspendedTag({ suspended }: { suspended: NonNullable<LineageNodeShape['suspended']> }): JSX.Element {
+    return (
+        <Tooltip
+            title={
+                <div className="space-y-1">
+                    {Object.entries(suspended).map(([engine, entry]) => (
+                        <div key={engine}>
+                            {entry.at && entry.reason ? (
+                                <>
+                                    Suspended after repeated failed runs (<TZLabel time={entry.at} />
+                                    ): {entry.reason}
+                                </>
+                            ) : (
+                                'Suspended (details unavailable)'
+                            )}
+                        </div>
+                    ))}
+                </div>
+            }
+        >
+            <LemonTag type="warning" size="small">
+                suspended
+            </LemonTag>
         </Tooltip>
     )
 }
@@ -156,7 +184,10 @@ function MetadataBar({ node }: { node: LineageNodeShape }): JSX.Element {
                     <Tooltip title="This node has not been run yet">Never</Tooltip>
                 )}
             </div>
-            <StatusDot status={node.last_run_status} />
+            <div className="flex items-center gap-1">
+                {node.suspended && <SuspendedTag suspended={node.suspended} />}
+                <StatusDot status={node.last_run_status} />
+            </div>
         </div>
     )
 }

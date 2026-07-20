@@ -104,6 +104,30 @@ export const NodeTypeEnumApi = {
     Endpoint: 'endpoint',
 } as const
 
+export interface NodeSuspensionEntryApi {
+    /**
+     * When the node was suspended, if available.
+     * @nullable
+     */
+    at: string | null
+    /**
+     * Error from the failing run that triggered the suspension, if available.
+     * @nullable
+     */
+    reason: string | null
+    /**
+     * ID of the triggering data modeling job, if available.
+     * @nullable
+     */
+    job_id: string | null
+}
+
+/**
+ * Suspension state keyed by materialization engine, set after repeated consecutive failures; null when the node is not suspended.
+ * @nullable
+ */
+export type NodeApiSuspended = { [key: string]: NodeSuspensionEntryApi } | null
+
 export interface NodeApi {
     readonly id: string
     /** @maxLength 2048 */
@@ -128,6 +152,11 @@ export interface NodeApi {
     readonly user_tag: string | null
     /** @nullable */
     readonly sync_interval: string | null
+    /**
+     * Suspension state keyed by materialization engine, set after repeated consecutive failures; null when the node is not suspended.
+     * @nullable
+     */
+    readonly suspended: NodeApiSuspended
 }
 
 export interface PaginatedNodeListApi {
@@ -138,6 +167,12 @@ export interface PaginatedNodeListApi {
     previous?: string | null
     results: NodeApi[]
 }
+
+/**
+ * Suspension state keyed by materialization engine, set after repeated consecutive failures; null when the node is not suspended.
+ * @nullable
+ */
+export type PatchedNodeApiSuspended = { [key: string]: NodeSuspensionEntryApi } | null
 
 export interface PatchedNodeApi {
     readonly id?: string
@@ -163,6 +198,11 @@ export interface PatchedNodeApi {
     readonly user_tag?: string | null
     /** @nullable */
     readonly sync_interval?: string | null
+    /**
+     * Suspension state keyed by materialization engine, set after repeated consecutive failures; null when the node is not suspended.
+     * @nullable
+     */
+    readonly suspended?: PatchedNodeApiSuspended
 }
 
 export type DataModelingDagsListParams = {
