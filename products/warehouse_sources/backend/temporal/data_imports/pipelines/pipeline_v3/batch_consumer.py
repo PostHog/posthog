@@ -127,12 +127,8 @@ class BatchConsumerAdapter(Protocol):
     # Advisory-lock-based adapters set False (lock is session-scoped, must stay
     # on the poll connection that acquired it).
     per_group_connections: bool
-    # What a should_process_batch() == False skip means. True: the batch's work
-    # is already done (e.g. the duckgres apply marker) and the engine must still
-    # record executing -> succeeded to retire it. False: the adapter already
-    # drove the batch to a terminal state (e.g. fail_run for a dead job) and the
-    # engine must write NO status at all — a newer executing/succeeded row would
-    # supersede the terminal 'failed' in the latest-status views.
+    # True: a should_process_batch skip means "already done" — still record succeeded.
+    # False: the adapter already wrote a terminal state; the engine must write nothing.
     record_skip_as_success: bool
 
     async def fetch_and_lock(
@@ -777,10 +773,8 @@ class BatchConsumer:
             should_process = await self._adapter.should_process_batch(status_conn, batch=batch)
 
             if not should_process and not self._adapter.record_skip_as_success:
-                # The adapter drove this batch to a terminal state (fail_run for
-                # a dead job): there is nothing to record, and an executing or
-                # succeeded write here would be newer than the 'failed' rows and
-                # supersede them via the monotonic status guard.
+                # The adapter already wrote a terminal state (e.g. fail_run); an
+                # executing/succeeded write here would supersede it as the newer row.
                 logger.info(
                     self._event("batch_skipped_no_status_written"),
                     batch_id=batch.id,
@@ -1106,10 +1100,8 @@ class BatchConsumer:
                                 batch_created_at=batch.created_at,
                             )
                         except OwnershipLostError:
-                            # The batch went terminal (fail_run / takeover) between
-                            # the stale scan and this requeue — nothing left to
-                            # recover, and one retired batch must not abort the
-                            # sweep for the rest of the stale list.
+                            # Batch went terminal between the scan and this requeue;
+                            # skip it without aborting the rest of the sweep.
                             logger.info(self._event("batch_recovery_skipped_terminal"), batch_id=batch.id)
                 finally:
                     structlog.contextvars.unbind_contextvars(*recovery_bound_keys)

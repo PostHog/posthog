@@ -1046,9 +1046,8 @@ class TestStateDualWrite:
 
 @pytest.mark.django_db(transaction=True)
 class TestUpdateStatusUnlessFailed:
-    """'failed' must be absorbing for consumer lifecycle writes: fail_run can
-    retire a batch while a consumer holds it, and the consumer's newer
-    executing/succeeded rows would otherwise win the monotonic dual-write."""
+    """'failed' must be absorbing: a consumer's newer executing/succeeded rows
+    would otherwise win the monotonic dual-write over a fail_run."""
 
     @pytest.mark.parametrize("job_state", ["executing", "succeeded", "waiting_retry"])
     @pytest.mark.asyncio
@@ -1087,10 +1086,8 @@ class TestUpdateStatusUnlessFailed:
 
     @pytest.mark.asyncio
     async def test_takeover_failed_batch_stays_supersedable(self, conn, sync_conn):
-        # Lock takeover force-fails a job's batches but deliberately lets an
-        # in-flight consumer finish: its 'failed' rows carry the takeover
-        # sentinel, and only that exact error stays writable — the batch-level
-        # twin of the sentinel exemption in update_external_job_status.
+        # Takeover deliberately lets an in-flight consumer finish: only its exact
+        # sentinel error stays writable (twin of the _is_job_dead exemption).
         bid = await _insert_batch(conn, job_id="job-tko")
         await BatchQueue.update_status(conn, batch_id=bid, job_state="executing", attempt=1)
         BatchQueue.fail_batches_for_job_sync(sync_conn, job_id="job-tko", reason=LOCK_TAKEOVER_LATEST_ERROR)
@@ -1108,9 +1105,8 @@ class TestUpdateStatusUnlessFailed:
 
     @pytest.mark.asyncio
     async def test_heartbeat_reinsert_reports_written_not_refused(self, conn):
-        # The heartbeat re-inserts the same (executing, attempt): the column
-        # update is a designed no-op, but the write must not read as a refusal
-        # or every long batch would be abandoned mid-apply.
+        # A heartbeat re-insert (designed 0-row column no-op) must not read as a
+        # refusal, or every long batch would be abandoned mid-apply.
         bid = await _insert_batch(conn)
         assert await BatchQueue.update_status_unless_failed(conn, batch_id=bid, job_state="executing", attempt=1)
 

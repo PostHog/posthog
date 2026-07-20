@@ -421,8 +421,7 @@ class TestRecoverySweep:
 
     @pytest.mark.asyncio
     async def test_sweep_continues_past_terminally_retired_batch(self):
-        # A batch can be failed (fail_run / takeover) between the stale scan and
-        # the requeue write; the guarded write's refusal must skip that batch,
+        # A batch failed between the stale scan and the requeue must be skipped,
         # not abort recovery for the rest of the stale list.
         consumer = _make_consumer(max_attempts=3)
         stale_a = _make_batch(id="00000000-0000-0000-0000-00000000000a", latest_attempt=1)
@@ -869,12 +868,8 @@ class TestShouldProcessBatch:
 class TestDeadJobSkip:
     @pytest.mark.asyncio
     async def test_dead_job_claim_writes_no_status_and_halts_group(self):
-        # Regression: the engine used to write 'executing' + 'succeeded'
-        # unconditionally after a dead-job skip, superseding the 'failed' rows
-        # fail_run had just written (the monotonic dual-write guard lets newer
-        # rows win) — un-failing a cancelled run whose data the duckgres sink
-        # would then apply. A dead-job claim must end with no status write and
-        # no processing at all.
+        # Regression: the engine wrote 'executing' + 'succeeded' after a dead-job skip,
+        # superseding fail_run's 'failed' rows — un-failing a cancelled run.
         consumer = _make_consumer()
         process_mock = AsyncMock()
         consumer._process_batch = process_mock
@@ -916,9 +911,8 @@ class TestDeadJobSkip:
 
     @pytest.mark.asyncio
     async def test_refused_status_write_abandons_batch_instead_of_reporting_success(self):
-        # Backstop for a fail_run landing mid-apply: when the guarded write
-        # refuses to stamp over 'failed', the batch must surface as abandoned
-        # (OwnershipLostError), never as succeeded.
+        # A fail_run landing mid-apply must surface as an abandoned batch,
+        # never as succeeded.
         consumer = _make_consumer()
         consumer._process_batch = AsyncMock()
         batch = _make_batch()

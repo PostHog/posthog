@@ -124,9 +124,8 @@ class DuckgresBatchConsumerAdapter:
     # Lease ownership is token-based, so groups get their own connections and
     # the poll loop keeps claiming while groups run (no per-cycle barrier).
     per_group_connections: bool = True
-    # A should_process_batch skip means the batch is already applied (idempotency
-    # marker); the engine's executing -> succeeded record is what retires it.
-    # Terminal retirement is signaled by raising OwnershipLostError instead.
+    # A skip means "already applied": the engine's succeeded record is what
+    # retires the batch (terminal retirement raises OwnershipLostError instead).
     record_skip_as_success: bool = True
 
     def __init__(self, lease_ttl_seconds: int = LEASE_TTL_SECONDS) -> None:

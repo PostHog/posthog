@@ -155,33 +155,13 @@ def build_status_dual_write_sql(*, with_batch_created_at: bool) -> str:
 
 
 def build_status_dual_write_unless_failed_sql(*, with_batch_created_at: bool) -> str:
-    """Guarded variant of :func:`build_status_dual_write_sql`: writes nothing when
-    the batch's ``latest_state`` is already terminal ``'failed'``.
-
-    'failed' is absorbing for consumer lifecycle writes: ``fail_run`` (a dead
-    job, a sibling batch exhausting retries, the reconcile sweep) can retire a
-    batch at any point while a consumer holds it, and an unconditional
-    executing/succeeded write afterwards would be newer — the monotonic
-    ``state_changed_at`` guard would let it supersede the terminal state,
-    un-retiring a cancelled run's batches. The one designed exception is lock
-    takeover: its bulk-fail rows carry the takeover sentinel as their error, and
-    an in-flight consumer is deliberately allowed to finish the batch and write
-    'succeeded' over that provisional 'failed' (``update_external_job_status``
-    unseals the matching Failed -> Completed job transition on the same
-    sentinel) — so a 'failed' whose latest status row's error matches
-    ``%(supersedable_failed_error)s`` stays writable.
-
-    ``FOR UPDATE OF b`` serializes the guard read against a concurrent bulk-fail
-    UPDATE of the same row: whichever statement locks the row first wins, and
-    the loser re-evaluates against the winner's committed state. A residual
-    mutual-invisibility window remains when two statements overlap before either
-    takes the row lock — the same accepted class as the duckgres sink's
-    ``update_status_unless_failed``, converged by the periodic sweeps.
-
-    The statement's single result row is the number of status rows inserted:
-    0 means the guard refused. The column UPDATE's rowcount is deliberately not
-    the signal — a heartbeat re-insert of the same (state, attempt) is a
-    designed 0-row column no-op but a legitimate write.
+    """Guarded twin of :func:`build_status_dual_write_sql`: inserts nothing over a
+    terminal 'failed', so a consumer's newer executing/succeeded rows can't
+    un-retire a batch fail_run already failed. A 'failed' carrying
+    ``%(supersedable_failed_error)s`` (the lock-takeover sentinel) stays writable —
+    takeover deliberately lets an in-flight batch finish. Returns the INSERT count
+    (0 = refused); the column UPDATE is a designed no-op for heartbeat re-inserts,
+    so its rowcount can't be the signal.
     """
     created_at_predicate = (
         "b.created_at = %(batch_created_at)s"
@@ -731,14 +711,8 @@ class BatchQueue:
         batch_created_at: datetime | None = None,
         supersedable_failed_error: str | None = None,
     ) -> bool:
-        """Guarded twin of :meth:`update_status`: refuses (returning False, writing
-        nothing) when the batch's latest state is terminal ``'failed'``.
-
-        A 'failed' whose latest status row's error equals
-        ``supersedable_failed_error`` (the lock-takeover sentinel) stays
-        writable, preserving the designed in-flight takeover recovery window —
-        see :func:`build_status_dual_write_unless_failed_sql`.
-        """
+        """Guarded twin of :meth:`update_status`: returns False (writing nothing) over
+        a terminal 'failed' — see :func:`build_status_dual_write_unless_failed_sql`."""
         params: dict[str, Any] = {
             "batch_id": batch_id,
             "job_state": job_state,
