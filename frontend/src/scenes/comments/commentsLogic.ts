@@ -343,8 +343,8 @@ export const commentsLogic = kea<commentsLogicType>([
         replyingCommentId: [
             null as string | null,
             {
+                // Deliberately not reset on send: the composer stays open for follow-up replies
                 setReplyingComment: (_, { commentId }) => commentId,
-                sendComposedContentSuccess: () => null,
             },
         ],
         selectedCommentId: [
@@ -608,12 +608,17 @@ export const commentsLogic = kea<commentsLogicType>([
             }
         },
         sendComposedContentSuccess: (_, __, ___, previousState) => {
+            const wasReply = !!selectors.replyingCommentId(previousState)
             // Replies land inline mid-list - only new root comments append at the bottom
-            if (!selectors.replyingCommentId(previousState)) {
+            if (!wasReply) {
                 actions.scrollToLastComment()
             }
             actions.incrementCommentCount()
             values.richContentEditor?.clear()
+            if (wasReply) {
+                // Reply mode stays active - refocus the cleared composer for a follow-up reply
+                values.richContentEditor?.focus('end')
+            }
         },
         setSelectedComment: () => {
             actions.revealSelectedComment()

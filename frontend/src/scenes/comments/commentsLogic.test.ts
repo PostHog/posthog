@@ -106,16 +106,20 @@ describe('commentsLogic', () => {
         expect(inlineEditor.focus).toHaveBeenCalledWith('end')
     })
 
-    it('creates a reply against the thread root, clears the draft and does not scroll to the bottom', async () => {
-        logic.actions.setRichContentEditor(createEditor(DRAFT_CONTENT))
+    it('creates a reply against the thread root and keeps a cleared, focused composer open', async () => {
+        const editor = createEditor(DRAFT_CONTENT)
+        logic.actions.setRichContentEditor(editor)
         logic.actions.setReplyingComment('thread-1')
         await expectLogic(logic, () => {
             logic.actions.sendComposedContent(false)
         })
             .toDispatchActions(['sendComposedContentSuccess'])
             .toNotHaveDispatchedActions([sidePanelDiscussionLogic.actionTypes.scrollToLastComment])
-            .toMatchValues({ replyingCommentId: null, composerDraft: null })
+            // Reply mode persists so the user can send a follow-up reply straight away
+            .toMatchValues({ replyingCommentId: 'thread-1', composerDraft: null })
         expect(lastCreateBody?.source_comment).toBe('thread-1')
+        expect(editor.clear).toHaveBeenCalled()
+        expect(editor.focus).toHaveBeenCalledWith('end')
     })
 
     it('scrolls to the bottom after sending a top-level comment', async () => {
@@ -147,7 +151,7 @@ describe('commentsLogic', () => {
         expect(logic.values.composerDraft).toEqual(DRAFT_CONTENT)
     })
 
-    it('keeps a replied-to thread expanded after the reply is sent', async () => {
+    it('keeps a replied-to thread expanded after the reply flow ends', async () => {
         logic.actions.setRichContentEditor(createEditor(DRAFT_CONTENT))
         logic.actions.setReplyingComment('thread-1')
         expect(logic.values.expandedThreadIds.has('thread-1')).toBe(true)
@@ -156,8 +160,9 @@ describe('commentsLogic', () => {
             logic.actions.sendComposedContent(false)
         }).toDispatchActions(['sendComposedContentSuccess'])
 
-        // Pinned open when the reply started, so the just-sent reply stays visible
-        expect(logic.values.replyingCommentId).toBeNull()
+        // Pinned open when the reply started, so the sent reply stays visible even once
+        // the user leaves reply mode
+        logic.actions.setReplyingComment(null)
         expect(logic.values.expandedThreadIds.has('thread-1')).toBe(true)
     })
 
