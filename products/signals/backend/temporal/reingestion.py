@@ -26,6 +26,9 @@ from products.signals.backend.temporal.clickhouse import execute_hogql_query_wit
 from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow
 from products.signals.backend.temporal.signal_queries import (
     _DEDUPED_SIGNALS_SUBQUERY,
+    SIGNAL_DOCUMENT_PRODUCT,
+    SIGNAL_DOCUMENT_RENDERING,
+    SIGNAL_DOCUMENT_TYPE,
     FetchSignalsForReportInput,
     FetchSignalsForReportOutput,
     WaitForClickHouseInput,
@@ -224,9 +227,9 @@ async def process_team_signals_batch_activity(input: ProcessTeamSignalsBatchInpu
         await sync_to_async(emit_embedding_request, thread_sensitive=False)(
             content=signal.content,
             team_id=input.team_id,
-            product="signals",
-            document_type="signal",
-            rendering="plain",
+            product=SIGNAL_DOCUMENT_PRODUCT,
+            document_type=SIGNAL_DOCUMENT_TYPE,
+            rendering=SIGNAL_DOCUMENT_RENDERING,
             document_id=signal.signal_id,
             models=[m.value for m in EmbeddingModelName],
             timestamp=signal.timestamp,

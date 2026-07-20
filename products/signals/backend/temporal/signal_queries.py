@@ -12,7 +12,7 @@ from posthog.schema import EmbeddingModelName
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.api.embedding_worker import emit_embedding_request
+from posthog.api.embedding_worker import DocumentKey, async_get_recently_seen_documents, emit_embedding_request
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models import Team
 from posthog.temporal.common.scoped import scoped_temporal
@@ -27,6 +27,21 @@ logger = structlog.get_logger(__name__)
 
 
 WAIT_POLL_INTERVAL_SECONDS = 10
+
+# Every signal document is emitted under this key triple — the recently-seen lookup in
+# wait_for_signal_in_clickhouse_activity relies on exact key equality with the emit sites.
+SIGNAL_DOCUMENT_PRODUCT = "signals"
+SIGNAL_DOCUMENT_TYPE = "signal"
+SIGNAL_DOCUMENT_RENDERING = "plain"
+
+# How often to run the ClickHouse confirmation query when the recently-seen store hasn't
+# confirmed the emission — the store is best-effort (writes never block ingestion, and the
+# in-memory backend is per-pod), so a negative answer can't gate ClickHouse polling forever.
+CH_CONFIRM_EVERY_N_ATTEMPTS = 3
+
+# Slack when comparing the store's emitted_at against the signal's expected timestamp, to
+# absorb sub-second precision loss in serialization round-trips.
+RECENTLY_SEEN_TIMESTAMP_TOLERANCE = timedelta(seconds=2)
 
 
 def _ensure_tz_aware(value: Union[datetime, str]) -> datetime:
@@ -204,9 +219,9 @@ def soft_delete_report_signals(report_id: str, team_id: int, team: Team) -> None
         emit_embedding_request(
             content=content,
             team_id=team_id,
-            product="signals",
-            document_type="signal",
-            rendering="plain",
+            product=SIGNAL_DOCUMENT_PRODUCT,
+            document_type=SIGNAL_DOCUMENT_TYPE,
+            rendering=SIGNAL_DOCUMENT_RENDERING,
             document_id=document_id,
             models=[m.value for m in EmbeddingModelName],
             timestamp=_ensure_tz_aware(timestamp_raw),
@@ -394,16 +409,63 @@ class WaitForClickHouseInput:
     max_wait_time_seconds: int = 3600
 
 
+async def _all_signals_recently_seen(team_id: int, signals: list[WaitForClickHouseSignal]) -> bool:
+    """Check the embedding worker's recently-seen store for every signal's emission.
+
+    True only when each signal's document reports an emit timestamp at or after the
+    signal's own timestamp (minus a small precision tolerance) — the store records the
+    request's timestamp field verbatim, so a fresh emission is confirmed the moment the
+    worker commits it, while a record left over from an older emission of the same
+    document_id fails the comparison. False on any miss, stale record, or store error.
+
+    A True result is a hint, not proof of ClickHouse visibility: "seen" means committed
+    to the output Kafka topic, and a soft-delete re-emission reuses the original
+    timestamp so it is indistinguishable from the original emission here. Callers must
+    still confirm against ClickHouse.
+    """
+    documents = [
+        DocumentKey(
+            product=SIGNAL_DOCUMENT_PRODUCT,
+            document_type=SIGNAL_DOCUMENT_TYPE,
+            rendering=SIGNAL_DOCUMENT_RENDERING,
+            document_id=s.signal_id,
+        )
+        for s in signals
+    ]
+    try:
+        seen = await async_get_recently_seen_documents(documents, team_id=team_id)
+    except Exception:
+        logger.warning(
+            "Recently-seen lookup failed, falling back to ClickHouse polling",
+            team_id=team_id,
+            exc_info=True,
+        )
+        return False
+
+    for document, signal in zip(documents, signals):
+        emitted_at = seen.get(document)
+        if emitted_at is None or emitted_at < _ensure_tz_aware(signal.timestamp) - RECENTLY_SEEN_TIMESTAMP_TOLERANCE:
+            return False
+    return True
+
+
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
 async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) -> None:
-    """Poll ClickHouse until all emitted signals appear, or give up after max_wait_time_seconds.
+    """Wait until all emitted signals land in ClickHouse, or give up after max_wait_time_seconds.
 
-    Filters on inserted_at >= (now - 30 minutes) to avoid matching stale rows from a
-    previous emission of the same document_id (e.g. deleted then reingested). The window
-    is generous because signals are emitted during the sequential phase before this
-    activity starts, so early signals may already be minutes old.
+    Two-tier poll. Every attempt checks the embedding worker's recently-seen store (a
+    cheap key-value lookup); the ClickHouse confirmation query runs only once the store
+    confirms the emission, or on every CH_CONFIRM_EVERY_N_ATTEMPTS-th attempt as a
+    fallback for when the store is lossy. ClickHouse stays authoritative — the store
+    only tracks the worker's Kafka commit, which precedes the ClickHouse insert.
+
+    The ClickHouse query filters on inserted_at >= (now - 30 minutes) to avoid matching
+    stale rows from a previous emission of the same document_id (e.g. deleted then
+    reingested). The window is generous because signals are emitted during the
+    sequential phase before this activity starts, so early signals may already be
+    minutes old.
     """
     if not input.signals:
         return
@@ -443,29 +505,45 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
 
     expected_count = len(signal_ids)
 
+    store_confirmed = False
     for attempt in range(max_attempts):
         temporalio.activity.heartbeat(attempt)
 
-        result = await execute_hogql_query_with_retry(
-            query_type="SignalsWaitForClickHouse",
-            query=query,
-            team=team,
-            placeholders=placeholders,
-            heartbeat_fn=temporalio.activity.heartbeat,
+        if not store_confirmed:
+            store_confirmed = await _all_signals_recently_seen(input.team_id, input.signals)
+            if store_confirmed:
+                logger.debug(
+                    f"Recently-seen store confirmed all {expected_count} signal(s) after {attempt + 1} attempt(s)",
+                    signal_ids=signal_ids,
+                    team_id=input.team_id,
+                )
+
+        ch_confirm_due = (
+            store_confirmed
+            or attempt % CH_CONFIRM_EVERY_N_ATTEMPTS == CH_CONFIRM_EVERY_N_ATTEMPTS - 1
+            or attempt == max_attempts - 1
         )
-
-        # Heartbeat immediately after the query completes — the query itself runs in
-        # sync_to_async and can't heartbeat during execution, so this ensures we don't
-        # hit the heartbeat timeout when queries are slow.
-        temporalio.activity.heartbeat(attempt)
-
-        if result.results and result.results[0][0] >= expected_count:
-            logger.debug(
-                f"All {expected_count} signal(s) found in ClickHouse after {attempt + 1} attempt(s)",
-                signal_ids=signal_ids,
-                team_id=input.team_id,
+        if ch_confirm_due:
+            result = await execute_hogql_query_with_retry(
+                query_type="SignalsWaitForClickHouse",
+                query=query,
+                team=team,
+                placeholders=placeholders,
+                heartbeat_fn=temporalio.activity.heartbeat,
             )
-            return
+
+            # Heartbeat immediately after the query completes — the query itself runs in
+            # sync_to_async and can't heartbeat during execution, so this ensures we don't
+            # hit the heartbeat timeout when queries are slow.
+            temporalio.activity.heartbeat(attempt)
+
+            if result.results and result.results[0][0] >= expected_count:
+                logger.debug(
+                    f"All {expected_count} signal(s) found in ClickHouse after {attempt + 1} attempt(s)",
+                    signal_ids=signal_ids,
+                    team_id=input.team_id,
+                )
+                return
 
         # Sleep in chunks so we keep heartbeating during the poll interval
         remaining = WAIT_POLL_INTERVAL_SECONDS
