@@ -29,7 +29,7 @@ from ee.hogai.chat_agent.sql.prompts import (
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolRetryableError, MaxToolTransientError
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import NodePath
@@ -38,6 +38,7 @@ from .prompts import (
     EXECUTE_SQL_CONTEXT_PROMPT,
     EXECUTE_SQL_RECOVERABLE_ERROR_PROMPT,
     EXECUTE_SQL_SYSTEM_PROMPT,
+    EXECUTE_SQL_TRANSIENT_ERROR_PROMPT,
     EXECUTE_SQL_UNRECOVERABLE_ERROR_PROMPT,
 )
 
@@ -157,6 +158,10 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
 
         try:
             result = await insight_context.execute_and_format()
+        except MaxToolTransientError as e:
+            # Backend trouble (timeout, capacity, connection) — retrying the same query is
+            # pointless and only burns billable generations, so don't ask the agent to fix it.
+            return format_prompt_string(EXECUTE_SQL_TRANSIENT_ERROR_PROMPT, error=str(e)), None
         except MaxToolRetryableError as e:
             return format_prompt_string(EXECUTE_SQL_RECOVERABLE_ERROR_PROMPT, error=str(e)), None
         except Exception:

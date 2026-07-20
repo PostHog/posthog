@@ -8,7 +8,7 @@ from posthog.sync import database_sync_to_async
 from products.product_analytics.backend.models.insight import Insight
 
 from ee.hogai.context.insight.query_executor import execute_and_format_query
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolError, MaxToolTransientError
 from ee.hogai.utils.helpers import build_insight_url
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.query import validate_assistant_query
@@ -94,12 +94,24 @@ class InsightContext:
                 user=self.user,
                 include_prompt_framing=include_prompt_framing,
             )
+        except MaxToolError as e:
+            # The executor already classified this failure — transient infrastructure trouble,
+            # a fixable query shape, or fatal. Preserve that classification rather than forcing
+            # every failure onto the "retry with adjusted inputs" path; otherwise a backend
+            # outage sends the agent into a billable regenerate-and-rerun loop over a query that
+            # was never the problem.
+            if return_exceptions:
+                results = f"Error executing query: {str(e)}"
+            else:
+                raise
         except Exception as e:
+            # Unclassified failure — treat as transient infrastructure trouble, not a user-fixable
+            # query, so the agent surfaces "try again later" instead of looping.
             error_message = f"Error executing query: {str(e)}"
             if return_exceptions:
                 results = error_message
             else:
-                raise MaxToolRetryableError(error_message)
+                raise MaxToolTransientError(error_message)
 
         return format_prompt_string(
             prompt_template,

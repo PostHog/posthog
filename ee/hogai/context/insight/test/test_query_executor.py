@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
 from rest_framework.exceptions import APIException
 
 from posthog.schema import (
@@ -46,8 +47,10 @@ from posthog.schema import (
 from posthog.hogql.constants import DEFAULT_POSTHOG_AI_RETURNED_ROWS
 from posthog.hogql.errors import ExposedHogQLError
 
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 from posthog.errors import ExposedCHQueryError
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
 
 from ee.hogai.context.insight.query_executor import (
     AssistantQueryExecutor,
@@ -55,7 +58,7 @@ from ee.hogai.context.insight.query_executor import (
     get_example_prompt,
     is_supported_query,
 )
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolRetryableError, MaxToolTransientError
 from ee.hogai.utils.query import validate_assistant_query
 
 
@@ -248,6 +251,24 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         self.assertIn("ClickHouse error", str(context.exception))
 
+    @parameterized.expand(
+        [
+            ("capacity", ClickHouseAtCapacity()),
+            ("timeout", ClickHouseQueryTimeOut()),
+            ("concurrency", ConcurrencyLimitExceeded("Too many concurrent queries")),
+        ]
+    )
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    async def test_run_and_format_query_classifies_transient_backend_error(self, _name, error, mock_process_query):
+        # Infrastructure trouble (capacity, timeouts, rate limits) is not fixable by rewriting the
+        # query, so it must NOT get the "adjusted" retry that loops the agent on the billable path.
+        mock_process_query.side_effect = error
+
+        query = AssistantTrendsQuery(series=[])
+
+        with self.assertRaises(MaxToolTransientError):
+            await self.query_runner.arun_and_format_query(query)
+
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_run_and_format_query_handles_generic_exception(self, mock_process_query):
         """Test handling of generic exceptions"""
@@ -255,7 +276,9 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         query = AssistantTrendsQuery(series=[])
 
-        with self.assertRaises(Exception) as context:
+        # An unrecognised failure is treated as transient (bounded retry), not user-fixable, so the
+        # agent doesn't loop regenerating a query that was never the problem.
+        with self.assertRaises(MaxToolTransientError) as context:
             await self.query_runner.arun_and_format_query(query)
 
         # The underlying error text must be surfaced, not collapsed to an opaque generic message —
@@ -337,7 +360,9 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         query = AssistantTrendsQuery(series=[])
 
         with patch("ee.hogai.context.insight.query_executor.asyncio.sleep"):
-            with self.assertRaises(Exception) as context:
+            # A backend that never returns is transient, not a malformed query — the agent must not
+            # regenerate and re-run it on the billable path.
+            with self.assertRaises(MaxToolTransientError) as context:
                 await self.query_runner.arun_and_format_query(query)
 
         self.assertIn("Query hasn't completed in time", str(context.exception))

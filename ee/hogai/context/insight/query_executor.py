@@ -47,9 +47,11 @@ from posthog.hogql.errors import (
 
 from posthog.api.services.query import process_query_dict
 from posthog.clickhouse.client.execute_async import get_query_status
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries, tags_context
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import EventSource
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES, ExecutionMode
 from posthog.models import Team
 from posthog.rbac.user_access_control import UserAccessControlError
@@ -74,7 +76,7 @@ from ee.hogai.context.insight.format import (
     get_boxplot_results,
     is_boxplot_query,
 )
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolError, MaxToolFatalError, MaxToolRetryableError, MaxToolTransientError
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.query import validate_assistant_query
 from ee.hogai.utils.types.base import AnyAssistantGeneratedQuery, AnyPydanticModelQuery
@@ -104,6 +106,22 @@ from .prompts import (
 logger = structlog.get_logger(__name__)
 
 TIMING_LOG_PREFIX = "[QUERY_EXECUTOR]"
+
+
+def _classify_query_execution_error(err: Exception, message: str) -> MaxToolError:
+    """Map a query-execution failure to the retry strategy the agent should use.
+
+    Transient infrastructure problems — ClickHouse at capacity, rate limits, timeouts,
+    connection drops — are not fixable by rewriting the query, so they must not push the agent
+    into a regenerate-and-rerun loop that burns billable LLM calls while the backend is
+    unhealthy. Genuine query-shape problems (invalid HogQL, scope too large) keep the "adjusted"
+    retry so self-correction still works. Access errors are fatal.
+    """
+    if isinstance(err, UserAccessControlError):
+        return MaxToolFatalError(message)
+    if isinstance(err, ClickHouseAtCapacity | ClickHouseQueryTimeOut | ConcurrencyLimitExceeded):
+        return MaxToolTransientError(message)
+    return MaxToolRetryableError(message)
 
 
 def is_supported_query(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery) -> bool:
@@ -416,8 +434,11 @@ class AssistantQueryExecutor:
                             logger.error(
                                 f"{TIMING_LOG_PREFIX} Query timeout after {poll_count} polls, {polling_elapsed:.3f}s"
                             )
-                        raise APIException(
-                            "Query hasn't completed in time. It's worth trying again, maybe with a shorter time range."
+                        # A backend that never returns in time is a transient infrastructure
+                        # problem, not a malformed query — surface it as such so the agent stops
+                        # rather than regenerating the same query on the billable path.
+                        raise MaxToolTransientError(
+                            "Query hasn't completed in time. It's worth trying again in a little while."
                         )
 
                 # Check for query execution errors before using results
@@ -429,12 +450,16 @@ class AssistantQueryExecutor:
                 # Use the completed query results
                 response_dict = query_status["results"]
 
+        except MaxToolError:
+            # Already classified (e.g. the async-polling timeout) — preserve its retry strategy.
+            raise
         except (
             APIException,
             ExposedHogQLError,
             HogQLNotImplementedError,
             ExposedCHQueryError,
             UserAccessControlError,
+            ConcurrencyLimitExceeded,
         ) as err:
             elapsed = time.time() - start_time
             # Handle known query execution errors with user-friendly messages
@@ -446,19 +471,22 @@ class AssistantQueryExecutor:
                     err_message = ", ".join(map(str, err.detail))
             if debug_timing:
                 logger.exception(f"{TIMING_LOG_PREFIX} Query execution failed after {elapsed:.3f}s: {err_message}")
-            raise MaxToolRetryableError(err_message)
+            raise _classify_query_execution_error(err, err_message)
         except Exception as err:
             elapsed = time.time() - start_time
             # Catch-all for unexpected errors during query execution. Surface the underlying error
             # text (truncated) so callers can diagnose the failure instead of an opaque message —
-            # e.g. an invalid-UTF-8 encoding error points straight at substringUTF8().
+            # e.g. an invalid-UTF-8 encoding error points straight at substringUTF8(). Treat these
+            # as transient (bounded, retry-once) rather than user-fixable: an unrecognised failure
+            # is far more likely to be infrastructure trouble than a malformed query, and must not
+            # loop the agent on the billable path during an outage.
             if debug_timing:
                 logger.exception(f"{TIMING_LOG_PREFIX} Unknown error during query execution after {elapsed:.3f}s")
             err_message = str(err).strip() or repr(err)
             max_len = 500
             if len(err_message) > max_len:
                 err_message = err_message[:max_len] + "… (truncated)"
-            raise Exception(f"There was an unknown error running this query: {err_message}")
+            raise MaxToolTransientError(f"There was an unknown error running this query: {err_message}")
 
         # A failed query can come back as a structurally-valid response that carries an `error`
         # field and empty `results` instead of raising — e.g. a direct-SQL adapter statement

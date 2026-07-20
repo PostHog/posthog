@@ -7,7 +7,7 @@ from posthog.schema import ArtifactMessage, AssistantMessage, AssistantToolCallM
 from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.core.node import AssistantNode
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolError
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage
 
@@ -36,8 +36,9 @@ class QueryExecutorNode(AssistantNode):
                 insight_id=artifact.artifact_id,
             )
             formatted_query_result = await context.execute_and_format()
-        except MaxToolRetryableError as err:
-            # Handle known query execution errors (exposed to users)
+        except MaxToolError as err:
+            # Handle known query execution errors (exposed to users). This node surfaces the error
+            # to the user and ends, so every classified failure is handled the same way here.
             return PartialAssistantState(
                 messages=[
                     AssistantMessage(content=f"There was an error running this query: {str(err)}", id=str(uuid4()))
