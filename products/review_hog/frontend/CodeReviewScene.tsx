@@ -627,7 +627,7 @@ function TriggerReviewSection(): JSX.Element | null {
             >
                 <LemonInput
                     className="min-w-80 flex-1"
-                    placeholder="https://github.com/posthog/posthog.com/pull/1234"
+                    placeholder="https://github.com/PostHog/posthog.com/pull/1234"
                     value={triggerPrUrl}
                     onChange={setTriggerPrUrl}
                 />
