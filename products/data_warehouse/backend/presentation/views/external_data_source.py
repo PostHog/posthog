@@ -4766,12 +4766,18 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         failures: dict[str, tuple[str, str]] = {}
         names = [source_schemas_by_id[schema_update["id"]].name for schema_update in needing_defaults]
+        source_impl: AnySource | None = None
         try:
             source_impl = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
             config = source_impl.parse_config(source.job_inputs)
             discovered = source_impl.get_schemas(config, self.team_id, names=names)
         except Exception as e:
-            capture_exception(e)
+            # Discovery connects to the customer's source, so an expected user/upstream failure
+            # (bad credentials, unreachable host) is theirs to fix and is already reported back to
+            # them below — don't capture it as error-tracking noise. Mirrors `refresh_schemas`.
+            _, is_expected_source_error = _classify_refresh_schemas_error(source_impl, e)
+            if not is_expected_source_error:
+                capture_exception(e)
             reason = "could not read the source to pick default sync settings; check the source credentials"
             for schema_update in needing_defaults:
                 schema = source_schemas_by_id[schema_update["id"]]
