@@ -296,89 +296,89 @@ const WINDOW_OPTIONS = [
     { value: 30, label: 'the last 30 days' },
 ]
 
-// The type-specific match controls (verdict chips / tag picker / score range), shared by both alert
-// flavors. Empty controls mean any observation matches.
-function MatchControls({ scannerId }: { scannerId: string }): JSX.Element {
+// The match predicate as one compact inline line ("Match observations tagged […]"), so it reads as a
+// sentence rather than a boxed input under its own heading. Empty controls = every observation counts.
+// Returns null for the average-score metric, where a score pre-filter makes no sense.
+function AlertMatchLine({ scannerId }: { scannerId: string }): JSX.Element | null {
     const { actionForm } = useValues(actionEditorSceneLogic)
     const { setActionFormValue } = useActions(actionEditorSceneLogic)
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
 
     const toNumberOrNull = (val: number | undefined): number | null => (val === undefined || isNaN(val) ? null : val)
-    const isAvg = actionForm.alert_metric === VisionAlertMetricEnumApi.AvgScore
 
+    let lead: string
+    let control: JSX.Element
     switch (scanner?.scanner_type) {
         case 'monitor':
-            return (
-                <>
-                    <span className="text-sm">with verdict</span>
-                    <div className="flex gap-1">
-                        {VERDICT_OPTIONS.map(({ value, label }) => (
-                            <LemonButton
-                                key={value}
-                                size="xsmall"
-                                type={actionForm.verdict.includes(value) ? 'primary' : 'secondary'}
-                                onClick={() =>
-                                    setActionFormValue(
-                                        'verdict',
-                                        actionForm.verdict.includes(value)
-                                            ? actionForm.verdict.filter((v) => v !== value)
-                                            : [...actionForm.verdict, value]
-                                    )
-                                }
-                                data-attr={`vision-action-alert-verdict-${value}`}
-                            >
-                                {label}
-                            </LemonButton>
-                        ))}
-                    </div>
-                    {actionForm.verdict.length === 0 && <span className="text-sm text-muted">(any verdict)</span>}
-                </>
+            lead = 'with verdict'
+            control = (
+                <div className="flex gap-1">
+                    {VERDICT_OPTIONS.map(({ value, label }) => (
+                        <LemonButton
+                            key={value}
+                            size="small"
+                            type={actionForm.verdict.includes(value) ? 'primary' : 'secondary'}
+                            onClick={() =>
+                                setActionFormValue(
+                                    'verdict',
+                                    actionForm.verdict.includes(value)
+                                        ? actionForm.verdict.filter((v) => v !== value)
+                                        : [...actionForm.verdict, value]
+                                )
+                            }
+                            data-attr={`vision-action-alert-verdict-${value}`}
+                        >
+                            {label}
+                        </LemonButton>
+                    ))}
+                </div>
             )
+            break
         case 'classifier': {
             const configuredTags: string[] = scanner.scanner_config?.tags ?? []
             const allowFreeform = !!scanner.scanner_config?.allow_freeform_tags
-            return (
-                <>
-                    <span className="text-sm">tagged</span>
-                    <div className="min-w-48">
-                        <LemonInputSelect
-                            mode="multiple"
-                            size="small"
-                            allowCustomValues={allowFreeform}
-                            placeholder="any tag"
-                            value={actionForm.tags}
-                            onChange={(tags) => setActionFormValue('tags', tags)}
-                            options={[...new Set([...configuredTags, ...actionForm.tags])].map((tag) => ({
-                                key: tag,
-                                label: tag,
-                            }))}
-                            data-attr="vision-action-alert-tags"
-                        />
-                    </div>
-                </>
+            lead = 'tagged'
+            control = (
+                <div className="min-w-48">
+                    <LemonInputSelect
+                        mode="multiple"
+                        size="small"
+                        allowCustomValues={allowFreeform}
+                        placeholder="any tag"
+                        value={actionForm.tags}
+                        onChange={(tags) => setActionFormValue('tags', tags)}
+                        options={[...new Set([...configuredTags, ...actionForm.tags])].map((tag) => ({
+                            key: tag,
+                            label: tag,
+                        }))}
+                        data-attr="vision-action-alert-tags"
+                    />
+                </div>
             )
+            break
         }
-        case 'scorer':
-            if (isAvg) {
-                return <></>
+        case 'scorer': {
+            if (actionForm.alert_metric === VisionAlertMetricEnumApi.AvgScore) {
+                return null
             }
-            return (
+            const scale = scanner.scanner_config?.scale
+            lead = 'scored between'
+            control = (
                 <>
-                    <span className="text-sm">scored between</span>
                     <LemonInput
                         type="number"
                         size="small"
-                        placeholder={scanner.scanner_config?.scale ? String(scanner.scanner_config.scale.min) : 'min'}
+                        placeholder={scale ? String(scale.min) : 'min'}
                         value={actionForm.min_score ?? undefined}
                         onChange={(val) => setActionFormValue('min_score', toNumberOrNull(val))}
                         className="w-20"
                         data-attr="vision-action-alert-min-score"
                     />
-                    <span className="text-sm">and</span>
+                    <span className="text-sm text-muted">and</span>
                     <LemonInput
                         type="number"
                         size="small"
-                        placeholder={scanner.scanner_config?.scale ? String(scanner.scanner_config.scale.max) : 'max'}
+                        placeholder={scale ? String(scale.max) : 'max'}
                         value={actionForm.max_score ?? undefined}
                         onChange={(val) => setActionFormValue('max_score', toNumberOrNull(val))}
                         className="w-20"
@@ -386,13 +386,22 @@ function MatchControls({ scannerId }: { scannerId: string }): JSX.Element {
                     />
                 </>
             )
+            break
+        }
         default:
-            return <></>
+            return null
     }
+
+    return (
+        <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm text-muted">Match observations {lead}</span>
+            {control}
+        </div>
+    )
 }
 
-// The alert condition: pick a frequency, then either "every new match" (just the match controls) or
-// a threshold sentence over a rolling window.
+// The alert condition, flat under the "Condition" section header: the match predicate as one inline
+// line, then a single choice of how often to notify. No nested modes, no extra sub-headings.
 function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
     const { actionForm, actionFormErrors } = useValues(actionEditorSceneLogic)
     const { setActionFormValue } = useActions(actionEditorSceneLogic)
@@ -402,8 +411,8 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
     const isScorer = scanner?.scanner_type === 'scorer'
 
     // Summarizer observations have no verdict/tags/score to threshold on, so the only sensible
-    // alert is "every new summary" — no frequency or threshold controls to configure. The logic
-    // normalizes the form to every_match to match (actionEditorSceneLogic.setScannerType).
+    // alert is "every new summary" — no controls to show. The logic normalizes the form to
+    // every_match to match (actionEditorSceneLogic.setScannerType).
     if (scanner?.scanner_type === 'summarizer') {
         return (
             <div className="flex flex-col gap-2">
@@ -416,7 +425,9 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
     }
 
     return (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-3">
+            <AlertMatchLine scannerId={scannerId} />
+
             <LemonSegmentedButton
                 size="small"
                 value={actionForm.alert_frequency}
@@ -428,43 +439,29 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
                     }
                 }}
                 options={[
-                    { value: AlertConfigFrequencyEnumApi.EveryMatch, label: 'Every new match' },
-                    { value: AlertConfigFrequencyEnumApi.OnBreach, label: 'When a threshold is crossed' },
+                    { value: AlertConfigFrequencyEnumApi.EveryMatch, label: 'Notify me on every match' },
+                    { value: AlertConfigFrequencyEnumApi.OnBreach, label: 'Notify me on a threshold' },
                 ]}
                 data-attr="vision-action-alert-frequency"
             />
 
-            {everyMatch ? (
+            {!everyMatch && (
                 <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm">Notify me about every new observation</span>
-                    <MatchControls scannerId={scannerId} />
-                </div>
-            ) : (
-                <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm">Notify me when</span>
+                    <span className="text-sm">when the</span>
                     {isScorer ? (
                         <LemonSelect
                             size="small"
                             value={actionForm.alert_metric}
                             onChange={(value) => value && setActionFormValue('alert_metric', value)}
                             options={[
-                                { value: VisionAlertMetricEnumApi.Count, label: 'the number of observations' },
-                                { value: VisionAlertMetricEnumApi.AvgScore, label: 'the average score' },
+                                { value: VisionAlertMetricEnumApi.Count, label: 'number of matches' },
+                                { value: VisionAlertMetricEnumApi.AvgScore, label: 'average score' },
                             ]}
                             data-attr="vision-action-alert-metric"
                         />
                     ) : (
-                        <span className="text-sm">the number of observations</span>
+                        <span className="text-sm">number of matches</span>
                     )}
-                    <MatchControls scannerId={scannerId} />
-                    <span className="text-sm">over</span>
-                    <LemonSelect
-                        size="small"
-                        value={actionForm.alert_window_days}
-                        onChange={(value) => value != null && setActionFormValue('alert_window_days', value)}
-                        options={WINDOW_OPTIONS}
-                        data-attr="vision-action-alert-window"
-                    />
                     <LemonSelect
                         size="small"
                         value={actionForm.alert_direction}
@@ -482,11 +479,20 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
                         onChange={(val) =>
                             setActionFormValue('alert_threshold', val === undefined || isNaN(val) ? null : val)
                         }
-                        className="w-24"
+                        className="w-20"
                         data-attr="vision-action-alert-threshold"
+                    />
+                    <span className="text-sm">over</span>
+                    <LemonSelect
+                        size="small"
+                        value={actionForm.alert_window_days}
+                        onChange={(value) => value != null && setActionFormValue('alert_window_days', value)}
+                        options={WINDOW_OPTIONS}
+                        data-attr="vision-action-alert-window"
                     />
                 </div>
             )}
+
             {actionFormErrors?.alert_threshold ? (
                 <span className="text-xs text-danger">{String(actionFormErrors.alert_threshold)}</span>
             ) : null}

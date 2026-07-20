@@ -387,6 +387,15 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                 selection?.max_score != null
             )
             actions.setTargetingMode(hasFilter ? 'filtered' : 'all')
+            // Stored alerts without a frequency predate the field and behaved as on_breach; anything
+            // else gets the fresh-form default so flipping a summary to an alert starts at every_match.
+            const alertFrequency =
+                action.alert_config?.frequency ??
+                (action.mode === VisionActionModeEnumApi.Alert
+                    ? AlertConfigFrequencyEnumApi.OnBreach
+                    : AlertConfigFrequencyEnumApi.EveryMatch)
+            const alertMetric = action.alert_config?.metric ?? VisionAlertMetricEnumApi.Count
+            const alertDirection = action.alert_config?.direction ?? VisionAlertDirectionEnumApi.Above
             actions.setActionFormValues({
                 name: action.name,
                 cadence: parseRruleToCadence(action.trigger_config?.rrule),
@@ -395,16 +404,10 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                 integration_id: action.delivery_config?.[0]?.integration_id ?? null,
                 channel: action.delivery_config?.[0]?.channel ?? '',
                 mode: action.mode ?? VisionActionModeEnumApi.GroupSummary,
-                // Stored alerts without a frequency predate the field and behaved as on_breach; anything
-                // else gets the fresh-form default so flipping a summary to an alert starts at every_match.
-                alert_frequency:
-                    action.alert_config?.frequency ??
-                    (action.mode === VisionActionModeEnumApi.Alert
-                        ? AlertConfigFrequencyEnumApi.OnBreach
-                        : AlertConfigFrequencyEnumApi.EveryMatch),
-                alert_metric: action.alert_config?.metric ?? VisionAlertMetricEnumApi.Count,
+                alert_frequency: alertFrequency,
+                alert_metric: alertMetric,
                 alert_threshold: action.alert_config?.threshold ?? 1,
-                alert_direction: action.alert_config?.direction ?? VisionAlertDirectionEnumApi.Above,
+                alert_direction: alertDirection,
                 alert_window_days: action.alert_config?.window_days ?? 1,
                 verdict: action.selection?.verdict ?? [],
                 tags: action.selection?.tags ?? [],
