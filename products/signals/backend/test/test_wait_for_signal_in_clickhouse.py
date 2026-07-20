@@ -1,6 +1,5 @@
 import uuid
-from collections.abc import Awaitable, Callable
-from datetime import datetime, timedelta
+from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -8,10 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.utils import timezone
 
-from parameterized import parameterized
 from temporalio.testing import ActivityEnvironment
-
-from posthog.api.embedding_worker import DocumentKey
 
 from products.signals.backend.temporal.signal_queries import (
     WaitForClickHouseInput,
@@ -24,8 +20,6 @@ MODULE = "products.signals.backend.temporal.signal_queries"
 
 TEAM_ID = 1
 
-StoreBehavior = Callable[..., Awaitable[dict[DocumentKey, datetime | None]]]
-
 
 def _signals(count: int) -> list[WaitForClickHouseSignal]:
     now = timezone.now()
@@ -36,10 +30,10 @@ def _ch_result(count: int) -> SimpleNamespace:
     return SimpleNamespace(results=[[count]])
 
 
-def _store_returning(offset: timedelta | None) -> StoreBehavior:
+def _store_returning(offset: timedelta | None):
     # Answers the lookup with each document's expected timestamp shifted by `offset`
     # (None means "never emitted" for every document).
-    async def lookup(documents: list[DocumentKey], *, team_id: int) -> dict[DocumentKey, datetime | None]:
+    async def lookup(documents, *, team_id):
         if offset is None:
             return dict.fromkeys(documents)
         return {d: timezone.now() + offset for d in documents}
@@ -47,7 +41,7 @@ def _store_returning(offset: timedelta | None) -> StoreBehavior:
     return lookup
 
 
-async def _store_raising(documents: list[DocumentKey], *, team_id: int) -> dict[DocumentKey, datetime | None]:
+async def _store_raising(documents, *, team_id):
     raise RuntimeError("worker down")
 
 
@@ -72,7 +66,14 @@ async def _run(
 
 
 @pytest.mark.asyncio
-async def test_store_confirmation_triggers_single_clickhouse_query() -> None:
+@pytest.mark.parametrize(
+    "mode,expected_ch_queries",
+    [
+        pytest.param(WaitForClickHouseMode.OPTIMISTIC, 0, id="optimistic_trusts_store_and_skips_clickhouse"),
+        pytest.param(WaitForClickHouseMode.CH_CONFIRMED, 1, id="ch_confirmed_runs_single_confirm"),
+    ],
+)
+async def test_store_confirmation_short_circuits(mode, expected_ch_queries):
     signals = _signals(2)
     with (
         patch(f"{MODULE}.Team", _team_model_mock()),
@@ -80,15 +81,18 @@ async def test_store_confirmation_triggers_single_clickhouse_query() -> None:
         patch(f"{MODULE}.execute_hogql_query_with_retry", AsyncMock(return_value=_ch_result(2))) as ch,
         patch(f"{MODULE}.asyncio.sleep", AsyncMock()) as sleep,
     ):
-        await _run(signals)
+        await _run(signals, mode=mode)
 
-    assert ch.await_count == 1
+    # The store confirmed on the first attempt: optimistic mode must return without
+    # touching ClickHouse at all, ch_confirmed with exactly one confirm query — and
+    # neither should sleep through a poll interval.
+    assert ch.await_count == expected_ch_queries
     assert store.call_count == 1
     assert sleep.await_count == 0
 
 
 @pytest.mark.asyncio
-async def test_ch_only_mode_never_consults_the_store() -> None:
+async def test_ch_only_mode_never_consults_the_store():
     signals = _signals(1)
     with (
         patch(f"{MODULE}.Team", _team_model_mock()),
@@ -105,16 +109,16 @@ async def test_ch_only_mode_never_consults_the_store() -> None:
     assert sleep.await_count == 0
 
 
-@parameterized.expand(
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "store_behavior",
     [
-        ("never_emitted", _store_returning(None)),
-        ("stale_record_from_earlier_emission", _store_returning(timedelta(hours=-1))),
-        ("store_unavailable", _store_raising),
-    ]
+        pytest.param(_store_returning(None), id="never_emitted"),
+        pytest.param(_store_returning(timedelta(hours=-1)), id="stale_record_from_earlier_emission"),
+        pytest.param(_store_raising, id="store_unavailable"),
+    ],
 )
-async def test_unconfirmed_store_defers_clickhouse_until_grace_period_elapses(
-    _name: str, store_behavior: StoreBehavior
-) -> None:
+async def test_unconfirmed_store_defers_clickhouse_until_grace_period_elapses(store_behavior):
     signals = _signals(1)
     with (
         patch(f"{MODULE}.Team", _team_model_mock()),
@@ -137,7 +141,7 @@ async def test_unconfirmed_store_defers_clickhouse_until_grace_period_elapses(
 
 
 @pytest.mark.asyncio
-async def test_gives_up_after_max_wait_and_records_timeout() -> None:
+async def test_gives_up_after_max_wait_and_records_timeout():
     signals = _signals(1)
     with (
         patch(f"{MODULE}.Team", _team_model_mock()),

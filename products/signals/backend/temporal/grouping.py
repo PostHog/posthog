@@ -1342,9 +1342,9 @@ async def _process_signal_batch(
                     for sid, result in emitted_signals
                 ],
                 max_wait_time_seconds=3600,
-                # The next batch queries ClickHouse, so use the store to gate polling but
-                # confirm visibility before continuing.
-                mode=WaitForClickHouseMode.CH_CONFIRMED,
+                # Fresh emissions: the store's confirmation is enough for the next batch's
+                # semantic search — don't spend ClickHouse queries on the happy path.
+                mode=WaitForClickHouseMode.OPTIMISTIC,
             ),
             start_to_close_timeout=timedelta(hours=1, minutes=5),
             heartbeat_timeout=timedelta(minutes=2),
