@@ -2556,6 +2556,7 @@ export namespace Schemas {
       Numeric: 'numeric',
       Duration: 'duration',
       DurationMs: 'duration_ms',
+      DurationNs: 'duration_ns',
       Percentage: 'percentage',
       PercentageScaled: 'percentage_scaled',
       Currency: 'currency',
@@ -8034,6 +8035,14 @@ export namespace Schemas {
     export interface AddSnapshotsResult {
       added: number;
       uploads: UploadTarget[];
+    }
+
+    export interface AddSuppressionRequest {
+      /**
+         * The email address to suppress. Will not receive any messages until removed.
+         * @maxLength 512
+         */
+      identifier: string;
     }
 
     /**
@@ -18416,6 +18425,11 @@ export namespace Schemas {
      * * `Dubsado` - Dubsado
      * * `Campfire` - Campfire
      * * `PromptWatch` - PromptWatch
+     * * `Crisp` - Crisp
+     * * `Kommo` - Kommo
+     * * `Axiom` - Axiom
+     * * `Plivo` - Plivo
+     * * `DataForSEO` - DataForSEO
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -19279,6 +19293,11 @@ export namespace Schemas {
       Dubsado: 'Dubsado',
       Campfire: 'Campfire',
       PromptWatch: 'PromptWatch',
+      Crisp: 'Crisp',
+      Kommo: 'Kommo',
+      Axiom: 'Axiom',
+      Plivo: 'Plivo',
+      DataForSEO: 'DataForSEO',
     } as const;
 
     /**
@@ -20155,7 +20174,12 @@ export namespace Schemas {
        * * `Shopware` - Shopware
        * * `Dubsado` - Dubsado
        * * `Campfire` - Campfire
-       * * `PromptWatch` - PromptWatch */
+       * * `PromptWatch` - PromptWatch
+       * * `Crisp` - Crisp
+       * * `Kommo` - Kommo
+       * * `Axiom` - Axiom
+       * * `Plivo` - Plivo
+       * * `DataForSEO` - DataForSEO */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -21035,6 +21059,12 @@ export namespace Schemas {
       github_login?: string;
       /** PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here. */
       user_uuid?: string;
+      /**
+         * One sentence of evidence for WHY this person: what ties them to the affected surface (e.g. 'authored 4 of the last 10 commits touching products/tracing/mcp/', 'human correction routed the prior tracing report to them'). Persisted on the report so the routing is auditable — always set it when you can name the evidence; 'precedent' alone is weak, prefer code-derived ownership.
+         * @maxLength 500
+         * @nullable
+         */
+      reason?: string | null;
     }
 
     /**
@@ -27004,7 +27034,12 @@ export namespace Schemas {
        * * `Shopware` - Shopware
        * * `Dubsado` - Dubsado
        * * `Campfire` - Campfire
-       * * `PromptWatch` - PromptWatch */
+       * * `PromptWatch` - PromptWatch
+       * * `Crisp` - Crisp
+       * * `Kommo` - Kommo
+       * * `Axiom` - Axiom
+       * * `Plivo` - Plivo
+       * * `DataForSEO` - DataForSEO */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -27894,7 +27929,12 @@ export namespace Schemas {
        * * `Shopware` - Shopware
        * * `Dubsado` - Dubsado
        * * `Campfire` - Campfire
-       * * `PromptWatch` - PromptWatch */
+       * * `PromptWatch` - PromptWatch
+       * * `Crisp` - Crisp
+       * * `Kommo` - Kommo
+       * * `Axiom` - Axiom
+       * * `Plivo` - Plivo
+       * * `DataForSEO` - DataForSEO */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -34488,6 +34528,42 @@ export namespace Schemas {
       config?: LogsListWidgetConfig;
     }
 
+    export interface LogsMetricRule {
+      /** Unique identifier for this metric rule. */
+      readonly id: string;
+      /**
+         * User-visible label for this rule.
+         * @maxLength 255
+         */
+      name: string;
+      /**
+         * Name of the generated metric as it appears in the Metrics product. Must start with a letter and contain only letters, digits, dots, underscores, and dashes. Unique per project and immutable after creation — create a new rule to emit under a different name.
+         * @maxLength 200
+         */
+      metric_name: string;
+      /** When true, ingestion evaluates this rule against every log record. At most 10 rules can be enabled per project. */
+      enabled?: boolean;
+      /** PropertyGroupFilter JSON (AND/OR tree of property predicates) selecting which log records feed the metric, e.g. `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api","type":"log_attribute"}]}]}`. Null matches every ingested log record. Every group must contain at least one filter — empty groups never match. */
+      filter_group?: unknown;
+      /**
+         * Log attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`. Omit to count matching log records instead. Immutable after creation — it determines the emitted metric type.
+         * @maxLength 512
+         * @nullable
+         */
+      value_attribute?: string | null;
+      /**
+         * Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` / `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.
+         * @items.maxLength 512
+         */
+      group_by?: string[];
+      /** Incremented on each update for worker cache coherency. */
+      readonly version: number;
+      readonly created_by: number;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
     export type LogsSamplingRuleScopeAttributeFiltersItem = { [key: string]: unknown };
 
     /**
@@ -35580,6 +35656,58 @@ export namespace Schemas {
       updated_at: string;
       /** Map of category ID to preference status. */
       preferences: unknown;
+    }
+
+    /**
+     * * `BOUNCE` - Bounce
+     * * `MANUAL` - Manual
+     */
+    export type MessageSuppressionSourceEnum = typeof MessageSuppressionSourceEnum[keyof typeof MessageSuppressionSourceEnum];
+
+
+    export const MessageSuppressionSourceEnum = {
+      Bounce: 'BOUNCE',
+      Manual: 'MANUAL',
+    } as const;
+
+    export interface MessageSuppression {
+      /** Server-assigned UUID for this suppression entry. */
+      readonly id: string;
+      /** Normalized recipient email address. Suppression is keyed on this value, per team. */
+      readonly identifier: string;
+      /** How the entry landed on the list: `BOUNCE` for automatic (bounce-driven), `MANUAL` for user-added via the UI/API.
+       *
+       * * `BOUNCE` - Bounce
+       * * `MANUAL` - Manual */
+      readonly source: MessageSuppressionSourceEnum;
+      /**
+         * Human-readable reason for the suppression (e.g. 'Auto-suppressed after 5 consecutive soft bounces').
+         * @nullable
+         */
+      readonly reason: string | null;
+      /** Rolling count of consecutive soft bounces with no successful delivery in between. Reset to 0 on any successful delivery. Ignored for MANUAL entries. */
+      readonly transient_bounce_count: number;
+      /**
+         * Timestamp of the most recent bounce, if any.
+         * @nullable
+         */
+      readonly last_bounce_at: string | null;
+      /**
+         * SMTP diagnostic string from the most recent bounce (e.g. '550 5.1.1 user unknown'), kept for visibility.
+         * @nullable
+         */
+      readonly last_bounce_diagnostic: string | null;
+      /** Whether the address is actively suppressed. A BOUNCE row can exist while still only counting bounces (suppressed=false) before it crosses the threshold. */
+      readonly suppressed: boolean;
+      /**
+         * Timestamp when the address was first suppressed.
+         * @nullable
+         */
+      readonly suppressed_at: string | null;
+      /** When the row was first created (first bounce or manual add). */
+      readonly created_at: string;
+      /** When the row was last touched by any write. */
+      readonly updated_at: string;
     }
 
     /**
@@ -37976,6 +38104,15 @@ export namespace Schemas {
       results: LogsAlertEvent[];
     }
 
+    export interface PaginatedLogsMetricRuleList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: LogsMetricRule[];
+    }
+
     export interface PaginatedLogsSamplingRuleList {
       count: number;
       /** @nullable */
@@ -38067,6 +38204,27 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: MessageCategory[];
+    }
+
+    /**
+     * OpenAPI shape for the paginated suppressions response. Declared so drf-spectacular emits
+     * the {count, next, previous, results} envelope on the generated client, rather than a bare
+     * array — which the frontend actually receives at runtime.
+     */
+    export interface PaginatedMessageSuppression {
+      /** Total number of suppressed recipients for the team. */
+      count: number;
+      /**
+         * URL for the next page, or null on the last page.
+         * @nullable
+         */
+      next: string | null;
+      /**
+         * URL for the previous page, or null on the first page.
+         * @nullable
+         */
+      previous: string | null;
+      results: MessageSuppression[];
     }
 
     export interface PaginatedMessageTemplateList {
@@ -38869,6 +39027,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly estimated_monthly_credits: number | null;
+      /** Credits this scanner's succeeded observations consumed in the current billing period (1 credit = $0.01). Matches the window of the org-wide quota meter. */
+      readonly credits_this_month: number;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at: string;
       readonly created_at: string;
@@ -45655,6 +45815,42 @@ export namespace Schemas {
       readonly updated_at?: string | null;
     }
 
+    export interface PatchedLogsMetricRule {
+      /** Unique identifier for this metric rule. */
+      readonly id?: string;
+      /**
+         * User-visible label for this rule.
+         * @maxLength 255
+         */
+      name?: string;
+      /**
+         * Name of the generated metric as it appears in the Metrics product. Must start with a letter and contain only letters, digits, dots, underscores, and dashes. Unique per project and immutable after creation — create a new rule to emit under a different name.
+         * @maxLength 200
+         */
+      metric_name?: string;
+      /** When true, ingestion evaluates this rule against every log record. At most 10 rules can be enabled per project. */
+      enabled?: boolean;
+      /** PropertyGroupFilter JSON (AND/OR tree of property predicates) selecting which log records feed the metric, e.g. `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api","type":"log_attribute"}]}]}`. Null matches every ingested log record. Every group must contain at least one filter — empty groups never match. */
+      filter_group?: unknown;
+      /**
+         * Log attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`. Omit to count matching log records instead. Immutable after creation — it determines the emitted metric type.
+         * @maxLength 512
+         * @nullable
+         */
+      value_attribute?: string | null;
+      /**
+         * Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` / `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.
+         * @items.maxLength 512
+         */
+      group_by?: string[];
+      /** Incremented on each update for worker cache coherency. */
+      readonly version?: number;
+      readonly created_by?: number;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
+    }
+
     export type PatchedLogsSamplingRuleScopeAttributeFiltersItem = { [key: string]: unknown };
 
     export interface PatchedLogsSamplingRule {
@@ -47314,6 +47510,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly estimated_monthly_credits?: number | null;
+      /** Credits this scanner's succeeded observations consumed in the current billing period (1 credit = $0.01). Matches the window of the org-wide quota meter. */
+      readonly credits_this_month?: number;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at?: string;
       readonly created_at?: string;
@@ -58094,7 +58292,12 @@ export namespace Schemas {
        * * `Shopware` - Shopware
        * * `Dubsado` - Dubsado
        * * `Campfire` - Campfire
-       * * `PromptWatch` - PromptWatch */
+       * * `PromptWatch` - PromptWatch
+       * * `Crisp` - Crisp
+       * * `Kommo` - Kommo
+       * * `Axiom` - Axiom
+       * * `Plivo` - Plivo
+       * * `DataForSEO` - DataForSEO */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -58997,7 +59200,12 @@ export namespace Schemas {
        * * `Shopware` - Shopware
        * * `Dubsado` - Dubsado
        * * `Campfire` - Campfire
-       * * `PromptWatch` - PromptWatch */
+       * * `PromptWatch` - PromptWatch
+       * * `Crisp` - Crisp
+       * * `Kommo` - Kommo
+       * * `Axiom` - Axiom
+       * * `Plivo` - Plivo
+       * * `DataForSEO` - DataForSEO */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -59892,7 +60100,12 @@ export namespace Schemas {
        * * `Shopware` - Shopware
        * * `Dubsado` - Dubsado
        * * `Campfire` - Campfire
-       * * `PromptWatch` - PromptWatch */
+       * * `PromptWatch` - PromptWatch
+       * * `Crisp` - Crisp
+       * * `Kommo` - Kommo
+       * * `Axiom` - Axiom
+       * * `Plivo` - Plivo
+       * * `DataForSEO` - DataForSEO */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -61905,6 +62118,12 @@ export namespace Schemas {
          * @maxLength 10000
          */
       text: string;
+      /**
+         * Id of the user message this turn answers, when the agent-server echoes it.
+         * @maxLength 128
+         * @nullable
+         */
+      message_id?: string | null;
       /**
          * Ordered assistant text blocks. When present, the last non-empty entry is posted instead of text.
          * @items.maxLength 10000
@@ -70051,7 +70270,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort scanners by name, created_at, updated_at, scanner_type, enabled, sampling_rate, or created_by. Prefix with `-` for descending.
+     * Sort scanners by name, created_at, updated_at, scanner_type, enabled, sampling_rate, created_by, credits_this_month. Prefix with `-` for descending.
      */
     order_by?: string;
     /**
@@ -71098,6 +71317,7 @@ export namespace Schemas {
      * * `ExternalDataSource` - ExternalDataSource
      * * `ExternalDataSchema` - ExternalDataSchema
      * * `Evaluation` - Evaluation
+     * * `LLMPromptLabel` - LLMPromptLabel
      * * `LLMTrace` - LLMTrace
      * * `AIGatewayCredit` - AIGatewayCredit
      * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
@@ -71186,6 +71406,7 @@ export namespace Schemas {
       ExternalDataSource: 'ExternalDataSource',
       ExternalDataSchema: 'ExternalDataSchema',
       Evaluation: 'Evaluation',
+      LLMPromptLabel: 'LLMPromptLabel',
       LLMTrace: 'LLMTrace',
       AIGatewayCredit: 'AIGatewayCredit',
       WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
@@ -71260,6 +71481,7 @@ export namespace Schemas {
      * * `ExternalDataSource` - ExternalDataSource
      * * `ExternalDataSchema` - ExternalDataSchema
      * * `Evaluation` - Evaluation
+     * * `LLMPromptLabel` - LLMPromptLabel
      * * `LLMTrace` - LLMTrace
      * * `AIGatewayCredit` - AIGatewayCredit
      * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
@@ -71336,6 +71558,7 @@ export namespace Schemas {
       ExternalDataSource: 'ExternalDataSource',
       ExternalDataSchema: 'ExternalDataSchema',
       Evaluation: 'Evaluation',
+      LLMPromptLabel: 'LLMPromptLabel',
       LLMTrace: 'LLMTrace',
       AIGatewayCredit: 'AIGatewayCredit',
       WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
@@ -72040,7 +72263,7 @@ export namespace Schemas {
 
     export type ConversationsTicketsListParams = {
     /**
-     * Filter by assignee. Use `unassigned` for tickets with no assignee, `user:<user_id>` for a specific user, or `role:<role_uuid>` for a role.
+     * Filter by assignee. Accepts a single value or a comma-separated list (matches any, max 100 entries). Each entry is `unassigned` (no assignee), `user:<user_id>`, or `role:<role_uuid>`, e.g. `assignee=unassigned,user:123`.
      */
     assignee?: string;
     /**
@@ -72259,6 +72482,10 @@ export namespace Schemas {
      * Optional. `global`: official templates only. `team`: this project's saved templates only (`scope=team` rows for the current project). `organization`: templates shared across all projects in this organization. `feature_flag`: feature-flag dashboard templates only. Omit for official, organization, and this project's templates (default dashboard template picker behavior).
      */
     scope?: DashboardTemplatesListScope;
+    /**
+     * Optional. Full-text search across template name, tags, and description, ranked by relevance. Use it to find templates for a topic (e.g. `retention`, `revenue`, `product analytics`).
+     */
+    search?: string;
     };
 
     export type DashboardTemplatesListScope = typeof DashboardTemplatesListScope[keyof typeof DashboardTemplatesListScope];
@@ -76580,6 +76807,17 @@ export namespace Schemas {
 
     export type LogsHasLogsRetrieve200 = { [key: string]: unknown };
 
+    export type LogsMetricRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type LogsSamplingRulesListParams = {
     /**
      * Number of results to return per page.
@@ -76916,6 +77154,11 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type MessagingSuppressionsSuppressionsRetrieveParams = {
+    page?: number;
+    page_size?: number;
     };
 
     export type MessagingTemplatesListParams = {
@@ -78997,7 +79240,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort scanners by name, created_at, updated_at, scanner_type, enabled, sampling_rate, or created_by. Prefix with `-` for descending.
+     * Sort scanners by name, created_at, updated_at, scanner_type, enabled, sampling_rate, created_by, credits_this_month. Prefix with `-` for descending.
      */
     order_by?: string;
     /**

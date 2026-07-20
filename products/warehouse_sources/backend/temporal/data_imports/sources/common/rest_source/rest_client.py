@@ -4,6 +4,7 @@ from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from typing import Any, Optional
+from urllib.parse import urlsplit
 
 from requests import Request, Response, Session
 from requests.auth import AuthBase
@@ -28,6 +29,41 @@ class RESTClientRetryableError(Exception):
     def __init__(self, message: str, retry_after: Optional[float] = None) -> None:
         super().__init__(message)
         self.retry_after = retry_after
+
+
+class RESTClientNonRetryableError(Exception):
+    """A response that retrying can never turn into usable data.
+
+    Not a subclass of RESTClientRetryableError so the tenacity retry — which only
+    reissues RESTClientRetryableError — stops immediately instead of re-fetching a
+    deterministic failure.
+    """
+
+
+# Bytes that can legally begin a JSON document: an object/array, a string, a
+# number, or one of the literals true/false/null.
+_JSON_START_BYTES = frozenset(b'{["-tfn0123456789')
+
+
+def _looks_like_json(content: bytes) -> bool:
+    stripped = content.lstrip()
+    return bool(stripped) and stripped[0] in _JSON_START_BYTES
+
+
+def _safe_url(url: str) -> str:
+    """Scheme, host, and path only — never the query string, fragment, or userinfo.
+
+    An error message built from a URL can flow into non-retryable-error analytics
+    and error tracking, where tracked-session value redaction doesn't reach. An
+    ``api_key`` auth with ``location: "query"`` carries the secret in the query
+    string, so keep only the parts that are safe to surface."""
+    parts = urlsplit(url)
+    if not parts.scheme:
+        return url
+    host = parts.hostname or ""
+    if parts.port:
+        host = f"{host}:{parts.port}"
+    return f"{parts.scheme}://{host}{parts.path}"
 
 
 # Upper bound on how long we'll honor a server-provided retry delay, so a
@@ -196,7 +232,7 @@ class RESTClient:
 
         if response.status_code == 429 or response.status_code >= 500:
             raise RESTClientRetryableError(
-                f"HTTP {response.status_code} for {response.url}",
+                f"HTTP {response.status_code} for {_safe_url(response.url)}",
                 retry_after=_parse_retry_after(response),
             )
 
@@ -215,11 +251,18 @@ class RESTClient:
             # An empty body on an otherwise-successful response is a complete "no data"
             # answer (e.g. an endpoint with nothing to return), not a truncated page —
             # retrying can't conjure rows, so treat it as an empty page and let the
-            # paginator stop. A non-empty body that fails to parse is a partial/truncated
-            # read, which stays retryable.
+            # paginator stop.
             if not response.content or not response.content.strip():
                 return response, None
-            raise RESTClientRetryableError(f"Malformed JSON response from {response.url}: {e}") from e
+            # A body that doesn't even begin with a JSON value is not a truncated page:
+            # the endpoint returned non-JSON content (an HTML or plain-text error page, a
+            # login redirect) on an otherwise-successful response. Re-fetching returns the
+            # same non-JSON body, so fail fast and non-retryably instead of burning the
+            # retry budget. A body that starts as JSON but fails to parse is a partial /
+            # truncated read, which stays retryable.
+            if not _looks_like_json(response.content):
+                raise RESTClientNonRetryableError(f"Non-JSON response from {_safe_url(response.url)}") from e
+            raise RESTClientRetryableError(f"Malformed JSON response from {_safe_url(response.url)}: {e}") from e
 
         return response, body
 

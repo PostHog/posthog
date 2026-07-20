@@ -2075,10 +2075,10 @@ class SignalReportArtefactViewSet(
 
         # Resolve canonical login per entry. Fail loudly if a user_uuid does not
         # map to an org member with a GitHub identity on this team.
-        # The third tuple element distinguishes "github_name explicitly supplied
+        # The bool tuple elements distinguish "github_name / reason explicitly supplied
         # (incl. empty string to clear)" from "field absent" — the merge step below
-        # only falls back to the prior name when the field is absent.
-        resolved_entries: list[tuple[str, str | None, bool]] = []
+        # only falls back to the prior value when the field is absent.
+        resolved_entries: list[tuple[str, str | None, bool, str | None, bool]] = []
         for idx, entry in enumerate(entries):
             user_uuid = entry.get("user_uuid")
             if user_uuid is not None:
@@ -2105,7 +2105,9 @@ class SignalReportArtefactViewSet(
 
             explicit_name = "github_name" in entry
             github_name = entry.get("github_name") if explicit_name else None
-            resolved_entries.append((login_lc, github_name, explicit_name))
+            explicit_reason = "reason" in entry
+            reason = entry.get("reason") if explicit_reason else None
+            resolved_entries.append((login_lc, github_name, explicit_name, reason, explicit_reason))
 
         # Lock the report for the read-merge-append so concurrent reviewer edits serialize — each
         # PUT reads the current (latest) reviewers and appends a new row, so without the lock two
@@ -2132,6 +2134,7 @@ class SignalReportArtefactViewSet(
                 prior_content = []
             prior_commits_by_login: dict[str, list] = {}
             prior_name_by_login: dict[str, str | None] = {}
+            prior_reason_by_login: dict[str, str | None] = {}
             prior_logins: list[str] = []
             if isinstance(prior_content, list):
                 for prior in prior_content:
@@ -2147,21 +2150,27 @@ class SignalReportArtefactViewSet(
                     prior_name = prior.get("github_name")
                     if isinstance(prior_name, str):
                         prior_name_by_login[login] = prior_name
+                    prior_reason = prior.get("reason")
+                    if isinstance(prior_reason, str):
+                        prior_reason_by_login[login] = prior_reason
 
             # Dedupe by canonical login, preserve first-seen order.
             new_content: list[dict] = []
-            for login_lc, github_name, explicit_name in resolved_entries:
+            for login_lc, github_name, explicit_name, reason, explicit_reason in resolved_entries:
                 if login_lc in seen:
                     continue
                 seen.add(login_lc)
                 # If the client supplied github_name (incl. ""), honour it. Otherwise
                 # carry over the prior one so kept reviewers don't lose their name.
+                # Same rule for reason.
                 effective_name = github_name if explicit_name else prior_name_by_login.get(login_lc)
+                effective_reason = reason if explicit_reason else prior_reason_by_login.get(login_lc)
                 new_content.append(
                     {
                         "github_login": login_lc,
                         "github_name": effective_name,
                         "relevant_commits": prior_commits_by_login.get(login_lc, []),
+                        "reason": effective_reason or None,
                     }
                 )
 

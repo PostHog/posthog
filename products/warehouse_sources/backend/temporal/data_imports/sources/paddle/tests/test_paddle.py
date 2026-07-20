@@ -1,11 +1,14 @@
 from typing import cast
 
+import pytest
+
 from requests.adapters import HTTPAdapter
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.paddle import (
     PADDLE_BASE_URL,
     _get_paddle_session,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.source import PaddleSource
 
 
 class TestPaddleSession:
@@ -29,3 +32,33 @@ class TestPaddleSession:
         assert retry.is_retry("GET", 401) is False
         assert retry.is_retry("GET", 403) is False
         assert retry.is_retry("GET", 400) is False
+
+
+class TestPaddleNonRetryableErrors:
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            # A 404 on a list endpoint we know exists means the resource isn't reachable for this
+            # account (Billing not enabled, or a wrong-environment key) — retrying can't fix it.
+            "404 Client Error: Not Found for url: https://api.paddle.com/subscriptions?per_page=200&order_by=id%5BASC%5D",
+            "400 Client Error: Bad Request for url: https://api.paddle.com/transactions?per_page=200",
+            "401 Client Error: Unauthorized for url: https://api.paddle.com/customers",
+            "403 Client Error: Forbidden for url: https://api.paddle.com/products",
+        ],
+    )
+    def test_non_retryable_errors_match_client_failures(self, observed_error):
+        non_retryable_errors = PaddleSource().get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable_errors)
+
+    @pytest.mark.parametrize(
+        "other_error",
+        [
+            # Transient/infra errors must stay retryable.
+            "HTTPSConnectionPool(host='api.paddle.com', port=443): Read timed out.",
+            "500 Server Error: Internal Server Error for url: https://api.paddle.com/subscriptions",
+            "Connection reset by peer",
+        ],
+    )
+    def test_non_retryable_errors_do_not_match_transient(self, other_error):
+        non_retryable_errors = PaddleSource().get_non_retryable_errors()
+        assert not any(key in other_error for key in non_retryable_errors)

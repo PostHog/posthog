@@ -487,6 +487,11 @@ class AwsCloudTrailSourceConfig(config.Config):
 
 
 @config.config
+class AxiomSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class AzureBlobSourceConfig(config.Config):
     pass
 
@@ -1139,6 +1144,11 @@ class CratesIOSourceConfig(config.Config):
 
 
 @config.config
+class CrispSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class CriteoSourceConfig(config.Config):
     pass
 
@@ -1197,6 +1207,15 @@ class DagsterCloudSourceConfig(config.Config):
     organization: str
     deployment: str
     api_token: str
+
+
+@config.config
+class DataForSEOSourceConfig(config.Config):
+    api_login: str
+    api_password: str
+    targets: str
+    location_name: str | None = None
+    language_name: str | None = None
 
 
 @config.config
@@ -1777,7 +1796,8 @@ class GiteaSourceConfig(config.Config):
 
 @config.config
 class GitguardianSourceConfig(config.Config):
-    pass
+    api_key: str
+    base_url: str | None = None
 
 
 @config.config
@@ -2393,6 +2413,11 @@ class KlaviyoSourceConfig(config.Config):
 
 @config.config
 class KnockSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class KommoSourceConfig(config.Config):
     pass
 
 
@@ -3363,6 +3388,11 @@ class PlausibleSourceConfig(config.Config):
     api_key: str
     site_id: str
     host: str | None = None
+
+
+@config.config
+class PlivoSourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -5018,6 +5048,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.AVIATOR: AviatorSourceConfig,
         ExternalDataSourceType.AWIN: AwinSourceConfig,
         ExternalDataSourceType.AWSCLOUDTRAIL: AwsCloudTrailSourceConfig,
+        ExternalDataSourceType.AXIOM: AxiomSourceConfig,
         ExternalDataSourceType.AZUREBLOB: AzureBlobSourceConfig,
         ExternalDataSourceType.AZUREDEVOPS: AzureDevOpsSourceConfig,
         ExternalDataSourceType.AZURETABLESTORAGE: AzureTableStorageSourceConfig,
@@ -5127,6 +5158,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.COUPA: CoupaSourceConfig,
         ExternalDataSourceType.COVERALLS: CoverallsSourceConfig,
         ExternalDataSourceType.CRATESIO: CratesIOSourceConfig,
+        ExternalDataSourceType.CRISP: CrispSourceConfig,
         ExternalDataSourceType.CRITEO: CriteoSourceConfig,
         ExternalDataSourceType.CRONITOR: CronitorSourceConfig,
         ExternalDataSourceType.CRUNCHBASE: CrunchbaseSourceConfig,
@@ -5139,6 +5171,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.DAGSTERCLOUD: DagsterCloudSourceConfig,
         ExternalDataSourceType.DATABRICKS: DatabricksSourceConfig,
         ExternalDataSourceType.DATADOG: DatadogSourceConfig,
+        ExternalDataSourceType.DATAFORSEO: DataForSEOSourceConfig,
         ExternalDataSourceType.DATAHUB: DatahubSourceConfig,
         ExternalDataSourceType.DATASCOPE: DatascopeSourceConfig,
         ExternalDataSourceType.DATORAMA: DatoramaSourceConfig,
@@ -5353,6 +5386,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.KLAUS: KlausSourceConfig,
         ExternalDataSourceType.KLAVIYO: KlaviyoSourceConfig,
         ExternalDataSourceType.KNOCK: KnockSourceConfig,
+        ExternalDataSourceType.KOMMO: KommoSourceConfig,
         ExternalDataSourceType.KONGKONNECT: KongKonnectSourceConfig,
         ExternalDataSourceType.KOYEB: KoyebSourceConfig,
         ExternalDataSourceType.KUBECOST: KubecostSourceConfig,
@@ -5529,6 +5563,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.PLANHAT: PlanhatSourceConfig,
         ExternalDataSourceType.PLATFORMSH: PlatformShSourceConfig,
         ExternalDataSourceType.PLAUSIBLE: PlausibleSourceConfig,
+        ExternalDataSourceType.PLIVO: PlivoSourceConfig,
         ExternalDataSourceType.PLUNK: PlunkSourceConfig,
         ExternalDataSourceType.POCKET: PocketSourceConfig,
         ExternalDataSourceType.PODIUM: PodiumSourceConfig,

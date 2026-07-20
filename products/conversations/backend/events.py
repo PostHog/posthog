@@ -16,8 +16,10 @@ import structlog
 from posthog.api.capture import capture_internal
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import groups as build_groups
+from posthog.models.group.util import get_groups_by_identifiers
 from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.organization import OrganizationMembership
+from posthog.models.person.person import Person
 from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -150,6 +152,38 @@ def _resolve_groups_from_analytics(team: Team, distinct_ids: list[str]) -> dict 
     return groups
 
 
+def _resolve_groups_from_person_properties(team: Team, person: Person) -> dict | None:
+    """Resolve ``$groups`` from the person's own ``organization_id`` profile property.
+
+    Fallback for when both the membership lookup and the analytics fallback miss:
+    app instrumentation commonly stamps the org id onto the person profile via
+    ``$identify``, and the profile persists even when the person's last identified
+    session predates the analytics fallback's 30-day event window.
+
+    Person properties are client-supplied — the same trust level as the analytics
+    fallback (enrichment, never authorization). The value only counts when it names
+    an organization group that already exists in this project, so a team whose
+    ``organization_id`` person property follows a different convention than its
+    organization group keys can't stamp bogus group keys onto events. A value that
+    coincidentally matches an unrelated org group key (e.g. small-integer keys) can
+    still mis-enrich — same collision class as event-supplied ``$groups``.
+    """
+    org_id = (person.properties or {}).get("organization_id")
+    if not org_id or not isinstance(org_id, str):
+        return None
+
+    group_type_index = {
+        gtm["group_type"]: gtm["group_type_index"] for gtm in get_group_types_for_project(team.project_id)
+    }
+    org_index = group_type_index.get("organization")
+    if org_index is None:
+        return None
+    if not get_groups_by_identifiers(team.id, org_index, [org_id]):
+        return None
+
+    return {"instance": SITE_URL, "project": str(team.uuid), "organization": org_id}
+
+
 def _resolve_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None]:
     """Resolve the customer organization's ``$groups`` for a ticket.
 
@@ -160,17 +194,20 @@ def _resolve_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None]:
     so the membership is found directly. Other channels (Slack, Email, MS
     Teams) set ``distinct_id`` to the customer email (or empty), so we fall
     back to looking the person up by ``properties.email`` in ClickHouse and
-    resolving the membership through that person's real distinct_ids.
+    resolving the membership through that person's real distinct_ids. Either
+    way, the person's own ``organization_id`` profile property is the last
+    resort when the membership and analytics lookups both miss.
     """
     # 1. Real distinct_id (web widget). An identified person is authoritative: if they
     # have no org membership, don't guess via email (a shared email could resolve to a
     # different person's org), so return early instead of falling through.
     if ticket.distinct_id:
-        # Only is_identified is read, and the membership lookup below keys off the ticket's own
-        # distinct_id — so skip fetching the person's distinct_ids.
+        # Only is_identified and properties are read, and the membership lookup below keys off
+        # the ticket's own distinct_id — so skip fetching the person's distinct_ids.
         with personhog_caller_tag("conversations/ticket-event-person"):
             persons = get_persons_by_distinct_ids(team.id, [ticket.distinct_id], distinct_id_limit=0)
-        if any(p.is_identified for p in persons):
+        identified_person = next((p for p in persons if p.is_identified), None)
+        if identified_person is not None:
             membership = (
                 OrganizationMembership.objects.select_related("organization")
                 .filter(user__distinct_id=ticket.distinct_id)
@@ -183,6 +220,11 @@ def _resolve_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None]:
             # stamped onto this project's analytics events (same distinct_id, so the
             # shared-email caveat above still holds).
             groups = _resolve_groups_from_analytics(team, [ticket.distinct_id])
+            if groups:
+                return True, groups
+            # Their events may have aged out of the analytics window; the profile they
+            # identified with is still the same person's own claim about their org.
+            groups = _resolve_groups_from_person_properties(team, identified_person)
             if groups:
                 return True, groups
             return False, None
@@ -199,16 +241,21 @@ def _resolve_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None]:
         from products.conversations.backend.person_lookup import _get_persons_by_email  # noqa: PLC0415
 
         person = _get_persons_by_email(team, [email]).get(email.lower())
-        if person is not None and person.distinct_ids:
-            membership = (
-                OrganizationMembership.objects.select_related("organization")
-                .filter(user__distinct_id__in=person.distinct_ids)
-                .first()
-            )
-            if membership:
-                return True, build_groups(membership.organization, team)
-            # Same cross-region fallback as above, keyed by the person's distinct_ids.
-            groups = _resolve_groups_from_analytics(team, person.distinct_ids)
+        if person is not None:
+            if person.distinct_ids:
+                membership = (
+                    OrganizationMembership.objects.select_related("organization")
+                    .filter(user__distinct_id__in=person.distinct_ids)
+                    .first()
+                )
+                if membership:
+                    return True, build_groups(membership.organization, team)
+                # Same cross-region fallback as above, keyed by the person's distinct_ids.
+                groups = _resolve_groups_from_analytics(team, person.distinct_ids)
+                if groups:
+                    return True, groups
+            # Same last resort as above: the org id the person's own profile carries.
+            groups = _resolve_groups_from_person_properties(team, person)
             if groups:
                 return True, groups
 
@@ -402,6 +449,17 @@ def capture_message_received(ticket: Ticket, message_id: str, message_content: s
             process_person, groups = _resolve_org_groups(ticket, team)
             if groups is not None:
                 properties["$groups"] = groups
+                org_id = groups.get("organization")
+                if org_id:
+                    # Persist like capture_ticket_created does, so later messages take the
+                    # stored-org fast path instead of re-running the resolver. First write
+                    # wins: only mirror to the in-memory ticket when this update landed,
+                    # so a concurrent handler's value isn't shadowed.
+                    rows_updated = Ticket.objects.filter(id=ticket.id, organization_id__isnull=True).update(
+                        organization_id=org_id
+                    )
+                    if rows_updated:
+                        ticket.organization_id = org_id
     except Exception:
         logger.exception("message_received_person_lookup_failed", team_id=team.id, ticket_id=str(ticket.id))
 

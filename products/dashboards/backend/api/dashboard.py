@@ -94,6 +94,7 @@ from posthog.utils import (
 
 from products.ai_observability.backend.dashboard_templates import get_ai_observability_default_template
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.dashboards.backend.access import dashboard_access_method, record_dashboard_access, record_dashboard_view
 from products.dashboards.backend.api.dashboard_template_json_schema_parser import (
     DashboardTemplateCreationJSONSchemaParser,
 )
@@ -2326,9 +2327,11 @@ class DashboardsViewSet(
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         dashboard = self.get_object()
 
-        dashboard.last_accessed_at = now()
-        dashboard.save(update_fields=["last_accessed_at"])
-        serializer = DashboardSerializer(dashboard, context=self.get_serializer_context())
+        access_method = dashboard_access_method(request)
+        record_dashboard_view(dashboard, access_method)
+        serializer_context = self.get_serializer_context()
+        serializer_context["dashboard_access_method"] = access_method
+        serializer = DashboardSerializer(dashboard, context=serializer_context)
         data = serializer.data
 
         response = Response(data)
@@ -2370,18 +2373,25 @@ class DashboardsViewSet(
         dashboard = self.get_object()  # This will raise 404 if not found - let it bubble up normally
 
         # Do all database operations and data loading synchronously first
-        dashboard.last_accessed_at = now()
-        dashboard.save(update_fields=["last_accessed_at"])
+        access_method = dashboard_access_method(request)
+        record_dashboard_view(dashboard, access_method)
+
+        context = self.get_serializer_context()
 
         # Prepare metadata with initial tiles
-        metadata_serializer = DashboardMetadataSerializer(dashboard, context=self.get_serializer_context())
+        metadata_serializer = DashboardMetadataSerializer(dashboard, context=context)
         metadata_data = metadata_serializer.data
 
         # Create serializer context for tiles. Tiles are rendered with SafeJSONRenderer below,
         # so raw cached results (orjson.Fragment) are safe even though the negotiated renderer
         # is the SSE one.
-        context = self.get_serializer_context()
-        context.update({"dashboard": dashboard, "raw_results_supported": True})
+        context.update(
+            {
+                "dashboard": dashboard,
+                "dashboard_access_method": access_method,
+                "raw_results_supported": True,
+            }
+        )
 
         # Get tiles with proper prefetch
         tiles = DashboardTile.dashboard_queryset(dashboard.tiles.all()).prefetch_related(
@@ -2806,8 +2816,12 @@ class DashboardsViewSet(
         dashboard = self.get_object()
         output_format = request.query_params.get("output_format", "optimized")
 
+        access_method = dashboard_access_method(request)
+        record_dashboard_access(access_method)
+
         context = self.get_serializer_context()
         context["dashboard"] = dashboard
+        context["dashboard_access_method"] = access_method
         # _format_insight_for_llm consumes results as Python data, so raw cached
         # result bytes (orjson.Fragment) must not be used here.
         context["require_parsed_results"] = True

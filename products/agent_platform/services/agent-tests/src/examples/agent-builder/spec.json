@@ -13,9 +13,6 @@
                         "type": "posthog",
                         "scopes": ["agents:read", "agents:write", "agent_session:read"],
                         "audience": "organization"
-                    },
-                    {
-                        "type": "posthog_internal"
                     }
                 ]
             }
@@ -30,9 +27,6 @@
                     {
                         "type": "posthog",
                         "audience": "organization"
-                    },
-                    {
-                        "type": "posthog_internal"
                     }
                 ]
             }
@@ -256,6 +250,9 @@
             "auth": {
                 "provider": "posthog"
             },
+            "headers": {
+                "x-posthog-mcp-mode": "tools"
+            },
             "default_tool_approval": "deny",
             "tools": [
                 { "name": "agent-applications-list", "level": "allow" },
@@ -320,21 +317,7 @@
             ]
         }
     ],
-    "identity_providers": [
-        {
-            "kind": "posthog",
-            "scopes": [
-                "openid",
-                "profile",
-                "email",
-                "user:read",
-                "agents:read",
-                "agents:write",
-                "query:read",
-                "insight:read"
-            ]
-        }
-    ],
+    "identity_providers": [],
     "secrets": [],
     "limits": {
         "max_turns": 80,
