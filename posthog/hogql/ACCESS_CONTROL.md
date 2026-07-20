@@ -14,6 +14,28 @@ HogQL enforces access control in three layers:
 
 All three layers share one preloaded `UserAccessControl` instance and partition the query cache so a restricted user can never be served an unrestricted user's cached rows.
 
+Sitting underneath all of them is a separate, more fundamental guard: the [`team_id` guard](#tenant-isolation-the-team_id-guard) that keeps one team's rows out of another team's query results.
+It's not part of RBAC and doesn't touch `UserAccessControl` — it's the multi-tenancy boundary, and it applies to every query regardless of who (or whether anyone) is asking.
+
+## Tenant isolation: the `team_id` guard
+
+PostHog's ClickHouse tables (`events`, `persons`, `sessions`, ...) are shared: one physical table holds the rows for every team, keyed by a `team_id` column.
+Multi-tenancy therefore depends on every query being scoped to a single team.
+HogQL guarantees this by injecting a mandatory `team_id = <context.team_id>` filter onto **every** table it reads, so a query can never see another team's rows even if it tries.
+
+This is enforced at the lowest level, at print time.
+When the printer emits each table in a `FROM` / `JOIN`, `_ensure_team_id_where_clause()` adds the guard built by `team_id_guard_for_table()` (`posthog/hogql/printer/clickhouse.py`), applied in `BasePrinter.visit_join_expr` (`posthog/hogql/printer/base.py`).
+Because it's added during printing, query-supplied `WHERE` clauses and modifiers can't remove or widen it.
+For `LEFT JOIN`s the guard goes in the `ON` clause instead of `WHERE`, so unmatched rows aren't dropped.
+
+**Fail closed:** `team_id_guard_for_table()` raises `InternalHogQLError` if `context.team_id` is missing, so a query with no team never runs against shared data.
+Unlike the RBAC layers, this guard needs no user — only a team.
+
+A few tables opt out, and only these:
+
+- **Warehouse tables and views** (`DataWarehouseTable`, `SavedQuery`): external data or subqueries that carry their own scoping — a saved query's inner tables get guarded individually.
+- **`DANGEROUS_NoTeamIdCheckTable`** (`posthog/hogql/database/models.py`): an explicit escape hatch for tables that hold no team data — `numbers`, `exchange_rate`, `information_schema`, and similar. As the name warns, don't use it for anything that touches user data.
+
 ## Passing the user into HogQL
 
 Access control needs to know who is querying.
