@@ -51,10 +51,10 @@ export interface assigneeSelectLogicMeta {
         loading: (membersLoading: boolean, rolesLoading: boolean) => boolean
         rolesFuse: (roles: RoleType[]) => RolesFuse
         filteredRoles: (roles: RoleType[], rolesFuse: RolesFuse, search: string) => RoleType[]
-        currentUserMember: (me: any, search: string) => OrganizationMemberType | null
+        currentUserMember: (me: OrganizationMemberType | null, search: string) => OrganizationMemberType | null
         otherFilteredMembers: (
             filteredMembers: OrganizationMemberType[],
-            currentUserMember: any
+            currentUserMember: OrganizationMemberType | null
         ) => OrganizationMemberType[]
         resolveAssignee: (
             roles: RoleType[],
