@@ -352,8 +352,8 @@ class MCPToolFailureOccurrencesQueryRunner(AnalyticsQueryRunner[MCPToolFailureOc
                 SELECT
                     timestamp,
                     distinct_id,
-                    {_CONVERSATION_ID} AS session_id,
-                    if(toString(properties.$mcp_intent) = '{}', '', toString(properties.$mcp_intent)) AS intent,
+                    substring({_CONVERSATION_ID}, 1, 200) AS session_id,
+                    if(toString(properties.$mcp_intent) = '{}', '', substring(toString(properties.$mcp_intent), 1, 1000)) AS intent,
                     {_ERROR_MESSAGE} AS error_message,
                     {_RAW_ERROR_STATUS} AS error_status,
                     {token} AS h
