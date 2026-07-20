@@ -123,7 +123,6 @@ export function EventDetails({ event }: EventDetailsProps): JSX.Element {
                                     type={PropertyDefinitionType.Event}
                                     properties={properties}
                                     sortProperties
-                                    virtualized
                                     collapsible
                                 />
                             </div>
@@ -142,7 +141,6 @@ export function EventDetails({ event }: EventDetailsProps): JSX.Element {
                                     type={PropertyDefinitionType.Event}
                                     properties={properties}
                                     useDetectedPropertyType={true}
-                                    virtualized
                                     searchable
                                     collapsible
                                 />
@@ -162,7 +160,6 @@ export function EventDetails({ event }: EventDetailsProps): JSX.Element {
                                     type={PropertyDefinitionType.Event}
                                     properties={properties}
                                     useDetectedPropertyType={true}
-                                    virtualized
                                     searchable
                                     collapsible
                                 />
@@ -192,7 +189,6 @@ export function EventDetails({ event }: EventDetailsProps): JSX.Element {
                                     type={PropertyDefinitionType.Event}
                                     properties={properties}
                                     useDetectedPropertyType={['flags', 'properties'].includes(tabKey)}
-                                    virtualized
                                     filterable={tabKey === 'properties'}
                                     sortProperties
                                     // metadata is so short, that serachable is wasted space
