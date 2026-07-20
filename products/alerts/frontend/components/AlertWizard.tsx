@@ -107,14 +107,14 @@ export function AlertWizard({
             <footer className="flex flex-wrap items-center justify-between gap-2 border-t p-4">
                 <div className="flex-1">{leadingActions ? leadingActions : null}</div>
                 <div className="flex items-center gap-2">
+                    <LemonTag type="default" className="m-0">
+                        Step {current + 1} of {steps.length}
+                    </LemonTag>
                     {!isFirst ? (
                         <LemonButton type="secondary" icon={<IconChevronLeft />} onClick={goPrev}>
                             Back
                         </LemonButton>
                     ) : null}
-                    <LemonTag type="default" className="m-0">
-                        Step {current + 1} of {steps.length}
-                    </LemonTag>
                     {!isLast ? (
                         <LemonButton
                             type="primary"
