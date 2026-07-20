@@ -94,6 +94,18 @@ export const AuthModeSchema = z.discriminatedUnion('type', [
         type: z.literal('shared_secret'),
         header: z.string().min(1),
         secret_ref: z.string().min(1),
+        /** How the header proves possession of the secret:
+         *    - omitted / `plain`: the header carries the secret verbatim.
+         *    - `hmac_sha256`: the header carries hex `HMAC-SHA256(raw request
+         *      body, secret)` — for signers that never send the secret itself
+         *      (GitHub's `X-Hub-Signature-256`, and most webhook providers).
+         *  Same trust model either way: possession of the one secret == the
+         *  one principal. */
+        scheme: z.enum(['plain', 'hmac_sha256']).optional(),
+        /** `hmac_sha256` only: prefix expected before the hex digest in the
+         *  header value. Defaults to GitHub's `sha256=`; set `''` for signers
+         *  that send the bare digest. */
+        signature_prefix: z.string().optional(),
     }),
     /** PostHog-internal server-to-server token (for Django ↔ ingress). */
     z.object({ type: z.literal('posthog_internal') }),

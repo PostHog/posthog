@@ -82,6 +82,15 @@ class ReviewsListParamsSerializer(serializers.Serializer):
     )
 
 
+class PerspectiveStatsParamsSerializer(serializers.Serializer):
+    scope = serializers.ChoiceField(
+        choices=[SCOPE_MINE, SCOPE_EVERYONE],
+        default=SCOPE_MINE,
+        help_text="Whose reviews to aggregate: `mine` for reviews of the requesting user's pull requests "
+        "(the default), `everyone` for every review on this project.",
+    )
+
+
 class ReviewProgressSerializer(serializers.Serializer):
     review_stage = serializers.ChoiceField(
         choices=REVIEW_STAGES,
@@ -443,8 +452,10 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     valid findings at each effective priority, the reviewed PR's facts, and the pipeline shape of
     the latest turn. `list` covers the requesting user's reviews (reports where they are the acting
     user) by default, or the whole project's via `scope=everyone` — mirroring the inbox's
-    "For you / Entire project" switch. `retrieve` adds the findings themselves (valid + dismissed)
-    and the published review body; it is project-wide so any listed review can be opened.
+    "For you / Entire project" switch; `perspective_stats` honors the same `scope` so the
+    effectiveness cards can follow the page-level switch. `retrieve` adds the findings themselves
+    (valid + dismissed) and the published review body; it is project-wide so any listed review can
+    be opened.
     """
 
     scope_object = "INTERNAL"
@@ -545,19 +556,23 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         return Response(ReviewRecentReviewsPageSerializer({"results": items, "has_more": has_more}).data)
 
     @extend_schema(
+        parameters=[PerspectiveStatsParamsSerializer],
         responses={
             200: OpenApiResponse(
                 response=ReviewPerspectiveStatsSerializer,
-                description="Per-skill effectiveness across the user's recent completed reviews.",
+                description="Per-skill effectiveness across the recent completed reviews in scope.",
             ),
         },
         summary="Perspective effectiveness stats",
         description="How many findings each review skill (perspective or blind-spot sweep) raised across the "
-        "requesting user's recent completed reviews, and how many of those the validator kept vs dismissed.",
+        "recent completed reviews in scope — the requesting user's by default, every review on this project "
+        "with `scope=everyone` — and how many of those the validator kept vs dismissed.",
     )
     @action(methods=["GET"], detail=False)
     def perspective_stats(self, request: Request, **kwargs) -> Response:
-        team_id, queryset = self._reports(request)
+        params = PerspectiveStatsParamsSerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        team_id, queryset = self._reports(request, scope=params.validated_data["scope"])
         reports = list(
             queryset.filter(last_run_at__isnull=False).order_by("-last_run_at")[:PERSPECTIVE_STATS_REPORT_LIMIT]
         )
