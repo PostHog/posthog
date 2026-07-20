@@ -58,6 +58,7 @@ from products.data_modeling.backend.logic.freshness import (
     validate_declared_target,
 )
 from products.data_modeling.backend.logic.node_frequency import (
+    FrequencyGraph,
     build_frequency_graph,
     persist_seed_targets,
     schedulable_nodes,
@@ -112,16 +113,18 @@ def maybe_reconcile_dag(dag: DAG) -> None:
 
 def _reconcile_dag_best_effort(dag: DAG) -> None:
     try:
-        _warn_on_invalid_targets(dag)
-        reconcile_dag_schedules(dag, require_tiered=True)
+        graph = build_frequency_graph(dag)
+        _warn_on_invalid_targets(dag, graph)
+        reconcile_dag_schedules(dag, require_tiered=True, graph=graph)
     except Exception as error:
         logger.exception("Freshness schedule reconcile failed", dag_id=str(dag.id), team_id=dag.team_id)
         capture_exception(error)
 
 
-def _warn_on_invalid_targets(dag: DAG) -> None:
+def _warn_on_invalid_targets(dag: DAG, graph: FrequencyGraph | None = None) -> None:
     """Surface declared targets that drifted outside their bounds; never blocks the mutation."""
-    graph = build_frequency_graph(dag)
+    if graph is None:
+        graph = build_frequency_graph(dag)
     for invalid in find_invalid_targets(
         edges=graph.edges, declared_targets=graph.declared_targets, source_intervals=graph.source_intervals
     ):
@@ -164,7 +167,7 @@ def apply_saved_query_frequency_target(
             maybe_reconcile_dag(node.dag)
 
 
-def reconcile_dag_schedules(dag: DAG, *, require_tiered: bool = False) -> None:
+def reconcile_dag_schedules(dag: DAG, *, require_tiered: bool = False, graph: FrequencyGraph | None = None) -> None:
     """Make Temporal's schedules for this DAG match its nodes' effective cadences.
 
     Converging a covered DAG to zero schedules is always refused — an empty tier set on a DAG
@@ -173,7 +176,8 @@ def reconcile_dag_schedules(dag: DAG, *, require_tiered: bool = False) -> None:
     is left untouched.
     """
     team = dag.team
-    graph = build_frequency_graph(dag)
+    if graph is None:
+        graph = build_frequency_graph(dag)
     effective = compute_effective_cadences(
         nodes=graph.nodes, edges=graph.edges, declared_targets=graph.declared_targets
     )

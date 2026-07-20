@@ -133,7 +133,7 @@ class Command(BaseCommand):
             intervals=intervals,
         )
         temporal = sync_connect()
-        failed_schedule_ids = self._delete_v1_schedules(temporal, scheduled_nodes, team)
+        failed_schedule_ids = self._delete_v1_schedules(temporal, scheduled_nodes, team, str(dag.id))
         # Null intervals only for queries whose v1 schedule actually went away: a failed delete
         # keeps its interval so a re-run retries it, instead of orphaning a v1 schedule beside the
         # tiers on a DAG that (interval-less) would then be skipped forever.
@@ -147,7 +147,7 @@ class Command(BaseCommand):
         )
         return True
 
-    def _delete_v1_schedules(self, temporal, scheduled_nodes, team) -> set[str]:
+    def _delete_v1_schedules(self, temporal, scheduled_nodes, team, dag_id: str) -> set[str]:
         deleted_count = 0
         failed_schedule_ids: list[str] = []
         for node in scheduled_nodes:
@@ -174,14 +174,16 @@ class Command(BaseCommand):
         if failed_schedule_ids:
             logger.warning(
                 "Some old schedules could not be deleted",
+                dag_id=dag_id,
                 team_id=team.pk,
                 failed_schedule_ids=failed_schedule_ids,
             )
         logger.info(
             "Deleted old per-node schedules",
+            dag_id=dag_id,
             team_id=team.pk,
             deleted=deleted_count,
-            total=scheduled_nodes.count(),
+            total=len(scheduled_nodes),
         )
         return set(failed_schedule_ids)
 
@@ -279,7 +281,7 @@ class Command(BaseCommand):
             dag.sync_frequency_interval = interval
             dag.save(update_fields=["name", "sync_frequency_interval"])
             logger.info("Renamed DAG", dag_id=str(dag.id), team_id=team.pk)
-            self._delete_v1_schedules(temporal, scheduled_nodes, team)
+            self._delete_v1_schedules(temporal, scheduled_nodes, team, str(dag.id))
             # null out sync_frequency_interval on migrated saved queries so v1 schedules are not re-created
             migrated_sq_ids = [node.saved_query_id for node in scheduled_nodes if node.saved_query_id is not None]
             DataWarehouseSavedQuery.objects.filter(id__in=migrated_sq_ids).update(sync_frequency_interval=None)
