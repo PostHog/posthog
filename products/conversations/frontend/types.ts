@@ -23,7 +23,7 @@ export type MessageAuthorType = 'customer' | 'AI' | 'human'
 export type MessageDeliveryStatus = 'sent' | 'read'
 export type SidePanelViewState = 'list' | 'ticket' | 'new' | 'restore'
 export type RestoreFlowState = 'idle' | 'sending' | 'sent' | 'error'
-/** Legacy single-value assignee filter shape, still present in old saved views and persisted state. */
+/** Legacy single-value shape, still present in old saved views and persisted filter state. */
 export type AssigneeFilterValue = 'all' | 'unassigned' | TicketAssignee
 
 function isAssigneeFilterEntry(value: unknown): value is AssigneeFilterEntry {
@@ -40,7 +40,6 @@ function isAssigneeFilterEntry(value: unknown): value is AssigneeFilterEntry {
     )
 }
 
-/** Coerces both the current array shape and legacy single values into the multi-select filter shape. */
 export function normalizeAssigneeFilter(value: unknown): AssigneeFilterEntry[] {
     if (Array.isArray(value)) {
         return value.filter(isAssigneeFilterEntry)
@@ -98,7 +97,6 @@ export interface TicketViewFilters {
     channel?: TicketChannel | 'all'
     sla?: TicketSlaState | 'all'
     aiTriageResult?: AITriageFilterValue[]
-    /** Written as an array; legacy saved views may still hold a single `AssigneeFilterValue`. */
     assignee?: AssigneeFilterEntry[] | AssigneeFilterValue
     tags?: string[]
     tagsMatch?: TicketTagsMatch
