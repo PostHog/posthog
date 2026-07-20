@@ -33,7 +33,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { MathCategory, mathTypeToApiValues, mathsLogic } from 'scenes/trends/mathsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { FunnelsFilter, NodeKind } from '~/queries/schema/schema-general'
 import {
     AnyPropertyFilter,
     BaseMathType,
@@ -42,6 +42,7 @@ import {
     PropertyFilterType,
     PropertyFilterValue,
     PropertyOperator,
+    StepOrderValue,
 } from '~/types'
 
 import { ActionFilterRowMenu } from './ActionFilterRowMenu'
@@ -146,10 +147,20 @@ export function ActionFilterRow({
     const { insightProps: funnelInsightProps } = useValues(
         insightLogic({ dashboardItemId: isFunnelContext ? dashboardItemId : 'new' })
     )
-    const { isStepOptional: funnelIsStepOptional } = useValues(funnelDataLogic(funnelInsightProps))
+    const { isStepOptional: funnelIsStepOptional, insightFilter: funnelInsightFilter } = useValues(
+        funnelDataLogic(funnelInsightProps)
+    )
 
     // Only use the funnel results when in funnel context
     const isStepOptional = isFunnelContext ? funnelIsStepOptional : () => false
+
+    // Optional steps aren't supported with "Any order" step order — guard the checkbox against
+    // that invalid combination, which the backend rejects. See ValidateOptionalFunnelSteps.
+    const funnelOrderType = ((funnelInsightFilter || {}) as FunnelsFilter).funnelOrderType
+    const optionalStepDisabledReason =
+        isFunnelContext && funnelOrderType === StepOrderValue.UNORDERED
+            ? 'Optional steps are not supported with "Any order" step order. Change step order to Sequential or Strict order first.'
+            : undefined
 
     const {
         setNodeRef,
@@ -644,6 +655,7 @@ export function ActionFilterRow({
                                             isTrendsContext={isTrendsContext}
                                             isFunnelContext={isFunnelContext}
                                             isStepOptional={isStepOptional}
+                                            optionalStepDisabledReason={optionalStepDisabledReason}
                                             math={math}
                                             mathGroupTypeIndex={mathGroupTypeIndex}
                                             mathAvailability={mathAvailability}
