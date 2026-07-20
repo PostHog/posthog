@@ -12,23 +12,47 @@ import { HOG_EVAL_EXAMPLES } from '../hogEvalExamples'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import { HogTestResult } from '../types'
 
-const HOG_EVAL_GLOBALS = {
-    input: {
-        type: 'string',
-        description: 'The input to the LLM (prompt / messages)',
+const HOG_EVAL_COMMON_GLOBALS = {
+    events: [
+        {
+            uuid: { type: 'string' },
+            event: { type: 'string' },
+            timestamp: { type: 'string' },
+            input: { type: 'string' },
+            output: { type: 'string' },
+            input_text: { type: 'string', description: 'Best-effort readable input text' },
+            output_text: { type: 'string', description: 'Best-effort readable output text' },
+            properties: { type: 'object' },
+        },
+    ],
+    target: {
+        type: { type: 'string', description: 'generation or trace' },
+        id: { type: 'string' },
+        total_cost_usd: { type: 'number' },
+        total_latency_seconds: { type: 'number' },
     },
-    output: {
-        type: 'string',
-        description: 'The output from the LLM (response / choices)',
+}
+
+const HOG_EVAL_GLOBALS_BY_TARGET = {
+    generation: {
+        ...HOG_EVAL_COMMON_GLOBALS,
+        // Compatibility globals kept for saved generation Hog source.
+        input: { type: 'string', description: 'The input to the LLM' },
+        output: { type: 'string', description: 'The output from the LLM' },
+        properties: { type: 'object', description: 'All event properties' },
+        event: {
+            uuid: { type: 'string' },
+            event: { type: 'string' },
+            distinct_id: { type: 'string' },
+        },
     },
-    properties: {
-        type: 'object',
-        description: 'All event properties',
-    },
-    event: {
-        uuid: { type: 'string' },
-        event: { type: 'string' },
-        distinct_id: { type: 'string' },
+    trace: {
+        ...HOG_EVAL_COMMON_GLOBALS,
+        // Compatibility global kept for saved trace Hog source.
+        trace: {
+            id: { type: 'string' },
+            event_count: { type: 'number' },
+        },
     },
 }
 
@@ -174,7 +198,7 @@ export function EvaluationCodeEditor(): JSX.Element {
                     language="hog"
                     value={source}
                     onChange={(v) => setHogSource(v ?? '')}
-                    globals={HOG_EVAL_GLOBALS}
+                    globals={HOG_EVAL_GLOBALS_BY_TARGET[evaluation.target]}
                     minHeight="12rem"
                     maxHeight="60vh"
                     options={{
@@ -189,7 +213,13 @@ export function EvaluationCodeEditor(): JSX.Element {
                 />
                 <div className="flex justify-between items-center text-sm text-muted">
                     <div className="flex items-center gap-2">
-                        <Tooltip title="Compile and run your code against up to 5 recent generations matching your trigger filters">
+                        <Tooltip
+                            title={
+                                evaluation.target === 'trace'
+                                    ? 'Preview this code against up to 5 recent generations. Online runs evaluate the whole trace.'
+                                    : 'Compile and run your code against up to 5 recent generations matching your trigger filters'
+                            }
+                        >
                             <LemonButton
                                 type="secondary"
                                 size="xsmall"
@@ -259,17 +289,29 @@ export function EvaluationCodeEditor(): JSX.Element {
                 <h4 className="text-sm font-semibold mb-2">Available globals</h4>
                 <div className="text-sm text-muted space-y-1">
                     <div>
-                        <code>input</code> — the input to the LLM (prompt / messages)
+                        <code>events</code>: one event for a generation evaluation, or every event in a trace. Each item
+                        has raw <code>input</code> and <code>output</code>, best-effort readable <code>input_text</code>{' '}
+                        and <code>output_text</code>, and <code>properties</code>. Use the raw fields when the exact
+                        captured structure matters.
                     </div>
                     <div>
-                        <code>output</code> — the output from the LLM (response / choices)
+                        <code>target</code>: details about the generation or trace, including its ID, total cost, and
+                        total latency.
                     </div>
+                    {evaluation.target === 'generation' ? (
+                        <div>
+                            For compatibility with saved generation code, this target also exposes <code>input</code>,{' '}
+                            <code>output</code>, <code>properties</code>, and <code>event</code>.
+                        </div>
+                    ) : (
+                        <div>
+                            For compatibility with saved trace code, this target also exposes <code>trace.id</code> and{' '}
+                            <code>trace.event_count</code>.
+                        </div>
+                    )}
                     <div>
-                        <code>properties</code> — all event properties (e.g. <code>properties.$ai_model</code>,{' '}
-                        <code>properties.$ai_total_cost_usd</code> etc)
-                    </div>
-                    <div>
-                        <code>event.uuid</code>, <code>event.event</code>, <code>event.distinct_id</code>
+                        New code should use <code>events</code> and <code>target</code> when it needs to work with
+                        either target.
                     </div>
                 </div>
                 <h4 className="text-sm font-semibold mt-3 mb-2">Tips</h4>

@@ -172,17 +172,25 @@ class TestBuildTraceHogGlobals:
             create_trace_event("$ai_generation", **{"$ai_input": "first question", "$ai_output": "first answer"}),
             create_trace_event("$ai_generation", **{"$ai_input": "second question", "$ai_output": "final answer"}),
         ]
-        trace = create_trace(events)
+        trace = create_trace(events, totalCost=0.03, totalLatency=2.5)
 
         globals_dict = build_trace_hog_globals(trace, "trace-123")
 
         assert "input" not in globals_dict
         assert "output" not in globals_dict
         assert globals_dict["trace"] == {"id": "trace-123", "event_count": 3}
+        assert globals_dict["target"] == {
+            "type": "trace",
+            "id": "trace-123",
+            "total_cost_usd": 0.03,
+            "total_latency_seconds": 2.5,
+        }
         assert len(globals_dict["events"]) == 3
         assert globals_dict["events"][1]["event"] == "$ai_generation"
         assert globals_dict["events"][1]["input"] == "first question"
+        assert globals_dict["events"][1]["input_text"] == "first question"
         assert globals_dict["events"][2]["output"] == "final answer"
+        assert globals_dict["events"][2]["output_text"] == "final answer"
 
     def test_strips_heavy_keys_from_event_properties(self):
         events = [

@@ -39,8 +39,7 @@ from posthog.temporal.ai_observability.evaluation_errors import (
     require_user_error_spec,
     status_reason_detail_for_terminal_user_error,
 )
-from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
-from posthog.temporal.ai_observability.evaluation_hog import coerce_hog_io_value, execute_hog_eval_bytecode
+from posthog.temporal.ai_observability.evaluation_hog import build_hog_event_global, execute_hog_eval_bytecode
 from posthog.temporal.ai_observability.evaluation_llm_judge import (
     LLM_JUDGE_RETRY_POLICY,
     call_llm_judge,
@@ -89,18 +88,6 @@ MAX_TRACE_EVAL_EVENTS = 500
 # fill an LLM context window for summarization); a per-trace judge verdict doesn't need that
 # much, so we cap lower to bound cost. Over budget, the formatter uniformly samples lines.
 JUDGE_TRACE_MAX_CHARS = 150_000
-
-# Heavy payload keys are dropped from per-event `properties` in Hog globals — their content
-# is already exposed via the per-event `input`/`output` strings, and duplicating them doubles
-# HogVM memory pressure on large traces.
-HEAVY_TRACE_PROPERTY_KEYS = (
-    "$ai_input",
-    "$ai_output",
-    "$ai_output_choices",
-    "$ai_input_state",
-    "$ai_output_state",
-    "$ai_tools",
-)
 
 # Written against ai_events; query_ai_events rewrites it for the events table when ai_events
 # returns nothing. HAVING makes a zero count return no rows, which both triggers the events-table
@@ -261,28 +248,33 @@ def format_trace_for_judge(trace: LLMTrace) -> str:
 def build_trace_hog_globals(trace: LLMTrace, trace_id: str) -> dict[str, Any]:
     """Build Hog globals for a trace-level eval.
 
-    `events` carries every trace event in chronological order with stringified input/output.
+    `events` and `trace` are compatibility globals kept for saved trace Hog source. Each event also has
+    best-effort readable text projections, while `target` contains metadata shared with generation evaluations.
+
+    `events` carries every trace event in chronological order with raw stringified I/O and best-effort text.
     Sources read per-event io off `events`; there is no trace-level `input`/`output` because
     a single synthesized pair isn't meaningful across a whole trace and wouldn't match what
     the trace view shows.
     """
     events_globals: list[dict[str, Any]] = []
     for event in trace.events or []:
-        props = event.properties
-        input_raw, output_raw = extract_event_io(event.event, props)
         events_globals.append(
-            {
-                "uuid": event.id,
-                "event": event.event,
-                "timestamp": event.createdAt,
-                "input": coerce_hog_io_value(input_raw),
-                "output": coerce_hog_io_value(output_raw),
-                "properties": {k: v for k, v in props.items() if k not in HEAVY_TRACE_PROPERTY_KEYS},
-            }
+            build_hog_event_global(
+                event.event,
+                event.properties,
+                event_uuid=event.id,
+                timestamp=event.createdAt,
+            )
         )
     return {
         "events": events_globals,
         "trace": {"id": trace_id, "event_count": len(events_globals)},
+        "target": {
+            "type": "trace",
+            "id": trace_id,
+            "total_cost_usd": trace.totalCost,
+            "total_latency_seconds": trace.totalLatency,
+        },
     }
 
 

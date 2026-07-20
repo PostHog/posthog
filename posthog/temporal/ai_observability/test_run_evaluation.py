@@ -1490,7 +1490,12 @@ class TestExecuteHogEvalActivity:
 
         from posthog.cdp.validation import compile_hog
 
-        source = "let out := output; if (out == 'test output') { return true } return false"
+        source = """
+            return output == 'test output'
+                and length(events) == 1
+                and events.1.output == output
+                and target.type == 'generation'
+        """
         bytecode = compile_hog(source, "destination")
 
         evaluation = {

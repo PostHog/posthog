@@ -13,11 +13,21 @@ from posthog.temporal.ai_observability.evaluation_errors import (
 )
 from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
+from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 
 from common.hogvm.python.execute import execute_bytecode
 from common.hogvm.python.utils import HogVMException, HogVMMemoryExceededException, HogVMRuntimeExceededException
 
 logger = structlog.get_logger(__name__)
+
+HOG_EVENT_HEAVY_PROPERTY_KEYS = {
+    "$ai_input",
+    "$ai_output",
+    "$ai_output_choices",
+    "$ai_input_state",
+    "$ai_output_state",
+    "$ai_tools",
+}
 
 
 def coerce_hog_io_value(value: Any) -> str:
@@ -29,6 +39,57 @@ def coerce_hog_io_value(value: Any) -> str:
     if isinstance(value, list | dict):
         return json.dumps(value)
     return "" if value is None or value == "" else str(value)
+
+
+def _extract_hog_message_text(messages: Any) -> str:
+    if messages is None or isinstance(messages, str | list | dict):
+        return extract_text_from_messages(messages)
+    return str(messages)
+
+
+def _extract_hog_output_text(output: Any) -> str:
+    if isinstance(output, dict) and isinstance(output.get("choices"), list):
+        output = output["choices"]
+
+    messages: list[Any] = []
+    for choice in output if isinstance(output, list) else [output]:
+        if isinstance(choice, dict):
+            message = choice.get("message")
+            if isinstance(message, dict):
+                choice = message
+            if "content" in choice or "refusal" in choice or "text" in choice or "tool_calls" in choice:
+                content = choice.get("content") or choice.get("refusal") or choice.get("text")
+                if not content and not choice.get("tool_calls"):
+                    continue
+                choice = {"content": content, "tool_calls": choice.get("tool_calls")}
+        messages.append(choice)
+    return _extract_hog_message_text(messages)
+
+
+def build_hog_event_global(
+    event_type: str,
+    properties: dict[str, Any],
+    *,
+    event_uuid: Any,
+    timestamp: Any,
+) -> dict[str, Any]:
+    """Build the per-event global shared by generation and trace evaluations.
+
+    The raw `input`/`output` fields are the compatibility contract for saved trace Hog source.
+    `input_text`/`output_text` are best-effort readable projections for cross-target source.
+    Use the raw fields when exact payload structure matters.
+    """
+    input_raw, output_raw = extract_event_io(event_type, properties)
+    return {
+        "uuid": event_uuid,
+        "event": event_type,
+        "timestamp": timestamp,
+        "input": coerce_hog_io_value(input_raw),
+        "output": coerce_hog_io_value(output_raw),
+        "input_text": _extract_hog_message_text(input_raw),
+        "output_text": _extract_hog_output_text(output_raw),
+        "properties": {key: value for key, value in properties.items() if key not in HOG_EVENT_HEAVY_PROPERTY_KEYS},
+    }
 
 
 def execute_hog_eval_bytecode(bytecode: list, globals_dict: dict[str, Any], allows_na: bool) -> dict[str, Any]:
@@ -94,16 +155,31 @@ def run_hog_eval(bytecode: list, event_data: dict[str, Any], allows_na: bool = F
         properties = json.loads(properties)
 
     event_type = event_data["event"]
-    input_raw, output_raw = extract_event_io(event_type, properties)
+    event_global = build_hog_event_global(
+        event_type,
+        properties,
+        event_uuid=event_data.get("uuid", ""),
+        timestamp=event_data.get("timestamp"),
+    )
 
     globals_dict: dict[str, Any] = {
-        "input": coerce_hog_io_value(input_raw),
-        "output": coerce_hog_io_value(output_raw),
+        # Generation-only compatibility globals kept for saved Hog source.
+        # New source that must work for generations and traces should use `events` and `target` below.
+        "input": event_global["input"],
+        "output": event_global["output"],
         "properties": properties,
         "event": {
             "uuid": event_data.get("uuid", ""),
             "event": event_type,
             "distinct_id": event_data.get("distinct_id", ""),
+        },
+        # Common globals shared with trace evaluations.
+        "events": [event_global],
+        "target": {
+            "type": "generation",
+            "id": event_data.get("uuid", ""),
+            "total_cost_usd": properties.get("$ai_total_cost_usd"),
+            "total_latency_seconds": properties.get("$ai_latency"),
         },
     }
 
