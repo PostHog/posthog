@@ -134,15 +134,19 @@ export function AlertEditorFormDetails({
 
 interface AlertEditorSectionProps {
     title: string
+    icon?: ReactNode
     description?: ReactNode
     children: ReactNode
 }
 
-export function AlertEditorSection({ title, description, children }: AlertEditorSectionProps): JSX.Element {
+export function AlertEditorSection({ title, icon, description, children }: AlertEditorSectionProps): JSX.Element {
     return (
         <section className="space-y-2.5">
             <div className="space-y-0.5">
-                <h3 className="text-sm font-semibold m-0">{title}</h3>
+                <h3 className="text-sm font-semibold m-0 flex items-center gap-1.5">
+                    {icon ? <span className="text-muted">{icon}</span> : null}
+                    {title}
+                </h3>
                 {description ? <p className="text-xs text-secondary m-0">{description}</p> : null}
             </div>
             {children}

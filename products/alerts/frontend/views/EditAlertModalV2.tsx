@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useCallback, useMemo } from 'react'
 
+import { IconClock, IconPulse } from '@posthog/icons'
 import { LemonCheckbox, LemonDialog, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
@@ -432,7 +433,7 @@ export function EditAlertModalV2({
                                 <SummaryBanner summary={summary} alertMode={alertMode} />
 
                                 <div className="rounded border border-border p-3">
-                                    <AlertEditorSection title="Monitor">
+                                    <AlertEditorSection title="Monitor" icon={<IconPulse className="size-4" />}>
                                         <div className="space-y-3">
                                             {previewNode}
                                             {definitionNode}
@@ -441,7 +442,7 @@ export function EditAlertModalV2({
                                 </div>
 
                                 <div className="rounded border border-border p-3">
-                                    <AlertEditorSection title="Schedule">
+                                    <AlertEditorSection title="Schedule" icon={<IconClock className="size-4" />}>
                                         {scheduleNode}
                                         {advancedNode}
                                     </AlertEditorSection>

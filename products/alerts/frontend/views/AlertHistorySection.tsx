@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconNotebook } from '@posthog/icons'
+import { IconGraph, IconNotebook } from '@posthog/icons'
 import {
     LemonSegmentedButton,
     LemonSkeleton,
@@ -219,7 +219,10 @@ export function AlertHistorySection({ alertId }: { alertId: AlertType['id'] }): 
     return (
         <div className="mt-10 space-y-2">
             <div className="flex flex-row gap-2 items-center">
-                <h3 className="m-0">Current status: </h3>
+                <h3 className="m-0 flex items-center gap-1.5">
+                    <IconGraph className="size-4 text-muted" />
+                    Current status:{' '}
+                </h3>
                 <AlertStateIndicator alert={alert} />
                 <h3 className="m-0">
                     {alert.snoozed_until && ` until ${formatDate(dayjs(alert?.snoozed_until), 'MMM D, HH:mm')}`}

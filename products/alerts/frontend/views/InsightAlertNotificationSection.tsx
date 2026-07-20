@@ -1,3 +1,5 @@
+import { IconBell } from '@posthog/icons'
+
 import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
 
 import { InsightShortId } from '~/types'
@@ -37,7 +39,7 @@ export function InsightAlertNotificationSection({
     }
 
     return (
-        <AlertEditorSection title="Notification">
+        <AlertEditorSection title="Notification" icon={<IconBell className="size-4" />}>
             <div className="flex gap-4 items-center">
                 <div>E-mail</div>
                 <div className="flex-auto">
