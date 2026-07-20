@@ -38,8 +38,7 @@ from posthog.models.integration import Integration
 from products.tasks.backend.constants import (
     MAX_CUSTOM_IMAGES_PER_TEAM,
     MAX_CUSTOM_IMAGES_PER_USER,
-    RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
-    is_blocked_sandbox_env_key,
+    filter_user_sandbox_env_vars,
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.code_workstreams.default_workflow import build_default_bindings
@@ -171,7 +170,7 @@ __all__ = [
     "get_task_summaries",
     "is_internal_debug_team",
     "is_task_controllable_by_user",
-    "is_valid_sandbox_env_var_key",
+    "sanitize_user_sandbox_env_vars",
     "latest_task_run_pr_url_subquery",
     "leave_task_presence",
     "list_sandbox_custom_images",
@@ -1116,25 +1115,24 @@ def redeem_code_invite(code: str, user_id: int) -> contracts.CodeInviteRedeemRes
 # theirs (``created_by``). ``list`` additionally hides ``internal`` environments.
 
 
-def is_valid_sandbox_env_var_key(key: str) -> bool:
-    """Whether ``key`` is a valid environment-variable name (``[A-Za-z_][A-Za-z0-9_]*``)."""
-    return SandboxEnvironment.is_valid_env_var_key(key)
+def sanitize_user_sandbox_env_vars(environment_variables: dict | None) -> dict:
+    """Reject malformed keys and drop reserved/process-control keys before persisting.
 
-
-def is_blocked_sandbox_env_var_key(key: str) -> bool:
-    return is_blocked_sandbox_env_key(key)
-
-
-def is_reserved_sandbox_env_var_key(key: str) -> bool:
-    return key in RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS
-
-
-def _validate_user_sandbox_env_vars(environment_variables: dict | None) -> None:
-    for key in environment_variables or {}:
+    Reserved and blocked keys are silently dropped here — the same thing ``filter_user_sandbox_env_vars``
+    does at sandbox-provision time — so the write path and the runtime agree instead of the write path
+    hard-rejecting keys the runtime would ignore anyway. Malformed names can't be silently coerced, so
+    they still raise.
+    """
+    if not environment_variables:
+        return environment_variables or {}
+    for key in environment_variables:
         if not SandboxEnvironment.is_valid_env_var_key(key):
-            raise ValueError(f"Invalid environment variable key: {key!r}")
-        if is_blocked_sandbox_env_key(key) or key in RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS:
-            raise ValueError(f"Environment variable key {key!r} is not allowed")
+            raise ValueError(
+                f"Invalid environment variable name {key!r}: it must start with a letter or underscore "
+                "and contain only letters, numbers, and underscores."
+            )
+    safe, _skipped = filter_user_sandbox_env_vars(environment_variables)
+    return safe
 
 
 def _accessible_sandbox_envs(team_id: int, user_id: int):
@@ -1182,7 +1180,7 @@ def create_sandbox_environment(
     custom_image_id: str | None = None,
 ) -> contracts.SandboxEnvironmentDTO:
     """Create a team environment owned by the user and return it as a DTO."""
-    _validate_user_sandbox_env_vars(environment_variables)
+    environment_variables = sanitize_user_sandbox_env_vars(environment_variables)
     _validate_custom_image_id(team_id, user_id, custom_image_id)
     env = SandboxEnvironment.objects.create(
         team_id=team_id,
@@ -1207,7 +1205,7 @@ def update_sandbox_environment(
     if env is None:
         return None
     if "environment_variables" in fields:
-        _validate_user_sandbox_env_vars(fields["environment_variables"])
+        fields["environment_variables"] = sanitize_user_sandbox_env_vars(fields["environment_variables"])
     if "custom_image_id" in fields:
         _validate_custom_image_id(team_id, user_id, fields["custom_image_id"])
     for key, value in fields.items():

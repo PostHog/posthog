@@ -2569,22 +2569,13 @@ class SandboxEnvironmentWriteSerializer(serializers.Serializer):
     )
 
     def validate_environment_variables(self, value):
-        if value:
-            for key in value:
-                if not tasks_facade.is_valid_sandbox_env_var_key(key):
-                    raise serializers.ValidationError(
-                        f"Invalid environment variable key: {key!r}. Must match [A-Za-z_][A-Za-z0-9_]*"
-                    )
-                if tasks_facade.is_blocked_sandbox_env_var_key(key):
-                    raise serializers.ValidationError(
-                        f"Environment variable key {key!r} is not allowed: it can change how sandbox "
-                        "processes execute code (e.g. NODE_OPTIONS, LD_PRELOAD)."
-                    )
-                if tasks_facade.is_reserved_sandbox_env_var_key(key):
-                    raise serializers.ValidationError(
-                        f"Environment variable key {key!r} is reserved and managed by PostHog; it cannot be set."
-                    )
-        return value
+        # Reserved and process-control keys are dropped rather than rejected: the sandbox runtime
+        # already filters them out at provision time, so hard-rejecting here dead-ended users on keys
+        # that would never take effect anyway. Malformed names still fail with the required format.
+        try:
+            return tasks_facade.sanitize_user_sandbox_env_vars(value)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
 
 
 class SandboxCustomImageSerializer(DataclassSerializer):

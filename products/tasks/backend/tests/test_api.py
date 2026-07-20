@@ -8943,9 +8943,13 @@ class TestSandboxEnvironmentAPI(BaseTaskAPITest):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        # The error names the required format so the user can fix the key instead of dead-ending.
+        self.assertIn("letter or underscore", json.dumps(response.json()))
 
     @parameterized.expand(
         [
+            # Process-control keys (blocked) and PostHog-managed keys (reserved) are both dropped on
+            # write to match filter_user_sandbox_env_vars, which drops them again at provision time.
             ("NODE_OPTIONS",),
             ("LD_PRELOAD",),
             ("LD_LIBRARY_PATH",),
@@ -8954,38 +8958,37 @@ class TestSandboxEnvironmentAPI(BaseTaskAPITest):
             ("GIT_SSH_COMMAND",),
             ("GIT_CONFIG_KEY_0",),
             ("GIT_CONFIG_VALUE_0",),
-        ]
-    )
-    def test_blocked_process_control_env_var_key_rejected(self, key):
-        response = self.client.post(
-            self.base_url,
-            {
-                "name": "Dangerous Env Vars",
-                "network_access_level": "full",
-                "environment_variables": {key: "value"},
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    @parameterized.expand(
-        [
             ("GITHUB_TOKEN",),
             ("POSTHOG_PERSONAL_API_KEY",),
             ("JWT_PUBLIC_KEY",),
         ]
     )
-    def test_reserved_env_var_key_rejected(self, key):
+    def test_reserved_and_blocked_env_var_keys_filtered_on_write(self, key):
         response = self.client.post(
             self.base_url,
             {
-                "name": "Reserved Env Vars",
+                "name": "Managed Env Vars",
                 "network_access_level": "full",
                 "environment_variables": {key: "value"},
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        # The key is dropped rather than persisted, so nothing user-settable remains.
+        self.assertFalse(response.json()["has_environment_variables"])
+
+    def test_reserved_key_dropped_but_valid_key_kept(self):
+        response = self.client.post(
+            self.base_url,
+            {
+                "name": "Mixed Env Vars",
+                "network_access_level": "full",
+                "environment_variables": {"GITHUB_TOKEN": "reserved", "MY_APP_TOKEN": "keep"},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(response.json()["has_environment_variables"])
 
     def test_environment_variables_never_returned(self):
         response = self.client.post(
