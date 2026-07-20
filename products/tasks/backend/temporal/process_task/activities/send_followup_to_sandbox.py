@@ -18,6 +18,7 @@ from products.tasks.backend.logic.services.agent_command import (
     CommandResult,
     send_refresh_session,
     send_user_message,
+    user_facing_agent_error,
 )
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.logic.services.run_actor import slack_actor_state_updates
@@ -217,25 +218,26 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> None:
             run_id=input.run_id,
             timeout_seconds=FOLLOWUP_TIMEOUT_SECONDS,
         )
-    elif result.status_code == 504:
-        # A 504 *response* (Modal tunnel gateway timeout) leaves delivery
-        # unknown: the message may or may not have reached the agent-server.
-        # The message_id idempotency key makes redelivery safe, so retry
-        # instead of guessing; only the final attempt writes the sentinel.
+    elif result.retryable and input.message_id:
+        # Retry transport failures and known transient agent errors. message_id
+        # prevents duplicate turns when delivery is uncertain, and the agent-server
+        # releases the id when a delivered turn fails before completion.
         attempt = _current_attempt()
+        failure_kind = "delivery unknown" if result.status_code == 504 else "retryable failure"
         if attempt < SEND_FOLLOWUP_MAX_ATTEMPTS:
             logger.warning(
-                "send_followup_delivery_unknown_retrying",
+                "send_followup_retrying",
                 run_id=input.run_id,
                 attempt=attempt,
                 error=result.error,
+                status_code=result.status_code,
             )
-            raise ApplicationError(f"send_followup delivery unknown: {result.error}")
-        error_msg = result.error or "Failed to send message to sandbox"
+            raise ApplicationError(f"send_followup {failure_kind}: {result.error}")
+        error_msg = user_facing_agent_error(result.error)
         logger.warning(
             "send_followup_failed",
             run_id=input.run_id,
-            error=error_msg,
+            error=result.error,
             status_code=result.status_code,
         )
         _write_error_and_complete(input.run_id, error_msg, run_uses_dedicated_stream(task_run.state))
@@ -247,7 +249,7 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> None:
             error=result.error,
             status_code=result.status_code,
         )
-        error_msg = result.error or "Failed to send message to sandbox"
+        error_msg = user_facing_agent_error(result.error)
         _write_error_and_complete(input.run_id, error_msg, run_uses_dedicated_stream(task_run.state))
         # Propagate failure to the workflow.
         raise ApplicationError(f"send_followup failed: {error_msg}", non_retryable=True)
