@@ -1508,6 +1508,7 @@ class TestEmailInboundTeamMemberDetection(BaseTest):
             }
         )
         comment = Comment.objects.get(team=self.team, scope="conversations_ticket")
+        assert isinstance(comment.item_context, dict)
         assert comment.item_context["author_type"] == "customer"
         assert comment.created_by is None
 
@@ -1540,6 +1541,7 @@ class TestEmailInboundTeamMemberDetection(BaseTest):
         comments = Comment.objects.filter(team=self.team, scope="conversations_ticket").order_by("created_at")
         assert comments.count() == 2
         for comment in comments:
+            assert isinstance(comment.item_context, dict)
             assert comment.item_context["author_type"] == "customer"
             assert comment.created_by is None
 
