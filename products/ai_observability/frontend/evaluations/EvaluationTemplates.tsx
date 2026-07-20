@@ -18,7 +18,7 @@ export const scene: SceneExport = {
     component: EvaluationTemplatesScene,
 }
 
-interface TemplateCardProps {
+interface TemplateRowProps {
     template: EvaluationTemplate | 'blank'
 }
 
@@ -42,7 +42,7 @@ function getTemplateIcon(icon: EvaluationTemplate['icon']): JSX.Element {
     }
 }
 
-function TemplateCard({ template }: TemplateCardProps): JSX.Element {
+function TemplateRow({ template }: TemplateRowProps): JSX.Element {
     const isBlank = template === 'blank'
     const { searchParams } = useValues(router)
 
@@ -64,31 +64,29 @@ function TemplateCard({ template }: TemplateCardProps): JSX.Element {
 
     return (
         <button
-            className="relative flex flex-col bg-bg-light border border-border rounded-lg hover:border-primary-3000-hover focus:border-primary-3000-hover focus:outline-none transition-colors text-left group p-6 cursor-pointer min-h-[180px]"
+            className="flex items-center gap-4 w-full text-left px-4 py-3 hover:bg-fill-highlight-50 focus:bg-fill-highlight-50 focus:outline-none transition-colors cursor-pointer"
             data-attr={isBlank ? 'blank-evaluation-template' : `evaluation-template-${template.key}`}
             onClick={handleClick}
         >
-            <div className="flex flex-col items-center text-center gap-4 h-full">
-                <div className="bg-primary-3000/10 rounded-lg flex-shrink-0 size-12 flex items-center justify-center">
-                    {isBlank ? <IconPlus className="w-6 h-6 text-primary-3000" /> : getTemplateIcon(template.icon)}
+            <div className="bg-primary-3000/10 rounded-lg flex-shrink-0 size-10 flex items-center justify-center">
+                {isBlank ? <IconPlus className="w-5 h-5 text-primary-3000" /> : getTemplateIcon(template.icon)}
+            </div>
+            <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                    <h3 className="text-base font-semibold text-default mb-0">
+                        {isBlank ? 'Create from scratch' : template.name}
+                    </h3>
+                    {!isBlank && (
+                        <LemonTag type={template.evaluation_type === 'hog' ? 'option' : 'caution'} size="small">
+                            {template.evaluation_type === 'hog' ? 'Hog' : 'LLM judge'}
+                        </LemonTag>
+                    )}
                 </div>
-                <div className="flex-1 flex flex-col justify-start">
-                    <div className="flex items-center justify-center gap-2 mb-2">
-                        <h3 className="text-base font-semibold text-default mb-0">
-                            {isBlank ? 'Create from scratch' : template.name}
-                        </h3>
-                        {!isBlank && (
-                            <LemonTag type={template.evaluation_type === 'hog' ? 'option' : 'caution'} size="small">
-                                {template.evaluation_type === 'hog' ? 'Hog' : 'LLM judge'}
-                            </LemonTag>
-                        )}
-                    </div>
-                    <p className="text-sm text-secondary leading-relaxed">
-                        {isBlank
-                            ? 'Build a custom evaluation with your own prompt and configuration'
-                            : template.description}
-                    </p>
-                </div>
+                <p className="text-sm text-secondary mb-0">
+                    {isBlank
+                        ? 'Build a custom evaluation with your own prompt and configuration'
+                        : template.description}
+                </p>
             </div>
         </button>
     )
@@ -147,10 +145,10 @@ function TemplateGrid({
                         </p>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        <TemplateCard template="blank" />
+                    <div className="flex flex-col border border-border rounded-lg divide-y divide-border overflow-hidden bg-bg-light">
+                        <TemplateRow template="blank" />
                         {defaultEvaluationTemplates.map((template) => (
-                            <TemplateCard key={template.key} template={template} />
+                            <TemplateRow key={template.key} template={template} />
                         ))}
                     </div>
                 </div>
