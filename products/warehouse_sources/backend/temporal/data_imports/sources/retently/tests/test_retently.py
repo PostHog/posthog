@@ -238,9 +238,10 @@ class TestRetries:
         [
             ("rate_limited", _response({}, status_code=429)),
             ("server_error", _response({}, status_code=500)),
-            # A transiently malformed payload (e.g. an HTML error page from a proxy) must retry the
-            # single request, not fail the sync.
-            ("malformed_payload", _response(content=b"<html>bad gateway</html>")),
+            # A truncated / partial JSON body (a page cut off mid-stream) starts like JSON but fails
+            # to parse, so it must retry the single request, not fail the sync. A non-JSON body (e.g.
+            # an HTML error page) is treated as non-retryable and is not covered here.
+            ("truncated_body", _response(content=b'{"data": {"responses": [')),
         ]
     )
     def test_transient_failures_are_retried(self, _name: str, first_response: Response) -> None:
