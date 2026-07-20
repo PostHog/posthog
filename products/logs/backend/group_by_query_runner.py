@@ -86,26 +86,22 @@ class LogsGroupByQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
         self,
         query: LogsQuery,
         *args,
-        group_by: str = "",
-        group_by_source: str = "log",
-        group_bys: Sequence[tuple[str, str]] | None = None,
+        group_bys: Sequence[tuple[str, str]],
         order_groups_by: str = "log_count",
         group_limit: int = DEFAULT_GROUP_LIMIT,
         **kwargs,
     ):
         super().__init__(query, *args, **kwargs)
-        if group_bys is None:
-            group_bys = [(group_by, group_by_source)]
         if not 1 <= len(group_bys) <= MAX_GROUP_DIMENSIONS:
             raise ValueError(f"group_bys must contain between 1 and {MAX_GROUP_DIMENSIONS} dimensions")
         dimensions = [GroupByDimension(key=key, source=source) for key, source in group_bys]
         for dimension in dimensions:
             if not dimension.key:
-                raise ValueError("group_by is required")
+                raise ValueError("every group-by dimension requires a key")
             if dimension.source not in GROUP_SOURCES:
-                raise ValueError(f"group_by_source must be one of {GROUP_SOURCES}")
+                raise ValueError(f"group-by dimension source must be one of {GROUP_SOURCES}")
             if dimension.source == "column" and dimension.key not in GROUPABLE_COLUMNS:
-                raise ValueError(f"group_by must be one of {tuple(GROUPABLE_COLUMNS)} when group_by_source is 'column'")
+                raise ValueError(f"a 'column' dimension's key must be one of {tuple(GROUPABLE_COLUMNS)}")
         if len(set(dimensions)) != len(dimensions):
             raise ValueError("group_bys must not contain duplicate dimensions")
         if order_groups_by not in ORDER_FIELDS:

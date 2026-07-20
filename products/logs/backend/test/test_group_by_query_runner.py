@@ -65,9 +65,7 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = LogsGroupByQueryRunner(
             team=self.team,
             query=query,
-            group_by=group_by,
-            group_by_source=group_by_source,
-            group_bys=group_bys,
+            group_bys=group_bys if group_bys is not None else [(group_by, group_by_source)],
             order_groups_by=order_groups_by,
             group_limit=group_limit,
         )
@@ -277,8 +275,7 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
             LogsGroupByQueryRunner(
                 team=self.team,
                 query=query,
-                group_by=group_by,
-                group_by_source=source,
+                group_bys=[(group_by, source)],
                 order_groups_by=order,
             )
 

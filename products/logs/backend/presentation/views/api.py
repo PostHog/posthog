@@ -1536,14 +1536,19 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
         query = self._filtered_logs_query(query_data)
 
+        raw_dimensions = query_data.get("groupBys")
+        if raw_dimensions is not None:
+            # The dimension serializer is the request contract; running it here keeps the
+            # enforced shape (required key, source vocabulary, defaults) identical to the
+            # published schema instead of hand-rolling a second definition.
+            dimension_serializer = _LogsGroupByDimensionSerializer(data=raw_dimensions, many=True)
+            if not dimension_serializer.is_valid():
+                return Response({"error": str(dimension_serializer.errors)}, status=status.HTTP_400_BAD_REQUEST)
+            group_bys = [(d["key"], d["source"]) for d in dimension_serializer.validated_data]
+        else:
+            group_bys = [(query_data.get("groupBy", ""), query_data.get("groupBySource", "log"))]
+
         try:
-            raw_dimensions = query_data.get("groupBys")
-            if raw_dimensions is not None:
-                if not isinstance(raw_dimensions, list) or not all(isinstance(d, dict) for d in raw_dimensions):
-                    raise ValueError("groupBys must be a list of {key, source} objects")
-                group_bys = [(str(d.get("key", "")), str(d.get("source", "log"))) for d in raw_dimensions]
-            else:
-                group_bys = [(query_data.get("groupBy", ""), query_data.get("groupBySource", "log"))]
             runner = LogsGroupByQueryRunner(
                 team=self.team,
                 query=query,
