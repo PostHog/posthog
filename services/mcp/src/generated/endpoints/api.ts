@@ -1034,7 +1034,7 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                                         .default(
                                             endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemOneoneTypeDefault
                                         )
-                                        .describe('Event property with "$feature/" prepended'),
+                                        .describe('Event property with "$feature/\" prepended'),
                                     value: zod
                                         .union([
                                             zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
