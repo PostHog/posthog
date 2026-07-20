@@ -92,7 +92,47 @@ tools:
         enabled: false
     tasks-create:
         operation: tasks_create
-        enabled: false
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create task
+        description: >
+            Create an agent task in the current project — a unit of work an AI agent picks up and actions, such as
+            investigating an inbox report, fixing an error, or opening a pull request. `description` is the prompt
+            handed to the agent, so make it specific and actionable. Pass `repository` in `organization/repo` format
+            for code tasks so the agent knows where to work; omit it for investigation-only tasks. `origin_product`
+            defaults to `user_created` — set it when the task is kicked off from another product (e.g. `error_tracking`).
+            Returns the created task including its URL; poll tasks-retrieve or tasks-runs-list to follow the run.
+            Requires the calling token's organization to have Tasks access enabled.
+        feature_flag: tasks
+        include_params:
+            - title
+            - description
+            - repository
+            - origin_product
+        param_overrides:
+            description:
+                required: true
+                description: >
+                    The task for the agent to carry out, written as a direct prompt (e.g. "Investigate the spike in
+                    $exception events on the checkout page and open a PR with a fix"). Passed verbatim to the agent as
+                    its instructions, so be specific.
+        enrich_url: '{id}'
+        response:
+            include:
+                - id
+                - task_number
+                - title
+                - description
+                - origin_product
+                - repository
+                - internal
+                - created_at
+                - updated_at
     tasks-destroy:
         operation: tasks_destroy
         enabled: false
