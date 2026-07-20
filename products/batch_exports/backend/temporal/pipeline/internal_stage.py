@@ -581,8 +581,9 @@ async def _write_batch_export_record_batches_to_internal_stage(
         # Some tests create data in the future, so we do not check this.
         raise DataIntervalEndInFutureError(end_at)
 
-    with TRACER.start_as_current_span("batch_export.stage.wait_for_delta"):
-        await wait_for_delta_past_data_interval_end(end_at, delta)
+    if not isinstance(query_or_model, RecordBatchModel) or query_or_model.wait_for_data_interval_end:
+        with TRACER.start_as_current_span("batch_export.stage.wait_for_delta"):
+            await wait_for_delta_past_data_interval_end(end_at, delta)
 
     done_ranges: list[tuple[dt.datetime, dt.datetime]] = []
     async with get_client(
