@@ -87,7 +87,7 @@ def _create_template(entry: CatalogEntry, skip_probe: bool, counts: SyncCounts) 
         update_fields.append("is_active")
         counts.activated += 1
     else:
-        logger.info(
+        logger.warning(
             "mcp_catalog_sync.created_inactive",
             url=entry.url,
             auth_flavor=probe.auth_flavor,
