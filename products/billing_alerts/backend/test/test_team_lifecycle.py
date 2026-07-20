@@ -7,7 +7,11 @@ from posthog.models.team.team import Team
 
 from products.alerts.backend.destinations import soft_delete_all_alert_destinations as shared_soft_delete_destinations
 from products.billing_alerts.backend.alert_destinations import BILLING_ALERT_EVENT_IDS, EVENT_KIND_CONFIG
-from products.billing_alerts.backend.models import BillingAlertConfiguration, BillingAlertEvent
+from products.billing_alerts.backend.models import (
+    BillingAlertConfiguration,
+    BillingAlertEvaluationClaim,
+    BillingAlertEvent,
+)
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 
@@ -25,10 +29,21 @@ class TestBillingAlertTeamLifecycle(BaseTest):
             threshold_type=BillingAlertConfiguration.ThresholdType.RELATIVE_INCREASE,
             threshold_percentage=Decimal("50"),
         )
+        claim = BillingAlertEvaluationClaim.objects.create(
+            alert=alert,
+            organization_id=alert.organization_id,
+            evaluation_date=alert.created_at.date(),
+            configuration_revision=alert.configuration_revision,
+            attempt_count=1,
+        )
         event = BillingAlertEvent.objects.create(
             alert=alert,
+            claim=claim,
+            organization_id=alert.organization_id,
             team_id=self.team.id,
             kind=BillingAlertEvent.Kind.FIRING,
+            source=BillingAlertEvent.Source.SCHEDULED,
+            attempt_number=1,
             metric=BillingAlertConfiguration.Metric.SPEND,
             state_before=BillingAlertConfiguration.State.NOT_FIRING,
             state_after=BillingAlertConfiguration.State.FIRING,
@@ -73,7 +88,7 @@ class TestBillingAlertTeamLifecycle(BaseTest):
         )
         assert HogFunction.objects.filter(id=destination.id).exists() is False
 
-    def test_deleting_last_team_removes_alert(self) -> None:
+    def test_deleting_last_team_preserves_disabled_alert_history(self) -> None:
         alert = BillingAlertConfiguration.objects.create(
             organization_id=self.organization.id,
             team_id=self.team.id,
@@ -85,4 +100,7 @@ class TestBillingAlertTeamLifecycle(BaseTest):
 
         self.team.delete()
 
-        assert BillingAlertConfiguration.objects.filter(id=alert.id).exists() is False
+        alert.refresh_from_db()
+        assert alert.team_id is None
+        assert alert.enabled is False
+        assert alert.state == BillingAlertConfiguration.State.NOT_FIRING

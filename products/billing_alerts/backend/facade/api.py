@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, cast
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
+from django.utils import timezone
 
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
@@ -41,13 +43,15 @@ from ..logic.state_machine import (
     apply_threshold_change,
     apply_unsnooze,
     billing_alert_snapshot,
+    next_billing_alert_check_at,
 )
 from ..models import BillingAlertConfiguration, BillingAlertEvent
-from .contracts import BillingAlertDispatchResult
 
 
-class BillingAlertDestinationOwnershipError(Exception):
-    """Raised when deleting destinations that do not all belong to an alert."""
+@dataclass(frozen=True)
+class BillingAlertDispatchResult:
+    event: BillingAlertEvent
+    dispatched_destinations: int
 
 
 class BillingAlertExecutionTeamUnavailable(Exception):
@@ -83,17 +87,41 @@ def apply_billing_alert_configuration_lifecycle(
     """Apply one control-plane change through the shared lifecycle adapter."""
     snapshot = billing_alert_snapshot(alert)
 
+    if threshold_changed:
+        apply_outcome(alert, apply_threshold_change(snapshot))
+        snapshot = billing_alert_snapshot(alert)
+
     if enabled_change is True:
         apply_outcome(alert, apply_enable(snapshot))
+        snapshot = billing_alert_snapshot(alert)
     elif enabled_change is False:
         apply_outcome(alert, apply_disable(snapshot))
-    elif snooze_until_provided:
+        snapshot = billing_alert_snapshot(alert)
+
+    if snooze_until_provided:
         if snooze_until is None:
             apply_outcome(alert, apply_unsnooze(snapshot))
         else:
             apply_outcome(alert, apply_snooze(snapshot))
-    elif threshold_changed:
-        apply_outcome(alert, apply_threshold_change(snapshot))
+
+
+def reschedule_billing_alert_configuration(
+    alert: BillingAlertConfiguration,
+    *,
+    configuration_changed: bool,
+    cadence_changed: bool,
+) -> None:
+    update_fields: list[str] = []
+    if configuration_changed:
+        alert.configuration_revision += 1
+        alert.pending_evaluation_date = None
+        alert.retry_attempt_count = 0
+        update_fields.extend(["configuration_revision", "pending_evaluation_date", "retry_attempt_count"])
+    if configuration_changed or cadence_changed:
+        alert.next_check_at = next_billing_alert_check_at(alert, timezone.now())
+        update_fields.append("next_check_at")
+    if update_fields:
+        alert.save(update_fields=[*update_fields, "updated_at"])
 
 
 def execution_team_for_organization(organization_id: UUID, preferred_team: Team | None) -> Team:
@@ -117,24 +145,31 @@ def evaluate_and_dispatch_alert(alert: BillingAlertConfiguration) -> BillingAler
 
 def delete_alert_and_destinations(alert: BillingAlertConfiguration) -> None:
     with transaction.atomic():
-        soft_delete_all_alert_destinations(
-            team_id=alert.execution_team_id,
-            alert_id=str(alert.id),
-            allowed_event_ids=BILLING_ALERT_EVENT_IDS,
-        )
+        if alert.team_id is not None:
+            soft_delete_all_alert_destinations(
+                team_id=alert.execution_team_id,
+                alert_id=str(alert.id),
+                allowed_event_ids=BILLING_ALERT_EVENT_IDS,
+            )
         alert.delete()
 
 
 def destinations_for_alerts(alerts: list[BillingAlertConfiguration]) -> dict[str, list[dict[str, Any]]]:
     alert_ids = {str(alert.id) for alert in alerts}
-    team_ids = {alert.execution_team_id for alert in alerts}
-    destination_ids_by_alert_and_type: dict[str, dict[str, list[UUID]]] = {alert_id: {} for alert_id in alert_ids}
+    team_ids = {alert.execution_team_id for alert in alerts if alert.team_id is not None}
+    destination_ids_by_alert_and_type: dict[str, dict[str, dict[str, UUID]]] = {alert_id: {} for alert_id in alert_ids}
 
     if not alert_ids or not team_ids:
         return {}
 
+    ownership_filter = Q(pk__in=[])
+    for alert_id in alert_ids:
+        ownership_filter |= Q(filters__properties__contains=[{"key": "alert_id", "value": alert_id}])
+
     hog_functions = HogFunction.objects.filter(
+        ownership_filter,
         team_id__in=team_ids,
+        enabled=True,
         deleted=False,
         template_id__in=list(DESTINATION_TYPE_BY_TEMPLATE_ID),
     ).values_list("id", "template_id", "filters")
@@ -147,32 +182,38 @@ def destinations_for_alerts(alerts: list[BillingAlertConfiguration]) -> dict[str
             continue
 
         properties = filters.get("properties") or []
-        if not isinstance(properties, list):
+        events = filters.get("events") or []
+        if not isinstance(properties, list) or not isinstance(events, list):
             continue
 
+        event_id = next(
+            (
+                event_filter.get("id")
+                for event_filter in events
+                if isinstance(event_filter, dict) and event_filter.get("type") == "events"
+            ),
+            None,
+        )
+        if event_id not in BILLING_ALERT_EVENT_IDS:
+            continue
         for property_filter in properties:
             if not isinstance(property_filter, dict) or property_filter.get("key") != "alert_id":
                 continue
             alert_id = str(property_filter.get("value"))
             if alert_id in destination_ids_by_alert_and_type:
-                destination_ids_by_alert_and_type[alert_id].setdefault(destination_type.value, []).append(
+                destination_ids_by_alert_and_type[alert_id].setdefault(destination_type.value, {})[event_id] = (
                     hog_function_id
                 )
             break
 
+    required_event_ids = set(BILLING_ALERT_EVENT_IDS)
     return {
         alert_id: [
-            {"type": destination_type, "hog_function_ids": sorted(hog_function_ids, key=str)}
+            {"type": destination_type, "hog_function_ids": sorted(hog_function_ids.values(), key=str)}
             for destination_type, hog_function_ids in sorted(destinations.items())
+            if set(hog_function_ids) == required_event_ids
         ]
         for alert_id, destinations in destination_ids_by_alert_and_type.items()
-    }
-
-
-def destination_types_for_alerts(alerts: list[BillingAlertConfiguration]) -> dict[str, list[str]]:
-    return {
-        alert_id: [destination["type"] for destination in destinations]
-        for alert_id, destinations in destinations_for_alerts(alerts).items()
     }
 
 
@@ -189,8 +230,15 @@ def create_destination(alert: BillingAlertConfiguration, *, request: Any, data: 
     validate_destination_data(destination_data, allowed_destination_types=BILLING_DESTINATION_TYPES)
     destination_data["type"] = DestinationType(data["type"])
     with transaction.atomic():
-        locked_alert = BillingAlertConfiguration.objects.select_for_update().get(pk=alert.pk)
-        existing_types = destination_types_for_alerts([locked_alert]).get(str(locked_alert.id), [])
+        locked_alert = BillingAlertConfiguration.objects.select_for_update().get(
+            pk=alert.pk,
+            organization_id=alert.organization_id,
+        )
+        if locked_alert.team is None:
+            raise DRFValidationError({"type": "This billing alert does not have an execution team."})
+        existing_types = {
+            destination["type"] for destination in destinations_for_alerts([locked_alert]).get(str(locked_alert.id), [])
+        }
         if destination_data["type"].value in existing_types:
             raise DRFValidationError({"type": f"A {destination_data['type'].label} destination already exists."})
         configs = [
@@ -209,15 +257,12 @@ def create_destination(alert: BillingAlertConfiguration, *, request: Any, data: 
 
 
 def delete_destination(alert: BillingAlertConfiguration, hog_function_ids: list[UUID]) -> None:
-    try:
-        soft_delete_alert_destinations(
-            team_id=alert.execution_team_id,
-            alert_id=str(alert.id),
-            allowed_event_ids=BILLING_ALERT_EVENT_IDS,
-            hog_function_ids=hog_function_ids,
-        )
-    except DRFValidationError as error:
-        raise BillingAlertDestinationOwnershipError from error
+    soft_delete_alert_destinations(
+        team_id=alert.execution_team_id,
+        alert_id=str(alert.id),
+        allowed_event_ids=BILLING_ALERT_EVENT_IDS,
+        hog_function_ids=hog_function_ids,
+    )
 
 
 __all__ = [
@@ -226,7 +271,6 @@ __all__ = [
     "EVENT_KINDS",
     "BillingAlertDispatchResult",
     "BillingAlertConfiguration",
-    "BillingAlertDestinationOwnershipError",
     "BillingAlertEvent",
     "BillingAlertExecutionTeamUnavailable",
     "EventKind",
@@ -236,10 +280,10 @@ __all__ = [
     "delete_alert_and_destinations",
     "delete_destination",
     "destinations_for_alerts",
-    "destination_types_for_alerts",
     "evaluate_and_dispatch_alert",
     "execution_team_for_organization",
     "initialize_billing_alert_lifecycle",
+    "reschedule_billing_alert_configuration",
     "slack_integration_belongs_to_team",
     "visible_events_for_alert",
 ]

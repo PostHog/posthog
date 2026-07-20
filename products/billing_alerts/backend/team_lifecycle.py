@@ -57,13 +57,25 @@ def rehome_billing_alerts_before_team_delete(
                 allowed_event_ids=BILLING_ALERT_EVENT_IDS,
             )
 
-            if replacement_team_id is None:
-                alert.delete(using=using)
-                continue
-
             # Billing alerts evaluate organization-wide data, but HogFunction destinations are team-scoped.
             # Re-home and disable the alert here because team-specific integrations cannot be moved safely.
             update_fields = apply_outcome(alert, apply_disable(billing_alert_snapshot(alert)))
             alert.team_id = replacement_team_id
             alert.enabled = False
-            alert.save(using=using, update_fields=[*update_fields, "team", "enabled", "updated_at"])
+            alert.configuration_revision += 1
+            alert.pending_evaluation_date = None
+            alert.retry_attempt_count = 0
+            alert.next_check_at = None
+            alert.save(
+                using=using,
+                update_fields=[
+                    *update_fields,
+                    "team",
+                    "enabled",
+                    "configuration_revision",
+                    "pending_evaluation_date",
+                    "retry_attempt_count",
+                    "next_check_at",
+                    "updated_at",
+                ],
+            )

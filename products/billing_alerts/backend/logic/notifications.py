@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
-from django.db import transaction
 from django.utils import timezone
 
 from posthog.kafka_client.client import ProduceResult
@@ -14,14 +13,15 @@ from products.alerts.backend.destinations import (
     produce_alert_internal_event,
 )
 from products.billing_alerts.backend.alert_destinations import (
+    BILLING_ALERT_EVENT_IDS,
     DESTINATION_TYPE_BY_TEMPLATE_ID,
     EVENT_KIND_CONFIG,
     EventKind,
 )
 from products.billing_alerts.backend.logic.state_machine import (
+    BillingAlertAlreadyEvaluated,
     BillingAlertCheck,
     commit_billing_alert_check,
-    event_should_dispatch,
     prepare_billing_alert_check,
     prepare_billing_alert_failure,
 )
@@ -82,16 +82,35 @@ def _destination_ids(event: BillingAlertEvent) -> list[str]:
     if kind is None:
         return []
     event_id = EVENT_KIND_CONFIG[kind].event_id
-    return [
-        str(destination_id)
-        for destination_id in HogFunction.objects.filter(
-            team_id=event.alert.execution_team_id,
-            deleted=False,
-            template_id__in=list(DESTINATION_TYPE_BY_TEMPLATE_ID),
-            filters__events__contains=[{"id": event_id, "type": "events"}],
-            filters__properties__contains=[{"key": "alert_id", "value": str(event.alert_id)}],
-        ).values_list("id", flat=True)
-    ]
+    rows = HogFunction.objects.filter(
+        team_id=event.alert.execution_team_id,
+        enabled=True,
+        deleted=False,
+        template_id__in=list(DESTINATION_TYPE_BY_TEMPLATE_ID),
+        filters__properties__contains=[{"key": "alert_id", "value": str(event.alert_id)}],
+    ).values_list("id", "template_id", "filters")
+    ids_by_template_and_event: dict[str, dict[str, str]] = {}
+    for destination_id, template_id, filters in rows:
+        if template_id is None or not isinstance(filters, dict):
+            continue
+        configured_events = filters.get("events") or []
+        if not isinstance(configured_events, list):
+            continue
+        configured_event_id = next(
+            (
+                configured_event.get("id")
+                for configured_event in configured_events
+                if isinstance(configured_event, dict) and configured_event.get("type") == "events"
+            ),
+            None,
+        )
+        if configured_event_id in BILLING_ALERT_EVENT_IDS:
+            ids_by_template_and_event.setdefault(template_id, {})[configured_event_id] = str(destination_id)
+
+    required_events = set(BILLING_ALERT_EVENT_IDS)
+    return sorted(
+        event_ids[event_id] for event_ids in ids_by_template_and_event.values() if set(event_ids) == required_events
+    )
 
 
 def _enqueue(check: BillingAlertCheck) -> PendingBillingAlertDispatch:
@@ -107,13 +126,15 @@ def _enqueue(check: BillingAlertCheck) -> PendingBillingAlertDispatch:
 
     event_name = EVENT_KIND_CONFIG[kind].event_id
     destination_ids = _destination_ids(event)
-    produce_result = produce_alert_internal_event(
-        team_id=event.alert.execution_team_id,
-        event_name=event_name,
-        properties=_properties(event, check.now, consecutive_failures=check.outcome.consecutive_failures),
-        timestamp=check.now,
-        uuid=str(event.id),
-    )
+    produce_result = None
+    if destination_ids:
+        produce_result = produce_alert_internal_event(
+            team_id=event.alert.execution_team_id,
+            event_name=event_name,
+            properties=_properties(event, check.now, consecutive_failures=check.outcome.consecutive_failures),
+            timestamp=check.now,
+            uuid=str(check.claim.delivery_uuid),
+        )
     return PendingBillingAlertDispatch(
         check=check,
         event_name=event_name,
@@ -131,12 +152,14 @@ def prepare_billing_alert_dispatch(
     error: Exception | None = None,
     is_transient_error: bool = False,
     failure_reason: str = "Billing alert evaluation failed.",
+    source: str = BillingAlertEvent.Source.SCHEDULED,
 ) -> PendingBillingAlertDispatch:
     """Evaluate an alert and enqueue any internal event without persisting the outcome."""
     now = now or timezone.now()
     if error is None:
         check = prepare_billing_alert_check(
             alert,
+            source=source,
             now=now,
             billing_response=billing_response,
             query_duration_ms=query_duration_ms,
@@ -145,12 +168,13 @@ def prepare_billing_alert_dispatch(
         check = prepare_billing_alert_failure(
             alert,
             error,
+            source=source,
             now=now,
             query_duration_ms=query_duration_ms,
             is_transient_error=is_transient_error,
             reason=failure_reason,
         )
-    if event_should_dispatch(check.event):
+    if _kind_for_event(check.event) is not None:
         return _enqueue(check)
     return PendingBillingAlertDispatch(
         check=check,
@@ -196,59 +220,23 @@ def evaluate_and_dispatch_billing_alert(
     error: Exception | None = None,
     is_transient_error: bool = False,
     failure_reason: str = "Billing alert evaluation failed.",
+    source: str = BillingAlertEvent.Source.MANUAL,
 ) -> tuple[BillingAlertEvent, int]:
     """Evaluate, cross the shared delivery barrier, then persist the safe outcome."""
-    dispatch = prepare_billing_alert_dispatch(
-        alert,
-        now=now,
-        billing_response=billing_response,
-        query_duration_ms=query_duration_ms,
-        error=error,
-        is_transient_error=is_transient_error,
-        failure_reason=failure_reason,
-    )
+    try:
+        dispatch = prepare_billing_alert_dispatch(
+            alert,
+            now=now,
+            billing_response=billing_response,
+            query_duration_ms=query_duration_ms,
+            error=error,
+            is_transient_error=is_transient_error,
+            failure_reason=failure_reason,
+            source=source,
+        )
+    except BillingAlertAlreadyEvaluated as already_evaluated:
+        if already_evaluated.event is None:
+            raise
+        return already_evaluated.event, 0
     flush_pending_billing_alert_dispatches([dispatch])
     return commit_pending_billing_alert_dispatch(dispatch)
-
-
-def dispatch_billing_alert_event(event: BillingAlertEvent, now: datetime | None = None) -> int:
-    """Compatibility path for an event persisted by an older in-flight Temporal activity."""
-    now = now or timezone.now()
-    with transaction.atomic():
-        locked_event = BillingAlertEvent.objects.select_for_update().select_related("alert").get(id=event.id)
-        if locked_event.targets_notified or locked_event.notification_sent_at is not None:
-            return 0
-
-    kind = _kind_for_event(locked_event)
-    if kind is None:
-        return 0
-    destination_ids = _destination_ids(locked_event)
-    event_name = EVENT_KIND_CONFIG[kind].event_id
-    produce_result = produce_alert_internal_event(
-        team_id=locked_event.alert.execution_team_id,
-        event_name=event_name,
-        properties=_properties(locked_event, now, consecutive_failures=locked_event.alert.consecutive_failures),
-        timestamp=now,
-        uuid=str(locked_event.id),
-    )
-    if produce_result is None:
-        return 0
-    flush_alert_internal_events(NOTIFICATION_FLUSH_TIMEOUT_SECONDS)
-    if not alert_internal_event_delivered(
-        produce_result,
-        team_id=locked_event.alert.execution_team_id,
-        alert_id=str(locked_event.alert_id),
-        event_name=event_name,
-    ):
-        return 0
-
-    with transaction.atomic():
-        locked_event = BillingAlertEvent.objects.select_for_update().select_related("alert").get(id=event.id)
-        if locked_event.targets_notified or locked_event.notification_sent_at is not None:
-            return 0
-        locked_event.notification_sent_at = now
-        locked_event.targets_notified = {"hog_functions": destination_ids}
-        locked_event.save(update_fields=["notification_sent_at", "targets_notified"])
-        locked_event.alert.last_notified_at = now
-        locked_event.alert.save(update_fields=["last_notified_at", "updated_at"])
-    return len(destination_ids)

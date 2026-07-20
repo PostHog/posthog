@@ -11,8 +11,6 @@ import * as zod from 'zod'
 
 export const billingAlertsCreateBodyNameMax = 160
 
-export const billingAlertsCreateBodyCurrencyMax = 3
-
 export const billingAlertsCreateBodyThresholdPercentageRegExp = new RegExp('^-?\\d{0,6}(?:\\.\\d{0,2})?$')
 export const billingAlertsCreateBodyThresholdValueRegExp = new RegExp('^-?\\d{0,14}(?:\\.\\d{0,6})?$')
 export const billingAlertsCreateBodyMinimumValueRegExp = new RegExp('^-?\\d{0,14}(?:\\.\\d{0,6})?$')
@@ -21,8 +19,6 @@ export const billingAlertsCreateBodyBaselineWindowDaysMax = 90
 export const billingAlertsCreateBodyEvaluationDelayHoursMin = 0
 export const billingAlertsCreateBodyEvaluationDelayHoursMax = 72
 
-export const billingAlertsCreateBodyCheckIntervalHoursMax = 24
-
 export const billingAlertsCreateBodyCooldownHoursMin = 0
 export const billingAlertsCreateBodyCooldownHoursMax = 720
 
@@ -30,12 +26,6 @@ export const BillingAlertsCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(billingAlertsCreateBodyNameMax).describe('Display name for this billing alert.'),
     description: zod.string().optional().describe('Optional internal description.'),
     enabled: zod.boolean().optional().describe('Whether scheduled checks should evaluate this alert.'),
-    metric: zod
-        .enum(['spend', 'usage'])
-        .describe('\* `spend` - Spend\n\* `usage` - Usage')
-        .optional()
-        .describe('Billing metric to evaluate: spend or usage.\n\n\* `spend` - Spend\n\* `usage` - Usage'),
-    currency: zod.string().max(billingAlertsCreateBodyCurrencyMax).optional().describe('Currency for spend alerts.'),
     threshold_type: zod
         .enum(['relative_increase', 'absolute_value', 'absolute_increase'])
         .describe(
@@ -63,7 +53,22 @@ export const BillingAlertsCreateBody = /* @__PURE__ */ zod.object({
         .min(billingAlertsCreateBodyEvaluationDelayHoursMin)
         .max(billingAlertsCreateBodyEvaluationDelayHoursMax)
         .optional(),
-    check_interval_hours: zod.number().min(1).max(billingAlertsCreateBodyCheckIntervalHoursMax).optional(),
+    check_interval_hours: zod
+        .union([
+            zod.literal(1),
+            zod.literal(2),
+            zod.literal(3),
+            zod.literal(4),
+            zod.literal(6),
+            zod.literal(8),
+            zod.literal(12),
+            zod.literal(24),
+        ])
+        .describe('\* `1` - 1\n\* `2` - 2\n\* `3` - 3\n\* `4` - 4\n\* `6` - 6\n\* `8` - 8\n\* `12` - 12\n\* `24` - 24')
+        .optional()
+        .describe(
+            'Supported interval in hours between scheduled evaluations.\n\n\* `1` - 1\n\* `2` - 2\n\* `3` - 3\n\* `4` - 4\n\* `6` - 6\n\* `8` - 8\n\* `12` - 12\n\* `24` - 24'
+        ),
     cooldown_hours: zod
         .number()
         .min(billingAlertsCreateBodyCooldownHoursMin)
@@ -74,8 +79,6 @@ export const BillingAlertsCreateBody = /* @__PURE__ */ zod.object({
 
 export const billingAlertsUpdateBodyNameMax = 160
 
-export const billingAlertsUpdateBodyCurrencyMax = 3
-
 export const billingAlertsUpdateBodyThresholdPercentageRegExp = new RegExp('^-?\\d{0,6}(?:\\.\\d{0,2})?$')
 export const billingAlertsUpdateBodyThresholdValueRegExp = new RegExp('^-?\\d{0,14}(?:\\.\\d{0,6})?$')
 export const billingAlertsUpdateBodyMinimumValueRegExp = new RegExp('^-?\\d{0,14}(?:\\.\\d{0,6})?$')
@@ -84,8 +87,6 @@ export const billingAlertsUpdateBodyBaselineWindowDaysMax = 90
 export const billingAlertsUpdateBodyEvaluationDelayHoursMin = 0
 export const billingAlertsUpdateBodyEvaluationDelayHoursMax = 72
 
-export const billingAlertsUpdateBodyCheckIntervalHoursMax = 24
-
 export const billingAlertsUpdateBodyCooldownHoursMin = 0
 export const billingAlertsUpdateBodyCooldownHoursMax = 720
 
@@ -93,12 +94,6 @@ export const BillingAlertsUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(billingAlertsUpdateBodyNameMax).describe('Display name for this billing alert.'),
     description: zod.string().optional().describe('Optional internal description.'),
     enabled: zod.boolean().optional().describe('Whether scheduled checks should evaluate this alert.'),
-    metric: zod
-        .enum(['spend', 'usage'])
-        .describe('\* `spend` - Spend\n\* `usage` - Usage')
-        .optional()
-        .describe('Billing metric to evaluate: spend or usage.\n\n\* `spend` - Spend\n\* `usage` - Usage'),
-    currency: zod.string().max(billingAlertsUpdateBodyCurrencyMax).optional().describe('Currency for spend alerts.'),
     threshold_type: zod
         .enum(['relative_increase', 'absolute_value', 'absolute_increase'])
         .describe(
@@ -126,7 +121,22 @@ export const BillingAlertsUpdateBody = /* @__PURE__ */ zod.object({
         .min(billingAlertsUpdateBodyEvaluationDelayHoursMin)
         .max(billingAlertsUpdateBodyEvaluationDelayHoursMax)
         .optional(),
-    check_interval_hours: zod.number().min(1).max(billingAlertsUpdateBodyCheckIntervalHoursMax).optional(),
+    check_interval_hours: zod
+        .union([
+            zod.literal(1),
+            zod.literal(2),
+            zod.literal(3),
+            zod.literal(4),
+            zod.literal(6),
+            zod.literal(8),
+            zod.literal(12),
+            zod.literal(24),
+        ])
+        .describe('\* `1` - 1\n\* `2` - 2\n\* `3` - 3\n\* `4` - 4\n\* `6` - 6\n\* `8` - 8\n\* `12` - 12\n\* `24` - 24')
+        .optional()
+        .describe(
+            'Supported interval in hours between scheduled evaluations.\n\n\* `1` - 1\n\* `2` - 2\n\* `3` - 3\n\* `4` - 4\n\* `6` - 6\n\* `8` - 8\n\* `12` - 12\n\* `24` - 24'
+        ),
     cooldown_hours: zod
         .number()
         .min(billingAlertsUpdateBodyCooldownHoursMin)
@@ -137,8 +147,6 @@ export const BillingAlertsUpdateBody = /* @__PURE__ */ zod.object({
 
 export const billingAlertsPartialUpdateBodyNameMax = 160
 
-export const billingAlertsPartialUpdateBodyCurrencyMax = 3
-
 export const billingAlertsPartialUpdateBodyThresholdPercentageRegExp = new RegExp('^-?\\d{0,6}(?:\\.\\d{0,2})?$')
 export const billingAlertsPartialUpdateBodyThresholdValueRegExp = new RegExp('^-?\\d{0,14}(?:\\.\\d{0,6})?$')
 export const billingAlertsPartialUpdateBodyMinimumValueRegExp = new RegExp('^-?\\d{0,14}(?:\\.\\d{0,6})?$')
@@ -146,8 +154,6 @@ export const billingAlertsPartialUpdateBodyBaselineWindowDaysMax = 90
 
 export const billingAlertsPartialUpdateBodyEvaluationDelayHoursMin = 0
 export const billingAlertsPartialUpdateBodyEvaluationDelayHoursMax = 72
-
-export const billingAlertsPartialUpdateBodyCheckIntervalHoursMax = 24
 
 export const billingAlertsPartialUpdateBodyCooldownHoursMin = 0
 export const billingAlertsPartialUpdateBodyCooldownHoursMax = 720
@@ -160,16 +166,6 @@ export const BillingAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Display name for this billing alert.'),
     description: zod.string().optional().describe('Optional internal description.'),
     enabled: zod.boolean().optional().describe('Whether scheduled checks should evaluate this alert.'),
-    metric: zod
-        .enum(['spend', 'usage'])
-        .describe('\* `spend` - Spend\n\* `usage` - Usage')
-        .optional()
-        .describe('Billing metric to evaluate: spend or usage.\n\n\* `spend` - Spend\n\* `usage` - Usage'),
-    currency: zod
-        .string()
-        .max(billingAlertsPartialUpdateBodyCurrencyMax)
-        .optional()
-        .describe('Currency for spend alerts.'),
     threshold_type: zod
         .enum(['relative_increase', 'absolute_value', 'absolute_increase'])
         .describe(
@@ -197,7 +193,22 @@ export const BillingAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .min(billingAlertsPartialUpdateBodyEvaluationDelayHoursMin)
         .max(billingAlertsPartialUpdateBodyEvaluationDelayHoursMax)
         .optional(),
-    check_interval_hours: zod.number().min(1).max(billingAlertsPartialUpdateBodyCheckIntervalHoursMax).optional(),
+    check_interval_hours: zod
+        .union([
+            zod.literal(1),
+            zod.literal(2),
+            zod.literal(3),
+            zod.literal(4),
+            zod.literal(6),
+            zod.literal(8),
+            zod.literal(12),
+            zod.literal(24),
+        ])
+        .describe('\* `1` - 1\n\* `2` - 2\n\* `3` - 3\n\* `4` - 4\n\* `6` - 6\n\* `8` - 8\n\* `12` - 12\n\* `24` - 24')
+        .optional()
+        .describe(
+            'Supported interval in hours between scheduled evaluations.\n\n\* `1` - 1\n\* `2` - 2\n\* `3` - 3\n\* `4` - 4\n\* `6` - 6\n\* `8` - 8\n\* `12` - 12\n\* `24` - 24'
+        ),
     cooldown_hours: zod
         .number()
         .min(billingAlertsPartialUpdateBodyCooldownHoursMin)

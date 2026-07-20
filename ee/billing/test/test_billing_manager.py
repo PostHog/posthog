@@ -1312,11 +1312,13 @@ class TestRequestWithPostFallback(BaseTest):
         assert result == {"results": []}
 
         mock_get.assert_called_once()
+        assert mock_get.call_args.kwargs["timeout"] == (5, 30)
         get_params = mock_get.call_args[1]["params"]
         assert get_params["teams_map"] == '{"1": "Team A"}'
         assert get_params["start_date"] == "2025-01-01"
 
         mock_post.assert_called_once()
+        assert mock_post.call_args.kwargs["timeout"] == (5, 30)
         post_json = mock_post.call_args[1]["json"]
         assert post_json["teams_map"] == {"1": "Team A"}
         assert post_json["start_date"] == "2025-01-01"

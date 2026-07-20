@@ -32,6 +32,7 @@ logger = structlog.get_logger(__name__)
 BILLING_PROVIDER_WEBHOOK_SIGNATURE_HEADER = "X-PostHog-Billing-Provider-Signature"
 BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER = "X-PostHog-Billing-Provider-Timestamp"
 BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION = "sha256"
+BILLING_TIMESERIES_REQUEST_TIMEOUT = (5, 30)
 
 
 class BillingAPIErrorCodes(Enum):
@@ -765,7 +766,12 @@ class BillingManager:
         url = f"{BILLING_SERVICE_URL}{path}"
         headers = self.get_auth_headers(organization)
 
-        res = requests.get(url, headers=headers, params=self._to_query_params(params))
+        res = requests.get(
+            url,
+            headers=headers,
+            params=self._to_query_params(params),
+            timeout=BILLING_TIMESERIES_REQUEST_TIMEOUT,
+        )
 
         if res.status_code in (414, 431):
             logger.info(
@@ -774,7 +780,12 @@ class BillingManager:
                 status_code=res.status_code,
                 organization_id=str(organization.id),
             )
-            res = requests.post(url, headers=headers, json=self._to_post_body(params))
+            res = requests.post(
+                url,
+                headers=headers,
+                json=self._to_post_body(params),
+                timeout=BILLING_TIMESERIES_REQUEST_TIMEOUT,
+            )
 
         handle_billing_service_error(res)
         return res.json()

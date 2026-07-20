@@ -5,12 +5,17 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from products.billing_alerts.backend.alert_destinations import EVENT_KIND_CONFIG, EventKind
-from products.billing_alerts.backend.logic.notifications import (
-    dispatch_billing_alert_event,
-    evaluate_and_dispatch_billing_alert,
+from products.billing_alerts.backend.logic.notifications import evaluate_and_dispatch_billing_alert
+from products.billing_alerts.backend.logic.state_machine import (
+    BillingAlertEvaluationInProgress,
+    commit_billing_alert_check,
+    prepare_billing_alert_check,
 )
-from products.billing_alerts.backend.logic.state_machine import commit_billing_alert_check, prepare_billing_alert_check
-from products.billing_alerts.backend.models import BillingAlertConfiguration, BillingAlertEvent
+from products.billing_alerts.backend.models import (
+    BillingAlertConfiguration,
+    BillingAlertEvaluationClaim,
+    BillingAlertEvent,
+)
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 NOW = datetime(2026, 6, 23, 12, 0, tzinfo=UTC)
@@ -46,25 +51,29 @@ class TestBillingAlertNotifications(BaseTest):
         return BillingAlertConfiguration.objects.create(**defaults)
 
     def _destination(self, alert: BillingAlertConfiguration, event_kind: EventKind = "firing") -> HogFunction:
-        return HogFunction.objects.create(
-            team_id=alert.execution_team_id,
-            name="Billing alert destination",
-            type="internal_destination",
-            enabled=True,
-            hog="",
-            template_id="template-slack",
-            filters={
-                "events": [{"id": EVENT_KIND_CONFIG[event_kind].event_id, "type": "events"}],
-                "properties": [
-                    {
-                        "key": "alert_id",
-                        "value": str(alert.id),
-                        "operator": "exact",
-                        "type": "event",
-                    }
-                ],
-            },
-        )
+        destinations = {
+            kind: HogFunction.objects.create(
+                team_id=alert.execution_team_id,
+                name="Billing alert destination",
+                type="internal_destination",
+                enabled=True,
+                hog="",
+                template_id="template-slack",
+                filters={
+                    "events": [{"id": config.event_id, "type": "events"}],
+                    "properties": [
+                        {
+                            "key": "alert_id",
+                            "value": str(alert.id),
+                            "operator": "exact",
+                            "type": "event",
+                        }
+                    ],
+                },
+            )
+            for kind, config in EVENT_KIND_CONFIG.items()
+        }
+        return destinations[event_kind]
 
     def test_delivery_ack_precedes_lifecycle_persistence(self) -> None:
         alert = self._alert()
@@ -96,7 +105,7 @@ class TestBillingAlertNotifications(BaseTest):
         assert event.notification_sent_at == NOW
         assert event.targets_notified == {"hog_functions": [str(destination.id)]}
         assert produce.call_args.kwargs["event_name"] == EVENT_KIND_CONFIG["firing"].event_id
-        assert produce.call_args.kwargs["uuid"] == str(event.id)
+        assert produce.call_args.kwargs["uuid"] == str(event.claim.delivery_uuid)
         assert "billing_alert_destination_ids" not in produce.call_args.kwargs["properties"]
         flush.assert_called_once()
         delivered.assert_called_once_with(
@@ -204,10 +213,16 @@ class TestBillingAlertNotifications(BaseTest):
 
     def test_stale_delivery_commit_preserves_concurrent_disable(self) -> None:
         alert = self._alert()
-        check = prepare_billing_alert_check(alert, now=NOW, billing_response=_billing_response([60, 60, 100]))
+        check = prepare_billing_alert_check(
+            alert,
+            source=BillingAlertEvent.Source.SCHEDULED,
+            now=NOW,
+            billing_response=_billing_response([60, 60, 100]),
+        )
         BillingAlertConfiguration.objects.filter(pk=alert.pk).update(
             enabled=False,
             state=BillingAlertConfiguration.State.NOT_FIRING,
+            configuration_revision=alert.configuration_revision + 1,
             updated_at=NOW,
         )
 
@@ -222,11 +237,17 @@ class TestBillingAlertNotifications(BaseTest):
 
     def test_stale_delivery_commit_preserves_concurrent_snooze(self) -> None:
         alert = self._alert()
-        check = prepare_billing_alert_check(alert, now=NOW, billing_response=_billing_response([60, 60, 100]))
+        check = prepare_billing_alert_check(
+            alert,
+            source=BillingAlertEvent.Source.SCHEDULED,
+            now=NOW,
+            billing_response=_billing_response([60, 60, 100]),
+        )
         snooze_until = NOW.replace(day=24)
         BillingAlertConfiguration.objects.filter(pk=alert.pk).update(
             state=BillingAlertConfiguration.State.SNOOZED,
             snooze_until=snooze_until,
+            configuration_revision=alert.configuration_revision + 1,
             updated_at=NOW,
         )
 
@@ -239,10 +260,16 @@ class TestBillingAlertNotifications(BaseTest):
 
     def test_stale_delivery_commit_preserves_concurrent_threshold_reset(self) -> None:
         alert = self._alert()
-        check = prepare_billing_alert_check(alert, now=NOW, billing_response=_billing_response([60, 60, 100]))
+        check = prepare_billing_alert_check(
+            alert,
+            source=BillingAlertEvent.Source.SCHEDULED,
+            now=NOW,
+            billing_response=_billing_response([60, 60, 100]),
+        )
         BillingAlertConfiguration.objects.filter(pk=alert.pk).update(
             threshold_percentage=Decimal("75"),
             state=BillingAlertConfiguration.State.NOT_FIRING,
+            configuration_revision=alert.configuration_revision + 1,
             updated_at=NOW,
         )
 
@@ -253,17 +280,9 @@ class TestBillingAlertNotifications(BaseTest):
         assert alert.state == BillingAlertConfiguration.State.NOT_FIRING
         assert alert.last_notified_at is None
 
-    def test_compatibility_dispatch_is_idempotent(self) -> None:
-        alert = self._alert(state=BillingAlertConfiguration.State.FIRING)
-        destination = self._destination(alert)
-        event = BillingAlertEvent.objects.create(
-            alert=alert,
-            team_id=alert.team_id,
-            kind=BillingAlertEvent.Kind.FIRING,
-            metric=alert.metric,
-            state_before=BillingAlertConfiguration.State.NOT_FIRING,
-            state_after=BillingAlertConfiguration.State.FIRING,
-        )
+    def test_retry_reuses_delivery_uuid_and_preserves_attempt_history(self) -> None:
+        alert = self._alert()
+        self._destination(alert)
 
         with (
             patch(
@@ -273,12 +292,59 @@ class TestBillingAlertNotifications(BaseTest):
             patch("products.billing_alerts.backend.logic.notifications.flush_alert_internal_events"),
             patch(
                 "products.billing_alerts.backend.logic.notifications.alert_internal_event_delivered",
-                return_value=True,
+                side_effect=[False, True],
             ),
         ):
-            assert dispatch_billing_alert_event(event, now=NOW) == 1
-            assert dispatch_billing_alert_event(event, now=NOW) == 0
+            first_event, first_dispatched = evaluate_and_dispatch_billing_alert(
+                alert,
+                now=NOW,
+                billing_response=_billing_response([60, 60, 100]),
+            )
+            with self.assertRaises(BillingAlertEvaluationInProgress):
+                evaluate_and_dispatch_billing_alert(
+                    alert,
+                    now=NOW.replace(minute=10),
+                    billing_response=_billing_response([60, 60, 100]),
+                )
+            second_event, second_dispatched = evaluate_and_dispatch_billing_alert(
+                alert,
+                now=NOW.replace(minute=16),
+                billing_response=_billing_response([60, 60, 100]),
+            )
 
-        event.refresh_from_db()
-        assert produce.call_count == 1
-        assert event.targets_notified == {"hog_functions": [str(destination.id)]}
+        claim = BillingAlertEvaluationClaim.objects.get(alert=alert)
+        assert first_dispatched == 0
+        assert second_dispatched == 1
+        assert first_event.attempt_number == 1
+        assert second_event.attempt_number == 2
+        assert BillingAlertEvent.objects.filter(claim=claim).count() == 2
+        assert [call.kwargs["uuid"] for call in produce.call_args_list] == [
+            str(claim.delivery_uuid),
+            str(claim.delivery_uuid),
+        ]
+
+    def test_incomplete_destination_group_is_not_dispatched(self) -> None:
+        alert = self._alert()
+        HogFunction.objects.create(
+            team_id=alert.execution_team_id,
+            name="Incomplete billing destination",
+            type="internal_destination",
+            enabled=True,
+            hog="",
+            template_id="template-slack",
+            filters={
+                "events": [{"id": EVENT_KIND_CONFIG["firing"].event_id, "type": "events"}],
+                "properties": [{"key": "alert_id", "value": str(alert.id), "type": "event"}],
+            },
+        )
+
+        with patch("products.billing_alerts.backend.logic.notifications.produce_alert_internal_event") as produce:
+            event, dispatched = evaluate_and_dispatch_billing_alert(
+                alert,
+                now=NOW,
+                billing_response=_billing_response([60, 60, 100]),
+            )
+
+        assert dispatched == 0
+        assert event.notification_sent_at is None
+        produce.assert_not_called()

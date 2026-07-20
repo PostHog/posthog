@@ -12,8 +12,13 @@ from rest_framework import status
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 
-from products.billing_alerts.backend.facade.contracts import BillingAlertDispatchResult
-from products.billing_alerts.backend.models import BillingAlertConfiguration, BillingAlertEvent
+from products.billing_alerts.backend.alert_destinations import EVENT_KIND_CONFIG
+from products.billing_alerts.backend.facade.api import BillingAlertDispatchResult
+from products.billing_alerts.backend.models import (
+    BillingAlertConfiguration,
+    BillingAlertEvaluationClaim,
+    BillingAlertEvent,
+)
 from products.billing_alerts.backend.presentation.serializers import (
     BillingAlertConfigurationSerializer,
     BillingAlertCreateDestinationSerializer,
@@ -56,24 +61,29 @@ class TestBillingAlertAPI(APIBaseTest):
         return BillingAlertConfiguration.objects.create(**defaults)
 
     def _destination(self, alert: BillingAlertConfiguration, template_id: str) -> HogFunction:
-        return HogFunction.objects.create(
-            team_id=alert.execution_team_id,
-            name=f"Billing alert destination {template_id}",
-            type="internal_destination",
-            enabled=True,
-            hog="",
-            template_id=template_id,
-            filters={
-                "properties": [
-                    {
-                        "key": "alert_id",
-                        "value": str(alert.id),
-                        "operator": "exact",
-                        "type": "event",
-                    }
-                ]
-            },
-        )
+        destinations = [
+            HogFunction.objects.create(
+                team_id=alert.execution_team_id,
+                name=f"Billing alert destination {template_id}",
+                type="internal_destination",
+                enabled=True,
+                hog="",
+                template_id=template_id,
+                filters={
+                    "events": [{"id": config.event_id, "type": "events"}],
+                    "properties": [
+                        {
+                            "key": "alert_id",
+                            "value": str(alert.id),
+                            "operator": "exact",
+                            "type": "event",
+                        }
+                    ],
+                },
+            )
+            for config in EVENT_KIND_CONFIG.values()
+        ]
+        return destinations[0]
 
     def test_create_billing_alert(self) -> None:
         response = self.client.post(self.url, self._payload(), format="json")
@@ -187,8 +197,6 @@ class TestBillingAlertAPI(APIBaseTest):
 
     def test_evaluation_rule_edits_reset_firing_state_and_failures(self) -> None:
         updates = [
-            ("metric", BillingAlertConfiguration.Metric.USAGE),
-            ("currency", "EUR"),
             ("baseline_window_days", 14),
             ("evaluation_delay_hours", 12),
         ]
@@ -263,7 +271,7 @@ class TestBillingAlertAPI(APIBaseTest):
         results = response.json()["results"]
         assert [row["name"] for row in results] == ["Visible alert"]
 
-    def test_destination_types_are_loaded_once_for_alert_list_serializer(self) -> None:
+    def test_complete_destinations_are_loaded_once_for_alert_list_serializer(self) -> None:
         slack_alert = self._alert(name="Slack alert")
         webhook_alert = self._alert(name="Webhook alert")
         empty_alert = self._alert(name="Empty alert")
@@ -279,11 +287,8 @@ class TestBillingAlertAPI(APIBaseTest):
         with self.assertNumQueries(1):
             data = list(serializer.data)
 
-        assert data[0]["destination_types"] == ["slack"]
-        assert data[1]["destination_types"] == ["webhook"]
-        assert data[2]["destination_types"] == []
-        assert len(data[0]["destinations"][0]["hog_function_ids"]) == 2
-        assert len(data[1]["destinations"][0]["hog_function_ids"]) == 1
+        assert len(data[0]["destinations"][0]["hog_function_ids"]) == len(EVENT_KIND_CONFIG)
+        assert len(data[1]["destinations"][0]["hog_function_ids"]) == len(EVENT_KIND_CONFIG)
         assert data[2]["destinations"] == []
 
     def test_non_admin_cannot_create(self) -> None:
@@ -321,6 +326,34 @@ class TestBillingAlertAPI(APIBaseTest):
 
         assert serializer.is_valid(), serializer.errors
 
+    def test_teams_destinations_require_a_microsoft_workflow_webhook(self) -> None:
+        alert = self._alert()
+
+        invalid = BillingAlertCreateDestinationSerializer(
+            data={"type": "teams", "webhook_url": "https://example.com/teams"},
+            context={"alert": alert},
+        )
+        valid = BillingAlertCreateDestinationSerializer(
+            data={
+                "type": "teams",
+                "webhook_url": "https://example.powerautomate.com/workflows/abc",
+            },
+            context={"alert": alert},
+        )
+
+        assert invalid.is_valid() is False
+        assert "webhook_url" in invalid.errors
+        assert valid.is_valid(), valid.errors
+
+    def test_rejects_negative_minimum_and_unsupported_check_interval(self) -> None:
+        negative_minimum = self.client.post(self.url, self._payload(minimum_value="-1"), format="json")
+        unsupported_interval = self.client.post(self.url, self._payload(check_interval_hours=5), format="json")
+
+        assert negative_minimum.status_code == status.HTTP_400_BAD_REQUEST
+        assert "minimum_value" in negative_minimum.json()
+        assert unsupported_interval.status_code == status.HTTP_400_BAD_REQUEST
+        assert "check_interval_hours" in unsupported_interval.json()
+
     def test_check_now_uses_shared_organization_object_permissions(self) -> None:
         alert = BillingAlertConfiguration.objects.create(
             organization_id=self.organization.id,
@@ -330,10 +363,21 @@ class TestBillingAlertAPI(APIBaseTest):
             threshold_type=BillingAlertConfiguration.ThresholdType.RELATIVE_INCREASE,
             threshold_percentage=Decimal("50"),
         )
+        claim = BillingAlertEvaluationClaim.objects.create(
+            alert=alert,
+            organization_id=alert.organization_id,
+            evaluation_date=timezone.now().date(),
+            configuration_revision=alert.configuration_revision,
+            attempt_count=1,
+        )
         event = BillingAlertEvent.objects.create(
             alert=alert,
+            claim=claim,
+            organization_id=alert.organization_id,
             team_id=alert.team_id,
             kind=BillingAlertEvent.Kind.CHECK,
+            source=BillingAlertEvent.Source.MANUAL,
+            attempt_number=1,
             metric=BillingAlertConfiguration.Metric.SPEND,
             state_before=BillingAlertConfiguration.State.NOT_FIRING,
             state_after=BillingAlertConfiguration.State.NOT_FIRING,

@@ -8,69 +8,12 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
- * * `engineering` - Engineering
- * * `data` - Data
- * * `product` - Product Management
- * * `founder` - Founder
- * * `leadership` - Leadership
- * * `marketing` - Marketing
- * * `sales` - Sales / Success
- * * `other` - Other
- */
-export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
-
-export const RoleAtOrganizationEnumApi = {
-    Engineering: 'engineering',
-    Data: 'data',
-    Product: 'product',
-    Founder: 'founder',
-    Leadership: 'leadership',
-    Marketing: 'marketing',
-    Sales: 'sales',
-    Other: 'other',
-} as const
-
-export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
-
-export const BlankEnumApi = {
-    '': '',
-} as const
-
-/**
- * @nullable
- */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
-
-export interface UserBasicApi {
-    readonly id: number
-    readonly uuid: string
-    /**
-     * @maxLength 200
-     * @nullable
-     */
-    distinct_id?: string | null
-    /** @maxLength 150 */
-    first_name?: string
-    /** @maxLength 150 */
-    last_name?: string
-    /** @maxLength 254 */
-    email: string
-    /** @nullable */
-    is_email_verified?: boolean | null
-    /** @nullable */
-    readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
-}
-
-/**
  * * `spend` - Spend
- * * `usage` - Usage
  */
 export type BillingAlertMetricEnumApi = (typeof BillingAlertMetricEnumApi)[keyof typeof BillingAlertMetricEnumApi]
 
 export const BillingAlertMetricEnumApi = {
     Spend: 'spend',
-    Usage: 'usage',
 } as const
 
 /**
@@ -105,6 +48,29 @@ export const BillingAlertConfigurationStateEnumApi = {
 } as const
 
 /**
+ * * `1` - 1
+ * * `2` - 2
+ * * `3` - 3
+ * * `4` - 4
+ * * `6` - 6
+ * * `8` - 8
+ * * `12` - 12
+ * * `24` - 24
+ */
+export type CheckIntervalHoursEnumApi = (typeof CheckIntervalHoursEnumApi)[keyof typeof CheckIntervalHoursEnumApi]
+
+export const CheckIntervalHoursEnumApi = {
+    Number1: 1,
+    Number2: 2,
+    Number3: 3,
+    Number4: 4,
+    Number6: 6,
+    Number8: 8,
+    Number12: 12,
+    Number24: 24,
+} as const
+
+/**
  * * `slack` - slack
  * * `webhook` - webhook
  * * `teams` - teams
@@ -128,8 +94,11 @@ export interface BillingAlertConfigurationApi {
     readonly id: string
     /** Organization this billing alert belongs to. */
     readonly organization_id: string
-    /** Team used as the execution context for internal notification destinations. */
-    readonly execution_team_id: number
+    /**
+     * Team used as the execution context for internal notification destinations.
+     * @nullable
+     */
+    readonly execution_team_id: number | null
     /**
      * User ID that created this alert.
      * @nullable
@@ -140,10 +109,6 @@ export interface BillingAlertConfigurationApi {
      * @nullable
      */
     readonly updated_by_id: number | null
-    /** User that created this alert, or null if unavailable. */
-    readonly created_by: UserBasicApi | null
-    /** User that last updated this alert, or null if unavailable. */
-    readonly updated_by: UserBasicApi | null
     /**
      * Display name for this billing alert.
      * @maxLength 160
@@ -153,16 +118,12 @@ export interface BillingAlertConfigurationApi {
     description?: string
     /** Whether scheduled checks should evaluate this alert. */
     enabled?: boolean
-    /** Billing metric to evaluate: spend or usage.
+    /** Billing metric evaluated by this alert. The first version supports spend only.
      *
-     * * `spend` - Spend
-     * * `usage` - Usage */
-    metric?: BillingAlertMetricEnumApi
-    /**
-     * Currency for spend alerts.
-     * @maxLength 3
-     */
-    currency?: string
+     * * `spend` - Spend */
+    readonly metric: BillingAlertMetricEnumApi
+    /** Server-controlled currency for spend values. */
+    readonly currency: string
     /** Threshold rule type.
      *
      * * `relative_increase` - Relative increase
@@ -197,11 +158,17 @@ export interface BillingAlertConfigurationApi {
      */
     evaluation_delay_hours?: number
     readonly state: BillingAlertConfigurationStateEnumApi
-    /**
-     * @minimum 1
-     * @maximum 24
-     */
-    check_interval_hours?: number
+    /** Supported interval in hours between scheduled evaluations.
+     *
+     * * `1` - 1
+     * * `2` - 2
+     * * `3` - 3
+     * * `4` - 4
+     * * `6` - 6
+     * * `8` - 8
+     * * `12` - 12
+     * * `24` - 24 */
+    check_interval_hours?: CheckIntervalHoursEnumApi
     /**
      * @minimum 0
      * @maximum 720
@@ -216,8 +183,6 @@ export interface BillingAlertConfigurationApi {
     /** @nullable */
     readonly last_notified_at: string | null
     readonly consecutive_failures: number
-    /** Notification destination types configured for this alert. */
-    readonly destination_types: readonly NotificationDestinationTypeEnumApi[]
     /** Notification destination groups configured for this alert, including their shared HogFunctions. */
     readonly destinations: readonly BillingAlertDestinationSummaryApi[]
     readonly created_at: string
@@ -238,8 +203,11 @@ export interface PatchedBillingAlertConfigurationApi {
     readonly id?: string
     /** Organization this billing alert belongs to. */
     readonly organization_id?: string
-    /** Team used as the execution context for internal notification destinations. */
-    readonly execution_team_id?: number
+    /**
+     * Team used as the execution context for internal notification destinations.
+     * @nullable
+     */
+    readonly execution_team_id?: number | null
     /**
      * User ID that created this alert.
      * @nullable
@@ -250,10 +218,6 @@ export interface PatchedBillingAlertConfigurationApi {
      * @nullable
      */
     readonly updated_by_id?: number | null
-    /** User that created this alert, or null if unavailable. */
-    readonly created_by?: UserBasicApi | null
-    /** User that last updated this alert, or null if unavailable. */
-    readonly updated_by?: UserBasicApi | null
     /**
      * Display name for this billing alert.
      * @maxLength 160
@@ -263,16 +227,12 @@ export interface PatchedBillingAlertConfigurationApi {
     description?: string
     /** Whether scheduled checks should evaluate this alert. */
     enabled?: boolean
-    /** Billing metric to evaluate: spend or usage.
+    /** Billing metric evaluated by this alert. The first version supports spend only.
      *
-     * * `spend` - Spend
-     * * `usage` - Usage */
-    metric?: BillingAlertMetricEnumApi
-    /**
-     * Currency for spend alerts.
-     * @maxLength 3
-     */
-    currency?: string
+     * * `spend` - Spend */
+    readonly metric?: BillingAlertMetricEnumApi
+    /** Server-controlled currency for spend values. */
+    readonly currency?: string
     /** Threshold rule type.
      *
      * * `relative_increase` - Relative increase
@@ -307,11 +267,17 @@ export interface PatchedBillingAlertConfigurationApi {
      */
     evaluation_delay_hours?: number
     readonly state?: BillingAlertConfigurationStateEnumApi
-    /**
-     * @minimum 1
-     * @maximum 24
-     */
-    check_interval_hours?: number
+    /** Supported interval in hours between scheduled evaluations.
+     *
+     * * `1` - 1
+     * * `2` - 2
+     * * `3` - 3
+     * * `4` - 4
+     * * `6` - 6
+     * * `8` - 8
+     * * `12` - 12
+     * * `24` - 24 */
+    check_interval_hours?: CheckIntervalHoursEnumApi
     /**
      * @minimum 0
      * @maximum 720
@@ -326,8 +292,6 @@ export interface PatchedBillingAlertConfigurationApi {
     /** @nullable */
     readonly last_notified_at?: string | null
     readonly consecutive_failures?: number
-    /** Notification destination types configured for this alert. */
-    readonly destination_types?: readonly NotificationDestinationTypeEnumApi[]
     /** Notification destination groups configured for this alert, including their shared HogFunctions. */
     readonly destinations?: readonly BillingAlertDestinationSummaryApi[]
     readonly created_at?: string
@@ -352,6 +316,18 @@ export const BillingAlertEventKindEnumApi = {
     BrokenConfig: 'broken_config',
 } as const
 
+/**
+ * * `scheduled` - Scheduled
+ * * `manual` - Manual
+ */
+export type BillingAlertEventSourceEnumApi =
+    (typeof BillingAlertEventSourceEnumApi)[keyof typeof BillingAlertEventSourceEnumApi]
+
+export const BillingAlertEventSourceEnumApi = {
+    Scheduled: 'scheduled',
+    Manual: 'manual',
+} as const
+
 export interface BillingAlertEventApi {
     /** Unique identifier for this billing alert event. */
     readonly id: string
@@ -363,6 +339,13 @@ export interface BillingAlertEventApi {
      * * `errored` - Errored
      * * `broken_config` - Broken config */
     readonly kind: BillingAlertEventKindEnumApi
+    /** Whether this evaluation was scheduled or manually requested.
+     *
+     * * `scheduled` - Scheduled
+     * * `manual` - Manual */
+    readonly source: BillingAlertEventSourceEnumApi
+    /** Attempt number for this billing date and configuration revision. */
+    readonly attempt_number: number
     /** When this event was recorded. */
     readonly created_at: string
     /**
@@ -382,8 +365,7 @@ export interface BillingAlertEventApi {
     readonly period_end: string | null
     /** Billing metric evaluated by this event.
      *
-     * * `spend` - Spend
-     * * `usage` - Usage */
+     * * `spend` - Spend */
     readonly metric: BillingAlertMetricEnumApi
     /**
      * @nullable
