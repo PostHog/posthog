@@ -71,6 +71,8 @@ describe('example: agent-builder bundle', () => {
         expect(parsed.mcps).toHaveLength(1)
         expect(parsed.mcps[0].id).toBe('posthog')
         expect(parsed.mcps[0].auth?.provider).toBe('posthog')
+        // Unknown MCP clients default to the single `exec` tool. The builder
+        // allow-lists direct authoring operations, so it must request tools mode.
         expect(parsed.mcps[0].headers?.['x-posthog-mcp-mode']).toBe('tools')
         // The curated allow-list keeps the surface to authoring + data tools.
         expect(parsed.mcps[0].tools?.length ?? 0).toBeGreaterThan(20)
@@ -108,6 +110,9 @@ describe('example: agent-builder bundle', () => {
     it('uses trigger-edge PostHog auth without provisioning a second OAuth connection', async () => {
         const { spec, files } = await loadBundle()
         const parsed = AgentSpecSchema.parse(spec)
+        // PostHog Code already seeds `posthog_api` from trigger auth. An empty
+        // list selects the implicit seed-only provider instead of offering a
+        // redundant OAuth connection that cannot improve the session identity.
         expect(parsed.identity_providers).toEqual([])
         const chat = parsed.triggers.find((trigger) => trigger.type === 'chat')
         const posthogMode = chat?.type === 'chat' ? chat.auth?.modes.find((mode) => mode.type === 'posthog') : undefined
