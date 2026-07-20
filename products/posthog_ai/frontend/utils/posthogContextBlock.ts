@@ -50,11 +50,7 @@ export function formatPosthogContextBlock(items: AttachedContextItem[]): string 
     const blocks: string[] = []
     if (trusted.length > 0) {
         blocks.push(
-            [
-                '<posthog_trusted_context>',
-                ...trusted.map((item) => `- ${defang(item.value ?? '')}`),
-                '</posthog_trusted_context>',
-            ].join('\n')
+            ['<posthog_trusted_context>', ...trusted.map(contextItemLine), '</posthog_trusted_context>'].join('\n')
         )
     }
     if (untrusted.length > 0) {
@@ -62,13 +58,38 @@ export function formatPosthogContextBlock(items: AttachedContextItem[]): string 
             [
                 '<posthog_untrusted_context>',
                 UNTRUSTED_HEADER,
-                ...untrusted.map(formatItem),
+                ...untrusted.map(contextItemLine),
                 UNTRUSTED_REMINDER,
                 '</posthog_untrusted_context>',
             ].join('\n')
         )
     }
     return blocks.join('\n')
+}
+
+/**
+ * The exact line an item renders as inside its context block. Doubles as the replay-side match key
+ * for the history-derived dedupe: `runStreamLogic` records the lines of blocks found in persisted
+ * user messages (`extractContextBlockLines` → `attachedContextLogic.seenContextLinesByTask`), and
+ * the send paths re-render each candidate item through this same function to decide whether it was
+ * already sent somewhere in the task's resume chain. Sharing the renderer is what makes the match
+ * exact — never parse a block line back into an item (`type` is an arbitrary string, so the
+ * formatted prose is ambiguous).
+ */
+export function contextItemLine(item: AttachedContextItem): string {
+    if (item.type === 'instructions') {
+        return `- ${defang(item.value ?? '')}`
+    }
+    return formatItem(item)
+}
+
+/**
+ * Item lines of a raw context block (tags included, as `splitUserMessageContent` returns them).
+ * Only item lines start with `- ` — the tags, `UNTRUSTED_HEADER`, and `UNTRUSTED_REMINDER` don't —
+ * so the prefix alone separates items from chrome.
+ */
+export function extractContextBlockLines(block: string): string[] {
+    return block.split('\n').filter((line) => line.startsWith('- '))
 }
 
 /**
