@@ -111,6 +111,11 @@ def _client_config(api_token: str) -> ClientConfig:
         "auth": {"type": "bearer", "token": api_token},
         # MailerSend returns the next page as a full URL under `links.next`, null on the last page.
         "paginator": JSONResponsePaginator(next_url_path="links.next"),
+        # `links.next` is followed verbatim, so pin every request (and the Bearer token) to
+        # api.mailersend.com and refuse redirects — a tampered/off-host `links.next` or a 3xx can't
+        # retarget the credentialed request. `allowed_hosts=[]` means base-host only.
+        "allowed_hosts": [],
+        "allow_redirects": False,
     }
 
 

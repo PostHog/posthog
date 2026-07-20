@@ -104,6 +104,11 @@ def safetyculture_source(
             "headers": {"Accept": "application/json"},
             "auth": {"type": "bearer", "token": api_token},
             "paginator": SafetyCultureFeedPaginator(),
+            # `metadata.next_page` is followed verbatim, so pin every request (and the Bearer token)
+            # to api.safetyculture.io and refuse redirects — a tampered/off-host next_page or a 3xx
+            # can't retarget the credentialed request. `allowed_hosts=[]` means base-host only.
+            "allowed_hosts": [],
+            "allow_redirects": False,
         },
         "resource_defaults": {},
         "resources": [

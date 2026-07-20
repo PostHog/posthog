@@ -223,6 +223,25 @@ class TestPagination:
             SafetyCultureResumeConfig(next_page=f"{BASE_URL}/feed/users?opaque-cursor=xyz")
         )
 
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_offhost_next_page_rejected_before_send(self, MockSession: MagicMock) -> None:
+        # An absolute, off-host metadata.next_page is followed verbatim, so it must be rejected by the
+        # client's host pin before the Bearer token can be replayed to an attacker-controlled host.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response([{"id": "a"}], next_page="https://evil.example/feed/users?opaque-cursor=xyz"),
+                _response([{"id": "b"}], next_page=None),
+            ],
+        )
+
+        with pytest.raises(ValueError, match="disallowed host"):
+            _rows(_source("users", _make_manager()))
+
+        # Only the on-host first page went out; the off-host next_page never reached the network.
+        assert session.send.call_count == 1
+
     @parameterized.expand(
         [
             ("relative_saved_path", "/feed/users?opaque-cursor=xyz"),

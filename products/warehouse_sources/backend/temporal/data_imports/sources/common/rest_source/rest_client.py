@@ -75,6 +75,17 @@ MAX_RETRY_AFTER_SECONDS = 300.0
 # rate-limited endpoint surfaces an error instead of sleeping on `Retry-After`.
 DEFAULT_RETRY_ATTEMPTS = 5
 
+# Default network ports per scheme, used to compare a request URL's effective port against the
+# base origin's when host-pinning is enabled.
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def _effective_port(scheme: str, port: Optional[int]) -> Optional[int]:
+    """The port a request actually reaches: the explicit one, else the scheme's default."""
+    if port is not None:
+        return port
+    return _DEFAULT_PORTS.get(scheme)
+
 
 def _parse_retry_after(response: Response) -> Optional[float]:
     """Best-effort retry delay (seconds) from a rate-limited / erroring response.
@@ -176,12 +187,22 @@ class RESTClient:
         # exfiltrate the Authorization header to an attacker-controlled origin. Pair
         # with ``allow_redirects=False`` to also reject cross-host redirects.
         self._allowed_hosts: Optional[set[str]] = None
+        # The base origin's scheme and effective port, pinned alongside the host set so an allowed
+        # hostname can't be reached over a downgraded scheme (https->http, which would put the
+        # Authorization header on the wire in plaintext) or a different port. Left None — and the
+        # scheme/port check skipped — when the base URL carries no scheme to pin against.
+        self._base_scheme: Optional[str] = None
+        self._base_port: Optional[int] = None
         if allowed_hosts is not None:
             hosts = {host.lower() for host in allowed_hosts if host}
-            base_host = urlsplit(self.base_url).hostname
+            base_split = urlsplit(self.base_url)
+            base_host = base_split.hostname
             if base_host:
                 hosts.add(base_host.lower())
             self._allowed_hosts = hosts
+            if base_split.scheme:
+                self._base_scheme = base_split.scheme.lower()
+                self._base_port = _effective_port(self._base_scheme, base_split.port)
         # The auth's credential values, kept for value-based redaction. They feed both the
         # tracked session's log redaction AND ``_redact`` below, which scrubs them from raised
         # exception messages — an API that carries its key in a query param would otherwise leak
@@ -206,7 +227,8 @@ class RESTClient:
     def _check_allowed_host(self, url: Optional[str]) -> None:
         if self._allowed_hosts is None or not url:
             return
-        host = urlsplit(url).hostname
+        split = urlsplit(url)
+        host = split.hostname
         if host is None or host.lower() not in self._allowed_hosts:
             raise ValueError(
                 self._redact(
@@ -215,6 +237,27 @@ class RESTClient:
                     "pointing off the expected API host is rejected to prevent credential exfiltration."
                 )
             )
+        # An allowed hostname reached over a different scheme or port is still an off-origin request:
+        # an https base downgraded to http:// would send the credential in plaintext, and a different
+        # port retargets the credentialed request. Reject either before the request (and its auth) goes out.
+        if self._base_scheme is not None:
+            scheme = split.scheme.lower()
+            if scheme != self._base_scheme:
+                raise ValueError(
+                    self._redact(
+                        f"Refusing to send request with scheme {scheme!r} (url {url!r}); the API base "
+                        f"origin uses {self._base_scheme!r}. A scheme downgrade (e.g. https->http) is "
+                        "rejected to prevent sending credentials over an unexpected transport."
+                    )
+                )
+            if _effective_port(scheme, split.port) != self._base_port:
+                raise ValueError(
+                    self._redact(
+                        f"Refusing to send request to port {split.port!r} (url {url!r}); the API base "
+                        f"origin uses port {self._base_port!r}. A pagination or resume URL on a different "
+                        "port is rejected to prevent credential exfiltration."
+                    )
+                )
 
     def paginate(
         self,

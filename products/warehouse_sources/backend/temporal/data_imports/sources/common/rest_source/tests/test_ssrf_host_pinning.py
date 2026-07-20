@@ -76,6 +76,40 @@ class TestSSRFHostPinning:
             pages = list(pager)
             assert [row["id"] for page in pages for row in page] == [1, 2]
 
+    @parameterized.expand(
+        [
+            # base origin is https://api.example.com (implicit :443); an allowed hostname reached
+            # over a downgraded scheme or a different port is still off-origin and must be rejected.
+            ("http_downgrade_same_host_rejected", "http://api.example.com/page2", True),
+            ("different_port_same_host_rejected", "https://api.example.com:8443/page2", True),
+            ("https_default_port_allowed", "https://api.example.com/page2", False),
+            ("https_explicit_default_port_allowed", "https://api.example.com:443/page2", False),
+        ]
+    )
+    @patch(f"{MODULE}.make_tracked_session")
+    def test_scheme_and_port_pinned_to_base_origin(
+        self, _name: str, next_url: str, expect_reject: bool, MockSession
+    ) -> None:
+        mock_session = _session_echoing_url(MockSession)
+        mock_session.send.side_effect = [
+            _make_response({"results": [{"id": 1}], "next": next_url}),
+            _make_response({"results": [{"id": 2}], "next": None}),
+        ]
+
+        client = RESTClient(base_url="https://api.example.com", allowed_hosts=[])
+        pager = client.paginate(
+            path="/items", data_selector="results", paginator=JSONResponsePaginator(next_url_path="next")
+        )
+
+        if expect_reject:
+            with pytest.raises(ValueError, match="scheme|port"):
+                list(pager)
+            # The first page was yielded, but the downgraded/off-port second request never went out.
+            assert mock_session.send.call_count == 1
+        else:
+            pages = list(pager)
+            assert [row["id"] for page in pages for row in page] == [1, 2]
+
     @patch(f"{MODULE}.make_tracked_session")
     def test_redirect_rejected_when_disabled(self, MockSession) -> None:
         mock_session = _session_echoing_url(MockSession)

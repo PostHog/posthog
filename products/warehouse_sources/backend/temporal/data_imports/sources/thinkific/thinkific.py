@@ -157,4 +157,6 @@ def validate_credentials(api_key: str, subdomain: str, endpoint_path: str = "/co
         lambda: make_tracked_session(redact_values=(api_key,)),
         url,
         headers=_get_headers(api_key, subdomain),
+        # The X-Auth-API-Key header rides on the probe; don't let a redirect replay it off-host.
+        allow_redirects=False,
     )

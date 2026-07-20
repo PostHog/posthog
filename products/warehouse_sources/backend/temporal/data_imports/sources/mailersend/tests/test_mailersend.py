@@ -232,6 +232,25 @@ class TestTopLevelPagination:
         _rows(_source("domains", _make_manager()))
         assert snaps[0]["limit"] == 100
 
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_offhost_links_next_rejected_before_send(self, MockSession: MagicMock) -> None:
+        # `links.next` is followed verbatim, so an off-host value must be rejected by the client's
+        # host pin before the Bearer token can be replayed to an attacker-controlled host.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _page([{"id": "r1"}], next_url="https://evil.example/v1/recipients?page=2"),
+                _page([{"id": "r2"}], next_url=None),
+            ],
+        )
+
+        with pytest.raises(ValueError, match="disallowed host"):
+            _rows(_source("recipients", _make_manager()))
+
+        # Only the on-host first page went out; the off-host next link never reached the network.
+        assert session.send.call_count == 1
+
 
 class TestActivityFanOut:
     @staticmethod
