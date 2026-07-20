@@ -182,9 +182,7 @@ export const webAnalyticsFilterLogic = kea<webAnalyticsFilterLogicType>([
                         ]
                     }
 
-                    const similarFilterExists = oldPropertyFilters.some(
-                        (f) => f.type === type && f.key === key
-                    )
+                    const similarFilterExists = oldPropertyFilters.some((f) => f.type === type && f.key === key)
 
                     if (similarFilterExists) {
                         // if there's already a matching property, turn it off or merge them
@@ -197,12 +195,13 @@ export const webAnalyticsFilterLogic = kea<webAnalyticsFilterLogicType>([
                                 // Replace it with an exact match on the clicked value rather than appending a
                                 // contradictory second filter for the same key.
                                 if (![PropertyOperator.Exact, PropertyOperator.IsNotSet].includes(f.operator)) {
-                                    return {
+                                    const replacement: WebAnalyticsPropertyFilter = {
                                         type,
                                         key,
                                         operator: PropertyOperator.Exact,
                                         value,
-                                    } as const
+                                    }
+                                    return replacement
                                 }
                                 const oldValue = (Array.isArray(f.value) ? f.value : [f.value]).filter(isNotNil)
                                 let newValue: PropertyFilterBaseValue[]

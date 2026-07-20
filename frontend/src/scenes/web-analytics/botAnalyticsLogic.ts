@@ -152,12 +152,13 @@ export const botAnalyticsLogic = kea<botAnalyticsLogicType>([
                                 // Replace it with an exact match on the clicked value rather than appending a
                                 // contradictory second filter for the same key.
                                 if (![PropertyOperator.Exact, PropertyOperator.IsNotSet].includes(f.operator)) {
-                                    return {
+                                    const replacement: WebAnalyticsPropertyFilter = {
                                         type,
                                         key,
                                         operator: PropertyOperator.Exact,
                                         value,
-                                    } as const
+                                    }
+                                    return replacement
                                 }
                                 const oldValue = (Array.isArray(f.value) ? f.value : [f.value]).filter(isNotNil)
                                 let newValue: PropertyFilterBaseValue[]
