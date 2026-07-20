@@ -21,9 +21,10 @@ import {
     OnlineExportContext,
 } from '~/types'
 
+import { SubscriptionBaseProps } from 'products/subscriptions/frontend/components/Subscriptions/utils'
+
 import { TriggerExportProps } from '../../ExportButton/exporter'
 import { exportsLogic } from '../../ExportButton/exportsLogic'
-import { SubscriptionBaseProps } from '../../Subscriptions/utils'
 
 interface SceneExportDropdownMenuProps extends SubscriptionBaseProps {
     disabledReasons?: DisabledReasonsObject

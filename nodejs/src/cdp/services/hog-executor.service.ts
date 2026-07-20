@@ -34,10 +34,10 @@ import { createInvocation, createInvocationResult } from '../utils/invocation-ut
 import { isNonFailureStatus } from '../utils/non-failure-status-codes'
 import { HogInputsService } from './hog-inputs.service'
 import { EmailService } from './messaging/email.service'
+import { PushNotificationService } from './messaging/push-notification.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
 import {
     SELF_LOOP_MAX_DEPTH,
-    SelfLoopGuardMode,
     getSelfLoopDepth,
     injectSelfLoopDepth,
     isPostHogIngestUrl,
@@ -57,7 +57,6 @@ export interface HogExecutorConfig {
     fetchRetries: number
     fetchBackoffBaseMs: number
     fetchBackoffMaxMs: number
-    selfLoopGuardMode: SelfLoopGuardMode
 }
 
 export interface HogExecutorAsyncContext {
@@ -171,6 +170,7 @@ export const getNextRetryTime = (backoffBaseMs: number, backoffMaxMs: number, tr
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
+export const MAX_FETCH_TIMEOUT_MS = 10000
 
 const hogExecutionDuration = new Histogram({
     name: 'cdp_hog_function_execution_duration_ms',
@@ -206,7 +206,8 @@ export class HogExecutorService {
         private asyncContext: HogExecutorAsyncContext,
         private hogInputsService: HogInputsService,
         private emailService: EmailService,
-        private recipientTokensService: RecipientTokensService
+        private recipientTokensService: RecipientTokensService,
+        private pushNotificationService: PushNotificationService
     ) {}
 
     async buildInputsWithGlobals(
@@ -396,7 +397,7 @@ export class HogExecutorService {
             const nextInvocation: CyclotronJobInvocationHogFunction = result?.invocation ?? invocation
 
             const queueParamsType = nextInvocation.queueParameters?.type
-            if (['fetch', 'email'].includes(queueParamsType ?? '')) {
+            if (['fetch', 'sendPushNotification', 'email'].includes(queueParamsType ?? '')) {
                 asyncFunctionCount++
 
                 if (result && asyncFunctionCount > maxAsyncFunctions) {
@@ -423,6 +424,8 @@ export class HogExecutorService {
                     } else {
                         result = await this.executeFetch(nextInvocation, options)
                     }
+                } else if (queueParamsType === 'sendPushNotification') {
+                    result = await this.pushNotificationService.executeSendPushNotification(nextInvocation)
                 } else if (queueParamsType === 'email') {
                     // Route to the email queue only if we're not already there and the
                     // caller hasn't asked for inline-only execution (e.g. the test panel).
@@ -796,7 +799,13 @@ export class HogExecutorService {
 
         if (Object.keys(integrationInputs).length > 0) {
             for (const [key, value] of Object.entries(integrationInputs)) {
-                const accessToken: string = value.value?.access_token_raw
+                const inputValue = value.value
+                // integration_multi inputs resolve to an array of integrations (e.g. push channels)
+                // and don't participate in the single access-token placeholder substitution below.
+                if (Array.isArray(inputValue) || !inputValue) {
+                    continue
+                }
+                const accessToken: string = inputValue.access_token_raw
                 if (!accessToken) {
                     continue
                 }
@@ -820,8 +829,7 @@ export class HogExecutorService {
         // ingest-URL check gates the team lookup so external fetches (the common case) pay
         // nothing, and the whole block fails open - the guard must never break a destination
         // it was only meant to protect.
-        const guardMode = this.config.selfLoopGuardMode
-        if (guardMode !== 'disabled' && isPostHogIngestUrl(params.url)) {
+        if (isPostHogIngestUrl(params.url)) {
             try {
                 const team = await this.asyncContext.teamManager.getTeam(invocation.teamId)
                 if (team && isSelfReferentialIngestFetch({ url: params.url, body: params.body, team })) {
@@ -831,15 +839,9 @@ export class HogExecutorService {
                     const functionId = invocation.hogFunction.id
                     const depth = getSelfLoopDepth(invocation.state.globals.event?.properties, functionId)
 
-                    if (guardMode === 'warn') {
-                        selfLoopGuardCounter.inc({ mode: guardMode, action: 'detected' })
-                        addLog(
-                            'warn',
-                            `This fetch targets a PostHog ingestion endpoint using this project's own API key, which can form an event-forwarding loop. To capture an event back into this project use the 'postHogCapture' helper, or to enrich incoming events use a transformation.`
-                        )
-                    } else if (depth >= SELF_LOOP_MAX_DEPTH) {
-                        // enforce, this destination has re-fed itself to the cap - break it.
-                        selfLoopGuardCounter.inc({ mode: guardMode, action: 'blocked' })
+                    if (depth >= SELF_LOOP_MAX_DEPTH) {
+                        // This destination has re-fed itself to the cap - break it.
+                        selfLoopGuardCounter.inc({ mode: 'enforce', action: 'blocked' })
                         addLog(
                             'error',
                             `Refusing to fetch a PostHog ingestion endpoint using this project's own API key - this destination's event-forwarding loop has already repeated ${SELF_LOOP_MAX_DEPTH} times. To capture an event back into this project use the 'postHogCapture' helper, or to enrich incoming events use a transformation.`
@@ -847,11 +849,10 @@ export class HogExecutorService {
                         result.error = new Error('Self-referential event-forwarding loop blocked at max depth')
                         result.finished = true
                         return result
-                    } else {
-                        // enforce, under the cap - stamp this destination's next hop and proceed.
-                        selfLoopGuardCounter.inc({ mode: guardMode, action: 'allowed_with_counter' })
-                        params.body = injectSelfLoopDepth(params.body, functionId, depth + 1)
                     }
+                    // Under the cap - stamp this destination's next hop and proceed.
+                    selfLoopGuardCounter.inc({ mode: 'enforce', action: 'allowed_with_counter' })
+                    params.body = injectSelfLoopDepth(params.body, functionId, depth + 1)
                 }
             } catch (err) {
                 logger.warn('🦔', '[HogExecutor] Self-loop guard skipped due to an internal error', {
@@ -971,12 +972,19 @@ export class HogExecutorService {
             body = undefined
         }
 
+        // Keep the status 500 fallback so template guards like `if (res.status
+        // >= 400) throw` still fire on a client-side abort and prevent
+        // subsequent fetches in multi-step templates from running against
+        // broken assumptions. Populate body with the real client-side error
+        // name and message so the terminal log stops reading as "status 500"
+        // with an empty body and instead tells the customer what actually
+        // happened (connect timeout, socket abort, DNS failure, etc.).
         const hogVmResponse: {
             status: number
             body: unknown
         } = {
             status: fetchResponse?.status ?? 500,
-            body,
+            body: body ?? (fetchError ? `${fetchError.name}: ${fetchError.message}` : undefined),
         }
 
         // Finally we create the response object as the VM expects
@@ -997,21 +1005,38 @@ export class HogExecutorService {
     getSensitiveValues(hogFunction: HogFunctionType, inputs: Record<string, any>): string[] {
         const values: string[] = []
 
+        const collectStringValues = (obj: any): void => {
+            if (obj && typeof obj === 'object') {
+                // Assume the values are the sensitive parts
+                Object.values(obj).forEach((val: any) => {
+                    if (typeof val === 'string') {
+                        values.push(val)
+                    }
+                })
+            }
+        }
+
         hogFunction.inputs_schema?.forEach((schema) => {
-            if (schema.secret || schema.type === 'integration') {
+            if (
+                schema.secret ||
+                schema.type === 'integration' ||
+                schema.type === 'integration_multi' ||
+                schema.type === 'push_subscription'
+            ) {
                 const value = inputs[schema.key]
                 if (typeof value === 'string') {
                     values.push(value)
+                } else if (schema.type === 'integration_multi' && Array.isArray(value)) {
+                    // integration_multi resolves to an array of integration objects, each carrying its own
+                    // sensitive_config (e.g. APNs signing_key, FCM access_token_raw) — mask every one.
+                    value.forEach(collectStringValues)
                 } else if (
-                    (schema.type === 'dictionary' || schema.type === 'integration') &&
+                    (schema.type === 'dictionary' ||
+                        schema.type === 'integration' ||
+                        schema.type === 'push_subscription') &&
                     typeof value === 'object'
                 ) {
-                    // Assume the values are the sensitive parts
-                    Object.values(value).forEach((val: any) => {
-                        if (typeof val === 'string') {
-                            values.push(val)
-                        }
-                    })
+                    collectStringValues(value)
                 }
             }
         })

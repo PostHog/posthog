@@ -16,8 +16,10 @@ _LAZY = {
     "update_node_type": "logic.saved_query_dag_sync",
     "is_saved_query_on_v2_schedule": "logic.node_materialization",
     "materialize_saved_query": "logic.node_materialization",
+    "saved_query_materialized_at": "logic.saved_query_freshness",
     "start_node_materialization": "logic.node_materialization",
     "compute_enrichment_hash": "logic.enrich_view_semantics",
+    "enrichment_gates_pass": "logic.enrich_view_semantics",
     "enrich_view_semantics_sync": "logic.enrich_view_semantics",
 }
 

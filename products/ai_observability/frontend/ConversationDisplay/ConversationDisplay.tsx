@@ -17,6 +17,7 @@ import { MetadataHeader } from './MetadataHeader'
 export interface ConversationDisplayProps {
     eventProperties: EventType['properties']
     eventId: string
+    eventName?: string
     /** Event timestamp, needed to fetch heavy props via TraceQuery when they've been stripped from `events`. */
     eventTimestamp?: string
 }
@@ -24,10 +25,19 @@ export interface ConversationDisplayProps {
 export function ConversationDisplay({
     eventProperties,
     eventId,
+    eventName,
     eventTimestamp,
 }: ConversationDisplayProps): JSX.Element {
-    const rawInput = eventProperties.$ai_input ?? eventProperties.$ai_input_state
-    const rawOutput = eventProperties.$ai_output_choices ?? eventProperties.$ai_output_state
+    const rawInput =
+        eventName === '$ai_generation' || eventName === '$ai_embedding'
+            ? eventProperties.$ai_input
+            : eventProperties.$ai_input_state
+    const rawOutput =
+        eventName === '$ai_generation'
+            ? (eventProperties.$ai_output_choices ?? eventProperties.$ai_output)
+            : eventName === '$ai_embedding'
+              ? 'Embedding vector generated'
+              : eventProperties.$ai_output_state
     const rawTools = eventProperties.$ai_tools
     const { input, output, tools, isLoading } = useAIData({
         uuid: eventId,

@@ -19,7 +19,7 @@ import {
 import { CdpProducerName } from './outputs/producers'
 import { createCdpOutputsRegistry } from './outputs/registry'
 import { CapturedEventsService } from './services/captured-events/captured-events.service'
-import { HogExecutorService } from './services/hog-executor.service'
+import { HogExecutorService, MAX_FETCH_TIMEOUT_MS, cdpTrackedFetch } from './services/hog-executor.service'
 import { HogInputsService } from './services/hog-inputs.service'
 import { HogFlowDuplicateObserverService } from './services/hogflows/hogflow-duplicate-observer.service'
 import { HogFlowExecutorService } from './services/hogflows/hogflow-executor.service'
@@ -31,10 +31,12 @@ import { HogFunctionTemplateManagerService } from './services/managers/hog-funct
 import { IntegrationManagerService } from './services/managers/integration-manager.service'
 import { RecipientsManagerService } from './services/managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
+import { EmailSuppressionService } from './services/messaging/email-suppression.service'
 import { EmailValidationService } from './services/messaging/email-validation.service'
 import { EmailService } from './services/messaging/email.service'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
 import { MessageAssetsService } from './services/messaging/message-assets.service'
+import { PushNotificationService } from './services/messaging/push-notification.service'
 import { RecipientPreferencesService } from './services/messaging/recipient-preferences.service'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import { HogFunctionMonitoringService } from './services/monitoring/hog-function-monitoring.service'
@@ -88,6 +90,7 @@ export interface CdpCoreServices {
     hogFlowFunctionsService: HogFlowFunctionsService
     recipientsManager: RecipientsManagerService
     recipientPreferencesService: RecipientPreferencesService
+    emailSuppressionService: EmailSuppressionService
     teamWorkflowsConfigService: TeamWorkflowsConfigService
     hogFlowExecutor: HogFlowExecutorService
     hogFunctionMonitoringService: HogFunctionMonitoringService
@@ -143,14 +146,14 @@ export type CdpCoreServicesConfig = Pick<
         | 'SES_SECRET_ACCESS_KEY'
         | 'SES_REGION'
         | 'SES_ENDPOINT'
+        | 'EMAIL_SUPPRESSION_WRITE_ENABLED'
+        | 'EMAIL_SUPPRESSION_ENFORCE_ENABLED'
+        | 'EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD'
         | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
         | 'CDP_FETCH_RETRIES'
         | 'CDP_FETCH_BACKOFF_BASE_MS'
         | 'CDP_FETCH_BACKOFF_MAX_MS'
-        | 'CDP_SELF_LOOP_GUARD_MODE'
         | 'CDP_EMAIL_TRACKING_URL'
-        | 'CDP_EMAIL_MX_VALIDATION_ENABLED'
-        | 'CDP_EMAIL_MX_VALIDATION_ENFORCE_TEAMS'
         | 'HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC'
         | 'HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER'
         | 'HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC'
@@ -160,7 +163,6 @@ export type CdpCoreServicesConfig = Pick<
         | 'HOG_INVOCATION_RESULTS_ENABLED'
         | 'MESSAGE_ASSETS_TOPIC'
         | 'MESSAGE_ASSETS_PRODUCER'
-        | 'MESSAGE_ASSETS_CAPTURE_ENABLED'
         | 'CDP_PREFILTERED_EVENTS_TOPIC'
         | 'CDP_PREFILTERED_EVENTS_PRODUCER'
         | 'CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC'
@@ -391,11 +393,18 @@ export function createCdpCoreServices(
           )
         : null
 
-    const hogInputsService = new HogInputsService(deps.integrationManager, config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
     const trackingCodeSigner = new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL)
     const teamWorkflowsConfigService = new TeamWorkflowsConfigService(deps.postgres)
     const outputs = createCdpOutputsRegistry().build(deps.cdpProducerRegistry, config)
-    const messageAssetsService = new MessageAssetsService(outputs, config)
+    const messageAssetsService = new MessageAssetsService(outputs)
+    // Constructed here (rather than below with the other messaging services) so it can be threaded
+    // into EmailService — the pre-send suppression check lives there so every send path shares one
+    // choke point regardless of whether the invocation came from a workflow action or a hog function.
+    const emailSuppressionService = new EmailSuppressionService(deps.postgres, {
+        writeEnabled: config.EMAIL_SUPPRESSION_WRITE_ENABLED,
+        enforceEnabled: config.EMAIL_SUPPRESSION_ENFORCE_ENABLED,
+        transientBounceThreshold: config.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD,
+    })
     const emailService = new EmailService(
         {
             sesAccessKeyId: config.SES_ACCESS_KEY_ID,
@@ -408,9 +417,23 @@ export function createCdpCoreServices(
         config.ENCRYPTION_SALT_KEYS,
         config.SITE_URL,
         trackingCodeSigner,
+        emailSuppressionService,
         messageAssetsService
     )
     const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
+    const hogInputsService = new HogInputsService(deps.integrationManager, recipientTokensService, deps.encryptedFields)
+    const pushNotificationService = new PushNotificationService(
+        deps.integrationManager,
+        deps.encryptedFields,
+        {
+            trackedFetch: cdpTrackedFetch,
+            maxFetchTimeoutMs: MAX_FETCH_TIMEOUT_MS,
+            maxRetries: config.CDP_FETCH_RETRIES,
+            backoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
+            backoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
+        },
+        redis
+    )
 
     const hogExecutor = new HogExecutorService(
         {
@@ -419,12 +442,12 @@ export function createCdpCoreServices(
             fetchRetries: config.CDP_FETCH_RETRIES,
             fetchBackoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
             fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
-            selfLoopGuardMode: config.CDP_SELF_LOOP_GUARD_MODE,
         },
         { teamManager: deps.teamManager, siteUrl: config.SITE_URL },
         hogInputsService,
         emailService,
-        recipientTokensService
+        recipientTokensService,
+        pushNotificationService
     )
 
     const hogFunctionTemplateManager = new HogFunctionTemplateManagerService(deps.postgres)
@@ -435,12 +458,12 @@ export function createCdpCoreServices(
     )
 
     const recipientsManager = new RecipientsManagerService(deps.postgres)
-    const recipientPreferencesService = new RecipientPreferencesService(recipientsManager)
+    const recipientPreferencesService = new RecipientPreferencesService(recipientsManager, emailSuppressionService)
     // MX verdicts live on the dedicated SES Valkey (same instance as the SES rate
     // limiter, separate pool). The pool is created by the server only on pods
     // whose capabilities execute email actions; everywhere else this is null
     // and EmailValidationService degrades to the local cache + DNS.
-    const emailValidationService = new EmailValidationService(config, deps.emailValidationValkey)
+    const emailValidationService = new EmailValidationService(deps.emailValidationValkey)
     // Observer mirrors writes to Valkey (load-only); only the primary path drives metrics.
     const hogFlowDuplicateObserver = new HogFlowDuplicateObserverService(redis, valkeyShadow?.writer ?? null)
     const hogFlowExecutor = new HogFlowExecutorService(
@@ -478,6 +501,7 @@ export function createCdpCoreServices(
         hogFlowFunctionsService,
         recipientsManager,
         recipientPreferencesService,
+        emailSuppressionService,
         teamWorkflowsConfigService,
         hogFlowExecutor,
         hogFunctionMonitoringService,

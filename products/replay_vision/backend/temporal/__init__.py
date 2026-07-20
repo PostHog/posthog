@@ -6,6 +6,7 @@ from products.replay_vision.backend.temporal.activities import (
     call_scanner_provider_activity,
     cleanup_gemini_file_activity,
     count_in_flight_applies_activity,
+    count_in_flight_by_team_activity,
     create_observation_activity,
     delete_scanner_schedule_activity,
     embed_observation_activity,
@@ -14,6 +15,7 @@ from products.replay_vision.backend.temporal.activities import (
     emit_observation_signal_activity,
     ensure_session_asset_activity,
     fetch_session_events_activity,
+    finalize_evaluation_activity,
     find_scanner_candidates_activity,
     list_enabled_scanners_activity,
     list_scanner_schedules_activity,
@@ -23,21 +25,27 @@ from products.replay_vision.backend.temporal.activities import (
     mark_observation_running_activity,
     mark_observation_succeeded_activity,
     reap_orphaned_observations_activity,
+    record_evaluation_result_activity,
+    refresh_prompt_suggestion_activity,
     refresh_scanner_estimate_activity,
+    select_evaluation_sessions_activity,
     upload_video_to_gemini_activity,
     upsert_scanner_schedule_activity,
 )
 from products.replay_vision.backend.temporal.estimates import RefreshScannerEstimatesWorkflow
+from products.replay_vision.backend.temporal.evaluation_workflow import EvaluatePromptSuggestionWorkflow
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
     ReplayVisionGeminiCleanupSweepWorkflow,
     sweep_gemini_files_activity,
 )
+from products.replay_vision.backend.temporal.logs import install_vision_log_bridge
 from products.replay_vision.backend.temporal.reconciler import ReconcileScannerSchedulesWorkflow
 from products.replay_vision.backend.temporal.sweep_workflow import SweepScannerWorkflow
 from products.replay_vision.backend.temporal.vision_actions import (
     ProcessVisionActionWorkflow,
     create_vision_action_run_activity,
     emit_action_ready_activity,
+    evaluate_alert_activity,
     evaluate_due_vision_actions_activity,
     synthesize_group_summary_activity,
     update_vision_action_run_activity,
@@ -45,8 +53,13 @@ from products.replay_vision.backend.temporal.vision_actions import (
 )
 from products.replay_vision.backend.temporal.workflow import ApplyScannerWorkflow
 
+# Ship this package's pipeline logs into the PostHog Logs product wherever the worker imports it.
+# A no-op until OTLP_LOGS_INGEST_* are configured.
+install_vision_log_bridge()
+
 WORKFLOWS = [
     ApplyScannerWorkflow,
+    EvaluatePromptSuggestionWorkflow,
     ReconcileScannerSchedulesWorkflow,
     RefreshScannerEstimatesWorkflow,
     ReplayVisionGeminiCleanupSweepWorkflow,
@@ -70,7 +83,12 @@ ACTIVITIES: list[Callable[..., Any]] = [
     cleanup_gemini_file_activity,
     find_scanner_candidates_activity,
     count_in_flight_applies_activity,
+    count_in_flight_by_team_activity,
     advance_scanner_watermark_activity,
+    refresh_prompt_suggestion_activity,
+    select_evaluation_sessions_activity,
+    record_evaluation_result_activity,
+    finalize_evaluation_activity,
     list_enabled_scanners_activity,
     list_scanner_schedules_activity,
     upsert_scanner_schedule_activity,
@@ -79,6 +97,7 @@ ACTIVITIES: list[Callable[..., Any]] = [
     refresh_scanner_estimate_activity,
     reap_orphaned_observations_activity,
     sweep_gemini_files_activity,
+    evaluate_alert_activity,
     evaluate_due_vision_actions_activity,
     create_vision_action_run_activity,
     validate_vision_action_activity,
@@ -91,6 +110,7 @@ __all__ = [
     "ACTIVITIES",
     "WORKFLOWS",
     "ApplyScannerWorkflow",
+    "EvaluatePromptSuggestionWorkflow",
     "ProcessVisionActionWorkflow",
     "ReconcileScannerSchedulesWorkflow",
     "RefreshScannerEstimatesWorkflow",
@@ -98,14 +118,17 @@ __all__ = [
     "SweepScannerWorkflow",
     "create_vision_action_run_activity",
     "emit_action_ready_activity",
+    "evaluate_alert_activity",
     "evaluate_due_vision_actions_activity",
     "synthesize_group_summary_activity",
     "update_vision_action_run_activity",
     "validate_vision_action_activity",
     "advance_scanner_watermark_activity",
+    "refresh_prompt_suggestion_activity",
     "call_scanner_provider_activity",
     "cleanup_gemini_file_activity",
     "count_in_flight_applies_activity",
+    "count_in_flight_by_team_activity",
     "create_observation_activity",
     "delete_scanner_schedule_activity",
     "embed_observation_activity",
@@ -123,7 +146,10 @@ __all__ = [
     "mark_observation_running_activity",
     "mark_observation_succeeded_activity",
     "reap_orphaned_observations_activity",
+    "record_evaluation_result_activity",
     "refresh_scanner_estimate_activity",
+    "select_evaluation_sessions_activity",
+    "finalize_evaluation_activity",
     "sweep_gemini_files_activity",
     "upload_video_to_gemini_activity",
     "upsert_scanner_schedule_activity",

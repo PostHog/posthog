@@ -103,6 +103,13 @@ class SlackSettings(UUIDModel):
     )
     slack_workspace_id = models.CharField(max_length=64)
     slack_user_id = models.CharField(max_length=64, null=True, blank=True)
+    # Unused: holds historical per-integration agent permission modes from the retired
+    # approval-card flow. Retained so the column needs no migration.
+    permission_modes = models.JSONField(
+        blank=True,
+        null=True,
+        help_text="Per-integration permission mode for Slack-started agent runs, keyed by integration id.",
+    )
     # Keys mirror the task-run request serializer.
     ai_preferences = models.JSONField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)

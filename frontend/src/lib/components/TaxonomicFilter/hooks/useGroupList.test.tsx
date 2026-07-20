@@ -105,6 +105,46 @@ describe('useGroupList', () => {
             expect(result.current.isLoading).toBe(false)
         })
 
+        it.each([
+            {
+                name: 'different excludedProperties do not share a cache entry',
+                a: { excludedProperties: ['$mcp_tool_name'] },
+                b: { excludedProperties: [] },
+                expectedFetches: 2,
+            },
+            {
+                name: 'different propertyAllowList do not share a cache entry',
+                a: { propertyAllowList: ['$mcp_tool_name'] },
+                b: {},
+                expectedFetches: 2,
+            },
+            {
+                name: 'reordered content-equal excludedProperties share a cache entry',
+                a: { excludedProperties: ['$mcp_tool_name', '$mcp_is_error'] },
+                b: { excludedProperties: ['$mcp_is_error', '$mcp_tool_name'] },
+                expectedFetches: 1,
+            },
+        ])('$name', async ({ a, b, expectedFetches }) => {
+            // Exclusions/allowlists are fetch-time params: dropping them from the cache key
+            // would let one picker silently serve another's list for the whole staleTime
+            // window, while keying on order would double-fetch content-equal sets.
+            apiGet.mockResolvedValue({ results: [], count: 0 })
+            const base = {
+                type: TaxonomicFilterGroupType.EventProperties,
+                endpoint: 'api/projects/1/property_definitions',
+            }
+            renderHook(() => useGroupList({ group: makeGroup({ ...base, ...a }), searchQuery: '' }))
+            renderHook(() => useGroupList({ group: makeGroup({ ...base, ...b }), searchQuery: '' }))
+            // The exact count is deterministic: fetches fire synchronously from act-flushed
+            // effects, so both hooks' requests (or cache hits) precede waitFor's first poll.
+            await waitFor(() => expect(apiGet).toHaveBeenCalledTimes(expectedFetches))
+            if (expectedFetches === 2) {
+                // The differing params must actually reach the request, not just the cache key.
+                const [firstUrl, secondUrl] = apiGet.mock.calls.map(([url]) => url)
+                expect(firstUrl).not.toEqual(secondUrl)
+            }
+        })
+
         it('respects minSearchQueryLength gating', () => {
             const group = makeGroup({
                 endpoint: 'api/projects/1/whatever',

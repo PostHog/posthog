@@ -15,6 +15,7 @@ from django.db.models import QuerySet
 from django.http import HttpRequest
 
 import structlog
+from drf_spectacular.utils import empty
 from posthoganalytics import capture_exception
 from prometheus_client import Counter
 from requests.adapters import HTTPAdapter
@@ -53,6 +54,24 @@ class ErrorResponseSerializer(serializers.Serializer):
 class PaginationMode(Enum):
     next = auto()
     previous = auto()
+
+
+class ServiceRequest:
+    """Minimal request-like object for DRF serializers used from a service layer.
+
+    Provides the subset of the DRF Request interface that serializers actually
+    use (request.user and friends), without DRF's authentication machinery.
+    """
+
+    def __init__(self, user: Any):
+        self.user = user
+        self.method = "POST"
+        self.path = "/"
+        self.data: dict = {}
+        self.GET: dict = {}
+        self.META: dict = {}
+        self.headers: dict = {}
+        self.session: dict = {}
 
 
 # This overrides a change in DRF 3.15 that alters our behavior. If the user passes an empty argument,
@@ -527,7 +546,7 @@ def on_permitted_recording_domain(permitted_domains: list[str], request: HttpReq
 
 
 # By default, DRF spectacular uses the serializer of the view as the response format for actions. However, most actions don't return a version of the model, but something custom. This function removes the response from all actions in the documentation.
-def action(methods=None, detail=None, url_path=None, url_name=None, responses=None, **kwargs):
+def action(methods=None, detail=None, url_path=None, url_name=None, responses=None, request=empty, **kwargs):
     """
     Mark a ViewSet method as a routable action.
 
@@ -545,6 +564,8 @@ def action(methods=None, detail=None, url_path=None, url_name=None, responses=No
                      Defaults to the name of the method decorated with underscores
                      replaced with dashes.
     :param responses: Serializer or pydantic model of the response for documentation
+    :param request: Serializer/schema of the request body for documentation. Defaults to inferring
+                    from the viewset's ``serializer_class``; pass ``None`` for actions with no body.
     :param kwargs: Additional properties to set on the view.  This can be used
                    to override viewset-level *_classes settings, equivalent to
                    how the `@renderer_classes` etc. decorators work for function-
@@ -552,7 +573,7 @@ def action(methods=None, detail=None, url_path=None, url_name=None, responses=No
     """
 
     def decorator(func):
-        @extend_schema(responses=responses)
+        @extend_schema(request=request, responses=responses)
         @drf_action(
             methods=methods,
             detail=detail,

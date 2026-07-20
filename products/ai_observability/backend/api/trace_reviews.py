@@ -13,7 +13,6 @@ from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse, extend_schema_field
 from rest_framework import serializers, status
-from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
@@ -25,7 +24,6 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
 from posthog.permissions import AccessControlPermission
-from posthog.ph_client import feature_enabled_or_false
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
@@ -37,28 +35,7 @@ from products.ai_observability.backend.score_definition_configs import (
     normalize_score_definition_key,
 )
 
-TRACE_REVIEW_FEATURE_FLAG = "llma-trace-review"
 TRACE_REVIEW_SCORE_VALUE_FIELDS = ("categorical_values", "numeric_value", "boolean_value")
-
-
-def is_trace_review_feature_enabled(user: User, team: Team) -> bool:
-    distinct_id = user.distinct_id or str(user.uuid)
-    organization_id = str(team.organization_id)
-    project_id = str(team.id)
-
-    return feature_enabled_or_false(
-        TRACE_REVIEW_FEATURE_FLAG,
-        distinct_id,
-        groups={"organization": organization_id, "project": project_id},
-        group_properties={"organization": {"id": organization_id}, "project": {"id": project_id}},
-        only_evaluate_locally=False,
-        send_feature_flag_events=False,
-    )
-
-
-class TraceReviewFeatureFlagPermission(BasePermission):
-    def has_permission(self, request, view) -> bool:
-        return is_trace_review_feature_enabled(cast(User, request.user), view.team)
 
 
 class TraceReviewScoreSerializer(serializers.ModelSerializer):
@@ -589,7 +566,7 @@ class TraceReviewFilter(django_filters.FilterSet):
 
 class TraceReviewViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ModelViewSet):
     scope_object = "llm_analytics"
-    permission_classes = [TraceReviewFeatureFlagPermission, AccessControlPermission]
+    permission_classes = [AccessControlPermission]
     serializer_class = TraceReviewSerializer
     queryset = TraceReview.objects.all()
     filter_backends = [DjangoFilterBackend]

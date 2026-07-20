@@ -102,6 +102,10 @@ class ErrorTrackingIssue(UUIDTModel):
             ErrorTrackingSpikeEvent.objects.filter(team_id=team_id, issue_id__in=existing_source_issue_ids).update(
                 issue_id=target_issue_id
             )
+            # Read source assignees before the delete cascades their assignment rows away
+            _adopt_source_assignee_on_merge(
+                team_id=team_id, target_issue_id=target_issue_id, source_issue_ids=existing_source_issue_ids
+            )
             ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=existing_source_issue_ids).delete()
 
             _sync_error_tracking_issue_changes_on_commit(
@@ -233,6 +237,34 @@ def _lock_merge_issues(*, team_id: int, target_issue_id: UUID, source_issue_ids:
         return []
 
     return source_issue_ids
+
+
+def _adopt_source_assignee_on_merge(*, team_id: int, target_issue_id: UUID, source_issue_ids: list[UUID]) -> None:
+    """Carry a single shared assignee from merged issues onto an unassigned target.
+
+    Only fires when the target has no assignee and the sources resolve to exactly one
+    distinct assignee — ambiguous (2+) or empty assignee sets leave the target untouched.
+    Source issue ids are already team-scoped and row-locked by the caller.
+    """
+    if ErrorTrackingIssueAssignment.objects.filter(issue_id=target_issue_id).exists():
+        return
+
+    # Lock the source assignments so a concurrent assign can't commit a new assignee that we then
+    # read as stale and delete via cascade — matches the fingerprint locking in merge().
+    distinct_assignees = {
+        (assignment.user_id, assignment.role_id)
+        for assignment in ErrorTrackingIssueAssignment.objects.select_for_update().filter(issue_id__in=source_issue_ids)
+    }
+    if len(distinct_assignees) != 1:
+        return
+
+    user_id, role_id = next(iter(distinct_assignees))
+    if user_id is None and role_id is None:
+        return
+
+    ErrorTrackingIssueAssignment.objects.create(
+        team_id=team_id, issue_id=target_issue_id, user_id=user_id, role_id=role_id
+    )
 
 
 def _lock_expected_fingerprint_issue_ids(*, team_id: int, expected_fingerprint_issue_ids: dict[str, UUID]) -> bool:
@@ -731,9 +763,25 @@ class ErrorTrackingSettings(models.Model):
     project_rate_limit_bucket_size_minutes = models.IntegerField(null=True, blank=True)
     per_issue_rate_limit_value = models.IntegerField(null=True, blank=True)
     per_issue_rate_limit_bucket_size_minutes = models.IntegerField(null=True, blank=True)
+    # Nullable mirrors the source Team.autocapture_exceptions_opt_in during the move; null == disabled.
+    autocapture_exceptions_opt_in = models.BooleanField(null=True, blank=True)
 
     class Meta:
         db_table = "posthog_errortrackingsettings"
+
+
+def sync_autocapture_opt_in(team_id: int, opt_in: bool | None) -> None:
+    """Mirror Team.autocapture_exceptions_opt_in onto ErrorTrackingSettings while the setting is being moved.
+
+    Only opted-in teams get a row — a missing row reads as disabled, so teams that never opted in stay
+    row-less. Disabling an already-opted-in team syncs the existing row instead of creating one.
+    """
+    if opt_in:
+        ErrorTrackingSettings.objects.update_or_create(
+            team_id=team_id, defaults={"autocapture_exceptions_opt_in": True}
+        )
+    else:
+        ErrorTrackingSettings.objects.filter(team_id=team_id).update(autocapture_exceptions_opt_in=opt_in)
 
 
 class ErrorTrackingSpikeEvent(UUIDModel):

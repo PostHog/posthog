@@ -36,7 +36,7 @@ dependencies = [
     "dagster-postgres==0.26.18",
     "dagster-slack==0.26.18",
     "dagster-webserver==1.10.18",
-    "deltalake[pyarrow]==1.4.0",
+    "deltalake[pyarrow]==1.6.1",
     "dj-database-url~=3.0.0",
     "django~=5.2.0",
     "django-axes[ipware]==8.0.0",
@@ -104,7 +104,7 @@ dependencies = [
     "polars==1.37.1",
     "psycopg2-binary==2.9.10",
     "psycopg[binary]==3.2.4",
-    "pyarrow==18.1.0",
+    "pyarrow==23.0.1",
     "pydantic~=2.12.0",
     "pypdf==6.10.2",
     "pyod==2.0.7",
@@ -235,8 +235,8 @@ dev = [
     "packaging==24.1",
     "parameterized==0.9.0",
     "prance==23.6.21.0",
-    "pyarrow==18.1.0",
-    "pyarrow-stubs==17.16",
+    "pyarrow==23.0.1",
+    "pyarrow-stubs==20.0.0.20260625",
     "pytest~=8.4.2",
     "pytest-asyncio~=1.3.0",
     "pytest-aiohttp~=1.1.0",
@@ -252,7 +252,7 @@ dev = [
     "python-dateutil~=2.9.0",
     "requests-mock~=1.12.1",
     "responses==0.23.1",
-    "ruff~=0.15.16",
+    "ruff~=0.15.20",
     "stpyv8==13.1.201.22; sys_platform != 'linux' or (platform_machine != 'aarch64' and platform_machine != 'arm64')",
     "syrupy~=4.9.1",
     "tach~=0.34",
@@ -276,6 +276,9 @@ dev = [
     "testcontainers[mysql]~=4.14",
     # Developer CLI
     "hogli",
+    # Distributed owners.yaml resolver — installed so hogli's owners:* commands and
+    # the pr-approval gate can `import posthog_owners` from the main venv.
+    "posthog-owners",
     "libcst>=1.8.6,<2.0.0",
 ]
 sentiment = [
@@ -290,13 +293,14 @@ hogql-parser-parity = [
 required-version = ">=0.10.2"
 add-bounds = "major"
 exclude-newer = "7 days"
-exclude-newer-package = { hogql-parser = false, hogql-parser-rs = false, posthoganalytics = false, pixelhog = false, django = false, modal = false }
+exclude-newer-package = { hogql-parser = false, hogql-parser-rs = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, posthog-hogland = false }
 
 [tool.uv.workspace]
-members = ["tools/hogli"]
+members = ["tools/hogli", "tools/owners"]
 
 [tool.uv.sources]
 hogli = { workspace = true }
+posthog-owners = { workspace = true }
 infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", rev = "4e3996becf66bf5c26580aff12a80425d9d56fe5" }
 # pytest-split: pinned to PostHog's fork (immutable tag) for the order-preserving
 # optimal_chunks split. Fork: PostHog/pytest-split (of jerry-git/pytest-split).
@@ -481,6 +485,7 @@ exclude = [
     "posthog/schema.py",
     "posthog/schema_enums.py",
     "posthog/temporal/proxy_service/proto/**",
+    "products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs.py",
 ]
 
 # ---------------------------------------------------------------------------
@@ -512,10 +517,13 @@ ignore_imports = [
     # TODO: existing violations — fix by routing through facade
     "products.agent_platform.backend.presentation.serializers -> products.agent_platform.backend.models",
     "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.db",
+    "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.generated",
+    "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.ingress_client",
     "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.internal_jwt",
     "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.janitor_client",
     "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.kernel_skills",
     "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.posthog_identity_app",
+    "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.skill_editing",
     "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.skill_resolution",
     "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.spec_schema",
     "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.models",
@@ -541,13 +549,16 @@ ignore_imports = [
     # logs presentation isolation (temporary): the moved viewsets still reach in-product
     # internals directly. Removed by the follow-up that thins each viewset to go through
     # the facade.
+    "products.logs.backend.presentation.views.api -> products.logs.backend.column_expressions",
     "products.logs.backend.presentation.views.api -> products.logs.backend.count_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.count_ranges_query_runner",
+    "products.logs.backend.presentation.views.api -> products.logs.backend.group_by_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.has_logs_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.log_attributes_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.log_facet_values_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.log_values_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.logs_query_runner",
+    "products.logs.backend.presentation.views.api -> products.logs.backend.pattern_diff",
     "products.logs.backend.presentation.views.api -> products.logs.backend.patterns_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.services_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.sparkline_query_runner",
@@ -555,19 +566,20 @@ ignore_imports = [
     "products.logs.backend.presentation.views.alerts_api -> products.logs.backend.alert_destinations",
     "products.logs.backend.presentation.views.alerts_api -> products.logs.backend.alert_state_machine",
     "products.logs.backend.presentation.views.alerts_api -> products.logs.backend.models",
+    "products.logs.backend.presentation.views.metric_rules_api -> products.logs.backend.models",
     "products.logs.backend.presentation.views.sampling_api -> products.logs.backend.models",
     "products.logs.backend.presentation.views.views_api -> products.logs.backend.models",
     # logs presentation isolation (temporary): cross-product imports the moved viewsets
     # still make directly. These resolve once cdp/exports expose the needed facades, so
     # they outlive the in-product cleanup above.
     "products.logs.backend.presentation.views.api -> products.exports.backend.models.exported_asset",
-    "products.logs.backend.presentation.views.alerts_api -> products.cdp.backend.api.hog_function",
     "products.logs.backend.presentation.views.alerts_api -> products.cdp.backend.models.hog_functions.hog_function",
     # TODO: notebooks presentation wave — the moved NotebookViewSet still reaches in-product
     # internals (collab, kernel runtime, query validation, models) and the tasks sandbox
     # directly. Thin it to parse -> facade -> serialize and delete each entry.
     # backend:contract-check stays off until this list is empty.
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.activity_logging",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.analytics",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.collab",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.collab_stream",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.kernel_runtime",
@@ -576,6 +588,11 @@ ignore_imports = [
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.presence",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.python_analysis",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.query_validation",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_references",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_serializers",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.temporal.client",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.temporal.sql_v2",
     # TODO: data_warehouse presentation wave — the structural move landed the viewsets under
     # presentation/views/ but they still reach in-product internals and sibling products
     # (warehouse_sources, data_modeling, data_tools, cdp, revenue_analytics, batch_exports)

@@ -335,6 +335,9 @@ describe('DashboardWidgetItem', () => {
     })
 
     it('contains unknown widget errors in the card body while keeping the header', () => {
+        // The thrown render error is expected: React and jsdom both report it to
+        // console.error before the error boundary contains it
+        const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
         const catalogEntryMock = getDashboardWidgetCatalogEntry as jest.Mock
         ;(tryGetDashboardWidgetCatalogEntry as jest.Mock).mockReturnValue(undefined)
         catalogEntryMock.mockImplementation(() => {
@@ -375,5 +378,6 @@ describe('DashboardWidgetItem', () => {
             label: 'Top issues',
             headerTitle: 'Top issues',
         }))
+        consoleErrorSpy.mockRestore()
     })
 })

@@ -12,7 +12,7 @@ use crate::core::types::notification::{
     IssueSpiking, NotificationMeta,
 };
 use crate::modes::processing::rules::assignment::{Assignee, Assignment};
-use crate::types::OutputErrProps;
+use crate::types::ProcessedExceptionProperties;
 use crate::{app_context::AppContext, error::UnhandledError, metric_consts::ISSUE_REOPENED};
 
 #[derive(Debug, Clone)]
@@ -308,6 +308,29 @@ impl IssueFingerprintOverride {
         Ok(res)
     }
 
+    // Batch variant of `load` for fingerprint-version selection: one round-trip
+    // for all candidate values instead of one per version.
+    pub async fn load_many<'c, E>(
+        executor: E,
+        team_id: i32,
+        fingerprints: &[String],
+    ) -> Result<Vec<Self>, UnhandledError>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        let res = sqlx::query_as!(
+            IssueFingerprintOverride,
+            r#"
+            SELECT id, team_id, issue_id, fingerprint, version FROM posthog_errortrackingissuefingerprintv2
+            WHERE team_id = $1 AND fingerprint = ANY($2)
+            "#,
+            team_id,
+            fingerprints
+        ).fetch_all(executor).await?;
+
+        Ok(res)
+    }
+
     pub async fn create_or_load<'c, E>(
         executor: E,
         team_id: i32,
@@ -343,16 +366,16 @@ pub async fn send_issue_created_notification(
     context: &AppContext,
     issue: &Issue,
     assignment: Option<Assignment>,
-    output_props: OutputErrProps,
+    processed_properties: ProcessedExceptionProperties,
     event_uuid: Uuid,
     event_timestamp: &DateTime<Utc>,
 ) -> Result<(), UnhandledError> {
-    let fingerprint = output_props.fingerprint.clone();
+    let fingerprint = processed_properties.fingerprint().to_string();
     publish_ingestion_notification(
         context,
         IngestionNotification::IssueCreated(IssueCreated {
             meta: notification_meta(issue),
-            issue: issue_notification_context(issue, output_props),
+            issue: issue_notification_context(issue, processed_properties),
             fingerprint,
             event_uuid,
             event_timestamp: event_timestamp.to_rfc3339(),
@@ -366,14 +389,14 @@ pub async fn send_issue_reopened_notification(
     context: &AppContext,
     issue: &Issue,
     assignment: Option<Assignment>,
-    output_props: OutputErrProps,
+    processed_properties: ProcessedExceptionProperties,
     event_timestamp: &DateTime<Utc>,
 ) -> Result<(), UnhandledError> {
     publish_ingestion_notification(
         context,
         IngestionNotification::IssueReopened(IssueReopened {
             meta: notification_meta(issue),
-            issue: issue_notification_context(issue, output_props),
+            issue: issue_notification_context(issue, processed_properties),
             event_timestamp: event_timestamp.to_rfc3339(),
             assignee: assignment_to_string(assignment)?,
         }),
@@ -384,7 +407,7 @@ pub async fn send_issue_reopened_notification(
 pub async fn send_issue_spiking_notification(
     context: &AppContext,
     issue: &Issue,
-    output_props: OutputErrProps,
+    processed_properties: ProcessedExceptionProperties,
     computed_baseline: f64,
     current_bucket_value: f64,
 ) -> Result<(), UnhandledError> {
@@ -392,7 +415,7 @@ pub async fn send_issue_spiking_notification(
         context,
         IngestionNotification::IssueSpiking(IssueSpiking {
             meta: notification_meta(issue),
-            issue: issue_notification_context(issue, output_props),
+            issue: issue_notification_context(issue, processed_properties),
             computed_baseline,
             current_bucket_value,
         }),
@@ -409,12 +432,12 @@ fn notification_meta(issue: &Issue) -> NotificationMeta {
 
 fn issue_notification_context(
     issue: &Issue,
-    output_props: OutputErrProps,
+    processed_properties: ProcessedExceptionProperties,
 ) -> IssueNotificationContext {
     IssueNotificationContext {
         issue_id: issue.id,
         issue: issue_snapshot(issue),
-        event_properties: output_props,
+        event_properties: processed_properties,
     }
 }
 

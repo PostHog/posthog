@@ -17,6 +17,7 @@ from rest_framework import status
 from posthog.schema import DateRange, EventPropertyFilter, EventsNode, PropertyOperator, TrendsQuery
 
 from posthog.api.test.dashboards import DashboardAPI
+from posthog.caching.fetch_from_cache import InsightResult
 from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.models import Filter, Team, User
@@ -33,8 +34,11 @@ from posthog.models.project import Project
 from posthog.models.quick_filter import QuickFilter
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.signals import mute_selected_signals
+from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
+from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
+from products.dashboards.backend.access import DashboardAccessMethod
 from products.dashboards.backend.api.dashboard import DashboardSerializer
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
@@ -281,6 +285,17 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         assert result_ids == [target_id]
 
+    def test_list_filter_by_search_decides_match_tier_after_tag_filter(self):
+        self.dashboard_api.create_dashboard({"name": "sales dashboard", "tags": ["marketing"]})
+        similar_id, _ = self.dashboard_api.create_dashboard({"name": "dahsboard metrics", "tags": ["finance"]})
+
+        response = self.dashboard_api.list_dashboards(query_params={"search": "dashboard", "tags": ["finance"]})
+        results = response["results"]
+
+        assert [(d["id"], d["search_match_type"]) for d in results] == [(similar_id, "similar")], (
+            "an exact match removed by the tag filter must not suppress the similar matches that survive it"
+        )
+
     @parameterized.expand(
         [
             ("whitespace-only", "   "),
@@ -358,7 +373,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         assert all(d["name"] != "Totally unrelated" for d in results)
 
-    def test_list_filter_by_search_returns_exact_first_with_match_type(self):
+    def test_list_filter_by_search_hides_similar_matches_when_exact_matches_exist(self):
         for name in ("dashboard overview", "sales dashboard", "dahsboard metrics", "Engineering metrics"):
             self.dashboard_api.create_dashboard({"name": name})
 
@@ -369,11 +384,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert match_type_by_name == {
             "dashboard overview": "exact",
             "sales dashboard": "exact",
-            "dahsboard metrics": "similar",
-        }
-
-        match_types = [d["search_match_type"] for d in results]
-        assert match_types == ["exact", "exact", "similar"], f"exact matches must rank first, got {match_types}"
+        }, "similar matches must be hidden when exact matches exist"
 
     def test_list_filter_by_search_match_type_absent_without_search(self):
         self.dashboard_api.create_dashboard({"name": "Alpha"})
@@ -481,7 +492,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     def test_retrieve_dashboard(self):
         dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
 
-        response_data = self.dashboard_api.get_dashboard(dashboard.pk)
+        with patch("products.dashboards.backend.access.record_dashboard_access") as mock_record_access:
+            response_data = self.dashboard_api.get_dashboard(dashboard.pk)
+
+        mock_record_access.assert_called_once_with(DashboardAccessMethod.HUMAN)
 
         self.assertEqual(response_data["name"], "private dashboard")
         self.assertEqual(response_data["description"], "")
@@ -542,6 +556,36 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         dashboard.refresh_from_db()
         self.assertEqual(dashboard.name, "dashboard new name")
+
+    @patch("products.product_analytics.backend.api.insight.record_dashboard_cache_outcome")
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_update_dashboard_does_not_record_cache_outcomes(
+        self,
+        mock_calculate: mock.MagicMock,
+        mock_record_outcome: mock.MagicMock,
+    ) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Dashboard", created_by=self.user)
+        insight = Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        mock_calculate.return_value = InsightResult(
+            result=[],
+            last_refresh=now(),
+            cache_key="cache-key",
+            is_cached=False,
+            timezone=self.team.timezone,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
+            {"name": "Updated dashboard"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_record_outcome.assert_not_called()
 
     def test_cannot_update_dashboard_with_invalid_filters(self):
         dashboard = Dashboard.objects.create(
@@ -652,28 +696,66 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             }
 
             baseline = 9
-            # Each dashboard GET that materializes at least one insight runner issues a single
-            # `PropertyAccessControl` lookup, memoized across all runners on the dashboard by
-            # `get_restricted_properties_for_team`'s per-scope cache (so it stays at +1 no
-            # matter how many insights are attached). With zero insights no runner is built and
-            # the lookup is skipped entirely.
-            property_access_control_lookup = 1
+            # Each dashboard GET that materializes at least one insight runner performs one
+            # property-access-control feature check, memoized across all runners on the dashboard
+            # by `get_restricted_properties_for_team`'s per-scope cache. It costs no Postgres
+            # queries: the runner passes its already-loaded team, so the check skips the Team
+            # lookup, and with the feature unavailable no PropertyAccessControl rows are read.
 
             with self.assertNumQueries(baseline + 11):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
-            # baseline + 11 + 11 + property_access_control_lookup once at least one insight materializes
+            # baseline + 11 + 9 once at least one insight materializes
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 11 + property_access_control_lookup):
+            with self.assertNumQueries(baseline + 11 + 9):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 11 + property_access_control_lookup):
+            with self.assertNumQueries(baseline + 11 + 9):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
         self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-        with self.assertNumQueries(baseline + 11 + 11 + property_access_control_lookup):
+        with self.assertNumQueries(baseline + 11 + 9):
             self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
+
+    def test_insight_alerts_do_not_nplus1_dashboard_gets(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        def _add_insight_with_alerts() -> None:
+            insight_id, _ = self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
+            threshold = Threshold.objects.create(
+                team=self.team,
+                insight_id=insight_id,
+                created_by=self.user,
+                configuration={"type": "absolute", "bounds": {"upper": 1}},
+            )
+            # one threshold alert and one detector alert — AlertSerializer emits threshold and
+            # subscribed_users per alert, the two relations that regress to per-alert queries
+            for alert_threshold in (threshold, None):
+                alert = AlertConfiguration.objects.create(
+                    team=self.team,
+                    insight_id=insight_id,
+                    created_by=self.user,
+                    name="alert",
+                    threshold=alert_threshold,
+                    condition={"type": "absolute_value"},
+                    config={"type": "TrendsAlertConfig", "series_index": 0},
+                    detector_config=None if alert_threshold else {"type": "zscore", "threshold": 3},
+                )
+                AlertSubscription.objects.create(user=self.user, alert_configuration=alert, created_by=self.user)
+
+        def _dashboard_query_count() -> int:
+            with capture_db_queries() as ctx:
+                self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
+            return len(ctx.captured_queries)
+
+        _add_insight_with_alerts()
+        _dashboard_query_count()  # warmup: absorbs one-off writes like last_accessed_at
+        baseline = _dashboard_query_count()
+
+        _add_insight_with_alerts()
+        _add_insight_with_alerts()
+        self.assertEqual(_dashboard_query_count(), baseline)
 
     @snapshot_postgres_queries
     def test_listing_dashboards_is_not_nplus1(self) -> None:
@@ -820,25 +902,13 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             self.assertIsNotNone(response_data["tiles"][0]["last_refresh"])
             self.assertEqual(response_data["tiles"][0]["insight"]["result"][0]["count"], 0)
 
-            item_default.refresh_from_db()
-            item_trends.refresh_from_db()
-
-            self.assertEqual(
-                isoparse(response_data["tiles"][0]["last_refresh"]),
-                item_default.caching_state.last_refresh,
-            )
-            self.assertEqual(
-                isoparse(response_data["tiles"][1]["last_refresh"]),
-                item_default.caching_state.last_refresh,
-            )
-
             self.assertAlmostEqual(
-                item_default.caching_state.last_refresh,
+                isoparse(response_data["tiles"][0]["last_refresh"]),
                 now(),
                 delta=datetime.timedelta(seconds=5),
             )
             self.assertAlmostEqual(
-                item_trends.caching_state.last_refresh,
+                isoparse(response_data["tiles"][1]["last_refresh"]),
                 now(),
                 delta=datetime.timedelta(seconds=5),
             )
@@ -2684,6 +2754,29 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             },
         ]
 
+    @parameterized.expand(
+        [
+            ("inline_fields", {"type": "BUTTON", "url": "/replay/home", "text": "Watch replays", "layouts": {}}),
+            (
+                "nested_button_tile",
+                {"type": "BUTTON", "button_tile": {"url": "/replay/home", "text": "Watch replays"}, "layouts": {}},
+            ),
+        ]
+    )
+    def test_create_from_template_json_can_provide_button_tile(self, _name: str, button_tile: dict) -> None:
+        template: dict = {**valid_template, "tiles": [button_tile]}
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
+            {"template": template},
+        )
+        assert response.status_code == 200, response.json()
+
+        tiles = response.json()["tiles"]
+        assert len(tiles) == 1
+        assert tiles[0]["button_tile"]["url"] == "/replay/home"
+        assert tiles[0]["button_tile"]["text"] == "Watch replays"
+
     def test_create_from_template_json_can_provide_query_tile(self) -> None:
         template: dict = {
             **valid_template,
@@ -2746,6 +2839,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "effective_privilege_level": 37,
                     "effective_restriction_level": 21,
                     "favorited": False,
+                    "filter_override_context": None,
                     "filters": {},
                     "filters_hash": ANY,
                     "hasMore": None,

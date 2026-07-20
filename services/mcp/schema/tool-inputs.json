@@ -406,8 +406,8 @@
                 },
                 "feedback_type": {
                     "type": "string",
-                    "enum": ["product", "mcp", "docs", "other"],
-                    "description": "What this feedback is about. \"product\" = any PostHog product or feature (insights, session replay, feature flags, the data warehouse, web analytics, error tracking, etc.). \"mcp\" = this MCP server itself — a tool, its input schema, response format, an error, or these instructions. \"docs\" = PostHog documentation. \"other\" = anything that doesn't fit the above."
+                    "enum": ["product", "mcp", "docs", "scout", "other"],
+                    "description": "What this feedback is about. \"product\" = any PostHog product or feature (insights, session replay, feature flags, the data warehouse, web analytics, error tracking, etc.). \"mcp\" = this MCP server itself — a tool, its input schema, response format, an error, or these instructions. \"docs\" = PostHog documentation. \"scout\" = a canonical PostHog scout skill's content — reserved for scheduled scout runs reporting an improvement opportunity in their own PostHog-authored skill (set `scout_skill_name`, `scout_skill_version`, and `scout_category`). \"other\" = anything that doesn't fit the above."
                 },
                 "sentiment": {
                     "type": "string",
@@ -430,6 +430,28 @@
                         "instructions_clarity",
                         "performance",
                         "error_message",
+                        "other"
+                    ]
+                },
+                "scout_skill_name": {
+                    "description": "For scout feedback (`feedback_type: \"scout\"`) only: the canonical scout skill the feedback is about (e.g. \"signals-scout-web-analytics\"), exactly as named in the run identity. Required for scout feedback — without it the feedback cannot be aggregated per skill.",
+                    "type": "string"
+                },
+                "scout_skill_version": {
+                    "description": "For scout feedback (`feedback_type: \"scout\"`) only: the skill version the run executed (from the run identity). Feedback is only actionable against the version that produced it — the skill may have moved since.",
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                },
+                "scout_category": {
+                    "description": "For scout feedback (`feedback_type: \"scout\"`) only: the single category that best describes the skill gap. \"false_positive\" = the skill's detection rules surfaced something that wasn't real; \"missed_detection\" = a real issue the skill's instructions steered you past; \"discriminator_gap\" = the skill's signal-vs-baseline discriminator doesn't hold for a class of projects; \"wasted_investigation\" = an investigation pattern the skill mandates burned budget without payoff; \"instruction_ambiguity\" = an instruction that is ambiguous in practice. Omit for non-scout feedback.",
+                    "type": "string",
+                    "enum": [
+                        "false_positive",
+                        "missed_detection",
+                        "discriminator_gap",
+                        "wasted_investigation",
+                        "instruction_ambiguity",
                         "other"
                     ]
                 },
@@ -510,13 +532,190 @@
             "required": ["insightId"]
         },
         "OrganizationSetActiveSchema": {
+            "anyOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "orgId": {
+                            "type": "string",
+                            "description": "The organization to switch to: the `id` returned by `organizations-list` (a UUID-like string, not the organization name). Use `organizations-list` to resolve a name to its id."
+                        }
+                    },
+                    "required": ["orgId"]
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "id": {
+                            "type": "string",
+                            "description": "Alias for `orgId`. Accepts the `id` returned by `organizations-list` / `organization-get`."
+                        }
+                    },
+                    "required": ["id"]
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "organizationId": {
+                            "type": "string",
+                            "description": "Alias for `orgId`. Accepts the `id` returned by `organizations-list` / `organization-get`."
+                        }
+                    },
+                    "required": ["organizationId"]
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "organization_id": {
+                            "type": "string",
+                            "description": "Alias for `orgId`. Accepts the `id` returned by `organizations-list` / `organization-get`."
+                        }
+                    },
+                    "required": ["organization_id"]
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "org_id": {
+                            "type": "string",
+                            "description": "Alias for `orgId`. Accepts the `id` returned by `organizations-list` / `organization-get`."
+                        }
+                    },
+                    "required": ["org_id"]
+                }
+            ]
+        },
+        "PathCleaningRulesUpdateSchema": {
             "type": "object",
             "properties": {
-                "orgId": {
-                    "type": "string"
+                "operations": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                        "oneOf": [
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "action": {
+                                        "type": "string",
+                                        "const": "append"
+                                    },
+                                    "alias": {
+                                        "type": "string",
+                                        "description": "The human-readable replacement, e.g. \"/users/<id>/profile\". Use angle-bracket placeholders (<id>, <uuid>, <slug>) by convention. An empty string is valid — it deletes the matched text (e.g. to strip a \"?page=N\" fragment). Not a regex template — backreferences are not supported."
+                                    },
+                                    "regex": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "description": "A re2 pattern matched against the path, e.g. \"/users/\\\\d+/profile\". No need to escape \"/\". Anchor with ^ / $ when you mean it."
+                                    }
+                                },
+                                "required": ["action", "alias", "regex"],
+                                "description": "Add a new rule at the end of the ordered list (runs last)."
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "action": {
+                                        "type": "string",
+                                        "const": "insert"
+                                    },
+                                    "index": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 9007199254740991,
+                                        "description": "Zero-based position to insert the rule at. Existing rules shift down."
+                                    },
+                                    "alias": {
+                                        "type": "string",
+                                        "description": "The human-readable replacement, e.g. \"/users/<id>/profile\". Use angle-bracket placeholders (<id>, <uuid>, <slug>) by convention. An empty string is valid — it deletes the matched text (e.g. to strip a \"?page=N\" fragment). Not a regex template — backreferences are not supported."
+                                    },
+                                    "regex": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "description": "A re2 pattern matched against the path, e.g. \"/users/\\\\d+/profile\". No need to escape \"/\". Anchor with ^ / $ when you mean it."
+                                    }
+                                },
+                                "required": ["action", "index", "alias", "regex"],
+                                "description": "Insert a new rule at a specific position — use when it must run before more general rules."
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "action": {
+                                        "type": "string",
+                                        "const": "replace"
+                                    },
+                                    "target_alias": {
+                                        "type": "string",
+                                        "description": "The alias of the existing rule to target (must match an existing rule exactly). Use \"\" to target a rule whose alias is empty."
+                                    },
+                                    "alias": {
+                                        "description": "New alias. Omit to keep the current alias.",
+                                        "type": "string"
+                                    },
+                                    "regex": {
+                                        "description": "New regex. Omit to keep the current regex.",
+                                        "type": "string",
+                                        "minLength": 1
+                                    }
+                                },
+                                "required": ["action", "target_alias"],
+                                "description": "Replace the alias and/or regex of an existing rule, keeping its position."
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "action": {
+                                        "type": "string",
+                                        "const": "remove"
+                                    },
+                                    "target_alias": {
+                                        "type": "string",
+                                        "description": "The alias of the existing rule to target (must match an existing rule exactly). Use \"\" to target a rule whose alias is empty."
+                                    }
+                                },
+                                "required": ["action", "target_alias"],
+                                "description": "Remove an existing rule by alias."
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "action": {
+                                        "type": "string",
+                                        "const": "reorder"
+                                    },
+                                    "ordered_aliases": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "description": "The full set of current aliases in the new desired order (including \"\" for any empty-alias rule and any duplicates). Must be a permutation of the existing aliases."
+                                    }
+                                },
+                                "required": ["action", "ordered_aliases"],
+                                "description": "Reorder the existing rules. Order matters: rules apply sequentially, each feeding the next."
+                            }
+                        ]
+                    },
+                    "description": "Ordered list of edits to apply to the current path cleaning rules, in sequence."
+                },
+                "sample_paths": {
+                    "description": "Optional real paths (e.g. \"/users/123/profile\") to preview against, up to 25. The response shows how the resulting rule set rewrites each one. Approximate (JS regex, not re2) — use execute-sql with replaceRegexpAll to confirm edge cases.",
+                    "maxItems": 25,
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "maxLength": 2048
+                    }
+                },
+                "confirm": {
+                    "default": false,
+                    "description": "Must be true to persist. When false (default) the tool returns a preview of the resulting rules (and any sample-path rewrites) WITHOUT saving — surface it to the user, then re-run with confirm:true.",
+                    "type": "boolean"
                 }
             },
-            "required": ["orgId"]
+            "required": ["operations"]
         },
         "ProjectGetAllSchema": {
             "type": "object",
@@ -682,11 +881,6 @@
                 }
             },
             "required": ["query"]
-        },
-        "ReadDataWarehouseSchemaSchema": {
-            "type": "object",
-            "properties": {},
-            "description": "No input required. Returns core data warehouse schemas."
         },
         "SavedMetricsAttachSchema": {
             "type": "array",
@@ -887,7 +1081,7 @@
             "properties": {
                 "id": {
                     "type": "string",
-                    "description": "The workflow (HogFlow) id to edit. Draft only — active workflows are read-only via MCP."
+                    "description": "The workflow (HogFlow) id to edit."
                 },
                 "operations": {
                     "minItems": 1,

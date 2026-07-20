@@ -8,6 +8,20 @@ if TYPE_CHECKING:
     from posthog.models import Team
 
 
+# `system.information_schema` tables whose rows/columns are gated behind `data_catalog` read access
+# (see `_can_read_catalog` in information_schema.py): `tables` carries the certification mark,
+# `relationships` carries proposal confidence/reasoning, and `metrics` is entirely catalog-governed.
+# A query touching any of these must partition the cache by `data_catalog` access, or an allowed
+# user's cached rows would be served to a denied user on a cache hit.
+_DATA_CATALOG_INFORMATION_SCHEMA_TABLES = frozenset(
+    {
+        "system.information_schema.tables",
+        "system.information_schema.relationships",
+        "system.information_schema.metrics",
+    }
+)
+
+
 def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str]]:
     """The set of access-control scope names a query reads, e.g. "notebook", "warehouse_table".
     Empty when the query reads no access-controlled table.
@@ -41,6 +55,21 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
         system_scopes = {f"system.{name}": scope for name, scope in access_controlled_system_tables().items()}
         scopes: set[str] = {system_scopes[name] for name in table_names if name in system_scopes}
 
+        # The catalog-enriched information_schema tables aren't PostgresTables, so they're absent from
+        # `access_controlled_system_tables()`; gate them explicitly on `data_catalog` read access.
+        if table_names & _DATA_CATALOG_INFORMATION_SCHEMA_TABLES:
+            scopes.add("data_catalog")
+
+        # Connection-scoped queries read the external source's upstream data directly. Their tables
+        # are virtual (named by ExternalDataSchema.name) or physical direct rows, which the
+        # warehouse-table name lookup below can't reliably match — so fail closed and partition the
+        # cache by both gates execution enforces: source viewer access (the connection resolver) and
+        # backing warehouse-table access (the virtual-table build). Without this, a denied user
+        # could be served an allowed user's cached upstream rows on a cache hit.
+        if getattr(query, "connectionId", None):
+            scopes.add("external_data_source")
+            scopes.add("warehouse_table")
+
         # Warehouse tables/views are per-team and dynamic, and the HogQL schema isn't built here (the
         # fingerprint runs before any database), so resolve referenced warehouse objects with a light
         # name lookup. We only add the scope here; the specific denied object IDs are folded into the
@@ -54,7 +83,17 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
             for table in (
                 DataWarehouseTable.objects.filter(team_id=team.pk)
                 .exclude(deleted=True)
+                # clear the manager's created_by/schema eager-loads: select_related chains additively,
+                # so without this the .only() below raises FieldError (created_by deferred + traversed)
+                .select_related(None)
+                .prefetch_related(None)
                 .select_related("external_data_source")
+                .only(
+                    "name",
+                    "external_data_source__source_type",
+                    "external_data_source__prefix",
+                    "external_data_source__access_method",
+                )
             ):
                 warehouse_table_names.add(table.name)
                 warehouse_table_names.add(get_data_warehouse_table_name(table.external_data_source, table.name))

@@ -9,11 +9,17 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    BranchPRMatchApi,
+    BrokenTestsResultApi,
     CICardSummaryApi,
     CIFailureLogsApi,
+    CurrentBranchHealthApi,
     EngineeringAnalyticsAuthorWorkflowCostsParams,
+    EngineeringAnalyticsBrokenTestsParams,
     EngineeringAnalyticsCiCardsParams,
     EngineeringAnalyticsCiFailureLogsParams,
+    EngineeringAnalyticsCurrentBranchHealthParams,
+    EngineeringAnalyticsFlakyTestsParams,
     EngineeringAnalyticsJobAggregatesParams,
     EngineeringAnalyticsMasterFailuresParams,
     EngineeringAnalyticsPrCostParams,
@@ -23,13 +29,18 @@ import type {
     EngineeringAnalyticsQuarantineParams,
     EngineeringAnalyticsRepoOverviewParams,
     EngineeringAnalyticsRepoRunActivityParams,
+    EngineeringAnalyticsResolveBranchParams,
     EngineeringAnalyticsRunFailureLogsParams,
+    EngineeringAnalyticsTeamCiActivityParams,
+    EngineeringAnalyticsTeamCiHealthParams,
+    EngineeringAnalyticsTeamMergeTrendParams,
     EngineeringAnalyticsWorkflowHealthParams,
     EngineeringAnalyticsWorkflowJobsParams,
     EngineeringAnalyticsWorkflowRunActivityParams,
     EngineeringAnalyticsWorkflowRunParams,
     EngineeringAnalyticsWorkflowRunnerCostsParams,
     EngineeringAnalyticsWorkflowRunsParams,
+    FlakyTestListApi,
     GitHubSourceApi,
     MasterFailureGroupApi,
     PRCostSummaryApi,
@@ -40,6 +51,9 @@ import type {
     QuarantineRequestResultApi,
     RepoOverviewApi,
     RunFailureLogsApi,
+    TeamCIActivityApi,
+    TeamCIHealthListApi,
+    TeamMergeTrendApi,
     WorkflowCostApi,
     WorkflowHealthItemApi,
     WorkflowJobAggregateApi,
@@ -77,6 +91,39 @@ export const engineeringAnalyticsAuthorWorkflowCosts = async (
     options?: RequestInit
 ): Promise<WorkflowCostApi[]> => {
     return apiMutator<WorkflowCostApi[]>(getEngineeringAnalyticsAuthorWorkflowCostsUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsBrokenTestsUrl = (
+    projectId: string,
+    params?: EngineeringAnalyticsBrokenTestsParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/broken_tests/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/broken_tests/`
+}
+
+/**
+ * The broken-tests triage panel: live CI failures over the last 2 days grouped into distinct failures (by test id + normalized error signature) and classified by how each is behaving right now — breaking trunk, a new failure spreading across branches, probably-resolved, flaky, or one PR's own problem — ranked with the most urgent first. Also returns breaking_master_jobs, the default-branch jobs whose latest run is red. Reach for this to answer 'what CI failures should I care about right now'; expand a row's latest_run_id via run_failure_logs for the failing lines. Fingerprinting is pytest-only for now (jest/playwright/cargo failures aren't grouped yet), and the breaking/resolved distinction needs the job-level source synced — without it those failures fall through to flaky/pr_only rather than being misreported.
+ */
+export const engineeringAnalyticsBrokenTests = async (
+    projectId: string,
+    params?: EngineeringAnalyticsBrokenTestsParams,
+    options?: RequestInit
+): Promise<BrokenTestsResultApi> => {
+    return apiMutator<BrokenTestsResultApi>(getEngineeringAnalyticsBrokenTestsUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -140,6 +187,72 @@ export const engineeringAnalyticsCiFailureLogs = async (
     options?: RequestInit
 ): Promise<CIFailureLogsApi> => {
     return apiMutator<CIFailureLogsApi>(getEngineeringAnalyticsCiFailureLogsUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsCurrentBranchHealthUrl = (
+    projectId: string,
+    params?: EngineeringAnalyticsCurrentBranchHealthParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/current_branch_health/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/current_branch_health/`
+}
+
+/**
+ * Current default-branch CI verdict over the fixed last-24-hours window. Counts every workflow whose latest completed run failed or timed out; failing workflow names are a bounded preview. The default branch is detected from the same window, independently of analytics date filters.
+ */
+export const engineeringAnalyticsCurrentBranchHealth = async (
+    projectId: string,
+    params?: EngineeringAnalyticsCurrentBranchHealthParams,
+    options?: RequestInit
+): Promise<CurrentBranchHealthApi> => {
+    return apiMutator<CurrentBranchHealthApi>(getEngineeringAnalyticsCurrentBranchHealthUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsFlakyTestsUrl = (
+    projectId: string,
+    params?: EngineeringAnalyticsFlakyTestsParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/flaky_tests/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/flaky_tests/`
+}
+
+/**
+ * The flaky-test leaderboard: backend tests ranked by flakiness signal from the per-test CI spans, over a window (default -7d, maximum 30 days). A test qualifies by passing on retry at least min_rerun_passes times OR failing on at least min_failed_prs distinct PRs. All figures are absolute counts, never rates: fast passing runs are not emitted, so denominators are biased. Pass-on-retry counts only flow from CI lanes running with reruns enabled; in other lanes a flake surfaces as a plain failure, which the distinct-PR count catches.
+ */
+export const engineeringAnalyticsFlakyTests = async (
+    projectId: string,
+    params?: EngineeringAnalyticsFlakyTestsParams,
+    options?: RequestInit
+): Promise<FlakyTestListApi> => {
+    return apiMutator<FlakyTestListApi>(getEngineeringAnalyticsFlakyTestsUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -228,7 +341,7 @@ export const getEngineeringAnalyticsPrCostUrl = (projectId: string, params: Engi
 }
 
 /**
- * Estimated CI cost for a pull request, summed over the jobs of all its workflow runs. Billable self-hosted Linux runners only — provider-hosted (free GitHub-hosted) and non-Linux jobs are excluded. Every figure is zero/null with `jobs_available` false when the job-level source isn't synced yet.
+ * Estimated CI cost for a pull request, summed over the jobs of all its workflow runs. Billable self-hosted Linux runners only — provider-hosted (free GitHub-hosted) and non-Linux jobs are excluded. Every figure is zero/null with `jobs_available` false when the job-level source isn't synced yet. `llm_spend` carries the agent LLM token spend attributed to the PR by git branch, or null when no `$ai_generation` event matched.
  */
 export const engineeringAnalyticsPrCost = async (
     projectId: string,
@@ -412,7 +525,7 @@ export const getEngineeringAnalyticsRepoOverviewUrl = (
 }
 
 /**
- * Repo-level headline aggregates over a window (default -30d): run count, success rate, re-run cycles, median PR open-to-merge (bots and drafts excluded; coarse — draft and ready time fused), and billable minutes + estimated cost — each with its equal-length previous-window twin so a caller can render honest deltas. Also carries the detected default branch and its completed-run history series. Cost figures are null until the job-level source is synced.
+ * Repo-level headline aggregates over a window (default -30d): run count, success rate, re-run cycles, merged-PR count (bots included), median PR open-to-merge (bots and drafts excluded; coarse — draft and ready time fused), and billable minutes + estimated cost — each with its equal-length previous-window twin so a caller can render honest deltas. Also carries the detected default branch and its completed-run history series (skippable via include_series=false). Cost figures are null until the job-level source is synced.
  */
 export const engineeringAnalyticsRepoOverview = async (
     projectId: string,
@@ -458,6 +571,39 @@ export const engineeringAnalyticsRepoRunActivity = async (
     })
 }
 
+export const getEngineeringAnalyticsResolveBranchUrl = (
+    projectId: string,
+    params: EngineeringAnalyticsResolveBranchParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/resolve_branch/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/resolve_branch/`
+}
+
+/**
+ * Resolve a git branch to the pull request(s) it belongs to — the cross-product link seam so another product (the LLM analytics UI) can turn a git branch into a PR detail link. Matches the PR's head ref, open PRs first then most recently updated. Pass `timestamp` (the trace's capture time) to prefer the PR that was active at that moment when a branch name has been reused across PRs. `branch` is required. Returns a possibly-empty, possibly-multi list — an empty list is a valid 200 (the caller renders a plain chip).
+ */
+export const engineeringAnalyticsResolveBranch = async (
+    projectId: string,
+    params: EngineeringAnalyticsResolveBranchParams,
+    options?: RequestInit
+): Promise<BranchPRMatchApi[]> => {
+    return apiMutator<BranchPRMatchApi[]>(getEngineeringAnalyticsResolveBranchUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getEngineeringAnalyticsRunFailureLogsUrl = (
     projectId: string,
     params: EngineeringAnalyticsRunFailureLogsParams
@@ -496,13 +642,112 @@ export const getEngineeringAnalyticsSourcesUrl = (projectId: string) => {
 }
 
 /**
- * The team's connected GitHub data warehouse sources, oldest first. Populate a source picker from this and pass a chosen `id` back as `source_id` to the other endpoints. A team can connect GitHub more than once (e.g. one source per repository); this lists them all, including any whose tables aren't fully synced yet.
+ * The team's selectable GitHub repositories, oldest source first — one entry per repository a source is configured to sync, so a source syncing several repositories appears once per repo. Populate a repo picker from this and pass a chosen entry's `id` back as `source_id` and its `repo` back as `repo` to the other endpoints. Includes repositories whose tables aren't fully synced yet.
  */
 export const engineeringAnalyticsSources = async (
     projectId: string,
     options?: RequestInit
 ): Promise<GitHubSourceApi[]> => {
     return apiMutator<GitHubSourceApi[]>(getEngineeringAnalyticsSourcesUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsTeamCiActivityUrl = (
+    projectId: string,
+    params: EngineeringAnalyticsTeamCiActivityParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/team_ci_activity/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/team_ci_activity/`
+}
+
+/**
+ * One owning team's CI test activity: per-test current-vs-prior signal pairs (the before/after comparison) over the window and its equal-length prior twin. Signal = failed + error + pass-on-retry spans on the team's owned tests. All figures are absolute counts, never rates: fast passing runs are not emitted, so denominators are biased. Pass-on-retry counts only flow from CI lanes running with reruns enabled; in other lanes a flake surfaces as a plain failure, which the distinct-PR count catches.
+ */
+export const engineeringAnalyticsTeamCiActivity = async (
+    projectId: string,
+    params: EngineeringAnalyticsTeamCiActivityParams,
+    options?: RequestInit
+): Promise<TeamCIActivityApi> => {
+    return apiMutator<TeamCIActivityApi>(getEngineeringAnalyticsTeamCiActivityUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsTeamCiHealthUrl = (
+    projectId: string,
+    params?: EngineeringAnalyticsTeamCiHealthParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/team_ci_health/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/team_ci_health/`
+}
+
+/**
+ * Per-owning-team rollup of the CI test surfaces each team owns: flaky-test count, failure and pass-on-retry span counts, each with an equal-length previous-window twin for honest deltas. Ownership is stamped on the spans at CI emission time from the repo's ownership map (products/*\/product.yaml + CODEOWNERS); unstamped spans aggregate under the literal team 'unowned'. Teams are organizational owners of code surfaces, never authors. All figures are absolute counts, never rates: fast passing runs are not emitted, so denominators are biased. Pass-on-retry counts only flow from CI lanes running with reruns enabled; in other lanes a flake surfaces as a plain failure, which the distinct-PR count catches.
+ */
+export const engineeringAnalyticsTeamCiHealth = async (
+    projectId: string,
+    params?: EngineeringAnalyticsTeamCiHealthParams,
+    options?: RequestInit
+): Promise<TeamCIHealthListApi> => {
+    return apiMutator<TeamCIHealthListApi>(getEngineeringAnalyticsTeamCiHealthUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsTeamMergeTrendUrl = (
+    projectId: string,
+    params: EngineeringAnalyticsTeamMergeTrendParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/team_merge_trend/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/team_merge_trend/`
+}
+
+/**
+ * One team's daily time-to-merge trend: the median and average open→merge seconds over the PRs the team's members merged each day (PR author login → GitHub org team membership). Team-level aggregates only, never per-member figures or cross-team rankings. Timing is the coarse open→merge (draft + review time combined); bots are excluded. Requires the GitHub source's team_members snapshot; has_membership_data is false without it.
+ */
+export const engineeringAnalyticsTeamMergeTrend = async (
+    projectId: string,
+    params: EngineeringAnalyticsTeamMergeTrendParams,
+    options?: RequestInit
+): Promise<TeamMergeTrendApi> => {
+    return apiMutator<TeamMergeTrendApi>(getEngineeringAnalyticsTeamMergeTrendUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -528,7 +773,7 @@ export const getEngineeringAnalyticsWorkflowHealthUrl = (
 }
 
 /**
- * Per-workflow CI health over a window (default last 24 hours, maximum 366 days): run count, success rate, p50/p95 duration over completed runs, last failure time, latest-run status, and a zero-filled run history bucketed by hour/day/week to fit the window. Optionally scope to a single git branch via `branch`. Use this for 'is CI getting slower' and 'which workflow is the long pole'; compare two windows to get a trend.
+ * Per-workflow CI health over a window (default last 24 hours, maximum 366 days): run count, success rate, p50/p95 duration, last failure time, latest-run status, and a zero-filled run history bucketed by hour/day/week to fit the window. p50/p95 are over successful runs only, so cancelled (superseded) and failed runs never bias the duration trend. Optionally scope to a single git branch via `branch`, or to attributed pull-request runs via `run_scope=pull_request`. Use this for 'is CI getting slower' and 'which workflow is the long pole'; compare two windows to get a trend.
  */
 export const engineeringAnalyticsWorkflowHealth = async (
     projectId: string,

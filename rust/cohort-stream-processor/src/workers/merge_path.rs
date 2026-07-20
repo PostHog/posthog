@@ -26,17 +26,18 @@ use crate::observability::metrics::{
 };
 use crate::partitions::offset_tracker::{MarkOutcome, OffsetTracker};
 use crate::partitions::partitioner::COHORT_PARTITION_COUNT;
+use crate::partitions::watermarks::LiveWatermarks;
 use crate::producer::{
-    map_transition, CaptureCascadeSink, CaptureStreamEventSink, CaptureTransferSink, CascadeSink,
-    CohortMembershipChange, MembershipSink, StreamEventSink, TransferSink,
+    map_transition, CaptureCascadeSink, CaptureSeedTileSink, CaptureStreamEventSink,
+    CaptureTransferSink, CascadeSink, CohortMembershipChange, MembershipSink, SeedTileSink,
+    StreamEventSink, TransferSink,
 };
-use crate::stage1::key::Stage1Key;
 use crate::stage1::transition::LeafTransition;
-use crate::store::{PendingTransferKey, StoreHandle};
+use crate::store::{BehavioralKey, PendingTransferKey, ReadLane, StoreHandle};
 use crate::sweep::EvictionQueue;
 use crate::workers::stage2_path::compose_stage2;
 use crate::workers::worker::{
-    first_cascades, produce_cascades, produce_membership, transition_metric_label,
+    affected_leaves, first_cascades, produce_cascades, produce_membership, transition_metric_label,
 };
 
 /// Inline bounded backoff for the transfer produce.
@@ -119,6 +120,13 @@ pub struct MergeWorkerDeps {
     /// from [`crate::config::Config::cohort_partition_count`] so a re-partitioned lane cannot
     /// misroute against a hardcoded literal.
     pub partition_count: u32,
+    /// Sink for cross-partition tile re-keys back into `cohort_stream_seed_events` (a no-op when
+    /// the seed gate is off).
+    pub seed_tile_sink: Arc<dyn SeedTileSink>,
+    /// Isolated from every other tracker so seed offsets can never contaminate the events ceiling.
+    pub seed_tracker: Arc<OffsetTracker>,
+    /// Fold-frontier watermarks the seed fence reads; the worker advances them post-mark.
+    pub live_watermarks: Arc<LiveWatermarks>,
 }
 
 impl MergeWorkerDeps {
@@ -135,6 +143,9 @@ impl MergeWorkerDeps {
             cascade_tracker: Arc::new(OffsetTracker::new()),
             cascade: CascadeConfig::default(),
             partition_count: COHORT_PARTITION_COUNT,
+            seed_tile_sink: Arc::new(CaptureSeedTileSink::new()),
+            seed_tracker: Arc::new(OffsetTracker::new()),
+            live_watermarks: Arc::new(LiveWatermarks::new()),
         })
     }
 }
@@ -146,7 +157,7 @@ pub(crate) async fn handle_merge(
     catalog: &CatalogHandle,
     sink: &Arc<dyn MembershipSink>,
     merge: &MergeWorkerDeps,
-    queue: &mut EvictionQueue<Stage1Key>,
+    queue: &mut EvictionQueue<BehavioralKey>,
     last_updated: &str,
     event: &PersonMergeEvent,
     offset: i64,
@@ -241,7 +252,9 @@ pub(crate) async fn handle_merge(
         }
         Ok(DrainOutcome::Drained { transfer, effects }) => {
             effects.apply_to(queue);
-            if transfer.leaves.is_empty() {
+            // Nothing to apply without leaves or a person-record dedup — skip the produce. A record-only
+            // transfer still produces so P_new absorbs the ancestry (matches the drain's staging).
+            if transfer.leaves.is_empty() && transfer.person_dedup.is_none() {
                 counter!(MERGE_TRANSFERS_SKIPPED_EMPTY_TOTAL).increment(1);
                 mark_processed(&merge.merge_tracker, partition_id, offset);
                 return;
@@ -315,7 +328,7 @@ pub(crate) async fn handle_apply(
     catalog: &CatalogHandle,
     sink: &Arc<dyn MembershipSink>,
     merge: &MergeWorkerDeps,
-    queue: &mut EvictionQueue<Stage1Key>,
+    queue: &mut EvictionQueue<BehavioralKey>,
     last_updated: &str,
     transfer: &MergeStateTransfer,
     offset: i64,
@@ -636,9 +649,10 @@ async fn produce_merge_transitions(
         partition_id,
         handle,
         filters,
-        transitions,
+        &affected_leaves(transitions),
         merged_at_ms,
         last_updated,
+        ReadLane::Event,
     )
     .await
     {
@@ -805,6 +819,8 @@ mod tests {
             source_offset: 0,
             leaves: vec![],
             forward_hops: 0,
+
+            person_dedup: None,
         };
 
         let acked =
@@ -831,6 +847,8 @@ mod tests {
             source_offset: 0,
             leaves: vec![],
             forward_hops: 0,
+
+            person_dedup: None,
         };
 
         let acked =
@@ -865,6 +883,9 @@ mod tests {
             cascade_tracker: Arc::new(OffsetTracker::new()),
             cascade: CascadeConfig::default(),
             partition_count: COHORT_PARTITION_COUNT,
+            seed_tile_sink: Arc::new(crate::producer::CaptureSeedTileSink::new()),
+            seed_tracker: Arc::new(crate::partitions::offset_tracker::OffsetTracker::new()),
+            live_watermarks: Arc::new(crate::partitions::watermarks::LiveWatermarks::new()),
         }
     }
 
@@ -888,6 +909,8 @@ mod tests {
                 ),
             )],
             forward_hops: 0,
+
+            person_dedup: None,
         };
         let key = PendingTransferKey {
             partition_id: REDRIVE_PARTITION,
@@ -1073,6 +1096,8 @@ mod tests {
             source_offset: 100,
             leaves: vec![],
             forward_hops: 1,
+
+            person_dedup: None,
         }
     }
 

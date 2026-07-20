@@ -95,6 +95,7 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             name=SchemaExternalDataSourceType.MY_SQL,
             category=DataWarehouseSourceCategory.DATABASES,
             featured=True,
+            keywords=["sql", "mariadb"],
             caption="Enter your MySQL/MariaDB credentials to automatically pull your MySQL data into the PostHog Data warehouse.",
             iconPath="/static/services/mysql.png",
             docsUrl="https://posthog.com/docs/cdp/sources/mysql",
@@ -168,7 +169,11 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "Can't connect to MySQL server on": None,
-            "No primary key defined for table": None,
+            "No primary key defined for table": (
+                "This table needs a primary key to sync incrementally, but none is set. Choose a primary "
+                "key for the table in its sync settings, or switch it to full table replication, then "
+                "re-enable the sync."
+            ),
             # MySQL/MariaDB error 1045 (ER_ACCESS_DENIED_ERROR): the user/password (or the
             # user's host grant) is wrong. Surface it as an auth failure — mirroring the Postgres
             # source — so the user fixes credentials instead of the generic "check connection
@@ -307,10 +312,17 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
         try:
             self.get_schemas(config, team_id)
         except BaseSSHTunnelForwarderError as e:
+            # sshtunnel surfaces raw library strings (e.g. "Could not establish session to SSH
+            # gateway"); map them to the friendly guidance in `get_non_retryable_errors` — which the
+            # generic `except Exception` branch below already applies — instead of leaking the
+            # internal wording to the wizard.
+            ssh_error = e.value or ""
+            for pattern, friendly_error in self.get_non_retryable_errors().items():
+                if friendly_error and pattern in ssh_error:
+                    return False, friendly_error
             return (
                 False,
-                e.value
-                or f"Could not connect to {self.get_source_config.name} via the SSH tunnel. Please check all connection details are valid.",
+                f"Could not connect to {self.get_source_config.name} via the SSH tunnel. Please check all connection details are valid.",
             )
         except Exception as e:
             # Connection/credential failures we already classify as non-retryable during sync

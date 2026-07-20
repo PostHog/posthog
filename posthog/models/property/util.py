@@ -6,12 +6,11 @@ from collections import (
 from collections.abc import Callable, Iterable
 from typing import Any, Literal, Optional, Union, cast
 
-from django.db.models import QuerySet
-
 from rest_framework import exceptions
 
 from posthog.hogql import ast
 from posthog.hogql.database.s3_table import S3Table
+from posthog.hogql.escape_sql import escape_clickhouse_identifier
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import TraversingVisitor
@@ -20,6 +19,7 @@ from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.materialized_columns import TableWithProperties, get_materialized_column_for_property
 from posthog.constants import PropertyOperatorType
 from posthog.models.event import Selector
+from posthog.models.event.sql import EVENTS_PROPERTIES_JSON_SUBCOLUMNS, PERSON_PROPERTIES_JSON_SUBCOLUMNS
 from posthog.models.group.sql import GET_GROUP_IDS_BY_PROPERTY_SQL
 from posthog.models.person.sql import GET_DISTINCT_IDS_BY_PERSON_ID_FILTER, GET_DISTINCT_IDS_BY_PROPERTY_SQL
 from posthog.models.property import (
@@ -34,9 +34,7 @@ from posthog.models.property.property import ValueT
 from posthog.models.team import Team
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.util import PersonPropertiesMode
-from posthog.schema_enums import PropertyOperator
 from posthog.session_recordings.queries.session_query import SessionQuery
-from posthog.types import ErrorTrackingIssueFilter
 from posthog.utils import is_json, is_valid_regex
 
 from products.actions.backend.models.action import Action
@@ -134,13 +132,6 @@ def parse_prop_grouped_clauses(
     return final, final_params
 
 
-def is_property_group(group: Union[Property, "PropertyGroup"]):
-    if isinstance(group, PropertyGroup):
-        return True
-    else:
-        return False
-
-
 def parse_prop_clauses(
     team_id: int,
     filters: list[Property],
@@ -162,6 +153,9 @@ def parse_prop_clauses(
     table_formatted = table_name
     if table_formatted != "":
         table_formatted += "."
+
+    # Resolved once per query via the context so property fragments and the FROM table can't disagree.
+    use_new_events_schema = hogql_context.uses_new_events_schema() if hogql_context is not None else False
 
     _team = None
 
@@ -216,6 +210,7 @@ def parse_prop_clauses(
                 allow_denormalized_props=True,
                 property_operator=property_operator,
                 use_event_column="person_properties",
+                use_new_events_schema=use_new_events_schema,
             )
             final.append(filter_query)
             params.update(filter_params)
@@ -271,6 +266,7 @@ def parse_prop_clauses(
                 prop_var="{}properties".format(table_formatted),
                 allow_denormalized_props=allow_denormalized_props,
                 property_operator=property_operator,
+                use_new_events_schema=use_new_events_schema,
             )
             final.append(f" {filter_query}")
             params.update(filter_params)
@@ -393,20 +389,35 @@ def prop_filter_json_extract(
     property_operator: str = PropertyOperatorType.AND,
     table_name: Optional[str] = None,
     use_event_column: Optional[str] = None,
+    use_new_events_schema: bool = False,
 ) -> tuple[str, dict[str, Any]]:
     # TODO: Once all queries are migrated over we can get rid of allow_denormalized_props
     if transform_expression is not None:
         prop_var = transform_expression(prop_var)
 
+    target_table = "events" if use_event_column else property_table(prop)
+    is_events_json = use_new_events_schema and target_table == "events"
+
     property_expr, is_denormalized = get_property_string_expr(
-        "events" if use_event_column else property_table(prop),
+        target_table,
         prop.key,
         f"%(k{prepend}_{idx})s",
         prop_var,
         allow_denormalized_props,
         table_name,
         materialised_table_column=use_event_column if use_event_column else "properties",
+        use_new_events_schema=is_events_json,
     )
+    events_json_property_exists_expr: str | None = None
+    events_json_column = use_event_column or "properties"
+    if is_events_json and events_json_column in ("properties", "person_properties"):
+        table_prefix = f"{table_name}." if table_name else ""
+        events_json_property_exists_expr = _json_events_property_exists_expr(
+            prop.key,
+            f"%(k{prepend}_{idx})s",
+            f"{table_prefix}{prop_var}",
+            events_json_column,
+        )
 
     if is_denormalized and transform_expression:
         property_expr = transform_expression(property_expr)
@@ -486,6 +497,11 @@ def prop_filter_json_extract(
             "k{}_{}".format(prepend, idx): prop.key,
             "v{}_{}".format(prepend, idx): prop.value,
         }
+        if events_json_property_exists_expr is not None:
+            return (
+                f" {property_operator} {events_json_property_exists_expr}",
+                params,
+            )
         if is_denormalized:
             return (
                 " {property_operator} {left} != ''".format(left=property_expr, property_operator=property_operator),
@@ -505,6 +521,11 @@ def prop_filter_json_extract(
             "k{}_{}".format(prepend, idx): prop.key,
             "v{}_{}".format(prepend, idx): prop.value,
         }
+        if events_json_property_exists_expr is not None:
+            return (
+                f" {property_operator} NOT ({events_json_property_exists_expr})",
+                params,
+            )
         if is_denormalized:
             return (
                 " {property_operator} {left} = ''".format(left=property_expr, property_operator=property_operator),
@@ -589,10 +610,15 @@ def prop_filter_json_extract(
         )
     else:
         if is_json(prop.value) and not is_denormalized:
-            clause = " {property_operator} has(%(v{prepend}_{idx})s, replaceRegexpAll(visitParamExtractRaw({prop_var}, %(k{prepend}_{idx})s),' ', ''))"
+            if is_events_json:
+                clause = " {property_operator} has(arrayMap(value -> toJSONString(JSONExtract(value, 'Dynamic')), %(v{prepend}_{idx})s), {left})"
+                values = box_value(prop.value)
+            else:
+                clause = " {property_operator} has(%(v{prepend}_{idx})s, replaceRegexpAll(visitParamExtractRaw({prop_var}, %(k{prepend}_{idx})s),' ', ''))"
+                values = box_value(prop.value, remove_spaces=True)
             params = {
                 "k{}_{}".format(prepend, idx): prop.key,
-                "v{}_{}".format(prepend, idx): box_value(prop.value, remove_spaces=True),
+                "v{}_{}".format(prepend, idx): values,
             }
         else:
             clause = " {property_operator} has(%(v{prepend}_{idx})s, {left})"
@@ -623,76 +649,6 @@ def property_table(property: Property) -> TableWithProperties:
         raise ValueError(f"Property type does not have a table: {property.type}")
 
 
-def get_single_or_multi_property_string_expr(
-    breakdown,
-    table: TableWithProperties,
-    query_alias: Literal["prop", "value", "prop_basic", None],
-    column: str,
-    allow_denormalized_props=True,
-    materialised_table_column: str = "properties",
-    normalize_url: bool = False,
-) -> tuple[str, dict[str, Any]]:
-    """
-    When querying for breakdown properties:
-     * If the breakdown provided is a string, we extract the JSON from the properties object stored in the DB
-     * If it is an array of strings, we extract each of those properties and concatenate them into a single value
-    clickhouse parameterizes into a query template from a flat list using % string formatting
-    values are escaped and inserted in the query here instead of adding new items to the flat list of values
-
-    :param query_alias:
-
-        Specifies the SQL query alias to add to the expression e.g. `AS prop`. If this is specified as None, then
-        no alias will be appended.
-
-    """
-    breakdown_params: dict[str, Any] = {}
-    if isinstance(breakdown, str) or isinstance(breakdown, int):
-        breakdown_key = f"breakdown_param_{len(breakdown_params) + 1}"
-        breakdown_key = f"breakdown_param_{len(breakdown_params) + 1}"
-        breakdown_params[breakdown_key] = breakdown
-
-        expression, _ = get_property_string_expr(
-            table,
-            str(breakdown),
-            f"%({breakdown_key})s",
-            column,
-            allow_denormalized_props,
-            materialised_table_column=materialised_table_column,
-        )
-
-        expression = normalize_url_breakdown(expression, normalize_url)
-    else:
-        expressions = []
-        for b in breakdown:
-            breakdown_key = f"breakdown_param_{len(breakdown_params) + 1}"
-            breakdown_params[breakdown_key] = b
-            expr, _ = get_property_string_expr(
-                table,
-                b,
-                f"%({breakdown_key})s",
-                column,
-                allow_denormalized_props,
-                materialised_table_column=materialised_table_column,
-            )
-            expressions.append(normalize_url_breakdown(expr, normalize_url))
-
-        expression = f"array({','.join(expressions)})"
-
-    if query_alias is None:
-        return expression, breakdown_params
-
-    return f"{expression} AS {query_alias}", breakdown_params
-
-
-def normalize_url_breakdown(breakdown_value, breakdown_normalize_url: bool = True):
-    if breakdown_normalize_url:
-        return (
-            f"if( empty(trim(TRAILING '/?#' from {breakdown_value})), '/', trim(TRAILING '/?#' from {breakdown_value}))"
-        )
-
-    return breakdown_value
-
-
 def get_property_string_expr(
     table: TableWithProperties,
     property_name: PropertyName,
@@ -701,6 +657,7 @@ def get_property_string_expr(
     allow_denormalized_props: bool = True,
     table_alias: Optional[str] = None,
     materialised_table_column: str = "properties",
+    use_new_events_schema: bool = False,
 ) -> tuple[str, bool]:
     """
 
@@ -715,9 +672,18 @@ def get_property_string_expr(
     :param allow_denormalized_props:
     :param table_alias:
         (optional) alias of the table being queried
+    :param use_new_events_schema:
+        read events properties as native-JSON subcolumns (events_json) instead of mat_* columns /
+        the String blob. Must match the table the surrounding query actually selects from.
     :return:
     """
     table_string = f"{table_alias}." if table_alias is not None and table_alias != "" else ""
+
+    if use_new_events_schema and table == "events":
+        if materialised_table_column in ("properties", "person_properties"):
+            return _json_events_property_expr(property_name, var, f"{table_string}{column}", materialised_table_column)
+        # The JSON events table has no mat_* columns at all; group columns there stay String blobs.
+        allow_denormalized_props = False
 
     if (
         allow_denormalized_props
@@ -737,6 +703,73 @@ def get_property_string_expr(
         )
 
     return trim_quotes_expr(f"JSONExtractRaw({table_string}{column}, {var})"), False
+
+
+def _json_events_property_expr(
+    property_name: PropertyName, var: str, column_ref: str, materialised_table_column: str
+) -> tuple[str, bool]:
+    """Property value read against the native-JSON events schema.
+
+    Typed subcolumns read like non-nullable materialized columns (missing reads ''), so callers'
+    denormalized-column handling applies unchanged. Dynamic properties combine the scalar path and
+    sub-object path for that key, preserving the logical JSON string without rebuilding the document.
+    """
+    subcolumns = (
+        EVENTS_PROPERTIES_JSON_SUBCOLUMNS
+        if materialised_table_column == "properties"
+        else PERSON_PROPERTIES_JSON_SUBCOLUMNS
+    )
+    scalar_value = _json_events_subcolumn_expr(property_name, var, column_ref)
+    if property_name in subcolumns:
+        if subcolumns[property_name].startswith(("Array(", "Map(")):
+            return f"if(empty({scalar_value}), '', toJSONString({scalar_value}))", True
+        return f"ifNull({scalar_value}, '')", True
+
+    object_value = f"toJSONString({_json_events_subcolumn_expr(property_name, var, column_ref, sub_object=True)})"
+    # dynamicType only chooses scalar versus container formatting; both branches cast the
+    # whole Dynamic value rather than selecting one physical variant.
+    dynamic_type = f"dynamicType({scalar_value})"
+    is_container = " OR ".join(f"startsWith({dynamic_type}, '{family}')" for family in ("Array", "Map", "Tuple"))
+    scalar_string = f"toString({scalar_value})"
+    formatted_scalar = (
+        f"if(startsWith({dynamic_type}, 'DateTime'), replaceOne({scalar_string}, ' ', 'T'), {scalar_string})"
+    )
+    raw_value = (
+        f"if({object_value} != '{{}}', {object_value}, "
+        f"if({is_container}, toJSONString({scalar_value}), {formatted_scalar}))"
+    )
+    return trim_quotes_expr(f"ifNull({raw_value}, '')"), False
+
+
+def _json_events_property_exists_expr(
+    property_name: PropertyName, var: str, column_ref: str, materialised_table_column: str
+) -> str:
+    subcolumns = (
+        EVENTS_PROPERTIES_JSON_SUBCOLUMNS
+        if materialised_table_column == "properties"
+        else PERSON_PROPERTIES_JSON_SUBCOLUMNS
+    )
+    scalar_value = _json_events_subcolumn_expr(property_name, var, column_ref)
+    if property_name in subcolumns:
+        if subcolumns[property_name].startswith(("Array(", "Map(")):
+            return f"notEmpty({scalar_value})"
+        return f"isNotNull({scalar_value})"
+
+    object_value = f"toJSONString({_json_events_subcolumn_expr(property_name, var, column_ref, sub_object=True)})"
+    return f"(isNotNull({scalar_value}) OR {object_value} != '{{}}')"
+
+
+def _json_events_subcolumn_expr(
+    property_name: PropertyName, var: str, column_ref: str, *, sub_object: bool = False
+) -> str:
+    if "%" not in property_name:
+        separator = ".^" if sub_object else "."
+        return f"{column_ref}{separator}{escape_clickhouse_identifier(property_name)}"
+
+    escaped_backticks = f"replaceAll({var}, char(96), concat(char(96), char(96)))"
+    quoted_subcolumn = f"concat(char(96), {escaped_backticks}, char(96))"
+    subcolumn = f"concat('^', {quoted_subcolumn})" if sub_object else var
+    return f"getSubcolumn({column_ref}, {subcolumn})"
 
 
 def box_value(value: Any, remove_spaces=False) -> list[Any]:
@@ -976,71 +1009,6 @@ def clear_excess_levels(prop: Union["PropertyGroup", "Property"], skip=False):
             prop.values = [clear_excess_levels(p, skip=True) for p in prop.values]
 
     return prop
-
-
-_ALLOWED_ISSUE_FILTER_KEYS = {"name", "status", "issue_description", "first_seen"}
-
-
-def property_to_django_filter(queryset: QuerySet, property: ErrorTrackingIssueFilter):
-    # Allowlist prevents ORM relationship traversal via Django's __ notation
-    if property.key not in _ALLOWED_ISSUE_FILTER_KEYS:
-        raise ValueError(f"Unsupported error tracking filter key: {property.key}")
-
-    operator = property.operator
-    value = property.value
-    field = property.key
-
-    if property.type == "error_tracking_issue" and property.key == "issue_description":
-        field = "description"
-
-    array_based = (
-        operator == PropertyOperator.EXACT or operator == PropertyOperator.IS_NOT or operator == PropertyOperator.NOT_IN
-    )
-    negated = (
-        True
-        if operator
-        in [
-            PropertyOperator.IS_NOT,
-            PropertyOperator.NOT_ICONTAINS,
-            PropertyOperator.NOT_ICONTAINS_MULTI,
-            PropertyOperator.NOT_REGEX,
-            PropertyOperator.IS_SET,
-            PropertyOperator.NOT_IN,
-        ]
-        else False
-    )
-    query = f"{field}"
-
-    if array_based and not value:
-        return queryset
-
-    if array_based:
-        query += "__in"
-    elif operator == PropertyOperator.IS_SET or operator == PropertyOperator.IS_NOT_SET:
-        query += "__isnull"
-        value = True
-    elif operator == PropertyOperator.ICONTAINS or operator == PropertyOperator.NOT_ICONTAINS:
-        query += "__icontains"
-    elif operator == PropertyOperator.ICONTAINS_MULTI or operator == PropertyOperator.NOT_ICONTAINS_MULTI:
-        query += "__icontains"
-    elif operator == PropertyOperator.REGEX:
-        query += "__regex"
-    elif operator == PropertyOperator.IS_DATE_EXACT:
-        query += "__date"
-    elif operator == PropertyOperator.GT or operator == PropertyOperator.IS_DATE_AFTER:
-        query += "__gt"
-    elif operator == PropertyOperator.GTE:
-        query += "__gte"
-    elif operator == PropertyOperator.LT or operator == PropertyOperator.IS_DATE_BEFORE:
-        query += "__lt"
-    elif operator == PropertyOperator.LTE:
-        query += "__lte"
-    else:
-        raise NotImplementedError(f"PropertyOperator {operator} not implemented")
-
-    filter = {f"{query}": value}
-
-    return queryset.exclude(**filter) if negated else queryset.filter(**filter)
 
 
 class S3TableVisitor(TraversingVisitor):

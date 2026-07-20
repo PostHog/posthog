@@ -9,9 +9,11 @@ from posthog.test.base import materialized
 from unittest.mock import Mock, patch, sentinel
 
 from clickhouse_driver import Client
+from clickhouse_driver.errors import ServerException
 
 from posthog.clickhouse.client.connection import NodeRole, Workload
 from posthog.clickhouse.cluster import (
+    TOO_MANY_MUTATIONS,
     AlterTableMutationRunner,
     ClickhouseCluster,
     HostInfo,
@@ -35,6 +37,37 @@ def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
 def test_mutation_runner_rejects_invalid_parameters() -> None:
     with pytest.raises(ValueError):
         AlterTableMutationRunner(table="table", commands={"command"}, parameters={"__invalid_key": True})
+
+
+def test_mutation_runner_waits_for_capacity_and_retries_rejected_enqueue() -> None:
+    runner = AlterTableMutationRunner(table=EVENTS_DATA_TABLE(), commands={"UPDATE person_id = person_id WHERE 1"})
+
+    # busy on the first capacity check, clear on the check preceding each of the two enqueue attempts
+    capacity_results = iter([[[1]], [[0]], [[0]]])
+    # no matching mutation before enqueueing, found after the enqueue succeeds
+    lookup_results = iter([[(None,)], [("0000000042",)]])
+    alter_attempts: list[str] = []
+
+    def execute(query: str, *args: object, **kwargs: object) -> object:
+        if query.lstrip().startswith("ALTER TABLE"):
+            alter_attempts.append(query)
+            if len(alter_attempts) == 1:
+                raise ServerException("too many unfinished mutations", code=TOO_MANY_MUTATIONS)
+            return []
+        elif "NOT is_done AND NOT is_killed" in query:
+            return next(capacity_results)
+        else:
+            return next(lookup_results)
+
+    client = Mock()
+    client.execute = Mock(side_effect=execute)
+
+    with patch("posthog.clickhouse.cluster.time.sleep"):
+        waiter = runner(client)
+
+    assert waiter == MutationWaiter(runner.table, {"0000000042"})
+    assert len(alter_attempts) == 2
+    assert next(capacity_results, None) is None  # polled through the busy table before each enqueue attempt
 
 
 def test_exception_summary(snapshot, cluster: ClickhouseCluster) -> None:
@@ -765,3 +798,18 @@ def test_query_repr_redacts_password_in_list_parameters():
     rendered = repr(Query("INSERT INTO t VALUES", [{"db": "posthog", "password": "pw"}]))
     assert "pw" not in rendered
     assert "'password': '[REDACTED]'" in rendered
+
+
+def test_query_repr_truncates_long_query():
+    # Guards against multi-megabyte statements (e.g. large seed INSERTs) flooding logs and traces.
+    query = "INSERT INTO t VALUES " + ",".join("(1)" for _ in range(100_000))
+    rendered = repr(Query(query))
+    assert len(rendered) < 2000
+    assert rendered.startswith("Query(query='INSERT INTO t VALUES (1)")
+    assert "more chars truncated" in rendered
+
+
+def test_query_repr_keeps_short_query_intact():
+    rendered = repr(Query("SELECT 1"))
+    assert "truncated" not in rendered
+    assert "SELECT 1" in rendered

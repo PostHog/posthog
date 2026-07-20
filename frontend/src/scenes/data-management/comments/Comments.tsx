@@ -2,10 +2,11 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { HedgehogReporter } from '@posthog/brand/hoggies'
+import * as reporterPng from '@posthog/brand/hoggies/png/reporter'
 import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -25,6 +26,8 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { CommentType } from '~/types'
 
 import { SCOPE_OPTIONS, commentsLogic, openURLFor } from './commentsLogic'
+
+const HedgehogReporter = pngHoggie(reporterPng)
 
 const KIND_OPTIONS = [
     { value: 'any', label: 'Any' },

@@ -54,16 +54,26 @@ export interface MetricNameFilterProps {
     onChange: (name: string) => void
     /** Placeholder shown on the trigger when no metric is picked. */
     placeholder?: string
+    disabled?: boolean
+    disabledReason?: string | null
 }
 
 export const MetricNameFilter = ({
     value,
     onChange,
     placeholder = 'Pick a metric',
+    disabled,
+    disabledReason,
 }: MetricNameFilterProps): JSX.Element => {
     return (
         <BindLogic logic={metricNamePickerLogic} props={{}}>
-            <MetricNameFilterInner value={value} onChange={onChange} placeholder={placeholder} />
+            <MetricNameFilterInner
+                value={value}
+                onChange={onChange}
+                placeholder={placeholder}
+                disabled={disabled}
+                disabledReason={disabledReason}
+            />
         </BindLogic>
     )
 }
@@ -72,10 +82,14 @@ function MetricNameFilterInner({
     value,
     onChange,
     placeholder,
+    disabled,
+    disabledReason,
 }: {
     value: string
     onChange: (name: string) => void
     placeholder: string
+    disabled?: boolean
+    disabledReason?: string | null
 }): JSX.Element {
     const { items, itemsLoading, search } = useValues(metricNamePickerLogic)
     const { setSearch } = useActions(metricNamePickerLogic)
@@ -141,6 +155,8 @@ function MetricNameFilterInner({
                 size="small"
                 sideIcon={<IconChevronDown />}
                 loading={itemsLoading && !value}
+                disabled={disabled}
+                disabledReason={disabledReason}
             >
                 {triggerLabel}
             </LemonButton>

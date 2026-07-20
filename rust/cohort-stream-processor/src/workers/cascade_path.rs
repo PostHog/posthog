@@ -9,7 +9,7 @@
 //! **Produce-before-state.** A referrer's new `cf_stage2` bit is committed only after both produces
 //! ack; a failure holds without writing, so replay re-detects the still-old bit and re-emits (the
 //! downstream UPSERT is idempotent). The cascade input is a fixed message that recomputes the same
-//! flip on replay — unlike Stage 2 composition, which dedupes by `cf_stage1`'s applied-offset and
+//! flip on replay — unlike Stage 2 composition, which dedupes by `cf_behavioral`'s applied-offset and
 //! writes state-before-produce (at-most-once).
 
 use std::sync::Arc;
@@ -30,7 +30,7 @@ use crate::observability::metrics::{
 use crate::partitions::offset_tracker::{MarkOutcome, OffsetTracker};
 use crate::producer::{CohortMembershipChange, MembershipSink};
 use crate::stage2::state::Stage2State;
-use crate::store::{Stage2Key, StagedBatch, StoreHandle};
+use crate::store::{ReadLane, Stage2Key, StagedBatch, StoreHandle};
 use crate::workers::merge_path::MergeWorkerDeps;
 use crate::workers::stage2_path::recompute_and_diff;
 use crate::workers::worker::{produce_cascades, produce_membership};
@@ -106,7 +106,16 @@ pub(crate) async fn handle_cascade(
         let Some(tree) = filters.cohorts.get(&referrer) else {
             continue;
         };
-        let diff = match recompute_and_diff(partition_id, person_id, tree, filters, handle).await {
+        let diff = match recompute_and_diff(
+            partition_id,
+            person_id,
+            tree,
+            filters,
+            handle,
+            ReadLane::Event,
+        )
+        .await
+        {
             Ok(diff) => diff,
             Err(error) => {
                 warn!(
@@ -130,6 +139,8 @@ pub(crate) async fn handle_cascade(
             person_id: message.change.person_id.clone(),
             last_updated: last_updated.to_string(),
             status,
+            origin: None,
+            run_id: None,
         });
         writes.push((
             diff.stage2_key,
@@ -259,8 +270,12 @@ mod tests {
         MembershipStatus,
     };
     use crate::stage1::key::LeafStateKey;
+    use crate::stage1::person_record::{MatchedSet, PersonRecord};
     use crate::stage1::state::{AppliedOffsets, Stage1State, StatefulRecord};
-    use crate::store::{CohortStore, OffloadConfig, OffloadMode, Stage1Key, StoreConfig};
+    use crate::store::{
+        Behavioral, BehavioralKey, CohortStore, OffloadConfig, OffloadMode, PersonRecordKey,
+        PersonRecords, StoreConfig,
+    };
     use crate::workers::{CascadeConfig, TransferRetryPolicy, DEFAULT_MERGE_GC_SCAN_LIMIT};
 
     const TEAM: i32 = 7;
@@ -336,24 +351,24 @@ mod tests {
             .by_condition_to_lsk[&HASH][0]
     }
 
-    fn person_lsk() -> LeafStateKey {
-        LeafStateKey::for_person_property(&PERSON_HASH)
-    }
-
     fn person(n: u128) -> Uuid {
         Uuid::from_u128(n)
     }
 
-    fn write_stage1(store: &CohortStore, lsk: LeafStateKey, who: Uuid, state: Stage1State) {
-        let key = Stage1Key {
-            partition_id: PARTITION,
-            team_id: TEAM as u64,
-            leaf_state_key: lsk,
-            person_id: who,
-        };
+    fn write_behavioral(store: &CohortStore, lsk: LeafStateKey, who: Uuid, state: Stage1State) {
+        let key = BehavioralKey::new(PARTITION, TEAM as u64, who, lsk);
         let record = StatefulRecord::new(state, AppliedOffsets::default());
         store
-            .write_batch(|b| b.put_stage1(&key, &record.encode()))
+            .write_batch(|b| b.put::<Behavioral>(&key, &record.encode()))
+            .unwrap();
+    }
+
+    fn write_person_record(store: &CohortStore, who: Uuid, matched: &[[u8; 16]]) {
+        let key = PersonRecordKey::new(PARTITION, TEAM as u64, who);
+        let mut record = PersonRecord::absent();
+        record.matched = MatchedSet::from_iter(matched.iter().copied());
+        store
+            .write_batch(|b| b.put::<PersonRecords>(&key, &record.encode()))
             .unwrap();
     }
 
@@ -399,14 +414,6 @@ mod tests {
         }
     }
 
-    fn person_match() -> Stage1State {
-        Stage1State::PersonProperty {
-            matches: true,
-            last_updated_at_ms: 1,
-            last_updated_offset: 0,
-        }
-    }
-
     /// Worker deps with the cascade gate on, capturing both the membership and cascade sinks.
     fn deps(
         membership: &CaptureSink,
@@ -431,6 +438,9 @@ mod tests {
                 fanout_cap,
             },
             partition_count: crate::partitions::partitioner::COHORT_PARTITION_COUNT,
+            seed_tile_sink: Arc::new(crate::producer::CaptureSeedTileSink::new()),
+            seed_tracker: Arc::new(crate::partitions::offset_tracker::OffsetTracker::new()),
+            live_watermarks: Arc::new(crate::partitions::watermarks::LiveWatermarks::new()),
         };
         // The cascade was dispatched this tenure, so its ceiling is raised — mirrors the dispatcher.
         deps.cascade_tracker
@@ -446,6 +456,8 @@ mod tests {
                 person_id: who.to_string(),
                 last_updated: TS.to_string(),
                 status: MembershipStatus::Entered,
+                origin: None,
+                run_id: None,
             },
             source_offset: 99,
             depth,
@@ -474,8 +486,8 @@ mod tests {
             true,
         );
         let alice = person(1);
-        write_stage1(&store, behavioral_lsk(&catalog), alice, behavioral_match());
-        write_stage1(&store, person_lsk(), alice, person_match());
+        write_behavioral(&store, behavioral_lsk(&catalog), alice, behavioral_match());
+        write_person_record(&store, alice, &[PERSON_HASH]);
 
         let membership = CaptureSink::new();
         let cascade = CaptureCascadeSink::new();
@@ -526,8 +538,8 @@ mod tests {
             true,
         );
         let alice = person(1);
-        write_stage1(&store, behavioral_lsk(&catalog), alice, behavioral_match());
-        write_stage1(&store, person_lsk(), alice, person_match());
+        write_behavioral(&store, behavioral_lsk(&catalog), alice, behavioral_match());
+        write_person_record(&store, alice, &[PERSON_HASH]);
         write_stage2(&store, 1, alice, true); // B already a member
 
         let membership = CaptureSink::new();
@@ -558,7 +570,7 @@ mod tests {
         // Cohort 2 is single-leaf and referenced by nothing.
         let catalog = catalog(vec![(2, vec![behavioral_leaf()])], true);
         let alice = person(1);
-        write_stage1(&store, behavioral_lsk(&catalog), alice, behavioral_match());
+        write_behavioral(&store, behavioral_lsk(&catalog), alice, behavioral_match());
 
         let membership = CaptureSink::new();
         let cascade = CaptureCascadeSink::new();
@@ -593,8 +605,8 @@ mod tests {
             true,
         );
         let alice = person(1);
-        write_stage1(&store, behavioral_lsk(&catalog), alice, behavioral_match());
-        write_stage1(&store, person_lsk(), alice, person_match());
+        write_behavioral(&store, behavioral_lsk(&catalog), alice, behavioral_match());
+        write_person_record(&store, alice, &[PERSON_HASH]);
 
         let membership = CaptureSink::new();
         let cascade = CaptureCascadeSink::new();
@@ -630,8 +642,8 @@ mod tests {
             true,
         );
         let alice = person(1);
-        write_stage1(&store, behavioral_lsk(&catalog), alice, behavioral_match());
-        write_stage1(&store, person_lsk(), alice, person_match());
+        write_behavioral(&store, behavioral_lsk(&catalog), alice, behavioral_match());
+        write_person_record(&store, alice, &[PERSON_HASH]);
 
         let membership = CaptureSink::new();
         let cascade = CaptureCascadeSink::new();
@@ -679,8 +691,8 @@ mod tests {
             true,
         );
         let alice = person(1);
-        write_stage1(&store, behavioral_lsk(&catalog), alice, behavioral_match());
-        write_stage1(&store, person_lsk(), alice, person_match());
+        write_behavioral(&store, behavioral_lsk(&catalog), alice, behavioral_match());
+        write_person_record(&store, alice, &[PERSON_HASH]);
 
         let membership = CaptureSink::new();
         let cascade = CaptureCascadeSink::new();
@@ -727,8 +739,8 @@ mod tests {
             true,
         );
         let alice = person(1);
-        write_stage1(&store, behavioral_lsk(&catalog), alice, behavioral_match());
-        write_stage1(&store, person_lsk(), alice, person_match());
+        write_behavioral(&store, behavioral_lsk(&catalog), alice, behavioral_match());
+        write_person_record(&store, alice, &[PERSON_HASH]);
 
         let membership = CaptureSink::new();
         let cascade = CaptureCascadeSink::new();
@@ -771,8 +783,8 @@ mod tests {
             true,
         );
         let alice = person(1);
-        write_stage1(&store, behavioral_lsk(&catalog), alice, behavioral_match());
-        write_stage1(&store, person_lsk(), alice, person_match());
+        write_behavioral(&store, behavioral_lsk(&catalog), alice, behavioral_match());
+        write_person_record(&store, alice, &[PERSON_HASH]);
 
         let membership = CaptureSink::new();
         let cascade = CaptureCascadeSink::new();
@@ -821,8 +833,8 @@ mod tests {
             true,
         );
         let alice = person(1);
-        write_stage1(&store, behavioral_lsk(&catalog), alice, behavioral_match());
-        write_stage1(&store, person_lsk(), alice, person_match());
+        write_behavioral(&store, behavioral_lsk(&catalog), alice, behavioral_match());
+        write_person_record(&store, alice, &[PERSON_HASH]);
 
         let membership = CaptureSink::failing_first(1);
         let cascade = CaptureCascadeSink::new();
@@ -866,8 +878,8 @@ mod tests {
             true,
         );
         let alice = person(1);
-        write_stage1(&store, behavioral_lsk(&catalog), alice, behavioral_match());
-        write_stage1(&store, person_lsk(), alice, person_match());
+        write_behavioral(&store, behavioral_lsk(&catalog), alice, behavioral_match());
+        write_person_record(&store, alice, &[PERSON_HASH]);
 
         let membership = CaptureSink::new();
         let cascade = CaptureCascadeSink::failing_always();

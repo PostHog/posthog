@@ -135,7 +135,11 @@ export default defineConfig(({ mode }) => {
         },
         optimizeDeps: {
             include: ['react', 'react-dom', 'buffer'],
-            exclude: ['snappy-wasm'], // Don't pre-bundle snappy-wasm so WASM file stays with JS
+            // snappy-wasm: don't pre-bundle so the WASM file stays with the JS.
+            // @posthog/brand: its PNG stubs resolve assets via `new URL(..., import.meta.url)`,
+            // which pre-bundling rewrites to .vite/deps/ where the images don't exist — hoggie
+            // art silently 404s in dev serve (production builds are unaffected).
+            exclude: ['snappy-wasm', '@posthog/brand'],
         },
     }
 })

@@ -39,6 +39,7 @@ import {
     PopoverTrigger,
 } from '@posthog/quill'
 
+import type { SeriesRename } from 'lib/components/EntityFilterInfo'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { isDefinitionStale } from 'lib/utils/definitions'
@@ -70,6 +71,8 @@ export interface TaxonomicFilterMenuProps {
     triggerLabel?: string
     /** Currently-selected entry — drives the trigger label. Optional. */
     selected?: MenuFilterEntry | null
+    /** Rename (custom name) carried by the series being edited — applied to the selected row in the combobox. */
+    selectedRename?: SeriesRename | null
     /**
      * Trigger override. Static element or render function receiving
      * trigger state.
@@ -234,6 +237,7 @@ export function resolveInitialMenuState(
 export function TaxonomicFilterMenu({
     triggerLabel,
     selected,
+    selectedRename,
     trigger,
     onCommit,
     placeholder,
@@ -246,8 +250,16 @@ export function TaxonomicFilterMenu({
     triggerVariant = 'button',
     defaultOpenState,
 }: TaxonomicFilterMenuProps): JSX.Element {
-    const { groups, selectItem, inputProps, searchQuery, setSearchQuery, selectingKeyOnly, excludedOperators } =
-        useTaxonomicFilterContext()
+    const {
+        groups,
+        selectItem,
+        inputProps,
+        searchQuery,
+        setSearchQuery,
+        selectingKeyOnly,
+        excludedOperators,
+        excludedProperties,
+    } = useTaxonomicFilterContext()
     const [state, setState] = useState<MenuFilterState>(() =>
         resolveInitialMenuState(defaultOpen, defaultOpenState, selected ?? null)
     )
@@ -347,11 +359,12 @@ export function TaxonomicFilterMenu({
                     recentFilterItems as TaxonomicDefinitionTypes[],
                     taxonomicGroupTypes,
                     excludedOperators,
-                    selectingKeyOnly
+                    selectingKeyOnly,
+                    excludedProperties
                 ) as ShortcutItem[],
                 groups
             ),
-        [recentFilterItems, taxonomicGroupTypes, groups, excludedOperators, selectingKeyOnly]
+        [recentFilterItems, taxonomicGroupTypes, groups, excludedOperators, selectingKeyOnly, excludedProperties]
     )
     const pinnedEntries = useMemo<MenuFilterEntry[]>(
         () =>
@@ -651,6 +664,7 @@ export function TaxonomicFilterMenu({
                         <DropdownMenuTrigger render={triggerEl} data-attr="taxonomic-filter-menu-trigger" />
                     )}
                     <PopoverTrigger
+                        nativeButton={false}
                         render={<span aria-hidden tabIndex={-1} className="absolute inset-0 pointer-events-none" />}
                     />
                     {triggerAccessory}
@@ -711,6 +725,7 @@ export function TaxonomicFilterMenu({
                             // already title themselves with the group name.
                             title={state.drillTo === 'all' ? comboboxTitle : undefined}
                             selectedEntry={selected ?? null}
+                            selectedRename={selectedRename}
                             onCommit={handleCommit}
                             onBack={openMenu}
                             inputRef={comboboxInputRef}

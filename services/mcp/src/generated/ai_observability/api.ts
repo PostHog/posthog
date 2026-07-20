@@ -3,13 +3,13 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 57 enabled ops
+ * PostHog API - MCP 58 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
 
 /**
- * Return a structured personal LLM spend analysis for the requesting user. Pass `date_from` / `date_to` (absolute like `2026-04-23` or relative like `-7d`) to bound the window — defaults to the last 30 days, max 90 days. The `product=<ai_product>` query param is required and scopes the tool / model / day / trace breakdowns to a single product; supported values: posthog_code. `by_product` is always returned for cross-product visibility. `by_day` returns a day-ascending spend series for the scoped product. Use `refresh=true` to bypass the 5-minute response cache.
+ * Return a structured personal LLM spend analysis for the requesting user. Pass `date_from` / `date_to` (absolute like `2026-04-23` or relative like `-7d`) to bound the window — defaults to the last 30 days, max 90 days. The `product=<ai_product>` query param is required and scopes the tool / model / day / trace breakdowns to a single product; supported values: posthog_code. `by_product` is always returned for cross-product visibility. `by_day` returns a day-ascending spend series for the scoped product. Pass `bucket_minutes` (5, 15, 30, or 60; the window may span at most 600 buckets) to additionally get `by_bucket`, a time-ascending series with per-bucket cost split into uncached input / output / cache read / cache creation components. Use `refresh=true` to bypass the 5-minute response cache.
  */
 export const llmAnalyticsPersonalSpendListQueryDateFromDefault = `-30d`
 export const llmAnalyticsPersonalSpendListQueryDateFromMax = 32
@@ -24,6 +24,12 @@ export const llmAnalyticsPersonalSpendListQueryProductMax = 64
 export const llmAnalyticsPersonalSpendListQueryRefreshDefault = false
 
 export const LlmAnalyticsPersonalSpendListQueryParams = /* @__PURE__ */ zod.object({
+    bucket_minutes: zod
+        .union([zod.literal(5), zod.literal(15), zod.literal(30), zod.literal(60)])
+        .optional()
+        .describe(
+            'When set, additionally return a `by_bucket` breakdown: a time-ascending UTC cost series for the scoped product at this bucket size in minutes, with per-bucket cost split into uncached input / output / cache read / cache creation components plus the matching token sums. Supported bucket sizes: 5, 15, 30, 60. The window may span at most 600 buckets of the chosen size (e.g. 50 hours at 5-minute buckets).\n\n* `5` - 5\n* `15` - 15\n* `30` - 30\n* `60` - 60'
+        ),
     date_from: zod
         .string()
         .min(1)
@@ -255,23 +261,27 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
                             'azure_openai',
                             'together_ai',
                             'minimax',
+                            'zeabur',
                         ])
                         .describe(
-                            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI\n* `minimax` - MiniMax'
+                            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI\n* `minimax` - MiniMax\n* `zeabur` - Zeabur AI Hub'
                         ),
                     model: zod.string().max(evaluationsCreateBodyModelConfigurationOneModelMax),
                     provider_key_id: zod
                         .string()
                         .nullish()
                         .describe(
-                            'Team provider key to run this eval with (same provider as `provider`). Leave null only for brief pre-key testing; real evals should set it.'
+                            'Optional team provider key to run this evaluation with; it must use the same provider. May be null when no key is pinned or after the selected key is removed.'
                         ),
                     provider_key_name: zod.string().nullish(),
                 })
                 .describe('Nested serializer for model configuration.'),
             zod.null(),
         ])
-        .optional(),
+        .optional()
+        .describe(
+            'Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null.'
+        ),
     deleted: zod.boolean().optional().describe('Set to true to soft-delete the evaluation.'),
 })
 
@@ -427,23 +437,27 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
                             'azure_openai',
                             'together_ai',
                             'minimax',
+                            'zeabur',
                         ])
                         .describe(
-                            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI\n* `minimax` - MiniMax'
+                            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI\n* `minimax` - MiniMax\n* `zeabur` - Zeabur AI Hub'
                         ),
                     model: zod.string().max(evaluationsPartialUpdateBodyModelConfigurationOneModelMax),
                     provider_key_id: zod
                         .string()
                         .nullish()
                         .describe(
-                            'Team provider key to run this eval with (same provider as `provider`). Leave null only for brief pre-key testing; real evals should set it.'
+                            'Optional team provider key to run this evaluation with; it must use the same provider. May be null when no key is pinned or after the selected key is removed.'
                         ),
                     provider_key_name: zod.string().nullish(),
                 })
                 .describe('Nested serializer for model configuration.'),
             zod.null(),
         ])
-        .optional(),
+        .optional()
+        .describe(
+            'Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null.'
+        ),
     deleted: zod.boolean().optional().describe('Set to true to soft-delete the evaluation.'),
 })
 
@@ -654,6 +668,7 @@ export const LlmAnalyticsEvaluationReportsListParams = /* @__PURE__ */ zod.objec
 })
 
 export const LlmAnalyticsEvaluationReportsListQueryParams = /* @__PURE__ */ zod.object({
+    evaluation: zod.string().optional().describe('Only return report configs for this evaluation UUID.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
@@ -669,12 +684,10 @@ export const LlmAnalyticsEvaluationReportsCreateParams = /* @__PURE__ */ zod.obj
         ),
 })
 
-export const llmAnalyticsEvaluationReportsCreateBodyTimezoneNameMax = 64
-
 export const llmAnalyticsEvaluationReportsCreateBodyMaxSampleSizeMin = -2147483648
 export const llmAnalyticsEvaluationReportsCreateBodyMaxSampleSizeMax = 2147483647
 
-export const llmAnalyticsEvaluationReportsCreateBodyTriggerThresholdMin = 10
+export const llmAnalyticsEvaluationReportsCreateBodyTriggerThresholdMin = 100
 export const llmAnalyticsEvaluationReportsCreateBodyTriggerThresholdMax = 10000
 
 export const llmAnalyticsEvaluationReportsCreateBodyCooldownMinutesMin = 60
@@ -689,26 +702,13 @@ export const LlmAnalyticsEvaluationReportsCreateBody = /* @__PURE__ */ zod.objec
         .describe('* `scheduled` - Scheduled\n* `every_n` - Every N')
         .optional()
         .describe(
-            "How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.\n\n* `scheduled` - Scheduled\n* `every_n` - Every N"
+            "How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule.\n\n* `scheduled` - Scheduled\n* `every_n` - Every N"
         ),
     rrule: zod
         .string()
         .optional()
         .describe(
-            "RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise."
-        ),
-    starts_at: zod.iso
-        .datetime({ offset: true })
-        .nullish()
-        .describe(
-            "Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise."
-        ),
-    timezone_name: zod
-        .string()
-        .max(llmAnalyticsEvaluationReportsCreateBodyTimezoneNameMax)
-        .optional()
-        .describe(
-            "IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America/New_York'). Defaults to 'UTC'."
+            "RFC 5545 recurrence rule string for scheduled reports. Only daily and weekly cadences are supported: use 'FREQ=DAILY' or 'FREQ=WEEKLY;BYDAY=MO,FR'. Required when frequency is 'scheduled'; ignored otherwise."
         ),
     delivery_targets: zod
         .unknown()
@@ -723,7 +723,6 @@ export const LlmAnalyticsEvaluationReportsCreateBody = /* @__PURE__ */ zod.objec
         .optional()
         .describe('Maximum number of evaluation runs included in each report. Defaults to 200.'),
     enabled: zod.boolean().optional().describe('Whether report delivery is active. Disabled configs do not fire.'),
-    deleted: zod.boolean().optional().describe('Set to true to soft-delete this report config.'),
     report_prompt_guidance: zod
         .string()
         .optional()
@@ -736,7 +735,7 @@ export const LlmAnalyticsEvaluationReportsCreateBody = /* @__PURE__ */ zod.objec
         .max(llmAnalyticsEvaluationReportsCreateBodyTriggerThresholdMax)
         .nullish()
         .describe(
-            "Number of new evaluation results that triggers a report (every_n mode only). Min 10, max 10000. Defaults to 100. Required when frequency is 'every_n'."
+            "Number of new evaluation results that triggers a report (every_n mode only). Min 100, max 10000. Defaults to 100. Required when frequency is 'every_n'."
         ),
     cooldown_minutes: zod
         .number()
@@ -780,12 +779,10 @@ export const LlmAnalyticsEvaluationReportsPartialUpdateParams = /* @__PURE__ */ 
         ),
 })
 
-export const llmAnalyticsEvaluationReportsPartialUpdateBodyTimezoneNameMax = 64
-
 export const llmAnalyticsEvaluationReportsPartialUpdateBodyMaxSampleSizeMin = -2147483648
 export const llmAnalyticsEvaluationReportsPartialUpdateBodyMaxSampleSizeMax = 2147483647
 
-export const llmAnalyticsEvaluationReportsPartialUpdateBodyTriggerThresholdMin = 10
+export const llmAnalyticsEvaluationReportsPartialUpdateBodyTriggerThresholdMin = 100
 export const llmAnalyticsEvaluationReportsPartialUpdateBodyTriggerThresholdMax = 10000
 
 export const llmAnalyticsEvaluationReportsPartialUpdateBodyCooldownMinutesMin = 60
@@ -794,32 +791,18 @@ export const llmAnalyticsEvaluationReportsPartialUpdateBodyCooldownMinutesMax = 
 export const llmAnalyticsEvaluationReportsPartialUpdateBodyDailyRunCapMax = 24
 
 export const LlmAnalyticsEvaluationReportsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    evaluation: zod.string().optional().describe('UUID of the evaluation this report config belongs to.'),
     frequency: zod
         .enum(['scheduled', 'every_n'])
         .describe('* `scheduled` - Scheduled\n* `every_n` - Every N')
         .optional()
         .describe(
-            "How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.\n\n* `scheduled` - Scheduled\n* `every_n` - Every N"
+            "How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule.\n\n* `scheduled` - Scheduled\n* `every_n` - Every N"
         ),
     rrule: zod
         .string()
         .optional()
         .describe(
-            "RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise."
-        ),
-    starts_at: zod.iso
-        .datetime({ offset: true })
-        .nullish()
-        .describe(
-            "Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise."
-        ),
-    timezone_name: zod
-        .string()
-        .max(llmAnalyticsEvaluationReportsPartialUpdateBodyTimezoneNameMax)
-        .optional()
-        .describe(
-            "IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America/New_York'). Defaults to 'UTC'."
+            "RFC 5545 recurrence rule string for scheduled reports. Only daily and weekly cadences are supported: use 'FREQ=DAILY' or 'FREQ=WEEKLY;BYDAY=MO,FR'. Required when frequency is 'scheduled'; ignored otherwise."
         ),
     delivery_targets: zod
         .unknown()
@@ -834,7 +817,6 @@ export const LlmAnalyticsEvaluationReportsPartialUpdateBody = /* @__PURE__ */ zo
         .optional()
         .describe('Maximum number of evaluation runs included in each report. Defaults to 200.'),
     enabled: zod.boolean().optional().describe('Whether report delivery is active. Disabled configs do not fire.'),
-    deleted: zod.boolean().optional().describe('Set to true to soft-delete this report config.'),
     report_prompt_guidance: zod
         .string()
         .optional()
@@ -847,7 +829,7 @@ export const LlmAnalyticsEvaluationReportsPartialUpdateBody = /* @__PURE__ */ zo
         .max(llmAnalyticsEvaluationReportsPartialUpdateBodyTriggerThresholdMax)
         .nullish()
         .describe(
-            "Number of new evaluation results that triggers a report (every_n mode only). Min 10, max 10000. Defaults to 100. Required when frequency is 'every_n'."
+            "Number of new evaluation results that triggers a report (every_n mode only). Min 100, max 10000. Defaults to 100. Required when frequency is 'every_n'."
         ),
     cooldown_minutes: zod
         .number()
@@ -864,18 +846,6 @@ export const LlmAnalyticsEvaluationReportsPartialUpdateBody = /* @__PURE__ */ zo
         .optional()
         .describe(
             'Maximum count-triggered report runs per calendar day (UTC). Min 1, max 24 (one per cooldown window). Defaults to 10.'
-        ),
-})
-
-/**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
- */
-export const LlmAnalyticsEvaluationReportsDestroyParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this evaluation report.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
 })
 
@@ -978,7 +948,17 @@ export const LlmAnalyticsModelsRetrieveQueryParams = /* @__PURE__ */ zod.object(
             'Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). Must belong to the same provider as the `provider` parameter.'
         ),
     provider: zod
-        .enum(['anthropic', 'azure_openai', 'fireworks', 'gemini', 'minimax', 'openai', 'openrouter', 'together_ai'])
+        .enum([
+            'anthropic',
+            'azure_openai',
+            'fireworks',
+            'gemini',
+            'minimax',
+            'openai',
+            'openrouter',
+            'together_ai',
+            'zeabur',
+        ])
         .describe('LLM provider to list models for. Must be one of the supported providers.'),
 })
 
@@ -1607,12 +1587,19 @@ export const LlmPromptsCreateParams = /* @__PURE__ */ zod.object({
 
 export const llmPromptsCreateBodyNameMax = 255
 
+export const llmPromptsCreateBodyVersionDescriptionMax = 400
+
 export const LlmPromptsCreateBody = /* @__PURE__ */ zod.object({
     name: zod
         .string()
         .max(llmPromptsCreateBodyNameMax)
         .describe('Unique prompt name using letters, numbers, hyphens, and underscores only.'),
     prompt: zod.unknown().describe('Prompt payload as JSON or string data.'),
+    version_description: zod
+        .string()
+        .max(llmPromptsCreateBodyVersionDescriptionMax)
+        .nullish()
+        .describe('Optional note describing what changed in this version. Set when the version is published.'),
 })
 
 export const llmPromptsNameRetrievePathPromptNameRegExp = new RegExp('^[^/]+$')
@@ -1627,6 +1614,7 @@ export const LlmPromptsNameRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 export const llmPromptsNameRetrieveQueryContentDefault = `full`
+export const llmPromptsNameRetrieveQueryLabelMax = 128
 
 export const LlmPromptsNameRetrieveQueryParams = /* @__PURE__ */ zod.object({
     content: zod
@@ -1634,6 +1622,14 @@ export const LlmPromptsNameRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .default(llmPromptsNameRetrieveQueryContentDefault)
         .describe(
             "Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.\n\n* `full` - full\n* `preview` - preview\n* `none` - none"
+        ),
+    label: zod
+        .string()
+        .min(1)
+        .max(llmPromptsNameRetrieveQueryLabelMax)
+        .optional()
+        .describe(
+            "Fetch the version this label currently points to, e.g. 'production'. Lowercase letters, numbers, dots, hyphens and underscores. Mutually exclusive with version."
         ),
     version: zod
         .number()
@@ -1652,6 +1648,8 @@ export const LlmPromptsNamePartialUpdateParams = /* @__PURE__ */ zod.object({
         ),
     prompt_name: zod.string().regex(llmPromptsNamePartialUpdatePathPromptNameRegExp),
 })
+
+export const llmPromptsNamePartialUpdateBodyVersionDescriptionMax = 400
 
 export const LlmPromptsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
     prompt: zod
@@ -1674,6 +1672,11 @@ export const LlmPromptsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
         .min(1)
         .optional()
         .describe('Latest version you are editing from. Used for optimistic concurrency checks.'),
+    version_description: zod
+        .string()
+        .max(llmPromptsNamePartialUpdateBodyVersionDescriptionMax)
+        .optional()
+        .describe('Optional note describing what changed in this version. Shown in the version history.'),
 })
 
 export const llmPromptsNameDuplicateCreatePathPromptNameRegExp = new RegExp('^[^/]+$')
@@ -1696,6 +1699,41 @@ export const LlmPromptsNameDuplicateCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Name for the duplicated prompt. Must be unique and use only letters, numbers, hyphens, and underscores.'
         ),
+})
+
+export const llmPromptsNameLabelsUpdatePathLabelNameRegExp = new RegExp('^[^/]+$')
+export const llmPromptsNameLabelsUpdatePathPromptNameRegExp = new RegExp('^[^/]+$')
+
+export const LlmPromptsNameLabelsUpdateParams = /* @__PURE__ */ zod.object({
+    label_name: zod.string().regex(llmPromptsNameLabelsUpdatePathLabelNameRegExp),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    prompt_name: zod.string().regex(llmPromptsNameLabelsUpdatePathPromptNameRegExp),
+})
+
+export const LlmPromptsNameLabelsUpdateBody = /* @__PURE__ */ zod.object({
+    version: zod
+        .number()
+        .min(1)
+        .describe(
+            'Prompt version this label should point to. If the label already exists on another version of the prompt, it is moved there.'
+        ),
+})
+
+export const llmPromptsNameLabelsDestroyPathLabelNameRegExp = new RegExp('^[^/]+$')
+export const llmPromptsNameLabelsDestroyPathPromptNameRegExp = new RegExp('^[^/]+$')
+
+export const LlmPromptsNameLabelsDestroyParams = /* @__PURE__ */ zod.object({
+    label_name: zod.string().regex(llmPromptsNameLabelsDestroyPathLabelNameRegExp),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    prompt_name: zod.string().regex(llmPromptsNameLabelsDestroyPathPromptNameRegExp),
 })
 
 export const TaggersListParams = /* @__PURE__ */ zod.object({
@@ -1843,12 +1881,13 @@ export const TaggersCreateBody = /* @__PURE__ */ zod.object({
                         'azure_openai',
                         'together_ai',
                         'minimax',
+                        'zeabur',
                     ])
                     .describe(
-                        '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI\n* `minimax` - MiniMax'
+                        '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI\n* `minimax` - MiniMax\n* `zeabur` - Zeabur AI Hub'
                     )
                     .describe(
-                        'LLM provider to use for this tagger.\n\n* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI\n* `minimax` - MiniMax'
+                        'LLM provider to use for this tagger.\n\n* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI\n* `minimax` - MiniMax\n* `zeabur` - Zeabur AI Hub'
                     ),
                 model: zod
                     .string()

@@ -41,6 +41,7 @@ from . import (
     hog,
     identity_provider_config,
     ingestion_warnings,
+    ingestion_warnings_v2,
     instance_settings,
     instance_status,
     integration,
@@ -221,6 +222,13 @@ register_legacy_dual_route_team_nested_viewset(
     ["team_id"],
 )
 
+projects_router.register(
+    r"ingestion_warnings_v2",
+    ingestion_warnings_v2.IngestionWarningsV2ViewSet,
+    "project_ingestion_warnings_v2",
+    ["team_id"],
+)
+
 
 projects_router.register(
     r"data_management",
@@ -397,7 +405,9 @@ router.register(r"login", authentication.LoginViewSet, "login")
 router.register(r"login/dev", authentication.DevLoginViewSet, "login_dev")
 router.register(r"login/token", authentication.TwoFactorViewSet, "login_token")
 router.register(r"login/precheck", authentication.LoginPrecheckViewSet, "login_precheck")
-router.register(r"login/email-mfa", authentication.EmailMFAViewSet, "login_email_mfa")
+router.register(
+    r"login/code-based-verification", authentication.CodeBasedVerificationViewSet, "login_code_based_verification"
+)
 router.register(r"login/2fa/passkey", authentication.TwoFactorPasskeyViewSet, "login_2fa_passkey")
 router.register(r"webauthn/register", webauthn.WebAuthnRegistrationViewSet, "webauthn_register")
 router.register(r"webauthn/signup-register", webauthn.WebAuthnSignupRegistrationViewSet, "webauthn_signup_register")

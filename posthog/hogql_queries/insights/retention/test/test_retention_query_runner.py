@@ -3920,6 +3920,61 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             ),
         )
 
+    def test_retention_with_breakdown_with_group_properties(self):
+        create_group_type_mapping_without_created_at(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        create_group(
+            team_id=self.team.pk, group_type_index=0, group_key="org:finance", properties={"industry": "finance"}
+        )
+        create_group(
+            team_id=self.team.pk, group_type_index=0, group_key="org:tech", properties={"industry": "technology"}
+        )
+
+        create_person(team=self.team, distinct_ids=["person1"])
+        create_person(team=self.team, distinct_ids=["person2"])
+
+        _create_events(
+            self.team,
+            [
+                # finance org
+                ("person1", _date(0), {"$group_0": "org:finance"}),
+                ("person1", _date(1), {"$group_0": "org:finance"}),
+                ("person1", _date(3), {"$group_0": "org:finance"}),
+                # technology org
+                ("person2", _date(0), {"$group_0": "org:tech"}),
+                ("person2", _date(1), {"$group_0": "org:tech"}),
+            ],
+        )
+
+        # Breaking down by a group property must resolve the events->groups join
+        # (chain group_0, not groups_0), otherwise the query fails to resolve.
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(5, hour=0)},
+                "retentionFilter": {"totalIntervals": 6, "period": "Day"},
+                "breakdownFilter": {"breakdowns": [{"property": "industry", "type": "group", "group_type_index": 0}]},
+            }
+        )
+
+        breakdown_values = {c.get("breakdown_value") for c in result}
+        self.assertEqual(breakdown_values, {"finance", "technology"})
+
+        finance_cohorts = pluck([c for c in result if c.get("breakdown_value") == "finance"], "values", "count")
+        self.assertEqual(
+            finance_cohorts,
+            pad(
+                [
+                    [1, 1, 0, 1, 0, 0],
+                    [1, 0, 1, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                ]
+            ),
+        )
+
     def test_dwh_variant_breakdown_event_property_per_value_parity(self):
         # Tracer bullet: the variant must mirror the legacy per-value cohort semantics
         # for event-property breakdowns. person1 starts "clothing" then returns with a
@@ -8077,3 +8132,145 @@ class TestClickhouseRetentionGroupAggregation(
     #     self.assertIn("USA", breakdown_values)
     #     self.assertNotIn("Canada", breakdown_values)
     #     self.assertIn(BREAKDOWN_OTHER_STRING_LABEL, breakdown_values)  # Canada should be in "Other"
+
+
+class TestRetentionLegacyFirstTimeTwoArmScan(APIBaseTest):
+    def _legacy_base_query(
+        self,
+        retention_type: str,
+        target: dict | None = None,
+        returning: dict | None = None,
+        breakdown_filter: dict | None = None,
+        aggregation_property: str | None = None,
+        aggregation_group_type_index: int | None = None,
+    ) -> ast.SelectQuery:
+        query: dict = {
+            "kind": "RetentionQuery",
+            "retentionFilter": {
+                "retentionType": retention_type,
+                "targetEntity": target or {"id": "signup", "type": "events"},
+                "returningEntity": returning or {"id": "did_action", "type": "events"},
+            },
+        }
+        if breakdown_filter is not None:
+            query["breakdownFilter"] = breakdown_filter
+        if aggregation_property is not None:
+            query["retentionFilter"]["aggregationType"] = "sum"
+            query["retentionFilter"]["aggregationProperty"] = aggregation_property
+        if aggregation_group_type_index is not None:
+            query["aggregation_group_type_index"] = aggregation_group_type_index
+        runner = RetentionQueryRunner(team=self.team, query=query)
+        with patch(RETENTION_BASE_QUERY_VARIANT_PATCH_PATH, return_value=False):
+            return RetentionFixedIntervalBaseQueryBuilder(runner).build_base_query()
+
+    @staticmethod
+    def _where_constants(arm: ast.SelectQuery) -> list[Any]:
+        constants: list[Any] = []
+
+        def walk(value: Any) -> None:
+            if isinstance(value, ast.Constant):
+                constants.append(value.value)
+            if hasattr(value, "__dataclass_fields__"):
+                for field_name in value.__dataclass_fields__:
+                    walk(getattr(value, field_name))
+            elif isinstance(value, list | tuple):
+                for item in value:
+                    walk(item)
+
+        walk(arm.where)
+        return constants
+
+    @staticmethod
+    def _where_has_timestamp_bound(arm: ast.SelectQuery) -> bool:
+        found = False
+
+        def walk(value: Any) -> None:
+            nonlocal found
+            if isinstance(value, ast.CompareOperation) and isinstance(value.left, ast.Field):
+                if value.left.chain[-1] == "timestamp":
+                    found = True
+            if hasattr(value, "__dataclass_fields__"):
+                for field_name in value.__dataclass_fields__:
+                    walk(getattr(value, field_name))
+            elif isinstance(value, list | tuple):
+                for item in value:
+                    walk(item)
+
+        walk(arm.where)
+        return found
+
+    @parameterized.expand(["retention_first_time", "retention_first_ever_occurrence"])
+    def test_first_time_modes_scan_two_arms_with_bounded_return_arm(self, retention_type):
+        base_query = self._legacy_base_query(retention_type)
+        assert base_query.select_from is not None
+        self.assertEqual(base_query.select_from.alias, "events")
+        table = base_query.select_from.table
+        self.assertIsInstance(table, ast.SelectSetQuery)
+        start_arm, return_arm = list(table.select_queries())  # type: ignore[union-attr]
+
+        start_constants = self._where_constants(start_arm)
+        return_constants = self._where_constants(return_arm)
+        self.assertIn("signup", start_constants)
+        self.assertNotIn("did_action", start_constants)
+        self.assertIn("did_action", return_constants)
+        self.assertNotIn("signup", return_constants)
+
+        self.assertFalse(self._where_has_timestamp_bound(start_arm))
+        self.assertTrue(self._where_has_timestamp_bound(return_arm))
+
+    @parameterized.expand(
+        [
+            ("recurring", "retention_recurring", None, None, None, None),
+            (
+                "same_entity",
+                "retention_first_time",
+                {"id": "signup", "type": "events"},
+                {"id": "signup", "type": "events"},
+                None,
+                None,
+            ),
+            ("all_events_target", "retention_first_time", {"id": None, "type": "events"}, None, None, None),
+            (
+                "breakdown",
+                "retention_first_time",
+                None,
+                None,
+                {"breakdowns": [{"type": "event", "property": "plan"}]},
+                None,
+            ),
+            ("property_aggregation", "retention_first_time", None, None, None, "revenue"),
+        ]
+    )
+    def test_keeps_single_scan_when_split_cannot_apply(
+        self, _name, retention_type, target, returning, breakdown_filter, aggregation_property
+    ):
+        base_query = self._legacy_base_query(
+            retention_type,
+            target=target,
+            returning=returning,
+            breakdown_filter=breakdown_filter,
+            aggregation_property=aggregation_property,
+        )
+        assert base_query.select_from is not None
+        self.assertIsInstance(base_query.select_from.table, ast.Field)
+
+    def test_first_time_group_aggregation_filters_both_arms(self):
+        base_query = self._legacy_base_query("retention_first_time", aggregation_group_type_index=0)
+        assert base_query.select_from is not None
+        table = base_query.select_from.table
+        self.assertIsInstance(table, ast.SelectSetQuery)
+
+        def collect_chains(value, chains):
+            if isinstance(value, ast.Field):
+                chains.append(value.chain)
+            if hasattr(value, "__dataclass_fields__"):
+                for field_name in value.__dataclass_fields__:
+                    collect_chains(getattr(value, field_name), chains)
+            elif isinstance(value, list | tuple):
+                for item in value:
+                    collect_chains(item, chains)
+
+        for arm in table.select_queries():  # type: ignore[union-attr]
+            chains: list = []
+            collect_chains(arm.where, chains)
+            self.assertIn(["events", "$group_0"], chains)

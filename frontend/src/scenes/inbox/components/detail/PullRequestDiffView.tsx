@@ -22,6 +22,33 @@ const CHANGE_META: Record<ChangeTypes, { label: string; icon: ReactNode; classNa
     'rename-changed': { label: 'Renamed', icon: <IconArrowRight />, className: 'text-secondary' },
 }
 
+export interface DiffSummary {
+    fileCount: number
+    additions: number
+    deletions: number
+}
+
+/** Aggregate file/line counts from a unified diff patch — shared by the diff toolbar and file headers. */
+export function summarizeDiff(diff: string, cacheKey?: string): DiffSummary | null {
+    if (!diff.trim()) {
+        return { fileCount: 0, additions: 0, deletions: 0 }
+    }
+    try {
+        const files = parsePatchFiles(diff, cacheKey).flatMap((patch) => patch.files)
+        let additions = 0
+        let deletions = 0
+        for (const file of files) {
+            for (const hunk of file.hunks) {
+                additions += hunk.additionLines
+                deletions += hunk.deletionLines
+            }
+        }
+        return { fileCount: files.length, additions, deletions }
+    } catch {
+        return null
+    }
+}
+
 /** Our own file header (rendered into Pierre's light-DOM header slot): status icon + monospace path + counts. */
 function FileDiffHeader({ file }: { file: FileDiffMetadata }): JSX.Element {
     const meta = CHANGE_META[file.type] ?? { label: 'Changed', icon: <IconPencil />, className: 'text-secondary' }

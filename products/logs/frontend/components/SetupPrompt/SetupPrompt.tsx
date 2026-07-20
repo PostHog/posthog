@@ -2,24 +2,27 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
-import { HedgehogGreek } from '@posthog/brand/hoggies'
+import * as greekPng from '@posthog/brand/hoggies/png/greek'
 import { IconGear } from '@posthog/icons'
 import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useInterval } from 'lib/hooks/useInterval'
-import goImage from 'scenes/onboarding/legacy/sdks/logos/go.svg'
-import javaImage from 'scenes/onboarding/legacy/sdks/logos/java.svg'
-import nextjsImage from 'scenes/onboarding/legacy/sdks/logos/nextjs.svg'
-import nodejsImage from 'scenes/onboarding/legacy/sdks/logos/nodejs.svg'
-import pythonImage from 'scenes/onboarding/legacy/sdks/logos/python.svg'
+import goImage from 'scenes/onboarding/shared/logos/go.svg'
+import javaImage from 'scenes/onboarding/shared/logos/java.svg'
+import nextjsImage from 'scenes/onboarding/shared/logos/nextjs.svg'
+import nodejsImage from 'scenes/onboarding/shared/logos/nodejs.svg'
+import pythonImage from 'scenes/onboarding/shared/logos/python.svg'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { useOpenLogsSettingsPanel } from '../../hooks/useOpenLogsSettingsPanel'
 import { logsIngestionLogic } from './logsIngestionLogic'
+
+const HedgehogGreek = pngHoggie(greekPng)
 
 const FRAMEWORK_LINKS: { name: string; image?: string; docsLink: string }[] = [
     { name: 'Node.js', image: nodejsImage, docsLink: 'https://posthog.com/docs/logs/installation/nodejs' },

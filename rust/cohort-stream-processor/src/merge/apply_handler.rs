@@ -1,9 +1,9 @@
 //! Apply a `MergeStateTransfer` on P_new's worker (phase 2 of cross-partition merge).
 //!
 //! Given a transfer (P_old's drained per-leaf records), merges each leaf into P_new's state, commits
-//! one atomic `WriteBatch` (merged puts, `cf_person_index` appends, and the `cf_merge_applied`
-//! idempotence marker), schedules P_new's eviction deadlines, and returns the membership transitions
-//! for the caller to compose Stage 2 and produce.
+//! one atomic `WriteBatch` (merged puts and the `cf_merge_applied` idempotence marker), schedules
+//! P_new's eviction deadlines, and returns the membership transitions for the caller to compose Stage
+//! 2 and produce.
 //!
 //! Before applying, the target `new_person_uuid` is resolved through the local slice's tombstones:
 //! in a chained merge `A → B → C` where `B → C` drained before `A → B` applies, P_new (= B) is
@@ -23,10 +23,14 @@ use crate::observability::metrics::{
     MERGE_APPLIES_SKIPPED_REPLAY_TOTAL, MERGE_FORWARD_HOP_CAPPED_TOTAL, MERGE_LEAVES_DROPPED_TOTAL,
     MERGE_TRANSFER_FORWARDS_TOTAL,
 };
-use crate::stage1::key::{LeafStateKey, Stage1Key};
+use crate::stage1::key::LeafStateKey;
+use crate::stage1::person_record::{PersonDedup, PersonRecord};
 use crate::stage1::state::StatefulRecord;
 use crate::stage1::transition::LeafTransition;
-use crate::store::{CohortStore, IndexOp, MergeAppliedKey, PersonIndexKey, StoreError};
+use crate::store::{
+    Behavioral, BehavioralKey, CohortStore, MergeAppliedKey, PersonPrefix, PersonRecords,
+    StoreError,
+};
 use crate::sweep::EvictionQueue;
 use crate::workers::event_path::schedule_deadline;
 use tracing::warn;
@@ -39,14 +43,14 @@ use tracing::warn;
 #[must_use]
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct QueueEffects {
-    pub cancels: Vec<Stage1Key>,
-    pub schedules: Vec<(Stage1Key, i64)>,
+    pub cancels: Vec<BehavioralKey>,
+    pub schedules: Vec<(BehavioralKey, i64)>,
 }
 
 impl QueueEffects {
     /// Cancel first, then schedule. The two key sets are disjoint by construction (old person ≠ new
     /// person), so the order is defensive.
-    pub fn apply_to(&self, queue: &mut EvictionQueue<Stage1Key>) {
+    pub fn apply_to(&self, queue: &mut EvictionQueue<BehavioralKey>) {
         for key in &self.cancels {
             queue.cancel(key);
         }
@@ -91,7 +95,8 @@ pub enum ApplyOutcome {
 /// the forward-vs-inline target resolution turns on whether the survivor hashes onto `partition_id`
 /// under this count, so it must match the deploy's topology.
 // Sync apply core; runs on the blocking pool inside `StoreHandle::run_section`, so its direct
-// `CohortStore` I/O (and that of `apply_into`/`apply_leaves`) is already off the runtime threads.
+// `CohortStore` I/O (and that of `apply_into`/`apply_leaves`/`merge_person_records`) is already off
+// the runtime threads.
 #[allow(clippy::disallowed_methods)]
 pub fn handle_transfer(
     partition_id: u16,
@@ -169,9 +174,8 @@ fn applied_key(
 }
 
 /// Apply `transfer`'s leaves into `target` (the resolved survivor, co-resident on `partition_id`),
-/// commit the merged puts + person-index appends + the `cf_merge_applied` marker keyed by `target`,
-/// schedule deadlines, and return the survivor's transitions. For the `NotMerged` case `target` is
-/// just `new_person_uuid`.
+/// commit the merged puts + the `cf_merge_applied` marker keyed by `target`, schedule deadlines, and
+/// return the survivor's transitions. For the `NotMerged` case `target` is just `new_person_uuid`.
 #[allow(clippy::disallowed_methods)]
 fn apply_into(
     partition_id: u16,
@@ -213,20 +217,23 @@ fn apply_into(
         &leaves,
     )?;
 
-    let target_index = PersonIndexKey {
-        partition_id,
-        team_id: team_u64,
-        person_id: target,
+    // Fold P_old's person-record dedup into the target's record: a present record absorbs P_old as an
+    // ancestor; an absent or corrupt one writes nothing.
+    let target_prefix = PersonPrefix::new(partition_id, team_u64, target);
+    let record_put = match &transfer.person_dedup {
+        Some(dedup) => merge_person_records(store, &target_prefix, old_person, dedup)?,
+        None => None,
     };
+
     let stamp = ApplyStamp {
         applied_at_ms: transfer.merged_at_ms,
     };
     store.write_batch(|batch| {
         for (key, bytes) in &apply.puts {
-            batch.put_stage1(key, bytes);
+            batch.put::<Behavioral>(key, bytes);
         }
-        for lsk in &apply.appends {
-            batch.merge_person_index(&target_index, IndexOp::Append(*lsk));
+        if let Some(bytes) = &record_put {
+            batch.put::<PersonRecords>(&target_prefix.record_key(), bytes);
         }
         batch.put_merge_applied(&target_applied_key, &stamp.encode());
         // Fixed-origin dedup: also stamp under the original `new_person_uuid` when the chain
@@ -257,14 +264,41 @@ fn apply_into(
     })
 }
 
+/// Merge P_old's person-record dedup into the target's record, returning the encoded record to put or
+/// `None` to write nothing. A present target record absorbs P_old as an ancestor (idempotent under
+/// redelivery). A target with no record — or a corrupt one — writes nothing: the person re-evaluates
+/// lazily on their next event.
+#[allow(clippy::disallowed_methods)]
+pub(crate) fn merge_person_records(
+    store: &CohortStore,
+    target_prefix: &PersonPrefix,
+    old_person: Uuid,
+    dedup: &PersonDedup,
+) -> Result<Option<Vec<u8>>, StoreError> {
+    let bytes = store.get_person_record(&target_prefix.record_key())?;
+    let Some(bytes) = bytes else {
+        return Ok(None);
+    };
+    match PersonRecord::decode(&bytes) {
+        Ok(mut record) => {
+            record.absorb_ancestor(old_person, dedup);
+            Ok(Some(record.encode()))
+        }
+        Err(_) => {
+            // Corrupt target record: count and write nothing rather than clobbering it.
+            counter!(MERGE_LEAVES_DROPPED_TOTAL, "reason" => "target_record_decode").increment(1);
+            Ok(None)
+        }
+    }
+}
+
 /// Computed writes from applying P_old's leaves into P_new, uncommitted so the caller can compose
 /// the final batch.
 #[derive(Debug, Default)]
 pub(crate) struct LeafApply {
-    pub puts: Vec<(Stage1Key, Vec<u8>)>,
-    pub appends: Vec<LeafStateKey>,
+    pub puts: Vec<(BehavioralKey, Vec<u8>)>,
     pub transitions: Vec<LeafTransition>,
-    pub schedules: Vec<(Stage1Key, i64)>,
+    pub schedules: Vec<(BehavioralKey, i64)>,
 }
 
 /// Merge each of P_old's `leaves` into P_new's state on `partition_new`. Pure reads only — the
@@ -285,16 +319,11 @@ pub(crate) fn apply_leaves(
 
     // One batched read of every leaf's `p_new` state. Keys are built in `leaves` order so the zip
     // below stays aligned; a leaf later skipped by the drift check simply ignores its result.
-    let p_new_keys: Vec<Stage1Key> = leaves
+    let p_new_keys: Vec<BehavioralKey> = leaves
         .iter()
-        .map(|(lsk, _)| Stage1Key {
-            partition_id: partition_new,
-            team_id: team_u64,
-            leaf_state_key: *lsk,
-            person_id: new_person,
-        })
+        .map(|(lsk, _)| BehavioralKey::new(partition_new, team_u64, new_person, *lsk))
         .collect();
-    let p_new_raw = store.multi_get_stage1(&p_new_keys)?;
+    let p_new_raw = store.multi_get_behavioral(&p_new_keys)?;
 
     for ((lsk, old_record), (p_new_key, p_new_bytes)) in
         leaves.iter().zip(p_new_keys.into_iter().zip(p_new_raw))
@@ -321,7 +350,6 @@ pub(crate) fn apply_leaves(
                 out.schedules.push((p_new_key, deadline));
             }
             out.puts.push((p_new_key, record.encode()));
-            out.appends.push(*lsk);
         }
         if let Some(kind) = merged.flip {
             out.transitions.push(LeafTransition {

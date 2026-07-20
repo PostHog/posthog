@@ -1,12 +1,15 @@
 import { useValues } from 'kea'
 
-import { HedgehogDrivingHogzilla } from '@posthog/brand/hoggies'
+import * as drivingHogzillaPng from '@posthog/brand/hoggies/png/driving-hogzilla'
 import { LemonBanner } from '@posthog/lemon-ui'
 import type { LemonBannerProps } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { HeartHog, WarningHog } from 'lib/components/hedgehogs'
 import { posthogStatusLogic } from 'lib/components/HelpMenu/posthogStatusLogic'
 import type { PostHogStatusBadgeStatus, PostHogStatusType } from 'lib/components/HelpMenu/posthogStatusLogic'
+
+const HedgehogDrivingHogzilla = pngHoggie(drivingHogzillaPng)
 
 const STATUS_CONFIG: Record<
     PostHogStatusBadgeStatus,

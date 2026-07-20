@@ -15,7 +15,7 @@ export type TicketChannelDetail =
     | 'widget_api'
     | 'github_issue'
 export type TicketSlaState = 'on-track' | 'at-risk' | 'breached'
-export type TicketPriority = 'low' | 'medium' | 'high'
+export type TicketPriority = 'low' | 'medium' | 'high' | 'critical'
 export type SceneTabKey = 'tickets' | 'settings'
 export type MessageAuthorType = 'customer' | 'AI' | 'human'
 export type MessageDeliveryStatus = 'sent' | 'read'
@@ -47,8 +47,11 @@ export interface AITriage {
     finished_at?: string
     workflow_id?: string
     run_id?: string
+    ai_trace_id?: string
     missing?: string[]
 }
+
+export type AiReplyFeedbackRating = 'good' | 'bad'
 
 export type GapSuggestionStatus = 'pending' | 'accepted' | 'dismissed'
 
@@ -145,6 +148,7 @@ export interface Ticket {
     cc_participants?: string[]
     github_repo?: string | null
     github_issue_number?: number | null
+    zendesk_ticket_id?: number | null
     organization_id?: string | null
     person?: TicketPerson | null
     tags?: string[]
@@ -197,6 +201,9 @@ export interface ChatMessage {
     createdAt: string
     isPrivate?: boolean
     emailDeliveryStatus?: EmailDeliveryStatus
+    /** Imported from an external tool (e.g. Zendesk). Such content is untrusted, so its Markdown
+     * is rendered with external image auto-loading disabled. */
+    fromZendesk?: boolean
 }
 
 export const statusOptions: { value: TicketStatus | 'all'; label: string }[] = [
@@ -229,6 +236,7 @@ export const priorityOptions: { value: TicketPriority; label: string }[] = [
     { value: 'low', label: 'Low' },
     { value: 'medium', label: 'Medium' },
     { value: 'high', label: 'High' },
+    { value: 'critical', label: 'Critical' },
 ]
 
 // Multiselect-compatible options for LemonInputSelect
@@ -236,6 +244,7 @@ export const priorityMultiselectOptions: { key: TicketPriority; label: string }[
     { key: 'low', label: 'Low' },
     { key: 'medium', label: 'Medium' },
     { key: 'high', label: 'High' },
+    { key: 'critical', label: 'Critical' },
 ]
 
 export const channelOptions: { value: TicketChannel | 'all'; label: string }[] = [

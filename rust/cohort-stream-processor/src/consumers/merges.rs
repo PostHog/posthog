@@ -329,10 +329,7 @@ impl<R: FollowerRoute> FollowerConsumer<R> {
     }
 
     fn owned_committable_offsets(&self) -> HashMap<i32, i64> {
-        restrict_to_owned(
-            self.tracker().committable_offsets(),
-            &self.dispatcher.owned_partitions(),
-        )
+        owned_committable_offsets(self.tracker(), &self.dispatcher)
     }
 }
 
@@ -340,6 +337,17 @@ struct FollowerOutcome<T> {
     messages: Vec<T>,
     deserialize_errors: u64,
     transport_error: bool,
+}
+
+/// A tracker's committable offsets restricted to the partitions this pod currently owns.
+pub(crate) fn owned_committable_offsets(
+    tracker: &OffsetTracker,
+    dispatcher: &EventDispatcher,
+) -> HashMap<i32, i64> {
+    restrict_to_owned(
+        tracker.committable_offsets(),
+        &dispatcher.owned_partitions(),
+    )
 }
 
 fn restrict_to_owned(offsets: HashMap<i32, i64>, owned: &[i32]) -> HashMap<i32, i64> {
@@ -389,6 +397,8 @@ mod tests {
                 ),
             )],
             forward_hops: 0,
+
+            person_dedup: None,
         }
     }
 
@@ -422,6 +432,8 @@ mod tests {
                 person_id: Uuid::from_u128(0xCAFE).to_string(),
                 last_updated: "2026-05-26 12:34:56.789000".to_string(),
                 status: crate::producer::MembershipStatus::Entered,
+                origin: None,
+                run_id: None,
             },
             123,
         )

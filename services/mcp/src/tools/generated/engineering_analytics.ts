@@ -3,16 +3,42 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    EngineeringAnalyticsBrokenTestsQueryParams,
     EngineeringAnalyticsCiFailureLogsQueryParams,
+    EngineeringAnalyticsFlakyTestsQueryParams,
     EngineeringAnalyticsPrCostQueryParams,
     EngineeringAnalyticsPrLifecycleQueryParams,
     EngineeringAnalyticsPullRequestsQueryParams,
+    EngineeringAnalyticsRunFailureLogsQueryParams,
+    EngineeringAnalyticsTeamCiHealthQueryParams,
     EngineeringAnalyticsWorkflowHealthQueryParams,
     EngineeringAnalyticsWorkflowJobsQueryParams,
     EngineeringAnalyticsWorkflowRunnerCostsQueryParams,
 } from '@/generated/engineering_analytics/api'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const EngineeringAnalyticsBrokenTestsSchema = EngineeringAnalyticsBrokenTestsQueryParams
+
+const engineeringAnalyticsBrokenTests = (): ToolBase<
+    typeof EngineeringAnalyticsBrokenTestsSchema,
+    Schemas.BrokenTestsResult
+> => ({
+    name: 'engineering-analytics-broken-tests',
+    schema: EngineeringAnalyticsBrokenTestsSchema,
+    handler: async (context: Context, params: z.infer<typeof EngineeringAnalyticsBrokenTestsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.BrokenTestsResult>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/broken_tests/`,
+            query: {
+                repo: params.repo,
+                source_id: params.source_id,
+            },
+        })
+        return result
+    },
+})
 
 const EngineeringAnalyticsCiFailureLogsSchema = EngineeringAnalyticsCiFailureLogsQueryParams
 
@@ -37,6 +63,33 @@ const engineeringAnalyticsCiFailureLogs = (): ToolBase<
     },
 })
 
+const EngineeringAnalyticsFlakyTestsSchema = EngineeringAnalyticsFlakyTestsQueryParams
+
+const engineeringAnalyticsFlakyTests = (): ToolBase<
+    typeof EngineeringAnalyticsFlakyTestsSchema,
+    WithPostHogUrl<Schemas.FlakyTestList>
+> => ({
+    name: 'engineering-analytics-flaky-tests',
+    schema: EngineeringAnalyticsFlakyTestsSchema,
+    handler: async (context: Context, params: z.infer<typeof EngineeringAnalyticsFlakyTestsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.FlakyTestList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/flaky_tests/`,
+            query: {
+                date_from: params.date_from,
+                date_to: params.date_to,
+                limit: params.limit,
+                min_failed_prs: params.min_failed_prs,
+                min_rerun_passes: params.min_rerun_passes,
+                repo: params.repo,
+                source_id: params.source_id,
+            },
+        })
+        return await withPostHogUrl(context, result, '/engineering-analytics')
+    },
+})
+
 const EngineeringAnalyticsPrCostSchema = EngineeringAnalyticsPrCostQueryParams
 
 const engineeringAnalyticsPrCost = (): ToolBase<typeof EngineeringAnalyticsPrCostSchema, Schemas.PRCostSummary> => ({
@@ -50,6 +103,29 @@ const engineeringAnalyticsPrCost = (): ToolBase<typeof EngineeringAnalyticsPrCos
             query: {
                 pr_number: params.pr_number,
                 repo: params.repo,
+                source_id: params.source_id,
+            },
+        })
+        return result
+    },
+})
+
+const EngineeringAnalyticsRunFailureLogsSchema = EngineeringAnalyticsRunFailureLogsQueryParams
+
+const engineeringAnalyticsRunFailureLogs = (): ToolBase<
+    typeof EngineeringAnalyticsRunFailureLogsSchema,
+    Schemas.RunFailureLogs
+> => ({
+    name: 'engineering-analytics-run-failure-logs',
+    schema: EngineeringAnalyticsRunFailureLogsSchema,
+    handler: async (context: Context, params: z.infer<typeof EngineeringAnalyticsRunFailureLogsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.RunFailureLogs>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/run_failure_logs/`,
+            query: {
+                repo: params.repo,
+                run_id: params.run_id,
                 source_id: params.source_id,
             },
         })
@@ -76,6 +152,32 @@ const engineeringAnalyticsSources = (): ToolBase<
     },
 })
 
+const EngineeringAnalyticsTeamCiHealthSchema = EngineeringAnalyticsTeamCiHealthQueryParams
+
+const engineeringAnalyticsTeamCiHealth = (): ToolBase<
+    typeof EngineeringAnalyticsTeamCiHealthSchema,
+    WithPostHogUrl<Schemas.TeamCIHealthList>
+> => ({
+    name: 'engineering-analytics-team-ci-health',
+    schema: EngineeringAnalyticsTeamCiHealthSchema,
+    handler: async (context: Context, params: z.infer<typeof EngineeringAnalyticsTeamCiHealthSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.TeamCIHealthList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/team_ci_health/`,
+            query: {
+                date_from: params.date_from,
+                date_to: params.date_to,
+                limit: params.limit,
+                min_failed_prs: params.min_failed_prs,
+                min_rerun_passes: params.min_rerun_passes,
+                source_id: params.source_id,
+            },
+        })
+        return await withPostHogUrl(context, result, '/engineering-analytics')
+    },
+})
+
 const EngineeringAnalyticsWorkflowJobsSchema = EngineeringAnalyticsWorkflowJobsQueryParams
 
 const engineeringAnalyticsWorkflowJobs = (): ToolBase<
@@ -90,6 +192,7 @@ const engineeringAnalyticsWorkflowJobs = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/workflow_jobs/`,
             query: {
+                repo: params.repo,
                 run_attempt: params.run_attempt,
                 run_id: params.run_id,
                 source_id: params.source_id,
@@ -162,6 +265,7 @@ const pullRequests = (): ToolBase<typeof PullRequestsSchema, WithPostHogUrl<Sche
             query: {
                 author: params.author,
                 date_from: params.date_from,
+                repo: params.repo,
                 source_id: params.source_id,
             },
         })
@@ -175,6 +279,9 @@ const WorkflowHealthSchema = EngineeringAnalyticsWorkflowHealthQueryParams.exten
     ),
     date_to: EngineeringAnalyticsWorkflowHealthQueryParams.shape['date_to'].describe(
         'Window end — relative or ISO8601. Defaults to now.'
+    ),
+    run_scope: EngineeringAnalyticsWorkflowHealthQueryParams.shape['run_scope'].describe(
+        'Run scope. Use "pull_request" for PR CI runs (excludes default-branch master/main runs; same-repo PRs only, since fork PRs carry no PR attribution); omit or pass "all" for every run.'
     ),
 })
 
@@ -190,6 +297,8 @@ const workflowHealth = (): ToolBase<typeof WorkflowHealthSchema, WithPostHogUrl<
                 branch: params.branch,
                 date_from: params.date_from,
                 date_to: params.date_to,
+                repo: params.repo,
+                run_scope: params.run_scope,
                 source_id: params.source_id,
             },
         })
@@ -198,9 +307,13 @@ const workflowHealth = (): ToolBase<typeof WorkflowHealthSchema, WithPostHogUrl<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'engineering-analytics-broken-tests': engineeringAnalyticsBrokenTests,
     'engineering-analytics-ci-failure-logs': engineeringAnalyticsCiFailureLogs,
+    'engineering-analytics-flaky-tests': engineeringAnalyticsFlakyTests,
     'engineering-analytics-pr-cost': engineeringAnalyticsPrCost,
+    'engineering-analytics-run-failure-logs': engineeringAnalyticsRunFailureLogs,
     'engineering-analytics-sources': engineeringAnalyticsSources,
+    'engineering-analytics-team-ci-health': engineeringAnalyticsTeamCiHealth,
     'engineering-analytics-workflow-jobs': engineeringAnalyticsWorkflowJobs,
     'engineering-analytics-workflow-runner-costs': engineeringAnalyticsWorkflowRunnerCosts,
     'pr-lifecycle': prLifecycle,

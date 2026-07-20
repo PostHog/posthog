@@ -16,6 +16,7 @@ const VALID_SETTING_IDS = new Set<SettingId>([
     'conversations-general',
     'conversations-notifications',
     'conversations-ai',
+    'conversations-imports',
 ])
 
 const DEFAULT_SETTING_ID: SettingId = 'conversations-general'

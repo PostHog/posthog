@@ -35,10 +35,10 @@ use crate::producer::{
     map_transition, now_last_updated, CohortMembershipChange, MembershipSink, MembershipStatus,
     OutputBuffer,
 };
-use crate::stage1::key::Stage1Key;
+use crate::stage1::key::LeafStateKey;
 use crate::stage1::state::{StateVariant, StatefulRecord};
 use crate::stage1::transition::{LeafTransition, TransitionKind};
-use crate::store::{IndexOp, PersonIndexKey, ReadLane, StagedBatch, StoreHandle};
+use crate::store::{Behavioral, BehavioralKey, ReadLane, StagedBatch, StoreHandle};
 use crate::sweep::EvictionQueue;
 use crate::workers::cascade_path::handle_cascade;
 use crate::workers::event_path::{
@@ -46,7 +46,7 @@ use crate::workers::event_path::{
 };
 use crate::workers::merge_gc::{handle_merge_gc, MergeGcCursor};
 use crate::workers::merge_path::{handle_apply, handle_merge, handle_redrive, MergeWorkerDeps};
-use crate::workers::person_memo::{PersonMemo, PersonMemoConfig};
+use crate::workers::seed_path::handle_seed;
 use crate::workers::stage2_gc::{handle_stage2_orphan_gc, Stage2GcCursor};
 use crate::workers::stage2_path::compose_stage2;
 use crate::workers::sweep_callback::{sweep_evict, EvictionAction, SweepDropReason};
@@ -59,7 +59,7 @@ const MAX_SWEEP_KEYS_PER_PASS: usize = 10_000;
 
 const REBUILD_SCAN_PAGE: usize = 10_000;
 
-/// Chunk size for a team's sweep-state prefetch, so each `multi_get_stage1` spans a bounded number of
+/// Chunk size for a team's sweep-state prefetch, so each `multi_get_behavioral` spans a bounded number of
 /// keys and no single read op holds long before the sweep makes progress.
 const SWEEP_MULTI_GET_CHUNK: usize = 1024;
 
@@ -74,7 +74,7 @@ pub struct Stage1Worker {
 }
 
 impl Stage1Worker {
-    /// Spawn with the person memo disabled. The memoizing variant is [`Self::spawn_with_memo`].
+    /// Spawn with event-name gating disabled. The gating-aware variant is [`Self::spawn_with_gating`].
     #[allow(clippy::too_many_arguments)]
     pub fn spawn(
         partition_id: u16,
@@ -86,7 +86,7 @@ impl Stage1Worker {
         merge: Arc<MergeWorkerDeps>,
         durable_restore: bool,
     ) -> Self {
-        Self::spawn_with_memo(
+        Self::spawn_with_gating(
             partition_id,
             receiver,
             store,
@@ -95,15 +95,14 @@ impl Stage1Worker {
             tracker,
             merge,
             durable_restore,
-            PersonMemoConfig::DISABLED,
             EventNameGating::Disabled,
         )
     }
 
-    /// When `durable_restore` is on, re-seeds the `EvictionQueue` from `cf_stage1` on spawn so a
+    /// When `durable_restore` is on, re-seeds the `EvictionQueue` from `cf_behavioral` on spawn so a
     /// dormant person's `Left` still fires after a crash-restart.
     #[allow(clippy::too_many_arguments)]
-    pub fn spawn_with_memo(
+    pub fn spawn_with_gating(
         partition_id: u16,
         receiver: MeteredReceiver,
         store: StoreHandle,
@@ -112,7 +111,6 @@ impl Stage1Worker {
         tracker: Arc<OffsetTracker>,
         merge: Arc<MergeWorkerDeps>,
         durable_restore: bool,
-        person_memo: PersonMemoConfig,
         event_name_gating: EventNameGating,
     ) -> Self {
         let handle = tokio::spawn(run_worker(
@@ -124,7 +122,6 @@ impl Stage1Worker {
             tracker,
             merge,
             durable_restore,
-            person_memo,
             event_name_gating,
         ));
         Self {
@@ -152,14 +149,11 @@ async fn run_worker(
     tracker: Arc<OffsetTracker>,
     merge: Arc<MergeWorkerDeps>,
     durable_restore: bool,
-    person_memo: PersonMemoConfig,
     event_name_gating: EventNameGating,
 ) {
     info!(partition_id, "stage 1 worker started");
 
-    let mut queue = EvictionQueue::<Stage1Key>::new();
-    // Reused across batches so cached results survive between events.
-    let mut person_memo = PersonMemo::new(person_memo);
+    let mut queue = EvictionQueue::<BehavioralKey>::new();
     // No-op for a cold partition (bloom-filtered scan finds nothing to schedule).
     if durable_restore {
         rebuild_eviction_queue(partition_id, &handle, &mut queue).await;
@@ -175,14 +169,22 @@ async fn run_worker(
         let mut buffer = OutputBuffer::new();
         let mut re_keys: Vec<CohortStreamEvent> = Vec::new();
         let mut max_offset: Option<i64> = None;
+        // Observed into the live watermarks only post-mark, so a held batch never advances the
+        // seed fence.
+        let mut max_broker_ts: Option<i64> = None;
         // Set when a pre-arm flush fails: holds the whole batch's offset so Kafka replays it.
         let mut held = false;
 
         for message in batch {
             match message {
-                ShuffleMessage::Event { event, cse_offset } => {
+                ShuffleMessage::Event {
+                    event,
+                    cse_offset,
+                    broker_ts_ms,
+                } => {
                     max_offset =
                         Some(max_offset.map_or(cse_offset, |current| current.max(cse_offset)));
+                    max_broker_ts = max_broker_ts.max(broker_ts_ms);
                     let effects = handle_event(
                         partition_id,
                         &handle,
@@ -190,7 +192,6 @@ async fn run_worker(
                         &event,
                         &last_updated,
                         merge.partition_count,
-                        &mut person_memo,
                         event_name_gating,
                     )
                     .await;
@@ -290,6 +291,30 @@ async fn run_worker(
                         &merge,
                         &last_updated,
                         &message,
+                        offset,
+                    )
+                    .await;
+                }
+                ShuffleMessage::Seed { work, offset } => {
+                    if flush_event_changes_before_inline(
+                        &sink,
+                        &mut buffer,
+                        partition_id,
+                        &mut held,
+                    )
+                    .await
+                    {
+                        break;
+                    }
+                    handle_seed(
+                        partition_id,
+                        &handle,
+                        &catalog,
+                        &sink,
+                        &merge,
+                        &mut queue,
+                        &last_updated,
+                        &work,
                         offset,
                     )
                     .await;
@@ -402,6 +427,13 @@ async fn run_worker(
                 );
             }
         }
+        // Strictly post-mark: a consume-time watermark would reopen the double-count branch the
+        // fence deletes.
+        if let Some(broker_ts_ms) = max_broker_ts {
+            merge
+                .live_watermarks
+                .observe(partition_id as i32, broker_ts_ms);
+        }
     }
 
     info!(partition_id, "stage 1 worker stopped");
@@ -512,7 +544,7 @@ pub(crate) async fn produce_cascades(
 #[derive(Default)]
 struct EventEffects {
     changes: Vec<CohortMembershipChange>,
-    schedules: Vec<(Stage1Key, i64)>,
+    schedules: Vec<(BehavioralKey, i64)>,
     re_keys: Vec<CohortStreamEvent>,
 }
 
@@ -524,11 +556,9 @@ async fn handle_event(
     event: &CohortStreamEvent,
     last_updated: &str,
     partition_count: u32,
-    person_memo: &mut PersonMemo,
     event_name_gating: EventNameGating,
 ) -> EventEffects {
     let snapshot = catalog.load();
-    let generation = snapshot.generation();
     let Some(team_filters) = snapshot.team(TeamId(event.team_id)) else {
         counter!(STAGE1_EVENTS_SKIPPED, "reason" => SkipReason::NoTeamFilters.as_str())
             .increment(1);
@@ -548,16 +578,8 @@ async fn handle_event(
         };
 
     let started = Instant::now();
-    let result = process_event_offloaded(
-        partition_id,
-        handle,
-        filters,
-        generation,
-        &resolved,
-        person_memo,
-        event_name_gating,
-    )
-    .await;
+    let result =
+        process_event_offloaded(partition_id, handle, filters, &resolved, event_name_gating).await;
     histogram!(STAGE1_EVENT_PROCESS_DURATION).record(started.elapsed().as_secs_f64());
 
     match result {
@@ -578,9 +600,10 @@ async fn handle_event(
                 partition_id,
                 handle,
                 filters,
-                &outcome.transitions,
+                &affected_leaves(&outcome.transitions),
                 outcome.event_ms,
                 last_updated,
+                ReadLane::Event,
             )
             .await
             {
@@ -631,6 +654,7 @@ async fn redirect_for_tombstone<'a>(
         TeamId(event.team_id),
         person_id,
         partition_count,
+        ReadLane::Event,
     )
     .await
     {
@@ -693,11 +717,11 @@ async fn handle_sweep(
     catalog: &CatalogHandle,
     sink: &Arc<dyn MembershipSink>,
     merge: &MergeWorkerDeps,
-    queue: &mut EvictionQueue<Stage1Key>,
+    queue: &mut EvictionQueue<BehavioralKey>,
     last_updated: &str,
     due_before_ms: i64,
 ) {
-    let mut popped: Vec<(Stage1Key, i64)> = Vec::new();
+    let mut popped: Vec<(BehavioralKey, i64)> = Vec::new();
     while popped.len() < MAX_SWEEP_KEYS_PER_PASS {
         let Some(entry) = queue.pop_due(due_before_ms) else {
             break;
@@ -708,9 +732,9 @@ async fn handle_sweep(
         return;
     }
 
-    let mut by_team: BTreeMap<u64, Vec<Stage1Key>> = BTreeMap::new();
+    let mut by_team: BTreeMap<u64, Vec<BehavioralKey>> = BTreeMap::new();
     for &(key, _) in &popped {
-        by_team.entry(key.team_id).or_default().push(key);
+        by_team.entry(key.team_id()).or_default().push(key);
     }
 
     let snapshot = catalog.load();
@@ -730,7 +754,7 @@ async fn handle_sweep(
         for chunk in keys.chunks(SWEEP_MULTI_GET_CHUNK) {
             // The maintenance permit rotates between chunks, keeping each op fair against event reads.
             match handle
-                .multi_get_stage1(chunk.to_vec(), ReadLane::Maintenance)
+                .multi_get_behavioral(chunk.to_vec(), ReadLane::Maintenance)
                 .await
             {
                 Ok(chunk_values) => values.extend(chunk_values),
@@ -781,18 +805,8 @@ async fn handle_sweep(
         let mut staged = StagedBatch::default();
         for result in &results {
             match &result.action {
-                EvictionAction::Write(bytes) => staged.put_stage1(&result.key, bytes),
-                EvictionAction::Delete => {
-                    staged.delete_stage1(&result.key);
-                    staged.merge_person_index(
-                        &PersonIndexKey {
-                            partition_id: result.key.partition_id,
-                            team_id: result.key.team_id,
-                            person_id: result.key.person_id,
-                        },
-                        IndexOp::Remove(result.key.leaf_state_key),
-                    );
-                }
+                EvictionAction::Write(bytes) => staged.put::<Behavioral>(&result.key, bytes),
+                EvictionAction::Delete => staged.delete::<Behavioral>(&result.key),
             }
         }
         let written = handle.commit(staged).await;
@@ -822,7 +836,7 @@ async fn handle_sweep(
     for result in &results {
         if let Some(transition) = &result.transition {
             by_team_transitions
-                .entry(result.key.team_id)
+                .entry(result.key.team_id())
                 .or_default()
                 .push(transition.clone());
         }
@@ -837,9 +851,10 @@ async fn handle_sweep(
             partition_id,
             handle,
             filters,
-            transitions,
+            &affected_leaves(transitions),
             due_before_ms,
             last_updated,
+            ReadLane::Event,
         )
         .await
         {
@@ -877,20 +892,20 @@ async fn handle_sweep(
     }
 }
 
-/// Re-seed the per-worker [`EvictionQueue`] from `cf_stage1`, scheduling every behavioral key on its
-/// stored deadline. Skips `PersonProperty` variants (no time-based eviction) and `i64::MAX` deadlines
-/// (permanent). Corrupt records are counted and skipped — the event path re-derives them. A scan error
-/// stops early; new events reschedule any missing keys.
+/// Re-seed the per-worker [`EvictionQueue`] from `cf_behavioral`, scheduling every behavioral key on
+/// its stored deadline. Skips `PersonProperty` variants (no time-based eviction) and `i64::MAX`
+/// deadlines (permanent). Corrupt records are counted and skipped — the event path re-derives them. A
+/// scan error stops early; new events reschedule any missing keys.
 async fn rebuild_eviction_queue(
     partition_id: u16,
     handle: &StoreHandle,
-    queue: &mut EvictionQueue<Stage1Key>,
+    queue: &mut EvictionQueue<BehavioralKey>,
 ) {
     let mut cursor: Option<Vec<u8>> = None;
     let mut rebuilt: u64 = 0;
     loop {
         let page = match handle
-            .scan_stage1(partition_id, cursor.clone(), REBUILD_SCAN_PAGE)
+            .scan_behavioral(partition_id, cursor.clone(), REBUILD_SCAN_PAGE)
             .await
         {
             Ok(page) => page,
@@ -898,7 +913,7 @@ async fn rebuild_eviction_queue(
                 warn!(
                     partition_id,
                     error = %err,
-                    "durable restore: cf_stage1 scan failed; eviction queue may be incomplete",
+                    "durable restore: cf_behavioral scan failed; eviction queue may be incomplete",
                 );
                 break;
             }
@@ -930,27 +945,35 @@ async fn rebuild_eviction_queue(
             .increment(rebuilt);
         info!(
             partition_id,
-            rebuilt, "durable restore: re-seeded eviction queue from cf_stage1",
+            rebuilt, "durable restore: re-seeded eviction queue from cf_behavioral",
         );
     }
 }
 
-fn reschedule_all(queue: &mut EvictionQueue<Stage1Key>, popped: &[(Stage1Key, i64)]) {
+fn reschedule_all(queue: &mut EvictionQueue<BehavioralKey>, popped: &[(BehavioralKey, i64)]) {
     for &(key, deadline) in popped {
         queue.schedule(key, deadline);
     }
 }
 
 fn reschedule_team(
-    queue: &mut EvictionQueue<Stage1Key>,
-    popped: &[(Stage1Key, i64)],
+    queue: &mut EvictionQueue<BehavioralKey>,
+    popped: &[(BehavioralKey, i64)],
     team_id: u64,
 ) {
     for &(key, deadline) in popped {
-        if key.team_id == team_id {
+        if key.team_id() == team_id {
             queue.schedule(key, deadline);
         }
     }
+}
+
+/// The `(leaf, person)` pairs [`compose_stage2`] recomputes for.
+pub fn affected_leaves(transitions: &[LeafTransition]) -> Vec<(LeafStateKey, Uuid)> {
+    transitions
+        .iter()
+        .map(|transition| (transition.leaf_state_key, transition.person_id))
+        .collect()
 }
 
 pub(crate) fn transition_metric_label(
@@ -994,11 +1017,12 @@ mod tombstone_redirect_tests {
     use crate::producer::{
         CaptureCascadeSink, CaptureSink, CaptureStreamEventSink, CaptureTransferSink,
     };
-    use crate::stage1::key::LeafStateKey;
-    use crate::stage1::state::{AppliedOffsets, Stage1State, StatefulRecord};
+    use crate::stage1::person_record::PersonRecord;
+    use crate::stage1::state::AppliedOffsets;
     use crate::stage2::state::Stage2State;
     use crate::store::{
-        CohortStore, OffloadConfig, OffloadMode, Stage2Key, StoreConfig, TombstoneKey,
+        CohortStore, OffloadConfig, OffloadMode, PersonRecordKey, PersonRecords, Stage2Key,
+        StoreConfig, TombstoneKey,
     };
     use crate::workers::merge_path::TransferRetryPolicy;
     use crate::workers::CascadeConfig;
@@ -1099,6 +1123,9 @@ mod tombstone_redirect_tests {
             cascade_tracker: Arc::new(OffsetTracker::new()),
             cascade: crate::workers::CascadeConfig::default(),
             partition_count: COHORT_PARTITION_COUNT,
+            seed_tile_sink: Arc::new(crate::producer::CaptureSeedTileSink::new()),
+            seed_tracker: Arc::new(crate::partitions::offset_tracker::OffsetTracker::new()),
+            live_watermarks: Arc::new(crate::partitions::watermarks::LiveWatermarks::new()),
         })
     }
 
@@ -1116,6 +1143,9 @@ mod tombstone_redirect_tests {
             cascade_tracker: Arc::new(OffsetTracker::new()),
             cascade: crate::workers::CascadeConfig::default(),
             partition_count: COHORT_PARTITION_COUNT,
+            seed_tile_sink: Arc::new(crate::producer::CaptureSeedTileSink::new()),
+            seed_tracker: Arc::new(crate::partitions::offset_tracker::OffsetTracker::new()),
+            live_watermarks: Arc::new(crate::partitions::watermarks::LiveWatermarks::new()),
         })
     }
 
@@ -1137,6 +1167,9 @@ mod tombstone_redirect_tests {
                 fanout_cap: 1000,
             },
             partition_count: COHORT_PARTITION_COUNT,
+            seed_tile_sink: Arc::new(crate::producer::CaptureSeedTileSink::new()),
+            seed_tracker: Arc::new(crate::partitions::offset_tracker::OffsetTracker::new()),
+            live_watermarks: Arc::new(crate::partitions::watermarks::LiveWatermarks::new()),
         })
     }
 
@@ -1160,6 +1193,7 @@ mod tombstone_redirect_tests {
             vec![ShuffleMessage::Event {
                 event: Box::new(person_event(person, "u@p.com", 5, 0)),
                 cse_offset: 0,
+                broker_ts_ms: None,
             }],
         )
         .await;
@@ -1296,18 +1330,25 @@ mod tombstone_redirect_tests {
             vec![ShuffleMessage::Event {
                 event: Box::new(event),
                 cse_offset: 0,
+                broker_ts_ms: None,
             }],
         )
         .await;
     }
 
-    fn stage1_key(partition_id: u16, lsk: LeafStateKey, person: Uuid) -> Stage1Key {
-        Stage1Key {
-            partition_id,
-            team_id: TEAM as u64,
-            leaf_state_key: lsk,
-            person_id: person,
-        }
+    fn record_key(partition_id: u16, person: Uuid) -> PersonRecordKey {
+        PersonRecordKey::new(partition_id, TEAM as u64, person)
+    }
+
+    fn read_person_record(
+        store: &CohortStore,
+        partition_id: u16,
+        person: Uuid,
+    ) -> Option<PersonRecord> {
+        store
+            .get_person_record(&record_key(partition_id, person))
+            .unwrap()
+            .map(|bytes| PersonRecord::decode(&bytes).unwrap())
     }
 
     fn write_tombstone(store: &CohortStore, partition_id: u16, old: Uuid, new: Uuid) {
@@ -1333,25 +1374,22 @@ mod tombstone_redirect_tests {
     async fn inline_redirect_folds_into_redirect_dedup_origin_not_the_main_map() {
         let (_dir, store) = temp_store();
         let catalog = person_catalog();
-        let lsk = LeafStateKey::for_person_property(&PERSON_HASH);
 
         let p_new = Uuid::from_u128(2);
         let partition_id = partition_of(TeamId(TEAM), &p_new, COHORT_PARTITION_COUNT) as u16;
         let p_old = Uuid::from_u128(1);
         write_tombstone(&store, partition_id, p_old, p_new);
 
-        let mut seed = StatefulRecord::new(
-            Stage1State::PersonProperty {
-                matches: false,
-                last_updated_at_ms: 1_000,
-                last_updated_offset: 0,
-            },
-            applied(&[(5, 50)]),
-        );
+        // Seed P_new's record: not yet a member, main-map offset {5:50}, and an ancestor entry for
+        // p_old at {5:100}. The absent-baseline fingerprints (0,0) never match the event, so the
+        // straggler re-evaluates and the email leaf enters.
+        let mut seed = PersonRecord::absent();
+        seed.applied_offsets = applied(&[(5, 50)]);
         seed.redirect_dedup.insert(p_old, applied(&[(5, 100)]));
-        let p_new_key = stage1_key(partition_id, lsk, p_new);
         store
-            .write_batch(|b| b.put_stage1(&p_new_key, &seed.encode()))
+            .write_batch(|b| {
+                b.put::<PersonRecords>(&record_key(partition_id, p_new), &seed.encode())
+            })
             .unwrap();
 
         let straggler = person_event(p_old, "u@p.com", 5, 101);
@@ -1362,7 +1400,6 @@ mod tombstone_redirect_tests {
             &straggler,
             "ts",
             COHORT_PARTITION_COUNT,
-            &mut PersonMemo::disabled(),
             EventNameGating::Disabled,
         )
         .await;
@@ -1371,12 +1408,11 @@ mod tombstone_redirect_tests {
         assert_eq!(effects.changes[0].person_id, p_new.to_string());
         assert_eq!(effects.changes[0].status, MembershipStatus::Entered);
 
-        let after =
-            StatefulRecord::decode(&store.get_stage1(&p_new_key).unwrap().unwrap()).unwrap();
-        assert!(matches!(
-            after.state,
-            Stage1State::PersonProperty { matches: true, .. }
-        ));
+        let after = read_person_record(&store, partition_id, p_new).unwrap();
+        assert!(
+            after.matched.contains(&PERSON_HASH),
+            "the email leaf entered the record's matched set",
+        );
         assert!(
             after.redirect_dedup[&p_old].is_replay(5, 101),
             "the fold advanced redirect_dedup[origin]",
@@ -1386,17 +1422,16 @@ mod tombstone_redirect_tests {
             "the main map is untouched by a redirected straggler",
         );
 
-        assert!(store
-            .get_stage1(&stage1_key(partition_id, lsk, p_old))
-            .unwrap()
-            .is_none());
+        assert!(
+            read_person_record(&store, partition_id, p_old).is_none(),
+            "no record written for P_old",
+        );
     }
 
     #[tokio::test]
     async fn cross_partition_redirect_re_keys_the_straggler_to_the_target() {
         let (_dir, store) = temp_store();
         let catalog = person_catalog();
-        let lsk = LeafStateKey::for_person_property(&PERSON_HASH);
         let (p_old, partition_id, p_new) = cross_partition_pair();
         write_tombstone(&store, partition_id, p_old, p_new);
 
@@ -1436,18 +1471,12 @@ mod tombstone_redirect_tests {
 
         assert!(membership.changes().is_empty(), "no local processing");
         assert!(
-            store
-                .get_stage1(&stage1_key(partition_id, lsk, p_old))
-                .unwrap()
-                .is_none(),
-            "no state written for P_old in the source slice",
+            read_person_record(&store, partition_id, p_old).is_none(),
+            "no record written for P_old in the source slice",
         );
         assert!(
-            store
-                .get_stage1(&stage1_key(partition_id, lsk, p_new))
-                .unwrap()
-                .is_none(),
-            "no state written for P_new in the source slice",
+            read_person_record(&store, partition_id, p_new).is_none(),
+            "no record written for P_new in the source slice",
         );
         assert_eq!(
             tracker.committable_offsets().get(&(partition_id as i32)),
@@ -1531,10 +1560,12 @@ mod tombstone_redirect_tests {
                 ShuffleMessage::Event {
                     event: Box::new(person_event(alice, "u@p.com", 5, 0)),
                     cse_offset: 0,
+                    broker_ts_ms: None,
                 },
                 ShuffleMessage::Event {
                     event: Box::new(person_event(p_old, "u@p.com", 5, 9)),
                     cse_offset: 1,
+                    broker_ts_ms: None,
                 },
             ]
         };
@@ -1602,7 +1633,6 @@ mod tombstone_redirect_tests {
     async fn re_keyed_event_folds_into_p_new_exactly_once_via_redirect_dedup() {
         let (_dir, store) = temp_store();
         let catalog = person_catalog();
-        let lsk = LeafStateKey::for_person_property(&PERSON_HASH);
         let (p_old, source_partition, p_new) = cross_partition_pair();
         let target_partition = partition_of(TeamId(TEAM), &p_new, COHORT_PARTITION_COUNT) as u16;
         assert_ne!(source_partition, target_partition);
@@ -1617,7 +1647,6 @@ mod tombstone_redirect_tests {
             &straggler,
             "ts",
             COHORT_PARTITION_COUNT,
-            &mut PersonMemo::disabled(),
             EventNameGating::Disabled,
         )
         .await;
@@ -1633,7 +1662,6 @@ mod tombstone_redirect_tests {
             &re_keyed,
             "ts",
             COHORT_PARTITION_COUNT,
-            &mut PersonMemo::disabled(),
             EventNameGating::Disabled,
         )
         .await;
@@ -1642,13 +1670,12 @@ mod tombstone_redirect_tests {
         assert_eq!(effects.changes[0].status, MembershipStatus::Entered);
         assert!(effects.re_keys.is_empty(), "no further hop: P_new is live");
 
-        let folded = StatefulRecord::decode(
-            &store
-                .get_stage1(&stage1_key(target_partition, lsk, p_new))
-                .unwrap()
-                .expect("P_new state written in the target slice"),
-        )
-        .unwrap();
+        let folded = read_person_record(&store, target_partition, p_new)
+            .expect("P_new record written in the target slice");
+        assert!(
+            folded.matched.contains(&PERSON_HASH),
+            "the email leaf entered P_new's record",
+        );
         assert!(
             folded.redirect_dedup[&p_old].is_replay(5, 9),
             "the fold recorded the original source coords under redirect_dedup[origin]",
@@ -1665,7 +1692,6 @@ mod tombstone_redirect_tests {
             &re_keyed,
             "ts",
             COHORT_PARTITION_COUNT,
-            &mut PersonMemo::disabled(),
             EventNameGating::Disabled,
         )
         .await;
@@ -1677,7 +1703,6 @@ mod tombstone_redirect_tests {
     async fn hop_capped_redirect_processes_inline_at_the_best_known_target() {
         let (_dir, store) = temp_store();
         let catalog = person_catalog();
-        let lsk = LeafStateKey::for_person_property(&PERSON_HASH);
         let (p_old, partition_id, p_new) = cross_partition_pair();
         write_tombstone(&store, partition_id, p_old, p_new);
 
@@ -1692,7 +1717,6 @@ mod tombstone_redirect_tests {
             &straggler,
             "ts",
             COHORT_PARTITION_COUNT,
-            &mut PersonMemo::disabled(),
             EventNameGating::Disabled,
         )
         .await;
@@ -1701,23 +1725,15 @@ mod tombstone_redirect_tests {
         assert_eq!(effects.changes.len(), 1, "processed inline instead");
         assert_eq!(effects.changes[0].person_id, p_new.to_string());
 
-        let folded = StatefulRecord::decode(
-            &store
-                .get_stage1(&stage1_key(partition_id, lsk, p_new))
-                .unwrap()
-                .expect("the degraded fold writes P_new state in the local slice"),
-        )
-        .unwrap();
+        let folded = read_person_record(&store, partition_id, p_new)
+            .expect("the degraded fold writes P_new's record in the local slice");
         assert!(
             folded.redirect_dedup[&p_old].is_replay(5, 9),
             "the inline degrade still dedups by the chain origin",
         );
         assert!(
-            store
-                .get_stage1(&stage1_key(partition_id, lsk, p_old))
-                .unwrap()
-                .is_none(),
-            "no P_old state rebuilt",
+            read_person_record(&store, partition_id, p_old).is_none(),
+            "no P_old record rebuilt",
         );
     }
 
@@ -1725,7 +1741,6 @@ mod tombstone_redirect_tests {
     async fn no_tombstone_processes_the_event_normally() {
         let (_dir, store) = temp_store();
         let catalog = person_catalog();
-        let lsk = LeafStateKey::for_person_property(&PERSON_HASH);
         let alice = Uuid::from_u128(3);
         let partition_id = partition_of(TeamId(TEAM), &alice, COHORT_PARTITION_COUNT) as u16;
 
@@ -1737,18 +1752,14 @@ mod tombstone_redirect_tests {
             &event,
             "ts",
             COHORT_PARTITION_COUNT,
-            &mut PersonMemo::disabled(),
             EventNameGating::Disabled,
         )
         .await;
         assert_eq!(effects.changes.len(), 1);
         assert_eq!(effects.changes[0].person_id, alice.to_string());
         assert!(
-            store
-                .get_stage1(&stage1_key(partition_id, lsk, alice))
-                .unwrap()
-                .is_some(),
-            "alice's own state was written",
+            read_person_record(&store, partition_id, alice).is_some(),
+            "alice's own record was written",
         );
     }
 

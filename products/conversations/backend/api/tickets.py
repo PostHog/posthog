@@ -4,6 +4,7 @@ import json
 import uuid
 from collections.abc import Sequence
 from datetime import timedelta
+from typing import Any
 
 from django.db import transaction
 from django.db.models import CharField, Exists, OuterRef, Q, QuerySet, Sum
@@ -12,6 +13,7 @@ from django.http import Http404
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
 from rest_framework import (
@@ -114,6 +116,16 @@ class TicketReplyRequestSerializer(serializers.Serializer):
         if len(serialized) > 100_000:
             raise serializers.ValidationError("Rich content too large (max 100KB).")
         return value
+
+
+class AiFeedbackRequestSerializer(serializers.Serializer):
+    """Payload for recording reviewer feedback on an AI reply."""
+
+    message_id = serializers.CharField(max_length=200, help_text="ID of the AI message being rated.")
+    rating = serializers.ChoiceField(choices=["good", "bad"], help_text="Reviewer rating: good or bad.")
+    feedback_text = serializers.CharField(
+        required=False, allow_blank=True, max_length=2000, help_text="Optional text explaining a bad rating."
+    )
 
 
 class ComposeTicketSerializer(serializers.Serializer):
@@ -260,6 +272,7 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "cc_participants",
             "github_repo",
             "github_issue_number",
+            "zendesk_ticket_id",
             "organization_id",
             "person",
             "tags",
@@ -288,6 +301,7 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "cc_participants",
             "github_repo",
             "github_issue_number",
+            "zendesk_ticket_id",
             "organization_id",
             "person",
             "ai_triage",
@@ -303,7 +317,7 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
                 )
             },
             "status": {"help_text": "Ticket status: new, open, pending, on_hold, or resolved"},
-            "priority": {"help_text": "Ticket priority: low, medium, or high. Null if unset."},
+            "priority": {"help_text": "Ticket priority: low, medium, high, or critical. Null if unset."},
             "sla_due_at": {"help_text": "SLA deadline set via workflows. Null means no SLA."},
             "anonymous_traits": {"help_text": "Customer-provided traits such as name and email"},
             "organization_id": {
@@ -338,7 +352,7 @@ TICKET_ID_PARAM = OpenApiParameter(
 class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "ticket"
     scope_object_read_actions = ["list", "retrieve", "unread_count", "messages"]
-    scope_object_write_actions = ["create", "update", "partial_update", "patch", "compose", "reply"]
+    scope_object_write_actions = ["create", "update", "partial_update", "patch", "compose", "reply", "ai_feedback"]
     queryset = Ticket.objects.all()
     serializer_class = TicketSerializer
     permission_classes = [IsAuthenticated, APIScopePermission]
@@ -613,7 +627,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 location=OpenApiParameter.QUERY,
                 description=(
                     "Filter by priority. Accepts a single value or a comma-separated list "
-                    "(e.g. `medium,high`). Valid values: `low`, `medium`, `high`."
+                    "(e.g. `medium,high`). Valid values: `low`, `medium`, `high`, `critical`."
                 ),
             ),
             OpenApiParameter(
@@ -1065,13 +1079,27 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         item_context = comment.item_context or {}
         author_type = item_context.get("author_type", "customer")
 
+        # Per-message author identity (Slack/Teams/Zendesk store each comment's own
+        # author) takes precedence over the ticket-level requester, so a thread reply
+        # from a second participant doesn't show as the ticket owner.
+        context_author_name = (
+            item_context.get("author_name")
+            or item_context.get("author_email")
+            or item_context.get("slack_author_name")
+            or item_context.get("teams_author_name")
+            or item_context.get("teams_author_email")
+            or item_context.get("email_from_name")
+        )
+
         if comment.created_by:
             author_name = comment.created_by.first_name or comment.created_by.email
+        elif author_type == "AI":
+            author_name = "PostHog Assistant"
+        elif context_author_name:
+            author_name = context_author_name
         elif author_type == "customer":
             traits = ticket.anonymous_traits or {}
             author_name = traits.get("name") or traits.get("email") or "Customer"
-        elif author_type == "AI":
-            author_name = "PostHog Assistant"
         else:
             author_name = "Support"
 
@@ -1133,6 +1161,53 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
             TicketMessageSerializer(self._serialize_message(comment, ticket)).data,
             status=drf_status.HTTP_201_CREATED,
         )
+
+    @extend_schema(
+        parameters=[TICKET_ID_PARAM],
+        request=AiFeedbackRequestSerializer,
+        responses={202: None},
+    )
+    @action(detail=True, methods=["post"])
+    def ai_feedback(self, request, *args, **kwargs):
+        """Record reviewer feedback on an AI reply, captured to the internal analytics project."""
+        ticket = self.get_object()
+        serializer = AiFeedbackRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        ai_triage = ticket.ai_triage or {}
+        trace_id = ai_triage.get("ai_trace_id")
+        distinct_id = f"reviewer:{request.user.distinct_id}"
+
+        feedback_text = data.get("feedback_text", "").strip()
+
+        if feedback_text and data["rating"] == "bad":
+            feedback_properties: dict[str, Any] = {
+                "$ai_feedback_text": feedback_text,
+                "ai_product": "conversations",
+                "ticket_id": str(ticket.id),
+                "message_id": data["message_id"],
+                "ai_triage_result": ai_triage.get("result"),
+                "confidence": ai_triage.get("confidence"),
+            }
+            if trace_id:
+                feedback_properties["$ai_trace_id"] = trace_id
+            posthoganalytics.capture(distinct_id=distinct_id, event="$ai_feedback", properties=feedback_properties)
+        else:
+            properties: dict[str, Any] = {
+                "$ai_metric_name": "reviewer_quality",
+                "$ai_metric_value": 1 if data["rating"] == "good" else 0,
+                "ai_product": "conversations",
+                "ticket_id": str(ticket.id),
+                "message_id": data["message_id"],
+                "ai_triage_result": ai_triage.get("result"),
+                "confidence": ai_triage.get("confidence"),
+            }
+            if trace_id:
+                properties["$ai_trace_id"] = trace_id
+            posthoganalytics.capture(distinct_id=distinct_id, event="$ai_metric", properties=properties)
+
+        return Response(status=drf_status.HTTP_202_ACCEPTED)
 
     @extend_schema(
         request=ComposeTicketSerializer,
@@ -1314,6 +1389,13 @@ def assign_ticket(
             if assignment_before:
                 assignment_before.delete()
             serialized_assignment_after = None
+
+        # Callers pass the assignee whenever it's present in the payload (the ticket UI always
+        # sends the full form), so skip logging and the assignment event when nothing changed —
+        # otherwise every save writes "assigned to unassigned" and fires assignment-triggered
+        # workflows.
+        if serialized_assignment_before == serialized_assignment_after:
+            return
 
         log_activity(
             organization_id=organization.id,

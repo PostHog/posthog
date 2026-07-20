@@ -6,7 +6,10 @@ Staff/system actions use the actor's distinct_id; customer actions use the ticke
 Events are sent to the customer's PostHog project via their team's API token.
 """
 
+from datetime import datetime
 from typing import Literal
+
+from django.utils import timezone
 
 import structlog
 
@@ -240,6 +243,24 @@ def _get_customer_properties(ticket: Ticket, *, include_distinct_id: bool = Fals
     return properties
 
 
+def _get_sla_properties(ticket: Ticket, now: datetime) -> dict:
+    """SLA state at the moment of the event.
+
+    Stamped on events (rather than derived later) so attainment metrics reflect the
+    deadline that was in force at the time, even if the SLA is reset afterwards.
+    `sla_delta_seconds` is positive when past due, negative when time remains.
+    """
+    if ticket.sla_due_at is None:
+        return {"sla_due_at": None, "sla_active": False, "sla_breached": False, "sla_delta_seconds": None}
+    delta_seconds_float = (now - ticket.sla_due_at).total_seconds()
+    return {
+        "sla_due_at": ticket.sla_due_at.isoformat(),
+        "sla_active": True,
+        "sla_breached": delta_seconds_float > 0,
+        "sla_delta_seconds": int(delta_seconds_float),
+    }
+
+
 def capture_ticket_created(ticket: Ticket) -> None:
     properties = _get_ticket_base_properties(ticket)
     properties.update(_get_customer_properties(ticket))
@@ -351,6 +372,7 @@ def capture_message_sent(
     properties["author_type"] = "team"
     properties.update(_get_actor_properties(author, "user"))
     properties.update(_get_customer_properties(ticket, include_distinct_id=True))
+    properties.update(_get_sla_properties(ticket, timezone.now()))
 
     capture_internal(
         token=ticket.team.api_token,

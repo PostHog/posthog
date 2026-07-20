@@ -35,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DingConnectSource(ResumableSource[DingConnectSourceConfig, DingConnectResumeConfig]):
+    api_docs_url = "https://www.dingconnect.com/Api/Description"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -125,7 +127,6 @@ class DingConnectSource(ResumableSource[DingConnectSourceConfig, DingConnectResu
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="DingConnect",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your DingConnect API key to pull your DingConnect data into the PostHog Data warehouse.
 
 You can generate an API key under the **Developer** tab of your [DingConnect account settings](https://www.dingconnect.com/Account/Settings).""",

@@ -134,6 +134,23 @@ describe('GroupTypeManager()', () => {
         })
     })
 
+    describe('lookupGroupTypeIndex()', () => {
+        it.each([
+            ['an existing group type', 'g0', 0],
+            ['an unknown group type', 'brand-new', null],
+            // Inherited object properties must not resolve to junk values that
+            // poison downstream SQL parameters (and crash prefetch workers).
+            ['__proto__', '__proto__', null],
+            ['constructor', 'constructor', null],
+        ])('resolves %s without creating a mapping', async (_name, groupType, expected) => {
+            await hub.groupRepository.insertGroupType(2, 2 as ProjectId, 'g0', 0, TEST_TIMESTAMP)
+            jest.mocked(hub.groupRepository.insertGroupType).mockClear()
+
+            expect(await groupTypeManager.lookupGroupTypeIndex(2 as ProjectId, groupType)).toEqual(expected)
+            expect(hub.groupRepository.insertGroupType).not.toHaveBeenCalled()
+        })
+    })
+
     describe('fetchGroupTypeIndex()', () => {
         it('fetches an already existing value', async () => {
             await hub.groupRepository.insertGroupType(2, 2 as ProjectId, 'foo', 0, TEST_TIMESTAMP)

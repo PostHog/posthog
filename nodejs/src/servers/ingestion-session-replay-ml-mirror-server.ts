@@ -9,7 +9,6 @@ import { logger } from '~/common/utils/logger'
 import { getDefaultKafkaDownstreamProducerEnvConfig } from '~/ingestion/common/outputs/producers'
 import { getDefaultIngestionConsumerConfig } from '~/ingestion/config'
 import { AllowListFetcher, loadAllowLists } from '~/ingestion/pipelines/sessionreplay/anonymize/allow-list-loader'
-import { ScrubContext } from '~/ingestion/pipelines/sessionreplay/anonymize/config'
 import {
     type SessionReplayProducerName,
     getDefaultSessionRecordingApiConfig,
@@ -129,18 +128,14 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
             : new BlackholeSessionBatchFileStorage()
 
         const allow = await loadAllowLists(this.buildAllowListFetcher(s3Client, bucket))
-        const useRustAnonymizer = this.config.SESSION_RECORDING_ML_RUST_ANONYMIZER
-        if (useRustAnonymizer) {
-            // Lazy require so the native addon is only loaded (and only needs to ship) when the flag is
-            // on; the addon holds its own copy of the immutable allow lists, set once at startup.
-            const anonymizer = require('@posthog/replay-anonymizer') as typeof import('@posthog/replay-anonymizer')
-            anonymizer.initAnonymizer(allow.entries())
-            // The addon's scrub runs on the libuv threadpool (UV_THREADPOOL_SIZE, default 4) shared
-            // with the recorder's snappy compression — size it for the deployment if scrub backs up.
-            await assertAnonymizerHealthy(anonymizer)
-            logger.info('🦀', 'ml_mirror_rust_anonymizer_enabled')
-        }
-        const scrubContext: ScrubContext = { allow, useRustAnonymizer }
+        // Lazy require so only ml-mirror deployments load (and need to ship) the native addon; the
+        // addon holds its own copy of the immutable allow lists, set once at startup.
+        const anonymizer = require('@posthog/replay-anonymizer') as typeof import('@posthog/replay-anonymizer')
+        anonymizer.initAnonymizer(allow.entries())
+        // The addon's scrub runs on the libuv threadpool (UV_THREADPOOL_SIZE, default 4) shared
+        // with the recorder's snappy compression — size it for the deployment if scrub backs up.
+        await assertAnonymizerHealthy(anonymizer)
+        logger.info('🦀', 'ml_mirror_rust_anonymizer_initialized')
 
         // Block metadata is produced to Kafka; the dedicated Parquet-sink deployment writes it to the ML bucket.
         const metadataStore = new MlBlockMetadataSink(outputs, pseudonymSecret)
@@ -158,7 +153,11 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
             featureStore: new SessionFeatureStore(outputs, false),
             keyStore,
             encryptor: new CleartextRecordingEncryptor(keyStore),
-            createPipeline: (pipelineConfig) => createMlMirrorReplayPipeline({ ...pipelineConfig, scrubContext }),
+            createPipeline: (pipelineConfig) => createMlMirrorReplayPipeline(pipelineConfig),
+            // Isolate the mirror's session tracker/filter keys from the main lane. Sharing them would let
+            // the cleartext mirror mark a session seen without the main lane's KMS key, so the main lane
+            // would then fetch a missing key and record cleartext.
+            redisKeyNamespace: 'ml-mirror',
         }
 
         const ingester = new SessionRecordingIngester(

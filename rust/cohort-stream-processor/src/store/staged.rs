@@ -2,27 +2,19 @@
 //!
 //! [`BatchBuilder`](super::rocks::BatchBuilder) borrows the store's CF handles, so a batch built
 //! through it is tied to the store's lifetime and cannot be moved into a `'static` blocking closure.
-//! [`StagedBatch`] is the owned counterpart: each staging call encodes its key (and, for the person
-//! index, its merge operand) into owned bytes at call time and remembers only the target [`Cf`], so
-//! the value is `Send + 'static` and can be replayed on a background thread via
-//! [`CohortStore::apply`](super::rocks::CohortStore::apply).
+//! [`StagedBatch`] is the owned counterpart: each staging call encodes its key into owned bytes at
+//! call time and remembers only the target [`Cf`], so the value is `Send + 'static` and can be
+//! replayed on a background thread via [`CohortStore::apply`](super::rocks::CohortStore::apply).
 //!
 //! The staging surface mirrors `BatchBuilder` one-to-one and encodes identically, so a sequence
 //! staged here and applied through `apply` is byte-for-byte the same set of RocksDB operations as
 //! that sequence built through `BatchBuilder` and committed through `write_batch`.
 
 use super::column_families::{Cf, OpaqueCf};
-use super::keys::{
-    MergeAppliedKey, MergeDrainKey, PendingTransferKey, PersonIndexKey, Stage2Key, TombstoneKey,
-};
-use super::secondary_index::IndexOp;
-use crate::stage1::key::Stage1Key;
+use super::keys::{MergeAppliedKey, MergeDrainKey, PendingTransferKey, Stage2Key, TombstoneKey};
+use super::keyspace::Keyspace;
 
 /// One staged RocksDB operation with owned bytes, so the batch is `Send + 'static`.
-///
-/// `Merge` carries the encoded [`IndexOp`] operand verbatim: the person-index merge operator must see
-/// the same operand bytes
-/// [`BatchBuilder::merge_person_index`](super::rocks::BatchBuilder::merge_person_index) produces.
 pub(crate) enum StagedOp {
     Put {
         cf: Cf,
@@ -32,11 +24,6 @@ pub(crate) enum StagedOp {
     Delete {
         cf: Cf,
         key: Vec<u8>,
-    },
-    Merge {
-        cf: Cf,
-        key: Vec<u8>,
-        operand: Vec<u8>,
     },
 }
 
@@ -65,35 +52,21 @@ impl StagedBatch {
         &self.ops
     }
 
-    pub fn put_stage1(&mut self, key: &Stage1Key, value: &[u8]) {
+    /// Put a typed key/value into its keyspace's CF. The [`Keyspace`] binding routes to the right CF,
+    /// so a key cannot be staged for the wrong column family.
+    pub fn put<K: Keyspace>(&mut self, key: &K::Key, value: &[u8]) {
         self.ops.push(StagedOp::Put {
-            cf: Cf::Stage1,
-            key: key.encode().to_vec(),
+            cf: K::CF,
+            key: K::encode(key),
             value: value.to_vec(),
         });
     }
 
-    pub fn delete_stage1(&mut self, key: &Stage1Key) {
+    /// Delete a typed key from its keyspace's CF.
+    pub fn delete<K: Keyspace>(&mut self, key: &K::Key) {
         self.ops.push(StagedOp::Delete {
-            cf: Cf::Stage1,
-            key: key.encode().to_vec(),
-        });
-    }
-
-    /// Read-free append/remove on the person's index.
-    pub fn merge_person_index(&mut self, key: &PersonIndexKey, op: IndexOp) {
-        self.ops.push(StagedOp::Merge {
-            cf: Cf::PersonIndex,
-            key: key.encode().to_vec(),
-            operand: op.encode().to_vec(),
-        });
-    }
-
-    /// Whole-key delete of a person's index entry.
-    pub fn delete_person_index(&mut self, key: &PersonIndexKey) {
-        self.ops.push(StagedOp::Delete {
-            cf: Cf::PersonIndex,
-            key: key.encode().to_vec(),
+            cf: K::CF,
+            key: K::encode(key),
         });
     }
 
@@ -201,27 +174,20 @@ mod tests {
 
     use super::*;
     use crate::stage1::key::LeafStateKey;
+    use crate::store::keyspace::{Behavioral, BehavioralKey};
     use crate::store::rocks::{BatchBuilder, CohortStore, StoreConfig};
 
     const PARTITION: u16 = 3;
     const TEAM: u64 = 7;
     const LARGE_LIMIT: usize = 1024;
 
-    fn stage1_key(person: u128, lsk: u8) -> Stage1Key {
-        Stage1Key {
-            partition_id: PARTITION,
-            team_id: TEAM,
-            leaf_state_key: LeafStateKey([lsk; 16]),
-            person_id: Uuid::from_u128(person),
-        }
-    }
-
-    fn person_index_key(person: u128) -> PersonIndexKey {
-        PersonIndexKey {
-            partition_id: PARTITION,
-            team_id: TEAM,
-            person_id: Uuid::from_u128(person),
-        }
+    fn behavioral_key(person: u128, lsk: u8) -> BehavioralKey {
+        BehavioralKey::new(
+            PARTITION,
+            TEAM,
+            Uuid::from_u128(person),
+            LeafStateKey([lsk; 16]),
+        )
     }
 
     fn stage2_key(person: u128, cohort: u64) -> Stage2Key {
@@ -277,31 +243,12 @@ mod tests {
         .unwrap()
     }
 
-    /// Drives every staging method through `BatchBuilder`. `merge_person_index` uses both `IndexOp`
-    /// variants (an append that survives and one cancelled by a remove) to exercise the merge operand
-    /// on replay, and `put_raw` covers both `OpaqueCf` arms.
+    /// Drives every staging method through `BatchBuilder`, including a behavioral put that survives and
+    /// one cancelled by a delete, and both `OpaqueCf` arms of `put_raw`.
     fn drive_batch_builder(b: &mut BatchBuilder<'_>) {
-        b.put_stage1(&stage1_key(1, 0xA0), b"s1-put");
-        b.put_stage1(&stage1_key(2, 0xA1), b"s1-doomed");
-        b.delete_stage1(&stage1_key(2, 0xA1));
-
-        b.merge_person_index(
-            &person_index_key(1),
-            IndexOp::Append(LeafStateKey([0x11; 16])),
-        );
-        b.merge_person_index(
-            &person_index_key(1),
-            IndexOp::Append(LeafStateKey([0x22; 16])),
-        );
-        b.merge_person_index(
-            &person_index_key(1),
-            IndexOp::Remove(LeafStateKey([0x22; 16])),
-        );
-        b.merge_person_index(
-            &person_index_key(2),
-            IndexOp::Append(LeafStateKey([0x33; 16])),
-        );
-        b.delete_person_index(&person_index_key(2));
+        b.put::<Behavioral>(&behavioral_key(1, 0xA0), b"s1-put");
+        b.put::<Behavioral>(&behavioral_key(2, 0xA1), b"s1-doomed");
+        b.delete::<Behavioral>(&behavioral_key(2, 0xA1));
 
         b.put_stage2(&stage2_key(1, 100), b"s2-put");
         b.put_stage2(&stage2_key(2, 200), b"s2-doomed");
@@ -319,33 +266,19 @@ mod tests {
         b.put_tombstone(&tombstone_key(1), b"tombstone-put");
         b.delete_tombstone(&tombstone_key(2));
 
-        b.put_raw(OpaqueCf::Stage1, &stage1_key(9, 0xF0).encode(), b"raw-s1");
+        b.put_raw(
+            OpaqueCf::Behavioral,
+            &behavioral_key(9, 0xF0).encode(),
+            b"raw-s1",
+        );
         b.put_raw(OpaqueCf::Stage2, &stage2_key(9, 900).encode(), b"raw-s2");
     }
 
     /// The same sequence as [`drive_batch_builder`], staged into a `StagedBatch`.
     fn drive_staged_batch(s: &mut StagedBatch) {
-        s.put_stage1(&stage1_key(1, 0xA0), b"s1-put");
-        s.put_stage1(&stage1_key(2, 0xA1), b"s1-doomed");
-        s.delete_stage1(&stage1_key(2, 0xA1));
-
-        s.merge_person_index(
-            &person_index_key(1),
-            IndexOp::Append(LeafStateKey([0x11; 16])),
-        );
-        s.merge_person_index(
-            &person_index_key(1),
-            IndexOp::Append(LeafStateKey([0x22; 16])),
-        );
-        s.merge_person_index(
-            &person_index_key(1),
-            IndexOp::Remove(LeafStateKey([0x22; 16])),
-        );
-        s.merge_person_index(
-            &person_index_key(2),
-            IndexOp::Append(LeafStateKey([0x33; 16])),
-        );
-        s.delete_person_index(&person_index_key(2));
+        s.put::<Behavioral>(&behavioral_key(1, 0xA0), b"s1-put");
+        s.put::<Behavioral>(&behavioral_key(2, 0xA1), b"s1-doomed");
+        s.delete::<Behavioral>(&behavioral_key(2, 0xA1));
 
         s.put_stage2(&stage2_key(1, 100), b"s2-put");
         s.put_stage2(&stage2_key(2, 200), b"s2-doomed");
@@ -363,7 +296,11 @@ mod tests {
         s.put_tombstone(&tombstone_key(1), b"tombstone-put");
         s.delete_tombstone(&tombstone_key(2));
 
-        s.put_raw(OpaqueCf::Stage1, &stage1_key(9, 0xF0).encode(), b"raw-s1");
+        s.put_raw(
+            OpaqueCf::Behavioral,
+            &behavioral_key(9, 0xF0).encode(),
+            b"raw-s1",
+        );
         s.put_raw(OpaqueCf::Stage2, &stage2_key(9, 900).encode(), b"raw-s2");
     }
 
@@ -378,12 +315,15 @@ mod tests {
         let mut staged = StagedBatch::default();
         drive_staged_batch(&mut staged);
         assert!(!staged.is_empty());
-        assert_eq!(staged.len(), 21);
+        assert_eq!(staged.len(), 16);
         via_staged.apply(&staged).unwrap();
 
         // `scan_merge_cf` is CF-generic and all keys carry the partition prefix, so it enumerates any
-        // CF's slice.
+        // partitioned CF's slice.
         for cf in Cf::ALL {
+            if !cf.partitioned() {
+                continue;
+            }
             let builder_kvs = via_builder
                 .scan_merge_cf(cf, PARTITION, None, LARGE_LIMIT)
                 .unwrap();
@@ -396,25 +336,18 @@ mod tests {
             );
         }
 
-        // Decoded person-index output must agree too: a merge operand replayed to the wrong operator
-        // or with diverging bytes would collapse to a different set even if the raw value scan matched.
-        for person in [1u128, 2] {
-            let key = person_index_key(person);
-            assert_eq!(
-                via_builder.get_person_index(&key).unwrap(),
-                via_staged.get_person_index(&key).unwrap(),
-                "person index for {person} diverged",
-            );
-        }
-        // The surviving append leaves exactly one leaf; the appended-then-removed one is gone.
+        // The surviving behavioral put leaves exactly one row; the put-then-deleted one is gone.
         assert_eq!(
-            via_staged.get_person_index(&person_index_key(1)).unwrap(),
-            vec![LeafStateKey([0x11; 16])],
+            via_staged
+                .get_behavioral(&behavioral_key(1, 0xA0))
+                .unwrap()
+                .as_deref(),
+            Some(b"s1-put".as_slice()),
         );
-        assert!(via_staged
-            .get_person_index(&person_index_key(2))
-            .unwrap()
-            .is_empty());
+        assert_eq!(
+            via_staged.get_behavioral(&behavioral_key(2, 0xA1)).unwrap(),
+            None,
+        );
     }
 
     #[test]

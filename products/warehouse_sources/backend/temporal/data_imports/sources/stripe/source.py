@@ -48,6 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     PRODUCT_RESOURCE_NAME,
     RESOURCE_TO_STRIPE_OBJECT_TYPE,
     RESOURCE_TO_STRIPE_WEBHOOK_EVENT,
+    STRIPE_API_VERSION_ACACIA,
     SUBSCRIPTION_RESOURCE_NAME,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import (
@@ -104,6 +105,10 @@ class StripeSource(
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     has_managed_hogql_schema = True  # canonical Stripe schema in external_table_definitions
 
+    supported_versions = (STRIPE_API_VERSION_ACACIA,)
+    default_version = STRIPE_API_VERSION_ACACIA
+    api_docs_url = "https://docs.stripe.com/changelog"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.STRIPE
@@ -159,7 +164,7 @@ class StripeSource(
                                             name="stripe_secret_key",
                                             label="API key",
                                             type=SourceFieldInputConfigType.PASSWORD,
-                                            required=False,
+                                            required=True,
                                             placeholder="rk_live_...",
                                             caption=f"Create a [restricted API key]({STRIPE_API_KEYS_URL}) with the pre-defined permissions",
                                             secret=True,
@@ -176,7 +181,7 @@ class StripeSource(
                                         SourceFieldOauthConfig(
                                             name="stripe_integration_id",
                                             label="Stripe account",
-                                            required=False,
+                                            required=True,
                                             kind="stripe",
                                         ),
                                     ],
@@ -186,10 +191,11 @@ class StripeSource(
                     ),
                     SourceFieldInputConfig(
                         name="stripe_account_id",
-                        label="Account id",
+                        label="Account id (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
-                        placeholder="stripe_account_id",
+                        placeholder="acct_...",
+                        caption="Leave blank in most cases, including when connecting with OAuth. Only set this if you use a Stripe Connect platform key and want to sync a specific connected account. You can find it under Account details in your [Stripe account settings](https://dashboard.stripe.com/settings/account).",
                         secret=False,
                     ),
                 ],
@@ -480,4 +486,5 @@ If automatic creation failed due to a permissions error and you're using a restr
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
             webhook_source_manager=webhook_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
         )

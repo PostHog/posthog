@@ -57,6 +57,24 @@ if TYPE_CHECKING:
 REVENUECAT_API_KEYS_URL = "https://app.revenuecat.com/projects/_/api-keys"
 
 
+# Event-payload fields RevenueCat documents as doubles. JSON drops the decimal point on
+# whole values (`0`, `20`), so they parse as Python ints, and events like TRANSFER carry
+# them as nulls. If the batch that creates the Delta table holds only whole values, the
+# column gets locked to int64 and the first fractional price (e.g. 19.99) fails every
+# subsequent sync with an Arrow truncation error; if it holds only nulls, the column is
+# stored as string (Delta has no null type) and later prices are silently stringified.
+# Force these columns to double so neither can happen.
+_EVENT_DOUBLE_FIELDS = (
+    "price",
+    "price_in_purchased_currency",
+    "takehome_percentage",
+    "tax_percentage",
+    "commission_percentage",
+    "discount_percentage",
+    "discount_amount",
+)
+
+
 def _webhook_table_transformer(table: pa.Table) -> pa.Table:
     """Unwrap RevenueCat's ``{"event": {...}, "api_version": "1.0"}`` envelope.
 
@@ -68,7 +86,10 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
     We also derive a ``created_at`` field (Unix seconds) from RevenueCat's
     ``event_timestamp_ms`` so this table can share the same datetime partition
     convention as the API endpoints. The original ``event_timestamp_ms`` is
-    preserved unchanged for callers that need sub-second precision.
+    preserved unchanged for callers that need sub-second precision. Columns
+    documented as doubles are forced to float64 so whole-valued or all-null
+    batches can't pin them to an integer or string type (see
+    ``_EVENT_DOUBLE_FIELDS``).
     """
     if "event" not in table.column_names:
         return table_from_py_list([])
@@ -92,7 +113,23 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
             row["created_at"] = event_ts_ms // 1000
         rows.append(row)
 
-    return table_from_py_list(rows)
+    result = table_from_py_list(rows)
+
+    # Cast at the table level rather than per value: an all-null column carries no values
+    # to coerce, yet still needs the float64 type or it infers `null` (stored as string).
+    for field_name in _EVENT_DOUBLE_FIELDS:
+        if field_name not in result.column_names:
+            continue
+        field_index = result.schema.get_field_index(field_name)
+        column_type = result.schema.field(field_index).type
+        if pa.types.is_null(column_type) or pa.types.is_integer(column_type):
+            result = result.set_column(
+                field_index,
+                pa.field(field_name, pa.float64()),
+                result.column(field_name).cast(pa.float64()),
+            )
+
+    return result
 
 
 @SourceRegistry.register
@@ -101,6 +138,9 @@ class RevenueCatSource(
     WebhookSource[RevenueCatSourceConfig],
 ):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://www.revenuecat.com/docs/api-v2"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -163,13 +203,12 @@ class RevenueCatSource(
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.BETA,
-            featureFlag="dwh-revenuecat",
+            releaseStatus=ReleaseStatus.GA,
             webhookSetupCaption=(
                 "PostHog tries to register a webhook integration in RevenueCat using your "
-                "secret API key. RevenueCat does not HMAC-sign deliveries — instead, the "
-                "integration sends a custom **Authorization** header on every request, whose "
-                "value you set below. PostHog rejects deliveries whose header does not match.\n\n"
+                "secret API key. The integration authenticates itself by sending a custom "
+                "**Authorization** header on every request, whose value you set below. "
+                "PostHog rejects deliveries whose header does not match.\n\n"
                 "**Manual setup** (only needed if auto-registration failed):\n\n"
                 "1. Go to your **RevenueCat project** > **Integrations** > **+ New** > **Webhook**\n"
                 "2. Paste the webhook URL shown below into the **Webhook URL** field\n"
@@ -215,6 +254,12 @@ class RevenueCatSource(
             ),
             "404 Client Error: Not Found": (
                 "RevenueCat could not find the project. Double-check the project id and that the API key belongs to it."
+            ),
+            "Source column type changed": (
+                "A column in this table started receiving values that don't fit the type stored from "
+                "earlier syncs (for example a price column created from whole-number values now "
+                "receiving a decimal price). We can't widen an existing column in place — reset and "
+                "fully re-sync this table to adopt the new type."
             ),
         }
 
@@ -271,10 +316,9 @@ class RevenueCatSource(
         return WebhookSourceManager(inputs, inputs.logger)
 
     def create_webhook(self, config: RevenueCatSourceConfig, webhook_url: str, team_id: int) -> WebhookCreationResult:
-        # RevenueCat requires the auth-header value at integration creation
-        # time, but the user hasn't entered it yet on the warehouse side. Skip
-        # passing one and the surrounding flow will collect it via
-        # `webhookFields`, then re-create the integration to bind it.
+        # The user hasn't entered the auth-header value yet on the warehouse
+        # side. Skip passing one and the surrounding flow will collect it via
+        # `webhookFields`, then bind it to the integration in place.
         return api_client.create_webhook(
             api_key=config.secret_api_key,
             project_id=config.project_id,
@@ -284,18 +328,13 @@ class RevenueCatSource(
     def webhook_inputs_updated(
         self, config: RevenueCatSourceConfig, webhook_url: str, team_id: int, inputs: dict[str, Any]
     ) -> tuple[bool, str | None]:
-        # Once the user provides the authorization header value, re-register
-        # the integration so RevenueCat starts sending the header on every
-        # delivery. RevenueCat's API doesn't let you update the auth header on
-        # an existing integration in-place — delete + recreate is the
-        # supported path.
+        # Once the user provides the authorization header value, bind it to the
+        # integration so RevenueCat starts sending the header on every
+        # delivery. `create_webhook` updates the existing integration in place
+        # (or creates it fresh if auto-registration failed earlier).
         header_value = inputs.get("authorization_header")
         if not header_value:
             return True, None
-
-        deletion = api_client.delete_webhook(config.secret_api_key, config.project_id, webhook_url)
-        if not deletion.success:
-            return False, deletion.error or "Failed to refresh RevenueCat webhook integration."
 
         creation = api_client.create_webhook(
             api_key=config.secret_api_key,
@@ -327,7 +366,7 @@ class RevenueCatSource(
 
     def _webhook_source_response(self, inputs: SourceInputs) -> SourceResponse:
         webhook_source_manager = self.get_webhook_source_manager(inputs)
-        webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)(True)
+        webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)(webhook_only=True)
 
         def items() -> Iterable[Any] | AsyncIterable[Any]:
             if webhook_enabled:
@@ -348,6 +387,7 @@ class RevenueCatSource(
             # the partition layer treats bare ints as seconds, so this gives
             # us correctly-bucketed weekly partitions.
             partition_keys=["created_at"],
+            webhook_only=True,
         )
 
     def _api_source_response(

@@ -90,6 +90,8 @@ describe('onboardingLogic — flow composition', () => {
             [ProductKey.LOGS, ['install:logs', 'invite_teammates:logs']],
             // Data Warehouse has no install step — the link_data step is the entry point.
             [ProductKey.DATA_WAREHOUSE, ['link_data:data_warehouse', 'invite_teammates:data_warehouse']],
+            // Support has no product-specific step; it's enabled on completion, so only the shared step shows.
+            [ProductKey.CONVERSATIONS, ['invite_teammates:conversations']],
         ]
 
         it.each(cases)('builds the expected flow when only %s is selected', (product, expected) => {
@@ -420,6 +422,16 @@ describe('onboardingLogic — flow composition', () => {
                     type: logic.actionTypes.recordProductIntentOnboardingComplete,
                     payload: { product_type: ProductKey.PRODUCT_ANALYTICS } as any,
                 },
+                (action) => {
+                    if (action.type !== logic.actionTypes.updateCurrentTeam) {
+                        return false
+                    }
+                    expect(action.payload).toMatchObject({
+                        completed_snippet_onboarding: true,
+                        has_completed_onboarding_for: { [ProductKey.PRODUCT_ANALYTICS]: true },
+                    })
+                    return true
+                },
             ])
         })
 
@@ -472,6 +484,25 @@ describe('onboardingLogic — flow composition', () => {
             await expectLogic(logic, () => {
                 logic.actions.completeOnboarding()
             }).toNotHaveDispatchedActions(['recordProductIntentOnboardingComplete', 'setIsCompleting'])
+        })
+    })
+
+    describe('completeContextOnboarding', () => {
+        it('persists both onboarding completion signals', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.completeContextOnboarding()
+            }).toDispatchActions([
+                (action) => {
+                    if (action.type !== logic.actionTypes.updateCurrentTeam) {
+                        return false
+                    }
+                    expect(action.payload).toMatchObject({
+                        completed_snippet_onboarding: true,
+                        has_completed_onboarding_for: { [ProductKey.PRODUCT_ANALYTICS]: true },
+                    })
+                    return true
+                },
+            ])
         })
     })
 
@@ -537,6 +568,35 @@ describe('onboardingLogic — flow composition', () => {
             expect(logic.values.stepId).toBe('authorized_domains:web_analytics')
         })
 
+        it('keeps passthrough params separate from ?step= when navigating (GitHub-callback params)', async () => {
+            // The GitHub App install callback returns to onboarding with extra query params
+            // (integration_id, installation_id). Advancing a step must keep them as separate
+            // params — a naive path+search concat fused them into the step value
+            // (step=configure:x?integration_id=14), which no flow step resolves, leaving the
+            // host on a spinner forever.
+            router.actions.push('/onboarding/product_analytics?step=install:product_analytics&integration_id=14')
+            await expectLogic(logic).toDispatchActions(['setStepId'])
+            await expectLogic(logic, () => {
+                logic.actions.goToNextStep()
+            }).toDispatchActions(['setStepId'])
+            expect(router.values.searchParams).toMatchObject({
+                step: 'configure:product_analytics',
+                integration_id: 14,
+            })
+            expect(logic.values.currentFlowStep?.id).toBe('configure:product_analytics')
+        })
+
+        it('self-corrects a step id with fused query params instead of treating it as namespaced', async () => {
+            router.actions.push(
+                `/onboarding/product_analytics?step=${encodeURIComponent('configure:product_analytics?integration_id=14')}`
+            )
+            await expectLogic(logic).toDispatchActions(['setStepId'])
+            // The mangled id contains ':' but must not count as a known step key — it resolves
+            // to '' (flow[0]) rather than leaving currentFlowStep null and the host spinning.
+            expect(logic.values.stepId).toBe('')
+            expect(logic.values.currentFlowStep?.id).toBe('install:product_analytics')
+        })
+
         it('sets subscribedDuringOnboarding when ?success=true is present', async () => {
             await expectLogic(logic, () => {
                 router.actions.push('/onboarding/web_analytics?success=true')
@@ -552,8 +612,7 @@ describe('onboardingLogic — flow composition', () => {
     describe('completion redirect URL', () => {
         // Each entry: [primary, expected redirect path-substring].
         // Verifies that each per-product provider's `completeRedirectUrl` is wired up.
-        // EXPERIMENTS intentionally falls through to urls.default() — same behaviour as
-        // the original central switch.
+        // EXPERIMENTS has no provider URL, so it falls through to the Quickstart page.
         const cases: Array<[ProductKey, RegExp]> = [
             [ProductKey.PRODUCT_ANALYTICS, /quickstart|insight/i],
             [ProductKey.WEB_ANALYTICS, /web/i],
@@ -565,6 +624,7 @@ describe('onboardingLogic — flow composition', () => {
             [ProductKey.WORKFLOWS, /workflow/i],
             [ProductKey.LOGS, /log/i],
             [ProductKey.DATA_WAREHOUSE, /sources|data-management/i],
+            [ProductKey.CONVERSATIONS, /support/i],
         ]
 
         it.each(cases)('%s lands on a product-specific page', (product, pattern) => {
@@ -572,10 +632,36 @@ describe('onboardingLogic — flow composition', () => {
             expect(logic.values.onCompleteOnboardingRedirectUrl).toMatch(pattern)
         })
 
-        it('experiments falls through to urls.default()', () => {
+        it('experiments falls through to home, or quickstart in the test variant', () => {
             logic.actions.setProductKey(ProductKey.EXPERIMENTS)
             expect(logic.values.onCompleteOnboardingRedirectUrl).toBe('/')
+
+            featureFlagLogic.findMounted()?.actions.setFeatureFlags([FEATURE_FLAGS.QUICKSTART_HOMEPAGE], {
+                [FEATURE_FLAGS.QUICKSTART_HOMEPAGE]: 'control',
+            })
+            expect(logic.values.onCompleteOnboardingRedirectUrl).toBe('/')
+
+            featureFlagLogic.findMounted()?.actions.setFeatureFlags([FEATURE_FLAGS.QUICKSTART_HOMEPAGE], {
+                [FEATURE_FLAGS.QUICKSTART_HOMEPAGE]: 'test',
+            })
+            expect(logic.values.onCompleteOnboardingRedirectUrl).toBe('/quickstart')
+
+            featureFlagLogic.findMounted()?.actions.setFeatureFlags([], {})
         })
+
+        it.each(cases.map(([product]) => product))(
+            '%s lands on quickstart when the quickstart flag is enabled',
+            (product) => {
+                featureFlagLogic.findMounted()?.actions.setFeatureFlags([FEATURE_FLAGS.QUICKSTART_HOMEPAGE], {
+                    [FEATURE_FLAGS.QUICKSTART_HOMEPAGE]: 'test',
+                })
+                logic.actions.setProductKey(product)
+
+                expect(logic.values.onCompleteOnboardingRedirectUrl).toBe('/quickstart')
+
+                featureFlagLogic.findMounted()?.actions.setFeatureFlags([], {})
+            }
+        )
 
         it('redirect override takes precedence over the per-product URL', () => {
             logic.actions.setProductKey(ProductKey.WEB_ANALYTICS)

@@ -3,6 +3,7 @@ import { statusReasonLabel, statusReasonRecoveryLabel } from './statusDisplay'
 describe('statusDisplay', () => {
     describe('statusReasonLabel', () => {
         it.each([
+            ['provider_key_required' as const, 'No provider API key configured'],
             ['trial_limit_reached' as const, 'Trial evaluation limit reached'],
             ['model_not_allowed' as const, 'Model not available on the trial plan'],
             ['provider_key_deleted' as const, 'Provider API key was deleted'],
@@ -25,6 +26,10 @@ describe('statusDisplay', () => {
 
     describe('statusReasonRecoveryLabel', () => {
         it.each([
+            [
+                'provider_key_required' as const,
+                'Add a provider API key in settings, then re-enable the evaluation to resume running.',
+            ],
             [
                 'trial_limit_reached' as const,
                 'Add a provider API key in settings, then re-enable the evaluation to resume running.',

@@ -71,9 +71,13 @@ The headline exports per module:
   presenters, and the permission/question/resource surfaces.
 - **`api/logics`** — **`runStreamLogic`** (SSE stream + thread projection, see §3),
   **`runInteractionLogic`** (Max-agnostic follow-up/queue facade), status helpers
-  (`isTerminalRunStatus`, `INITIAL_PERMISSION_MODE`), and thinking-message helpers. Imports only
-  `logics/*` + `utils/*` — never a component or the registry, so it's the clean headless lane.
-- **`api/types`** — folded-thread + tool domain types (pure types).
+  (`isTerminalRunStatus`, `INITIAL_PERMISSION_MODE`), thinking-message helpers,
+  **`attachedContextLogic`** + **`useAttachedContext`** (context injection, see §3), and
+  **`toolStreamEventsLogic`** + **`useToolStreamListener`** (tool-stream subscriptions, see §3).
+  Imports only `logics/*` + `hooks/*` + `utils/*` — never a component or the registry. The two hooks are a
+  deliberate, mild deviation from the "no React" reading of this lane: they import `react` + `kea` but no
+  components, so the lane stays registry- and presenter-free.
+- **`api/types`** — folded-thread + tool domain types, `AttachedContextItem`, `ToolStreamEvent` (pure types).
 - **`api/tools`** — **`toolRegistry`**, **`registerToolRenderers`** (the generic per-product seam, see §2),
   `lookupToolRenderer`, `GenericMcpToolRenderer`, `DataToolRow`, `ToolActivity`, `FilePath`, and the
   diff/exec helpers. Isolated here because importing it pulls the side-effectful registry chunk.
@@ -90,19 +94,23 @@ It must stay **free of the Max scene and conversation orchestration**. Do not im
 
 - `runStreamLogic` keys on a generic `streamKey` (conversation id for Max, run/task id for a task
   viewer). Keep it generic — no Max-specific branching.
-- **Product-specific tool renderers live in the consuming product, not here — via the generic seam.**
+- **The PostHog product data-tool renderers live in this surface and self-register — via the generic seam.**
   `api/tools` exposes `toolRegistry` and the convenience wrapper **`registerToolRenderers(entries)`**: the
-  generic per-product mechanism for a product to plug in cards that display its own entities. A product
-  registers from its own scene's entrypoint; the shared registry stays free of product imports. **Max is
-  the first consumer of this pattern, not a special case** — its renderers (insights, dashboards,
-  recordings, error-tracking issues, notebooks, query results) live in `scenes/max/messages/adapters` and
-  call `registerToolRenderers` via `registerMaxToolRenderers` (imported once by the Max scene). The shared
-  registry only knows the built-ins, the exec verbs, the question card, the generic MCP card, and the
-  generic `EditDiffRenderer`. Surfaces without an adapter for a key (tasks, signals inbox) fall through to
-  the generic card — by design.
+  generic per-product mechanism for plugging in cards that display PostHog entities. The data-tool widgets
+  (insights, dashboards, recordings, error-tracking issues, notebooks, query results) live in
+  `components/tool/widgets/` and register themselves via `widgets/registerDataToolRenderers`, which
+  `components/tool/ToolCallCard` side-effect-imports. Because that import sits at the render chokepoint,
+  **every consumer that renders a tool card — the `/tasks` runner, the signals inbox, and Max's sandbox
+  path — gets the widgets**, without the consumer having to opt in. The base `toolRegistry` module itself
+  stays product-free (built-ins, exec verbs, question card, generic MCP card, generic `EditDiffRenderer`);
+  the widgets carry no `scenes/max` import, so the grep gate below stays green. Max's frozen LangGraph path
+  is a _consumer_: it composes `VisualizationWidget` / `RecordingsWidget` / `ErrorTrackingFiltersWidget`
+  through `api/primitives`.
 - If Max needs something the surface doesn't express generically, **lift it to a generic prop/selector here
-  and have Max adapt** — never special-case Max in this directory. Enforced by a grep gate:
-  `grep -rE "scenes/max|maxThreadLogic|MaxUIContext" products/posthog_ai/frontend` must be empty.
+  and have Max adapt** — never special-case Max in this directory. (The recordings "accept these filters"
+  bar is one such lift: `RecordingsWidget` takes an optional `onAcceptFilters` prop; Max's LangGraph path
+  passes its `onAcceptSessionFilters` selector, the sandbox path passes nothing.) Enforced by a grep gate:
+  `grep -rE "scenes/max|maxThreadLogic|MaxUIContext" products/posthog_ai/frontend` must be empty of imports.
 
 ## 3. Streaming architecture (`logics/runStreamLogic.ts`)
 
@@ -126,6 +134,50 @@ the id so a reconnect replay can't re-surface it).
 Supporting modules live in `policy/` (tool policy + permission/question utils) and `types/`
 (`streamTypes` = folded thread shapes; `wireTypes` = ACP wire shapes + guards). Wire types are
 loosely typed — guard at the parse boundary with runtime checks; never assume a field is present.
+
+**Context injection (`logics/attachedContextLogic.ts`):** a global registry of on-screen context. A provider
+(a mounted `useAttachedContext` hook / `AttachedContextProvider` component, or a kea logic registering via
+`cache.disposables` — setup dispatches `registerContext(providerId, items)`, cleanup `deregisterContext`,
+with `pauseOnPageHidden: false` since a hide-paused registration would drop context from sends that happen
+while the tab is hidden; `contextPickerLogic` is the exemplar) contributes
+abstract `AttachedContextItem`s — `type` is an **arbitrary string** (`'insight'`, `'dashboard'`, `'trace'`,
+`'text'`…; never an enumerated union), plus `key`/`label`/`value`. `contextItems` flattens and dedupes by
+`${type}:${key ?? value}`. At send time the send paths (`runInteractionLogic.sendNow`/`startNewRun`,
+`taskTrackerSceneLogic.submitNewTask`) wrap the outgoing message with
+`wrapWithPosthogContext` (`utils/posthogContextBlock.ts`) — a prefix of `<posthog_trusted_context>`
+(`type: 'instructions'` items, our own injected guidance) and/or `<posthog_untrusted_context>` (everything
+else — data that can embed user/ingested text, rendered behind hardening prose) that is **invisible to the
+user**: the live echo (`pushHumanMessage`) carries the raw text and `unwrapUserMessageContent` strips every
+leading block on history replay (including the legacy `<posthog_context>` wrapper still emitted by the
+deprecated backend `context_wrapper.py` path and present in old history) — stripping works on the tags, not
+the body.
+The send paths prune entity refs already sent for the task (`attachedContextLogic.sentContextKeysByTask`,
+keyed by task id so the dedupe survives a terminal-run send re-pointing to a fresh run, matching the
+backend's `prune_repeated_entity_refs`, which dedupes across the task's whole resume chain); `text` items
+are never deduped, repeated text is intentional.
+
+**User-picked context (`logics/contextPickerLogic.ts` + `components/composer/AttachedContextBar.tsx`):** the
+composer's @-affordance. `AttachedContextBar` (Tier 2, drop into `Composer.Header`, the top-of-frame row above the textarea; already wired into
+`TaskComposer` and `TaskRunChat`) renders a `TaxonomicPopover` whose selections are projected to flat refs by
+`taxonomicItemToAttachedContext` — no entity loading, the agent fetches details — and stored in
+`contextPickerLogic`, which is just another provider (`user-picker`) on `attachedContextLogic`. The bar's chips
+render **all** of `contextItems`; closing a picked chip removes it from the picker, closing any other
+provider's chip dispatches `attachedContextLogic.dismissContext(key)`. Dismissal filters the key out of
+`contextItems` and **survives provider re-registration** (the scene bridge upserts on every scene read — a
+closed chip must not resurrect); re-picking the same item `undismissContext`s it.
+
+**Tool-stream events (`logics/toolStreamEventsLogic.ts`):** a global bus `runStreamLogic` publishes
+tool-call lifecycle events to — `phase: started/updated/completed/failed`, with `toolName` **resolved** via
+`toolResolver` (inner PostHog MCP tool, e.g. `create_dashboard`). Subscribe with `useToolStreamListener({
+tools, onEvent })`, or kea-natively by connecting to the bus and listening to
+`toolStreamEventsLogic.actionTypes.emitToolEvent`. Replay-sourced events are suppressed unless the
+subscription sets `includeReplay` (a reload must not re-trigger UI reactions). Caveat: for exec-wrapped
+PostHog tools the resolved name may be `__posthog_exec_unknown__` at `started` (the `command` streams in via
+updates) and is reliable by `completed`. `useMcpToolApplyBack` supports `tool_call_completed` and `turn_end`
+timing.
+The bus also publishes live turn-complete and run-terminal events so apply-back consumers can flush after a
+persistent run's response. Subscriber callbacks are isolated (a throwing listener is captured, never breaks
+ingestion).
 
 ## 4. Conventions
 
@@ -159,19 +211,24 @@ api/                # public API facade — the contract (import api/<module>, n
   runSurface.ts     #   Tier 1: RunSurface compound (Root + slots, eager) for custom layouts
   runner.ts         #   Tier 1: EmbeddedRunner (lazy TaskTracker product) for inline hosts
   primitives.ts     #   Tier 2: Composer, Thread + atoms, ThreadView, QueuedMessageList, presenters, perm/question/resource
-  logics.ts         #   Tier 3: runStreamLogic, runInteractionLogic, status + thinking helpers (headless)
-  types.ts          #   Tier 3: folded-thread + tool domain types (pure types)
+  logics.ts         #   Tier 3: runStreamLogic, runInteractionLogic, context store + hooks, tool-event bus (headless)
+  types.ts          #   Tier 3: folded-thread + tool domain types, AttachedContextItem, ToolStreamEvent (pure types)
   tools.ts          #   Tier 4: toolRegistry + registerToolRenderers seam (side-effectful — isolated)
 components/         # RunSurfaceImpl (the RunSurface compound, heavy chunk); ReadonlyRunSurfaceImpl (prepackaged
                     #   read-only layout) + ReadonlyRunSurface (its lazy wrapper, replaces the old RunViewer.tsx);
-                    #   RunLogSkeleton (shared loader), Thread, Composer, perm/question/resource surfaces, activity, tool/
-  composer/         #   the Composer compound
+                    #   RunLogSkeleton (shared loader), Thread, Composer, perm/question/resource surfaces, activity, tool/;
+                    #   AttachedContextProvider (render-null context injection wrapper)
+  composer/         #   the Composer compound; AttachedContextBar (@-picker + context chips)
   tool/             #   tool registry + renderers (built-ins, generic MCP, EditDiffRenderer, diff/exec utils)
-logics/             # runStreamLogic, runInteractionLogic; tasksLogic/taskLogic data logics (+ *LogicType.ts)
+    widgets/        #     PostHog product data-tool widgets (insight/dashboard/recordings/error-tracking/notebook/query) + registerDataToolRenderers
+hooks/              # useAttachedContext, useToolStream — mount-scoped registration wrappers over the logics
+logics/             # runStreamLogic, runInteractionLogic, attachedContextLogic, contextPickerLogic, toolStreamEventsLogic;
+                    #   tasksLogic/taskLogic data logics (+ *LogicType.ts)
 policy/             # tool policy + permission/question utils
-types/              # streamTypes (folded thread), wireTypes (ACP), toolTypes, taskTypes (task/run domain)
+types/              # streamTypes (folded thread + ToolStreamEvent), wireTypes (ACP), contextTypes
+                    #   (AttachedContextItem), toolTypes, taskTypes (task/run domain)
 messages/           # MessageTemplate, MarkdownMessage, ReasoningAnswer, AssistantFailureMessage
-utils/              # thinkingMessages
+utils/              # thinkingMessages, posthogContextBlock (trusted/untrusted context-block builder)
 lib/                # task/run helpers (parse-logs, task-status, repository, ph-debug, util-functions)
 scenes/             # standalone scenes registered via ../manifest.tsx
   TaskTracker/      #   the runner scene (component, stories, scene logics, scene-specific components/)

@@ -8,6 +8,10 @@ export interface ApiUser {
     first_name?: string
     last_name?: string
     email: string
+    // Gates discovery of staff-only tools (those requiring an OAUTH_SCOPES_HIDDEN
+    // scope). Optional because some tests construct partial users; treat absence
+    // as not staff.
+    is_staff?: boolean
     organizations: Array<{ id: string; name: string }>
     // `team` and `organization` mirror the Django User's nullable `current_team`
     // / `current_organization` FKs — the `/api/users/@me/` serializer returns
@@ -26,6 +30,10 @@ export interface ApiUser {
         // current org, so the consent flag is always present on the wire; it is
         // optional here because some tests construct partial users.
         is_ai_data_processing_approved?: boolean | null
+        // `/api/users/@me/` embeds the full OrganizationSerializer, so the org's
+        // plan entitlements ride along too; used by the fallback path when a
+        // team-scoped token can't fetch the org directly.
+        available_product_features?: Array<{ key: string }> | null
     } | null
 }
 

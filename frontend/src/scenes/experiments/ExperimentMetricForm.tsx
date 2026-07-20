@@ -41,6 +41,7 @@ import {
     ExperimentRatioMetricOutlierHandling,
 } from './ExperimentMetricOutlierHandling'
 import { ExperimentMetricThreshold, isThresholdAvailableForMath } from './ExperimentMetricThreshold'
+import { EXPOSURE_DEFAULT_EVENT } from './exposureContract'
 import { filterToMetricConfig, filterToMetricSource } from './metricQueryUtils'
 import { createFilterForSource, getFilter } from './metricQueryUtils'
 import { commonActionFilterProps } from './Metrics/Selectors'
@@ -55,7 +56,7 @@ import {
 export function getExposureCriteriaLabel(exposureCriteria: ExperimentExposureCriteria | undefined): string {
     const exposureConfig = exposureCriteria?.exposure_config
     if (!exposureConfig) {
-        return '$feature_flag_called'
+        return EXPOSURE_DEFAULT_EVENT
     }
 
     return getExposureConfigDisplayName(exposureConfig)
@@ -306,7 +307,8 @@ export function ExperimentMetricForm({
                             </>
                         ) : (
                             <>
-                                Counts only after exposure event (<LemonTag>$feature_flag_called</LemonTag> by default)
+                                Counts only after exposure event (<LemonTag>{EXPOSURE_DEFAULT_EVENT}</LemonTag> by
+                                default)
                             </>
                         )}
                         <Tooltip

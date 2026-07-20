@@ -4,7 +4,7 @@
 //! channel plus serial worker already guarantee in-partition order.
 //!
 //! Per-key replay dedup is a separate concern, owned by
-//! [`AppliedOffsets`](crate::stage1::state::AppliedOffsets) on each `cf_stage1` record.
+//! [`AppliedOffsets`](crate::stage1::state::AppliedOffsets) on each `cf_behavioral` record.
 
 use std::collections::HashMap;
 

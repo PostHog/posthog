@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class AviationstackSource(ResumableSource[AviationstackSourceConfig, AviationstackResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://aviationstack.com/documentation"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -120,7 +121,6 @@ class AviationstackSource(ResumableSource[AviationstackSourceConfig, Aviationsta
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Aviationstack",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your aviationstack access key to pull real-time, scheduled, and historical flight data plus aviation reference tables into the PostHog Data warehouse.
 
 You can find your access key in your [aviationstack dashboard](https://aviationstack.com/dashboard).
