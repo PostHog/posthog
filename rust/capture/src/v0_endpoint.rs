@@ -78,7 +78,6 @@ pub async fn event(
                 state.overflow_limiter.clone(),
                 state.ai_events_overflow_limiter.clone(),
                 &state.ai_routing,
-                state.ai_events_overflow_enabled,
                 events,
                 &context,
             )

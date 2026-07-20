@@ -242,7 +242,6 @@ pub async fn process_events(
     overflow_limiter: Option<Arc<OverflowLimiter>>,
     ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
     ai_routing: &AiRouting,
-    ai_events_overflow_enabled: bool,
     events: Vec<RawEvent>,
     context: &ProcessingContext,
 ) -> Result<(), CaptureError> {
@@ -430,7 +429,6 @@ pub async fn process_events(
         &mut events,
         overflow_limiter.as_ref(),
         ai_events_overflow_limiter.as_ref(),
-        ai_events_overflow_enabled,
     );
 
     if events.is_empty() {
@@ -746,7 +744,6 @@ mod tests {
             None,
             None,
             &AiRouting::Primary,
-            false,
             events,
             &context,
         )
@@ -797,7 +794,6 @@ mod tests {
             None,
             None,
             &AiRouting::Primary,
-            false,
             events,
             &context,
         )
@@ -849,7 +845,6 @@ mod tests {
             None,
             None,
             &AiRouting::Primary,
-            false,
             events,
             &context,
         )
@@ -901,7 +896,6 @@ mod tests {
             None,
             None,
             &AiRouting::Primary,
-            false,
             events,
             &context,
         )
@@ -960,7 +954,6 @@ mod tests {
             None,
             None,
             &AiRouting::Primary,
-            false,
             events,
             &context,
         )
@@ -999,7 +992,6 @@ mod tests {
             None,
             None,
             &AiRouting::Primary,
-            false,
             events,
             &context,
         )
@@ -1056,7 +1048,6 @@ mod tests {
             None,
             None,
             &AiRouting::Primary,
-            false,
             events,
             &context,
         )
@@ -1107,7 +1098,6 @@ mod tests {
             None,
             None,
             &AiRouting::Primary,
-            false,
             events,
             &context,
         )
@@ -1175,7 +1165,6 @@ mod tests {
             None,
             None,
             &routing,
-            false,
             events,
             &context,
         )
@@ -1257,7 +1246,6 @@ mod tests {
             None,
             None,
             &AiRouting::Secondary,
-            false,
             events,
             &context,
         )
@@ -1320,7 +1308,6 @@ mod tests {
             None,
             None,
             &AiRouting::Secondary,
-            false,
             events,
             &context,
         )
@@ -1382,7 +1369,6 @@ mod tests {
             None,
             None,
             &AiRouting::Primary,
-            false,
             events,
             &context,
         )
@@ -1458,7 +1444,6 @@ mod tests {
             None,
             None,
             &AiRouting::Primary,
-            false,
             events,
             &context,
         )
@@ -1533,7 +1518,6 @@ mod tests {
             None,
             None,
             &AiRouting::Primary,
-            false,
             events,
             &context,
         )
@@ -1603,7 +1587,6 @@ mod tests {
             None,
             None,
             &AiRouting::Primary,
-            false,
             events,
             &context,
         )
@@ -1665,7 +1648,6 @@ mod tests {
             None,
             None,
             &AiRouting::Primary,
-            false,
             events,
             &context,
         )
@@ -1721,7 +1703,6 @@ mod tests {
             None, // no overflow limiter
             None,
             &AiRouting::Primary,
-            false,
             events,
             &context,
         )
@@ -1760,7 +1741,6 @@ mod tests {
             Some(limiter),
             None,
             &AiRouting::Primary,
-            false,
             events,
             &context,
         )
@@ -1776,14 +1756,15 @@ mod tests {
     }
 
     /// End-to-end gate for the AI overflow valve: a diverted `$ai_*` event
-    /// is overflow-stamped only when `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC` is
-    /// configured, and keeps its AI lane either way.
+    /// is overflow-stamped only when the AI limiter is wired (setup builds
+    /// it exactly when `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC` is
+    /// configured), and keeps its AI lane either way.
     #[rstest]
-    #[case::armed(true, Some(OverflowReason::ForceLimited))]
-    #[case::unarmed(false, None)]
+    #[case::limiter_present(true, Some(OverflowReason::ForceLimited))]
+    #[case::limiter_absent(false, None)]
     #[tokio::test]
-    async fn test_ai_events_overflow_stamp_gated_on_valve(
-        #[case] ai_events_overflow_enabled: bool,
+    async fn test_ai_events_overflow_stamp_gated_on_limiter_presence(
+        #[case] ai_limiter_present: bool,
         #[case] expected_reason: Option<OverflowReason>,
     ) {
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
@@ -1800,7 +1781,8 @@ mod tests {
         let sink = Arc::new(MockSink::new());
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
-        let limiter = build_limiter(10, 10, Some("test_token".to_string()), false);
+        let ai_limiter = ai_limiter_present
+            .then(|| build_limiter(10, 10, Some("test_token".to_string()), false));
 
         process_events(
             sink.clone(),
@@ -1809,9 +1791,8 @@ mod tests {
             historical_cfg,
             None,
             None,
-            Some(limiter),
+            ai_limiter,
             &AiRouting::Secondary,
-            ai_events_overflow_enabled,
             events,
             &context,
         )
@@ -1850,7 +1831,6 @@ mod tests {
             Some(limiter),
             None,
             &AiRouting::Primary,
-            false,
             events,
             &context,
         )
@@ -1893,7 +1873,6 @@ mod tests {
             Some(limiter),
             None,
             &AiRouting::Primary,
-            false,
             events,
             &context,
         )
@@ -1953,7 +1932,6 @@ mod tests {
             Some(limiter),
             None,
             &AiRouting::Primary,
-            false,
             events,
             &context,
         )
@@ -1995,7 +1973,6 @@ mod tests {
             Some(limiter),
             None,
             &AiRouting::Primary,
-            false,
             events,
             &context,
         )
@@ -2049,7 +2026,6 @@ mod tests {
             Some(overflow_limiter),
             None,
             &AiRouting::Primary,
-            false,
             events,
             &context,
         )
@@ -2115,7 +2091,6 @@ mod tests {
             None, // no overflow limiter -- isolate global RL behavior
             None,
             &AiRouting::Primary,
-            false,
             events,
             &context,
         )
@@ -2162,7 +2137,6 @@ mod tests {
             None, // no overflow limiter -- isolate global RL behavior
             None,
             &AiRouting::Primary,
-            false,
             events,
             &context,
         )
@@ -2221,7 +2195,6 @@ mod tests {
             Some(limiter),
             None,
             &AiRouting::Primary,
-            false,
             events,
             &context,
         )
@@ -2275,7 +2248,6 @@ mod tests {
             Some(limiter),
             None,
             &AiRouting::Primary,
-            false,
             events,
             &context,
         )
@@ -2332,7 +2304,6 @@ mod tests {
             Some(limiter),
             None,
             &AiRouting::Primary,
-            false,
             events,
             &context,
         )
@@ -2580,7 +2551,6 @@ mod tests {
             None,
             None,
             &AiRouting::Primary,
-            false,
             events,
             &context,
         )
@@ -2631,7 +2601,6 @@ mod tests {
             None,
             None,
             &AiRouting::Primary,
-            false,
             events,
             &context,
         )
@@ -2671,7 +2640,6 @@ mod tests {
             None,
             None,
             &AiRouting::Primary,
-            false,
             events,
             &context,
         )
@@ -2719,7 +2687,6 @@ mod tests {
             None,
             None,
             &AiRouting::Primary,
-            false,
             events,
             &context,
         )

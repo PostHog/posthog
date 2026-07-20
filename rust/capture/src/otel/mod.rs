@@ -213,7 +213,6 @@ pub async fn otel_handler(
         &mut processed_events,
         state.overflow_limiter.as_ref(),
         state.ai_events_overflow_limiter.as_ref(),
-        state.ai_events_overflow_enabled,
     );
 
     state.sink.send_batch(processed_events).await.map_err(|e| {

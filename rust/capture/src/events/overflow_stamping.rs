@@ -31,24 +31,27 @@ use crate::v0_request::{DataType, OverflowReason, ProcessedEvent};
 /// `force_overflow` flag stamped by event restrictions.
 ///
 /// Two lanes can overflow: `AnalyticsMain` always, and `AiEvents` only when
-/// `ai_events_overflow_enabled` is set (i.e. `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC` is
-/// configured). Each lane consults its own limiter instance —
-/// `analytics_limiter` for `AnalyticsMain`, `ai_limiter` for `AiEvents` — so
-/// per-key budgets are isolated: analytics volume never pushes a key's AI
-/// events into AI overflow and vice versa. The stamp carries no topic; the
-/// kafka sink maps it to the lane's own overflow topic, so an overflowing AI
-/// event lands on AI overflow, never analytics overflow.
+/// its limiter is present — setup builds `ai_limiter` exactly when the AI
+/// overflow valve (`CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`) is armed and
+/// overflow is enabled, so limiter presence IS the valve here; the kafka sink
+/// independently ignores overflow stamps on the AI lane when the topic is
+/// unset. Each lane consults its own limiter instance — `analytics_limiter`
+/// for `AnalyticsMain`, `ai_limiter` for `AiEvents` — so per-key budgets are
+/// isolated: analytics volume never pushes a key's AI events into AI overflow
+/// and vice versa. The stamp carries no topic; the kafka sink maps it to the
+/// lane's own overflow topic, so an overflowing AI event lands on AI
+/// overflow, never analytics overflow.
 ///
 /// Behavior (matches the pre-refactor sink semantics byte-for-byte):
 /// * Events on non-overflowing lanes are skipped (heatmaps, exceptions,
 ///   client-ingestion-warnings, etc. never overflow; nor do AI events when
-///   the AI overflow topic is unset).
+///   the AI limiter is absent).
 /// * `force_overflow = true` (set upstream by event restrictions) emits the
 ///   `event_restriction` counter and short-circuits — the limiter is NOT
 ///   consulted, matching the pre-refactor sink ordering.
-/// * If the lane's limiter is `None`, only the `event_restriction`
-///   short-circuit can stamp anything; otherwise the event passes through
-///   untouched.
+/// * If `analytics_limiter` is `None`, only the `event_restriction`
+///   short-circuit can stamp anything on the analytics lane; otherwise the
+///   event passes through untouched.
 /// * If the lane's limiter is `Some`, `is_limited(event.key())` is consulted
 ///   and the resulting [`OverflowReason`] is stamped, plus the matching
 ///   counter. `ForceLimited` additionally sets `skip_person_processing =
@@ -62,12 +65,11 @@ pub fn stamp_overflow_reason(
     events: &mut [ProcessedEvent],
     analytics_limiter: Option<&Arc<OverflowLimiter>>,
     ai_limiter: Option<&Arc<OverflowLimiter>>,
-    ai_events_overflow_enabled: bool,
 ) {
     for event in events.iter_mut() {
         let lane_limiter = match event.metadata.data_type {
             DataType::AnalyticsMain => analytics_limiter,
-            DataType::AiEvents if ai_events_overflow_enabled => ai_limiter,
+            DataType::AiEvents if ai_limiter.is_some() => ai_limiter,
             _ => continue,
         };
 
@@ -191,7 +193,7 @@ mod tests {
             true, // force_overflow
         )];
 
-        stamp_overflow_reason(&mut events, Some(&limiter), None, false);
+        stamp_overflow_reason(&mut events, Some(&limiter), None);
 
         assert_eq!(
             events[0].metadata.overflow_reason, None,
@@ -208,7 +210,7 @@ mod tests {
         let limiter = build_limiter(10, 10, Some("phc_t:user".to_string()), false);
         let mut events = vec![build_event(DataType::AnalyticsMain, "phc_t", "user", false)];
 
-        stamp_overflow_reason(&mut events, Some(&limiter), None, false);
+        stamp_overflow_reason(&mut events, Some(&limiter), None);
 
         assert_eq!(
             events[0].metadata.overflow_reason,
@@ -230,7 +232,7 @@ mod tests {
             build_event(DataType::AnalyticsMain, "phc_t", "u", false),
         ];
 
-        stamp_overflow_reason(&mut events, Some(&limiter), None, false);
+        stamp_overflow_reason(&mut events, Some(&limiter), None);
 
         assert_eq!(
             events[0].metadata.overflow_reason, None,
@@ -256,7 +258,7 @@ mod tests {
             build_event(DataType::AnalyticsMain, "phc_t", "u", false),
         ];
 
-        stamp_overflow_reason(&mut events, Some(&limiter), None, false);
+        stamp_overflow_reason(&mut events, Some(&limiter), None);
 
         assert_eq!(
             events[1].metadata.overflow_reason,
@@ -272,7 +274,7 @@ mod tests {
         let limiter = build_limiter(10, 10, None, false);
         let mut events = vec![build_event(DataType::AnalyticsMain, "phc_t", "u", false)];
 
-        stamp_overflow_reason(&mut events, Some(&limiter), None, false);
+        stamp_overflow_reason(&mut events, Some(&limiter), None);
 
         assert_eq!(events[0].metadata.overflow_reason, None);
     }
@@ -294,7 +296,7 @@ mod tests {
             build_event(DataType::AiEvents, "phc_t", "u", false),
         ];
 
-        stamp_overflow_reason(&mut events, Some(&limiter), None, false);
+        stamp_overflow_reason(&mut events, Some(&limiter), None);
 
         for (i, ev) in events.iter().enumerate() {
             assert_eq!(
@@ -310,7 +312,7 @@ mod tests {
     fn none_limiter_is_a_no_op_for_non_force_overflow_events() {
         let mut events = vec![build_event(DataType::AnalyticsMain, "phc_t", "u", false)];
 
-        stamp_overflow_reason(&mut events, None, None, false);
+        stamp_overflow_reason(&mut events, None, None);
 
         assert_eq!(events[0].metadata.overflow_reason, None);
         assert!(!events[0].metadata.skip_person_processing);
@@ -323,7 +325,7 @@ mod tests {
         // counter) even when the limiter is absent.
         let mut events = vec![build_event(DataType::AnalyticsMain, "phc_t", "u", true)];
 
-        stamp_overflow_reason(&mut events, None, None, false);
+        stamp_overflow_reason(&mut events, None, None);
 
         assert_eq!(
             events[0].metadata.overflow_reason, None,
@@ -335,7 +337,7 @@ mod tests {
     fn empty_batch_is_a_no_op() {
         let limiter = build_limiter(10, 10, None, false);
         let mut events: Vec<ProcessedEvent> = Vec::new();
-        stamp_overflow_reason(&mut events, Some(&limiter), None, false);
+        stamp_overflow_reason(&mut events, Some(&limiter), None);
     }
 
     #[test]
@@ -350,7 +352,7 @@ mod tests {
             build_event(DataType::AnalyticsMain, "phc_t", "user_a", false),
         ];
 
-        stamp_overflow_reason(&mut events, Some(&limiter), None, false);
+        stamp_overflow_reason(&mut events, Some(&limiter), None);
 
         assert_eq!(
             events[0].metadata.overflow_reason, None,
@@ -369,21 +371,22 @@ mod tests {
         );
     }
 
-    /// The AI lane joins overflow stamping only when the AI overflow valve
-    /// (`CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`) is armed; unarmed keeps today's
-    /// never-overflows behavior even for a force-routed key.
+    /// The AI lane joins overflow stamping only when its limiter is present
+    /// (setup builds it exactly when the AI overflow valve is armed); absent
+    /// keeps today's never-overflows behavior even for a force-routed key.
     #[rstest::rstest]
-    #[case::armed(true, Some(OverflowReason::ForceLimited), true)]
-    #[case::unarmed(false, None, false)]
-    fn ai_events_stamping_gated_on_overflow_valve(
-        #[case] ai_overflow_enabled: bool,
+    #[case::limiter_present(true, Some(OverflowReason::ForceLimited), true)]
+    #[case::limiter_absent(false, None, false)]
+    fn ai_events_stamping_gated_on_limiter_presence(
+        #[case] ai_limiter_present: bool,
         #[case] expected_reason: Option<OverflowReason>,
         #[case] expected_skip_person: bool,
     ) {
         let limiter = build_limiter(10, 10, Some("phc_t:u".to_string()), false);
+        let ai_limiter = ai_limiter_present.then_some(&limiter);
         let mut events = vec![build_event(DataType::AiEvents, "phc_t", "u", false)];
 
-        stamp_overflow_reason(&mut events, None, Some(&limiter), ai_overflow_enabled);
+        stamp_overflow_reason(&mut events, None, ai_limiter);
 
         assert_eq!(events[0].metadata.overflow_reason, expected_reason);
         assert_eq!(
@@ -402,7 +405,7 @@ mod tests {
             build_event(DataType::AiEvents, "phc_t", "u", false),
         ];
 
-        stamp_overflow_reason(&mut events, None, Some(&limiter), true);
+        stamp_overflow_reason(&mut events, None, Some(&limiter));
 
         assert_eq!(events[0].metadata.overflow_reason, None);
         assert_eq!(
@@ -434,12 +437,7 @@ mod tests {
             build_event(quiet_lane, "phc_t", "u", false),
         ];
 
-        stamp_overflow_reason(
-            &mut events,
-            Some(&analytics_limiter),
-            Some(&ai_limiter),
-            true,
-        );
+        stamp_overflow_reason(&mut events, Some(&analytics_limiter), Some(&ai_limiter));
 
         assert_eq!(events[0].metadata.overflow_reason, None);
         assert_eq!(
@@ -462,7 +460,7 @@ mod tests {
         let analytics_limiter = build_limiter(10, 10, Some("phc_t:u".to_string()), false);
         let mut events = vec![build_event(DataType::AiEvents, "phc_t", "u", false)];
 
-        stamp_overflow_reason(&mut events, Some(&analytics_limiter), None, true);
+        stamp_overflow_reason(&mut events, Some(&analytics_limiter), None);
 
         assert_eq!(events[0].metadata.overflow_reason, None);
     }
@@ -475,7 +473,7 @@ mod tests {
         let limiter = build_limiter(10, 10, Some("phc_t:u".to_string()), false);
         let mut events = vec![build_event(DataType::AiEvents, "phc_t", "u", true)];
 
-        stamp_overflow_reason(&mut events, None, Some(&limiter), true);
+        stamp_overflow_reason(&mut events, None, Some(&limiter));
 
         assert_eq!(events[0].metadata.overflow_reason, None);
         assert!(!events[0].metadata.skip_person_processing);

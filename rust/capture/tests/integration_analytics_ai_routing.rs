@@ -222,11 +222,12 @@ fn force_keyed_limiter() -> Arc<OverflowLimiter> {
 
 /// With `secondary` routing, a force-limited key on the AI limiter
 /// overflow-stamps the diverted `$ai_*` event only when the AI overflow
-/// valve is armed, while the `$pageview` on the same hot key (force-limited
-/// on the analytics limiter) stamps in both cases (the analytics lane is
-/// valve-independent). Catches the router failing to thread
-/// `ai_events_overflow_enabled` into the pipeline, which the process-level
-/// valve test cannot see.
+/// valve is armed (setup wires the AI limiter exactly then, so the test
+/// mirrors that coupling), while the `$pageview` on the same hot key
+/// (force-limited on the analytics limiter) stamps in both cases (the
+/// analytics lane is valve-independent). Catches the router failing to
+/// thread the AI limiter into the pipeline, which the process-level tests
+/// cannot see.
 #[rstest]
 #[case::valve_armed(true, Some(OverflowReason::ForceLimited))]
 #[case::valve_unarmed(false, None)]
@@ -239,7 +240,7 @@ async fn ai_lane_overflow_stamping_gated_on_valve(
         AiRouting::Secondary,
         ai_events_overflow_enabled,
         Some(force_keyed_limiter()),
-        Some(force_keyed_limiter()),
+        ai_events_overflow_enabled.then(force_keyed_limiter),
     );
     let client = TestClient::new(router);
 

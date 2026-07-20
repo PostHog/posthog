@@ -444,7 +444,6 @@ async fn ai_handler_inner(
         std::slice::from_mut(&mut processed_event),
         state.overflow_limiter.as_ref(),
         state.ai_events_overflow_limiter.as_ref(),
-        state.ai_events_overflow_enabled,
     );
 
     // Step 9: Send event to Kafka
