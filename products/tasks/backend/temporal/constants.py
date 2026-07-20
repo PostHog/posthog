@@ -91,12 +91,25 @@ ACK_TIMEOUT = timedelta(seconds=60)
 # under different ack_ids still work normally.
 MAX_ACK_RETRIES = 5
 
+# Versioned signal for steer delivery. Keeping the legacy follow-up signal's
+# positional arguments unchanged makes mixed-worker rolling deployments safe.
+SEND_STEER_SIGNAL = "send_steer_message"
+STEERING_PROTOCOL_QUERY = "steering_protocol_version"
+STEERING_PROTOCOL_VERSION = 1
+# Capability discovery must never delay the durable legacy signal path when a
+# workflow worker is unavailable or too busy to answer queries.
+STEERING_PROTOCOL_QUERY_TIMEOUT = timedelta(seconds=2)
+
 # Cooldown after a failed outbound-signal flush on the child side. The child's
 # main loop wakes whenever `_pending_outbound` is non-empty; if the parent is
 # unreachable the re-queued items would otherwise keep waking the loop
 # immediately, starving the inactivity timer. Sleeping after a partial-failure
 # flush rate-limits retries.
 OUTBOUND_RETRY_BACKOFF = timedelta(seconds=10)
+# Final child cleanup must not wait forever for a parent workflow that has
+# already closed or remains unreachable. This caps the total attempts made by
+# the terminal flush before the child records the undelivered signals and exits.
+MAX_FINAL_OUTBOUND_FLUSH_ATTEMPTS = 5
 
 DEFAULT_CI_MESSAGE = f"""\
 You are re-entering this run to address CI feedback on the pull request you opened.

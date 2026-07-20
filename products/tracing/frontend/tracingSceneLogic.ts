@@ -14,6 +14,7 @@ import { Breadcrumb } from '~/types'
 import type { AggregatedSpanRow, DateRange, SpanTreeNode } from '../../../frontend/src/queries/schema/schema-general'
 import type { UniversalFiltersGroup } from '../../../frontend/src/types'
 import type { TracingDurationHistogramData, VisibleDurationRange } from './durationBuckets'
+import type { TracingLatencyHeatmapData } from './durationBuckets'
 import { tracingDataLogic } from './tracingDataLogic'
 import type { TracingSparklineData, VisibleSpanTimeRange } from './tracingDataLogic'
 import {
@@ -22,6 +23,7 @@ import {
     DEFAULT_ORDER_BY,
     DEFAULT_ORDER_DIRECTION,
     DEFAULT_SERVICE_NAMES,
+    DEFAULT_CHART_TYPE,
     DEFAULT_VIEW_MODE,
     parseComparison,
     serializeComparison,
@@ -56,7 +58,10 @@ export interface tracingSceneLogicValues {
     hasMoreToLoad: boolean // tracingDataLogic
     hasRunQuery: boolean // tracingDataLogic
     isDurationMode: boolean // tracingDataLogic
+    latencyHeatmapData: TracingLatencyHeatmapData // tracingDataLogic
+    latencyHeatmapLoading: boolean // tracingDataLogic
     listRows: Span[] // tracingDataLogic
+    showHeatmap: boolean // tracingDataLogic
     spanTree: {
         current: SpanTreeNode[]
         previous: SpanTreeNode[] | null
@@ -141,6 +146,9 @@ export interface tracingSceneLogicActions {
         startIndex: number
         stopIndex: number
     } // tracingDataLogic
+    setChartType: (chartType: import('./tracingFiltersLogic').TracingChartType) => {
+        chartType: import('./tracingFiltersLogic').TracingChartType
+    } // tracingFiltersLogic
     setComparison: (comparison: TimeComparison | null) => {
         comparison: TimeComparison | null
     } // tracingFiltersLogic
@@ -249,6 +257,9 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 'durationHistogramLoading',
                 'visibleRowDurationRange',
                 'isDurationMode',
+                'latencyHeatmapData',
+                'latencyHeatmapLoading',
+                'showHeatmap',
             ],
             tracingFiltersLogic({ id: TRACING_SCENE_VIEWER_ID }),
             ['filters', 'utcDateRange', 'sparklineWindowMs', 'currentWindowMs', 'previousWindowMs', 'compareActive'],
@@ -284,6 +295,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 'setFilterGroup',
                 'setSort',
                 'setViewMode',
+                'setChartType',
                 'setComparison',
                 'updateComparisonWindows',
                 'setFilters',
@@ -499,6 +511,12 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 }
             }
 
+            const chartTypeFromUrl = searchParams.chart === 'heatmap' ? 'heatmap' : DEFAULT_CHART_TYPE
+            if (chartTypeFromUrl !== values.filters.chartType) {
+                filtersFromUrl.chartType = chartTypeFromUrl
+                hasChanges = true
+            }
+
             if (hasChanges) {
                 actions.setFilters(filtersFromUrl)
             } else if (!values.hasRunQuery) {
@@ -567,6 +585,9 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             // displayMode already folds in the flag gate and resolves to viewMode off-operations.
             if (values.displayMode !== DEFAULT_VIEW_MODE) {
                 searchParams.view = values.displayMode
+            }
+            if (values.filters.chartType !== DEFAULT_CHART_TYPE) {
+                searchParams.chart = values.filters.chartType
             }
 
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
