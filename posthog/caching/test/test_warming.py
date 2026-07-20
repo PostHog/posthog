@@ -3,7 +3,9 @@ from datetime import UTC, datetime, timedelta
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from posthog.caching.warming import insights_to_keep_fresh, schedule_warming_for_teams_task
+from posthog.hogql.errors import TableAccessDeniedError
+
+from posthog.caching.warming import insights_to_keep_fresh, schedule_warming_for_teams_task, warm_insight_cache_task
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -117,6 +119,30 @@ class TestWarming(APIBaseTest):
             (3456, 7890),
         ]
         self.assertEqual(insights, expected_results)
+
+
+class TestWarmInsightCacheTask(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.insight = Insight.objects.create(team=self.team, created_by=self.user, query={"kind": "HogQLQuery"})
+
+    @patch("posthog.caching.warming.capture_exception")
+    @patch("posthog.caching.warming.process_query_dict")
+    def test_warehouse_access_denial_is_not_captured_as_error(self, mock_process_query_dict, mock_capture_exception):
+        mock_process_query_dict.side_effect = TableAccessDeniedError("feature_flags_activation_base")
+
+        warm_insight_cache_task(self.insight.pk, None)
+
+        mock_capture_exception.assert_not_called()
+
+    @patch("posthog.caching.warming.capture_exception")
+    @patch("posthog.caching.warming.process_query_dict")
+    def test_unexpected_error_is_still_captured(self, mock_process_query_dict, mock_capture_exception):
+        mock_process_query_dict.side_effect = ValueError("boom")
+
+        warm_insight_cache_task(self.insight.pk, None)
+
+        mock_capture_exception.assert_called_once()
 
 
 class TestScheduleWarmingForTeamsTask(APIBaseTest):
