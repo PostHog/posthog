@@ -83,6 +83,9 @@ export function TriggerGroupsEditor(): JSX.Element {
         _savingStateLoading,
         shouldShowMigrationBanner,
         hasLegacyTriggers,
+        legacyFallbackThrottlesRecordEverything,
+        legacySampleRate,
+        _aligningLegacyFallbackLoading,
     } = useValues(replayTriggersV2Logic)
     const {
         addTriggerGroup,
@@ -94,12 +97,15 @@ export function TriggerGroupsEditor(): JSX.Element {
         showCreateFromLegacyModal,
         hideCreateFromLegacyModal,
         confirmCreateFromLegacy,
+        alignLegacyFallbackToRecordEverything,
     } = useActions(replayTriggersV2Logic)
 
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+
+    const legacySamplePercent = Math.round((legacySampleRate ?? 1) * 100)
 
     const handleDeleteTriggerGroup = (id: string): void => {
         if (triggerGroups.length === 1) {
@@ -171,6 +177,27 @@ export function TriggerGroupsEditor(): JSX.Element {
                     <p className="mt-1">
                         Trigger groups offer more flexibility, including individual sampling rates per group. Migrate
                         your existing configuration by clicking the migrate button above.
+                    </p>
+                </LemonBanner>
+            )}
+
+            {legacyFallbackThrottlesRecordEverything && (
+                <LemonBanner
+                    type="warning"
+                    action={{
+                        children: 'Set legacy sample rate to 100%',
+                        onClick: alignLegacyFallbackToRecordEverything,
+                        loading: _aligningLegacyFallbackLoading,
+                        disabledReason: restrictedReason,
+                    }}
+                >
+                    <strong>Older SDKs are still sampling at {legacySamplePercent}%.</strong>
+                    <p className="mt-1">
+                        You have a trigger group set to record all sessions, but posthog-js before v
+                        {TRIGGER_GROUPS_MIN_SDK_VERSION} doesn't understand trigger groups. Those SDKs fall back to your
+                        legacy sample rate of {legacySamplePercent}%, so they record only about {legacySamplePercent}%
+                        of sessions. Set the legacy sample rate to 100% to record everything on older SDKs too, or
+                        upgrade posthog-js.
                     </p>
                 </LemonBanner>
             )}
