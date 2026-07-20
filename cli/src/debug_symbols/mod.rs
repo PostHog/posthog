@@ -114,9 +114,16 @@ fn filter_native_source_paths(paths: &[String]) -> Vec<&str> {
     // root; everything under it is stdlib. A user project in a directory
     // literally named src/runtime would be misdetected, costing only its
     // source context.
-    let goroot_src_roots: Vec<&str> = paths
+    // Matching happens on /-normalized copies so ELFs built on Windows
+    // (backslash-separated DWARF paths) hit the same filters.
+    let normalize = |p: &str| p.replace('\\', "/");
+    let goroot_src_roots: Vec<String> = paths
         .iter()
-        .filter_map(|p| p.find("/src/runtime/").map(|i| &p[..i + "/src/".len()]))
+        .map(|p| normalize(p))
+        .filter_map(|p| {
+            p.find("/src/runtime/")
+                .map(|i| p[..i + "/src/".len()].to_string())
+        })
         .collect();
 
     source_bundle::filter_source_paths(paths)
@@ -131,11 +138,15 @@ fn filter_native_source_paths(paths: &[String]) -> Vec<&str> {
                 // Go module cache: dependency sources, not project code.
                 "/pkg/mod/",
             ];
-            if EXCLUDED.iter().any(|sub| path.contains(sub)) {
+            let normalized = normalize(path);
+            if EXCLUDED.iter().any(|sub| normalized.contains(sub)) {
                 tracing::debug!("Filtered out (native toolchain): {}", path);
                 return false;
             }
-            if goroot_src_roots.iter().any(|root| path.starts_with(root)) {
+            if goroot_src_roots
+                .iter()
+                .any(|root| normalized.starts_with(root.as_str()))
+            {
                 tracing::debug!("Filtered out (Go stdlib): {}", path);
                 return false;
             }
@@ -448,6 +459,24 @@ mod tests {
         assert_eq!(
             filter_native_source_paths(&paths),
             vec!["/home/u/app/main.go"]
+        );
+    }
+
+    #[test]
+    fn windows_built_elf_paths_hit_the_same_filters() {
+        let paths: Vec<String> = [
+            r"C:\workspace\app\main.go",
+            r"C:\go\src\runtime\proc.go",
+            r"C:\go\src\fmt\print.go",
+            r"C:\Users\u\go\pkg\mod\github.com\dep@v1.0.0\dep.go",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+
+        assert_eq!(
+            filter_native_source_paths(&paths),
+            vec![r"C:\workspace\app\main.go"]
         );
     }
 }
