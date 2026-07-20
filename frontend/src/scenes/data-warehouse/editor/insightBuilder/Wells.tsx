@@ -9,6 +9,13 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { cn } from 'lib/utils/css-classes'
 
+import {
+    AGGREGATION_LABELS,
+    DATE_GRAIN_LABELS,
+    DATE_GRAIN_OPTIONS,
+    NON_NUMERIC_AGGREGATIONS,
+    NUMERIC_AGGREGATIONS,
+} from '~/queries/nodes/DataVisualization/insightBuilder/builderLabels'
 import { BuilderWell } from '~/queries/nodes/DataVisualization/insightBuilder/chartCapabilities'
 import {
     InsightBuilderAggregation,
@@ -16,13 +23,6 @@ import {
     InsightBuilderMeasure,
 } from '~/queries/schema/schema-general'
 
-import {
-    AGGREGATION_LABELS,
-    DATE_GRAIN_LABELS,
-    DATE_GRAIN_OPTIONS,
-    NON_NUMERIC_AGGREGATIONS,
-    NUMERIC_AGGREGATIONS,
-} from './builderLabels'
 import { COUNT_STAR_COLUMN, insightBuilderLogic } from './insightBuilderLogic'
 
 export function pillId(well: BuilderWell, index: number): string {

@@ -37,6 +37,7 @@ import { QueryFeature } from '../DataTable/queryFeatures'
 import { LineGraph } from './Components/Charts/LineGraph'
 import { PieChart } from './Components/Charts/PieChart'
 import { TwoDimensionalHeatmap } from './Components/Heatmap/TwoDimensionalHeatmap'
+import { PivotTable } from './Components/PivotTable/PivotTable'
 import { seriesBreakdownLogic } from './Components/seriesBreakdownLogic'
 import { SideBar } from './Components/SideBar'
 import { Table } from './Components/Table'
@@ -289,6 +290,8 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         )
     } else if (effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
         component = <TwoDimensionalHeatmap allowSorting={!(props.embedded && readOnly)} />
+    } else if (effectiveVisualizationType === ChartDisplayType.PivotTable) {
+        component = <PivotTable />
     } else if (effectiveVisualizationType === ChartDisplayType.BoldNumber) {
         component = <HogQLBoldNumber />
     }

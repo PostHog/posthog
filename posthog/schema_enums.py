@@ -449,6 +449,7 @@ class Display(StrEnum):
     WORLD_MAP = "WorldMap"
     CALENDAR_HEATMAP = "CalendarHeatmap"
     TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
+    PIVOT_TABLE = "PivotTable"
     BOX_PLOT = "BoxPlot"
     SLOPE_GRAPH = "SlopeGraph"
 
@@ -587,6 +588,7 @@ class ChartDisplayType(StrEnum):
     WORLD_MAP = "WorldMap"
     CALENDAR_HEATMAP = "CalendarHeatmap"
     TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
+    PIVOT_TABLE = "PivotTable"
     BOX_PLOT = "BoxPlot"
     SLOPE_GRAPH = "SlopeGraph"
 

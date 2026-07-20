@@ -33,6 +33,7 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
         [ChartDisplayType.WorldMap]: 'World map',
         [ChartDisplayType.CalendarHeatmap]: 'Calendar heatmap',
         [ChartDisplayType.TwoDimensionalHeatmap]: '2d heatmap',
+        [ChartDisplayType.PivotTable]: 'Pivot table',
         [ChartDisplayType.BoxPlot]: 'Box plot',
         [ChartDisplayType.SlopeGraph]: 'Slope graph',
     }

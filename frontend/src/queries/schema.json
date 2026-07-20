@@ -4403,6 +4403,10 @@
                     "type": "string"
                 },
                 {
+                    "const": "PivotTable",
+                    "type": "string"
+                },
+                {
                     "const": "BoxPlot",
                     "type": "string"
                 },
@@ -4508,6 +4512,7 @@
                         "WorldMap",
                         "CalendarHeatmap",
                         "TwoDimensionalHeatmap",
+                        "PivotTable",
                         "BoxPlot",
                         "SlopeGraph"
                     ],
@@ -13487,6 +13492,7 @@
                 "WorldMap",
                 "CalendarHeatmap",
                 "TwoDimensionalHeatmap",
+                "PivotTable",
                 "BoxPlot",
                 "SlopeGraph"
             ],

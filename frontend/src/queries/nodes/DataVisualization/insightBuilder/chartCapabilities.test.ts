@@ -35,6 +35,10 @@ describe('chartCapabilities', () => {
             [ChartDisplayType.ActionsTable, 2, 1, 3, true],
             [ChartDisplayType.ActionsTable, 1, 0, 0, true],
             [ChartDisplayType.ActionsTable, 0, 0, 0, false],
+            [ChartDisplayType.PivotTable, 1, 0, 1, true],
+            [ChartDisplayType.PivotTable, 3, 2, 4, true],
+            [ChartDisplayType.PivotTable, 0, 1, 1, false],
+            [ChartDisplayType.PivotTable, 1, 0, 0, false],
         ])('%s with %i rows / %i columns / %i values → valid: %s', (display, rows, columns, values, valid) => {
             const problems = validateWellsForDisplay(wells(rows, columns, values), display)
             expect(problems.length === 0).toEqual(valid)
@@ -77,7 +81,9 @@ describe('chartCapabilities', () => {
             [1, 0, 1, true, ChartDisplayType.ActionsLineGraph],
             [1, 0, 1, false, ChartDisplayType.ActionsBar],
             [1, 1, 1, false, ChartDisplayType.ActionsStackedBar],
-            [2, 0, 1, false, ChartDisplayType.ActionsTable],
+            [1, 1, 2, false, ChartDisplayType.PivotTable],
+            [2, 0, 1, false, ChartDisplayType.PivotTable],
+            [2, 1, 2, false, ChartDisplayType.PivotTable],
             [1, 0, 0, false, ChartDisplayType.ActionsTable],
             [0, 0, 0, false, ChartDisplayType.ActionsTable],
         ])('%i rows / %i columns / %i values (date: %s) → %s', (rows, columns, values, firstRowIsDate, expected) => {

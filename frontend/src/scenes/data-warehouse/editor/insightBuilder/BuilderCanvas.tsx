@@ -5,10 +5,10 @@ import { useState } from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { measureLabel } from '~/queries/nodes/DataVisualization/insightBuilder/builderLabels'
 import { BuilderWell, canDropInWell } from '~/queries/nodes/DataVisualization/insightBuilder/chartCapabilities'
 import { InsightBuilderDimension, InsightBuilderMeasure } from '~/queries/schema/schema-general'
 
-import { measureLabel } from './builderLabels'
 import { BuilderPreview } from './BuilderPreview'
 import { ChartTypePicker } from './ChartTypePicker'
 import { FieldsPanel } from './FieldsPanel'

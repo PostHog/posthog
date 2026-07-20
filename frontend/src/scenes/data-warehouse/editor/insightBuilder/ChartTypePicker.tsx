@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGraph, IconLifecycle, IconPieChart, IconTrends } from '@posthog/icons'
+import { IconGraph, IconGridMasonry, IconLifecycle, IconPieChart, IconTrends } from '@posthog/icons'
 
 import { Icon123, IconAreaChart, IconHeatmap, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -15,6 +15,7 @@ import { insightBuilderLogic } from './insightBuilderLogic'
 
 const CHART_TYPE_ICONS: Partial<Record<ChartDisplayType, JSX.Element>> = {
     [ChartDisplayType.ActionsTable]: <IconTableChart />,
+    [ChartDisplayType.PivotTable]: <IconGridMasonry />,
     [ChartDisplayType.BoldNumber]: <Icon123 />,
     [ChartDisplayType.ActionsLineGraph]: <IconTrends />,
     [ChartDisplayType.ActionsBar]: <IconGraph />,

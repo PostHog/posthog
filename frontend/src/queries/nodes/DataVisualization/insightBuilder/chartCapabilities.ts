@@ -48,6 +48,14 @@ export const CHART_CAPABILITIES: ChartCapability[] = [
         requirementHint: 'Works with any fields — shows the grouped results as a table',
     },
     {
+        display: ChartDisplayType.PivotTable,
+        label: 'Pivot table',
+        rows: { min: 1, max: null },
+        columns: { min: 0, max: null },
+        values: { min: 1, max: null },
+        requirementHint: 'Needs at least 1 Row and 1 Value — Columns spread across the top',
+    },
+    {
         display: ChartDisplayType.BoldNumber,
         label: 'Big number',
         rows: { min: 0, max: 0 },
@@ -193,9 +201,13 @@ export function bestDisplayForWells(wells: BuilderWells, options?: { firstRowIsD
     if (values.length >= 1 && rows.length === 0 && columns.length === 0) {
         return ChartDisplayType.BoldNumber
     }
+    // Shapes a single chart can't express: many row dims, or a column split across several values
+    if (rows.length >= 2 && values.length >= 1) {
+        return ChartDisplayType.PivotTable
+    }
     if (rows.length === 1 && values.length >= 1) {
         if (columns.length > 0) {
-            return ChartDisplayType.ActionsStackedBar
+            return values.length > 1 ? ChartDisplayType.PivotTable : ChartDisplayType.ActionsStackedBar
         }
         return options?.firstRowIsDate ? ChartDisplayType.ActionsLineGraph : ChartDisplayType.ActionsBar
     }

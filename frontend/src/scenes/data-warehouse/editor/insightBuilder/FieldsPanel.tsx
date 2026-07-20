@@ -17,16 +17,16 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { cn } from 'lib/utils/css-classes'
 
-import { InsightBuilderAggregation } from '~/queries/schema/schema-general'
-
-import { EditorMode } from '../outputPaneLogic'
 import {
     AGGREGATION_LABELS,
     DATE_GRAIN_LABELS,
     DATE_GRAIN_OPTIONS,
     NON_NUMERIC_AGGREGATIONS,
     NUMERIC_AGGREGATIONS,
-} from './builderLabels'
+} from '~/queries/nodes/DataVisualization/insightBuilder/builderLabels'
+import { InsightBuilderAggregation } from '~/queries/schema/schema-general'
+
+import { EditorMode } from '../outputPaneLogic'
 import { BuilderField, COUNT_STAR_COLUMN, DEFAULT_DATE_GRAIN, insightBuilderLogic } from './insightBuilderLogic'
 
 export const COUNT_OF_ROWS_FIELD: BuilderField = {

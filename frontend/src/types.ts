@@ -2967,6 +2967,8 @@ export enum ChartDisplayType {
     WorldMap = 'WorldMap',
     CalendarHeatmap = 'CalendarHeatmap',
     TwoDimensionalHeatmap = 'TwoDimensionalHeatmap',
+    // SQL insight builder only: rows × columns matrix of aggregated values
+    PivotTable = 'PivotTable',
     BoxPlot = 'BoxPlot',
     SlopeGraph = 'SlopeGraph',
 }
