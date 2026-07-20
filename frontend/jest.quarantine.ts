@@ -184,21 +184,22 @@ function stringifyName(name: unknown): string {
     return String(name)
 }
 
-function currentTestPath(): string | undefined {
+// `expect` may not be initialized yet while setup files run, so read defensively.
+function jestState(): ReturnType<typeof expect.getState> | undefined {
     try {
-        return expect.getState().testPath ?? undefined
+        return expect.getState()
     } catch {
         return undefined
     }
 }
 
+function currentTestPath(): string | undefined {
+    return jestState()?.testPath ?? undefined
+}
+
 function currentTestName(): string | undefined {
-    try {
-        const name = expect.getState().currentTestName
-        return typeof name === 'string' && name.length > 0 ? name : undefined
-    } catch {
-        return undefined
-    }
+    const name = jestState()?.currentTestName
+    return typeof name === 'string' && name.length > 0 ? name : undefined
 }
 
 function toDecision(entry: QuarantineEntry, testId: string): Decision {
@@ -269,14 +270,17 @@ function errorText(error: unknown): string {
     return String(error)
 }
 
-function warnSkip(decision: Decision): void {
+function warn(message: string): void {
     // eslint-disable-next-line no-console
-    console.warn(`[quarantine] skipping ${decision.label}`)
+    console.warn(message)
+}
+
+function warnSkip(decision: Decision): void {
+    warn(`[quarantine] skipping ${decision.label}`)
 }
 
 function warnTolerated(decision: Decision, error: unknown): void {
-    // eslint-disable-next-line no-console
-    console.warn(`[quarantine] tolerated failure in ${decision.label}\n${errorText(error)}`)
+    warn(`[quarantine] tolerated failure in ${decision.label}\n${errorText(error)}`)
 }
 
 function isThenable(value: unknown): value is PromiseLike<unknown> {
@@ -512,6 +516,5 @@ try {
     activeEntries = loadActiveEntries()
     install(activeEntries)
 } catch (error) {
-    // eslint-disable-next-line no-console
-    console.warn(`[quarantine] disabled: ${errorText(error)}`)
+    warn(`[quarantine] disabled: ${errorText(error)}`)
 }
