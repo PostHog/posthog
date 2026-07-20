@@ -201,7 +201,6 @@ describe('commentsLogic', () => {
 
         logic.actions.setSelectedComment('reply-1')
 
-        expect(logic.values.activeThreadId).toBe('thread-1')
         expect(logic.values.expandedThreadIds.has('thread-1')).toBe(true)
     })
 })

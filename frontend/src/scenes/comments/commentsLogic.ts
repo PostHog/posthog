@@ -40,7 +40,6 @@ export interface commentsLogicValues {
     meFirstMembers: OrganizationMemberType[] // membersLogic
     currentProjectId: number | string // teamLogic
     user: UserType | null // userLogic
-    activeThreadId: string | null
     commentContexts: Record<string, string>
     comments: CommentType[] | null
     commentsLoading: boolean
@@ -286,11 +285,6 @@ export interface commentsLogicMeta {
         sortedComments: (comments: CommentType[] | null) => CommentType[]
         commentsWithReplies: (sortedComments: CommentType[]) => CommentWithRepliesType[]
         emojiReactionsByComment: (sortedComments: CommentType[]) => Record<string, Record<string, CommentType[]>>
-        activeThreadId: (
-            replyingCommentId: string | null,
-            selectedCommentId: string | null,
-            sortedComments: CommentType[]
-        ) => string | null
         expandedThreadIds: (threadExpansion: Record<string, boolean>, replyingCommentId: string | null) => Set<string>
         isMyComment: (user: UserType | null) => (comment: CommentType) => boolean
         disabledReasonFor: (user: UserType | null) => (comment: CommentType) => string | null
@@ -704,23 +698,6 @@ export const commentsLogic = kea<commentsLogicType>([
                 }
 
                 return reactions
-            },
-        ],
-
-        activeThreadId: [
-            (s) => [s.replyingCommentId, s.selectedCommentId, s.sortedComments],
-            (
-                replyingCommentId: string | null,
-                selectedCommentId: string | null,
-                sortedComments: CommentType[]
-            ): string | null => {
-                // The reply target wins over selection so only one thread ever reads as active
-                const focusedId = replyingCommentId ?? selectedCommentId
-                if (!focusedId) {
-                    return null
-                }
-                const focused = sortedComments.find((comment) => comment.id === focusedId)
-                return focused?.source_comment ?? focusedId
             },
         ],
 

@@ -251,12 +251,9 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
     return (
         <div
             ref={ref}
-            className={clsx(
-                'Comment group px-2 py-1',
-                isHighlighted && 'bg-fill-highlight-50',
-                !isEditing && 'cursor-pointer'
-            )}
+            className={clsx('Comment group px-2 py-1', isHighlighted && 'bg-fill-highlight-50')}
             data-comment-id={comment.id}
+            // Selection is not a visual focus: it drives the notebook mark highlight and deep links
             onClick={isEditing ? undefined : () => setSelectedComment(threadId)}
         >
             <div className="flex items-center gap-3">
@@ -326,15 +323,15 @@ const InlineReplyComposer = ({ logicProps }: { logicProps: CommentsLogicProps })
 
 export const CommentWithReplies = ({ commentWithReplies, composerLogicProps }: CommentProps): JSX.Element => {
     const { comment, replies } = commentWithReplies
-    const { replyingCommentId, activeThreadId, expandedThreadIds } = useValues(commentsLogic)
+    const { replyingCommentId, expandedThreadIds, editingComment } = useValues(commentsLogic)
     const { setReplyingComment, setThreadExpanded } = useActions(commentsLogic)
 
     // replyingCommentId always resolves to the thread root, so this only matches top-level threads
     const isTopLevel = !!composerLogicProps
     const isReplyTarget = isTopLevel && replyingCommentId === commentWithReplies.id
-    const isActiveThread = activeThreadId === commentWithReplies.id
     const isExpanded = expandedThreadIds.has(commentWithReplies.id)
     const showReplies = (replies.length > 0 && isExpanded) || isReplyTarget
+    const canToggle = isTopLevel && replies.length > 0 && editingComment?.id !== commentWithReplies.id
 
     const replyButton =
         isTopLevel && !isReplyTarget ? (
@@ -350,32 +347,44 @@ export const CommentWithReplies = ({ commentWithReplies, composerLogicProps }: C
     // TODO: Permissions
 
     return (
-        <div
-            className={clsx('border rounded-lg bg-surface-primary overflow-hidden', isActiveThread && 'border-accent')}
-        >
-            {comment ? (
-                <Comment comment={comment} />
-            ) : (
-                <div className="px-2 py-1 font-semibold italic text-secondary">Deleted comment</div>
-            )}
+        <div className={clsx('border rounded-lg bg-surface-primary overflow-hidden', isReplyTarget && 'border-accent')}>
+            <div
+                className={canToggle ? 'cursor-pointer' : undefined}
+                data-attr={canToggle ? 'comment-thread-toggle' : undefined}
+                onClick={
+                    canToggle
+                        ? (e) => {
+                              // Leave clicks on inner controls and text selections alone
+                              const target = e.target as HTMLElement
+                              if (target.closest('button, a, label, input, textarea, [contenteditable="true"]')) {
+                                  return
+                              }
+                              if (window.getSelection()?.toString()) {
+                                  return
+                              }
+                              setThreadExpanded(commentWithReplies.id, !isExpanded)
+                          }
+                        : undefined
+                }
+            >
+                {comment ? (
+                    <Comment comment={comment} />
+                ) : (
+                    <div className="px-2 py-1 font-semibold italic text-secondary">Deleted comment</div>
+                )}
 
-            {replies.length > 0 ? (
-                <>
-                    <LemonDivider className="my-0" />
-                    <div className="flex items-center gap-1 px-2 py-1">
-                        <LemonButton
-                            size="xsmall"
-                            icon={isExpanded ? <IconChevronDown /> : <IconChevronRight />}
-                            onClick={() => setThreadExpanded(commentWithReplies.id, !isExpanded)}
-                            data-attr="comment-thread-toggle"
-                        >
-                            {replies.length === 1 ? '1 reply' : `${replies.length} replies`}
-                        </LemonButton>
-                        {/* While the thread is open the reply affordance lives at its bottom instead */}
-                        {!showReplies ? <div className="ml-auto">{replyButton}</div> : null}
-                    </div>
-                </>
-            ) : null}
+                {replies.length > 0 ? (
+                    <>
+                        <LemonDivider className="my-0" />
+                        <div className="flex items-center gap-1 px-2 py-1 text-xs text-secondary">
+                            {isExpanded ? <IconChevronDown /> : <IconChevronRight />}
+                            <span>{replies.length === 1 ? '1 reply' : `${replies.length} replies`}</span>
+                            {/* While the thread is open the reply affordance lives at its bottom instead */}
+                            {!showReplies ? <div className="ml-auto">{replyButton}</div> : null}
+                        </div>
+                    </>
+                ) : null}
+            </div>
 
             {showReplies ? replies.map((reply) => <Comment key={reply.id} comment={reply} />) : null}
 
