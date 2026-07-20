@@ -10,13 +10,14 @@ import {
     AnyPropertyFilter,
     FeatureFlagGroupType,
     FeatureFlagType,
+    FlagPropertyFilter,
     MultivariateFlagOptions,
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
 
 import { resolveAggregationGroupTypeIndex } from './aggregation'
-import { featureFlagReleaseConditionsLogic } from './featureFlagReleaseConditionsLogic'
+import { featureFlagReleaseConditionsLogic, withResolvedFlagLabels } from './featureFlagReleaseConditionsLogic'
 
 jest.mock('uuid', () => ({
     v4: jest.fn(),
@@ -1702,6 +1703,78 @@ describe('the feature flag release conditions logic', () => {
             expect(logic.values.taxonomicGroupTypesForCondition(undefined)).not.toContain(
                 TaxonomicFilterGroupType.PersonProperties
             )
+        })
+    })
+
+    describe('withResolvedFlagLabels', () => {
+        // Flag dependencies store the numeric flag ID in `key`; `getFlagKey` resolves it to the slug
+        // and falls back to the raw ID when the cache hasn't resolved it yet.
+        const flagKeys: Record<string, string> = { '10': 'beta-banner', '20': 'new-checkout' }
+        const getFlagKey = (flagId: string): string => flagKeys[flagId] ?? flagId
+
+        const flagFilter = (key: string, label?: string): FlagPropertyFilter =>
+            ({
+                type: PropertyFilterType.Flag,
+                operator: PropertyOperator.FlagEvaluatesTo,
+                key,
+                value: true,
+                ...(label !== undefined ? { label } : {}),
+            }) as FlagPropertyFilter
+
+        it('backfills the resolved flag key onto label while keeping the ID in key', () => {
+            const [result] = withResolvedFlagLabels([flagFilter('10')], getFlagKey) as FlagPropertyFilter[]
+            expect(result.label).toBe('beta-banner')
+            // `key` still holds the ID the backend evaluates against — only the display label changes
+            expect(result.key).toBe('10')
+        })
+
+        it('leaves non-flag filters untouched by reference', () => {
+            const personFilter = {
+                type: PropertyFilterType.Person,
+                key: 'email',
+                operator: PropertyOperator.Exact,
+                value: 'a@b.com',
+            } as AnyPropertyFilter
+            expect(withResolvedFlagLabels([personFilter], getFlagKey)[0]).toBe(personFilter)
+        })
+
+        it('does not inject the raw ID as a label while the key is unresolved', () => {
+            // 999 is not in the cache, so getFlagKey returns the ID — we must not show it as a name
+            const unresolved = flagFilter('999')
+            const [result] = withResolvedFlagLabels([unresolved], getFlagKey) as FlagPropertyFilter[]
+            expect(result.label).toBeUndefined()
+            expect(result).toBe(unresolved)
+        })
+
+        it('re-resolves over a stale label instead of trusting it', () => {
+            // A label injected earlier round-trips back through onChange; if the flag was renamed the
+            // cache now holds a different key and the stale label must be overridden, not kept.
+            const stale = flagFilter('20', 'old-checkout-name')
+            const [result] = withResolvedFlagLabels([stale], getFlagKey) as FlagPropertyFilter[]
+            expect(result.label).toBe('new-checkout')
+        })
+
+        it('returns the same object when the label already matches the resolved key', () => {
+            // Avoids creating a new object every render, which would churn re-renders and onChange
+            const fresh = flagFilter('10', 'beta-banner')
+            expect(withResolvedFlagLabels([fresh], getFlagKey)[0]).toBe(fresh)
+        })
+
+        it('handles undefined properties', () => {
+            expect(withResolvedFlagLabels(undefined, getFlagKey)).toEqual([])
+        })
+
+        it('resolves only flag filters in a mixed array, preserving order', () => {
+            const personFilter = {
+                type: PropertyFilterType.Person,
+                key: 'email',
+                operator: PropertyOperator.Exact,
+                value: 'a@b.com',
+            } as AnyPropertyFilter
+            const result = withResolvedFlagLabels([personFilter, flagFilter('10'), flagFilter('20')], getFlagKey)
+            expect(result[0]).toBe(personFilter)
+            expect((result[1] as FlagPropertyFilter).label).toBe('beta-banner')
+            expect((result[2] as FlagPropertyFilter).label).toBe('new-checkout')
         })
     })
 

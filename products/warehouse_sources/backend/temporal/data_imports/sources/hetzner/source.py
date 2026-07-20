@@ -39,6 +39,9 @@ class HetznerSource(ResumableSource[HetznerSourceConfig, HetznerResumeConfig]):
     # get_schemas iterates a static endpoint catalog with no I/O, so the table list is safe to
     # publish in the public docs.
     lists_tables_without_credentials = True
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://docs.hetzner.cloud/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

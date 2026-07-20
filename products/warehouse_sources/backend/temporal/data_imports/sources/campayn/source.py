@@ -34,6 +34,7 @@ class CampaynSource(SimpleSource[CampaynSourceConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v1",)
     default_version = "v1"
+    api_docs_url = "https://github.com/nebojsac/Campayn-API"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

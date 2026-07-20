@@ -180,6 +180,7 @@ export type SettingId =
     | 'logs-distinct-id-attribute-key'
     | 'logs-drop-rules'
     | 'logs-json-parse'
+    | 'logs-metric-rules'
     | 'logs-pii-scrub'
     | 'logs-retention'
     | 'logs-session-id-attribute-keys'

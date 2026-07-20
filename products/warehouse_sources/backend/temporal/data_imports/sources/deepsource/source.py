@@ -48,6 +48,7 @@ _ENDPOINT_DESCRIPTIONS: dict[str, str] = {
 @SourceRegistry.register
 class DeepsourceSource(ResumableSource[DeepsourceSourceConfig, DeepsourceResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://docs.deepsource.com/docs/developers/api"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

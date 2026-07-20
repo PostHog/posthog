@@ -36,6 +36,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class BrowserUseSource(ResumableSource[BrowserUseSourceConfig, BrowserUseResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v3",)
+    default_version = "v3"
+    api_docs_url = "https://docs.browser-use.com/cloud/api-reference"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

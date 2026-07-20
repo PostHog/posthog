@@ -34,6 +34,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class NorthflankSource(SimpleSource[NorthflankSourceConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://northflank.com/docs/v1/api"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

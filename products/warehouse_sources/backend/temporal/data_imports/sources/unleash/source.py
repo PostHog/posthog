@@ -38,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class UnleashSource(ResumableSource[UnleashSourceConfig, UnleashResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
+    api_docs_url = "https://docs.getunleash.io/reference/api/unleash"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.UNLEASH

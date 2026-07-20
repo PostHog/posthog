@@ -39,11 +39,11 @@ function ExportButton({
     const { dataUrl } = useValues(logic)
     const { startHeatmapExport } = useActions(exportsLogic)
 
-    const { heatmapFilters, heatmapColorPalette, heatmapFixedPositionMode, commonFilters } = useValues(
+    const { heatmapFilters, heatmapColorPalette, heatmapFixedPositionMode, commonFilters, heightOverride } = useValues(
         heatmapDataLogic({ context: 'in-app' })
     )
 
-    const { width: iframeWidth, height: iframeHeight } = useResizeObserver<HTMLIFrameElement>({ ref: iframeRef })
+    const { width: iframeWidth } = useResizeObserver<HTMLIFrameElement>({ ref: iframeRef })
 
     // Creating an export requires editor access to the export resource.
     const exportAccessControlDisabledReason = getAccessControlDisabledReason(
@@ -56,7 +56,7 @@ function ExportButton({
             startHeatmapExport({
                 heatmap_url: dataUrl,
                 width: iframeWidth,
-                height: iframeHeight,
+                height: heightOverride,
                 heatmap_color_palette: heatmapColorPalette,
                 heatmap_fixed_position_mode: heatmapFixedPositionMode,
                 common_filters: commonFilters,

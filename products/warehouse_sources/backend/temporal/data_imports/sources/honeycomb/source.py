@@ -40,6 +40,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class HoneycombSource(ResumableSource[HoneycombSourceConfig, HoneycombResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("1",)  # v1 API, addressed via the /1/ URL path prefix
+    default_version = "1"
+    api_docs_url = "https://docs.honeycomb.io/api/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

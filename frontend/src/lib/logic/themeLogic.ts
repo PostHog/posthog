@@ -27,7 +27,7 @@ export interface themeLogicValues {
 export interface themeLogicActions {
     updateUser: (
         user: Partial<UserType>,
-        successCallback?: () => void
+        successCallback?: (() => void) | undefined
     ) => {
         successCallback: (() => void) | undefined
         user: Partial<UserType>

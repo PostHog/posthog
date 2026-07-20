@@ -35,6 +35,9 @@ class LinodeSource(ResumableSource[LinodeSourceConfig, LinodeResumeConfig]):
     # get_schemas iterates the static ENDPOINTS catalog with no I/O, so the table list is safe to
     # render in public docs without credentials.
     lists_tables_without_credentials = True
+    supported_versions = ("v4",)
+    default_version = "v4"
+    api_docs_url = "https://techdocs.akamai.com/linode-api/reference"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

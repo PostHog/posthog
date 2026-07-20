@@ -57,6 +57,7 @@ class OrganizationUsageInfo(TypedDict):
     signals_credits: OrganizationUsageResource | None
     posthog_code_credits: OrganizationUsageResource | None
     workflow_emails: OrganizationUsageResource | None
+    workflow_push: OrganizationUsageResource | None
     workflow_destinations_dispatched: OrganizationUsageResource | None
     logs_mb_ingested: OrganizationUsageResource | None
     replay_vision_credits: OrganizationUsageResource | None

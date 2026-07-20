@@ -480,7 +480,7 @@ export interface insightLogicMeta {
         isInViewMode: (location: { hash: string; pathname: string; search: string }) => boolean
         derivedName: (
             query: Node<Record<string, any>> | null,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun,
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun, // groupsModel
             cohortsById: Partial<Record<number | string, CohortType>>,
             mathDefinitions: Partial<Record<string, MathDefinition>>
         ) => string
@@ -507,14 +507,6 @@ export interface insightLogicMeta {
         isUsingPathsV2: (featureFlags: FeatureFlagsSet) => boolean | string | undefined
         hasOverrides: (arg: any, arg2: any, arg3: any) => boolean
         editingDisabledReason: (hasOverrides: boolean) => 'Discard overrides to edit the insight.' | null
-    }
-    __keaTypeGenInternalReducerActions: {
-        'rename insight success (models.insightsModel)': (item: QueryBasedInsightModel) => {
-            payload: {
-                item: QueryBasedInsightModel<Node<Record<string, any>>>
-            }
-            type: 'rename insight success (models.insightsModel)'
-        }
     }
 }
 
@@ -777,7 +769,10 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 }
                 return state
             },
-            [insightsModel.actionTypes.renameInsightSuccess]: (state, { item }) => {
+            [insightsModel.actionTypes.renameInsightSuccess]: (
+                state: Partial<QueryBasedInsightModel>,
+                { item }: { item: QueryBasedInsightModel }
+            ) => {
                 if (item.id === state.id) {
                     // Also sync query (display-option saves); preserve result — bare PATCHes return result: null.
                     return {
@@ -837,7 +832,10 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     tags: insight.tags,
                     favorited: insight.favorited,
                 }),
-                [insightsModel.actionTypes.renameInsightSuccess]: (state, { item }) =>
+                [insightsModel.actionTypes.renameInsightSuccess]: (
+                    state: Partial<QueryBasedInsightModel>,
+                    { item }: { item: QueryBasedInsightModel }
+                ) =>
                     item.id === state.id
                         ? { ...state, name: item.name, description: item.description, query: item.query ?? state.query }
                         : state,

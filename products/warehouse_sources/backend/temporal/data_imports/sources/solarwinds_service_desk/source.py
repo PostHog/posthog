@@ -44,6 +44,9 @@ class SolarwindsServiceDeskSource(
     ResumableSource[SolarwindsServiceDeskSourceConfig, SolarwindsServiceDeskResumeConfig]
 ):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v2.1",)  # pinned via Accept: application/vnd.samanage.v2.1+json
+    default_version = "v2.1"
+    api_docs_url = "https://apidoc.samanage.com/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

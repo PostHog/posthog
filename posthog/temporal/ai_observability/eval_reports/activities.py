@@ -13,6 +13,11 @@ from posthog.hogql import ast
 from posthog.clickhouse.client.connection import Workload
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.eval_reports.output_types import get_outcome_definition
+from posthog.temporal.ai_observability.eval_reports.targets import (
+    GENERATION_TARGET,
+    resolve_evaluation_target,
+    target_event_predicate,
+)
 from posthog.temporal.ai_observability.eval_reports.types import (
     CheckCountTriggeredEvalReportInput,
     CheckCountTriggeredEvalReportOutput,
@@ -167,6 +172,7 @@ def _count_eval_results_for_report(report: "EvaluationReport", since: dt.datetim
     # would be coerced in the team's timezone and silently shift the comparison
     # by the team's offset.
     outcome_definition = get_outcome_definition(report.evaluation.output_type)
+    evaluation_target_predicate = target_event_predicate(report.evaluation.target)
     # nosemgrep: hogql-fstring-audit (the predicate comes from fixed internal output-type definitions)
     query = parse_select(
         f"""
@@ -175,6 +181,7 @@ def _count_eval_results_for_report(report: "EvaluationReport", since: dt.datetim
         WHERE event = '$ai_evaluation'
             AND properties.$ai_evaluation_id = {{evaluation_id}}
             AND {outcome_definition.event_predicate}
+            AND {evaluation_target_predicate}
             AND timestamp >= {{since}}
         """,
         placeholders={
@@ -198,6 +205,7 @@ def _find_nth_eval_timestamp(
     n: int,
     before: dt.datetime,
     output_type: str = "boolean",
+    evaluation_target: str = "generation",
 ) -> dt.datetime:
     """Find the timestamp of the Nth-most-recent eval result.
 
@@ -214,6 +222,7 @@ def _find_nth_eval_timestamp(
     # Pass `before` as a datetime so HogQL serializes it as toDateTime64(..., 6, <team_tz>)
     # instead of a bare string that would be coerced in the team's timezone.
     outcome_definition = get_outcome_definition(output_type)
+    evaluation_target_predicate = target_event_predicate(evaluation_target)
     # nosemgrep: hogql-fstring-audit (the predicate comes from fixed internal output-type definitions)
     query = parse_select(
         f"""
@@ -223,6 +232,7 @@ def _find_nth_eval_timestamp(
             WHERE event = '$ai_evaluation'
                 AND properties.$ai_evaluation_id = {{evaluation_id}}
                 AND {outcome_definition.event_predicate}
+                AND {evaluation_target_predicate}
                 AND timestamp <= {{before}}
             ORDER BY timestamp DESC
             LIMIT {{limit}}
@@ -312,6 +322,7 @@ async def prepare_report_context_activity(
                     n=report.trigger_threshold or 100,
                     before=now,
                     output_type=evaluation.output_type,
+                    evaluation_target=evaluation.target,
                 )
             else:
                 period_start = now - _period_for_scheduled_report(report, now)
@@ -367,21 +378,27 @@ async def run_eval_report_agent_activity(
         def run_agent():
             from posthog.temporal.ai_observability.eval_reports.report_agent import run_eval_report_agent
 
-            return run_eval_report_agent(
-                team_id=inputs.team_id,
-                evaluation_id=inputs.evaluation_id,
-                evaluation_name=inputs.evaluation_name,
-                evaluation_description=inputs.evaluation_description,
-                evaluation_prompt=inputs.evaluation_prompt,
-                evaluation_type=inputs.evaluation_type,
-                output_type=inputs.output_type,
-                period_start=inputs.period_start,
-                period_end=inputs.period_end,
-                previous_period_start=inputs.previous_period_start,
-                report_prompt_guidance=inputs.report_prompt_guidance,
+            evaluation_target = _load_evaluation_target(inputs.team_id, inputs.evaluation_id)
+            return (
+                run_eval_report_agent(
+                    team_id=inputs.team_id,
+                    evaluation_id=inputs.evaluation_id,
+                    evaluation_name=inputs.evaluation_name,
+                    evaluation_description=inputs.evaluation_description,
+                    evaluation_prompt=inputs.evaluation_prompt,
+                    evaluation_type=inputs.evaluation_type,
+                    evaluation_target=evaluation_target,
+                    output_type=inputs.output_type,
+                    period_start=inputs.period_start,
+                    period_end=inputs.period_end,
+                    previous_period_start=inputs.previous_period_start,
+                    report_prompt_guidance=inputs.report_prompt_guidance,
+                ),
+                evaluation_target,
             )
 
-        content = await run_agent()
+        content, evaluation_target = await run_agent()
+        content.evaluation_target = evaluation_target
 
         return RunEvalReportAgentOutput(
             report_id=inputs.report_id,
@@ -389,6 +406,14 @@ async def run_eval_report_agent_activity(
             period_start=inputs.period_start,
             period_end=inputs.period_end,
         )
+
+
+def _load_evaluation_target(team_id: int, evaluation_id: str) -> str:
+    from products.ai_observability.backend.models.evaluations import (  # noqa: PLC0415 -- keep Django model loading inside activity execution
+        Evaluation,
+    )
+
+    return Evaluation.objects.values_list("target", flat=True).get(id=evaluation_id, team_id=team_id)
 
 
 @temporalio.activity.defn
@@ -412,6 +437,7 @@ async def store_report_run_activity(
 
         # Mirror content.metrics into the legacy `metadata` JSONField for consumers that still read it.
         content = normalize_report_content_payload(inputs.content or {})
+        evaluation_target = resolve_evaluation_target(content.get("evaluation_target", GENERATION_TARGET))
         metrics = content.get("metrics", {}) or {}
         parsed_metrics = EvalReportMetrics.from_dict(metrics)
 
@@ -429,6 +455,7 @@ async def store_report_run_activity(
         # Collect citations from structured content (v2), not from per-section lists
         citations = content.get("citations", []) or []
         all_referenced_ids = [c.get("generation_id", "") for c in citations if c.get("generation_id")]
+        all_referenced_trace_ids = [c.get("trace_id", "") for c in citations if c.get("trace_id")]
 
         properties: dict = {
             "$ai_evaluation_id": inputs.evaluation_id,
@@ -438,6 +465,7 @@ async def store_report_run_activity(
             "$ai_report_period_start": inputs.period_start,
             "$ai_report_period_end": inputs.period_end,
             "$ai_report_output_type": parsed_metrics.output_type,
+            "$ai_report_evaluation_target": evaluation_target,
             "$ai_report_result_counts": parsed_metrics.result_counts,
             "$ai_report_result_rates": parsed_metrics.result_rates,
             "$ai_report_previous_result_counts": parsed_metrics.previous_result_counts,
@@ -448,6 +476,7 @@ async def store_report_run_activity(
             "$ai_report_content": content,
             "$ai_report_citations": citations,
             "$ai_report_referenced_generation_ids": all_referenced_ids,
+            "$ai_report_referenced_trace_ids": all_referenced_trace_ids,
             "$ai_report_section_count": len(content.get("sections", [])),
         }
         if parsed_metrics.output_type == "boolean":
