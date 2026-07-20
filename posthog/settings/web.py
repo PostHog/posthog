@@ -563,6 +563,10 @@ SPECTACULAR_SETTINGS = {
         "IntegrationKindEnum": "posthog.models.integration.Integration.IntegrationKind",
         "TicketStatusEnum": "products.conversations.backend.models.constants.Status",
         "BatchImportStatusEnum": "products.managed_migrations.backend.models.batch_imports.BatchImport.Status",
+        # Shared by ExperimentMetricsRecalculation.status and ActiveRecalculationRun.status (same choice set).
+        "MetricsRecalculationStatusEnum": (
+            "products.experiments.backend.models.experiment.ExperimentMetricsRecalculation.Status"
+        ),
         "HealthIssueStatusEnum": "posthog.models.health_issue.HealthIssue.Status",
         "HealthIssueSeverityEnum": "posthog.models.health_issue.HealthIssue.Severity",
         "IngestionWarningSeverityEnum": "posthog.api.ingestion_warnings_v2.INGESTION_WARNING_SEVERITIES",
