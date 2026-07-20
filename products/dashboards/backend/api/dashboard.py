@@ -1265,24 +1265,27 @@ class DashboardSerializer(DashboardMetadataSerializer):
         ]
         read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared", "user_access_level"]
 
-    def validate_filters(self, value) -> dict:
-        if not isinstance(value, dict):
-            raise serializers.ValidationError("Filters must be a dictionary")
-
-        # `properties` is contracted as a flat list of leaf filters (DashboardFilter.properties),
-        # but the UI / templates historically also accept a PropertyGroupFilter dict
-        # ({"type": ..., "values": [...]}). Normalize to the flat list on write so every reader
-        # can assume the contract shape — a malformed (non-list, non-group-dict) value is rejected.
-        properties = value.get("properties")
-        if properties is not None and not isinstance(properties, (list, dict)):
-            raise serializers.ValidationError({"properties": "Must be a list of filters or a property group"})
-        return normalize_dashboard_filters_properties(value)
-
     def validate_variables(self, value) -> dict:
         if not isinstance(value, dict):
             raise serializers.ValidationError("Variables must be a dictionary")
 
         return value
+
+    @staticmethod
+    def _validated_filters(request_filters: Any) -> dict:
+        """Validate and normalize a raw request `filters` payload before it's persisted.
+
+        `filters` is a read-only SerializerMethodField, so DRF's `validate_filters` never runs —
+        the write paths read `request.data`/`initial_data` directly. `Dashboard.filters` is opaque
+        JSON; this enforces the dict shape and normalizes a `PropertyGroupFilter` dict
+        (`{"type": ..., "values": [...]}`) on `properties` to the flat-list contract
+        (`DashboardFilter.properties`), so the dict form can't be persisted for readers to trip on."""
+        if not isinstance(request_filters, dict):
+            raise serializers.ValidationError("Filters must be a dictionary")
+        properties = request_filters.get("properties")
+        if properties is not None and not isinstance(properties, (list, dict)):
+            raise serializers.ValidationError({"properties": "Must be a list of filters or a property group"})
+        return normalize_dashboard_filters_properties(request_filters)
 
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="POST")
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Dashboard:
@@ -1319,9 +1322,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         request_filters = request.data.get("filters")
         if request_filters:
-            if not isinstance(request_filters, dict):
-                raise serializers.ValidationError("Filters must be a dictionary")
-            filters = request_filters
+            filters = self._validated_filters(request_filters)
         elif existing_dashboard:
             filters = existing_dashboard.filters
         else:
@@ -1565,9 +1566,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         request_filters = initial_data.get("filters")
         if request_filters:
-            if not isinstance(request_filters, dict):
-                raise serializers.ValidationError("Filters must be a dictionary")
-            instance.filters = request_filters
+            instance.filters = self._validated_filters(request_filters)
 
         request_variables = initial_data.get("variables")
         if request_variables:
@@ -1644,7 +1643,15 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
     @staticmethod
     def _extract_display_defaults(tile_data: dict) -> dict:
-        return {k: tile_data[k] for k in DashboardSerializer.TILE_DISPLAY_FIELDS if k in tile_data}
+        defaults = {k: tile_data[k] for k in DashboardSerializer.TILE_DISPLAY_FIELDS if k in tile_data}
+        # `filters_overrides` is opaque JSON with the same `properties` shape ambiguity as dashboard
+        # `filters` — normalize a PropertyGroupFilter dict on `properties` to the flat-list contract so
+        # a malformed tile override can't be persisted for the merge/contradiction code to trip on.
+        if "filters_overrides" in defaults:
+            tile_filters = defaults["filters_overrides"]
+            if isinstance(tile_filters, dict):
+                defaults["filters_overrides"] = normalize_dashboard_filters_properties(tile_filters)
+        return defaults
 
     @staticmethod
     def _widget_tile_validation_error(exc: serializers.ValidationError) -> serializers.ValidationError:

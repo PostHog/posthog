@@ -5,8 +5,10 @@ from products.dashboards.backend.api.dashboard import DashboardSerializer
 
 class TestDashboardFiltersValidation(SimpleTestCase):
     def _validate(self, value):
-        # `validate_filters` is a DRF field validator, callable directly without a request or DB.
-        return DashboardSerializer().validate_filters(value)
+        # `_validated_filters` is the static normalizer the create()/update() write paths call
+        # before persisting `filters` (the field is a read-only SerializerMethodField, so DRF's
+        # validate_<field> never runs). Callable directly without a request or DB.
+        return DashboardSerializer._validated_filters(value)
 
     def test_rejects_non_dict(self):
         import rest_framework.serializers as serializers
@@ -48,3 +50,25 @@ class TestDashboardFiltersValidation(SimpleTestCase):
 
     def test_passes_missing_properties_through(self):
         assert self._validate({"date_from": "-7d"}) == {"date_from": "-7d"}
+
+
+class TestDashboardTileFiltersOverridesValidation(SimpleTestCase):
+    def test_normalizes_property_group_dict_on_tile_filters_overrides(self):
+        # Tile `filters_overrides` is opaque JSON with the same properties shape ambiguity as dashboard
+        # `filters`; a PropertyGroupFilter dict must be flattened to the flat-list contract on write.
+        prop = {"key": "$browser", "value": "Chrome", "type": "event"}
+        result = DashboardSerializer._extract_display_defaults(
+            {"filters_overrides": {"date_from": "-7d", "properties": {"type": "AND", "values": [prop]}}}
+        )
+        assert result["filters_overrides"]["properties"] == [prop]
+        assert result["filters_overrides"]["date_from"] == "-7d"
+
+    def test_passes_through_flat_list_tile_filters_overrides(self):
+        prop = {"key": "$browser", "value": "Chrome", "type": "event"}
+        result = DashboardSerializer._extract_display_defaults({"filters_overrides": {"properties": [prop]}})
+        assert result["filters_overrides"]["properties"] == [prop]
+
+    def test_leaves_non_filters_overrides_display_fields_untouched(self):
+        result = DashboardSerializer._extract_display_defaults({"color": "red", "layouts": {}})
+        assert result == {"color": "red", "layouts": {}}
+        assert "filters_overrides" not in result
