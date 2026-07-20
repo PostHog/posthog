@@ -207,19 +207,16 @@ export function PullRequestDiffView({
         }
     }, [diff, cacheKey])
 
-    const optionsByFile = useMemo<Map<string, FileDiffOptions<never>>>(() => {
-        const map = new Map<string, FileDiffOptions<never>>()
-        for (const file of files) {
-            map.set(file.name, {
-                theme: DIFF_THEME,
-                themeType: isDarkModeOn ? 'dark' : 'light',
-                diffStyle,
-                stickyHeader: true,
-                overflow: 'scroll',
-            })
-        }
-        return map
-    }, [files, isDarkModeOn, diffStyle])
+    const options = useMemo<FileDiffOptions<never>>(
+        () => ({
+            theme: DIFF_THEME,
+            themeType: isDarkModeOn ? 'dark' : 'light',
+            diffStyle,
+            stickyHeader: true,
+            overflow: 'scroll',
+        }),
+        [isDarkModeOn, diffStyle]
+    )
 
     if (parseFailed) {
         return <p className="m-0 text-sm text-danger">Couldn't parse this diff — it may be in an unexpected format.</p>
@@ -237,7 +234,7 @@ export function PullRequestDiffView({
                 <DiffFileCard key={`${file.name}-${file.cacheKey ?? file.newObjectId ?? ''}`} file={file}>
                     <FileDiff
                         fileDiff={file}
-                        options={optionsByFile.get(file.name)}
+                        options={options}
                         renderCustomHeader={(fileDiff) => <FileDiffHeader file={fileDiff} />}
                         disableWorkerPool
                     />
