@@ -116,7 +116,17 @@ class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_list_servers_entries_match_serializer_schema(self):
         self._create_active_template()
         response = self.client.get(f"/api/environments/{self.team.id}/mcp_servers/")
-        expected_keys = {"id", "name", "url", "docs_url", "description", "auth_type", "icon_domain", "category"}
+        expected_keys = {
+            "id",
+            "name",
+            "url",
+            "docs_url",
+            "description",
+            "auth_type",
+            "icon_key",
+            "icon_domain",
+            "category",
+        }
         results = response.json()["results"]
         assert len(results) >= 1
         for entry in results:
@@ -196,10 +206,12 @@ class TestMCPServerInstallationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchi
         assert results[0]["id"] == str(installation.id)
         assert results[0]["name"] == "Test Server"
         assert results[0]["icon_domain"] == ""
+        assert results[0]["icon_key"] == ""
 
-    def test_list_installation_icon_domain_from_template(self):
-        # Pass a non-normalized icon_domain to confirm the model's save() normalizes it
-        # and the value flows through the serializer unchanged.
+    def test_list_installation_icon_fields_from_template(self):
+        # Pass non-normalized icon values to confirm the model's save() normalizes them and
+        # both flow through the serializer — icon_key must stay exposed alongside icon_domain
+        # until PostHog Code stops reading it.
         template = MCPServerTemplate.objects.create(
             name="PostHog MCP",
             url="https://mcp.notion.example/mcp",
@@ -207,6 +219,7 @@ class TestMCPServerInstallationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchi
             auth_type="api_key",
             is_active=True,
             icon_domain="HTTPS://Notion.example/",
+            icon_key="PostHog MCP",
         )
         MCPServerInstallation.objects.create(
             team=self.team,
@@ -219,6 +232,7 @@ class TestMCPServerInstallationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchi
         response = self.client.get(f"/api/environments/{self.team.id}/mcp_server_installations/")
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"][0]["icon_domain"] == "notion.example"
+        assert response.json()["results"][0]["icon_key"] == "posthog_mcp"
 
     def test_uninstall_server(self):
         installation = MCPServerInstallation.objects.create(

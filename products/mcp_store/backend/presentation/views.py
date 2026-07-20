@@ -175,10 +175,16 @@ class MCPServerTemplateSerializer(serializers.ModelSerializer):
         help_text="The vendor's brand domain (e.g. 'linear.app'), resolved to an icon at render time "
         "via the logo.dev proxy endpoint. Empty when no brand icon is known.",
     )
+    # Kept until PostHog Code stops reading it; drop together with the model column.
+    icon_key = serializers.CharField(
+        read_only=True,
+        help_text="Deprecated: use icon_domain instead. Lowercase key for clients that still "
+        "render bundled icon assets.",
+    )
 
     class Meta:
         model = MCPServerTemplate
-        fields = ["id", "name", "url", "docs_url", "description", "auth_type", "icon_domain", "category"]
+        fields = ["id", "name", "url", "docs_url", "description", "auth_type", "icon_key", "icon_domain", "category"]
 
 
 class MCPServerViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
@@ -234,6 +240,14 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
         help_text="Brand domain from the linked template, rendered via the logo.dev icon proxy. "
         "Empty if custom install (no template).",
     )
+    # Kept until PostHog Code stops reading it; drop together with the model column.
+    icon_key = serializers.CharField(
+        source="template.icon_key",
+        read_only=True,
+        default="",
+        help_text="Deprecated: use icon_domain instead. Lowercase key from the linked template for "
+        "clients that still render bundled icon assets. Empty if custom install (no template).",
+    )
     proxy_url = serializers.SerializerMethodField()
     tool_count = serializers.SerializerMethodField(
         help_text="Number of live (non-removed) tools exposed by this installation."
@@ -248,6 +262,7 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
             "id",
             "template_id",
             "name",
+            "icon_key",
             "icon_domain",
             "display_name",
             "url",

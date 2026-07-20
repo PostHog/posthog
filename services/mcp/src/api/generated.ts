@@ -35119,6 +35119,8 @@ export namespace Schemas {
       /** @nullable */
       readonly template_id: string | null;
       readonly name: string;
+      /** Deprecated: use icon_domain instead. Lowercase key from the linked template for clients that still render bundled icon assets. Empty if custom install (no template). */
+      readonly icon_key: string;
       /** Brand domain from the linked template, rendered via the logo.dev icon proxy. Empty if custom install (no template). */
       readonly icon_domain: string;
       /** @maxLength 200 */
@@ -35200,6 +35202,8 @@ export namespace Schemas {
       docs_url?: string;
       description?: string;
       auth_type?: MCPAuthTypeEnum;
+      /** Deprecated: use icon_domain instead. Lowercase key for clients that still render bundled icon assets. */
+      readonly icon_key: string;
       /** The vendor's brand domain (e.g. 'linear.app'), resolved to an icon at render time via the logo.dev proxy endpoint. Empty when no brand icon is known. */
       readonly icon_domain: string;
       category?: MCPServerTemplateCategoryEnum;
