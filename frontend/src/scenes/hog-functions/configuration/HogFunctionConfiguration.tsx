@@ -24,7 +24,8 @@ import { HogFunctionMappings } from 'scenes/hog-functions/mapping/HogFunctionMap
 import { HogFunctionEventEstimates } from 'scenes/hog-functions/metrics/HogFunctionEventEstimates'
 import { SurveyResponseKeysReference } from 'scenes/surveys/components/SurveyResponseKeysReference'
 
-import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
+import { useAttachedContext, useToolStreamListener } from 'products/posthog_ai/frontend/api/logics'
+import { resolveToolCall } from 'products/posthog_ai/frontend/api/tools'
 
 import { humanizeHogFunctionType } from '../hog-function-utils'
 import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
@@ -86,18 +87,22 @@ export function HogFunctionConfiguration({
     )
 
     // An approved `cdp-functions-partial-update` mutates the function server-side while this form keeps
-    // pre-update state, so the approval-card diff would compare every later proposal (e.g. a revert)
-    // against stale values. Refetch on completion — `loadHogFunctionSuccess` resets the form, which also
-    // discards unsaved manual edits; that's the apply-back contract (tool results land in the open scene).
-    useMcpToolApplyBack({
+    // pre-update state, so the scene (and the approval-card diff for any later proposal, e.g. a revert)
+    // would show stale values. Refetch on completion — `loadHogFunctionSuccess` resets the form, which
+    // also discards unsaved manual edits; tool results land in the open scene. A plain tool-stream
+    // listener, not `useMcpToolApplyBack`: the refetch is idempotent, so it must not be dropped by the
+    // apply-back claim gating (claims snapshot the targets mounted at prompt-send and release each turn).
+    useToolStreamListener({
         tools: ['cdp-functions-partial-update'],
-        targetKey: `hog-function:${hogFunction?.id ?? 'none'}`,
-        active: !!hogFunction?.id,
-        onApply: (_event, { innerInput }) => {
+        onEvent: (event) => {
+            if (event.phase !== 'completed' || !hogFunction?.id) {
+                return
+            }
             // A parseable payload targeting a different function is not ours to absorb; an unparseable
             // one may still be ours, and a same-data refetch is harmless, so reload in that case.
+            const innerInput = resolveToolCall(event.invocation).innerInput
             const targetId = typeof innerInput?.id === 'string' ? innerInput.id : null
-            if (targetId && hogFunction?.id && targetId !== hogFunction.id) {
+            if (targetId && targetId !== hogFunction.id) {
                 return
             }
             loadHogFunction()
