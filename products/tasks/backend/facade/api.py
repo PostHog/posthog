@@ -1641,6 +1641,10 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "cancel_requested_by_user_id",
         "cancel_source",
         "cancel_fallback_cleanup_complete",
+        # Credential grant decided at Task.create_and_run time by server-owned callers (the scout
+        # runner); a PATCHable key would let any task controller mint a GitHub token onto a
+        # queued repo-less run.
+        "github_read_access",
     }
 )
 

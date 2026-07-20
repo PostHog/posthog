@@ -715,7 +715,12 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
 
         actor_user = get_task_run_credential_user(task, ctx.state)
         github_token = ""
-        if ctx.has_github_credentials:
+        if ctx.github_read_access and input.repository is None:
+            # Same priority rule as fresh provisioning (_resolve_sandbox_github_token): a repo-less
+            # read-only run must never regain the write-capable token on resume. Best-effort — an
+            # empty token just leaves the sandbox without GitHub access.
+            github_token = get_readonly_github_token(ctx.team_id) or ""
+        elif ctx.has_github_credentials:
             try:
                 github_token = (
                     get_sandbox_github_token(
