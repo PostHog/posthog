@@ -18,18 +18,29 @@ def sync_mcp_server_templates_task() -> None:
 
 
 def queue_sync_mcp_server_templates() -> None:
-    """Queue the catalog sync once per deploy window (Redis setnx lock so only one pod runs it)."""
+    """Queue the catalog sync once per deploy window (Redis lock so only one pod runs it)."""
+    lock_key = "posthog_sync_mcp_server_templates_task_lock"
     try:
         r = get_client()
-        lock_key = "posthog_sync_mcp_server_templates_task_lock"
-        if r.setnx(lock_key, 1):
-            r.expire(lock_key, 60 * 60)
-            logger.info("Queuing sync_mcp_server_templates celery task (redis lock)")
-            sync_mcp_server_templates_task.delay()
-        else:
+        # nx+ex in one call — a crash between a separate setnx and expire would leave
+        # a TTL-less key that permanently skips the sync.
+        if not r.set(lock_key, 1, nx=True, ex=60 * 60):
             logger.info("Not queuing sync_mcp_server_templates task: lock already set")
+            return
+    except Exception:
+        logger.exception("Failed to acquire sync_mcp_server_templates lock")
+        return
+    try:
+        logger.info("Queuing sync_mcp_server_templates celery task (redis lock)")
+        sync_mcp_server_templates_task.delay()
     except Exception:
         logger.exception("Failed to queue sync_mcp_server_templates celery task")
+        try:
+            # Give the lock back so the next pod startup retries the enqueue instead
+            # of the sync silently dropping for the whole lock window.
+            r.delete(lock_key)
+        except Exception:
+            logger.exception("Failed to release sync_mcp_server_templates lock")
 
 
 @shared_task(ignore_result=True)
