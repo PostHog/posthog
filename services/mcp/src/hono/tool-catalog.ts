@@ -25,6 +25,43 @@ export type { PreBuiltTool }
 
 const EMPTY_OBJECT_JSON_SCHEMA = { type: 'object' as const, properties: {} }
 
+type JsonSchema = Record<string, unknown>
+
+/**
+ * Merge a top-level anyOf/oneOf of object variants into a single object schema,
+ * or return null if any variant is not a plain object schema.
+ *
+ * A root union keyword breaks clients that translate tool schemas into a
+ * restricted JSON Schema subset: GitHub Copilot Chat rejects the whole tool at
+ * registration with "object has unsupported top-level schema keyword 'anyOf'".
+ * The merge is advertisement-only and lossy (a variant's extra requirements are
+ * not enforced by the merged schema); call-time validation in the executor still
+ * runs against the original zod union, so invalid variant mixes are rejected.
+ */
+function flattenTopLevelUnion(variants: JsonSchema[]): JsonSchema | null {
+    if (variants.length === 0 || !variants.every((v) => v['type'] === 'object' && v['properties'])) {
+        return null
+    }
+    const properties: Record<string, JsonSchema> = {}
+    for (const variant of variants) {
+        for (const [name, prop] of Object.entries(variant['properties'] as Record<string, JsonSchema>)) {
+            const existing = properties[name]
+            if (!existing) {
+                properties[name] = prop
+            } else if (Array.isArray(existing['enum']) && Array.isArray(prop['enum'])) {
+                // Discriminator fields carry one enum value per variant; merge them
+                // so every variant stays expressible.
+                properties[name] = { ...existing, enum: [...new Set([...existing['enum'], ...prop['enum']])] }
+            }
+        }
+    }
+    // Only fields required by every variant stay required.
+    const required = variants
+        .map((v) => (Array.isArray(v['required']) ? (v['required'] as string[]) : []))
+        .reduce((acc, r) => acc.filter((field) => r.includes(field)))
+    return { type: 'object', properties, ...(required.length > 0 ? { required } : {}) }
+}
+
 /**
  * Convert a tool's zod schema to the MCP `inputSchema` wire shape. Single source
  * for every advertised schema (catalog entries and the `render-ui` umbrella entry)
@@ -36,10 +73,11 @@ export function toMcpInputSchema(schema: ZodObjectAny): McpTool['inputSchema'] {
     delete jsonSchema['additionalProperties']
     // MCP requires inputSchema.type === 'object'. Top-level discriminated unions
     // (e.g. `oneOf` on a polymorphic request body) come back without a root `type`.
-    // Add it so the schema satisfies the MCP tool contract; the union constraint
-    // still applies via the nested anyOf/oneOf.
+    // Flatten object-variant unions (see flattenTopLevelUnion); for anything else,
+    // add the root `type` so the schema satisfies the MCP tool contract.
     if (!jsonSchema['type'] && (Array.isArray(jsonSchema['anyOf']) || Array.isArray(jsonSchema['oneOf']))) {
-        jsonSchema = { type: 'object', ...jsonSchema }
+        const variants = (jsonSchema['anyOf'] ?? jsonSchema['oneOf']) as JsonSchema[]
+        jsonSchema = flattenTopLevelUnion(variants) ?? { type: 'object', ...jsonSchema }
     }
     return jsonSchema as McpTool['inputSchema']
 }

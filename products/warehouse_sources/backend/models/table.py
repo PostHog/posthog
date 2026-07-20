@@ -848,7 +848,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         if isinstance(err, CHQueryErrorTooManySimultaneousQueries):
             raise err
 
-        raise Exception("Could not get columns")
+        raise Exception(
+            "Could not read the files from your storage bucket. Check that the files URL pattern, file format, "
+            "and credentials are correct, then try again."
+        )
 
 
 @database_sync_to_async

@@ -16,7 +16,7 @@ import {
 } from '@/generated/replay/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const SessionRecordingBulkDeleteSchema = SessionRecordingsBulkDeleteCreateBody
@@ -72,7 +72,8 @@ const sessionRecordingGet = (): ToolBase<typeof SessionRecordingGetSchema, WithP
                 method: 'GET',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recordings/${encodeURIComponent(String(params.id))}/`,
             })
-            return await withPostHogUrl(context, result, `/replay/${result.id}`)
+            const filtered = omitResponseFields(result, ['person.properties']) as typeof result
+            return await withPostHogUrl(context, filtered, `/replay/${filtered.id}`)
         },
     })
 

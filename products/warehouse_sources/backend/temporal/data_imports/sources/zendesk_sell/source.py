@@ -35,6 +35,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ZendeskSellSource(ResumableSource[ZendeskSellSourceConfig, ZendeskSellResumeConfig]):
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://developer.zendesk.com/api-reference/sales-crm/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.ZENDESKSELL

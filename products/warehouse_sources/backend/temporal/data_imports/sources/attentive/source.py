@@ -73,6 +73,8 @@ class AttentiveSource(
     SimpleSource[AttentiveSourceConfig],
     WebhookSource[AttentiveSourceConfig],
 ):
+    api_docs_url = "https://docs.attentive.com"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

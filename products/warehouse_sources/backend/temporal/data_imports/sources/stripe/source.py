@@ -48,6 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     PRODUCT_RESOURCE_NAME,
     RESOURCE_TO_STRIPE_OBJECT_TYPE,
     RESOURCE_TO_STRIPE_WEBHOOK_EVENT,
+    STRIPE_API_VERSION_ACACIA,
     SUBSCRIPTION_RESOURCE_NAME,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import (
@@ -85,6 +86,7 @@ PERMISSIONS = [
     "rak_credit_note_read",
     "rak_invoice_read",
     "rak_plan_read",  # This is `price` in the UI, but `plan` in their API
+    "rak_coupon_read",  # Coupons is an importable table and needs its own scope; refunds ride on charge_read
     "rak_subscription_read",
     "rak_application_fee_read",
     "rak_transfer_read",
@@ -103,6 +105,10 @@ class StripeSource(
 ):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     has_managed_hogql_schema = True  # canonical Stripe schema in external_table_definitions
+
+    supported_versions = (STRIPE_API_VERSION_ACACIA,)
+    default_version = STRIPE_API_VERSION_ACACIA
+    api_docs_url = "https://docs.stripe.com/changelog"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -186,10 +192,11 @@ class StripeSource(
                     ),
                     SourceFieldInputConfig(
                         name="stripe_account_id",
-                        label="Account id",
+                        label="Account id (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
-                        placeholder="stripe_account_id",
+                        placeholder="acct_...",
+                        caption="Leave blank in most cases, including when connecting with OAuth. Only set this if you use a Stripe Connect platform key and want to sync a specific connected account. You can find it under Account details in your [Stripe account settings](https://dashboard.stripe.com/settings/account).",
                         secret=False,
                     ),
                 ],
@@ -480,4 +487,5 @@ If automatic creation failed due to a permissions error and you're using a restr
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
             webhook_source_manager=webhook_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
         )

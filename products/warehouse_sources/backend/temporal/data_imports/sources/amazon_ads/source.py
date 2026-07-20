@@ -32,6 +32,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AmazonAdsSource(SimpleSource[AmazonAdsSourceConfig]):
+    api_docs_url = "https://advertising.amazon.com/API/docs"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

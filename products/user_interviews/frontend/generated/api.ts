@@ -24,6 +24,7 @@ import type {
     PreviewInviteRequestApi,
     PreviewInviteResultApi,
     SendInvitesRequestApi,
+    SharedInterviewLinkApi,
     TestInterviewLinkApi,
     UserInterviewApi,
     UserInterviewSearchRequestApi,
@@ -300,6 +301,42 @@ export const userInterviewTopicsSendInvitesCreate = async (
             body: JSON.stringify(sendInvitesRequestApi),
         }
     )
+}
+
+export const getUserInterviewTopicsSharedLinkCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/user_interview_topics/${id}/shared_link/`
+}
+
+/**
+ * Get-or-create a single non-personalised (shared) interview link for this topic. Unlike generate_links, the returned URL is not tied to a specific interviewee — every visitor becomes a new anonymous respondent who self-identifies with a name. Idempotent: repeated calls return the same active link. `distinct_id` and `session_id` query params appended to the URL are captured as best-effort person/session linkage.
+ */
+export const userInterviewTopicsSharedLinkCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SharedInterviewLinkApi> => {
+    return apiMutator<SharedInterviewLinkApi>(getUserInterviewTopicsSharedLinkCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getUserInterviewTopicsSharedLinkDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/user_interview_topics/${id}/shared_link/`
+}
+
+/**
+ * Revoke this topic's shared (non-personalised) interview link so an already-distributed URL can no longer start interviews. Idempotent — a no-op when no active shared link exists. A subsequent shared_link POST mints a fresh link (rotation).
+ */
+export const userInterviewTopicsSharedLinkDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getUserInterviewTopicsSharedLinkDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
 }
 
 export const getUserInterviewTopicsTestLinkRetrieveUrl = (projectId: string, id: string) => {

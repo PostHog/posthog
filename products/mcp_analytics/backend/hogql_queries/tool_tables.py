@@ -375,10 +375,17 @@ class MCPToolDailyStatsQueryRunner(AnalyticsQueryRunner[MCPToolDailyStatsQueryRe
         return mcp_query_date_range(self.team, self.query.dateRange)
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        # Bucket granularity comes from the frontend's getDefaultInterval, so a sub-day window buckets
+        # by hour/minute instead of collapsing to a single day point. dateTrunc respects the team
+        # timezone, so the buckets line up with the frontend's gap-fill keys. Defaults to day.
+        # Explicit generous LIMIT so a fine interval over a wide window (reachable via the interval
+        # field, e.g. hourly over a quarter from an MCP caller) isn't silently cut to the default 100
+        # rows — which, with ORDER BY day ASC, would drop the most recent buckets.
+        interval = self.query.interval.value if self.query.interval else "day"
         return parse_select(
             """
             SELECT
-                toString(toDate(timestamp)) AS day,
+                toString(dateTrunc({interval}, timestamp)) AS day,
                 count() AS calls,
                 {_IS_ERROR} AS errors,
                 {_P50} AS p50,
@@ -389,8 +396,10 @@ class MCPToolDailyStatsQueryRunner(AnalyticsQueryRunner[MCPToolDailyStatsQueryRe
             WHERE {where}
             GROUP BY day
             ORDER BY day
+            LIMIT 10000
             """,
             placeholders={
+                "interval": ast.Constant(value=interval),
                 "_CONVERSATION_ID": parse_expr(_CONVERSATION_ID),
                 "_IS_ERROR": parse_expr(_IS_ERROR),
                 "_P50": parse_expr(_P50),

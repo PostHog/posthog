@@ -1,10 +1,11 @@
 import copy
 from typing import Any
 
-from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.models.activity_logging.activity_log import Change, ChangeAction, Detail, changes_between, log_activity
 from posthog.models.signals import model_activity_signal, mutable_receiver
 
 from products.ai_observability.backend.models.evaluations import Evaluation
+from products.ai_observability.backend.models.llm_prompt import LLMPromptLabel
 
 # Lives here, not in api/evaluations.py, so it can wire at AppConfig.ready() without dragging the
 # evaluations viewset (which pulls scipy / google.genai / the ai_observability Temporal worker) onto
@@ -57,5 +58,47 @@ def handle_evaluation_change(
         detail=Detail(
             changes=changes_between(scope, previous=before_log, current=after_log),
             name=after_update.name,
+        ),
+    )
+
+
+@mutable_receiver(model_activity_signal, sender=LLMPromptLabel)
+def handle_llm_prompt_label_change(
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
+):
+    # A label move changes which prompt version production traffic receives, with no code
+    # deploy — the from/to version numbers are the audit trail, so build the change by hand
+    # instead of diffing the raw FK (which would only show opaque version-row UUIDs).
+    instance = after_update if after_update is not None else before_update
+    if instance is None:
+        return
+
+    before_version = before_update.prompt.version if before_update is not None else None
+    after_version = after_update.prompt.version if after_update is not None else None
+    action: ChangeAction = "changed"
+    if activity == "created":
+        action = "created"
+    elif activity == "deleted":
+        action = "deleted"
+
+    log_activity(
+        organization_id=instance.team.organization_id,
+        team_id=instance.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=instance.id,
+        scope="LLMPromptLabel",
+        activity=activity,
+        detail=Detail(
+            name=f"{instance.prompt_name}: {instance.name}",
+            changes=[
+                Change(
+                    type="LLMPromptLabel",
+                    action=action,
+                    field="version",
+                    before=before_version,
+                    after=after_version,
+                )
+            ],
         ),
     )

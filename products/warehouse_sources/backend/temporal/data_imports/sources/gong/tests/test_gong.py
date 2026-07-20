@@ -42,14 +42,22 @@ class _FakeResponse:
 
 
 class _FakeSession:
-    """Records requested URLs and replays a queue of responses."""
+    """Records requested URLs (and POST bodies) and replays a queue of responses."""
 
     def __init__(self, responses: list[_FakeResponse]):
         self._responses = list(responses)
         self.requested_urls: list[str] = []
+        self.posted_bodies: list[dict | None] = []
 
     def get(self, url: str, headers: dict | None = None, timeout: int | None = None) -> _FakeResponse:
         self.requested_urls.append(url)
+        return self._responses.pop(0)
+
+    def post(
+        self, url: str, headers: dict | None = None, json: dict | None = None, timeout: int | None = None
+    ) -> _FakeResponse:
+        self.requested_urls.append(url)
+        self.posted_bodies.append(json)
         return self._responses.pop(0)
 
 
@@ -336,4 +344,128 @@ class TestGongSource:
             assert response.partition_mode is None
 
     def test_every_endpoint_has_a_config(self) -> None:
-        assert set(GONG_ENDPOINTS) == {"calls", "users", "scorecards", "workspaces"}
+        assert set(GONG_ENDPOINTS) == {"calls", "calls_extensive", "users", "scorecards", "workspaces"}
+
+
+class TestExtensiveCalls:
+    def test_posts_extensive_body_and_flattens_metadata(self) -> None:
+        last_value = datetime.now(UTC) - timedelta(days=5)
+        session = _FakeSession(
+            [
+                _FakeResponse(
+                    json_data={
+                        "calls": [
+                            {
+                                "metaData": {"id": "c1", "title": "Discovery", "started": "2026-03-01T00:00:00Z"},
+                                "parties": [{"emailAddress": "buyer@acme.com", "affiliation": "External"}],
+                                "context": [{"system": "Salesforce", "objects": [{"objectType": "Account"}]}],
+                            }
+                        ]
+                    }
+                )
+            ]
+        )
+        manager = _FakeResumableManager()
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
+            return_value=session,
+        ):
+            batches = list(
+                get_rows(
+                    "key",
+                    "secret",
+                    "calls_extensive",
+                    mock.MagicMock(),
+                    manager,
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value=last_value,
+                )
+            )
+
+        # metaData is lifted to the top level; parties and CRM context ride along as columns.
+        assert batches == [
+            [
+                {
+                    "id": "c1",
+                    "title": "Discovery",
+                    "started": "2026-03-01T00:00:00Z",
+                    "parties": [{"emailAddress": "buyer@acme.com", "affiliation": "External"}],
+                    "context": [{"system": "Salesforce", "objects": [{"objectType": "Account"}]}],
+                }
+            ]
+        ]
+        # A single POST to the extensive endpoint with no query string.
+        assert session.requested_urls == [f"{GONG_BASE_URL}/v2/calls/extensive"]
+        body = session.posted_bodies[0]
+        assert body is not None
+        assert body["contentSelector"] == {"context": "Extended", "exposedFields": {"parties": True}}
+        assert body["filter"]["fromDateTime"] == _format_datetime(last_value)
+        assert "cursor" not in body
+
+    def test_cursor_travels_in_body(self) -> None:
+        last_value = datetime.now(UTC) - timedelta(days=5)
+        session = _FakeSession(
+            [
+                _FakeResponse(json_data={"calls": [{"metaData": {"id": "c1"}}], "records": {"cursor": "page2"}}),
+                _FakeResponse(json_data={"calls": [{"metaData": {"id": "c2"}}]}),
+            ]
+        )
+        manager = _FakeResumableManager()
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
+            return_value=session,
+        ):
+            batches = list(
+                get_rows(
+                    "key",
+                    "secret",
+                    "calls_extensive",
+                    mock.MagicMock(),
+                    manager,
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value=last_value,
+                )
+            )
+
+        assert batches == [
+            [{"id": "c1", "parties": None, "context": None}],
+            [{"id": "c2", "parties": None, "context": None}],
+        ]
+        # The cursor is sent in the second request's body, never as a query param.
+        second_body = session.posted_bodies[1]
+        assert second_body is not None
+        assert second_body["cursor"] == "page2"
+        assert all("?" not in url for url in session.requested_urls)
+
+    def test_response_body_capture_disabled_for_extensive_only(self) -> None:
+        # Extensive responses carry participant names and free-form CRM fields, so they must be
+        # excluded from HTTP sample capture; basic list endpoints stay captured for troubleshooting.
+        last_value = datetime.now(UTC) - timedelta(days=5)
+
+        extensive_session = _FakeSession([_FakeResponse(json_data={"calls": [{"metaData": {"id": "c1"}}]})])
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
+            return_value=extensive_session,
+        ) as extensive_factory:
+            list(
+                get_rows(
+                    "key",
+                    "secret",
+                    "calls_extensive",
+                    mock.MagicMock(),
+                    _FakeResumableManager(),
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value=last_value,
+                )
+            )
+        assert extensive_factory.call_args.kwargs["capture"] is False
+
+        users_session = _FakeSession([_FakeResponse(json_data={"users": [{"id": "u1"}]})])
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
+            return_value=users_session,
+        ) as users_factory:
+            list(get_rows("key", "secret", "users", mock.MagicMock(), _FakeResumableManager()))
+        assert users_factory.call_args.kwargs["capture"] is True

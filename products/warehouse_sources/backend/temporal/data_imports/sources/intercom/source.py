@@ -34,6 +34,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("2.13",)
+    default_version = "2.13"
+    api_docs_url = "https://developers.intercom.com/docs/references/rest-api"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

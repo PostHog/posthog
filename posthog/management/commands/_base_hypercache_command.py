@@ -220,7 +220,7 @@ class BaseHyperCacheCommand(BaseCommand):
                     pass
 
             total = self.process_teams_in_chunks(
-                Team.objects.select_related("organization", "project"),
+                self.get_teams_queryset(),
                 chunk_size=1000,
                 process_chunk_fn=process_chunk
             )
@@ -248,13 +248,22 @@ class BaseHyperCacheCommand(BaseCommand):
 
     # Team scoping
 
+    # Team columns the commands read beyond the config's refresh_only_fields:
+    # the interactive output prints team.name next to each issue/fix line.
+    COMMAND_EXTRA_TEAM_FIELDS: tuple[str, ...] = ("name",)
+
+    def narrow_team_queryset(self, queryset: QuerySet[Team]) -> QuerySet[Team]:
+        """Narrow a Team queryset via the config, keeping the columns commands print."""
+        return self.get_hypercache_config().narrow_team_queryset(queryset, extra_fields=self.COMMAND_EXTRA_TEAM_FIELDS)
+
     def get_teams_queryset(self) -> QuerySet:
         """Return the base queryset of teams to process.
 
         Uses the config's ``get_teams_queryset()`` method when set, falling
-        back to all teams.
+        back to all teams. Narrowed so a Team column the read replica hasn't
+        migrated yet can't break the command's SELECT.
         """
-        return self.get_hypercache_config().get_teams_queryset().select_related("organization", "project")
+        return self.narrow_team_queryset(self.get_hypercache_config().get_teams_queryset())
 
     def _print_scope_info(self, scoped_count: int, total_count: int):
         """Print a message when team scoping reduces the verification set."""
@@ -313,7 +322,7 @@ class BaseHyperCacheCommand(BaseCommand):
 
             # Process teams in chunks to avoid loading all teams into memory at once
             if team_ids:
-                teams_queryset = Team.objects.filter(id__in=team_ids).select_related("organization", "project")
+                teams_queryset = self.narrow_team_queryset(Team.objects.filter(id__in=team_ids))
                 self.stdout.write(f"Verifying {teams_queryset.count()} specific teams...\n")
                 self._verify_teams_batch(list(teams_queryset), stats, mismatches, verbose, fix)
             elif sample_size:
@@ -688,7 +697,7 @@ class BaseHyperCacheCommand(BaseCommand):
         """
         self.stdout.write(f"\nWarming {cache_name} cache for {len(team_ids)} specific team(s)...\n")
 
-        teams = list(Team.objects.filter(id__in=team_ids).select_related("organization", "project"))
+        teams = list(self.narrow_team_queryset(Team.objects.filter(id__in=team_ids)))
         found_ids = {team.id for team in teams}
         missing_ids = set(team_ids) - found_ids
 

@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT group_type_index FROM posthog_propertydefinition WHERE type = 3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "group_type_index",
+        "type_info": "Int2"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "98344d37df67429762341c091992954cf6d6801f26d2a1c74dcacf1c7edd7f56"
+}

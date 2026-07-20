@@ -19,6 +19,7 @@ from posthog.errors import (
     CHQueryErrorCannotScheduleTask,
     CHQueryErrorS3Error,
     CHQueryErrorS3FileChangedDuringRead,
+    CHQueryErrorTableIsReadOnly,
     CHQueryErrorTooManySimultaneousQueries,
 )
 from posthog.exceptions import ClickHouseAtCapacity
@@ -28,6 +29,7 @@ from posthog.models.user import User
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
+from products.cohorts.backend.backfill.runs import create_backfill_run_for_cohort
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.cohorts.backend.models.util import (
@@ -436,6 +438,7 @@ def _enqueue_single_cohort_calculation(cohort: Cohort, initiating_user: Optional
         ClickHouseAtCapacity,
         CHQueryErrorS3Error,
         CHQueryErrorS3FileChangedDuringRead,
+        CHQueryErrorTableIsReadOnly,
     ),
     retry_backoff=60,
     retry_backoff_max=1800,
@@ -866,5 +869,36 @@ def trigger_cohort_backfill_task(team_id: int, cohort_id: int) -> None:
             cohort_id=cohort_id,
             team_id=team_id,
             error=str(e),
+        )
+        raise
+
+
+@shared_task(ignore_result=True, max_retries=3)
+def trigger_cohort_events_backfill_task(team_id: int, cohort_id: int, trigger_kind: str) -> None:
+    try:
+        run = create_backfill_run_for_cohort(team_id, cohort_id, trigger_kind)
+        if run is None:
+            logger.info(
+                "skipping_cohort_events_backfill_task",
+                cohort_id=cohort_id,
+                team_id=team_id,
+                trigger_kind=trigger_kind,
+            )
+            return
+        logger.info(
+            "created_cohort_events_backfill_run",
+            run_id=str(run.id),
+            cohort_id=cohort_id,
+            team_id=team_id,
+            trigger_kind=trigger_kind,
+            status=run.status,
+        )
+    except Exception as error:
+        logger.exception(
+            "failed_to_trigger_cohort_events_backfill_task",
+            cohort_id=cohort_id,
+            team_id=team_id,
+            trigger_kind=trigger_kind,
+            error=str(error),
         )
         raise

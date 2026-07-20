@@ -36,6 +36,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class RocketlaneSource(ResumableSource[RocketlaneSourceConfig, RocketlaneResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("1.0",)
+    default_version = "1.0"
+    api_docs_url = "https://developer.rocketlane.com/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

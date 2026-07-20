@@ -104,6 +104,12 @@ class TestNonRetryableErrors:
         [
             ("unauthorized", "401 Client Error: Unauthorized for url: https://api.machines.dev/v1/orgs/acme/machines"),
             ("forbidden", "403 Client Error: Forbidden for url: https://api.machines.dev/v1/apps?org_slug=acme"),
+            # A 400 on the org-scoped machines/volumes endpoint is a permanent rejection (auth passed,
+            # since a bad token is a 401/403); retrying resends the same doomed request.
+            (
+                "bad_request",
+                "400 Client Error: Bad Request for url: https://api.machines.dev/v1/orgs/acme/machines?limit=1000",
+            ),
         ]
     )
     def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
