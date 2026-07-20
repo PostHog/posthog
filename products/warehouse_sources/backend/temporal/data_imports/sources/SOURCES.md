@@ -53,7 +53,7 @@ the row lists both.
 | airtable                         | HTTP                        | requests                                                        | ✅                          |
 | aiven                            | HTTP                        | requests                                                        | ✅                          |
 | algolia                          | HTTP                        | requests                                                        | ✅                          |
-| alguna                           | HTTP                        | requests                                                        | ✅                          |
+| alguna                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | alpha_vantage                    | HTTP                        | requests                                                        | ✅                          |
 | amazon_ads                       | HTTP                        | requests                                                        | ✅                          |
 | amplitude                        | HTTP                        | requests                                                        | ✅                          |
@@ -146,6 +146,7 @@ the row lists both.
 | clari                            | HTTP                        | requests                                                        | ✅                          |
 | clerk                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | clickhouse                       | DB protocol (HTTP-based)    | clickhouse-connect / clickhouse-driver                          | ➖                          |
+| clickhouse_cloud                 | HTTP                        | requests                                                        | ✅                          |
 | clickup                          | HTTP                        | requests                                                        | ✅                          |
 | clockify                         | HTTP                        | requests                                                        | ✅                          |
 | clockodo                         | HTTP                        | requests                                                        | ✅                          |
@@ -218,6 +219,7 @@ the row lists both.
 | fireworks_ai                     | HTTP                        | requests                                                        | ✅                          |
 | fleetio                          | HTTP                        | requests                                                        | ✅                          |
 | firehydrant                      | HTTP                        | requests                                                        | ✅                          |
+| flagsmith                        | HTTP                        | requests                                                        | ✅                          |
 | flexmail                         | HTTP                        | requests                                                        | ✅                          |
 | float_app                        | HTTP                        | requests                                                        | ✅                          |
 | flowlu                           | HTTP                        | requests                                                        | ✅                          |
@@ -232,6 +234,7 @@ the row lists both.
 | gitbook                          | HTTP                        | requests                                                        | ✅                          |
 | gitea                            | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | github                           | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
+| gitguardian                      | HTTP                        | requests                                                        | ✅                          |
 | giphy                            | HTTP                        | requests                                                        | ✅                          |
 | gitlab                           | HTTP                        | requests                                                        | ✅                          |
 | gladly                           | HTTP                        | requests                                                        | ✅                          |
@@ -285,6 +288,7 @@ the row lists both.
 | iterable                         | HTTP                        | requests                                                        | ✅                          |
 | jamf_pro                         | HTTP                        | requests                                                        | ✅                          |
 | jellyfish                        | HTTP                        | requests                                                        | ✅                          |
+| jenkins                          | HTTP                        | requests                                                        | ✅                          |
 | jfrog_artifactory                | HTTP                        | requests                                                        | ✅                          |
 | jira                             | HTTP                        | requests                                                        | ✅                          |
 | jobnimbus                        | HTTP                        | requests                                                        | ✅                          |
@@ -306,6 +310,7 @@ the row lists both.
 | lago                             | HTTP                        | requests                                                        | ✅                          |
 | lambda_labs                      | HTTP                        | requests                                                        | ✅                          |
 | langfuse                         | HTTP                        | requests                                                        | ✅                          |
+| langsmith                        | HTTP                        | requests                                                        | ✅                          |
 | launchdarkly                     | HTTP                        | requests                                                        | ✅                          |
 | kustomer                         | HTTP                        | requests                                                        | ✅                          |
 | lattice                          | HTTP                        | requests                                                        | ✅                          |
@@ -487,6 +492,7 @@ the row lists both.
 | sonar_cloud                      | HTTP                        | requests                                                        | ✅                          |
 | sonarqube                        | HTTP                        | requests                                                        | ✅                          |
 | sonatype_nexus                   | HTTP                        | requests                                                        | ✅                          |
+| sourcegraph                      | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | spacelift                        | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | sparkpost                        | HTTP                        | requests                                                        | ✅                          |
 | split_io                         | HTTP                        | requests                                                        | ✅                          |
@@ -656,7 +662,6 @@ doesn't conflict with concurrent PRs.
 - cisco_meraki
 - clarifai
 - clazar
-- clickhouse_cloud
 - cloudbeds
 - coassemble
 - cockroachdb
@@ -666,6 +671,7 @@ doesn't conflict with concurrent PRs.
 - copper
 - cosmosdb
 - couchbase
+- crisp
 - criteo
 - curve
 - databricks
@@ -714,7 +720,6 @@ doesn't conflict with concurrent PRs.
 - gerrit
 - getstream
 - gitea
-- gitguardian
 - glassfrog
 - gmail
 - gnews
@@ -759,7 +764,6 @@ doesn't conflict with concurrent PRs.
 - instagram
 - instantly
 - interzoid
-- jenkins
 - jobber
 - judgeme_reviews
 - justsift
@@ -772,10 +776,10 @@ doesn't conflict with concurrent PRs.
 - kissmetrics
 - klarna
 - knock
+- kommo
 - koyeb
 - kyve
 - lambda_labs
-- langsmith
 - leexi
 - lemon_squeezy
 - lever
@@ -928,7 +932,6 @@ doesn't conflict with concurrent PRs.
 - solarwinds_service_desk
 - sonar_cloud
 - sonatype_nexus
-- sourcegraph
 - spacelift
 - spotify_ads
 - spotlercrm

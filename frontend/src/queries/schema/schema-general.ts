@@ -7699,6 +7699,8 @@ export const externalDataSources = [
     'Shopware',
     'Dubsado',
     'Campfire',
+    'Crisp',
+    'Kommo',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -8278,6 +8280,7 @@ export enum ProductIntentContext {
     // Experiments
     EXPERIMENT_CREATED = 'experiment created',
     EXPERIMENT_ANALYZED = 'experiment analyzed',
+    EXPERIMENT_VIEW_RECORDINGS = 'experiment view recordings',
 
     // Feature Flags
     FEATURE_FLAG_CREATED = 'feature flag created',

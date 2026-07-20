@@ -20,6 +20,7 @@ import pyarrow as pa
 import structlog
 from parameterized import parameterized
 from psycopg import sql
+from sshtunnel import BaseSSHTunnelForwarderError
 
 import products.warehouse_sources.backend.temporal.data_imports.sources.postgres.partitioned_tables as partitioned_tables_pkg
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE
@@ -2977,6 +2978,22 @@ class TestValidateCredentialsErrorMapping:
 
         assert valid is False
         assert error == expected
+
+    def test_ssh_gateway_session_error_maps_to_actionable_message(self, source, config):
+        # sshtunnel's raw "Could not establish session to SSH gateway" is meaningless to the user;
+        # it must be replaced with concrete guidance rather than surfaced verbatim.
+        err = BaseSSHTunnelForwarderError("Could not establish session to SSH gateway")
+        with (
+            mock.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None)),
+            mock.patch.object(source, "is_database_host_valid", return_value=(True, None)),
+            mock.patch.object(source, "get_schemas", side_effect=err),
+        ):
+            valid, error = source.validate_credentials(config, team_id=1)
+
+        assert valid is False
+        assert error is not None
+        assert "Could not establish session to SSH gateway" not in error
+        assert "SSH gateway" in error and "firewall" in error
 
     @pytest.mark.parametrize(
         "host",
