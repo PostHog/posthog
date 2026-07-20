@@ -63,7 +63,7 @@ pub struct Config {
     pub recent_ids_dynamodb_table: String,
 
     // How long a recorded document stays queryable. Defaults to 1 week, matching the
-    // DynamoDB table's TTL; the worker writes this as each item's `ttl` attribute.
+    // DynamoDB table's TTL; the worker writes this as each item's `expires_at` attribute.
     #[envconfig(from = "RECENT_IDS_TTL_SECONDS", default = "604800")]
     pub recent_ids_ttl_seconds: i64,
 

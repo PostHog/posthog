@@ -91,15 +91,30 @@ impl RecentlySeenStore for DynamoDbStore {
             }
 
             // UnprocessedItems (throttling) aren't retried — this is a best-effort cache.
-            if let Err(e) = self
+            match self
                 .client
                 .batch_write_item()
                 .request_items(self.table.clone(), write_requests)
                 .send()
                 .await
             {
-                error!("Failed to write recently-seen records to DynamoDB: {e:?}");
-                counter!(RECENTLY_SEEN_WRITE_ERRORS).increment(chunk.len() as u64);
+                Ok(response) => {
+                    let unprocessed_count = response
+                        .unprocessed_items()
+                        .get(&self.table)
+                        .map(Vec::len)
+                        .unwrap_or_default();
+                    if unprocessed_count > 0 {
+                        warn!(
+                            "DynamoDB left {unprocessed_count} recently-seen records unprocessed"
+                        );
+                        counter!(RECENTLY_SEEN_WRITE_ERRORS).increment(unprocessed_count as u64);
+                    }
+                }
+                Err(e) => {
+                    error!("Failed to write recently-seen records to DynamoDB: {e:?}");
+                    counter!(RECENTLY_SEEN_WRITE_ERRORS).increment(chunk.len() as u64);
+                }
             }
         }
     }
@@ -163,6 +178,16 @@ impl RecentlySeenStore for DynamoDbStore {
                     continue;
                 }
             };
+
+            let unprocessed_count = response
+                .unprocessed_keys()
+                .get(&self.table)
+                .map(|keys| keys.keys().len())
+                .unwrap_or_default();
+            if unprocessed_count > 0 {
+                warn!("DynamoDB left {unprocessed_count} recently-seen lookups unprocessed");
+                counter!(RECENTLY_SEEN_READ_ERRORS).increment(unprocessed_count as u64);
+            }
 
             let Some(items) = response.responses.as_ref().and_then(|r| r.get(&self.table)) else {
                 continue;
