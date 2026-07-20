@@ -298,6 +298,7 @@ def _to_reviewer_inputs(entries: list[dict] | None) -> list[ReviewerInput] | Non
         ReviewerInput(
             github_login=entry.get("github_login"),
             user_uuid=str(entry["user_uuid"]) if entry.get("user_uuid") else None,
+            reason=entry.get("reason") or None,
         )
         for entry in entries
     ]

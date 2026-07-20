@@ -1,3 +1,4 @@
+import datetime
 from typing import Optional, cast
 
 from posthog.schema import (
@@ -13,7 +14,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     SourceInputs,
     SourceResponse,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    VersionDeprecation,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -33,8 +38,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PipedriveSource(ResumableSource[PipedriveSourceConfig, PipedriveResumeConfig]):
-    supported_versions = ("v1",)
-    default_version = "v1"
+    supported_versions = ("v1", "v2")
+    default_version = "v2"
+    # v1 only differs from v2 in the `activities` endpoint; the vendor deprecated the v1
+    # endpoints that have v2 replacements and stops guaranteeing them after the sunset date.
+    deprecated_versions = (VersionDeprecation(version="v1", sunset_at=datetime.date(2025, 12, 31)),)
     api_docs_url = "https://developers.pipedrive.com/docs/api/v1"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -147,6 +155,7 @@ You can find your personal API token in Pipedrive under **Settings > Personal pr
             company_domain=normalize_company_domain(config.company_domain),
             api_token=config.api_token,
             endpoint=inputs.schema_name,
+            api_version=self.resolve_api_version(inputs.api_version),
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
         )

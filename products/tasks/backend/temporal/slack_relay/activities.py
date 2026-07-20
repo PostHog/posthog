@@ -351,6 +351,9 @@ class RelaySlackMessageInput:
     user_message_ts: str | None = None
     delete_progress: bool = True
     reaction_emoji: str | None = None
+    # Id of the user message this relay answers (agent-server echo), used to
+    # tag the exact sender; None falls back to the run-state/mapping actors.
+    message_id: str | None = None
 
 
 @activity.defn
@@ -359,6 +362,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
     from products.tasks.backend.models import TaskRun
+    from products.tasks.backend.temporal.process_task.utils import get_message_actor
 
     try:
         task_run = TaskRun.objects.get(id=input.run_id)
@@ -408,7 +412,15 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     )
     handler = SlackThreadHandler(context)
 
-    target = mapping.latest_actor_slack_user_id or mapping.mentioning_slack_user_id
+    # Mention resolution, most precise first: the echoed message's recorded
+    # sender, then the live/mapping actors for pre-rollout runs.
+    mention_from_message = get_message_actor(input.run_id, input.message_id) if input.message_id else None
+    target = (
+        mention_from_message
+        or state.get("slack_actor_slack_user_id")
+        or mapping.latest_actor_slack_user_id
+        or mapping.mentioning_slack_user_id
+    )
     mention_prefix = f"<@{target}> " if target else ""
     if input.delete_progress:
         handler.delete_progress()

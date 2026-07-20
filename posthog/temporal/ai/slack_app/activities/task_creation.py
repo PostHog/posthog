@@ -82,10 +82,11 @@ _THREAD_UPDATE_MAX_MESSAGES = 50
 
 
 def _slack_actor_state_updates(*, user_id: int, slack_user_id: str) -> dict[str, Any]:
-    return {
-        "slack_actor_user_id": user_id,
-        "slack_actor_slack_user_id": slack_user_id,
-    }
+    from products.tasks.backend.facade import (
+        api as tasks_facade,  # noqa: PLC0415 — keep tasks deps off the slack_app import path
+    )
+
+    return tasks_facade.slack_actor_state_updates(user_id=user_id, slack_user_id=slack_user_id)
 
 
 def _strip_context_tag(text: str) -> str:
@@ -847,25 +848,11 @@ def forward_posthog_code_followup_activity(
     ):
         return True
 
-    # Record the live actor so async reply paths tag them instead of the
-    # thread's original mentioner. Concurrent follow-ups can race here; see PR.
+    # Reply-tag fallback for turns with no per-turn actor (boot prompt,
+    # pre-rollout runs); the actor stamped at delivery normally wins.
     if slack_user_id != mapping.latest_actor_slack_user_id:
         mapping.latest_actor_slack_user_id = slack_user_id
         mapping.save(update_fields=["latest_actor_slack_user_id", "updated_at"])
-
-    if actor_user and actor_user.id:
-        try:
-            tasks_facade.update_task_run_state(
-                task_run.id,
-                updates=_slack_actor_state_updates(user_id=actor_user.id, slack_user_id=slack_user_id),
-            )
-        except Exception:
-            logger.exception(
-                "posthog_code_followup_actor_state_update_failed",
-                channel=channel,
-                thread_ts=thread_ts,
-                actor_user_id=actor_user.id,
-            )
 
     if task_run.is_terminal:
         return _resume_task_with_new_run(
@@ -948,13 +935,6 @@ def forward_posthog_code_followup_activity(
     if user_message_ts:
         safe_react(slack.client, channel, user_message_ts, "eyes")
 
-    auth_token = None
-    if actor_user and actor_user.id:
-        distinct_id = actor_user.distinct_id or f"user_{actor_user.id}"
-        auth_token = tasks_facade.create_sandbox_connection_token(
-            task_run.id, user_id=actor_user.id, distinct_id=distinct_id
-        )
-
     uploaded_attachments, attachment_skips = _upload_prepared_slack_attachments(
         tasks_facade,
         task_run_id=task_run.id,
@@ -973,42 +953,26 @@ def forward_posthog_code_followup_activity(
         or user_text
     )
 
-    send_kwargs: dict[str, Any] = {
-        "auth_token": auth_token,
-        "timeout": 90,
-        # Deterministic across activity retries: a retry after a partial failure
-        # (or the in-line resend below) redelivers with the same id, and the
-        # agent-server drops the duplicate instead of applying the message twice.
-        "message_id": _slack_followup_message_id(channel, user_message_ts, thread_ts),
-    }
-    if uploaded_attachments:
-        send_kwargs["artifacts"] = uploaded_attachments
-
-    result = tasks_facade.send_user_message(task_run.id, user_text, **send_kwargs)
-    if not result.success and result.retryable and result.status_code != 504:
-        result = tasks_facade.send_user_message(task_run.id, user_text, **send_kwargs)
-
-    if not result.success:
+    # Queue on the workflow so delivery is ordered with the web path. The
+    # deterministic message id keeps redelivery idempotent.
+    signal_result = tasks_facade.signal_task_run_user_message(
+        task_run.id,
+        mapping.task_id,
+        task_run.team_id,
+        content=user_text,
+        artifact_ids=_uploaded_attachment_ids(uploaded_attachments),
+        actor_user_id=actor_user.id if actor_user and actor_user.id else None,
+        message_id=_slack_followup_message_id(channel, user_message_ts, thread_ts),
+        actor_slack_user_id=slack_user_id,
+    )
+    if signal_result is not True:
         logger.warning(
-            "posthog_code_followup_forwarding_failed",
+            "slack_app_followup_signal_failed",
             channel=channel,
             thread_ts=thread_ts,
-            error=result.error,
-            status_code=result.status_code,
+            task_run_id=str(task_run.id),
+            signal_result=signal_result,
         )
-        if result.retryable and result.status_code == 504:
-            # Agent is still processing — leave the :eyes: reaction up so the thread
-            # reads as in-progress. relayAgentResponse fires when it finishes,
-            # delivering the correct response to Slack.
-            _delete_followup_progress(
-                integration_id=inputs.integration_id,
-                channel=channel,
-                thread_ts=thread_ts,
-                user_message_ts=user_message_ts,
-                mentioning_slack_user_id=mapping.mentioning_slack_user_id,
-            )
-            return True
-
         _set_followup_done_reaction(slack, channel, user_message_ts, "x")
         slack.client.chat_postMessage(
             channel=channel,
@@ -1017,7 +981,7 @@ def forward_posthog_code_followup_activity(
         )
         return True
 
-    # Message delivered; the agent is now working on it, so leave the :eyes: reaction
+    # Message queued; the agent picks it up next, so leave the :eyes: reaction
     # up. relayAgentResponse posts the agent's response once it finishes.
     _delete_followup_progress(
         integration_id=inputs.integration_id,

@@ -73,6 +73,12 @@ pub struct ProcessingConfig {
     #[envconfig(default = "600")]
     pub issue_cache_ttl_seconds: u64,
 
+    // Sized generously on purpose: entries are ~100 bytes, and versioned fingerprinting
+    // probes this cache once per registered fingerprint version per event, so the working
+    // set is several multiples of the distinct-issue count at current event volume.
+    #[envconfig(default = "100000")]
+    pub issue_cache_capacity: u64,
+
     // Maximum number of in-flight futures for a single `Batch::apply_func` call.
     // This is a per-call-site limit, not a global pipeline-wide concurrency cap.
     #[envconfig(default = "64")]
