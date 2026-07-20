@@ -88,4 +88,17 @@ describe('EntityFilterInfo', () => {
         userEvent.hover(screen.getByText('Signed up'))
         expect(await screen.findByText(/Event sent as/, {}, { timeout: 3000 })).toBeInTheDocument()
     })
+
+    // Formula series carry `action: null`, so callers pass a null filter. That must render
+    // nothing rather than crash the scene (getUnderlyingEntity used to dereference filter.type).
+    it.each([
+        ['null', null],
+        ['undefined', undefined],
+    ] as [string, EntityFilter | ActionFilter | null | undefined][])(
+        'renders nothing without throwing for a %s filter',
+        (_, filter) => {
+            const { container } = render(<EntityFilterInfo filter={filter} />)
+            expect(container.querySelectorAll('.EntityFilterInfo')).toHaveLength(0)
+        }
+    )
 })

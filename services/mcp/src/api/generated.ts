@@ -25877,6 +25877,52 @@ export namespace Schemas {
       readonly user_access_level: string | null;
     }
 
+    export interface ExternalAccountListAssignment {
+      /** PostHog user id of the assigned user. */
+      user_id: number;
+      /** Current email address of the assigned user. */
+      email: string;
+      /**
+         * Current display name of the assigned user, or null when the user has no name set.
+         * @nullable
+         */
+      name: string | null;
+    }
+
+    /**
+     * Active relationship assignments to current organization members, keyed by relationship definition name (e.g. 'CSM', 'Account executive'). Definitions with no active assignment are omitted.
+     */
+    export type ExternalAccountListItemRelationships = {[key: string]: ExternalAccountListAssignment[]};
+
+    export interface ExternalAccountListItem {
+      /** External account key used by downstream systems. */
+      external_id: string;
+      /** Human-readable account name. */
+      name: string;
+      /** Active relationship assignments to current organization members, keyed by relationship definition name (e.g. 'CSM', 'Account executive'). Definitions with no active assignment are omitted. */
+      relationships: ExternalAccountListItemRelationships;
+    }
+
+    export interface ExternalAccountListPage {
+      /** Accounts in this page, ordered by account id. */
+      results: ExternalAccountListItem[];
+      /**
+         * Account UUID to pass as `cursor` for the next page, or null when the list is exhausted.
+         * @nullable
+         */
+      next_cursor: string | null;
+    }
+
+    /**
+     * Validation errors keyed by query parameter.
+     */
+    export type ExternalAccountListValidationErrorError = {[key: string]: string[]};
+
+    export interface ExternalAccountListValidationError {
+      /** Validation errors keyed by query parameter. */
+      error: ExternalAccountListValidationErrorError;
+    }
+
     /**
      * @nullable
      */
@@ -39940,6 +39986,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly implementation_pr_url: string | null;
+      /** Whether that implementation PR is merged, per the GitHub webhook. False when there is no PR or it hasn't merged. Report status doesn't imply this: a resolved report may have been resolved directly, without a merged PR. */
+      readonly implementation_pr_merged: boolean;
       /** The report's PR refund, when one exists. One refund per report, ever. */
       readonly refund: SignalReportRefund | null;
       /** Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values). */
@@ -56737,6 +56785,7 @@ export namespace Schemas {
     /**
      * * `suppressed` - suppressed
      * * `potential` - potential
+     * * `resolved` - resolved
      */
     export type SignalReportStateEnum = typeof SignalReportStateEnum[keyof typeof SignalReportStateEnum];
 
@@ -56744,15 +56793,17 @@ export namespace Schemas {
     export const SignalReportStateEnum = {
       Suppressed: 'suppressed',
       Potential: 'potential',
+      Resolved: 'resolved',
     } as const;
 
     export interface SignalReportBulkStateRequest {
-      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.
+      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is only allowed from a researched status (ready or pending_input) or a suppressed report; other statuses return 409 (skipped in bulk).
        *
        * * `suppressed` - suppressed
-       * * `potential` - potential */
+       * * `potential` - potential
+       * * `resolved` - resolved */
       state: SignalReportStateEnum;
-      /** Optional canonical reason code for the dismissal. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. 'already_fixed' is a snooze, not a dismissal: pair it with state='potential' (restore) so the report reappears if the issue recurs. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
+      /** Optional canonical reason code for the dismissal. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' (the reason/note records why). Reserve 'already_fixed' with state='potential' (snooze/restore) for "fixed by something else / might recur" cases, so the report reappears if the issue comes back. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
        *
        * * `already_fixed` - Already fixed
        * * `report_unclear` - Report is unclear to me
@@ -56870,12 +56921,13 @@ export namespace Schemas {
     }
 
     export interface SignalReportStateRequest {
-      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.
+      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is only allowed from a researched status (ready or pending_input) or a suppressed report; other statuses return 409 (skipped in bulk).
        *
        * * `suppressed` - suppressed
-       * * `potential` - potential */
+       * * `potential` - potential
+       * * `resolved` - resolved */
       state: SignalReportStateEnum;
-      /** Optional canonical reason code for the dismissal. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. 'already_fixed' is a snooze, not a dismissal: pair it with state='potential' (restore) so the report reappears if the issue recurs. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
+      /** Optional canonical reason code for the dismissal. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' (the reason/note records why). Reserve 'already_fixed' with state='potential' (snooze/restore) for "fixed by something else / might recur" cases, so the report reappears if the issue comes back. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
        *
        * * `already_fixed` - Already fixed
        * * `report_unclear` - Report is unclear to me
@@ -65609,6 +65661,21 @@ export namespace Schemas {
       /** The span call-tree aggregation query to execute. */
       query: _TracingTreeQueryBody;
     }
+
+    export type CustomerAnalyticsExternalAccountsRetrieveParams = {
+    /**
+     * When true, return only accounts with at least one active relationship assignment to a current member of the project's organization.
+     */
+    assigned_only?: boolean;
+    /**
+     * Account UUID from `next_cursor` to continue listing from. Omit for the first page.
+     */
+    cursor?: string;
+    /**
+     * Maximum number of accounts to return. Values below 1 are clamped to 1; values above 100 are clamped to 100.
+     */
+    limit?: number;
+    };
 
     export type EnvironmentsAccountsListParams = {
     /**
