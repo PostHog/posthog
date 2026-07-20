@@ -1,10 +1,14 @@
 import { Meta } from '@storybook/react'
 
-import { HedgehogChartHog } from '@posthog/brand/hoggies'
+import * as chartHogPng from '@posthog/brand/hoggies/png/chart-hog'
+
+import { pngHoggie } from 'lib/brand/hoggies'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ProductIntroduction, ProductIntroductionProps } from './ProductIntroduction'
+
+const HedgehogChartHog = pngHoggie(chartHogPng)
 
 const meta: Meta<ProductIntroductionProps> = {
     title: 'Components/Product Empty State',
@@ -46,7 +50,7 @@ export function emptyNoAction(): JSX.Element {
             productName="Feature Flags"
             productKey={ProductKey.FEATURE_FLAGS}
             thingName="history record"
-            description={`History shows any feature flag changes that have been made. After making changes you'll see them logged here.`}
+            description="History shows any feature flag changes that have been made. After making changes you'll see them logged here."
         />
     )
 }

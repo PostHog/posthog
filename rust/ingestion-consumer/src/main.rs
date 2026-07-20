@@ -7,11 +7,12 @@ use axum::routing::get;
 use axum::Router;
 use envconfig::Envconfig;
 use futures::future::ready;
+use futures::StreamExt;
 use lifecycle::{ComponentOptions, Manager};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder};
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use tracing_subscriber::fmt;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -19,10 +20,12 @@ use tracing_subscriber::{EnvFilter, Layer};
 
 use ingestion_consumer::config::Config;
 use ingestion_consumer::consumer::IngestionConsumer;
+use ingestion_consumer::debug_recorder::{DebugLoad, DebugRecorder, DebugState, WorkerStatus};
 use ingestion_consumer::discovery::{
     DiscoveryMode, EndpointSliceDiscovery, StaticDiscovery, WorkerDiscovery,
 };
 use ingestion_consumer::dispatcher::Dispatcher;
+use ingestion_consumer::routing::RoutingStrategy;
 use ingestion_consumer::transport::HttpTransport;
 use ingestion_consumer::worker_registry::{WorkerRegistry, WorkerRegistryConfig};
 
@@ -150,19 +153,76 @@ async fn async_main(config: Config) -> Result<()> {
 
     let guard = manager.monitor_background();
 
+    // Debug event recorder: a bounded in-memory event buffer plus live
+    // broadcast, injected into every component below and served by the /debug
+    // API (consumed by the ingestion control plane UI). `None` (the default)
+    // records nothing. Fail closed: enabling without the dedicated secret
+    // mounts nothing rather than exposing the API unauthenticated.
+    let debug_recorder = if config.debug_api_enabled && !config.debug_api_secret.is_empty() {
+        Some(DebugRecorder::new(5_000, Duration::from_secs(900)))
+    } else {
+        if config.debug_api_enabled {
+            error!("DEBUG_API_ENABLED is set but DEBUG_API_SECRET is empty; debug API disabled");
+        }
+        None
+    };
+
     // Build the worker health registry empty; the discovery provider below
     // populates it (statically from config, or dynamically from EndpointSlices).
     let registry_config = WorkerRegistryConfig::from(&config);
-    let registry = Arc::new(WorkerRegistry::new(&[], registry_config));
+    let mut registry = WorkerRegistry::new(&[], registry_config);
+    if let Some(recorder) = &debug_recorder {
+        registry.set_debug_recorder(Arc::clone(recorder));
+    }
+    let registry = Arc::new(registry);
 
     // Probe tasks run until shutdown.
     let probe_token = CancellationToken::new();
     Arc::clone(&registry).start_probing(probe_token.clone());
 
-    let dispatcher = Arc::new(Dispatcher::with_strategy(
-        Arc::clone(&registry),
-        config.routing_strategy,
-    ));
+    // Peer awareness: track this consumer's own ready replicas via its
+    // Service's EndpointSlices, giving every pod a stable agreed index among
+    // its peers (the basis for deterministic aperture routing). Fails open:
+    // misconfiguration disables peer awareness rather than blocking startup.
+    let discovery_token = CancellationToken::new();
+    let peer_tracker: Option<Arc<k8s_awareness::PeerTracker>> =
+        if config.peer_service_name.is_empty() {
+            None
+        } else if let Some(self_ip) = config.pod_ip.as_deref().and_then(|s| s.parse().ok()) {
+            let client = kube::Client::try_default()
+                .await
+                .context("Failed to create Kubernetes client for peer discovery")?;
+            let tracker = k8s_awareness::PeerTracker::new(self_ip);
+            tracker.watch(
+                client,
+                config.worker_namespace.clone(),
+                config.peer_service_name.clone(),
+                discovery_token.clone(),
+            );
+            Some(tracker)
+        } else {
+            error!(
+                pod_ip = ?config.pod_ip,
+                "PEER_SERVICE_NAME is set but POD_IP is missing or invalid; peer awareness disabled"
+            );
+            None
+        };
+
+    let mut dispatcher = Dispatcher::with_strategy(Arc::clone(&registry), config.routing_strategy);
+    if let Some(recorder) = &debug_recorder {
+        dispatcher.set_debug_recorder(Arc::clone(recorder));
+    }
+    match &peer_tracker {
+        Some(tracker) => dispatcher.set_aperture(Arc::clone(tracker), config.min_aperture),
+        None if config.routing_strategy == RoutingStrategy::Aperture => {
+            warn!(
+                "INGESTION_ROUTING_STRATEGY=aperture without peer awareness (PEER_SERVICE_NAME); \
+                 routing falls back to p2c over the full pool"
+            );
+        }
+        None => {}
+    }
+    let dispatcher = Arc::new(dispatcher);
 
     let api_secret = if config.internal_api_secret.is_empty() {
         None
@@ -170,17 +230,21 @@ async fn async_main(config: Config) -> Result<()> {
         Some(config.internal_api_secret.clone())
     };
     // Transport semaphores are created lazily per worker, so it starts empty.
-    let transport = Arc::new(HttpTransport::new(
+    let mut transport = HttpTransport::new(
         Duration::from_millis(config.http_timeout_ms),
         config.max_retries,
         api_secret,
         &[],
         config.ingestion_worker_concurrent_batches,
-    ));
+        config.transport_compression_enabled,
+    );
+    if let Some(recorder) = &debug_recorder {
+        transport.set_debug_recorder(Arc::clone(recorder));
+    }
+    let transport = Arc::new(transport);
 
     // Select the worker discovery provider and start it (static applies the
     // configured list immediately; endpointslice watches and keeps in sync).
-    let discovery_token = CancellationToken::new();
     let discovery: Box<dyn WorkerDiscovery> = match config.worker_discovery_mode {
         DiscoveryMode::Static => Box::new(StaticDiscovery::new(config.worker_urls())),
         DiscoveryMode::EndpointSlice => {
@@ -262,6 +326,126 @@ async fn async_main(config: Config) -> Result<()> {
         app = app.route("/metrics", get(move || ready(handle.render())));
     }
 
+    // Debug API: fast load snapshots, a full state snapshot, and the live SSE
+    // event feed, consumed by the ingestion control plane UI. Only mounted
+    // when DEBUG_API_ENABLED, and every request must present the dedicated
+    // DEBUG_API_SECRET (the health server binds broadly by default, so the
+    // routes must not be open to anything that can reach the port).
+    if let Some(recorder) = &debug_recorder {
+        let secret: Arc<str> = Arc::from(config.debug_api_secret.as_str());
+        let group_id = config.ingestion_consumer_group_id.clone();
+        {
+            let registry = Arc::clone(&registry);
+            let dispatcher = Arc::clone(&dispatcher);
+            let peer_tracker = peer_tracker.clone();
+            let group_id = group_id.clone();
+            let secret = Arc::clone(&secret);
+            app = app.route(
+                "/debug/load",
+                get(move |headers: axum::http::HeaderMap| {
+                    let result = if !debug_authorized(&headers, &secret) {
+                        Err(axum::http::StatusCode::UNAUTHORIZED)
+                    } else {
+                        Ok(axum::Json(build_debug_load(
+                            &group_id,
+                            &registry,
+                            &dispatcher,
+                            &peer_tracker,
+                        )))
+                    };
+                    ready(result)
+                }),
+            );
+        }
+        {
+            let recorder = Arc::clone(recorder);
+            let registry = Arc::clone(&registry);
+            let dispatcher = Arc::clone(&dispatcher);
+            let peer_tracker = peer_tracker.clone();
+            let group_id = group_id.clone();
+            let secret = Arc::clone(&secret);
+            app = app.route(
+                "/debug/state",
+                get(move |headers: axum::http::HeaderMap| {
+                    let result = if !debug_authorized(&headers, &secret) {
+                        Err(axum::http::StatusCode::UNAUTHORIZED)
+                    } else {
+                        let load =
+                            build_debug_load(&group_id, &registry, &dispatcher, &peer_tracker);
+                        Ok(axum::Json(DebugState {
+                            group_id: load.group_id,
+                            workers: load.workers,
+                            dispatcher: load.dispatcher,
+                            peer_index: load.peer_index,
+                            peer_count: load.peer_count,
+                            events: recorder.backlog(),
+                        }))
+                    };
+                    ready(result)
+                }),
+            );
+        }
+        {
+            let recorder = Arc::clone(recorder);
+            let secret = Arc::clone(&secret);
+            // Cap concurrent SSE subscribers: each replays the retained backlog
+            // and then holds a connection open, so an unbounded count could
+            // pressure the shared health server.
+            let active_subscribers = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            app = app.route(
+                "/debug/events",
+                get(move |headers: axum::http::HeaderMap| {
+                    let response = if !debug_authorized(&headers, &secret) {
+                        Err(axum::http::StatusCode::UNAUTHORIZED)
+                    } else if active_subscribers.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                        >= MAX_SSE_SUBSCRIBERS
+                    {
+                        active_subscribers.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                        Err(axum::http::StatusCode::TOO_MANY_REQUESTS)
+                    } else {
+                        // Decrements when the stream (and the closure owning the
+                        // guard) is dropped, covering client disconnects.
+                        let guard = SseSlotGuard(Arc::clone(&active_subscribers));
+                        // Subscribe BEFORE snapshotting the backlog so an event
+                        // recorded in between lands in the channel instead of
+                        // being missed; the seq filter below drops the overlap
+                        // (events present in both the backlog and the channel).
+                        let rx = recorder.subscribe();
+                        let backlog = recorder.backlog();
+                        let last_backlog_seq = backlog.last().map(|e| e.seq);
+                        let live = futures::stream::unfold(rx, |mut rx| async {
+                            loop {
+                                // A lagged subscriber skips dropped events
+                                // rather than dying.
+                                match rx.recv().await {
+                                    Ok(event) => return Some((event, rx)),
+                                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                                        continue
+                                    }
+                                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                                        return None
+                                    }
+                                }
+                            }
+                        })
+                        .filter(move |event| {
+                            ready(last_backlog_seq.is_none_or(|seq| event.seq > seq))
+                        });
+                        let stream = futures::stream::iter(backlog)
+                            .chain(live)
+                            .map(move |event| {
+                                let _held = &guard;
+                                axum::response::sse::Event::default().json_data(&event)
+                            });
+                        Ok(axum::response::Sse::new(stream)
+                            .keep_alive(axum::response::sse::KeepAlive::default()))
+                    };
+                    ready(response)
+                }),
+            );
+        }
+    }
+
     let bind = config.bind_address();
     info!(address = %bind, "Health/metrics server starting");
     let listener = TcpListener::bind(&bind).await?;
@@ -291,8 +475,14 @@ async fn async_main(config: Config) -> Result<()> {
         }
     }
 
-    let consumer = IngestionConsumer::new(&config, dispatcher, transport, consumer_handle)
-        .context("Failed to create Kafka consumer")?;
+    let consumer = IngestionConsumer::new(
+        &config,
+        Arc::clone(&dispatcher),
+        transport,
+        consumer_handle,
+        debug_recorder,
+    )
+    .context("Failed to create Kafka consumer")?;
 
     tokio::spawn(async move {
         consumer.process().await;
@@ -305,4 +495,81 @@ async fn async_main(config: Config) -> Result<()> {
 
     info!("Ingestion consumer stopped");
     Ok(())
+}
+
+/// Maximum concurrent `/debug/events` SSE subscribers.
+const MAX_SSE_SUBSCRIBERS: usize = 8;
+
+/// Releases an SSE subscriber slot when the stream is dropped.
+struct SseSlotGuard(Arc<std::sync::atomic::AtomicUsize>);
+
+impl Drop for SseSlotGuard {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// Whether the request carries the dedicated debug API secret. The secret is
+/// never empty here (an empty secret disables the API entirely).
+fn debug_authorized(headers: &axum::http::HeaderMap, secret: &str) -> bool {
+    headers
+        .get("x-debug-api-secret")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|presented| constant_time_eq(presented, secret))
+}
+
+/// Compare without short-circuiting on the first mismatched byte, so response
+/// timing doesn't leak how much of the secret matched.
+fn constant_time_eq(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
+/// Merge the registry's health snapshots with the dispatcher's in-flight load
+/// into the `/debug/load` payload.
+fn build_debug_load(
+    group_id: &str,
+    registry: &ingestion_consumer::worker_registry::WorkerRegistry,
+    dispatcher: &Dispatcher,
+    peer_tracker: &Option<Arc<k8s_awareness::PeerTracker>>,
+) -> DebugLoad {
+    let (peer_index, peer_count) = match peer_tracker {
+        Some(tracker) => {
+            let peers = tracker.snapshot();
+            (peers.self_index, Some(peers.peer_count()))
+        }
+        None => (None, None),
+    };
+    let dispatcher_load = dispatcher.debug_load();
+    let workers = registry
+        .health_snapshots()
+        .into_iter()
+        .map(|snap| {
+            let in_flight_messages = dispatcher_load
+                .per_worker
+                .iter()
+                .find(|entry| entry.worker == snap.url)
+                .map(|entry| entry.in_flight)
+                .unwrap_or(0);
+            WorkerStatus {
+                url: snap.url,
+                state: snap.state,
+                draining: snap.draining,
+                consecutive_probe_failures: snap.consecutive_probe_failures,
+                passive_error_rate: snap.passive_error_rate,
+                passive_samples: snap.passive_samples,
+                in_flight_messages,
+            }
+        })
+        .collect();
+    DebugLoad {
+        group_id: group_id.to_string(),
+        workers,
+        dispatcher: dispatcher_load,
+        peer_index,
+        peer_count,
+    }
 }

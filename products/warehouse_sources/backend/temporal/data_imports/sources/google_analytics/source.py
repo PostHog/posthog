@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 import requests
+from google.auth.exceptions import RefreshError
 
 from posthog.schema import (
     DataWarehouseSourceCategory,
@@ -43,6 +44,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleAnalyticsResumeConfig], OAuthMixin):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://developers.google.com/analytics/devguides/reporting/data/v1"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -117,6 +122,23 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
     ) -> tuple[bool, str | None]:
         property_id = normalize_property_id(config.property_id)
         if not property_id.isdigit():
+            # Name the two IDs users most often paste by mistake — both are non-numeric and
+            # look plausible, so the generic "use a numeric ID" hint leaves them hunting.
+            upper_id = property_id.upper()
+            if upper_id.startswith("G-"):
+                return (
+                    False,
+                    f"'{config.property_id}' looks like a Measurement ID (from your GA4 data stream / "
+                    "website tag), not a property ID. Use the numeric property ID from Google Analytics "
+                    "Admin → Property settings → Property details (e.g. '123456789').",
+                )
+            if upper_id.startswith("UA-"):
+                return (
+                    False,
+                    f"'{config.property_id}' is a Universal Analytics property ID. This connector supports "
+                    "Google Analytics 4 only — use the numeric GA4 property ID from Admin → Property "
+                    "settings → Property details (e.g. '123456789').",
+                )
             return (
                 False,
                 f"'{config.property_id}' is not a valid GA4 property ID. Use the numeric ID from "
@@ -145,6 +167,17 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
                     "Google Analytics admin settings.",
                 )
             return False, f"Failed to read Google Analytics property metadata: {e}"
+        except RefreshError:
+            # Raised while AuthorizedSession refreshes the OAuth access token (e.g. invalid_scope or
+            # invalid_grant): the stored token is missing the required permissions, or has expired or
+            # been revoked. Retrying can't recover it — the raw RefreshError repr is meaningless to
+            # users, so guide them to reconnect.
+            return (
+                False,
+                "PostHog could not authenticate with Google Analytics. Your connection may have "
+                "expired or is missing the required permissions. Please reconnect your Google "
+                "account and grant access to Google Analytics.",
+            )
         except Exception as e:
             return False, f"Failed to read Google Analytics property metadata: {e}"
 

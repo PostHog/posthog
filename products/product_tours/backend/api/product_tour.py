@@ -27,7 +27,13 @@ from posthog.constants import PRODUCT_TOUR_TARGETING_FLAG_PREFIX
 from posthog.event_usage import report_user_action
 from posthog.exceptions import generate_exception_response
 from posthog.helpers.impersonation import is_impersonated
-from posthog.helpers.trigram_search import DESCRIPTION_FIELD, MAX_SEARCH_LENGTH, NAME_FIELD, apply_trigram_search
+from posthog.helpers.trigram_search import (
+    DESCRIPTION_FIELD,
+    MAX_SEARCH_LENGTH,
+    NAME_FIELD,
+    apply_trigram_search,
+    drop_similar_when_exact_exists,
+)
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -749,7 +755,7 @@ class GenerateResponseSerializer(serializers.Serializer):
             OpenApiParameter(
                 name="search",
                 type=OpenApiTypes.STR,
-                description="Fuzzy match against product tour `name` and `description` using Postgres trigram word similarity. Supports typos and prefix-as-you-type.",
+                description="Match against product tour `name` and `description`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`.",
             ),
         ],
     ),
@@ -807,6 +813,9 @@ class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, view
                     )
                 queryset = self._apply_search(queryset, search)
         return queryset
+
+    def filter_queryset(self, queryset: QuerySet) -> QuerySet:
+        return drop_similar_when_exact_exists(super().filter_queryset(queryset))
 
     def perform_destroy(self, instance: ProductTour) -> None:
         """Hard delete the tour and clean up related resources."""

@@ -92,6 +92,37 @@ export type CyclotronV2ManagerConfig = {
     pool: CyclotronV2PoolConfig
     depthLimit?: number
     depthCheckIntervalMs?: number
+    // Knobs for rescheduleParkedJobs — see that method for semantics.
+    rescheduleFloorSeconds?: number
+    rescheduleWakeRatePerSecond?: number
+    rescheduleMinWindowSeconds?: number
+    rescheduleMaxWindowSeconds?: number
+    rescheduleChunkSize?: number
+    rescheduleMaxChunksPerCall?: number
+    rescheduleChunkSleepMs?: number
+}
+
+export type CyclotronV2RescheduleParkedOptions = {
+    teamId: number
+    functionId: string
+    // Steps whose timing config changed: only jobs parked on one of these
+    // (matched via the action_id column) are swept.
+    actionIds: string[]
+    // Absolute sweep bounds returned by a previous slice. Omit on the first
+    // call — the manager sizes the window from the parked count and returns
+    // the bounds so callers can thread them through subsequent slices.
+    // Recomputing the window per slice would re-compress the tail of the
+    // spread on every call.
+    sweepFloor?: Date
+    sweepUntil?: Date
+}
+
+export type CyclotronV2RescheduleParkedResult = {
+    swept: number
+    remaining: number
+    done: boolean
+    sweepFloor: Date
+    sweepUntil: Date
 }
 
 /**
@@ -101,6 +132,8 @@ export type CyclotronV2ManagerConfig = {
  */
 export interface CyclotronV2JobProducer {
     createJob(input: CyclotronV2JobInit): Promise<string>
+    countInFlightJobs(teamId: number, functionId: string): Promise<number>
+    rescheduleParkedJobs(options: CyclotronV2RescheduleParkedOptions): Promise<CyclotronV2RescheduleParkedResult>
     disconnect(): Promise<void>
 }
 
@@ -128,11 +161,23 @@ export type CyclotronV2JanitorConfig = {
     stallTimeoutMs?: number
     maxTouchCount?: number
     cleanupGraceMs?: number
+    // Kill-switch. When false the janitor reverts to master's legacy path — mark
+    // poison pills failed with no replay record (a give-up is lost). Defaults to true.
+    poisonRecoveryEnabled?: boolean
+    // Exponential backoff (with jitter) applied to a stalled job's next scheduled
+    // time on each janitor reset, keyed on janitor_touch_count. Staggers
+    // re-dequeue during a fleet-wide stall instead of re-flooding the workers that
+    // just recovered. `stallBackoffBaseMs = 0` disables it (immediate retry).
+    stallBackoffBaseMs?: number
+    stallBackoffMaxMs?: number
 }
 
 export type CyclotronV2CleanupResult = {
     deleted: number
     stalled: number
+    // Jobs the janitor gave up on this cycle (recorded as failed, replayable
+    // invocation results before deletion).
     poisoned: number
+    poisonedIds: string[]
     depths: Map<string, number>
 }

@@ -77,7 +77,27 @@ class TestStrictAndFixContracts:
     ) -> None:
         result = runner.invoke(cli, ["ci:preflight", "--fix"])
         assert result.exit_code == 0
-        assert "run `hogli build:openapi` and commit drift" in result.output
+        assert "run `hogli build:openapi` and commit before pushing" in result.output
+
+    @patch("hogli_commands.ci_preflight._emit_telemetry")
+    @patch("hogli_commands.ci_preflight._staleness", return_value=("pass", "even with master", {}))
+    @patch("hogli_commands.ci_preflight._fetch_master")
+    @patch("hogli_commands.ci_preflight.subprocess.run")
+    @patch("hogli_commands.ci_preflight.changed_files", return_value=["posthog/api/does_not_exist.py"])
+    def test_type_check_names_the_mypy_command_without_running_it(
+        self,
+        mock_changed: MagicMock,
+        mock_run: MagicMock,
+        mock_fetch: MagicMock,
+        mock_stale: MagicMock,
+        mock_emit: MagicMock,
+    ) -> None:
+        result = runner.invoke(cli, ["ci:preflight", "--strict"])
+
+        assert result.exit_code == 0
+        assert "uv run mypy --cache-fine-grained ." in result.output
+        # Giving this check a `verify` would tax every Python push with a repo-wide run.
+        assert not any("mypy" in call.args[0] for call in mock_run.call_args_list)
 
 
 class TestStalenessRisks:

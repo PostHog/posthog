@@ -97,7 +97,6 @@ export enum Scene {
     LiveEvents = 'LiveEvents',
     Login = 'Login',
     Login2FA = 'Login2FA',
-    EmailMFAVerify = 'EmailMFAVerify',
     MaterializedColumns = 'MaterializedColumns',
     Max = 'Max',
     Models = 'Models',
@@ -131,6 +130,7 @@ export enum Scene {
     PropertyDefinitions = 'PropertyDefinitions',
     PropertyDefinitionEdit = 'PropertyDefinitionEdit',
     QueryPerformance = 'QueryPerformance',
+    Quickstart = 'Quickstart',
     Replay = 'Replay',
     ReplayFilePlayback = 'ReplayFilePlayback',
     ReplayPlaylist = 'ReplayPlaylist',
@@ -160,6 +160,7 @@ export enum Scene {
     Survey = 'Survey',
     SurveyWizard = 'SurveyWizard',
     SurveyFormBuilder = 'SurveyFormBuilder',
+    SupportTickets = 'SupportTickets',
     Surveys = 'Surveys',
     SystemStatus = 'SystemStatus',
     ToolbarLaunch = 'ToolbarLaunch',
@@ -169,6 +170,7 @@ export enum Scene {
     EventFiltering = 'EventFiltering',
     Unsubscribe = 'Unsubscribe',
     CodeCanvasLink = 'CodeCanvasLink',
+    CodeChannelLink = 'CodeChannelLink',
     UserInterview = 'UserInterview',
     UserInterviewResponse = 'UserInterviewResponse',
     UserInterviews = 'UserInterviews',
@@ -345,12 +347,19 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     // Marketing Analytics
     [Scene.MarketingAnalytics]: AccessControlResourceType.WebAnalytics,
 
+    // Metrics
+    [Scene.Metrics]: AccessControlResourceType.Metrics,
+
     // Surveys
     [Scene.Survey]: AccessControlResourceType.Survey,
     [Scene.Surveys]: AccessControlResourceType.Survey,
 
     // Endpoints
     [Scene.EndpointsScene]: AccessControlResourceType.Endpoint,
+
+    // Workflows
+    [Scene.Workflow]: AccessControlResourceType.Workflow,
+    [Scene.Workflows]: AccessControlResourceType.Workflow,
 
     // Product Tours
     [Scene.ProductTour]: AccessControlResourceType.ProductTour,

@@ -23,7 +23,7 @@ from products.tasks.backend.logic.services.sandbox import (
 )
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.temporal.metrics import StepTimer, increment_snapshot_restore, increment_snapshot_usage
-from products.tasks.backend.temporal.oauth import create_oauth_access_token
+from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import (
     get_git_identity_env_vars,
@@ -31,6 +31,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_sandbox_github_token,
     get_sandbox_name_for_task,
     get_sandbox_snapshot_metadata,
+    get_task_run_credential_user,
     parse_run_state,
 )
 
@@ -45,6 +46,7 @@ def _get_image_source_label(
     provider: str | None,
     resume_snapshot_external_id: str | None,
     snapshot: SandboxSnapshot | None,
+    custom_image_name: str | None = None,
 ) -> str:
     if resume_snapshot_external_id:
         return f"resume snapshot {resume_snapshot_external_id}"
@@ -53,10 +55,13 @@ def _get_image_source_label(
         external_id = snapshot.external_id or str(snapshot.id)
         return f"repository snapshot {external_id}"
 
+    if custom_image_name:
+        return f"custom base image {custom_image_name}"
+
     if provider == "docker":
         return "local Docker sandbox image"
 
-    if provider and provider.upper() == "MODAL_DOCKER":
+    if provider and provider.upper() in ("MODAL_DOCKER", "MODAL_EVALS"):
         return "local Modal Dockerfile build"
 
     if settings.DEBUG and not has_repo:
@@ -123,7 +128,8 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         snapshot_source = "none"
         snapshot_kind = SNAPSHOT_KIND_FILESYSTEM
         snapshot_mount_path: str | None = None
-        if has_repo and github_integration_id is not None:
+        # Repo-setup snapshots come from default-base sandboxes; restoring one would drop the custom image.
+        if has_repo and github_integration_id is not None and not ctx.custom_image_name:
             assert repository is not None
             with StepTimer("snapshot_lookup") as snapshot_lookup_timer:
                 snapshot = SandboxSnapshot.get_latest_snapshot_with_repos(github_integration_id, [repository])
@@ -152,6 +158,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         # All other sandboxes use shallow clone (--depth 1) for faster boot.
         shallow = task.origin_product != Task.OriginProduct.SIGNAL_REPORT
 
+        actor_user = get_task_run_credential_user(task, ctx.state)
         github_token = ""
         should_inject_github_token = ctx.has_github_credentials and (
             has_repo or ctx.github_user_integration_id is not None or ctx.github_integration_id is not None
@@ -164,6 +171,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
                         run_id=ctx.run_id,
                         state=ctx.state,
                         task=task,
+                        actor_user=actor_user,
                         github_user_integration_id=ctx.github_user_integration_id,
                         repository=repository,
                     )
@@ -177,7 +185,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
                 )
 
         try:
-            access_token = create_oauth_access_token(task)
+            access_token = create_oauth_access_token_for_run(task, ctx.state)
         except Exception as e:
             raise OAuthTokenError(
                 f"Failed to create OAuth access token for task {ctx.task_id}",
@@ -246,11 +254,14 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
                 snapshot_mount_path = run_state.resume_snapshot_mount_path()
 
         provider = getattr(settings, "SANDBOX_PROVIDER", None)
+        use_vm_sandbox = ctx.use_modal_vm_sandbox
+        custom_image_name = ctx.custom_image_name if use_vm_sandbox else None
         image_source_label = _get_image_source_label(
             has_repo=has_repo,
             provider=provider,
             resume_snapshot_external_id=resume_snapshot_ext_id,
             snapshot=snapshot if not resume_snapshot_ext_id else None,
+            custom_image_name=custom_image_name,
         )
 
         if resume_snapshot_ext_id:
@@ -264,7 +275,9 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
 
         config = SandboxConfig(
             name=get_sandbox_name_for_task(ctx.task_id),
-            template=SandboxTemplate.DEFAULT_BASE,
+            template=SandboxTemplate.VM_BASE if use_vm_sandbox else SandboxTemplate.DEFAULT_BASE,
+            custom_image_name=custom_image_name,
+            vm_runtime=use_vm_sandbox,
             environment_variables=environment_variables,
             snapshot_external_id=resume_snapshot_ext_id,
             snapshot_kind=snapshot_kind,

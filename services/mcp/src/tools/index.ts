@@ -1,4 +1,5 @@
 import { hasScopes } from '@/lib/api'
+import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 
 // Agent platform (hand-written — CRUD is codegen in generated/agent_platform.ts)
 import resolveResource from './agentPlatform/resolveResource'
@@ -23,18 +24,19 @@ import notebookEdit from './notebooks/edit'
 import setActiveOrganization from './organizations/setActive'
 // PostHog AI tools
 import {
+    EXECUTE_SQL_TOOL_NAME,
     executeSql,
     externalDataSourcesDbSchema,
     externalDataSourcesJobs,
     externalDataSourcesPreview,
     externalDataSyncLogs,
     readDataSchema,
-    readDataWarehouseSchema,
 } from './posthogAiTools'
 // Projects
 import getProjects from './projects/getProjects'
 import setActiveProject from './projects/setActive'
 import updateEventDefinition from './projects/updateEventDefinition'
+import updatePathCleaning from './projects/updatePathCleaning'
 // Replay
 import sessionRecordingSummarize from './replay/sessionRecordingSummarize'
 // Skills (deprecation aliases for the llma-skill-* → skill-* rename)
@@ -62,6 +64,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'projects-get': getProjects,
     'switch-project': setActiveProject,
     'event-definition-update': updateEventDefinition,
+    'path-cleaning-rules-update': updatePathCleaning,
 
     // Experiments (results is hand-written; CRUD + lifecycle are codegen)
     'experiment-results-get': getExperimentResults,
@@ -90,9 +93,8 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'agent-resolve-resource': resolveResource,
 
     // PostHog AI tools
-    'execute-sql': executeSql,
+    [EXECUTE_SQL_TOOL_NAME]: executeSql,
     'read-data-schema': readDataSchema,
-    'read-data-warehouse-schema': readDataWarehouseSchema,
 
     // Replay
     'session-recording-summarize': sessionRecordingSummarize,
@@ -151,5 +153,7 @@ export const getToolsFromContext = async (
     const apiKey = await context.stateManager.getApiKey()
     const scopes = apiKey?.scopes ?? []
 
-    return tools.filter((tool) => hasScopes(scopes, tool.scopes))
+    const candidates = tools.filter((tool) => hasScopes(scopes, tool.scopes))
+
+    return filterStaffOnlyTools(candidates, apiKey ?? { scopes: [] }, () => context.stateManager.getUser())
 }

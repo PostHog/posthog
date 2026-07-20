@@ -10,6 +10,15 @@ import {
     SurveyEventName,
 } from '~/types'
 
+// Deep link used in error tracking alert messages. Routes through the fingerprint redirect page
+// (/error_tracking/fingerprint/<fingerprint>) so links stay valid even after issues are merged.
+// Also used by the onboarding alert setup (onboardingErrorTrackingAlertsLogic) — keep the format
+// in one place so URL changes can't drift between the two surfaces.
+// encodeURLComponent mirrors JS encodeURIComponent, which leaves `(` and `)` unescaped — a `)` in a
+// fingerprint would close the surrounding markdown link `[text](url)` early, so encode them too.
+export const errorTrackingIssueLinkHogTemplate = (medium: string): string =>
+    `{project.url}/error_tracking/fingerprint/{replaceAll(replaceAll(encodeURLComponent(event.properties.fingerprint), '(', '%28'), ')', '%29')}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=${medium}`
+
 export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
     HogFunctionSubTemplateIdType,
     Pick<HogFunctionSubTemplateType, 'sub_template_id' | 'type' | 'context_id'> &
@@ -599,7 +608,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Posts a message to Discord when an issue is created',
             inputs: {
                 content: {
-                    value: '**🔴 {event.properties.name} created:** {event.properties.description}',
+                    value: `**🔴 {event.properties.name} created:** {event.properties.description}\n\n[View in PostHog](${errorTrackingIssueLinkHogTemplate('discord')})`,
                 },
             },
         },
@@ -610,7 +619,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Posts a message to Microsoft Teams when an issue is created',
             inputs: {
                 text: {
-                    value: '**🔴 {event.properties.name} created:** {event.properties.description} (View in [PostHog]({project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=microsoft_teams))',
+                    value: `**🔴 {event.properties.name} created:** {event.properties.description} (View in [PostHog](${errorTrackingIssueLinkHogTemplate('microsoft_teams')}))`,
                 },
             },
         },
@@ -641,7 +650,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             type: 'actions',
                             elements: [
                                 {
-                                    url: '{project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=slack',
+                                    url: errorTrackingIssueLinkHogTemplate('slack'),
                                     text: { text: 'View Issue', type: 'plain_text' },
                                     type: 'button',
                                 },
@@ -669,6 +678,9 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                 posthog_issue_id: {
                     value: '{event.distinct_id}',
                 },
+                posthog_issue_url: {
+                    value: errorTrackingIssueLinkHogTemplate('linear'),
+                },
             },
         },
         {
@@ -685,6 +697,9 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                 },
                 posthog_issue_id: {
                     value: '{event.distinct_id}',
+                },
+                posthog_issue_url: {
+                    value: errorTrackingIssueLinkHogTemplate('github'),
                 },
             },
         },
@@ -703,6 +718,9 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                 posthog_issue_id: {
                     value: '{event.distinct_id}',
                 },
+                posthog_issue_url: {
+                    value: errorTrackingIssueLinkHogTemplate('gitlab'),
+                },
             },
         },
     ],
@@ -720,7 +738,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Posts a message to Discord when an issue is reopened',
             inputs: {
                 content: {
-                    value: '**🔄 {event.properties.name} reopened:** {event.properties.description}',
+                    value: `**🔄 {event.properties.name} reopened:** {event.properties.description}\n\n[View in PostHog](${errorTrackingIssueLinkHogTemplate('discord')})`,
                 },
             },
         },
@@ -731,7 +749,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Posts a message to Microsoft Teams when an issue is reopened',
             inputs: {
                 text: {
-                    value: '**🔄 {event.properties.name} reopened:** {event.properties.description} (View in [PostHog]({project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=microsoft_teams))',
+                    value: `**🔄 {event.properties.name} reopened:** {event.properties.description} (View in [PostHog](${errorTrackingIssueLinkHogTemplate('microsoft_teams')}))`,
                 },
             },
         },
@@ -762,7 +780,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             type: 'actions',
                             elements: [
                                 {
-                                    url: '{project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=slack',
+                                    url: errorTrackingIssueLinkHogTemplate('slack'),
                                     text: { text: 'View Issue', type: 'plain_text' },
                                     type: 'button',
                                 },
@@ -799,7 +817,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
 **Project:** [{project.name}]({project.url})
 **Alert:** [{source.name}]({source.url})
 
-[View issue]({project.url}/error_tracking/{event.distinct_id}?utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=discord)`,
+[View issue](${errorTrackingIssueLinkHogTemplate('discord')})`,
                 },
             },
         },
@@ -810,7 +828,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Posts a message to Microsoft Teams when an issue is spiking',
             inputs: {
                 text: {
-                    value: "**📈 Issue spiking: {event.properties.name}:** {event.properties.description}\n**Exceptions in last 5 minutes:** {event.properties.current_bucket_value} ({event.properties.computed_baseline > 0 ? concat(round(event.properties.current_bucket_value / event.properties.computed_baseline), 'x over baseline') : 'no baseline yet'}) (View in [PostHog]({project.url}/error_tracking/{event.distinct_id}?utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=microsoft_teams))",
+                    value: `**📈 Issue spiking: {event.properties.name}:** {event.properties.description}\n**Exceptions in last 5 minutes:** {event.properties.current_bucket_value} ({event.properties.computed_baseline > 0 ? concat(round(event.properties.current_bucket_value / event.properties.computed_baseline), 'x over baseline') : 'no baseline yet'}) (View in [PostHog](${errorTrackingIssueLinkHogTemplate('microsoft_teams')}))`,
                 },
             },
         },
@@ -846,7 +864,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             type: 'actions',
                             elements: [
                                 {
-                                    url: '{project.url}/error_tracking/{event.distinct_id}?utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=slack',
+                                    url: errorTrackingIssueLinkHogTemplate('slack'),
                                     text: { text: 'View Issue', type: 'plain_text' },
                                     type: 'button',
                                 },
@@ -934,6 +952,8 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             },
                         },
                         {
+                            // plain_text (not mrkdwn) so user-controlled names in the breach text can't
+                            // inject Slack markup/links/mentions. Newlines still render as line breaks.
                             type: 'section',
                             text: {
                                 type: 'plain_text',
@@ -949,13 +969,19 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             type: 'actions',
                             elements: [
                                 {
-                                    url: '{project.url}/insights/{event.properties.insight_id}?utm_source=alert&utm_campaign=alert_check_firing&utm_medium=slack',
-                                    text: { text: 'View Insight', type: 'plain_text' },
+                                    // Points to the anomaly investigation notebook when present, otherwise falls
+                                    // back to the alert page (Slack can't conditionally hide a button, so the
+                                    // one button does double duty).
+                                    url: "{event.properties.investigation_notebook_url ? event.properties.investigation_notebook_url : concat(project.url, '/insights/', event.properties.insight_id, '/alerts?alert_id=', event.properties.alert_id, '&utm_source=alert&utm_campaign=alert_check_firing&utm_medium=slack')}",
+                                    text: {
+                                        text: "{event.properties.investigation_notebook_url ? 'View Investigation' : 'View Alert'}",
+                                        type: 'plain_text',
+                                    },
                                     type: 'button',
                                 },
                                 {
-                                    url: '{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}&utm_source=alert&utm_campaign=alert_check_firing&utm_medium=slack',
-                                    text: { text: 'View Alert', type: 'plain_text' },
+                                    url: '{project.url}/insights/{event.properties.insight_id}?utm_source=alert&utm_campaign=alert_check_firing&utm_medium=slack',
+                                    text: { text: 'View Insight', type: 'plain_text' },
                                     type: 'button',
                                 },
                             ],

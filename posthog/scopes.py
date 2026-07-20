@@ -26,6 +26,7 @@ APIScopeObject = Literal[
     "approvals",
     "batch_export",
     "batch_import",
+    "batch_import_support",
     "business_knowledge",
     "clickhouse_test_cluster_perf",
     "cohort",
@@ -34,6 +35,8 @@ APIScopeObject = Literal[
     "customer_analytics",
     "customer_journey",
     "customer_profile_config",
+    "data_catalog",
+    "data_catalog_approval",
     "dashboard",
     "event_filter",
     "dashboard_template",
@@ -59,9 +62,11 @@ APIScopeObject = Literal[
     "heatmap",
     "hog_flow",
     "hog_function",
+    "ingestion_warning",
     "insight",
     "insight_variable",
     "integration",
+    "internal_run",
     "legal_document",
     "link",
     "live_debugger",
@@ -94,6 +99,7 @@ APIScopeObject = Literal[
     "signal_scout",
     "signal_scout_internal",
     "signal_scout_report",
+    "stamphog",
     "streamlit_app",
     "subscription",
     "survey",
@@ -135,6 +141,11 @@ API_SCOPE_ACTIONS: tuple[APIScopeActions, ...] = get_args(APIScopeActions)
 INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
     {
         "clickhouse_test_cluster_perf",
+        # Provenance marker on tokens minted server-side for a sandbox/agent run
+        # (never via the consent flow or a personal API key). The LLM gateway requires
+        # it on the internal products that share the PostHog Code OAuth app so a user's
+        # own credential can't reach them — see services/llm-gateway products/config.py.
+        "internal_run",
         # Sandbox-only writes for the headless Signals agent (memory create/delete,
         # finding emit). Read access for the same surface lives on the public
         # `signal_scout` object so user-grantable PAKs can still inspect runs/memory.
@@ -152,7 +163,16 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
 # we don't want OAuth-based clients (the consent screen, MCP, third-party apps)
 # to discover it — alpha / not-yet-public products, or staff-only debug endpoints
 # automation reaches with a PAT (e.g. `query_performance`, also gated by `is_staff`).
-OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"wizard_session", "query_performance"})
+OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
+    {
+        "wizard_session",
+        "query_performance",
+        # Staff-only managed-migrations (batch import) support diagnostics, also gated by
+        # `is_staff`. Distinct from the public `batch_import` object on purpose: that one is
+        # OAuth-advertised, and a customer-grantable scope must never name a staff surface.
+        "batch_import_support",
+    }
+)
 
 # llm_gateway:read is omitted on purpose: it's alpha/privileged and granted only behind the
 # ai-gateway flag in ProjectSecretAPIKeySerializer, not unconditionally like the entries here.
@@ -194,7 +214,7 @@ PRIVILEGED_SCOPES: frozenset[str] = frozenset({"llm_gateway:read", "llm_gateway:
 # alpha scope never reaches the broad default. Intersected with `ALL_SCOPES`
 # so a future hidden object whose action set narrows doesn't carry a phantom
 # string into the set.
-OAUTH_HIDDEN_SCOPES: frozenset[str] = (
+OAUTH_SCOPES_HIDDEN: frozenset[str] = (
     frozenset(f"{obj}:{action}" for obj in OAUTH_HIDDEN_SCOPE_OBJECTS for action in API_SCOPE_ACTIONS) & ALL_SCOPES
 )
 
@@ -203,7 +223,7 @@ OAUTH_HIDDEN_SCOPES: frozenset[str] = (
 # `/authorize` time. OIDC scopes (openid/profile/email) are NOT in this set —
 # they live in `OIDC_SCOPES` below and are accepted at `/authorize`
 # independently of `application.scopes`.
-UNPRIVILEGED_SCOPES: frozenset[str] = ALL_SCOPES - PRIVILEGED_SCOPES - OAUTH_HIDDEN_SCOPES
+UNPRIVILEGED_SCOPES: frozenset[str] = ALL_SCOPES - PRIVILEGED_SCOPES - OAUTH_SCOPES_HIDDEN
 
 
 def get_scope_descriptions() -> dict[str, str]:
@@ -414,7 +434,7 @@ def get_oauth_scopes_supported() -> list[str]:
 
     Built from `UNPRIVILEGED_SCOPES`, so it excludes all three non-advertised
     classes: `INTERNAL_API_SCOPE_OBJECTS` (server-mint-only, e.g.
-    `signal_scout_internal` — never user-grantable), `OAUTH_HIDDEN_SCOPES`
+    `signal_scout_internal` — never user-grantable), `OAUTH_SCOPES_HIDDEN`
     (alpha / PAT-only), and `PRIVILEGED_SCOPES` (`llm_gateway:*`, admin-granted
     only). Discovery metadata shouldn't advertise scopes an OAuth client can't
     obtain self-serve. PAT validation uses `get_scope_descriptions()` directly

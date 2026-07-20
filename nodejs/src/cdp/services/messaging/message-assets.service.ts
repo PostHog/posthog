@@ -33,10 +33,6 @@ const messageAssetsPendingRows = new Gauge({
     help: 'Message-asset rows queued in-memory waiting for the next flush. Resets to 0 after each flush.',
 })
 
-export interface MessageAssetsServiceConfig {
-    MESSAGE_ASSETS_CAPTURE_ENABLED: boolean
-}
-
 const microsecondsSinceEpoch = (): string => {
     const ms = BigInt(Date.now())
     const subMs = BigInt(Math.floor((performance.now() % 1) * 1000))
@@ -89,21 +85,15 @@ const oversizedPlaceholderHtml = (bytes: number): string => {
 export class MessageAssetsService {
     private queuedRows: MessageAssetRow[] = []
 
-    constructor(
-        private outputs: IngestionOutputs<MessageAssetsOutput>,
-        private config: MessageAssetsServiceConfig
-    ) {}
+    constructor(private outputs: IngestionOutputs<MessageAssetsOutput>) {}
 
-    // Returns null when capture is disabled, no content (neither html nor
-    // text), or no action id — the Assets API filters by `function_kind='hog_flow'`
-    // and keys off the action node id, so a row without one is unreachable.
+    // Returns null when there's no content (neither html nor text) or no action id —
+    // the Assets API filters by `function_kind='hog_flow'` and keys off the action
+    // node id, so a row without one is unreachable.
     buildRowForEmail(
         invocation: CyclotronJobInvocationHogFunction,
         params: CyclotronInvocationQueueParametersEmailType
     ): MessageAssetRow | null {
-        if (!this.config.MESSAGE_ASSETS_CAPTURE_ENABLED) {
-            return null
-        }
         if (!invocation.state.actionId) {
             return null
         }

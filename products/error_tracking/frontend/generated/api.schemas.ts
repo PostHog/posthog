@@ -259,6 +259,14 @@ export interface LogPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+export interface MetricPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'metric_attribute'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
 export type SpanPropertyFilterTypeApi = (typeof SpanPropertyFilterTypeApi)[keyof typeof SpanPropertyFilterTypeApi]
 
 export const SpanPropertyFilterTypeApi = {
@@ -313,6 +321,7 @@ export interface PropertyGroupFilterValueApi {
         | DataWarehousePersonPropertyFilterApi
         | ErrorTrackingIssueFilterApi
         | LogPropertyFilterApi
+        | MetricPropertyFilterApi
         | SpanPropertyFilterApi
         | RevenueAnalyticsPropertyFilterApi
         | WorkflowVariablePropertyFilterApi
@@ -475,9 +484,13 @@ export interface PaginatedErrorTrackingExternalReferenceResultListApi {
 }
 
 export interface ErrorTrackingFingerprintApi {
+    /** Unique ID of the fingerprint record. */
     readonly id: string
+    /** The fingerprint value. */
     readonly fingerprint: string
+    /** ID of the issue this fingerprint currently belongs to. */
     readonly issue_id: string
+    /** When the fingerprint record was created. */
     readonly created_at: string
 }
 
@@ -956,6 +969,7 @@ export const BlankEnumApi = {
  * * `log` - log
  * * `log_attribute` - log_attribute
  * * `log_resource_attribute` - log_resource_attribute
+ * * `metric_attribute` - metric_attribute
  * * `span` - span
  * * `span_attribute` - span_attribute
  * * `span_resource_attribute` - span_resource_attribute
@@ -988,6 +1002,7 @@ export const PropertyFilterTypeEnumApi = {
     Log: 'log',
     LogAttribute: 'log_attribute',
     LogResourceAttribute: 'log_resource_attribute',
+    MetricAttribute: 'metric_attribute',
     Span: 'span',
     SpanAttribute: 'span_attribute',
     SpanResourceAttribute: 'span_resource_attribute',
@@ -1018,16 +1033,26 @@ export const OrderDirectionEnumApi = {
 } as const
 
 /**
- * * `summary` - summary
- * * `stack` - stack
- * * `raw` - raw
+ * * `exception` - exception
+ * * `stacktrace` - stacktrace
+ * * `code_variables` - code_variables
+ * * `environment` - environment
+ * * `release` - release
+ * * `navigation` - navigation
+ * * `correlation` - correlation
+ * * `diagnostics` - diagnostics
  */
-export type VerbosityEnumApi = (typeof VerbosityEnumApi)[keyof typeof VerbosityEnumApi]
+export type IncludeEnumApi = (typeof IncludeEnumApi)[keyof typeof IncludeEnumApi]
 
-export const VerbosityEnumApi = {
-    Summary: 'summary',
-    Stack: 'stack',
-    Raw: 'raw',
+export const IncludeEnumApi = {
+    Exception: 'exception',
+    Stacktrace: 'stacktrace',
+    CodeVariables: 'code_variables',
+    Environment: 'environment',
+    Release: 'release',
+    Navigation: 'navigation',
+    Correlation: 'correlation',
+    Diagnostics: 'diagnostics',
 } as const
 
 export interface ErrorTrackingIssueEventsQueryRequestApi {
@@ -1060,12 +1085,8 @@ export interface ErrorTrackingIssueEventsQueryRequestApi {
      * @minimum 0
      */
     offset?: number
-    /** Controls exception detail size: summary, stack, or raw. Defaults to summary.
-     *
-     * * `summary` - summary
-     * * `stack` - stack
-     * * `raw` - raw */
-    verbosity?: VerbosityEnumApi
+    /** Context groups to return. Defaults to exception, environment, navigation, and correlation. Request stacktrace for frames, code_variables for captured and SDK-masked frame variables, release for release metadata, or diagnostics for ingestion errors. code_variables implies stacktrace. */
+    include?: IncludeEnumApi[]
     /** When true, include only stack frames marked in_app. Defaults to true. */
     onlyAppFrames?: boolean
 }
@@ -1768,6 +1789,13 @@ export type ErrorTrackingFingerprintsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type ErrorTrackingFingerprintsResolveRetrieveParams = {
+    /**
+     * Fingerprint value to resolve to the issue it currently belongs to.
+     */
+    fingerprint: string
 }
 
 export type ErrorTrackingGitProviderFileLinksResolveGithubRetrieveParams = {

@@ -1,6 +1,6 @@
 import json
 import uuid
-from datetime import timedelta
+from datetime import UTC, timedelta
 from typing import cast
 
 from django.conf import settings
@@ -20,12 +20,15 @@ from django.db.models import (
     Prefetch,
     Q,
     Subquery,
+    Sum,
     Value,
     When,
 )
 from django.db.models.functions import Cast, Coalesce
+from django.utils import timezone
 
 import structlog
+import posthoganalytics
 from asgiref.sync import async_to_sync
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
@@ -46,6 +49,7 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import InternalAPIAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
@@ -66,6 +70,17 @@ from products.signals.backend.artefact_schemas import (
     TitleChange,
     parse_artefact_content,
 )
+from products.signals.backend.billing import (
+    REFUND_INELIGIBLE_BILLING_EXEMPT,
+    REFUND_INELIGIBLE_NO_BILLABLE_PR,
+    REFUND_INELIGIBLE_OUT_OF_PERIOD,
+    SIGNALS_CREDITS_PER_REPORT_WITH_PR,
+    annotate_first_billable_pr_run_at,
+    current_billing_period_bounds,
+    first_billable_pr_run,
+    period_billable_credits_for_org,
+    refund_ineligibility_reason,
+)
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import (
@@ -74,6 +89,7 @@ from products.signals.backend.models import (
     InvalidStatusTransition,
     SignalReport,
     SignalReportArtefact,
+    SignalReportRefund,
     SignalSourceConfig,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
@@ -87,22 +103,26 @@ from products.signals.backend.report_generation.resolve_reviewers import (
 )
 from products.signals.backend.serializers import (
     CommitDiffResponseSerializer,
+    ReportSignalsResponseSerializer,
     SignalReportArtefactLogCreateSerializer,
     SignalReportArtefactLogUpdateSerializer,
     SignalReportArtefactSerializer,
     SignalReportArtefactWriteResponseSerializer,
     SignalReportArtefactWriteSerializer,
+    SignalReportRefundSerializer,
     SignalReportSerializer,
     SignalSourceConfigSerializer,
     SignalTeamConfigSerializer,
     SignalUserAutonomyConfigCreateSerializer,
     SignalUserAutonomyConfigSerializer,
 )
+from products.signals.backend.signal_metadata import fetch_source_products_for_reports
 from products.signals.backend.task_attribution import (
     TASK_ID_HEADER,
     resolve_request_attribution,
     resolve_task_id_from_header,
 )
+from products.signals.backend.tasks import sync_signals_refund_credit
 from products.signals.backend.temporal.backfill_error_tracking import (
     BackfillErrorTrackingInput,
     BackfillErrorTrackingWorkflow,
@@ -113,7 +133,6 @@ from products.signals.backend.temporal.reingestion import SignalReportReingestio
 from products.signals.backend.temporal.signal_queries import (
     fetch_report_ids_for_source_products,
     fetch_signals_for_report_sync,
-    fetch_source_products_for_reports,
 )
 from products.signals.backend.temporal.types import (
     SignalReportDeletionWorkflowInputs,
@@ -527,6 +546,80 @@ class SignalReportBulkStateResponseSerializer(serializers.Serializer):
     not_found_count = serializers.IntegerField(help_text="Number of requested ids not visible to the caller.")
 
 
+# Whole PR-refund feature gate. Checked server-side (not just in the UI) and keyed on the
+# organization, matching the refund window (the org's billing period).
+SIGNALS_PR_REFUNDS_FEATURE_FLAG = "signals-pr-refunds"
+
+
+# User-facing message for each shared `refund_ineligibility_reason` the refund action rejects on
+# (`already_refunded` never reaches a 400 — it takes the idempotent 200 path instead).
+_REFUND_INELIGIBLE_MESSAGES = {
+    REFUND_INELIGIBLE_BILLING_EXEMPT: "This report is marked never-billable, so there is nothing to refund.",
+    REFUND_INELIGIBLE_NO_BILLABLE_PR: "This report has no billable implementation PR to refund.",
+    REFUND_INELIGIBLE_OUT_OF_PERIOD: "This PR was billed in a previous billing period and can no longer be refunded.",
+}
+
+
+class SignalReportRefundRequestSerializer(serializers.Serializer):
+    reason = serializers.ChoiceField(
+        choices=SignalReportRefund.Reason.choices,
+        help_text=(
+            "Why this PR is being refunded. One of: pr_incorrect (the PR doesn't address what the "
+            "report promised), pr_not_useful (technically fine but not worth paying for), duplicate "
+            "(covers work already charged elsewhere), other. Required — refund reviews key on it."
+        ),
+    )
+    note = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=SIGNAL_REPORT_DISMISSAL_NOTE_MAX_LENGTH,
+        help_text=(
+            "Optional free-form context for the refund; stored on the refund and echoed in the "
+            "report's dismissal artefact. Capped at 4000 characters."
+        ),
+    )
+
+
+class SignalReportRefundResponseSerializer(SignalReportRefundSerializer):
+    already_refunded = serializers.BooleanField(
+        read_only=True,
+        default=False,
+        help_text=(
+            "True when the report already had a refund and that existing refund is returned "
+            "unchanged — refunds are one-per-report and repeat calls are idempotent."
+        ),
+    )
+
+    class Meta(SignalReportRefundSerializer.Meta):
+        fields = [*SignalReportRefundSerializer.Meta.fields, "already_refunded"]
+        read_only_fields = fields
+
+
+class SignalReportRefundSummaryResponseSerializer(serializers.Serializer):
+    credited_refund_count = serializers.IntegerField(
+        help_text=(
+            "Number of credited-path refunds across the whole organization whose refunded PR run "
+            "falls in the current billing period. Excluded-path refunds never reach billing usage, "
+            "so they are deliberately absent."
+        ),
+    )
+    credited_credits = serializers.IntegerField(
+        help_text=(
+            "Total signals credits those refunds returned (1 credit = $0.01). Divide by the flat "
+            "per-PR charge to get the number of PRs to subtract from billing usage."
+        ),
+    )
+    period_billable_credits = serializers.IntegerField(
+        help_text=(
+            "The organization's live billable signals credits for the current billing period, "
+            "computed by the same rules as the nightly usage report — including PRs created today "
+            "that billing hasn't recorded yet, and already excluding refund-excluded and "
+            "billing-exempt reports. Take the max of this and billing's recorded usage for a live "
+            "PR count that reacts to new PRs and same-day refunds immediately."
+        ),
+    )
+
+
 class SignalReportContentUpdateSerializer(serializers.Serializer):
     """Editable human-facing fields on a signal report (PATCH).
 
@@ -611,6 +704,8 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_priority_filter(qs)
         qs = self._prefetch_signal_report_priority_artefacts(qs)
         qs = self._annotate_is_suggested_reviewer(qs)
+        # Batched billable-moment lookup for the serializer's refund_ineligibility_reason field.
+        qs = annotate_first_billable_pr_run_at(qs)
         if self.action != "list":
             qs = self._annotate_implementation_pr_url(qs)
         return qs
@@ -625,8 +720,13 @@ class SignalReportViewSet(
             .values("count"),
             output_field=IntegerField(),
         )
-        return queryset.filter(team=self.team).annotate(
-            artefact_count=Coalesce(artefact_count_subquery, Value(0), output_field=IntegerField()),
+        # select_related("refund"): the serializer renders the reverse OneToOne inline.
+        return (
+            queryset.filter(team=self.team)
+            .select_related("refund")
+            .annotate(
+                artefact_count=Coalesce(artefact_count_subquery, Value(0), output_field=IntegerField()),
+            )
         )
 
     def _exclude_deleted_signal_reports(self, queryset):
@@ -641,10 +741,11 @@ class SignalReportViewSet(
     # `status` filter. These are the read/reopen paths the inbox's Dismissed tab needs:
     # `state` reopens a dismissed report, `retrieve` loads its detail, and `signals`
     # loads its evidence. `bulk_state` is included so a bulk restore (state='potential')
-    # can reach suppressed reports too. Mutating-by-ID actions (delete, reingest) are
+    # can reach suppressed reports too. `refund` is included so an already-archived but
+    # billed report can still be refunded. Mutating-by-ID actions (delete, reingest) are
     # deliberately NOT here, so a suppressed report stays unreachable for those and keeps
     # returning 404 — matching the existing contract.
-    _SUPPRESSED_VISIBLE_ACTIONS = frozenset({"state", "bulk_state", "retrieve", "signals"})
+    _SUPPRESSED_VISIBLE_ACTIONS = frozenset({"state", "bulk_state", "retrieve", "signals", "refund"})
 
     # Human-readable explanation per bulk outcome, surfaced in each result's `detail` field
     # (transitioned needs none — its `status` already says where the report landed).
@@ -671,10 +772,31 @@ class SignalReportViewSet(
         # (e.g. `state` reopens a dismissed report, `retrieve`/`signals` back the
         # inbox's Dismissed-tab detail view). Everywhere else — including the list and
         # mutating-by-ID actions like delete/reingest — suppressed reports stay hidden
-        # unless an explicit `status` filter asks for them.
+        # unless an explicit `status` filter asks for them, or the caller opts out of
+        # the default exclusions with `include_all_statuses=true` (agents deduping
+        # against the full inbox state, human dismissals included, without enumerating
+        # every status — and without breaking if the status set evolves).
         if self.action in self._SUPPRESSED_VISIBLE_ACTIONS:
             return queryset
+        if self._include_all_statuses_requested():
+            return queryset
         return queryset.exclude(status=SignalReport.Status.SUPPRESSED)
+
+    def _include_all_statuses_requested(self) -> bool:
+        # List-only: the flag widens the *list* for full-inbox-state scans (agent dedup). By-ID
+        # actions ignore it entirely, so mutating actions like delete/reingest keep their existing
+        # contract of 404ing on suppressed reports.
+        if self.action != "list":
+            return False
+        raw = self.request.query_params.get("include_all_statuses")
+        if raw is None or not raw.strip():
+            return False
+        value = raw.strip().lower()
+        if value in ("1", "true", "yes"):
+            return True
+        if value in ("0", "false", "no"):
+            return False
+        raise serializers.ValidationError({"include_all_statuses": f"Invalid value: {raw!r}. Allowed: true, false."})
 
     def _apply_signal_report_search_filter(self, queryset):
         search = self.request.query_params.get("search")
@@ -1010,7 +1132,13 @@ class SignalReportViewSet(
         return login.lower() if login else None
 
     def get_serializer_context(self):
-        return {**super().get_serializer_context(), "team": self.team}
+        return {
+            **super().get_serializer_context(),
+            "team": self.team,
+            # For the serializer's refund_ineligibility_reason field — computed once per request,
+            # not per report (the bounds are org-level).
+            "billing_period_bounds": current_billing_period_bounds(self.organization),
+        }
 
     def _enriched_report_context(self, report: SignalReport) -> dict:
         # Detail-view parity with list(): inject the source-product and PR-url maps the
@@ -1103,6 +1231,21 @@ class SignalReportViewSet(
                     "Comma-separated list of statuses to include. "
                     "Valid values: potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed. "
                     "Defaults to all statuses except suppressed."
+                ),
+            ),
+            OpenApiParameter(
+                name="include_all_statuses",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "When true, the list includes reports in every status with no default exclusions applied — "
+                    "currently that adds suppressed (dismissed) reports, which are otherwise hidden. Use it to "
+                    "see the full inbox state (e.g. deduplicating before creating a report) and read each row's "
+                    "status (plus dismissal_reason/dismissal_note on dismissed rows) before acting. Deleted "
+                    "reports are terminal and never returned. Defaults to false, which keeps the existing "
+                    "default exclusions. Ignored when an explicit 'status' filter is set — that filter alone "
+                    "decides which statuses are returned."
                 ),
             ),
             OpenApiParameter(
@@ -1312,7 +1455,11 @@ class SignalReportViewSet(
 
         return Response({"status": "deletion_started", "report_id": report_id}, status=status.HTTP_202_ACCEPTED)
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        summary="List a report's signals",
+        description="Fetch all signals for a report from ClickHouse, including full metadata.",
+        responses={200: ReportSignalsResponseSerializer},
+    )
     @action(detail=True, methods=["get"], url_path="signals", required_scopes=["task:read"])
     def signals(self, request, pk=None, **kwargs):
         """Fetch all signals for a report from ClickHouse, including full metadata."""
@@ -1350,7 +1497,7 @@ class SignalReportViewSet(
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        outcome = self._transition_report_state(
+        outcome, detail = self._transition_report_state(
             report,
             target=data["state"],
             dismissal_reason=data.get("dismissal_reason"),
@@ -1360,12 +1507,12 @@ class SignalReportViewSet(
 
         if outcome == SignalReportBulkStateOutcome.SKIPPED:
             return Response(
-                {"error": "Invalid state transition for this report."},
+                {"error": detail or "Invalid state transition for this report."},
                 status=status.HTTP_409_CONFLICT,
             )
         if outcome == SignalReportBulkStateOutcome.FAILED:
             return Response(
-                {"error": "Invalid data for state transition."},
+                {"error": detail or "Invalid data for state transition."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -1379,13 +1526,15 @@ class SignalReportViewSet(
         dismissal_reason: str | None,
         dismissal_note: str | None,
         snooze_for: int | None,
-    ) -> "SignalReportBulkStateOutcome":
+    ) -> "tuple[SignalReportBulkStateOutcome, str | None]":
         """
         Apply one report state transition (plus optional dismissal artefact) and return a
-        compact outcome. Shared by the single `state` action and the bulk `bulk_state` action
-        so both honour the same restore/snooze semantics and transition guards. Expected
-        invalid transitions are returned as outcomes (never raised) so a bulk run can record a
-        per-id result and keep going.
+        compact `(outcome, detail)` pair — `detail` is a caller-facing explanation for
+        non-transitioned outcomes when the generic per-outcome message isn't enough. Shared by
+        the single `state` action and the bulk `bulk_state` action so both honour the same
+        restore/snooze semantics and transition guards. Expected invalid transitions are
+        returned as outcomes (never raised) so a bulk run can record a per-id result and keep
+        going.
 
         Only `snooze_for` (on a snooze back to "potential") is caller-controllable. Every other
         `transition_to` kwarg (signals_at_run_increment, reset_weight, title, summary, error) is an
@@ -1397,6 +1546,10 @@ class SignalReportViewSet(
         # dropping back to potential. snooze_for is irrelevant here and ignored by transition_to.
         target_status = SignalReport.Status(target)
         if report.status == SignalReport.Status.SUPPRESSED and target_status == SignalReport.Status.POTENTIAL:
+            # Restore guard: a refunded report can never be billed again (see billing.py), so
+            # refund → restore → new PR would be repeatable free work. The refund is final.
+            if getattr(report, "refund", None) is not None:
+                return SignalReportBulkStateOutcome.SKIPPED, "Refunded reports can't be restored."
             target_status = report.restore_target_status()
 
         effective_snooze_for = snooze_for if target == "potential" else None
@@ -1405,10 +1558,10 @@ class SignalReportViewSet(
             updated_fields = report.transition_to(target_status, snooze_for=effective_snooze_for)
         except InvalidStatusTransition as e:
             logger.warning("Invalid status transition for SignalReport %s: %s", report.id, e, exc_info=True)
-            return SignalReportBulkStateOutcome.SKIPPED
+            return SignalReportBulkStateOutcome.SKIPPED, None
         except (ValueError, TypeError) as e:
             logger.warning("Invalid data when transitioning SignalReport %s: %s", report.id, e, exc_info=True)
-            return SignalReportBulkStateOutcome.FAILED
+            return SignalReportBulkStateOutcome.FAILED, None
 
         with transaction.atomic():
             report.save(update_fields=updated_fields)
@@ -1437,7 +1590,10 @@ class SignalReportViewSet(
                 if hasattr(report, "prefetched_dismissal_artefacts"):
                     del report.prefetched_dismissal_artefacts
 
-        return SignalReportBulkStateOutcome.TRANSITIONED
+        # A dismissal (transition into SUPPRESSED) closes the linked implementation PR — handled
+        # centrally by the post_save receiver (receivers.close_pr_when_report_dismissed), so this
+        # method doesn't special-case it. Restore/snooze to "potential" leaves the PR alone.
+        return SignalReportBulkStateOutcome.TRANSITIONED, None
 
     @extend_schema(
         request=SignalReportBulkStateRequestSerializer,
@@ -1483,9 +1639,10 @@ class SignalReportViewSet(
             report = reports_by_id.get(report_id)
             if report is None:
                 outcome = SignalReportBulkStateOutcome.NOT_FOUND
+                detail = None
                 report_status = None
             else:
-                outcome = self._transition_report_state(
+                outcome, detail = self._transition_report_state(
                     report,
                     target=target,
                     dismissal_reason=dismissal_reason,
@@ -1498,7 +1655,7 @@ class SignalReportViewSet(
                     "id": report_id,
                     "outcome": outcome.value,
                     "status": report_status,
-                    "detail": self._BULK_STATE_OUTCOME_DETAIL.get(outcome),
+                    "detail": detail or self._BULK_STATE_OUTCOME_DETAIL.get(outcome),
                 }
             )
             counts[outcome.value] += 1
@@ -1510,6 +1667,224 @@ class SignalReportViewSet(
                 "skipped_count": counts[SignalReportBulkStateOutcome.SKIPPED.value],
                 "failed_count": counts[SignalReportBulkStateOutcome.FAILED.value],
                 "not_found_count": counts[SignalReportBulkStateOutcome.NOT_FOUND.value],
+            }
+        )
+
+    def _signals_pr_refunds_enabled(self) -> bool:
+        # Server-side feature gate, keyed on the org (the refund window is the org's billing
+        # period). Same call shape as the quota-limiting data-retention flag check.
+        return (
+            posthoganalytics.feature_enabled(
+                SIGNALS_PR_REFUNDS_FEATURE_FLAG,
+                str(self.organization.id),
+                groups={"organization": str(self.organization.id)},
+                group_properties={"organization": {"id": str(self.organization.id)}},
+            )
+            is True
+        )
+
+    def _refund_response(self, refund: SignalReportRefund, *, already_refunded: bool = False) -> Response:
+        if already_refunded:
+            # SignalReportRefundResponseSerializer reads the attribute; absent it falls back to
+            # the field default (False), so only the idempotent-replay path sets it.
+            refund.already_refunded = True  # type: ignore[attr-defined]
+        return Response(SignalReportRefundResponseSerializer(refund).data)
+
+    @validated_request(
+        request_serializer=SignalReportRefundRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=SignalReportRefundResponseSerializer,
+                description=(
+                    "The refund (created, or the existing one with already_refunded=true when the "
+                    "report was refunded before)."
+                ),
+            ),
+            400: OpenApiResponse(
+                description=(
+                    "Report is not refundable: no billable implementation PR, the PR run is outside "
+                    "the current billing period, or the report is system-marked never-billable."
+                )
+            ),
+            404: OpenApiResponse(description="Report not found, or refunds are not enabled for this organization."),
+        },
+        summary="Refund a report's implementation PR",
+        description=(
+            "Refund the flat charge for this report's implementation PR and archive the report. "
+            "Refunds auto-approve: the charge is either excluded from usage before it is ever "
+            "reported to billing (refund on the same UTC day as the PR run) or returned as a Stripe "
+            "customer-balance credit on the next invoice. A refunded PR does not count toward the "
+            "free monthly PR allowance. One refund per report, ever — repeat calls return the "
+            "existing refund with already_refunded=true. The report is archived as part of the "
+            "refund (a resolved report stays resolved) and can't be restored afterwards."
+        ),
+        operation_id="signals_reports_refund_create",
+    )
+    @action(detail=True, methods=["post"], url_path="refund", required_scopes=["task:write"])
+    def refund(self, request: ValidatedRequest, pk=None, **kwargs):
+        if not self._signals_pr_refunds_enabled():
+            raise NotFound("PR refunds are not enabled for this organization.")
+
+        report = cast(SignalReport, self.get_object())
+        data = request.validated_data
+        note = data.get("note") or ""
+        # Resolved before the locked transaction — a bad X-PostHog-Task-Id header must 400
+        # before anything mutates (mirrors the artefact write paths).
+        attribution = resolve_request_attribution(request, self.team.id)
+        user = cast(User, request.user)
+
+        with transaction.atomic():
+            # Row-lock the report so double-clicks serialize (precedent: the Slack suppression
+            # flow); the refund OneToOne is the backstop if something bypasses the lock.
+            report = cast(
+                SignalReport,
+                SignalReport.objects.select_for_update().get(id=report.id, team_id=self.team_id),
+            )
+
+            existing = getattr(report, "refund", None)
+            if existing is not None:
+                return self._refund_response(existing, already_refunded=True)
+
+            # Same decision the serializer's `refund_ineligibility_reason` field renders from,
+            # so the UI's button state and this endpoint's 400s can never disagree.
+            billable_run = first_billable_pr_run(report.id)
+            # Computed once and frozen onto the refund row below: the credited-path sync must
+            # report the period the refund was accepted in, not whatever period is current when
+            # the Celery task eventually reaches billing.
+            period_start, period_end = current_billing_period_bounds(self.organization)
+            ineligibility = refund_ineligibility_reason(
+                has_refund=False,  # the idempotent 200 above already handled existing refunds
+                billing_exempt=bool(report.billing_exempt_reason),
+                billable_run_at=billable_run.created_at if billable_run else None,
+                period=(period_start, period_end),
+            )
+            if ineligibility is not None:
+                return Response(
+                    {"error": _REFUND_INELIGIBLE_MESSAGES[ineligibility]},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            assert billable_run is not None  # narrowed by the no_billable_pr reason above
+
+            # Freeze the billing path by the UTC-day rule: refunds committed on the PR run's own
+            # UTC day land before any usage send covering that day (all sends happen ≥3h45m into
+            # the next UTC day), so the report can simply be excluded from usage; anything later
+            # must go through a billing-service credit. Decided once, stored, never recomputed.
+            now = timezone.now()
+            pr_merged = SignalReport.Status.RESOLVED in (report.status, report.status_before_suppression)
+            billing_path = (
+                SignalReportRefund.BillingPath.EXCLUDED
+                if billable_run.created_at.astimezone(UTC).date() == now.astimezone(UTC).date()
+                else SignalReportRefund.BillingPath.CREDITED
+            )
+
+            try:
+                # Savepoint so a unique-constraint loser doesn't poison the outer transaction.
+                with transaction.atomic():
+                    refund = SignalReportRefund.objects.create(
+                        team_id=report.team_id,
+                        report=report,
+                        created_by=user if user.is_authenticated else None,
+                        reason=data["reason"],
+                        note=note,
+                        billing_path=billing_path,
+                        credits=SIGNALS_CREDITS_PER_REPORT_WITH_PR,
+                        pr_url=billable_run.pr_url,
+                        pr_run_created_at=billable_run.created_at,
+                        period_start=period_start,
+                        period_end=period_end,
+                    )
+            except IntegrityError:
+                existing = SignalReportRefund.objects.filter(report_id=report.id).first()
+                if existing is None:
+                    raise
+                return self._refund_response(existing, already_refunded=True)
+
+            # Refund doubles as archive: suppress unless the report is resolved (stays resolved —
+            # the merged PR shipped) or already suppressed. The dismissal artefact records the
+            # rationale like any other dismissal; the structured truth lives on the refund row.
+            if report.status not in (SignalReport.Status.RESOLVED, SignalReport.Status.SUPPRESSED):
+                updated_fields = report.transition_to(SignalReport.Status.SUPPRESSED)
+                report.save(update_fields=updated_fields)
+            SignalReportArtefact.append_dismissal(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                content=Dismissal(
+                    reason="refunded",
+                    note=note or None,
+                    user_id=user.id if user.is_authenticated else None,
+                    user_uuid=str(user.uuid) if user.is_authenticated else None,
+                ),
+                attribution=attribution,
+            )
+
+            if billing_path == SignalReportRefund.BillingPath.CREDITED:
+                refund_id = str(refund.id)
+                transaction.on_commit(lambda: sync_signals_refund_credit.delay(refund_id))
+
+        report_user_action(
+            user,
+            "signals_pr_refund_created",
+            properties={
+                "team_id": self.team.id,
+                "organization_id": str(self.organization.id),
+                "report_id": str(report.id),
+                "refund_id": str(refund.id),
+                "billing_path": billing_path,
+                "credits": refund.credits,
+                "reason": refund.reason,
+                "pr_merged": pr_merged,
+                "days_since_pr": (now - billable_run.created_at).days,
+            },
+            team=self.team,
+            organization=self.organization,
+        )
+
+        return self._refund_response(refund)
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=SignalReportRefundSummaryResponseSerializer,
+                description="Org-wide credited-refund totals for the current billing period.",
+            ),
+            404: OpenApiResponse(description="Refunds are not enabled for this organization."),
+        },
+        summary="Summarize credited PR refunds for the billing period",
+        description=(
+            "Aggregate credited-path refunds across the whole organization for the current billing "
+            "period — counts only, no per-team detail. The billing usage widget needs this because "
+            "billing usage is org-wide while reports (and their refunds) are team-scoped: subtract "
+            "the refunded credits from billing usage to show the net PR count. Excluded-path "
+            "refunds never reach billing usage, so no adjustment is needed for them. Also carries "
+            "the org's live billable credits for the period (billing's recorded usage lags by up "
+            "to a day), so the widget can count just-created PRs and react to same-day refunds."
+        ),
+        operation_id="signals_reports_refund_summary_retrieve",
+    )
+    @action(detail=False, methods=["get"], url_path="refund-summary", required_scopes=["task:read"])
+    def refund_summary(self, request: Request, **kwargs):
+        if not self._signals_pr_refunds_enabled():
+            raise NotFound("PR refunds are not enabled for this organization.")
+
+        period_start, period_end = current_billing_period_bounds(self.organization)
+        aggregates = (
+            # Org-wide on purpose (unscoped + org filter): the usage this offsets is org-level.
+            SignalReportRefund.objects.unscoped()
+            .filter(
+                team__organization_id=self.organization.id,
+                billing_path=SignalReportRefund.BillingPath.CREDITED,
+                pr_run_created_at__gte=period_start,
+                pr_run_created_at__lt=period_end,
+            )
+            .aggregate(credited_refund_count=Count("id"), credited_credits=Sum("credits"))
+        )
+        return Response(
+            {
+                "credited_refund_count": aggregates["credited_refund_count"] or 0,
+                "credited_credits": aggregates["credited_credits"] or 0,
+                "period_billable_credits": period_billable_credits_for_org(
+                    self.organization.id, period_start, period_end
+                ),
             }
         )
 
@@ -1543,6 +1918,20 @@ class SignalReportViewSet(
         return Response({"status": "reingestion_started", "report_id": report_id}, status=status.HTTP_202_ACCEPTED)
 
 
+# `report_id` addresses a report's UUID primary key. Agents whose prompt only carries a
+# `signal_id` sometimes pass that (e.g. `sig_praise`) here instead, so make the constraint
+# explicit in the schema — a non-UUID value can never match a report.
+_REPORT_ID_PARAMETER = OpenApiParameter(
+    name="report_id",
+    type=OpenApiTypes.UUID,
+    location=OpenApiParameter.PATH,
+    description=(
+        "UUID of the report whose artefacts you're addressing. This must be a report id (the "
+        "report's own UUID), not a signal id such as `sig_praise` — a non-report id returns 404."
+    ),
+)
+
+
 @extend_schema_view(
     list=extend_schema(
         summary="List a report's artefacts",
@@ -1553,12 +1942,14 @@ class SignalReportViewSet(
             "and log entries (code references, commits, task runs, notes). "
             "`suggested_reviewers` content is enriched with PostHog user info at read time."
         ),
+        parameters=[_REPORT_ID_PARAMETER],
         responses={200: SignalReportArtefactSerializer(many=True)},
         operation_id="signals_report_artefacts_list",
     ),
     retrieve=extend_schema(
         summary="Get a single artefact",
         description="Get one artefact by id, content parsed (and reviewers enriched) the same way as the list.",
+        parameters=[_REPORT_ID_PARAMETER],
         responses={200: SignalReportArtefactSerializer},
         operation_id="signals_report_artefacts_retrieve",
     ),
@@ -1600,11 +1991,22 @@ class SignalReportArtefactViewSet(
     queryset = SignalReportArtefact.objects.select_related("created_by").order_by("-created_at")
     http_method_names = ["get", "post", "put", "patch", "delete", "head", "options"]
 
+    def _validated_report_id(self) -> str:
+        # `report_id` addresses a report's UUID primary key. Agents sometimes pass a signal id
+        # (e.g. `sig_praise`) instead, which the ORM can't coerce to a UUID — left to reach the
+        # query it surfaces as a 500. Reject it up front as a clean 404 the caller can recover from.
+        report_id = self.parents_query_dict["report_id"]
+        try:
+            uuid.UUID(str(report_id))
+        except (ValueError, TypeError):
+            raise NotFound()
+        return report_id
+
     def safely_get_queryset(self, queryset):
         # Mirror SignalReportViewSet: a deleted parent report is unreachable, so
         # its artefacts must be too (otherwise a known UUID would bypass deletion).
         return queryset.filter(
-            report_id=self.parents_query_dict["report_id"],
+            report_id=self._validated_report_id(),
             team=self.team,
         ).exclude(report__status=SignalReport.Status.DELETED)
 
@@ -1673,10 +2075,10 @@ class SignalReportArtefactViewSet(
 
         # Resolve canonical login per entry. Fail loudly if a user_uuid does not
         # map to an org member with a GitHub identity on this team.
-        # The third tuple element distinguishes "github_name explicitly supplied
+        # The bool tuple elements distinguish "github_name / reason explicitly supplied
         # (incl. empty string to clear)" from "field absent" — the merge step below
-        # only falls back to the prior name when the field is absent.
-        resolved_entries: list[tuple[str, str | None, bool]] = []
+        # only falls back to the prior value when the field is absent.
+        resolved_entries: list[tuple[str, str | None, bool, str | None, bool]] = []
         for idx, entry in enumerate(entries):
             user_uuid = entry.get("user_uuid")
             if user_uuid is not None:
@@ -1703,7 +2105,9 @@ class SignalReportArtefactViewSet(
 
             explicit_name = "github_name" in entry
             github_name = entry.get("github_name") if explicit_name else None
-            resolved_entries.append((login_lc, github_name, explicit_name))
+            explicit_reason = "reason" in entry
+            reason = entry.get("reason") if explicit_reason else None
+            resolved_entries.append((login_lc, github_name, explicit_name, reason, explicit_reason))
 
         # Lock the report for the read-merge-append so concurrent reviewer edits serialize — each
         # PUT reads the current (latest) reviewers and appends a new row, so without the lock two
@@ -1730,6 +2134,7 @@ class SignalReportArtefactViewSet(
                 prior_content = []
             prior_commits_by_login: dict[str, list] = {}
             prior_name_by_login: dict[str, str | None] = {}
+            prior_reason_by_login: dict[str, str | None] = {}
             prior_logins: list[str] = []
             if isinstance(prior_content, list):
                 for prior in prior_content:
@@ -1745,21 +2150,27 @@ class SignalReportArtefactViewSet(
                     prior_name = prior.get("github_name")
                     if isinstance(prior_name, str):
                         prior_name_by_login[login] = prior_name
+                    prior_reason = prior.get("reason")
+                    if isinstance(prior_reason, str):
+                        prior_reason_by_login[login] = prior_reason
 
             # Dedupe by canonical login, preserve first-seen order.
             new_content: list[dict] = []
-            for login_lc, github_name, explicit_name in resolved_entries:
+            for login_lc, github_name, explicit_name, reason, explicit_reason in resolved_entries:
                 if login_lc in seen:
                     continue
                 seen.add(login_lc)
                 # If the client supplied github_name (incl. ""), honour it. Otherwise
                 # carry over the prior one so kept reviewers don't lose their name.
+                # Same rule for reason.
                 effective_name = github_name if explicit_name else prior_name_by_login.get(login_lc)
+                effective_reason = reason if explicit_reason else prior_reason_by_login.get(login_lc)
                 new_content.append(
                     {
                         "github_login": login_lc,
                         "github_name": effective_name,
                         "relevant_commits": prior_commits_by_login.get(login_lc, []),
+                        "reason": effective_reason or None,
                     }
                 )
 
@@ -1844,6 +2255,7 @@ class SignalReportArtefactViewSet(
             404: OpenApiResponse(description="Report not found for this project."),
         },
         parameters=[
+            _REPORT_ID_PARAMETER,
             OpenApiParameter(
                 name=TASK_ID_HEADER,
                 type=OpenApiTypes.UUID,
@@ -1866,7 +2278,7 @@ class SignalReportArtefactViewSet(
         operation_id="signals_report_artefacts_create",
     )
     def create(self, request: ValidatedRequest, *args, **kwargs) -> Response:
-        report_id = self.parents_query_dict["report_id"]
+        report_id = self._validated_report_id()
         # A deleted / foreign report is unreachable — don't let a known report_id attach
         # artefacts to it. Mirrors the team-scoped filter in `safely_get_queryset`.
         report_exists = (
@@ -1961,6 +2373,7 @@ class SignalReportArtefactViewSet(
             "changes the report's canonical status (latest-wins); to re-assess while keeping history, "
             "append a new artefact instead. Attribution is creation-time only — edits don't reassign it."
         ),
+        parameters=[_REPORT_ID_PARAMETER],
         operation_id="signals_report_artefacts_partial_update",
     )
     def partial_update(self, request: ValidatedRequest, *args, **kwargs) -> Response:
@@ -1991,6 +2404,7 @@ class SignalReportArtefactViewSet(
             "Delete an artefact, addressed by id. Deleting the latest row of a status type reverts "
             "the report's canonical status to the previous version (latest-wins over what remains)."
         ),
+        parameters=[_REPORT_ID_PARAMETER],
         operation_id="signals_report_artefacts_destroy",
     )
     def destroy(self, request, *args, **kwargs) -> Response:
@@ -2014,6 +2428,7 @@ class SignalReportArtefactViewSet(
             "branch via the team's GitHub integration — using the branch's current tip so the diff "
             "reflects the latest state of the work, not just the single recorded commit."
         ),
+        parameters=[_REPORT_ID_PARAMETER],
         operation_id="signals_report_artefacts_diff",
     )
     @action(detail=True, methods=["get"], url_path="diff", required_scopes=["task:read"])

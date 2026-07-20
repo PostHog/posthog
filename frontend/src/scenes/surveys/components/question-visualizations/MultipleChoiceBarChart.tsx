@@ -68,8 +68,8 @@ export function MultipleChoiceBarChart({
             maxCategoryLabelWidth: CATEGORY_LABEL_WIDTH,
             xTickFormatter: (_label, index) => chartData[index]?.label ?? '',
             margins: { top: 4, right: 20, bottom: 4 },
+            barCornerRadius: 3,
             bars: {
-                cornerRadius: 3,
                 minBandSize: 32,
                 valueDomain: [0, 100],
             },

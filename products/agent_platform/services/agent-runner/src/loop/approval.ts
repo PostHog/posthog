@@ -63,6 +63,15 @@ export function approvalMarkerRequestId(msg: ConversationMessage): string | null
 /**
  * Gated-tool `execute`: upsert the queued row, return the synthetic queued
  * result. `terminate` is false — the model reads the envelope and continues.
+ *
+ * Capped at `maxOpenApprovals` open (queued) rows per session
+ * (`spec.limits.max_open_approvals`): a model looping on a gated tool with
+ * distinct args would otherwise flood approvers — args-hash dedupe only
+ * collapses identical calls. An identical re-ask dedupes onto its existing
+ * queued row and is always allowed; only a call that would insert a NEW row
+ * counts against the cap. At the cap the model receives a synthetic
+ * `approval_budget_exhausted` error (no row written, no approver ping) and
+ * continues the turn.
  */
 export async function queueApprovalResult(input: {
     approvals: ApprovalStore
@@ -74,10 +83,47 @@ export async function queueApprovalResult(input: {
     toolCallId: string
     args: Record<string, unknown>
     policy: ApprovalPolicy
+    maxOpenApprovals: number
 }): Promise<AgentToolResult<ToolResultDetails>> {
     const argsHash = hashCanonicalArgs(input.args)
     const previous = await input.approvals.findLatestByArgs(input.session.id, input.toolName, argsHash)
     const lastAssistant = findLastAssistant(input.session.conversation)
+
+    // An identical re-ask (existing `queued` row) is exempt from the cap: it
+    // dedupes onto that row via the partial unique index without growing the
+    // approver queue, so blocking it would spuriously reject a legitimate
+    // retry. Keep the dedupe exemption ahead of the cap check — reordering
+    // them so the cap runs first breaks that. The exemption opens a bounded
+    // TOCTOU: if an approver decides the queued row between `findLatestByArgs`
+    // and `upsertQueued`, the insert no longer conflicts and a new row lands
+    // uncapped (cap+1). It's self-correcting — that same decision freed a slot
+    // — so overshoot is bounded at 1 per concurrent decision.
+    if (previous?.state !== 'queued') {
+        const open = await input.approvals.countQueuedBySession(input.session.id)
+        if (open >= input.maxOpenApprovals) {
+            // Same policy-aware phrasing as the queued path's `approver_hint`:
+            // `agent` policies are decided by an owner/admin, not the session user.
+            const approverHint = input.policy.type === 'agent' ? APPROVER_HINT_AGENT : APPROVER_HINT_PRINCIPAL
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: JSON.stringify({
+                            error: {
+                                code: 'approval_budget_exhausted',
+                                message:
+                                    `this session already has ${open} approval request(s) awaiting a decision ` +
+                                    `(limit ${input.maxOpenApprovals}). The call was NOT queued. Do not re-issue ` +
+                                    `gated calls; the pending requests must be decided by ${approverHint} first.`,
+                            },
+                        }),
+                    },
+                ],
+                details: {},
+                terminate: false,
+            }
+        }
+    }
 
     const upsert = await input.approvals.upsertQueued({
         id: randomUUID(),

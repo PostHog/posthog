@@ -200,6 +200,7 @@ fn setup_ai_test_router() -> Router {
         None,                             // ai_gateway_signing_secret
         AiRouting::Primary,               // ai_routing
         false,                            // ai_events_overflow_enabled
+        None,                             // ingestion_warning_emitter
     )
 }
 
@@ -1666,6 +1667,7 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         None,                             // ai_gateway_signing_secret
         AiRouting::Primary,               // ai_routing
         false,                            // ai_events_overflow_enabled
+        None,                             // ingestion_warning_emitter
     );
 
     (router, sink_clone)
@@ -2584,6 +2586,7 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         None,                             // ai_gateway_signing_secret
         AiRouting::Primary,               // ai_routing
         false,                            // ai_events_overflow_enabled
+        None,                             // ingestion_warning_emitter
     );
 
     (router, sink_clone)
@@ -2797,6 +2800,7 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         None,                             // ai_gateway_signing_secret
         AiRouting::Primary,               // ai_routing
         false,                            // ai_events_overflow_enabled
+        None,                             // ingestion_warning_emitter
     );
 
     (router, sink_clone)
@@ -2955,6 +2959,7 @@ fn setup_ai_test_router_with_overflow_limiter(
         None,               // ai_gateway_signing_secret
         AiRouting::Primary, // ai_routing
         false,              // ai_events_overflow_enabled
+        None,               // ingestion_warning_emitter
     );
 
     (router, sink_clone)
@@ -3097,6 +3102,7 @@ fn ai_router(
         Some(GW_SECRET.to_string()),
         AiRouting::Primary, // ai_routing
         false,              // ai_events_overflow_enabled
+        None,               // ingestion_warning_emitter
     );
     (router, sink_clone)
 }

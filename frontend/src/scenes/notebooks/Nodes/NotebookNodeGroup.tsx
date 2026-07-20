@@ -291,12 +291,6 @@ export const NotebookNodeGroup = createPostHogWidgetNode<NotebookNodeGroupAttrib
         tabId: {},
         placement: {},
     },
-    pasteOptions: {
-        find: urls.group('([0-9]+)', '([^/]+)', false),
-        getAttributes: async (match) => {
-            return { groupTypeIndex: parseInt(match[1]), id: decodeURIComponent(match[2]) }
-        },
-    },
     serializedText: (attrs) => {
         const title = attrs?.title || ''
         const id = attrs?.id || ''

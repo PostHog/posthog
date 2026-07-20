@@ -23,6 +23,7 @@ pub use vm::sync_execute;
 pub use vm::HogVM;
 pub use vm::StepOutcome;
 pub use vm::VmFailure;
+pub use vm::MAX_JSON_SERDE_DEPTH;
 
 // Suspend/resume (async-coroutine) execution and state serialization
 pub use state::Resumable;

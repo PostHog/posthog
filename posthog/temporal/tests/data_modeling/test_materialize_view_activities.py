@@ -29,6 +29,7 @@ from posthog.temporal.data_modeling.activities.materialize_view import (
     _get_aws_storage_options,
 )
 
+from products.data_modeling.backend.facade.api import compute_enrichment_hash
 from products.data_modeling.backend.facade.models import (
     DAG,
     DataModelingJob,
@@ -403,19 +404,28 @@ class TestShouldPauseScheduleForTimeout:
     async def test_streak_ignores_jobs_from_other_engines(self, ateam, asaved_query):
         from posthog.temporal.data_modeling.activities.fail_materialization import should_pause_schedule_for_timeout
 
-        for _ in range(5):
+        jobs = [
             await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="Timeout exceeded")
+            for _ in range(5)
+        ]
         # a more recent duckgres failure must not break the clickhouse timeout streak
-        await _make_job(
-            ateam, asaved_query, DataModelingJob.Status.FAILED, engine=DataModelingJobEngine.DUCKGRES, error="boom"
+        jobs.append(
+            await _make_job(
+                ateam, asaved_query, DataModelingJob.Status.FAILED, engine=DataModelingJobEngine.DUCKGRES, error="boom"
+            )
         )
         current_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.RUNNING)
+        jobs.append(current_job)
 
         should_pause, count = await database_sync_to_async(should_pause_schedule_for_timeout)(
             asaved_query.id, current_job.id
         )
         assert should_pause is True
         assert count == 5
+
+        # DataModelingJob.team is SET_NULL, so it survives the ateam fixture's team teardown.
+        for job in jobs:
+            await database_sync_to_async(job.delete)()
 
 
 class TestNodeSuspension:
@@ -426,9 +436,12 @@ class TestNodeSuspension:
             maybe_suspend_node_for_engine,
         )
 
-        for _ in range(CONSECUTIVE_FAILURES_TO_SUSPEND):
+        jobs = [
             await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom")
+            for _ in range(CONSECUTIVE_FAILURES_TO_SUSPEND)
+        ]
         job = await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom")
+        jobs.append(job)
 
         suspended = await maybe_suspend_node_for_engine(
             node_id=str(anode.id),
@@ -447,12 +460,17 @@ class TestNodeSuspension:
         await database_sync_to_async(job.refresh_from_db)()
         assert "has been suspended" in job.error
 
+        # DataModelingJob.team is SET_NULL, so it survives the ateam fixture's team teardown.
+        for j in jobs:
+            await database_sync_to_async(j.delete)()
+
     async def test_does_not_suspend_when_latest_run_succeeded(self, ateam, anode, asaved_query, adag):
         from posthog.temporal.data_modeling.activities.utils import is_node_suspended, maybe_suspend_node_for_engine
 
-        for _ in range(4):
-            await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom")
-        await _make_job(ateam, asaved_query, DataModelingJob.Status.COMPLETED)
+        jobs = [await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom") for _ in range(4)]
+        jobs.append(await _make_job(ateam, asaved_query, DataModelingJob.Status.COMPLETED))
+        last_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.COMPLETED)
+        jobs.append(last_job)
 
         suspended = await maybe_suspend_node_for_engine(
             node_id=str(anode.id),
@@ -461,19 +479,23 @@ class TestNodeSuspension:
             saved_query_id=asaved_query.id,
             engine=DataModelingJobEngine.CLICKHOUSE,
             reason="boom",
-            job_id=str((await _make_job(ateam, asaved_query, DataModelingJob.Status.COMPLETED)).id),
+            job_id=str(last_job.id),
         )
 
         assert suspended is False
         await database_sync_to_async(anode.refresh_from_db)()
         assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is False
 
+        # DataModelingJob.team is SET_NULL, so it survives the ateam fixture's team teardown.
+        for job in jobs:
+            await database_sync_to_async(job.delete)()
+
     async def test_does_not_restamp_when_already_suspended(self, ateam, anode, asaved_query, adag):
         from posthog.temporal.data_modeling.activities.utils import maybe_suspend_node_for_engine
 
-        for _ in range(5):
-            await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom")
+        jobs = [await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom") for _ in range(5)]
         first_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom")
+        jobs.append(first_job)
         assert await maybe_suspend_node_for_engine(
             node_id=str(anode.id),
             team_id=ateam.pk,
@@ -485,6 +507,7 @@ class TestNodeSuspension:
         )
 
         next_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom again")
+        jobs.append(next_job)
         suspended_again = await maybe_suspend_node_for_engine(
             node_id=str(anode.id),
             team_id=ateam.pk,
@@ -499,16 +522,23 @@ class TestNodeSuspension:
         await database_sync_to_async(next_job.refresh_from_db)()
         assert next_job.error == "boom again"
 
+        # DataModelingJob.team is SET_NULL, so it survives the ateam fixture's team teardown.
+        for job in jobs:
+            await database_sync_to_async(job.delete)()
+
     async def test_engine_suspension_is_independent(self, ateam, anode, asaved_query, adag):
         from posthog.temporal.data_modeling.activities.utils import is_node_suspended, maybe_suspend_node_for_engine
 
-        for _ in range(5):
+        jobs = [
             await _make_job(
                 ateam, asaved_query, DataModelingJob.Status.FAILED, engine=DataModelingJobEngine.DUCKGRES, error="boom"
             )
+            for _ in range(5)
+        ]
         job = await _make_job(
             ateam, asaved_query, DataModelingJob.Status.FAILED, engine=DataModelingJobEngine.DUCKGRES, error="boom"
         )
+        jobs.append(job)
 
         kwargs = {
             "node_id": str(anode.id),
@@ -527,6 +557,10 @@ class TestNodeSuspension:
         # shadow-engine suspension must not stamp customer digest language onto the job
         await database_sync_to_async(job.refresh_from_db)()
         assert job.error == "boom"
+
+        # DataModelingJob.team is SET_NULL, so it survives the ateam fixture's team teardown.
+        for j in jobs:
+            await database_sync_to_async(j.delete)()
 
     async def test_clear_suspension_only_affects_one_engine(self, ateam, anode, adag):
         from posthog.temporal.data_modeling.activities.utils import (
@@ -620,6 +654,36 @@ class TestSucceedMaterializationActivity:
         await database_sync_to_async(anode.refresh_from_db)()
         assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is False
         assert is_node_suspended(anode, DataModelingJobEngine.DUCKGRES) is True
+
+    async def test_flags_enrichment_needed_when_hash_missing(self, activity_environment, ateam, anode, ajob, adag):
+        # A view with no stored enrichment hash (never enriched) must signal the workflow to enrich.
+        inputs = SucceedMaterializationInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+            job_id=str(ajob.id),
+            row_count=1,
+            duration_seconds=1.0,
+        )
+        result = await activity_environment.run(succeed_materialization_activity, inputs)
+        assert result.enrichment_needed is True
+        assert result.saved_query_id == str(anode.saved_query_id)
+
+    async def test_no_enrichment_when_hash_matches(self, activity_environment, ateam, anode, ajob, adag, asaved_query):
+        # A steady-state re-materialization (stored hash still current) must not spawn an enrichment child.
+        await database_sync_to_async(DataWarehouseSavedQuery.objects.filter(id=asaved_query.id).update)(
+            semantic_enrichment_hash=compute_enrichment_hash(asaved_query)
+        )
+        inputs = SucceedMaterializationInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+            job_id=str(ajob.id),
+            row_count=1,
+            duration_seconds=1.0,
+        )
+        result = await activity_environment.run(succeed_materialization_activity, inputs)
+        assert result.enrichment_needed is False
 
 
 class TestPrepareQueryableTableActivity:

@@ -18,6 +18,7 @@ that may have succeeded.
 
 from __future__ import annotations
 
+import re
 import uuid
 import asyncio
 import logging
@@ -45,6 +46,7 @@ from products.signals.backend.artefact_schemas import (
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalScoutRun
 from products.signals.backend.report_generation.resolve_reviewers import get_org_member_github_logins_by_user_uuid
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.scout_harness.prompt import SELF_IMPROVEMENT_REPORT_TITLE_PREFIX
 from products.signals.backend.scout_harness.tools.emit import (
     SCOUT_SIGNAL_WEIGHT,
     # Shared harness gates/attribution — the report channel applies the same preflight as emit.
@@ -59,7 +61,9 @@ from products.signals.backend.scout_report import (
     ScoutReportSignal,
     append_report_note,
     create_scout_report,
+    get_scout_report_title,
     record_report_edit,
+    record_scout_run_task_artefact,
     set_scout_report_reviewers,
     update_scout_report,
 )
@@ -98,10 +102,14 @@ class ReviewerInput:
     Mirrors the inbox `SuggestedReviewerEntryWriteSerializer`: at least one of the two must be set. A
     `user_uuid` is resolved server-side to the org member's linked GitHub login (and wins over a
     supplied `github_login` when both are given), so a scout that only knows a PostHog user — e.g.
-    routing a report to an account owner — can route it without first looking up the handle."""
+    routing a report to an account owner — can route it without first looking up the handle.
+    `reason` is the evidence behind the pick (recent author on the affected surface, human
+    correction, …), persisted on the artefact so the routing is auditable without the run
+    transcript."""
 
     github_login: str | None = None
     user_uuid: str | None = None
+    reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -131,6 +139,10 @@ class EditReportResult:
     updated_fields: list[str]
     note_appended: bool
     reviewers_set: bool = False
+    # The report's effective title after the edit (the rewritten title, or the stored one for a
+    # note/reviewer-only edit) — telemetry-only, so the edited lifecycle event can classify the report
+    # (`_report_classification_props`) even when the edit didn't touch the title.
+    report_title: str | None = None
 
 
 def _surfaced(status: SignalReport.Status) -> bool:
@@ -261,7 +273,7 @@ def _build_suggested_reviewers(team_id: int, reviewers: list[ReviewerInput] | No
     uuids_to_resolve = [str(entry.user_uuid) for entry in reviewers if entry.user_uuid]
     uuid_to_login = get_org_member_github_logins_by_user_uuid(team_id, uuids_to_resolve) if uuids_to_resolve else {}
 
-    logins: list[str] = []
+    entries: list[SuggestedReviewerEntry] = []
     seen: set[str] = set()
     for entry in reviewers:
         if entry.user_uuid:
@@ -278,11 +290,12 @@ def _build_suggested_reviewers(team_id: int, reviewers: list[ReviewerInput] | No
         if login in seen:
             continue
         seen.add(login)
-        logins.append(login)
+        reason = entry.reason.strip() if entry.reason and entry.reason.strip() else None
+        entries.append(SuggestedReviewerEntry(github_login=login, reason=reason))
 
-    if not logins:
+    if not entries:
         return None
-    return SuggestedReviewers(root=[SuggestedReviewerEntry(github_login=login) for login in logins])
+    return SuggestedReviewers(root=entries)
 
 
 def _wants_repo_selection(
@@ -404,6 +417,35 @@ def _clip(value: str | None, limit: int) -> str | None:
     return value[:limit] if value is not None else None
 
 
+# Values of the `report_kind` classification property on the report-channel lifecycle events.
+REPORT_KIND_SELF_IMPROVEMENT = "self_improvement"
+REPORT_KIND_FINDING = "finding"
+
+# Tolerant matcher for `SELF_IMPROVEMENT_REPORT_TITLE_PREFIX` ("Scout self-improvement:"): anchored at
+# the start of the title, but forgiving of the case, spacing, and hyphen drift LLM-authored titles show
+# ("scout self improvement :", "  Scout Self-Improvement:"). A missed match silently undercounts the
+# self-improvement funnel, so lenient-but-anchored beats exact. Keep in sync with the prompt constant.
+_SELF_IMPROVEMENT_TITLE_RE = re.compile(r"^\s*scout\s+self[\s-]?improvement\s*:", re.IGNORECASE)
+# Import-time guard: if the prompt's mandated prefix ever changes shape, classification must be
+# updated with it — fail loudly here rather than silently undercounting.
+assert _SELF_IMPROVEMENT_TITLE_RE.match(SELF_IMPROVEMENT_REPORT_TITLE_PREFIX)
+
+
+def _report_classification_props(effective_title: str | None) -> dict[str, Any]:
+    """Derived classification dimensions stamped on both report-channel lifecycle events (and their
+    customer-facing copies): `report_kind` (enum, breakdown-friendly) + `is_self_improvement_report`
+    (bool, filter-friendly). Classified server-side off the title contract the prompt mandates
+    (`SELF_IMPROVEMENT_REPORT_TITLE_PREFIX`, matched leniently via `_SELF_IMPROVEMENT_TITLE_RE`) rather
+    than scout-declared, so the flag can't be omitted by the model and needs no tool-schema change.
+    This helper is the single extension point for future derived telemetry dimensions — add them here
+    so the emit and edit events never drift apart."""
+    is_self_improvement = _SELF_IMPROVEMENT_TITLE_RE.match(effective_title or "") is not None
+    return {
+        "report_kind": REPORT_KIND_SELF_IMPROVEMENT if is_self_improvement else REPORT_KIND_FINDING,
+        "is_self_improvement_report": is_self_improvement,
+    }
+
+
 def _report_event_base(run: SignalScoutRun) -> dict[str, Any]:
     """Shared dimensions for the report-channel lifecycle events, mirroring the `signals_scout_run_*`
     events so the two join on `run_id` / `task_run_id` — a report event sits under the run that authored
@@ -523,7 +565,9 @@ def _capture_report_emitted(
     carries the report's content (`title` / `summary` / `actionability` / `priority` / `repository` /
     `safety_explanation`) — parity with the signal channel's `signal_emitted`, so internal consumers
     (dashboards, alerts, CDP forwards) can act on a report's substance, not just its ids. Content rides
-    every outcome, including `gate_skipped` (it records what would have been authored). Keyed on the team
+    every outcome, including `gate_skipped` (it records what would have been authored). Also stamped
+    with the derived classification dimensions (`_report_classification_props`) so e.g. self-improvement
+    reports are separable from findings without title heuristics downstream. Keyed on the team
     and carrying the run / task ids so it joins to the run lifecycle events. Best-effort: a capture failure
     must never fail or mask the emit. Accesses `team.organization` — call on a sync thread.
 
@@ -538,6 +582,7 @@ def _capture_report_emitted(
         outcome = "suppressed"
     properties = {
         **_report_event_base(run),
+        **_report_classification_props(title),
         "report_id": result.report_id,
         "status": result.status,
         "outcome": outcome,
@@ -589,10 +634,13 @@ def _capture_report_edited(
     `note_appended` / `reviewers_set` distinguish a title/summary rewrite from a note-only append from a
     reviewer (re-routing) change; `title` / `summary` / `note` carry the content the edit applied (each None
     when that field wasn't touched) — parity with the emit event so a consumer sees *what* changed, not just
-    that something did. Best-effort; never fails the edit. Accesses `team.organization` — call on a sync
+    that something did. Classification (`_report_classification_props`) reads `result.report_title` — the
+    report's effective title after the edit — so a note-only append to a self-improvement report still
+    classifies correctly. Best-effort; never fails the edit. Accesses `team.organization` — call on a sync
     thread. Returns the customer-facing fan-out payload for the caller to forward."""
     properties = {
         **_report_event_base(run),
+        **_report_classification_props(result.report_title),
         "report_id": result.report_id,
         "updated_fields": result.updated_fields,
         "note_appended": result.note_appended,
@@ -906,13 +954,34 @@ def _do_edit_report(
             "reviewers_set": reviewers_set,
         },
     )
+    # Resolve the report's effective title for the edited event's classification — the rewritten title
+    # when this edit set one, else the stored title (one indexed read; the edits above already proved
+    # the report exists for this team). Telemetry-only and best-effort: the edit has already committed,
+    # so a transient read failure here must not fail the call (or skip the tally below) — degrade to an
+    # unclassified event instead.
+    report_title: str | None = title
+    if report_title is None:
+        try:
+            report_title = get_scout_report_title(team_id=team.id, report_id=report_id)
+        except Exception:
+            logger.warning(
+                "signals_scout.edit_report: failed to resolve report title for telemetry",
+                extra={"team_id": team.id, "report_id": report_id},
+            )
     result = EditReportResult(
-        report_id=report_id, updated_fields=updated_fields, note_appended=note_appended, reviewers_set=reviewers_set
+        report_id=report_id,
+        updated_fields=updated_fields,
+        note_appended=note_appended,
+        reviewers_set=reviewers_set,
+        report_title=report_title,
     )
     # Record the edit on the run tally only when something actually changed — a no-op edit (e.g. a
     # title rewrite to its current value) must not claim the run touched the report.
     if updated_fields or note_appended or reviewers_set:
         record_report_edit(team_id=team.id, run_id=run.id, report_id=report_id)
+        # Also link the run itself on the report's work log (deduped), so the editing scout's
+        # transcript is reachable from the report — not just the run-side `edited_report_ids` tally.
+        record_scout_run_task_artefact(team_id=team.id, report_id=report_id, run=run, task_id=attribution.task_id)
     return result
 
 

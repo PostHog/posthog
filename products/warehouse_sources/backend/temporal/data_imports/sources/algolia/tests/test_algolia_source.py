@@ -56,7 +56,6 @@ class TestAlgoliaSource:
         assert config.name.value == "Algolia"
         assert config.label == "Algolia"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.iconPath == "/static/services/algolia.png"
 
         fields = [f for f in config.fields if isinstance(f, SourceFieldInputConfig)]
@@ -154,7 +153,8 @@ class TestAlgoliaSource:
             application_id="APPID",
             api_key="test-key",
             index_name="my_index",
-            logger=inputs.logger,
+            team_id=99,
+            job_id="job-xyz",
             manager=manager,
         )
 

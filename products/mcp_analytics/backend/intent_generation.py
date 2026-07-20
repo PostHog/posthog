@@ -86,14 +86,23 @@ def _build_user_prompt(intents: list[str]) -> str:
     return f"Per-tool-call intents (chronological):\n{numbered}\n\nSummarise the agent's overall goal in at most two short, concrete sentences."
 
 
+def _ensure_llm_available(team: Team) -> None:
+    """Intents are user-authored text, so sending them to the LLM requires the
+    organization's AI data processing consent, same as every other AI-backed flow."""
+    if not settings.OPENAI_API_KEY:
+        raise IntentGenerationUnavailable("OPENAI_API_KEY is not configured")
+    if not team.organization.is_ai_data_processing_approved:
+        raise IntentGenerationUnavailable("AI data processing is not approved for this organization")
+
+
 def summarize_intents(intents: list[str], team: Team) -> str:
     """Condense the intents via the LLM. Blocking — the endpoint runs it inline.
 
-    Raises ``IntentGenerationUnavailable`` when the LLM is unconfigured or the request fails,
-    so the endpoint can answer with a clean 503 rather than a 500.
+    Raises ``IntentGenerationUnavailable`` when the LLM is unconfigured, the organization
+    has not approved AI data processing, or the request fails, so the endpoint can answer
+    with a clean 503 rather than a 500.
     """
-    if not settings.OPENAI_API_KEY:
-        raise IntentGenerationUnavailable("OPENAI_API_KEY is not configured")
+    _ensure_llm_available(team)
 
     client = OpenAI(posthog_client=posthoganalytics.default_client, base_url=settings.OPENAI_BASE_URL)
     try:
@@ -116,3 +125,86 @@ def summarize_intents(intents: list[str], team: Team) -> str:
     if not summary:
         raise IntentGenerationUnavailable("LLM returned an empty summary")
     return summary
+
+
+# Project-level activity digest: what agents are trying to do across the whole
+# server, for the dashboard's low-volume activity stage.
+MAX_DIGEST_INTENTS = 100
+# Bounds the intent scan so the events sort key can prune it. Generous because
+# activity-stage servers are low-volume and their history is short by definition.
+DIGEST_LOOKBACK = timedelta(days=90)
+
+DIGEST_SYSTEM_PROMPT = (
+    "You are given the per-tool-call intents AI agents recorded while using one MCP server, "
+    "most recent first. Summarise what agents are trying to do with this server in at most "
+    "three short sentences. Group similar intents into themes and lead with the most common one. "
+    "Be concrete: name the actual workflows, products, or entities involved — never generic "
+    "phrases like 'various tasks' or 'data exploration'. Do not list tools, echo the input, or add filler."
+)
+
+_PROJECT_INTENTS_SQL = """
+SELECT toString(properties.$mcp_intent) AS intent
+FROM events
+WHERE event = {event}
+    AND timestamp >= {date_from}
+    AND coalesce(properties.$mcp_intent, '') != ''
+ORDER BY timestamp DESC
+LIMIT {limit}
+"""
+
+
+def fetch_recent_project_intents(team: Team) -> list[str]:
+    """Return the project's most recent ``$mcp_intent``s across all sessions, newest first."""
+    query = parse_select(
+        _PROJECT_INTENTS_SQL,
+        placeholders={
+            "event": ast.Constant(value=MCP_TOOL_CALL_EVENT),
+            "date_from": ast.Constant(value=timezone.now() - DIGEST_LOOKBACK),
+            "limit": ast.Constant(value=MAX_DIGEST_INTENTS),
+        },
+    )
+    with tags_context(
+        product=Product.MCP_ANALYTICS, feature=Feature.QUERY, team_id=team.id, name="mcp_analytics_intent_digest"
+    ):
+        response = execute_hogql_query(query=query, team=team)
+    return [str(row[0]) for row in (response.results or []) if row[0]]
+
+
+def _build_digest_prompt(intents: list[str]) -> str:
+    numbered = "\n".join(f"{i + 1}. {intent}" for i, intent in enumerate(intents))
+    return (
+        f"Per-tool-call intents (most recent first):\n{numbered}\n\n"
+        "Summarise what agents are trying to do with this server, in at most three short sentences."
+    )
+
+
+def summarize_project_intents(intents: list[str], team: Team) -> str:
+    """Condense the project's intents into an activity digest. Blocking — the endpoint runs it inline.
+
+    Raises ``IntentGenerationUnavailable`` when the LLM is unconfigured, the organization
+    has not approved AI data processing, or the request fails, so the endpoint can answer
+    with a clean 503 rather than a 500.
+    """
+    _ensure_llm_available(team)
+
+    client = OpenAI(posthog_client=posthoganalytics.default_client, base_url=settings.OPENAI_BASE_URL)
+    try:
+        response = client.chat.completions.create(  # type: ignore
+            model=INTENT_MODEL,
+            temperature=0,
+            max_tokens=140,
+            timeout=30,
+            messages=[
+                {"role": "system", "content": DIGEST_SYSTEM_PROMPT},
+                {"role": "user", "content": _build_digest_prompt(intents)},
+            ],
+            user=f"team/{team.id}/mcp-analytics-intent-digest",
+            posthog_properties={"ai_product": "mcp_analytics", "ai_feature": "activity-intent-digest"},
+        )
+    except openai.OpenAIError as e:
+        raise IntentGenerationUnavailable("LLM request failed") from e
+    content = response.choices[0].message.content if response.choices else None
+    digest = (content or "").strip()
+    if not digest:
+        raise IntentGenerationUnavailable("LLM returned an empty digest")
+    return digest

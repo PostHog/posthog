@@ -2,16 +2,20 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
-import { HedgehogGreek } from '@posthog/brand/hoggies'
-import { LemonCollapse, LemonInput, LemonModal, LemonTable, ProfilePicture, Spinner } from '@posthog/lemon-ui'
+import * as greekPng from '@posthog/brand/hoggies/png/greek'
+import { LemonCollapse, LemonInput, LemonTable, ProfilePicture, Spinner } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { TZLabel } from 'lib/components/TZLabel'
 
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
+import { EmailViewerModal } from './EmailViewerModal'
 import { HogFlowBatchJob } from './hogflows/types'
 import { MessageAsset } from './messageAssetsApi'
 import { workflowAssetsLogic } from './workflowAssetsLogic'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
+
+const HedgehogGreek = pngHoggie(greekPng)
 
 function EmptyAssets(): JSX.Element {
     return (
@@ -27,27 +31,19 @@ function EmptyAssets(): JSX.Element {
 
 function AssetViewerModal({ workflowId, parentRunId, actionId, invocationId }: AssetsTableProps): JSX.Element {
     const logic = workflowAssetsLogic({ id: workflowId, parentRunId, actionId, invocationId })
-    const { selectedAsset, contentUrl } = useValues(logic)
+    const { selectedAsset } = useValues(logic)
     const { closeAsset } = useActions(logic)
 
     return (
-        <LemonModal
+        <EmailViewerModal
+            workflowId={workflowId}
+            invocationId={selectedAsset?.invocation_id ?? ''}
+            actionId={selectedAsset?.action_id ?? ''}
             isOpen={!!selectedAsset}
             onClose={closeAsset}
-            width={720}
             title={selectedAsset?.subject || 'Email'}
             description={selectedAsset ? `Sent to ${selectedAsset.recipient}` : undefined}
-        >
-            {selectedAsset ? (
-                // sandbox="" disables scripts so the captured email HTML can't run anything.
-                <iframe
-                    title="Rendered email"
-                    sandbox=""
-                    src={contentUrl(selectedAsset)}
-                    className="w-full h-[60vh] bg-white rounded border"
-                />
-            ) : null}
-        </LemonModal>
+        />
     )
 }
 

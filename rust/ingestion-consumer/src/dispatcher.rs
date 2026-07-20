@@ -1,12 +1,29 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use k8s_awareness::PeerTracker;
 use metrics::{counter, gauge, histogram};
 
+use crate::aperture;
+use crate::debug_recorder::{
+    record_if, DebugEventKind, DebugRecorder, DispatcherLoad, LoadEntry, SubBatchInfo,
+};
+use crate::order_sentinel::KeyOrderSentinel;
 use crate::routing::{Router, RoutingStrategy, WorkerLoad};
 use crate::stash::{DeferredGroup, Stash};
 use crate::types::SerializedKafkaMessage;
 use crate::worker_registry::{WorkerId, WorkerRegistry};
+
+/// The max offset a sub-batch carries for one routing key, over keyed
+/// messages only (null-key offsets live on arbitrary partitions and carry no
+/// per-key order promise). Passed back via
+/// [`Dispatcher::on_sub_batch_acked`] when the worker ACKs, so the
+/// [`KeyOrderSentinel`] can advance the key's ACK high-water mark.
+#[derive(Clone)]
+pub struct KeyOffset {
+    pub routing_key: String,
+    pub max_offset: i64,
+}
 
 /// A slice of a batch assigned to one worker, carrying the messages and the
 /// routing keys of all distinct_ids included. Routing keys are needed to
@@ -17,6 +34,9 @@ pub struct SubBatch {
     /// Unique routing keys contained in this sub-batch. Pass back to
     /// `Dispatcher::on_sub_batch_resolved` on ACK or DLQ.
     pub routing_keys: Vec<String>,
+    /// Per-key max offsets. Pass back to `Dispatcher::on_sub_batch_acked` on
+    /// a successful ACK (only) so the order sentinel tracks ACK progress.
+    pub key_offsets: Vec<KeyOffset>,
 }
 
 /// Sticky pin for one routing key. Tracks which worker owns the key and how
@@ -59,6 +79,7 @@ struct MessageGroup {
 struct WorkerSubBatchBuilder {
     messages: Vec<SerializedKafkaMessage>,
     routing_keys: Vec<String>,
+    key_offsets: Vec<KeyOffset>,
 }
 
 impl WorkerSubBatchBuilder {
@@ -88,10 +109,38 @@ impl WorkerAssignments {
             .or_insert_with(|| WorkerSubBatchBuilder {
                 messages: Vec::new(),
                 routing_keys: Vec::new(),
+                key_offsets: Vec::new(),
             });
 
+        // Only keyed messages participate in the key-order sentinel: a
+        // null-key message lives on an arbitrary partition, so its offset
+        // must not advance the key's ACK watermark.
+        if let Some(max_offset) = group
+            .messages
+            .iter()
+            .filter(|m| m.key.is_some())
+            .map(|m| m.offset)
+            .max()
+        {
+            builder.key_offsets.push(KeyOffset {
+                routing_key: group.routing_key.clone(),
+                max_offset,
+            });
+        }
         builder.messages.extend(group.messages);
         builder.routing_keys.push(group.routing_key);
+    }
+
+    fn sub_batch_infos(&self) -> Vec<SubBatchInfo> {
+        self.by_worker
+            .iter()
+            .filter(|(_, builder)| !builder.is_empty())
+            .map(|(worker, builder)| SubBatchInfo {
+                worker: worker.to_string(),
+                messages: builder.message_count(),
+                distinct_ids: builder.routing_keys.len(),
+            })
+            .collect()
     }
 
     fn routed_counts(&self) -> impl Iterator<Item = (WorkerId, usize)> + '_ {
@@ -109,6 +158,7 @@ impl WorkerAssignments {
                 worker,
                 messages: builder.messages,
                 routing_keys: builder.routing_keys,
+                key_offsets: builder.key_offsets,
             })
             .collect()
     }
@@ -133,6 +183,16 @@ pub struct Dispatcher {
     /// Worker selector for unpinned keys. Behind its own mutex because P2C
     /// selection mutates the RNG.
     router: Mutex<Router>,
+    /// Per-key send/ACK order checker. Called under the pin-table lock (lock
+    /// order: pin_table → sentinel; the sentinel never takes the pin table),
+    /// so its check order matches the intended per-key send order.
+    key_sentinel: Arc<KeyOrderSentinel>,
+    /// Peer tracker + aperture width for [`RoutingStrategy::Aperture`]: this
+    /// dispatcher's ring slice is derived from its agreed peer index. `None`
+    /// (or a not-yet-known peer index) falls back to the full healthy pool.
+    aperture: Option<(Arc<PeerTracker>, usize)>,
+    /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
+    debug_recorder: Option<Arc<DebugRecorder>>,
 }
 
 impl Dispatcher {
@@ -147,6 +207,9 @@ impl Dispatcher {
             pin_table: Mutex::new(PinTable::new()),
             registry,
             router: Mutex::new(Router::new(strategy)),
+            key_sentinel: Arc::new(KeyOrderSentinel::new()),
+            aperture: None,
+            debug_recorder: None,
         }
     }
 
@@ -161,6 +224,48 @@ impl Dispatcher {
             pin_table: Mutex::new(PinTable::new()),
             registry,
             router: Mutex::new(Router::with_seed(strategy, seed)),
+            key_sentinel: Arc::new(KeyOrderSentinel::new()),
+            aperture: None,
+            debug_recorder: None,
+        }
+    }
+
+    /// The per-key order sentinel, shared with the consumer's rdkafka context
+    /// so rebalances can reset its baselines.
+    pub fn key_order_sentinel(&self) -> Arc<KeyOrderSentinel> {
+        Arc::clone(&self.key_sentinel)
+    }
+
+    /// Enable deterministic-aperture candidate narrowing: unpinned keys route
+    /// within this dispatcher's slice of the worker ring, `min_aperture` wide.
+    /// Only consulted under [`RoutingStrategy::Aperture`]. Call before the
+    /// dispatcher is shared.
+    pub fn set_aperture(&mut self, tracker: Arc<PeerTracker>, min_aperture: usize) {
+        self.aperture = Some((tracker, min_aperture.max(1)));
+    }
+
+    /// Inject the debug UI recorder. Call before the dispatcher is shared.
+    pub fn set_debug_recorder(&mut self, recorder: Arc<DebugRecorder>) {
+        self.debug_recorder = Some(recorder);
+    }
+
+    /// Point-in-time load/pin/stash snapshot for the debug UI.
+    pub fn debug_load(&self) -> DispatcherLoad {
+        let table = self.pin_table.lock().unwrap();
+        let per_worker: Vec<LoadEntry> = table
+            .in_flight
+            .iter()
+            .map(|(worker, in_flight)| LoadEntry {
+                worker: worker.to_string(),
+                in_flight: *in_flight,
+            })
+            .collect();
+        DispatcherLoad {
+            total_in_flight: per_worker.iter().map(|e| e.in_flight).sum(),
+            per_worker,
+            pin_count: table.pins.len(),
+            stashed_messages: table.stash.message_count(),
+            stashed_batches: table.stash.batch_count(),
         }
     }
 
@@ -190,7 +295,8 @@ impl Dispatcher {
                 .increment(missing_header_count);
         }
 
-        histogram!("ingestion_consumer_distinct_ids_per_batch").record(key_groups.len() as f64);
+        let distinct_ids = key_groups.len();
+        histogram!("ingestion_consumer_distinct_ids_per_batch").record(distinct_ids as f64);
 
         let mut assignments = WorkerAssignments::new();
 
@@ -219,6 +325,8 @@ impl Dispatcher {
                     // ahead of it — honor it.
                     table.pins.get_mut(&group.routing_key).unwrap().ref_count += 1;
                     bump_load(&mut working_load, &worker, group.messages.len());
+                    self.key_sentinel
+                        .note_sent(&group.routing_key, &group.messages);
                     assignments.add_group(worker, group);
                 }
                 Some(_) => {
@@ -260,8 +368,29 @@ impl Dispatcher {
             unpinned_groups.sort_unstable_by(|a, b| b.messages.len().cmp(&a.messages.len()));
         }
 
+        // Aperture: narrow the candidates to this dispatcher's ring slice, so
+        // the fleet's slices tile the pool and each batch consolidates onto
+        // few workers. Falls back to the full healthy pool while the peer set
+        // is unknown (startup, peer awareness disabled).
+        let narrowed = if router.strategy() == RoutingStrategy::Aperture {
+            self.aperture.as_ref().and_then(|(tracker, width)| {
+                let peers = tracker.snapshot();
+                let ring = aperture::sorted_ring(self.registry.workers());
+                aperture::ring_slice(
+                    &ring,
+                    &healthy,
+                    peers.self_index,
+                    peers.peer_count(),
+                    *width,
+                )
+            })
+        } else {
+            None
+        };
+        let candidates: &[WorkerId] = narrowed.as_deref().unwrap_or(&healthy);
+
         for group in unpinned_groups {
-            let Some(worker) = router.select(&healthy, &working_load) else {
+            let Some(worker) = router.select(candidates, &working_load) else {
                 // No routable worker right now (e.g. the whole pool is draining
                 // during a deploy overlap). Stash the group so the flush loop
                 // can route it once a worker returns — dropping it would fail
@@ -288,6 +417,8 @@ impl Dispatcher {
                     ref_count: 1,
                 },
             );
+            self.key_sentinel
+                .note_sent(&group.routing_key, &group.messages);
             assignments.add_group(worker, group);
         }
         drop(router);
@@ -323,6 +454,28 @@ impl Dispatcher {
         }
         gauge!("ingestion_consumer_dispatcher_pins_total").set(table.pins.len() as f64);
         record_stash_gauges(&table.stash);
+
+        if deferred_count > 0 {
+            record_if(&self.debug_recorder, || DebugEventKind::Deferred {
+                batch_id: batch_id.to_string(),
+                reason: "drain",
+                groups: deferred_count,
+            });
+        }
+        if unroutable_deferred_count > 0 {
+            record_if(&self.debug_recorder, || DebugEventKind::Deferred {
+                batch_id: batch_id.to_string(),
+                reason: "unroutable",
+                groups: unroutable_deferred_count,
+            });
+        }
+        record_if(&self.debug_recorder, || DebugEventKind::BatchAssigned {
+            batch_id: batch_id.to_string(),
+            distinct_ids,
+            sub_batches: assignments.sub_batch_infos(),
+            deferred_groups: deferred_count,
+            unroutable_groups: unroutable_deferred_count,
+        });
 
         assignments.into_sub_batches()
     }
@@ -387,6 +540,11 @@ impl Dispatcher {
                 "reason" => "send_failed",
             )
             .increment(deferred_count);
+            record_if(&self.debug_recorder, || DebugEventKind::Deferred {
+                batch_id: batch_id.to_string(),
+                reason: "send_failed",
+                groups: deferred_count,
+            });
         }
         record_stash_gauges(&table.stash);
     }
@@ -455,6 +613,8 @@ impl Dispatcher {
                     );
                 }
             }
+            self.key_sentinel
+                .note_sent(&group.routing_key, &group.messages);
             assignments.add_group(
                 worker,
                 MessageGroup {
@@ -476,6 +636,13 @@ impl Dispatcher {
         gauge!("ingestion_consumer_dispatcher_pins_total").set(table.pins.len() as f64);
         record_stash_gauges(&table.stash);
 
+        if !assignments.by_worker.is_empty() {
+            record_if(&self.debug_recorder, || DebugEventKind::DeferredFlushed {
+                batch_id: batch_id.to_string(),
+                sub_batches: assignments.sub_batch_infos(),
+            });
+        }
+
         assignments.into_sub_batches()
     }
 
@@ -489,6 +656,16 @@ impl Dispatcher {
     /// deferral count, so the key keeps deferring newer messages from the moment
     /// it was first deferred until its flushed messages have actually landed —
     /// closing the window where a newer batch could race them.
+    /// Call when a worker ACKed a sub-batch (success path only, **before**
+    /// `on_sub_batch_resolved` so the sentinel state isn't evicted first).
+    /// Advances each key's ACK high-water mark in the order sentinel.
+    pub fn on_sub_batch_acked(&self, key_offsets: &[KeyOffset]) {
+        for key_offset in key_offsets {
+            self.key_sentinel
+                .note_acked(&key_offset.routing_key, key_offset.max_offset);
+        }
+    }
+
     pub fn on_sub_batch_resolved(
         &self,
         worker: &WorkerId,
@@ -535,6 +712,9 @@ impl Dispatcher {
                 pin.ref_count = pin.ref_count.saturating_sub(1);
                 if pin.ref_count == 0 && !still_deferring {
                     table.pins.remove(key);
+                    // All sends for the key resolved and nothing is deferred —
+                    // its order-sentinel history has nothing left to check.
+                    self.key_sentinel.evict(key);
                     evictions += 1;
                 }
             }
@@ -549,6 +729,14 @@ impl Dispatcher {
         }
 
         gauge!("ingestion_consumer_dispatcher_pins_total").set(table.pins.len() as f64);
+        drop(table);
+
+        record_if(&self.debug_recorder, || DebugEventKind::SubBatchResolved {
+            worker: worker.to_string(),
+            messages: message_count,
+            distinct_ids: routing_keys.len(),
+            cleared_deferral: clears_deferral,
+        });
     }
 
     /// Record the outcome of a send attempt for passive health tracking.
@@ -644,7 +832,7 @@ mod tests {
             partition: 0,
             offset: 0,
             timestamp: 0,
-            key: None,
+            key: Some(format!("{token}:{distinct_id}")),
             value: None,
             headers,
         }
@@ -778,6 +966,47 @@ mod tests {
             sub_batches[0].routing_keys,
             vec!["tok:user-1".to_string(), "tok:user-2".to_string()]
         );
+    }
+
+    #[test]
+    fn test_key_offsets_only_track_keyed_messages() {
+        // A null-key (overflow) message lands on an arbitrary partition; its
+        // offset advancing the ACK watermark would make the next keyed send
+        // look like a resend_after_ack.
+        let keyed = SerializedKafkaMessage {
+            offset: 100,
+            ..make_msg("tok", "user-1")
+        };
+        let unkeyed = SerializedKafkaMessage {
+            key: None,
+            partition: 1,
+            offset: 5000,
+            ..make_msg("tok", "user-1")
+        };
+
+        let mut assignments = WorkerAssignments::new();
+        assignments.add_group(
+            wid(1),
+            MessageGroup {
+                routing_key: "tok:user-1".to_string(),
+                messages: vec![keyed, unkeyed.clone()],
+            },
+        );
+        let sub_batches = assignments.into_sub_batches();
+        assert_eq!(sub_batches[0].key_offsets.len(), 1);
+        assert_eq!(sub_batches[0].key_offsets[0].routing_key, "tok:user-1");
+        assert_eq!(sub_batches[0].key_offsets[0].max_offset, 100);
+
+        // An all-unkeyed group produces no ACK watermark at all.
+        let mut assignments = WorkerAssignments::new();
+        assignments.add_group(
+            wid(1),
+            MessageGroup {
+                routing_key: "tok:user-1".to_string(),
+                messages: vec![unkeyed],
+            },
+        );
+        assert!(assignments.into_sub_batches()[0].key_offsets.is_empty());
     }
 
     // ---- basic assignment ----
@@ -1129,6 +1358,108 @@ mod tests {
         assert!(b.is_empty());
     }
 
+    // ---- deterministic aperture ----
+
+    fn peer_tracker(self_ip: &str, peer_ips: &[&str]) -> Arc<PeerTracker> {
+        let tracker = PeerTracker::new(self_ip.parse().unwrap());
+        tracker.set_peers(&peer_ips.iter().map(|ip| ip.parse().unwrap()).collect());
+        tracker
+    }
+
+    #[test]
+    fn test_aperture_routes_unpinned_keys_within_ring_slice() {
+        // Peer 1 of 2 over a 6-worker ring, configured width 2 floored to
+        // ceil(6/2)=3 for coverage, owns ring positions 3-5; every fresh key
+        // must land there, nowhere else.
+        let mut dispatcher =
+            Dispatcher::with_strategy(healthy_registry(6), RoutingStrategy::Aperture);
+        dispatcher.set_aperture(peer_tracker("10.0.0.2", &["10.0.0.1", "10.0.0.2"]), 2);
+
+        let msgs: Vec<_> = (0..10).map(|i| make_msg("t", &format!("u{i}"))).collect();
+        let sub_batches = dispatcher.assign("b", msgs);
+
+        let total: usize = sub_batches.iter().map(|b| b.messages.len()).sum();
+        assert_eq!(total, 10);
+        assert!(
+            sub_batches
+                .iter()
+                .all(|b| b.worker == wid(3) || b.worker == wid(4) || b.worker == wid(5)),
+            "all sub-batches must stay within the dispatcher's ring slice"
+        );
+    }
+
+    #[test]
+    fn test_aperture_slices_tile_across_peers_without_overlap() {
+        // Two dispatchers with complementary indices must route into disjoint
+        // slices — the property that keeps the fleet covering the whole pool.
+        let keys: Vec<_> = (0..10).map(|i| format!("u{i}")).collect();
+        let mut used: Vec<Vec<WorkerId>> = Vec::new();
+        for self_ip in ["10.0.0.1", "10.0.0.2"] {
+            let mut dispatcher =
+                Dispatcher::with_strategy(healthy_registry(6), RoutingStrategy::Aperture);
+            dispatcher.set_aperture(peer_tracker(self_ip, &["10.0.0.1", "10.0.0.2"]), 2);
+            let msgs: Vec<_> = keys.iter().map(|k| make_msg("t", k)).collect();
+            used.push(
+                dispatcher
+                    .assign("b", msgs)
+                    .iter()
+                    .map(|b| b.worker.clone())
+                    .collect(),
+            );
+        }
+        assert!(
+            used[0].iter().all(|w| !used[1].contains(w)),
+            "peer slices must not overlap: {used:?}"
+        );
+    }
+
+    #[test]
+    fn test_aperture_falls_back_to_full_pool_while_self_unknown() {
+        // Before this pod is a ready endpoint (self_index None), aperture must
+        // not stall or funnel everything through a guessed slice — it routes
+        // over the full pool like plain P2C.
+        let mut dispatcher =
+            Dispatcher::with_strategy_seeded(healthy_registry(4), RoutingStrategy::Aperture, 7);
+        dispatcher.set_aperture(peer_tracker("10.0.0.9", &["10.0.0.1", "10.0.0.2"]), 1);
+
+        let msgs: Vec<_> = (0..30).map(|i| make_msg("t", &format!("u{i}"))).collect();
+        let sub_batches = dispatcher.assign("b", msgs);
+
+        let total: usize = sub_batches.iter().map(|b| b.messages.len()).sum();
+        assert_eq!(total, 30, "no messages may be dropped or stalled");
+        assert!(
+            sub_batches.len() > 1,
+            "fallback must spread beyond a single-worker slice"
+        );
+    }
+
+    #[test]
+    fn test_aperture_honors_pin_outside_ring_slice() {
+        // Peer 1 of 2 over a 6-worker ring owns ring positions 3-5. A key
+        // pinned to worker 0 — outside the slice — must keep routing there:
+        // the slice narrows candidates for *fresh* keys only, and rerouting
+        // a pinned key would break per-key ordering.
+        let mut dispatcher =
+            Dispatcher::with_strategy(healthy_registry(6), RoutingStrategy::Aperture);
+        dispatcher.set_aperture(peer_tracker("10.0.0.2", &["10.0.0.1", "10.0.0.2"]), 2);
+        dispatcher.pin_table.lock().unwrap().pins.insert(
+            "t:pinned".to_string(),
+            Pin {
+                worker: wid(0),
+                ref_count: 1,
+            },
+        );
+
+        let sub_batches = dispatcher.assign("b", make_msgs(&[("t", "pinned")]));
+
+        assert_eq!(sub_batches.len(), 1);
+        assert_eq!(
+            sub_batches[0].worker,
+            wid(0),
+            "pinned key must stay on its out-of-slice worker"
+        );
+    }
+
     // ---- graceful drain ----
 
     #[test]
@@ -1286,6 +1617,47 @@ mod tests {
             !dispatcher.has_deferred("batch-2"),
             "nothing left after flush"
         );
+    }
+
+    #[test]
+    fn test_flush_deferred_records_debug_event() {
+        let registry = healthy_registry(2);
+        let mut dispatcher = Dispatcher::new(Arc::clone(&registry));
+        let recorder = DebugRecorder::new(100, Duration::from_secs(60));
+        dispatcher.set_debug_recorder(Arc::clone(&recorder));
+
+        let b1 = dispatcher.assign("batch-1", make_msgs(&[("t", "user-1")]));
+        let pinned = b1[0].worker.clone();
+        registry.start_draining(&pinned);
+        assert!(dispatcher
+            .assign("batch-2", make_msgs(&[("t", "user-1")]))
+            .is_empty());
+        dispatcher.on_sub_batch_resolved(&pinned, b1[0].messages.len(), &b1[0].routing_keys, false);
+
+        let flushed = dispatcher.flush_deferred("batch-2");
+        assert_eq!(flushed.len(), 1);
+
+        let flush_events: Vec<_> = recorder
+            .backlog()
+            .into_iter()
+            .filter_map(|e| match e.kind {
+                DebugEventKind::DeferredFlushed {
+                    batch_id,
+                    sub_batches,
+                } => Some((batch_id, sub_batches)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            flush_events.len(),
+            1,
+            "flush_deferred must record a DeferredFlushed debug event"
+        );
+        let (batch_id, sub_batches) = &flush_events[0];
+        assert_eq!(batch_id, "batch-2");
+        assert_eq!(sub_batches.len(), 1);
+        assert_eq!(sub_batches[0].worker, flushed[0].worker.to_string());
+        assert_eq!(sub_batches[0].messages, 1);
     }
 
     #[test]

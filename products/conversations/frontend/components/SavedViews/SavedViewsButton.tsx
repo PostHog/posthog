@@ -1,18 +1,37 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { IconBookmark } from '@posthog/icons'
+import { IconBookmark, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { supportTicketsSceneLogic } from '../../scenes/tickets/supportTicketsSceneLogic'
 import { SavedViewsModal } from './SavedViewsModal'
 import { type TicketViewsLogicProps, ticketViewsLogic } from './ticketViewsLogic'
 
 function SavedViewsButtonInner({ id }: TicketViewsLogicProps): JSX.Element {
     const { openModal } = useActions(ticketViewsLogic({ id }))
+    const { activeView } = useValues(supportTicketsSceneLogic)
+    const { resetFilters } = useActions(supportTicketsSceneLogic)
 
     return (
         <>
-            <LemonButton size="small" type="secondary" icon={<IconBookmark />} onClick={openModal}>
-                Saved views
+            <LemonButton
+                size="small"
+                type="secondary"
+                icon={<IconBookmark />}
+                onClick={openModal}
+                active={!!activeView}
+                tooltip={activeView ? `Viewing "${activeView.name}"` : undefined}
+                sideAction={
+                    activeView
+                        ? {
+                              icon: <IconX />,
+                              onClick: resetFilters,
+                              tooltip: 'Clear view and reset filters',
+                          }
+                        : undefined
+                }
+            >
+                {activeView ? <span className="max-w-50 truncate">{activeView.name}</span> : 'Saved views'}
             </LemonButton>
             <SavedViewsModal id={id} />
         </>

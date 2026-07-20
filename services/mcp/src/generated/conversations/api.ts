@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 5 enabled ops
+ * PostHog API - MCP 6 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -24,7 +24,7 @@ export const ConversationsTicketsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            'Filter by assignee. Use `unassigned` for tickets with no assignee, `user:<user_id>` for a specific user, or `role:<role_uuid>` for a role.'
+            'Filter by assignee. Accepts a single value or a comma-separated list (matches any, max 100 entries). Each entry is `unassigned` (no assignee), `user:<user_id>`, or `role:<role_uuid>`, e.g. `assignee=unassigned,user:123`.'
         ),
     channel_detail: zod
         .enum([
@@ -67,7 +67,7 @@ export const ConversationsTicketsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            'Filter by priority. Accepts a single value or a comma-separated list (e.g. `medium,high`). Valid values: `low`, `medium`, `high`.'
+            'Filter by priority. Accepts a single value or a comma-separated list (e.g. `medium,high`). Valid values: `low`, `medium`, `high`, `critical`.'
         ),
     search: zod
         .string()
@@ -141,13 +141,15 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
             ),
         priority: zod
             .union([
-                zod.enum(['low', 'medium', 'high']).describe('* `low` - Low\n* `medium` - Medium\n* `high` - High'),
+                zod
+                    .enum(['low', 'medium', 'high', 'critical'])
+                    .describe('* `low` - Low\n* `medium` - Medium\n* `high` - High\n* `critical` - Critical'),
                 zod.enum(['']),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Ticket priority: low, medium, or high. Null if unset.\n\n* `low` - Low\n* `medium` - Medium\n* `high` - High'
+                'Ticket priority: low, medium, high, or critical. Null if unset.\n\n* `low` - Low\n* `medium` - Medium\n* `high` - High\n* `critical` - Critical'
             ),
         sla_due_at: zod.iso
             .datetime({ offset: true })
@@ -207,3 +209,16 @@ export const ConversationsTicketsReplyCreateBody = /* @__PURE__ */ zod
         rich_content: zod.unknown().optional().describe('Optional TipTap rich content JSON for formatted messages.'),
     })
     .describe('Payload for posting a reply or internal note to a ticket.')
+
+export const ConversationsViewsListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ConversationsViewsListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})

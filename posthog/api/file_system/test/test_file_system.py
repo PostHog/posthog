@@ -7,11 +7,15 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
 from posthog.api.file_system.file_system import DELETE_PREVIEW_ENTRY_LIMIT
-from posthog.models import Project, Team, User
+from posthog.models import OrganizationMembership, Project, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.file_system.file_system import FileSystem
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
@@ -1269,6 +1273,136 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         # staff user sees everything
         self.assertIn("Docs/FileA", paths)
         self.assertIn("Docs/FileB", paths)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_list_annotates_resolved_user_access_level(self, mock_flag):
+        blocked_dashboard = Dashboard.objects.create(team=self.team, name="Blocked", created_by=self.other_user)
+        FileSystem.objects.create(
+            team=self.team,
+            path="Docs/Blocked",
+            depth=2,
+            type="dashboard",
+            ref=str(blocked_dashboard.pk),
+            created_by=self.other_user,
+        )
+        # Resource-level "none" doesn't exclude rows from the tree, so the annotation is
+        # what tells the UI to grey them out
+        self._create_access_control(resource="dashboard", resource_id=None, access_level="none")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        levels = {item["path"]: item["user_access_level"] for item in response.json()["results"]}
+        self.assertEqual(levels["Docs/FileA"], "manager")  # creator keeps access
+        # file_b's tree row was created by someone else, but the user created the dashboard itself
+        self.assertEqual(levels["Docs/FileB"], "manager")
+        self.assertEqual(levels["Docs/Blocked"], "none")
+        self.assertIsNone(levels["Docs"])  # folders have no access controls
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_annotates_short_id_refs_via_pk_keyed_grants(self, mock_flag):
+        insight = Insight.objects.create(team=self.team, name="Granted insight", created_by=self.other_user)
+        FileSystem.objects.create(
+            team=self.team,
+            path="Docs/Granted insight",
+            depth=2,
+            type="insight",
+            ref=insight.short_id,
+            created_by=self.other_user,
+        )
+        self._create_access_control(resource="insight", resource_id=None, access_level="none")
+        membership = OrganizationMembership.objects.get(organization=self.organization, user=self.user)
+        # AccessControl rows are keyed by pk while insight file system refs are short_ids
+        self._create_access_control(
+            resource="insight",
+            resource_id=str(insight.pk),
+            access_level="viewer",
+            organization_member=membership,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        levels = {item["path"]: item["user_access_level"] for item in response.json()["results"]}
+        self.assertEqual(levels["Docs/Granted insight"], "viewer")
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_access_level_annotation_queries_do_not_scale_with_rows(self, mock_flag):
+        def create_entries(suffix: str) -> None:
+            dashboard = Dashboard.objects.create(team=self.team, name=f"D{suffix}", created_by=self.other_user)
+            insight = Insight.objects.create(team=self.team, name=f"I{suffix}", created_by=self.other_user)
+            FileSystem.objects.create(
+                team=self.team,
+                path=f"Docs/D{suffix}",
+                depth=2,
+                type="dashboard",
+                ref=str(dashboard.pk),
+                created_by=self.other_user,
+            )
+            FileSystem.objects.create(
+                team=self.team,
+                path=f"Docs/I{suffix}",
+                depth=2,
+                type="insight",
+                ref=insight.short_id,
+                created_by=self.other_user,
+            )
+
+        create_entries("1")
+        list_url = f"/api/projects/{self.team.id}/file_system/"
+        self.client.get(list_url)  # warm up session-dependent queries
+
+        # Clear the ref->pk cache before each measurement so both runs exercise the cold path
+        # (a single batched translation query) - otherwise a warm cache would skip it entirely
+        # and the counts would differ for cache-warmth reasons rather than row count.
+        cache.clear()
+        with CaptureQueriesContext(connection) as small_ctx:
+            self.client.get(list_url)
+
+        for i in range(2, 6):
+            create_entries(str(i))
+
+        cache.clear()
+        with CaptureQueriesContext(connection) as large_ctx:
+            self.client.get(list_url)
+
+        self.assertEqual(len(small_ctx), len(large_ctx))
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_warm_ref_pk_cache_skips_short_id_translation_query(self, mock_flag):
+        insight = Insight.objects.create(team=self.team, name="Cached insight", created_by=self.other_user)
+        FileSystem.objects.create(
+            team=self.team,
+            path="Docs/Cached insight",
+            depth=2,
+            type="insight",
+            ref=insight.short_id,
+            created_by=self.other_user,
+        )
+        membership = OrganizationMembership.objects.get(organization=self.organization, user=self.user)
+        # Granted by pk, while the file system ref is the short_id - so resolving it needs the translation
+        self._create_access_control(
+            resource="insight",
+            resource_id=str(insight.pk),
+            access_level="viewer",
+            organization_member=membership,
+        )
+        list_url = f"/api/projects/{self.team.id}/file_system/"
+        self.client.get(list_url)  # warm up session-dependent queries
+
+        cache.clear()
+        with CaptureQueriesContext(connection) as cold_ctx:
+            cold = self.client.get(list_url)
+        with CaptureQueriesContext(connection) as warm_ctx:
+            warm = self.client.get(list_url)
+
+        # Access level is resolved identically whether the pk came from the DB or the cache
+        cold_level = {i["path"]: i["user_access_level"] for i in cold.json()["results"]}["Docs/Cached insight"]
+        warm_level = {i["path"]: i["user_access_level"] for i in warm.json()["results"]}["Docs/Cached insight"]
+        self.assertEqual(cold_level, "viewer")
+        self.assertEqual(warm_level, "viewer")
+        # The warm request skips the short_id->pk translation query the cold request had to run
+        self.assertLess(len(warm_ctx), len(cold_ctx))
 
     def test_created_at_filters(self):
         """

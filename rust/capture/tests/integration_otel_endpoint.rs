@@ -190,6 +190,7 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         None,             // ai_gateway_signing_secret
         AiRouting::Primary, // ai_routing
         false,            // ai_events_overflow_enabled
+        None,             // ingestion_warning_emitter
     );
 
     TestClient::new(app)

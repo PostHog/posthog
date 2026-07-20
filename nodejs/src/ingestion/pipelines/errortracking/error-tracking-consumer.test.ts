@@ -8,8 +8,6 @@ import { KafkaConsumer } from '~/common/kafka/consumer/consumer-v1'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
-import { PostgresUse } from '~/common/utils/db/postgres'
-import { ErrorTrackingSettingsManager } from '~/common/utils/error-tracking-settings-manager'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
@@ -144,29 +142,13 @@ describe('ErrorTrackingConsumer', () => {
             cymbalTimeoutMs: infra.config.ERROR_TRACKING_CYMBAL_TIMEOUT_MS,
             cymbalMaxBodyBytes: infra.config.ERROR_TRACKING_CYMBAL_MAX_BODY_BYTES,
             lane: infra.config.INGESTION_LANE ?? ('main' as const),
-            overflowEnabled:
-                !!infra.config.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC &&
-                infra.config.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC !==
-                    infra.config.ERROR_TRACKING_CONSUMER_CONSUME_TOPIC,
+            overflowMode: infra.config.INGESTION_OVERFLOW_MODE,
             overflowBucketCapacity: infra.config.ERROR_TRACKING_OVERFLOW_BUCKET_CAPACITY,
             overflowBucketReplenishRate: infra.config.ERROR_TRACKING_OVERFLOW_BUCKET_REPLENISH_RATE,
-            statefulOverflowEnabled: infra.config.ERROR_TRACKING_STATEFUL_OVERFLOW_ENABLED,
             statefulOverflowRedisTTLSeconds: infra.config.ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
             statefulOverflowLocalCacheTTLSeconds: infra.config.ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
             preservePartitionLocality: infra.config.ERROR_TRACKING_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
             pipeline: infra.config.INGESTION_PIPELINE ?? 'errortracking',
-            rateLimiterEnabled: infra.config.ERROR_TRACKING_RATE_LIMITER_ENABLED,
-            rateLimiterReportingMode: infra.config.ERROR_TRACKING_RATE_LIMITER_REPORTING_MODE,
-            rateLimiterRedisHost: infra.config.ERROR_TRACKING_RATE_LIMITER_REDIS_HOST,
-            rateLimiterRedisPort: infra.config.ERROR_TRACKING_RATE_LIMITER_REDIS_PORT,
-            rateLimiterRedisTls: infra.config.ERROR_TRACKING_RATE_LIMITER_REDIS_TLS,
-            rateLimiterTtlSeconds: infra.config.ERROR_TRACKING_RATE_LIMITER_TTL_SECONDS,
-            perIssueGuardThreshold: infra.config.ERROR_TRACKING_PER_ISSUE_GUARD_THRESHOLD,
-            perIssueGuardWindowTtlSeconds: infra.config.ERROR_TRACKING_PER_ISSUE_GUARD_WINDOW_TTL_SECONDS,
-            perIssueGuardCooldownTtlSeconds: infra.config.ERROR_TRACKING_PER_ISSUE_GUARD_COOLDOWN_TTL_SECONDS,
-            fallbackRedisUrl: infra.config.REDIS_URL,
-            rateLimiterRedisPoolMinSize: infra.config.REDIS_POOL_MIN_SIZE,
-            rateLimiterRedisPoolMaxSize: infra.config.REDIS_POOL_MAX_SIZE,
         }
         // Create and store the mock so tests can configure it
         mockHogTransformer = createMockHogTransformer()
@@ -205,7 +187,6 @@ describe('ErrorTrackingConsumer', () => {
                 ),
             }),
             teamManager: infra.teamManager,
-            errorTrackingSettingsManager: new ErrorTrackingSettingsManager(infra.postgres),
             hogTransformer: mockHogTransformer,
             groupTypeManager: new ReadOnlyGroupTypeManager({
                 fetchGroupsByKeys: jest.fn().mockResolvedValue([]),
@@ -431,261 +412,6 @@ describe('ErrorTrackingConsumer', () => {
                 mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
             expect(producedMessages).toHaveLength(1)
             expect(producedMessages[0].value.person_mode).toBe('full')
-        })
-    })
-
-    describe('rate limiting', () => {
-        const upsertSettings = async (args: {
-            projectRateLimit?: number | null
-            perIssueRateLimit?: number | null
-        }): Promise<void> => {
-            await infra.postgres.query(
-                PostgresUse.COMMON_WRITE,
-                `INSERT INTO posthog_errortrackingsettings
-                    (team_id, project_rate_limit_value, project_rate_limit_bucket_size_minutes,
-                     per_issue_rate_limit_value, per_issue_rate_limit_bucket_size_minutes)
-                 VALUES ($1, $2, 60, $3, 60)
-                 ON CONFLICT (team_id) DO UPDATE SET
-                    project_rate_limit_value = EXCLUDED.project_rate_limit_value,
-                    project_rate_limit_bucket_size_minutes = EXCLUDED.project_rate_limit_bucket_size_minutes,
-                    per_issue_rate_limit_value = EXCLUDED.per_issue_rate_limit_value,
-                    per_issue_rate_limit_bucket_size_minutes = EXCLUDED.per_issue_rate_limit_bucket_size_minutes`,
-                [team.id, args.projectRateLimit ?? null, args.perIssueRateLimit ?? null],
-                'test-upsert-error-tracking-settings'
-            )
-        }
-
-        const enableRateLimiter = async (): Promise<void> => {
-            await consumer.stop()
-            infra.config.ERROR_TRACKING_RATE_LIMITER_ENABLED = true
-            infra.config.ERROR_TRACKING_RATE_LIMITER_REPORTING_MODE = false
-            consumer = await createConsumer(infra)
-
-            await consumer['rateLimiterRedis']!.useClient({ name: 'test-flush' }, async (client) => {
-                // Per-issue buckets are hash-tagged (`tokens/{teamId}/…`); the team-global
-                // bucket is keyed straight off the id (`tokens/teamId:exceptions:global`).
-                const tokens = `@posthog-test/error-tracking-rate-limiter/tokens`
-                const keys = [
-                    ...(await client.keys(`${tokens}/{${team.id}}/*`)),
-                    ...(await client.keys(`${tokens}/${team.id}:*`)),
-                ]
-                if (keys.length > 0) {
-                    await client.del(...keys)
-                }
-            })
-        }
-
-        const exceptionEvent = (fn: string, value: string = 'msg'): PipelineEvent =>
-            createEvent({
-                properties: {
-                    $exception_list: [
-                        {
-                            type: 'TypeError',
-                            value,
-                            stacktrace: { frames: [{ function: fn, filename: `${fn}.js`, lineno: 1 }] },
-                            mechanism: { type: 'generic', handled: true },
-                        },
-                    ],
-                },
-            })
-
-        const drainProduces = () => consumer['promiseScheduler'].waitForAll()
-
-        const producedCount = (): number =>
-            mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test').length
-
-        // The Lua script reads time via `Date.now()`. `beforeEach` mocks it to a
-        // fixed value; bumping the same spy advances "now" so the bucket refills.
-        const advanceTime = (seconds: number): void => {
-            jest.spyOn(Date, 'now').mockReturnValue(Date.now() + seconds * 1000)
-        }
-
-        describe('project rate limit', () => {
-            it('lets early batches through and partially passes through once the budget is exhausted', async () => {
-                await upsertSettings({ projectRateLimit: 15 })
-                await enableRateLimiter()
-
-                const sendBatch = (size: number) => {
-                    const events = Array.from({ length: size }, (_, i) => exceptionEvent(`fn-${i}`))
-                    return consumer.handleKafkaBatch(createKafkaMessages(events))
-                }
-
-                // tokens 15 → 5 (10 allowed)
-                await sendBatch(10)
-                // budget 5, batch of 30 → partial pass-through: 5 allowed, 25 dropped.
-                await sendBatch(30)
-                // bucket drained — entire batch dropped.
-                await sendBatch(20)
-                await drainProduces()
-
-                expect(producedCount()).toBe(15)
-            })
-
-            it('refills tokens over time once the bucket window has elapsed', async () => {
-                await upsertSettings({ projectRateLimit: 4 })
-                await enableRateLimiter()
-
-                const send = (fn: string) => consumer.handleKafkaBatch(createKafkaMessages([exceptionEvent(fn)]))
-
-                // Team-keyed bucket drains regardless of signature.
-                // tokens 4 → 3
-                await send('foo')
-                // 3 → 2
-                await send('bar')
-                // 2 → 1
-                await send('baz')
-                // 1 → 0 — last token spent, request served
-                await send('qux')
-                await drainProduces()
-                expect(producedCount()).toBe(4)
-
-                // Advance one full bucket window (60 min); refillRate = 4 / 3600s → bucket back to full.
-                advanceTime(60 * 60)
-
-                // tokens 4 → 3
-                await send('foo')
-                await drainProduces()
-                expect(producedCount()).toBe(5)
-            })
-        })
-
-        describe('per-issue rate limit', () => {
-            it('partially passes through a batch that overflows multiple per-issue buckets', async () => {
-                await upsertSettings({ perIssueRateLimit: 3 })
-                await enableRateLimiter()
-
-                // Single batch carrying two interleaved signatures, each with its own
-                // bucket of 3. Per-input fan-out should allow 3 from each and drop the
-                // overflow within each key group independently.
-                const events = [
-                    ...Array.from({ length: 12 }, () => exceptionEvent('foo')),
-                    ...Array.from({ length: 12 }, () => exceptionEvent('bar')),
-                ]
-                await consumer.handleKafkaBatch(createKafkaMessages(events))
-                await drainProduces()
-
-                // 3 allowed per signature × 2 signatures = 6.
-                expect(producedCount()).toBe(6)
-            })
-
-            it('applies independently to each stack signature', async () => {
-                await upsertSettings({ perIssueRateLimit: 4 })
-                await enableRateLimiter()
-
-                const send = (fn: string) => consumer.handleKafkaBatch(createKafkaMessages([exceptionEvent(fn)]))
-
-                // issue A: tokens 4 → 3
-                await send('A')
-                // 3 → 2
-                await send('A')
-                // 2 → 1
-                await send('A')
-                // 1 → 0 — last token spent, request served
-                await send('A')
-                // bucket empty — next A is dropped
-                await send('A')
-
-                expect(producedCount()).toBe(4)
-
-                // issue B has its own fresh bucket: 4 → 3
-                await send('B')
-                await drainProduces()
-
-                expect(producedCount()).toBe(5) // 4 from A + 1 from B
-            })
-
-            it('groups by stack and ignores message interpolation', async () => {
-                await upsertSettings({ perIssueRateLimit: 4 })
-                await enableRateLimiter()
-
-                const send = (fn: string, value: string = 'msg') =>
-                    consumer.handleKafkaBatch(createKafkaMessages([exceptionEvent(fn, value)]))
-
-                // foo: tokens 4 → 3
-                await send('foo')
-                // 3 → 2
-                await send('foo')
-                // 2 → 1
-                await send('foo')
-                // 1 → 0 — last token spent, request served
-                await send('foo')
-
-                // bar has its own bucket: 4 → 3
-                await send('bar')
-
-                expect(producedCount()).toBe(5)
-
-                // foo with different `value` → same Cymbal-resolved issue as foo's burst
-                // (the message doesn't affect issue grouping) → bucket already empty,
-                // request denied.
-                await send('foo', 'different')
-                await drainProduces()
-
-                expect(producedCount()).toBe(5)
-            })
-
-            it('refills tokens over time once the bucket window has elapsed', async () => {
-                await upsertSettings({ perIssueRateLimit: 4 })
-                await enableRateLimiter()
-
-                const send = (fn: string) => consumer.handleKafkaBatch(createKafkaMessages([exceptionEvent(fn)]))
-
-                // tokens 4 → 3
-                await send('foo')
-                // 3 → 2
-                await send('foo')
-                // 2 → 1
-                await send('foo')
-                // 1 → 0 — last token spent, request served
-                await send('foo')
-                await drainProduces()
-                expect(producedCount()).toBe(4)
-
-                // Advance one full bucket window (60 min); refillRate = 4 / 3600s → bucket back to full.
-                advanceTime(60 * 60)
-
-                // tokens 4 → 3
-                await send('foo')
-                await drainProduces()
-                expect(producedCount()).toBe(5)
-            })
-
-            it('emits per-issue app_metrics2 rows keyed by the Cymbal-assigned issue id', async () => {
-                await upsertSettings({ perIssueRateLimit: 2 })
-                await enableRateLimiter()
-
-                // issue-foo bucket of 2: 4 events → 2 allowed, 2 rate_limited.
-                const events = Array.from({ length: 4 }, () => exceptionEvent('foo'))
-                await consumer.handleKafkaBatch(createKafkaMessages(events))
-                await drainProduces()
-
-                const appMetrics = mockProducerObserver
-                    .getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
-                    .map((m) => m.value)
-
-                expect(appMetrics).toEqual(
-                    expect.arrayContaining([
-                        expect.objectContaining({
-                            team_id: team.id,
-                            app_source: 'exceptions',
-                            app_source_id: 'issue-foo',
-                            metric_kind: 'rate_limiting',
-                            metric_name: 'allowed',
-                            count: 2,
-                        }),
-                        expect.objectContaining({
-                            team_id: team.id,
-                            app_source: 'exceptions',
-                            app_source_id: 'issue-foo',
-                            metric_kind: 'rate_limiting',
-                            metric_name: 'rate_limited',
-                            count: 2,
-                        }),
-                    ])
-                )
-                // Every rate-limiting row is keyed by the issue id, not collapsed per team.
-                expect(appMetrics.every((v) => v?.app_source_id === 'issue-foo')).toBe(true)
-            })
         })
     })
 })

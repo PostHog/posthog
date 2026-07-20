@@ -1,14 +1,11 @@
-import { logger } from '~/common/utils/logger'
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { SessionMetadataSink } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
-import { KeyStore, RecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/types'
+import { RecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/types'
 
 import { SessionBatchFileStorage } from './session-batch-file-storage'
 import { SessionBatchRecorder } from './session-batch-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
-import { SessionFilter } from './session-filter'
-import { SessionTracker } from './session-tracker'
 
 export interface SessionBatchManagerConfig {
     /** Maximum raw size (before compression) of a batch in bytes before it should be flushed */
@@ -29,26 +26,18 @@ export interface SessionBatchManagerConfig {
     consoleLogStore: SessionConsoleLogStore
     /** Manages storing session features for ML scoring */
     featureStore: SessionFeatureStore
-    /** Session tracker for new session detection */
-    sessionTracker: SessionTracker
-    /** Session filter for blocking and rate-limiting sessions */
-    sessionFilter: SessionFilter
-    /** Key store for session encryption keys */
-    keyStore: KeyStore
     /** Encryptor for session recording data */
     encryptor: RecordingEncryptor
 }
 
 /**
- * Coordinates the creation and flushing of session batches
+ * Creates session batches and decides when a batch is due to flush.
  *
- * The manager ensures there is always one active batch for recording events.
- * It handles:
- * - Providing the current batch to the consumer
- * - Replacing flushed batches with new ones
- * - Providing hints for when to flush the current batch
+ * Holds no batch state of its own: the layer above the record pipeline owns the current accumulator,
+ * threads it back into {@link shouldFlush}, and flushes it directly. This keeps the accumulator's
+ * lifetime with its owner, ready to move into the accumulating pipeline.
  *
- * Each flush creates a new session batch file:
+ * Each flushed batch is one session batch file; the owner mints the next batch with {@link createBatch}:
  * ```
  * Session Batch File 1 (flushed)
  * ├── Compressed Session Recording Block 1
@@ -65,7 +54,7 @@ export interface SessionBatchManagerConfig {
  * │       └── ...
  * └── ...
  *
- * Session Batch File 3 (current, returned to consumer)
+ * Session Batch File 3 (current, owned by the caller)
  * ├── Compressed Session Recording Block 1
  * │   └── JSONL Session Recording Block
  * │       ├── [windowId, event1]
@@ -74,7 +63,6 @@ export interface SessionBatchManagerConfig {
  * ```
  */
 export class SessionBatchManager {
-    private currentBatch: SessionBatchRecorder
     private readonly maxBatchSizeBytes: number
     private readonly maxBatchAgeMs: number
     private readonly maxEventsPerSessionPerBatch: number
@@ -84,10 +72,6 @@ export class SessionBatchManager {
     private readonly metadataStore: SessionMetadataSink
     private readonly consoleLogStore: SessionConsoleLogStore
     private readonly featureStore: SessionFeatureStore
-    private lastFlushTime: number
-    private readonly sessionTracker: SessionTracker
-    private readonly sessionFilter: SessionFilter
-    private readonly keyStore: KeyStore
     private readonly encryptor: RecordingEncryptor
 
     constructor(config: SessionBatchManagerConfig) {
@@ -100,32 +84,24 @@ export class SessionBatchManager {
         this.metadataStore = config.metadataStore
         this.consoleLogStore = config.consoleLogStore
         this.featureStore = config.featureStore
-        this.sessionTracker = config.sessionTracker
-        this.sessionFilter = config.sessionFilter
-        this.keyStore = config.keyStore
         this.encryptor = config.encryptor
+    }
 
-        this.currentBatch = new SessionBatchRecorder(
+    /**
+     * Mints a fresh, empty batch. The caller owns the returned recorder for one accumulation cycle and
+     * flushes it when due.
+     */
+    public createBatch(): SessionBatchRecorder {
+        return new SessionBatchRecorder(
             this.offsetManager,
             this.fileStorage,
             this.metadataStore,
             this.consoleLogStore,
             this.featureStore,
-            this.sessionTracker,
-            this.sessionFilter,
-            this.keyStore,
             this.encryptor,
             this.maxEventsPerSessionPerBatch,
             this.featuresRolloutPercentage
         )
-        this.lastFlushTime = Date.now()
-    }
-
-    /**
-     * Returns the current batch
-     */
-    public getCurrentBatch(): SessionBatchRecorder {
-        return this.currentBatch
     }
 
     /**
@@ -143,42 +119,14 @@ export class SessionBatchManager {
     }
 
     /**
-     * Flushes the current batch and replaces it with a new one
-     */
-    public async flush(): Promise<void> {
-        logger.info('🔁', 'session_batch_manager_flushing', { batchSize: this.currentBatch.size })
-        await this.currentBatch.flush()
-        this.currentBatch = new SessionBatchRecorder(
-            this.offsetManager,
-            this.fileStorage,
-            this.metadataStore,
-            this.consoleLogStore,
-            this.featureStore,
-            this.sessionTracker,
-            this.sessionFilter,
-            this.keyStore,
-            this.encryptor,
-            this.maxEventsPerSessionPerBatch,
-            this.featuresRolloutPercentage
-        )
-        this.lastFlushTime = Date.now()
-    }
-
-    /**
-     * Checks if the current batch should be flushed based on:
+     * Whether the given batch is due to flush, by size (bytes accumulated) or age (since it was minted):
      * - Size of the batch exceeding maxBatchSizeBytes
      * - Age of the batch exceeding maxBatchAgeMs
+     *
+     * @param lastFlushTime - When the current accumulation cycle started (the last flush, or startup).
      */
-    public shouldFlush(): boolean {
-        const batchSize = this.currentBatch.size
-        const batchAge = Date.now() - this.lastFlushTime
-        return batchSize >= this.maxBatchSizeBytes || batchAge >= this.maxBatchAgeMs
-    }
-
-    public discardPartitions(partitions: number[]): void {
-        logger.info('🔁', 'session_batch_manager_discarding_partitions', { partitions })
-        for (const partition of partitions) {
-            this.currentBatch.discardPartition(partition)
-        }
+    public shouldFlush(batch: SessionBatchRecorder, lastFlushTime: number): boolean {
+        const batchAge = Date.now() - lastFlushTime
+        return batch.size >= this.maxBatchSizeBytes || batchAge >= this.maxBatchAgeMs
     }
 }

@@ -1,7 +1,9 @@
 import uuid
+from datetime import datetime
 
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.core.cache import cache
 
@@ -130,6 +132,45 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["properties"]["customer_name"] == "Test Customer"
         assert call_kwargs["properties"]["customer_email"] == "test@example.com"
         assert call_kwargs["properties"]["customer_distinct_id"] == self.ticket.distinct_id
+
+    @parameterized.expand(
+        [
+            (
+                "no_sla",
+                None,
+                {"sla_due_at": None, "sla_active": False, "sla_breached": False, "sla_delta_seconds": None},
+            ),
+            (
+                "on_track",
+                "2026-01-01T13:00:00+00:00",
+                {
+                    "sla_due_at": "2026-01-01T13:00:00+00:00",
+                    "sla_active": True,
+                    "sla_breached": False,
+                    "sla_delta_seconds": -3600,
+                },
+            ),
+            (
+                "breached",
+                "2026-01-01T11:00:00+00:00",
+                {
+                    "sla_due_at": "2026-01-01T11:00:00+00:00",
+                    "sla_active": True,
+                    "sla_breached": True,
+                    "sla_delta_seconds": 3600,
+                },
+            ),
+        ]
+    )
+    @patch("products.conversations.backend.events.capture_internal")
+    def test_capture_message_sent_stamps_sla_state(self, _name, sla_due_at, expected, mock_capture):
+        self.ticket.sla_due_at = datetime.fromisoformat(sla_due_at) if sla_due_at else None
+
+        with freeze_time("2026-01-01T12:00:00Z"):
+            capture_message_sent(self.ticket, "msg-123", "Hello customer", author=self.user)
+
+        properties = mock_capture.call_args.kwargs["properties"]
+        assert {key: properties[key] for key in expected} == expected
 
     @parameterized.expand(
         [
@@ -545,6 +586,200 @@ class TestConversationEvents(BaseTest):
 
     @parameterized.expand(
         [
+            ("group_exists", True),
+            ("group_missing", False),
+        ]
+    )
+    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.get_groups_by_identifiers")
+    @patch("products.conversations.backend.events.get_group_types_for_project")
+    @patch("products.conversations.backend.events._resolve_groups_from_analytics", return_value=None)
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
+    def test_capture_ticket_created_person_property_org_fallback(
+        self, _name, group_exists, mock_get_persons, _mock_analytics, mock_group_types, mock_get_groups, mock_capture
+    ):
+        # No membership and events aged out of the analytics window: the org id on the person's
+        # own profile resolves $groups — but only when that org group exists in this project.
+        from posthog.models.person.person import Person
+
+        mock_get_persons.return_value = [
+            Person(team_id=self.team.id, is_identified=True, properties={"organization_id": "org-uuid-1"})
+        ]
+        mock_group_types.return_value = [{"group_type": "organization", "group_type_index": 0}]
+        mock_get_groups.return_value = [Mock()] if group_exists else []
+
+        capture_ticket_created(self.ticket)
+
+        mock_get_groups.assert_called_once_with(self.team.id, 0, ["org-uuid-1"])
+        call_kwargs = mock_capture.call_args.kwargs
+        if group_exists:
+            assert call_kwargs["process_person_profile"] is True
+            groups = call_kwargs["properties"]["$groups"]
+            assert groups["organization"] == "org-uuid-1"
+            assert groups["project"] == str(self.team.uuid)
+            assert groups["instance"] == SITE_URL
+            self.ticket.refresh_from_db()
+            assert self.ticket.organization_id == "org-uuid-1"
+        else:
+            assert call_kwargs["process_person_profile"] is False
+            assert "$groups" not in call_kwargs["properties"]
+            self.ticket.refresh_from_db()
+            assert self.ticket.organization_id is None
+
+    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.get_groups_by_identifiers")
+    @patch("products.conversations.backend.events._resolve_groups_from_analytics")
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
+    def test_capture_ticket_created_analytics_groups_win_over_person_property(
+        self, mock_get_persons, mock_analytics, mock_get_groups, mock_capture
+    ):
+        # The analytics fallback is strictly ahead of the person-property fallback.
+        from posthog.models.person.person import Person
+
+        mock_get_persons.return_value = [
+            Person(team_id=self.team.id, is_identified=True, properties={"organization_id": "profile-org"})
+        ]
+        mock_analytics.return_value = {
+            "instance": SITE_URL,
+            "project": str(self.team.uuid),
+            "organization": "analytics-org",
+        }
+
+        capture_ticket_created(self.ticket)
+
+        mock_get_groups.assert_not_called()
+        assert mock_capture.call_args.kwargs["properties"]["$groups"]["organization"] == "analytics-org"
+
+    @parameterized.expand(
+        [
+            ("integer", 123),
+            ("list", ["org-uuid-1"]),
+            ("empty_string", ""),
+        ]
+    )
+    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.get_groups_by_identifiers")
+    @patch("products.conversations.backend.events._resolve_groups_from_analytics", return_value=None)
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
+    def test_capture_ticket_created_person_property_org_fallback_rejects_non_string(
+        self, _name, org_id_value, mock_get_persons, _mock_analytics, mock_get_groups, mock_capture
+    ):
+        from posthog.models.person.person import Person
+
+        mock_get_persons.return_value = [
+            Person(team_id=self.team.id, is_identified=True, properties={"organization_id": org_id_value})
+        ]
+
+        capture_ticket_created(self.ticket)
+
+        mock_get_groups.assert_not_called()
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["process_person_profile"] is False
+        assert "$groups" not in call_kwargs["properties"]
+
+    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.get_groups_by_identifiers", side_effect=Exception("personhog down"))
+    @patch("products.conversations.backend.events.get_group_types_for_project")
+    @patch("products.conversations.backend.events._resolve_groups_from_analytics", return_value=None)
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
+    def test_capture_ticket_created_still_fires_on_group_lookup_failure(
+        self, mock_get_persons, _mock_analytics, mock_group_types, _mock_get_groups, mock_capture
+    ):
+        from posthog.models.person.person import Person
+
+        mock_get_persons.return_value = [
+            Person(team_id=self.team.id, is_identified=True, properties={"organization_id": "org-uuid-1"})
+        ]
+        mock_group_types.return_value = [{"group_type": "organization", "group_type_index": 0}]
+
+        capture_ticket_created(self.ticket)
+
+        mock_capture.assert_called_once()
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["process_person_profile"] is False
+        assert "$groups" not in call_kwargs["properties"]
+
+    @parameterized.expand(
+        [
+            # The person found by email resolves via their profile whether or not any
+            # distinct_ids came back for them (no-distinct_ids skips membership/analytics).
+            ("with_distinct_ids", True),
+            ("without_distinct_ids", False),
+        ]
+    )
+    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.get_groups_by_identifiers")
+    @patch("products.conversations.backend.events.get_group_types_for_project")
+    @patch("products.conversations.backend.events._resolve_groups_from_analytics", return_value=None)
+    @patch("products.conversations.backend.person_lookup._get_persons_by_email")
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
+    def test_capture_ticket_created_email_fallback_person_property_org(
+        self,
+        _name,
+        has_distinct_ids,
+        mock_get_persons,
+        mock_get_by_email,
+        mock_analytics,
+        mock_group_types,
+        mock_get_groups,
+        mock_capture,
+    ):
+        # Email leg: the person found by email has no membership and no recent group-stamped
+        # events, but their profile's organization_id resolves the org.
+        from posthog.models.person.person import Person
+
+        customer_email = "biz@acme.com"
+        # distinct_id (the email) resolves no identified person...
+        mock_get_persons.return_value = []
+        # ...the ClickHouse email lookup finds the person, whose real distinct_id has no membership
+        person = Person(team_id=self.team.id, is_identified=True, properties={"organization_id": "org-uuid-2"})
+        person._distinct_ids = ["real-did-1"] if has_distinct_ids else []
+        mock_get_by_email.return_value = {customer_email: person}
+        mock_group_types.return_value = [{"group_type": "organization", "group_type_index": 0}]
+        mock_get_groups.return_value = [Mock()]
+
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id="",
+            distinct_id=customer_email,
+            channel_source="email",
+            anonymous_traits={"name": "Biz", "email": customer_email},
+        )
+
+        capture_ticket_created(ticket)
+
+        if not has_distinct_ids:
+            mock_analytics.assert_not_called()
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["process_person_profile"] is True
+        groups = call_kwargs["properties"]["$groups"]
+        assert groups["organization"] == "org-uuid-2"
+        assert groups["project"] == str(self.team.uuid)
+
+    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.get_groups_by_identifiers")
+    @patch("products.conversations.backend.events.get_group_types_for_project", return_value=[])
+    @patch("products.conversations.backend.events._resolve_groups_from_analytics", return_value=None)
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
+    def test_capture_ticket_created_person_property_org_fallback_requires_org_group_type(
+        self, mock_get_persons, _mock_analytics, _mock_group_types, mock_get_groups, mock_capture
+    ):
+        # Projects without an organization group type never attribute via person properties.
+        from posthog.models.person.person import Person
+
+        mock_get_persons.return_value = [
+            Person(team_id=self.team.id, is_identified=True, properties={"organization_id": "org-uuid-1"})
+        ]
+
+        capture_ticket_created(self.ticket)
+
+        mock_get_groups.assert_not_called()
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["process_person_profile"] is False
+        assert "$groups" not in call_kwargs["properties"]
+
+    @parameterized.expand(
+        [
             # Channels NOT in the email-fallback allowlist must never run the email lookup.
             ("widget_anonymous_spoofed_email", "widget"),
             ("github_no_email", "github"),
@@ -763,6 +998,46 @@ class TestConversationEvents(BaseTest):
         assert groups["organization"] == "stored-org-123"
         assert groups["project"] == str(self.team.uuid)
         assert groups["instance"] == SITE_URL
+
+    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events._resolve_org_groups")
+    def test_capture_message_received_persists_resolved_organization_id(self, mock_resolve, mock_capture):
+        # A resolution that only succeeds after creation (e.g. the profile property was set
+        # later) is persisted so subsequent messages take the stored-org fast path.
+        mock_resolve.return_value = (
+            True,
+            {"instance": SITE_URL, "project": str(self.team.uuid), "organization": "late-org-1"},
+        )
+
+        assert self.ticket.organization_id is None
+        capture_message_received(self.ticket, "msg-789", "Hello again")
+
+        # Fetch a fresh instance: refresh_from_db() on self.ticket would leave mypy's
+        # None-narrowing from the precondition assert in place, making the equality
+        # assert "unreachable".
+        stored = Ticket.objects.get(id=self.ticket.id)
+        assert stored.organization_id == "late-org-1"
+        assert mock_capture.call_args.kwargs["properties"]["$groups"]["organization"] == "late-org-1"
+
+    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events._resolve_org_groups")
+    def test_capture_message_received_does_not_overwrite_concurrently_persisted_organization_id(
+        self, mock_resolve, mock_capture
+    ):
+        # A concurrent handler persisted an org between this handler's read and its write:
+        # first write wins, in DB and on the in-memory ticket.
+        mock_resolve.return_value = (
+            True,
+            {"instance": SITE_URL, "project": str(self.team.uuid), "organization": "late-org-2"},
+        )
+        Ticket.objects.filter(id=self.ticket.id).update(organization_id="first-org-1")
+
+        assert self.ticket.organization_id is None  # in-memory instance predates the concurrent write
+        capture_message_received(self.ticket, "msg-790", "Hello once more")
+
+        stored = Ticket.objects.get(id=self.ticket.id)
+        assert stored.organization_id == "first-org-1"
+        assert self.ticket.organization_id is None
 
     @patch("products.conversations.backend.events.capture_internal")
     def test_capture_ticket_status_changed_system_actor_uses_customer_distinct_id(self, mock_capture):

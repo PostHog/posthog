@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.m
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.settings import MIXPANEL_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.source import MixpanelSource
 
 LOGGER = structlog.get_logger()
 
@@ -173,6 +174,18 @@ class TestCheckResponse:
         assert exc_info.value.retry_after is None
 
 
+class TestRetryableErrors:
+    def test_retryable_marker_matches_raised_message(self) -> None:
+        # The source keeps a self-recovering 429/5xx out of error tracking by matching
+        # get_retryable_errors() against what _check_response raises; this guards the two in sync,
+        # so a change to either the raised message or the marker can't silently revive the noise.
+        with pytest.raises(MixpanelRetryableError) as exc_info:
+            _check_response(FakeResponse(status_code=429), "https://data.mixpanel.com/api/2.0/export", LOGGER)  # type: ignore[arg-type]
+        markers = MixpanelSource().get_retryable_errors()
+        assert markers
+        assert any(marker in str(exc_info.value) for marker in markers)
+
+
 class TestParseRetryAfter:
     @parameterized.expand(
         [
@@ -259,6 +272,16 @@ class TestValidateCredentials:
             ok, error = validate_credentials("eu", "user", "secret", "123")
         assert ok is False
         assert error is not None
+
+    def test_payment_required_gets_actionable_message(self) -> None:
+        session = MagicMock()
+        session.post.return_value = FakeResponse(status_code=402)
+        with patch.object(mp, "make_tracked_session", return_value=session):
+            ok, error = validate_credentials("us", "user", "secret", "123")
+        assert ok is False
+        assert error is not None
+        assert "402" in error
+        assert "plan" in error.lower()
 
 
 class TestExportIterator:

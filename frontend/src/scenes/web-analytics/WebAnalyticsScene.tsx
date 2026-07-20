@@ -35,6 +35,16 @@ export function WebAnalyticsScene(): JSX.Element {
             'Where do users rage-click on my homepage?',
         ],
     })
+    useMaxTool({
+        identifier: 'summarize_website_interactions',
+        active: true,
+        context: {},
+        suggestions: [
+            'Summarize how users interact with my pricing page',
+            'What are visitors doing on my homepage, and why?',
+            'How do users experience my signup page?',
+        ],
+    })
     const { showFocusMode } = useValues(webAnalyticsLogic)
 
     return (

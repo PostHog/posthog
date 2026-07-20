@@ -78,6 +78,11 @@ class TestBuildParams:
         params = _build_params(BRAZE_ENDPOINTS["email_templates"], cursor=200, modified_after=None)
         assert params == {"limit": 100, "offset": 200}
 
+    def test_offset_omitted_on_first_page(self):
+        # Braze 400s on offset=0, so the first page must not carry an offset param.
+        params = _build_params(BRAZE_ENDPOINTS["email_templates"], cursor=0, modified_after=None)
+        assert params == {"limit": 100}
+
     def test_modified_after_added_only_for_incremental_endpoint(self):
         params = _build_params(BRAZE_ENDPOINTS["email_templates"], cursor=0, modified_after="2026-01-01T00:00:00+00:00")
         assert params["modified_after"] == "2026-01-01T00:00:00+00:00"
@@ -189,7 +194,8 @@ class TestGetRows:
         list(get_rows("key", BASE_URL, "email_templates", mock.MagicMock(), manager, team_id=1))
 
         urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
-        assert "offset=0" in urls[0]
+        # First page omits offset (Braze rejects offset=0); later pages advance by page size.
+        assert "offset=" not in urls[0]
         assert "limit=100" in urls[0]
         assert "offset=100" in urls[1]
 

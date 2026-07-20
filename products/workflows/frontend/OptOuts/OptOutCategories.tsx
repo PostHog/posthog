@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useState } from 'react'
 
-import { HedgehogConstruction2 } from '@posthog/brand/hoggies'
+import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
 import { IconDownload, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonDialog, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -13,6 +14,8 @@ import { customerIOImportLogic } from './customerIOImportLogic'
 import { NewCategoryModal } from './NewCategoryModal'
 import { optOutCategoriesLogic } from './optOutCategoriesLogic'
 import { OptOutList } from './OptOutList'
+
+const HedgehogConstruction2 = pngHoggie(construction2Png)
 
 interface MessageCategory {
     id: string

@@ -44,6 +44,19 @@ class BillingServiceOpenInvoicesError(Exception):
         super().__init__(message)
 
 
+def _has_quota_limiting_markers(usage: dict | None) -> bool:
+    if not usage:
+        return False
+
+    for value in usage.values():
+        if isinstance(value, dict) and (
+            value.get("quota_limited_until") is not None or value.get("quota_limiting_suspended_until") is not None
+        ):
+            return True
+
+    return False
+
+
 def _get_user_organization_role(user: User, organization: Organization) -> Optional[str]:
     """
     Get a user role display string in a given organization, if membership doesn't exist return None.
@@ -61,12 +74,17 @@ def build_billing_token(
     user: Optional[User] = None,
     authorizer_actor: Optional[User] = None,
     billing_provider: BillingProvider | None = None,
+    service_action: str | None = None,
 ) -> str:
     """
     Build the JWT token to authenticate with the Billing system.
 
     Allows doing privilege escalation with the `authorizer_actor` parameter, in that case the distinct_id
     will be that of the user, but the role will be that of the authorizer_actor.
+
+    `service_action` marks a token minted by a backend job for one specific service-to-service
+    endpoint (e.g. "signals_pr_dispute"); billing rejects calls to such endpoints from tokens
+    without the matching claim, so tokens minted for user-initiated calls can't reach them.
 
     Raises NotAuthenticated if the authorizer_actor (or user in case there's no authorizer_actor) are not
     part of the organization.
@@ -113,6 +131,9 @@ def build_billing_token(
     if billing_provider:
         payload["billing_provider"] = billing_provider.value
 
+    if service_action:
+        payload["service_action"] = service_action
+
     encoded_jwt = jwt.encode(
         payload,
         license_secret,
@@ -148,10 +169,12 @@ def handle_billing_service_error(res: requests.Response, valid_codes=(200, 201, 
 class BillingManager:
     license: License | None
     user: User | None
+    ip_address: str | None
 
-    def __init__(self, license, user: User | None = None):
+    def __init__(self, license, user: User | None = None, ip_address: str | None = None):
         self.license = license or get_cached_instance_license()
         self.user = user
+        self.ip_address = ip_address
 
     def get_billing(
         self,
@@ -416,6 +439,8 @@ class BillingManager:
             organization.customer_id = data["customer_id"]
             org_modified = True
 
+        should_update_org_billing_quotas = False
+
         usage_summary = cast(dict, data.get("usage_summary"))
         if usage_summary:
             usage_info = OrganizationUsageInfo(
@@ -431,18 +456,25 @@ class BillingManager:
                 llm_events=usage_summary.get("llm_events", {}),
                 ai_credits=usage_summary.get("ai_credits", {}),
                 signals_credits=usage_summary.get("signals_credits", {}),
+                posthog_code_credits=usage_summary.get("posthog_code_credits", {}),
                 workflow_emails=usage_summary.get("workflow_emails", {}),
+                workflow_push=usage_summary.get("workflow_push", {}),
                 workflow_destinations_dispatched=usage_summary.get("workflow_destinations_dispatched", {}),
                 logs_mb_ingested=usage_summary.get("logs_mb_ingested", {}),
+                replay_vision_credits=usage_summary.get("replay_vision_credits", {}),
                 period=[
                     data["billing_period"]["current_period_start"],
                     data["billing_period"]["current_period_end"],
                 ],
             )
 
-            if set_org_usage_summary(organization, new_usage=usage_info):
+            had_quota_limiting_markers = _has_quota_limiting_markers(organization.usage)
+            usage_changed = set_org_usage_summary(organization, new_usage=usage_info)
+
+            if usage_changed:
                 org_modified = True
-                update_org_billing_quotas(organization)
+
+            should_update_org_billing_quotas = usage_changed or had_quota_limiting_markers
 
         available_product_features = data.get("available_product_features", None)
         if available_product_features and available_product_features != organization.available_product_features:
@@ -456,26 +488,34 @@ class BillingManager:
 
         customer_trust_scores = data.get("customer_trust_scores", {})
 
-        product_key_to_usage_key = {
-            product["type"]: product["usage_key"]
-            for product in (
-                billing_status["customer"].get("products") or self.get_default_products(organization)["products"]
-            )
-        }
-        org_customer_trust_scores = {}
-        for product_key in customer_trust_scores:
-            if product_key in product_key_to_usage_key:
-                org_customer_trust_scores[product_key_to_usage_key[product_key]] = customer_trust_scores[product_key]
+        if customer_trust_scores:
+            product_key_to_usage_key = {
+                product["type"]: product["usage_key"]
+                for product in (
+                    billing_status["customer"].get("products") or self.get_default_products(organization)["products"]
+                )
+            }
+            org_customer_trust_scores = {}
+            for product_key in customer_trust_scores:
+                if product_key in product_key_to_usage_key:
+                    org_customer_trust_scores[product_key_to_usage_key[product_key]] = customer_trust_scores[
+                        product_key
+                    ]
 
-        if org_customer_trust_scores != organization.customer_trust_scores:
-            organization.customer_trust_scores = {
-                **(organization.customer_trust_scores or {}),
+            current_customer_trust_scores = organization.customer_trust_scores or {}
+            updated_customer_trust_scores = {
+                **current_customer_trust_scores,
                 **org_customer_trust_scores,
             }
-            org_modified = True
+            if updated_customer_trust_scores != current_customer_trust_scores:
+                organization.customer_trust_scores = updated_customer_trust_scores
+                org_modified = True
 
         if org_modified:
             organization.save()
+
+        if should_update_org_billing_quotas:
+            update_org_billing_quotas(organization)
 
         return organization
 
@@ -484,13 +524,24 @@ class BillingManager:
         organization: Organization,
         billing_provider: BillingProvider | None = None,
         authorizer_actor: User | None = None,
+        service_action: str | None = None,
     ):
         if not self.license:  # mypy
             raise Exception("No license found")
         billing_service_token = build_billing_token(
-            self.license, organization, self.user, authorizer_actor=authorizer_actor, billing_provider=billing_provider
+            self.license,
+            organization,
+            self.user,
+            authorizer_actor=authorizer_actor,
+            billing_provider=billing_provider,
+            service_action=service_action,
         )
-        return {"Authorization": f"Bearer {billing_service_token}"}
+        headers = {"Authorization": f"Bearer {billing_service_token}"}
+        if self.ip_address:
+            # Billing is called server-to-server, so it only ever sees PostHog's egress IP.
+            # Forward the end-user's IP so billing can attach it to activity-log records.
+            headers["X-PostHog-Actor-IP"] = self.ip_address
+        return headers
 
     def get_invoices(self, organization: Organization, status: str | None):
         res = requests.get(
@@ -524,6 +575,28 @@ class BillingManager:
         )
 
         handle_billing_service_error(res)
+
+        return res.json()
+
+    def dispute_signals_pr(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
+        """Ask billing to credit back a refunded Signals PR (idempotent on data['refund_id']).
+
+        Billing returns 200 for every handled business outcome, including $0 credits; any other
+        status means "not handled" and must raise so the caller retries. The default valid_codes
+        would swallow 404 (endpoint not deployed) and 401 (auth failure) as success and record an
+        error body as a synced credit, hence the explicit (200,).
+        """
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/signals/dispute-pr",
+            # The service_action claim is required by billing: it distinguishes this
+            # backend-minted token from ones minted for user-initiated billing calls,
+            # which cannot reach the dispute endpoint.
+            headers=self.get_auth_headers(organization, service_action="signals_pr_dispute"),
+            json=data,
+            timeout=30,
+        )
+
+        handle_billing_service_error(res, valid_codes=(200,))
 
         return res.json()
 

@@ -191,6 +191,18 @@ pub struct Config {
     /// Defaults to redis_connection_timeout_ms if unset.
     pub global_rate_limit_redis_connection_timeout_ms: Option<u64>,
 
+    /// Redis key holding the dynamic custom per-key rate-limit thresholds
+    /// (JSON object of `{key: threshold}`), written by Django. When set, the
+    /// per-(token, distinct_id) limiter refreshes its custom thresholds from
+    /// this key on a timer, overriding the static CSV overrides. Sourced from
+    /// the same Redis as event restrictions (`event_restrictions_redis_url`).
+    /// When unset, the limiter uses only the static CSV overrides.
+    pub global_rate_limit_custom_threshold_key: Option<String>,
+
+    /// How often to refresh the dynamic custom thresholds from Redis (seconds).
+    #[envconfig(default = "60")]
+    pub global_rate_limit_custom_threshold_refresh_secs: u64,
+
     // Event restrictions configuration (reads from Redis, synced by Django)
     #[envconfig(default = "false")]
     pub event_restrictions_enabled: bool,
@@ -356,6 +368,34 @@ pub struct Config {
     /// Batch size threshold for parallel scatter-gather serialization; 0 disables fanout.
     #[envconfig(default = "8")]
     pub capture_v1_scatter_gather_min_batch: usize,
+
+    // --- Ingestion warnings emitter (fire-and-forget, best-effort) ---
+    // Warnings are emitted as `$$client_ingestion_warning` events onto the
+    // existing `client_ingestion_warning` topic on the main event cluster
+    // (see `KAFKA_CLIENT_INGESTION_WARNING_TOPIC`), so the producer reuses the
+    // main cluster's hosts/TLS — but it gets its OWN dedicated
+    // `common_kafka::config::KafkaConfig` (below) with fire-and-forget
+    // acks/retries and a small queue, so a saturated or slow warnings topic
+    // can never behave like — or contend with — the main event producer.
+    // Defaults off (fail open).
+    #[envconfig(default = "false")]
+    pub capture_ingestion_warnings_enabled: bool,
+
+    // The producer's fire-and-forget policy (acks, retries, linger, queue
+    // depth in messages, message timeout) is fixed in code — see the
+    // `WARNINGS_KAFKA_*` constants in `setup.rs` — not env-configurable, since
+    // those define the "a warning is worth less than the cost of retrying it"
+    // contract rather than operator knobs. Only the two capacity/safety limits
+    // below stay tunable.
+    #[envconfig(default = "16")]
+    pub capture_ingestion_warnings_kafka_queue_mib: u32,
+
+    // rdkafka "message.max.bytes": a hard per-message ceiling, independent of
+    // the main producer's, so an oversized warning envelope (e.g. built from
+    // attacker-controlled input) cannot inflate past this regardless of what
+    // the main event producer allows.
+    #[envconfig(default = "1048576")]
+    pub capture_ingestion_warnings_kafka_message_max_bytes: u32,
 }
 
 #[derive(Envconfig, Clone)]

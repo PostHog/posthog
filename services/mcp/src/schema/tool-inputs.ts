@@ -187,9 +187,9 @@ export const FeedbackSubmitSchema = z.object({
             'A one-sentence headline capturing the feedback (e.g. "session replay scrubber jumps backwards when you click the timeline", "query-trends descriptions made it hard to choose between trends and funnels", or "the new SQL editor autocomplete is excellent").'
         ),
     feedback_type: z
-        .enum(['product', 'mcp', 'docs', 'other'])
+        .enum(['product', 'mcp', 'docs', 'scout', 'other'])
         .describe(
-            'What this feedback is about. "product" = any PostHog product or feature (insights, session replay, feature flags, the data warehouse, web analytics, error tracking, etc.). "mcp" = this MCP server itself — a tool, its input schema, response format, an error, or these instructions. "docs" = PostHog documentation. "other" = anything that doesn\'t fit the above.'
+            'What this feedback is about. "product" = any PostHog product or feature (insights, session replay, feature flags, the data warehouse, web analytics, error tracking, etc.). "mcp" = this MCP server itself — a tool, its input schema, response format, an error, or these instructions. "docs" = PostHog documentation. "scout" = a canonical PostHog scout skill\'s content — reserved for scheduled scout runs reporting an improvement opportunity in their own PostHog-authored skill (set `scout_skill_name`, `scout_skill_version`, and `scout_category`). "other" = anything that doesn\'t fit the above.'
         ),
     sentiment: z
         .enum(['positive', 'neutral', 'negative', 'mixed'])
@@ -217,6 +217,32 @@ export const FeedbackSubmitSchema = z.object({
         .optional()
         .describe(
             'For MCP feedback (`feedback_type: "mcp"`) only: the single category that best describes the dominant theme. Pick "missing_tool" if a capability was absent, "tool_description" if the tool docs were unclear, "tool_input_schema" if input args were confusing, "tool_output_format" if the response was hard to consume, "instructions_clarity" if these MCP instructions were unclear, "tool_correctness" if a tool returned wrong data, "error_message" if an error was unhelpful, "performance" if latency was the issue. Omit for product, docs, or other feedback.'
+        ),
+    scout_skill_name: z
+        .string()
+        .optional()
+        .describe(
+            'For scout feedback (`feedback_type: "scout"`) only: the canonical scout skill the feedback is about (e.g. "signals-scout-web-analytics"), exactly as named in the run identity. Required for scout feedback — without it the feedback cannot be aggregated per skill.'
+        ),
+    scout_skill_version: z
+        .number()
+        .int()
+        .optional()
+        .describe(
+            'For scout feedback (`feedback_type: "scout"`) only: the skill version the run executed (from the run identity). Feedback is only actionable against the version that produced it — the skill may have moved since.'
+        ),
+    scout_category: z
+        .enum([
+            'false_positive',
+            'missed_detection',
+            'discriminator_gap',
+            'wasted_investigation',
+            'instruction_ambiguity',
+            'other',
+        ])
+        .optional()
+        .describe(
+            'For scout feedback (`feedback_type: "scout"`) only: the single category that best describes the skill gap. "false_positive" = the skill\'s detection rules surfaced something that wasn\'t real; "missed_detection" = a real issue the skill\'s instructions steered you past; "discriminator_gap" = the skill\'s signal-vs-baseline discriminator doesn\'t hold for a class of projects; "wasted_investigation" = an investigation pattern the skill mandates burned budget without payoff; "instruction_ambiguity" = an instruction that is ambiguous in practice. Omit for non-scout feedback.'
         ),
     task_completed: z
         .boolean()
@@ -252,6 +278,21 @@ export const FeedbackSubmitSchema = z.object({
         .string()
         .optional()
         .describe("Any additional context that doesn't fit the other fields. Keep it to clear, concise bullet points."),
+}).superRefine((data, ctx) => {
+    // Scout feedback without its join keys can't be aggregated per skill/version downstream,
+    // so reject it at validation time instead of recording an unattributable event.
+    if (data.feedback_type !== 'scout') {
+        return
+    }
+    for (const field of ['scout_skill_name', 'scout_skill_version', 'scout_category'] as const) {
+        if (data[field] === undefined) {
+            ctx.addIssue({
+                code: 'custom',
+                path: [field],
+                message: `${field} is required when feedback_type is "scout".`,
+            })
+        }
+    }
 })
 
 const SavedMetricAttachItemSchema = z.object({
@@ -312,9 +353,46 @@ export const AIObservabilityGetCostsSchema = z.object({
     days: z.number().optional(),
 })
 
-export const OrganizationSetActiveSchema = z.object({
-    orgId: z.string(),
-})
+// Accept `orgId` and the aliases agents reach for when composing the call from
+// scratch. `organizations-list` / `organization-get` return the org under an `id`
+// key, and in exec mode agents don't read the advertised schema — they
+// reconstruct the field name from context, producing `id`, `organizationId`,
+// `organization_id`, or `org_id`. Requiring a single spelling made this the odd
+// tool out and drove a steady stream of exec-mode validation failures. Model each
+// accepted key as its own single-field required branch so the advertised JSON
+// schema (anyOf) enumerates every alias and still expresses "exactly one
+// identifier is required"; normalize to `orgId` so the handler stays simple.
+const orgIdAliasDescription =
+    'Alias for `orgId`. Accepts the `id` returned by `organizations-list` / `organization-get`.'
+export const OrganizationSetActiveSchema = z
+    .union(
+        [
+            z.object({
+                orgId: z
+                    .string()
+                    .describe(
+                        'The organization to switch to: the `id` returned by `organizations-list` (a UUID-like string, not the organization name). Use `organizations-list` to resolve a name to its id.'
+                    ),
+            }),
+            z.object({ id: z.string().describe(orgIdAliasDescription) }),
+            z.object({ organizationId: z.string().describe(orgIdAliasDescription) }),
+            z.object({ organization_id: z.string().describe(orgIdAliasDescription) }),
+            z.object({ org_id: z.string().describe(orgIdAliasDescription) }),
+        ],
+        { error: () => 'provide the organization id via "orgId" (get it from organizations-list)' }
+    )
+    .transform((data) => ({
+        orgId:
+            'orgId' in data
+                ? data.orgId
+                : 'id' in data
+                  ? data.id
+                  : 'organizationId' in data
+                    ? data.organizationId
+                    : 'organization_id' in data
+                      ? data.organization_id
+                      : data.org_id,
+    }))
 
 export const ProjectGetAllSchema = z.object({})
 
@@ -339,6 +417,96 @@ export const EventDefinitionUpdateInputSchema = z.object({
 export const EventDefinitionUpdateSchema = z.object({
     eventName: z.string().describe('The name of the event to update (e.g. "$pageview", "user_signed_up")'),
     data: EventDefinitionUpdateInputSchema.describe('The event definition data to update'),
+})
+
+const PathCleaningAliasField = z
+    .string()
+    .describe(
+        'The human-readable replacement, e.g. "/users/<id>/profile". Use angle-bracket placeholders (<id>, <uuid>, <slug>) by convention. An empty string is valid — it deletes the matched text (e.g. to strip a "?page=N" fragment). Not a regex template — backreferences are not supported.'
+    )
+const PathCleaningRegexField = z
+    .string()
+    .min(1)
+    .describe(
+        'A re2 pattern matched against the path, e.g. "/users/\\\\d+/profile". No need to escape "/". Anchor with ^ / $ when you mean it.'
+    )
+const PathCleaningTargetAlias = z
+    .string()
+    .describe(
+        'The alias of the existing rule to target (must match an existing rule exactly). Use "" to target a rule whose alias is empty.'
+    )
+
+export const PathCleaningRulesUpdateSchema = z.object({
+    operations: z
+        .array(
+            z.discriminatedUnion('action', [
+                z
+                    .object({
+                        action: z.literal('append'),
+                        alias: PathCleaningAliasField,
+                        regex: PathCleaningRegexField,
+                    })
+                    .describe('Add a new rule at the end of the ordered list (runs last).'),
+                z
+                    .object({
+                        action: z.literal('insert'),
+                        index: z
+                            .number()
+                            .int()
+                            .min(0)
+                            .describe('Zero-based position to insert the rule at. Existing rules shift down.'),
+                        alias: PathCleaningAliasField,
+                        regex: PathCleaningRegexField,
+                    })
+                    .describe(
+                        'Insert a new rule at a specific position — use when it must run before more general rules.'
+                    ),
+                z
+                    .object({
+                        action: z.literal('replace'),
+                        target_alias: PathCleaningTargetAlias,
+                        alias: PathCleaningAliasField.optional().describe('New alias. Omit to keep the current alias.'),
+                        regex: PathCleaningRegexField.optional().describe('New regex. Omit to keep the current regex.'),
+                    })
+                    .describe('Replace the alias and/or regex of an existing rule, keeping its position.'),
+                z
+                    .object({
+                        action: z.literal('remove'),
+                        target_alias: PathCleaningTargetAlias,
+                    })
+                    .describe('Remove an existing rule by alias.'),
+                z
+                    .object({
+                        action: z.literal('reorder'),
+                        ordered_aliases: z
+                            .array(z.string())
+                            .describe(
+                                'The full set of current aliases in the new desired order (including "" for any empty-alias rule and any duplicates). Must be a permutation of the existing aliases.'
+                            ),
+                    })
+                    .describe(
+                        'Reorder the existing rules. Order matters: rules apply sequentially, each feeding the next.'
+                    ),
+            ])
+        )
+        .min(1)
+        .describe('Ordered list of edits to apply to the current path cleaning rules, in sequence.'),
+    sample_paths: z
+        // Bounded (count + length) so a pathological user-supplied regex can't burn unbounded
+        // CPU backtracking over the preview. A handful of representative paths is the point.
+        .array(z.string().max(2048))
+        .max(25)
+        .optional()
+        .describe(
+            'Optional real paths (e.g. "/users/123/profile") to preview against, up to 25. The response shows how the resulting rule set rewrites each one. Approximate (JS regex, not re2) — use execute-sql with replaceRegexpAll to confirm edge cases.'
+        ),
+    confirm: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe(
+            'Must be true to persist. When false (default) the tool returns a preview of the resulting rules (and any sample-path rewrites) WITHOUT saving — surface it to the user, then re-run with confirm:true.'
+        ),
 })
 
 export const ProjectSetActiveSchema = z.object({
@@ -367,10 +535,6 @@ export const ExecuteSQLSchema = z.object({
             'Optional id of an external data source (e.g. a Postgres, DuckDB, or MySQL direct-query connection). When set, runs the query against that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.'
         ),
 })
-
-export const ReadDataWarehouseSchemaSchema = z
-    .object({})
-    .describe('No input required. Returns core data warehouse schemas.')
 
 const ReadEventsQuerySchema = z.object({
     kind: z.literal('events'),
@@ -503,7 +667,7 @@ const WorkflowGraphOperationSchema = z.discriminatedUnion('op', [
 ])
 
 export const WorkflowGraphPatchSchema = z.object({
-    id: z.string().describe('The workflow (HogFlow) id to edit. Draft only — active workflows are read-only via MCP.'),
+    id: z.string().describe('The workflow (HogFlow) id to edit.'),
     operations: z
         .array(WorkflowGraphOperationSchema)
         .min(1)

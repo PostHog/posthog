@@ -241,14 +241,14 @@ class TestEvalReportSignalSchemaContract:
 
     Mocking emit_signal in activity tests hides schema mismatches — the original review
     cycle caught one only because the bots ran static checks. This exercises the same
-    dispatch path emit_signal uses (`_SIGNAL_VARIANT_LOOKUP`) so any drift between the
+    dispatch path emit_signal uses (`SIGNAL_VARIANT_LOOKUP`) so any drift between the
     schema source and the activity's payload shape will fail in unit tests.
     """
 
     def test_evaluation_report_variant_is_registered(self):
-        from products.signals.backend.facade.api import _SIGNAL_VARIANT_LOOKUP
+        from products.signals.backend.facade.api import SIGNAL_VARIANT_LOOKUP
 
-        variant = _SIGNAL_VARIANT_LOOKUP.get(("llm_analytics", "evaluation_report"))
+        variant = SIGNAL_VARIANT_LOOKUP.get(("llm_analytics", "evaluation_report"))
         assert variant is not None, (
             "No SignalInput variant for (llm_analytics, evaluation_report). "
             "Did the schema source drift? Re-run `pnpm run schema:build`."
@@ -256,9 +256,9 @@ class TestEvalReportSignalSchemaContract:
 
     def test_activity_payload_validates_against_variant(self):
         """Construct the exact emit_signal kwargs the activity sends and validate them."""
-        from products.signals.backend.facade.api import _SIGNAL_VARIANT_LOOKUP
+        from products.signals.backend.facade.api import SIGNAL_VARIANT_LOOKUP
 
-        variant = _SIGNAL_VARIANT_LOOKUP[("llm_analytics", "evaluation_report")]
+        variant = SIGNAL_VARIANT_LOOKUP[("llm_analytics", "evaluation_report")]
         payload = {
             "source_product": "llm_analytics",
             "source_type": "evaluation_report",

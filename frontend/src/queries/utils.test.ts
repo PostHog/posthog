@@ -7,7 +7,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { DataTableNode, DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import type { InsightQueryNode } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { AppContext, ChartDisplayType, TeamType } from '~/types'
+import { AppContext, ChartDisplayType, FunnelVizType, TeamType } from '~/types'
 
 import {
     convertDataTableNodeToDataVisualizationNode,
@@ -15,14 +15,20 @@ import {
     escapeHogQLString,
     escapePropertyAsHogQLIdentifier,
     hogql,
+    queryVizDefinitelyRendersToCanvas,
+    queryVizRendersToCanvas,
     supportsBarValueStacking,
 } from './utils'
 
 window.POSTHOG_APP_CONTEXT = { current_team: { id: MOCK_TEAM_ID } } as unknown as AppContext
 
 describe('hogql tag', () => {
-    initKeaTests()
-    teamLogic.mount()
+    // In beforeEach (not describe scope): mounting at collection time fires the preflight
+    // load before the MSW harness's beforeAll has installed its fetch stub
+    beforeEach(() => {
+        initKeaTests()
+        teamLogic.mount()
+    })
 
     it('properly returns query with no substitutions', () => {
         expect(hogql`SELECT * FROM events`).toEqual('SELECT * FROM events')
@@ -245,5 +251,125 @@ describe('supportsBarValueStacking', () => {
         { name: 'null query', query: null, expected: false },
     ])('returns $expected for $name', ({ query, expected }) => {
         expect(supportsBarValueStacking(query)).toBe(expected)
+    })
+})
+
+describe('queryVizRendersToCanvas', () => {
+    const insightViz = (source: InsightQueryNode): any => ({ kind: NodeKind.InsightVizNode, source })
+    const trends = (display?: ChartDisplayType): InsightQueryNode =>
+        ({ kind: NodeKind.TrendsQuery, series: [], trendsFilter: display ? { display } : {} }) as InsightQueryNode
+
+    it.each([
+        {
+            name: 'HogQL data table',
+            query: { kind: NodeKind.DataTableNode } as any,
+            expectedMayRenderToCanvas: false,
+            expectedDefinitelyRendersToCanvas: false,
+        },
+        {
+            name: 'SQL viz as chart',
+            query: { kind: NodeKind.DataVisualizationNode, display: ChartDisplayType.ActionsLineGraph } as any,
+            expectedMayRenderToCanvas: true,
+            expectedDefinitelyRendersToCanvas: true,
+        },
+        {
+            name: 'SQL viz as table (no display)',
+            query: { kind: NodeKind.DataVisualizationNode } as any,
+            expectedMayRenderToCanvas: false,
+            expectedDefinitelyRendersToCanvas: false,
+        },
+        {
+            name: 'SQL viz with auto display',
+            query: { kind: NodeKind.DataVisualizationNode, display: ChartDisplayType.Auto } as any,
+            expectedMayRenderToCanvas: true,
+            expectedDefinitelyRendersToCanvas: false,
+        },
+        {
+            name: 'trends line chart',
+            query: insightViz(trends(ChartDisplayType.ActionsLineGraph)),
+            expectedMayRenderToCanvas: true,
+            expectedDefinitelyRendersToCanvas: true,
+        },
+        {
+            name: 'trends default display',
+            query: insightViz(trends()),
+            expectedMayRenderToCanvas: true,
+            expectedDefinitelyRendersToCanvas: true,
+        },
+        {
+            name: 'trends bold number',
+            query: insightViz(trends(ChartDisplayType.BoldNumber)),
+            expectedMayRenderToCanvas: false,
+            expectedDefinitelyRendersToCanvas: false,
+        },
+        {
+            name: 'trends table',
+            query: insightViz(trends(ChartDisplayType.ActionsTable)),
+            expectedMayRenderToCanvas: false,
+            expectedDefinitelyRendersToCanvas: false,
+        },
+        {
+            name: 'trends world map',
+            query: insightViz(trends(ChartDisplayType.WorldMap)),
+            expectedMayRenderToCanvas: false,
+            expectedDefinitelyRendersToCanvas: false,
+        },
+        {
+            name: 'funnel steps (default)',
+            query: insightViz({ kind: NodeKind.FunnelsQuery, series: [] } as InsightQueryNode),
+            expectedMayRenderToCanvas: true,
+            expectedDefinitelyRendersToCanvas: true,
+        },
+        {
+            name: 'funnel flow (Sankey)',
+            query: insightViz({
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: { funnelVizType: FunnelVizType.Flow },
+            } as InsightQueryNode),
+            expectedMayRenderToCanvas: false,
+            expectedDefinitelyRendersToCanvas: false,
+        },
+        {
+            name: 'funnel time to convert (table)',
+            query: insightViz({
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: { funnelVizType: FunnelVizType.TimeToConvert },
+            } as InsightQueryNode),
+            expectedMayRenderToCanvas: false,
+            expectedDefinitelyRendersToCanvas: false,
+        },
+        {
+            name: 'funnel trends (line chart)',
+            query: insightViz({
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: { funnelVizType: FunnelVizType.Trends },
+            } as InsightQueryNode),
+            expectedMayRenderToCanvas: true,
+            expectedDefinitelyRendersToCanvas: true,
+        },
+        {
+            name: 'retention',
+            query: insightViz({ kind: NodeKind.RetentionQuery } as InsightQueryNode),
+            expectedMayRenderToCanvas: false,
+            expectedDefinitelyRendersToCanvas: false,
+        },
+        {
+            name: 'paths',
+            query: insightViz({ kind: NodeKind.PathsQuery } as InsightQueryNode),
+            expectedMayRenderToCanvas: false,
+            expectedDefinitelyRendersToCanvas: false,
+        },
+        {
+            name: 'null query',
+            query: null,
+            expectedMayRenderToCanvas: true,
+            expectedDefinitelyRendersToCanvas: false,
+        },
+    ])('classifies $name', ({ query, expectedMayRenderToCanvas, expectedDefinitelyRendersToCanvas }) => {
+        expect(queryVizRendersToCanvas(query)).toBe(expectedMayRenderToCanvas)
+        expect(queryVizDefinitelyRendersToCanvas(query)).toBe(expectedDefinitelyRendersToCanvas)
     })
 })

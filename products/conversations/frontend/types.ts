@@ -1,6 +1,9 @@
 import type { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 
-import type { TicketAssignee } from './components/Assignee'
+import { MAX_ASSIGNEE_FILTER_ENTRIES } from './components/Assignee'
+import type { AssigneeFilterEntry, TicketAssignee } from './components/Assignee'
+
+export type { AssigneeFilterEntry }
 
 export type NotificationPermission = 'default' | 'granted' | 'denied'
 export type TicketStatus = 'new' | 'open' | 'pending' | 'on_hold' | 'resolved'
@@ -15,13 +18,35 @@ export type TicketChannelDetail =
     | 'widget_api'
     | 'github_issue'
 export type TicketSlaState = 'on-track' | 'at-risk' | 'breached'
-export type TicketPriority = 'low' | 'medium' | 'high'
+export type TicketPriority = 'low' | 'medium' | 'high' | 'critical'
 export type SceneTabKey = 'tickets' | 'settings'
 export type MessageAuthorType = 'customer' | 'AI' | 'human'
 export type MessageDeliveryStatus = 'sent' | 'read'
 export type SidePanelViewState = 'list' | 'ticket' | 'new' | 'restore'
 export type RestoreFlowState = 'idle' | 'sending' | 'sent' | 'error'
+/** Legacy single-value shape, still present in old saved views and persisted filter state. */
 export type AssigneeFilterValue = 'all' | 'unassigned' | TicketAssignee
+
+function isAssigneeFilterEntry(value: unknown): value is AssigneeFilterEntry {
+    if (value === 'unassigned') {
+        return true
+    }
+    if (typeof value !== 'object' || value === null) {
+        return false
+    }
+    const candidate = value as { type?: unknown; id?: unknown }
+    return (
+        (candidate.type === 'user' || candidate.type === 'role') &&
+        (typeof candidate.id === 'string' || typeof candidate.id === 'number')
+    )
+}
+
+export function normalizeAssigneeFilter(value: unknown): AssigneeFilterEntry[] {
+    if (Array.isArray(value)) {
+        return value.filter(isAssigneeFilterEntry).slice(0, MAX_ASSIGNEE_FILTER_ENTRIES)
+    }
+    return isAssigneeFilterEntry(value) ? [value] : []
+}
 
 export type TicketTagsMatch = 'any' | 'all'
 
@@ -47,8 +72,11 @@ export interface AITriage {
     finished_at?: string
     workflow_id?: string
     run_id?: string
+    ai_trace_id?: string
     missing?: string[]
 }
+
+export type AiReplyFeedbackRating = 'good' | 'bad'
 
 export type GapSuggestionStatus = 'pending' | 'accepted' | 'dismissed'
 
@@ -70,7 +98,7 @@ export interface TicketViewFilters {
     channel?: TicketChannel | 'all'
     sla?: TicketSlaState | 'all'
     aiTriageResult?: AITriageFilterValue[]
-    assignee?: AssigneeFilterValue
+    assignee?: AssigneeFilterEntry[] | AssigneeFilterValue
     tags?: string[]
     tagsMatch?: TicketTagsMatch
     tagsExclude?: string[]
@@ -145,6 +173,7 @@ export interface Ticket {
     cc_participants?: string[]
     github_repo?: string | null
     github_issue_number?: number | null
+    zendesk_ticket_id?: number | null
     organization_id?: string | null
     person?: TicketPerson | null
     tags?: string[]
@@ -197,6 +226,9 @@ export interface ChatMessage {
     createdAt: string
     isPrivate?: boolean
     emailDeliveryStatus?: EmailDeliveryStatus
+    /** Imported from an external tool (e.g. Zendesk). Such content is untrusted, so its Markdown
+     * is rendered with external image auto-loading disabled. */
+    fromZendesk?: boolean
 }
 
 export const statusOptions: { value: TicketStatus | 'all'; label: string }[] = [
@@ -229,6 +261,7 @@ export const priorityOptions: { value: TicketPriority; label: string }[] = [
     { value: 'low', label: 'Low' },
     { value: 'medium', label: 'Medium' },
     { value: 'high', label: 'High' },
+    { value: 'critical', label: 'Critical' },
 ]
 
 // Multiselect-compatible options for LemonInputSelect
@@ -236,6 +269,7 @@ export const priorityMultiselectOptions: { key: TicketPriority; label: string }[
     { key: 'low', label: 'Low' },
     { key: 'medium', label: 'Medium' },
     { key: 'high', label: 'High' },
+    { key: 'critical', label: 'Critical' },
 ]
 
 export const channelOptions: { value: TicketChannel | 'all'; label: string }[] = [

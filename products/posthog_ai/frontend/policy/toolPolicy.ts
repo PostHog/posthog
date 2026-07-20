@@ -1,6 +1,6 @@
 import { isPostHogExecTool } from '../components/tool/posthogExecDisplay'
-import { resolveToolCall } from '../components/tool/toolResolver'
 import type { PermissionRequestRecord } from '../types/streamTypes'
+import { resolveToolCall } from '../utils/toolResolver'
 
 // Re-exported so existing importers (and tests) keep resolving the exec-tool check from here.
 export { isPostHogExecTool } from '../components/tool/posthogExecDisplay'
@@ -17,7 +17,7 @@ export { isPostHogExecTool } from '../components/tool/posthogExecDisplay'
  */
 
 /** A sub-tool is destructive when one of these verbs appears as a whole `-`-bounded segment. */
-const POSTHOG_DESTRUCTIVE_SUBTOOL_RE = /(^|-)(partial-update|update|delete|destroy)(-|$)/i
+const POSTHOG_DESTRUCTIVE_SUBTOOL_RE = /(^|-)(partial-update|update|patch|delete|destroy)(-|$)/i
 
 export function isPostHogDestructiveSubTool(subTool: string): boolean {
     return POSTHOG_DESTRUCTIVE_SUBTOOL_RE.test(subTool)
@@ -73,6 +73,37 @@ export function defaultPermissionDecision(record: PermissionRequestRecord): Perm
 
     // A canonical name identifies a built-in (Bash, Edit, …); an empty name can't be identified.
     return toolName ? 'auto_allow' : 'prompt'
+}
+
+/**
+ * Persist/publish sub-tools that must prompt when (and only when) the run is a foreground stream
+ * (a run rendered in a surface the user is watching, see `foregroundStreamLogic`).
+ * These aren't destructive, so `defaultPermissionDecision` still auto-approves them everywhere else
+ * (background runs, headless runs, replays); the call site in `runStreamLogic`'s
+ * `routePermissionRequest` forces the prompt path for foreground streams. Scoped to the product
+ * families from the apply-back migration plan — every enabled tool that persists new content
+ * (create/copy/add) or publishes to end users (launch/stop); add a sub-tool name here to extend it.
+ */
+const PERSIST_PROMPT_SUB_TOOLS = new Set([
+    'dashboard-create',
+    'dashboard-create-text-tile',
+    'dashboard-tile-copy',
+    'dashboard-widgets-batch-add',
+    'create-feature-flag',
+    'feature-flags-copy-flags-create',
+    'scheduled-changes-create',
+    'survey-create',
+    'survey-launch',
+    'survey-stop',
+    'cdp-functions-create',
+    'workflows-create',
+    'workflows-create-email-template',
+])
+
+/** Whether a permission request resolves to a create-family persist tool from `PERSIST_PROMPT_SUB_TOOLS`. */
+export function isPersistPromptTool(record: PermissionRequestRecord): boolean {
+    const { innerToolName } = resolveToolCall(record.rawToolCall)
+    return innerToolName != null && PERSIST_PROMPT_SUB_TOOLS.has(innerToolName)
 }
 
 /** The optionId to auto-send when allowing — prefers the one-shot allow over `allow_always`. */

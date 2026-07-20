@@ -13,6 +13,7 @@ logger = structlog.get_logger(__name__)
 
 Product = Literal[
     "llm_gateway",
+    "ci",
     "posthog_code",
     "background_agents",
     "slack_app",
@@ -28,9 +29,11 @@ Product = Literal[
     "product_analytics",
     "subscriptions",
     "signals",
+    "review_hog",
     "conversations",
     "warehouse_semantic_enrichment",
     "warehouse_custom_source_builder",
+    "stamphog",
 ]  # If you add a product here, make sure it's also in services/llm-gateway/src/llm_gateway/products/config.py
 
 

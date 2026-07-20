@@ -102,8 +102,9 @@ WORKDIR /code/products/agent_platform/services/agents
 RUN pnpm run build
 
 #
-# Runtime stage — slim image with bundles + migration SQL + the one
-# native dep (node-rdkafka) we left external in esbuild.
+# Runtime stage — slim image with bundles + migration SQL + the deps left
+# external in the bundle: node-rdkafka (native binding) and esbuild (its JS
+# API refuses to run bundled; the janitor calls it to compile custom tools).
 #
 FROM ${NODE_IMAGE}
 WORKDIR /code

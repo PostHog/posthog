@@ -684,6 +684,7 @@ pub struct TestStateBuilder {
     mock_producer: Option<Arc<MockProducer>>,
     ai_gateway_signing_secret: Option<String>,
     ai_routing: crate::config::AiRouting,
+    ingestion_warning_emitter: Option<Arc<dyn common_ingestion_warnings::WarningEmitter>>,
 }
 
 impl Default for TestStateBuilder {
@@ -703,6 +704,7 @@ impl TestStateBuilder {
             mock_producer: None,
             ai_gateway_signing_secret: None,
             ai_routing: crate::config::AiRouting::Primary,
+            ingestion_warning_emitter: None,
         }
     }
 
@@ -754,6 +756,15 @@ impl TestStateBuilder {
     /// Supply a pre-configured MockProducer (e.g. for error injection).
     pub fn with_mock_producer(mut self, producer: Arc<MockProducer>) -> Self {
         self.mock_producer = Some(producer);
+        self
+    }
+
+    /// Supply an ingestion warnings emitter (e.g. a `CollectingEmitter`).
+    pub fn with_ingestion_warning_emitter(
+        mut self,
+        emitter: Arc<dyn common_ingestion_warnings::WarningEmitter>,
+    ) -> Self {
+        self.ingestion_warning_emitter = Some(emitter);
         self
     }
 
@@ -864,6 +875,7 @@ impl TestStateBuilder {
             ai_gateway_signing_secret: self.ai_gateway_signing_secret,
             ai_routing: self.ai_routing,
             ai_events_overflow_enabled: false,
+            ingestion_warning_emitter: self.ingestion_warning_emitter,
         };
 
         TestState {

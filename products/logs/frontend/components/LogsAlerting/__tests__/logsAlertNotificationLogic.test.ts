@@ -11,14 +11,16 @@ import { logsAlertsDestinationsCreate, logsAlertsDestinationsDeleteCreate } from
 import { logsAlertNotificationLogic } from '../logsAlertNotificationLogic'
 import { buildLogsAlertFilterConfig, LogsAlertDestinationGroup } from '../logsAlertUtils'
 
-jest.mock('lib/api', () => ({
-    __esModule: true,
-    default: {
-        hogFunctions: {
-            list: jest.fn(),
-        },
-    },
-}))
+jest.mock('lib/api', () => {
+    // Keep the real module: the connected integrationsLogic calls api.integrations.list()
+    // on mount, which resolves via the MSW floor. Only hogFunctions is stubbed.
+    const actual = jest.requireActual('lib/api')
+    return {
+        ...actual,
+        __esModule: true,
+        default: { ...actual.default, hogFunctions: { list: jest.fn() } },
+    }
+})
 
 jest.mock('products/logs/frontend/generated/api', () => ({
     __esModule: true,

@@ -156,6 +156,7 @@ async fn setup_router_with_limits(
         None,               // ai_gateway_signing_secret
         AiRouting::Primary, // ai_routing
         false,              // ai_events_overflow_enabled
+        None,               // ingestion_warning_emitter
     );
 
     (app, sink)
@@ -1211,6 +1212,7 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
         None,               // ai_gateway_signing_secret
         AiRouting::Primary, // ai_routing
         false,              // ai_events_overflow_enabled
+        None,               // ingestion_warning_emitter
     );
 
     let client = TestClient::new(app);
@@ -1304,6 +1306,7 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
         None,               // ai_gateway_signing_secret
         AiRouting::Primary, // ai_routing
         false,              // ai_events_overflow_enabled
+        None,               // ingestion_warning_emitter
     );
 
     let client = TestClient::new(app);
@@ -1401,6 +1404,7 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
         None,               // ai_gateway_signing_secret
         AiRouting::Primary, // ai_routing
         false,              // ai_events_overflow_enabled
+        None,               // ingestion_warning_emitter
     );
 
     let client = TestClient::new(app);
@@ -1835,6 +1839,7 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
         None,               // ai_gateway_signing_secret
         AiRouting::Primary, // ai_routing
         false,              // ai_events_overflow_enabled
+        None,               // ingestion_warning_emitter
     );
 
     let client = TestClient::new(app);

@@ -8,6 +8,11 @@ from temporalio import activity
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
 
+from products.tasks.backend.logic.services.living_artifacts import (
+    deliver_pending_slack_file_artifacts,
+    has_pending_slack_file_artifacts,
+)
+
 logger = get_logger(__name__)
 
 _CONVERTER = SlackMarkdownConverter()
@@ -17,6 +22,17 @@ _RE_TABLE_SEPARATOR_CELL = re.compile(r"^:?-{2,}:?$")
 _RE_FENCE = re.compile(r"^\s*(```|~~~)")
 _RE_INLINE_MARKDOWN_MARKERS = re.compile(r"\*\*|__|\*|_|~~|`")
 _RE_MD_LINK = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+_RE_DELIVERY_CLAIM = re.compile(r"\b(?:attached|uploaded|shared)\b", re.IGNORECASE)
+_RE_DELIVERY_NEGATION = re.compile(
+    r"\b(?:not|never|cannot|can't|could not|couldn't|unable to|no file was)\s+"
+    r"(?:actually\s+)?(?:be\s+)?(?:attached|uploaded|shared)\b",
+    re.IGNORECASE,
+)
+_RE_LOCAL_DELIVERABLE_REFERENCE = re.compile(
+    r"(?:/tmp/workspace/|\b(?:report|pdf|spreadsheet|document|file)\b|\.(?:pdf|xlsx|csv|docx|txt|md|html)\b)",
+    re.IGNORECASE,
+)
+_UNCONFIRMED_ATTACHMENT_NOTICE = "\n\n_Note: I can relay text here, but no file was attached to Slack for this run._"
 
 # Repair pattern: bold/italic markers placed *inside* the close of a Slack-style
 # angle-bracket link, e.g. ``**<https://example.com**>`` instead of
@@ -40,6 +56,25 @@ _RE_LINK_TRAILING_MARKER = re.compile(r"(?<![*_~])(\*+|_+|~+)<([^<>]+?)\1>(?![*_
 # left alone.
 _RE_BARE_URL_IN_EMPHASIS = re.compile(r"(?<![*_~])(\*+|_+|~+)(https?://[^\s<>]+?)\1(?![*_~])")
 
+# A ``~`` on a word boundary directly in front of a quantity (``~$36k``, ``~2pm``, ``~10%``)
+# is the agent writing "approximately". In Markdown a single tilde is a literal character, but
+# Slack mrkdwn uses a single tilde as its strikethrough delimiter, so two such approximations
+# on one line pair up and strike through everything between them. The lookbehind requires a
+# non-word, non-tilde char before the tilde so a git ref (``HEAD~1``), a range (``5~10``), and
+# the first ``~`` of a ``~~strikethrough~~`` run are left alone; the lookahead leaves paths
+# (``~/dir``) and standalone tildes alone.
+_RE_APPROX_TILDE = re.compile(r"(?<![\w~])~(?=[$€£¥₹]?\d)")
+
+# Unicode "tilde operator" — visually a tilde, but not the ASCII strikethrough delimiter, so
+# Slack renders it literally.
+_APPROX_TILDE = "∼"
+
+# Fenced blocks and inline code spans, kept whole so the tilde substitution skips them: inside
+# a code span Slack has no strikethrough semantics anyway, and rewriting ``~`` there would alter
+# literal content (``HEAD~1``, npm ranges like ``~1.2.0``). Triple backticks are matched before
+# the single-backtick form so a fence isn't split at its inner backticks.
+_RE_CODE_SEGMENT = re.compile(r"(```[\s\S]*?```|`[^`\n]*`)")
+
 
 class _RelayAlreadyRecorded(Exception):
     """Raised when a relay was already recorded while holding the row lock."""
@@ -52,14 +87,33 @@ def _markdown_to_slack_mrkdwn(text: str) -> str:
     Slack ``mrkdwn`` is rendered in a proportional font — pipe-separated rows do
     not line up. A fenced code block forces monospace and the columns align.
 
-    Misplaced link markers (e.g. ``**<url**>``) and bare URLs wrapped in
-    emphasis (e.g. ``**https://example.com**``) are normalized first so the
-    converter sees well-formed input.
+    Misplaced link markers (e.g. ``**<url**>``), bare URLs wrapped in emphasis
+    (e.g. ``**https://example.com**``), and "approximately" tildes (e.g. ``~$36k``)
+    are normalized first so the converter sees well-formed input.
     """
     if not text:
         return text
-    repaired = _wrap_bare_urls_in_emphasis(_repair_link_trailing_markers(text))
+    repaired = _neutralize_approx_tildes(_wrap_bare_urls_in_emphasis(_repair_link_trailing_markers(text)))
     return _CONVERTER.convert(_tables_to_fenced_code_blocks(repaired))
+
+
+def _append_unconfirmed_attachment_notice(
+    text: str,
+    *,
+    origin_product: str | None,
+) -> str:
+    if origin_product != "slack":
+        return text
+
+    normalized = " ".join(text.split())
+    if _RE_DELIVERY_NEGATION.search(normalized):
+        return text
+    if not _RE_DELIVERY_CLAIM.search(normalized):
+        return text
+    if not _RE_LOCAL_DELIVERABLE_REFERENCE.search(normalized):
+        return text
+
+    return f"{text.rstrip()}{_UNCONFIRMED_ATTACHMENT_NOTICE}"
 
 
 def _repair_link_trailing_markers(text: str) -> str:
@@ -82,6 +136,24 @@ def _wrap_bare_urls_in_emphasis(text: str) -> str:
     are left untouched because the URL group rejects ``<`` and ``[``.
     """
     return _RE_BARE_URL_IN_EMPHASIS.sub(r"\1<\2>\1", text)
+
+
+def _neutralize_approx_tildes(text: str) -> str:
+    """Replace "approximately" tildes in front of a quantity with the tilde operator.
+
+    ``~$36k`` / ``~2pm`` / ``~10%`` becomes ``∼$36k`` / ``∼2pm`` / ``∼10%``. The agent
+    means "approximately", but Slack mrkdwn reads a single ``~`` as a strikethrough
+    delimiter, so two of them on one line strike through the text in between. The tilde
+    operator looks the same and carries no formatting meaning. ``~~strikethrough~~``,
+    git refs (``HEAD~1``), paths (``~/dir``), and standalone tildes are left alone, and
+    code spans/fences are skipped so literal code is never rewritten.
+    """
+    # ``re.split`` with a capturing group yields alternating text/code segments; the odd
+    # (code) segments pass through untouched.
+    return "".join(
+        segment if index % 2 else _RE_APPROX_TILDE.sub(_APPROX_TILDE, segment)
+        for index, segment in enumerate(_RE_CODE_SEGMENT.split(text))
+    )
 
 
 def _tables_to_fenced_code_blocks(text: str) -> str:
@@ -279,6 +351,9 @@ class RelaySlackMessageInput:
     user_message_ts: str | None = None
     delete_progress: bool = True
     reaction_emoji: str | None = None
+    # Id of the user message this relay answers (agent-server echo), used to
+    # tag the exact sender; None falls back to the run-state/mapping actors.
+    message_id: str | None = None
 
 
 @activity.defn
@@ -287,6 +362,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
     from products.tasks.backend.models import TaskRun
+    from products.tasks.backend.temporal.process_task.utils import get_message_actor
 
     try:
         task_run = TaskRun.objects.get(id=input.run_id)
@@ -310,6 +386,17 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         logger.info("slack_relay_empty_text", run_id=input.run_id, relay_id=input.relay_id)
         return
 
+    # Living-artifacts gating lives in the service: has_pending_slack_file_artifacts
+    # (and deliver_pending_slack_file_artifacts below) return falsy when the
+    # workspace's living-artifacts flag is off. Run-manifest artifacts are internal
+    # and must never surface here — Slack delivery goes through living artifacts only.
+    has_pending_slack_files = has_pending_slack_file_artifacts(task_run)
+    if not has_pending_slack_files:
+        text = _append_unconfirmed_attachment_notice(
+            text,
+            origin_product=mapping.task.origin_product,
+        )
+
     # Split the raw markdown first, then convert each chunk independently. Converting
     # per-chunk means an inline span broken by a hard char split (e.g. ``**bold**``
     # halved) stays literal in the output instead of leaving dangling Slack-mrkdwn
@@ -325,12 +412,31 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     )
     handler = SlackThreadHandler(context)
 
-    target = mapping.latest_actor_slack_user_id or mapping.mentioning_slack_user_id
+    # Mention resolution, most precise first: the echoed message's recorded
+    # sender, then the live/mapping actors for pre-rollout runs.
+    mention_from_message = get_message_actor(input.run_id, input.message_id) if input.message_id else None
+    target = (
+        mention_from_message
+        or state.get("slack_actor_slack_user_id")
+        or mapping.latest_actor_slack_user_id
+        or mapping.mentioning_slack_user_id
+    )
     mention_prefix = f"<@{target}> " if target else ""
     if input.delete_progress:
         handler.delete_progress()
-    for index, chunk in enumerate(chunks):
-        prefix = mention_prefix if index == 0 else ""
+
+    delivered_file_count = 0
+    chunks_to_post = chunks
+    if has_pending_slack_files and chunks:
+        delivered_file_count = deliver_pending_slack_file_artifacts(
+            task_run,
+            initial_comment=f"{mention_prefix}{chunks[0]}",
+        )
+        if delivered_file_count:
+            chunks_to_post = chunks[1:]
+
+    for index, chunk in enumerate(chunks_to_post):
+        prefix = mention_prefix if delivered_file_count == 0 and index == 0 else ""
         handler.post_thread_message(f"{prefix}{chunk}")
     if input.reaction_emoji is not None:
         handler.update_reaction(input.reaction_emoji)

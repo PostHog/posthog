@@ -1114,6 +1114,7 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
             None,               // ai_gateway_signing_secret
             AiRouting::Primary, // ai_routing
             false,              // ai_events_overflow_enabled
+            None,               // ingestion_warning_emitter
         ),
         sink,
     )

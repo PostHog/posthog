@@ -114,6 +114,14 @@ describe('ActionFilterRow', () => {
         // Supplement with endpoints specific to ActionFilterRow
         useMocks({
             get: {
+                // insightLogic mounts alongside and fetches its insight by short_id; without
+                // a match it errors with "Insight ... not found"
+                '/api/environments/:team_id/insights/': ({ request }: { request: Request }) => [
+                    200,
+                    {
+                        results: [{ id: 1, short_id: new URL(request.url).searchParams.get('short_id'), query: null }],
+                    },
+                ],
                 '/api/projects/:team/actions/': { results: filtersJson.actions },
                 '/api/environments/:team/groups_types/': MOCK_GROUP_TYPES,
                 '/api/projects/:team/warehouse_tables/': { results: [] },
@@ -153,6 +161,37 @@ describe('ActionFilterRow', () => {
             expect(document.querySelector('.ActionFilterRow')).toBeInTheDocument()
             // EntityFilterInfo renders $pageview as "Pageview" display name
             expect(document.querySelector('.ActionFilterRow')!.textContent).toContain('Pageview')
+        })
+
+        it('shows the underlying event alongside a renamed series', () => {
+            const { logic } = setup()
+            renderRow(logic, {
+                filter: { ...DEFAULT_FILTER, id: 'user signed up', name: 'Signed up', custom_name: 'Signed up' },
+            })
+            const row = document.querySelector('.ActionFilterRow')!
+            expect(row.textContent).toContain('Signed up')
+            expect(row.textContent).toContain('user signed up')
+        })
+
+        it('opens the picker with the renamed selection first, labelled by the series name', async () => {
+            const { logic } = setup()
+            renderRow(logic, {
+                ...INLINE_CONTEXT,
+                filter: { ...DEFAULT_FILTER, id: 'user signed up', name: 'Signed up', custom_name: 'Signed up' },
+            })
+
+            await userEvent.click(screen.getByTestId('trend-element-subject-0'))
+
+            // The committed selection leads the list, labelled with the series' rename
+            // and revealing the event it actually queries.
+            await waitFor(() => {
+                const rows = Array.from(document.querySelectorAll('.taxonomic-list-row'))
+                const selectedRow = rows.find(
+                    (row) => row.textContent?.includes('Signed up') && row.textContent?.includes('user signed up')
+                )
+                expect(selectedRow).toBeTruthy()
+                expect(selectedRow!.getAttribute('data-attr')).toMatch(/-0$/)
+            })
         })
 
         describe('series indicators', () => {

@@ -15,11 +15,13 @@ from __future__ import annotations
 
 from products.signals.backend.artefact_schemas import (
     SIGNALS_PRODUCT,
+    TASK_RUN_TYPE_DISCUSSION,
     TASK_RUN_TYPE_IMPLEMENTATION,
     TASK_RUN_TYPE_REPO_SELECTION,
     TASK_RUN_TYPE_RESEARCH,
     TaskRunArtefact,
 )
+from products.signals.backend.billing import mark_report_billing_exempt
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalReportTask
 
 # The task-run vocabulary lives in `artefact_schemas` (a leaf module the model layer can import
@@ -27,12 +29,14 @@ from products.signals.backend.models import ArtefactAttribution, SignalReport, S
 # working.
 __all__ = [
     "SIGNALS_PRODUCT",
+    "TASK_RUN_TYPE_DISCUSSION",
     "TASK_RUN_TYPE_IMPLEMENTATION",
     "TASK_RUN_TYPE_REPO_SELECTION",
     "TASK_RUN_TYPE_RESEARCH",
     "aappend_task_run_artefact",
     "append_task_run_artefact",
     "record_implementation_task",
+    "record_report_task",
     "signals_task_ids",
 ]
 
@@ -94,7 +98,7 @@ def signals_task_ids(*, report_id: str, type: str) -> list[str]:
 
 
 def record_implementation_task(
-    *, team_id: int, report_id: str, task_id: str, run_id: str | None = None
+    *, team_id: int, report_id: str, task_id: str, run_id: str | None = None, billing_exempt_reason: str | None = None
 ) -> SignalReportArtefact:
     """Record a started implementation task as BOTH the legacy `SignalReportTask` gate row and the
     `task_run` work-log artefact.
@@ -105,7 +109,16 @@ def record_implementation_task(
     `backfill_task_run_artefacts` has converted every legacy row, the gate can switch to the
     artefact log and `SignalReportTask` can be dropped. Call inside the transaction that created
     the task. Shared by auto-start and the manual start-task API.
+
+    `billing_exempt_reason` lets a caller that knows its origin is PostHog-system declare the
+    report never-billable in the same transaction that records the task — before the run can ship
+    a billable PR. Enforced by the prospective-only freeze rule (`billing.mark_report_billing_exempt`
+    raises once a billable PR run exists). Auto-start stamps its exemption itself under its row
+    lock and does not pass this.
     """
+    if billing_exempt_reason:
+        report = SignalReport.objects.select_for_update().get(id=report_id, team_id=team_id)
+        mark_report_billing_exempt(report, billing_exempt_reason)
     SignalReportTask.objects.get_or_create(
         team_id=team_id,
         report_id=report_id,
@@ -117,6 +130,28 @@ def record_implementation_task(
         report_id=report_id,
         product=SIGNALS_PRODUCT,
         type=TASK_RUN_TYPE_IMPLEMENTATION,
+        task_id=task_id,
+        run_id=run_id,
+    )
+
+
+def record_report_task(
+    *, team_id: int, report_id: str, task_id: str, relationship: str | None = None, run_id: str | None = None
+) -> SignalReportArtefact:
+    """Record a task↔report association a client asserted when creating a task from the report.
+
+    `implementation` (also the default when no relationship is given) additionally writes the legacy
+    `SignalReportTask` gate row that guards auto-start spend, via `record_implementation_task`. Every
+    other relationship records only the `task_run` work-log artefact under `product="signals"`
+    (`research` never reaches here — it is created solely by the server-side research pipeline).
+    """
+    if relationship is None or relationship == TASK_RUN_TYPE_IMPLEMENTATION:
+        return record_implementation_task(team_id=team_id, report_id=report_id, task_id=task_id, run_id=run_id)
+    return append_task_run_artefact(
+        team_id=team_id,
+        report_id=report_id,
+        product=SIGNALS_PRODUCT,
+        type=relationship,
         task_id=task_id,
         run_id=run_id,
     )

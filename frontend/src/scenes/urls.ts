@@ -3,7 +3,12 @@ import { combineUrl } from 'kea-router'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { fileSystemTypes, productUrls } from '~/products'
-import { ProductKey, SharingConfigurationSettings } from '~/queries/schema/schema-general'
+import {
+    DataTableNode,
+    DataVisualizationNode,
+    ProductKey,
+    SharingConfigurationSettings,
+} from '~/queries/schema/schema-general'
 import { ActivityTab, AnnotationType, CommentType, OnboardingStepKey, SDKKey } from '~/types'
 
 import type { BillingSectionId } from './billing/types'
@@ -36,8 +41,12 @@ export const urls = {
     eventDefinition: (id: string | number): string => `/data-management/events/${id}`,
     eventDefinitionEdit: (id: string | number): string => `/data-management/events/${id}/edit`,
     propertyDefinitions: (type?: string): string => combineUrl('/data-management/properties', type ? { type } : {}).url,
-    propertyDefinition: (id: string | number): string => `/data-management/properties/${id}`,
-    propertyDefinitionEdit: (id: string | number): string => `/data-management/properties/${id}/edit`,
+    // Virtual property ids contain `$`, which kea-router's segment charset rejects, so encode real ids
+    // (`:param` placeholders pass through untouched for route registration)
+    propertyDefinition: (id: string | number): string =>
+        `/data-management/properties/${typeof id === 'string' && id.startsWith(':') ? id : encodeURIComponent(id)}`,
+    propertyDefinitionEdit: (id: string | number): string =>
+        `/data-management/properties/${typeof id === 'string' && id.startsWith(':') ? id : encodeURIComponent(id)}/edit`,
     schemaManagement: (): string => '/data-management/schema',
     dataManagementHistory: (): string => '/data-management/history',
     database: (): string => '/data-management/database',
@@ -52,6 +61,7 @@ export const urls = {
     event: (id: string, timestamp: string): string =>
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
+    ingestionWarningsV2: (): string => '/data-management/ingestion-warnings-v2',
     revenueSettings: (): string => '/data-management/revenue',
     coreEvents: (): string => '/data-management/core-events',
     marketingAnalyticsApp: (): string => '/marketing',
@@ -67,7 +77,8 @@ export const urls = {
         connectionId,
         dashboard,
     }: {
-        query?: string
+        /** Raw SQL, or a node whose visualization settings (display, chartSettings) should survive the trip */
+        query?: string | DataVisualizationNode | DataTableNode
         view_id?: string
         insightShortId?: string
         draftId?: string
@@ -80,7 +91,7 @@ export const urls = {
         const params = new URLSearchParams()
 
         if (query) {
-            params.set('open_query', query)
+            params.set('open_query', typeof query === 'string' ? query : JSON.stringify(query))
         } else if (view_id) {
             params.set('open_view', view_id)
         } else if (insightShortId) {
@@ -135,6 +146,7 @@ export const urls = {
     projectCreateFirst: (): string => '/organization/create-project',
     projectRoot: (): string => '/',
     projectHomepage: (): string => '/home',
+    quickstart: (): string => '/quickstart',
     ai: (chat?: string, ask?: string): string => combineUrl('/ai', { ask, chat }).url,
     aiHistory: (): string => '/ai/history',
     settings: (section: SettingSectionId | SettingLevelId = 'project', setting?: SettingId): string =>
@@ -160,7 +172,6 @@ export const urls = {
     credentialReview: (): string => '/account/credential-review',
     cliAuthorize: (): string => '/cli/authorize',
     cliLive: (): string => '/cli/live',
-    emailMFAVerify: (): string => '/login/verify',
     liveDebugger: (): string => '/live-debugger',
     passwordReset: (): string => '/reset',
     passwordResetComplete: (userUuid: string, token: string): string => `/reset/${userUuid}/${token}`,
@@ -232,6 +243,8 @@ export const urls = {
     materializedColumns: (): string => '/data-management/materialized-columns',
     unsubscribe: (): string => '/unsubscribe',
     codeCanvasLink: (channelId: string, dashboardId: string): string => `/code/canvas/${channelId}/${dashboardId}`,
+    codeChannelLink: (channelId: string, taskId?: string): string =>
+        `/code/channel/${channelId}${taskId ? `/tasks/${taskId}` : ''}`,
     integration: (slug: string): string => `/integrations/${slug}`,
     integrationsRedirect: (kind: string): string => `/integrations/${kind}/callback`,
     stripeConfirmInstall: (): string => '/integrations/stripe/confirm-install',
@@ -317,10 +330,6 @@ export const urls = {
     pipelineStatus: (): string => '/health/pipeline-status',
     sdkHealth: (): string => '/health/sdk-health',
     exports: (): string => '/exports',
-    subscriptions: (): string => '/subscriptions',
-    subscription: (id: string | number): string => `/subscriptions/${id}`,
-    subscriptionNew: (): string => '/subscriptions/new',
-    subscriptionEdit: (id: string | number): string => `/subscriptions/${id}/edit`,
 }
 
 export interface UrlMatcher {

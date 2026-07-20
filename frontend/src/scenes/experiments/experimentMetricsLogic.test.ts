@@ -11,6 +11,8 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { Experiment } from '~/types'
 
+import type { ExperimentMetricsRecalculationApi } from 'products/experiments/frontend/generated/api.schemas'
+
 import { experimentMetricsLogic } from './experimentMetricsLogic'
 
 jest.mock('@posthog/lemon-ui', () => ({
@@ -52,7 +54,6 @@ const completedRecalculation = {
     status: 'completed',
     completed_metrics: 2,
     started_at: new Date().toISOString(),
-    // Fresh by default (within the 24h window) so tests using this fixture don't auto-trigger.
     completed_at: new Date().toISOString(),
     query_to: '2026-06-10T00:05:00Z',
     results: [
@@ -61,11 +62,6 @@ const completedRecalculation = {
     ],
 }
 
-// completed_at far in the past → older than the 24h staleness threshold.
-const staleCompletedRecalculation = {
-    ...completedRecalculation,
-    completed_at: '2020-01-01T00:00:00Z',
-}
 const freshCompletedRecalculation = completedRecalculation
 
 const pendingRecalculation = { ...baseRecalculation, id: 'recalc-2', status: 'pending' }
@@ -383,36 +379,9 @@ describe('experimentMetricsLogic', () => {
             expect(capturedBody).toEqual({ trigger: 'cold_run' })
         })
 
-        it('auto-triggers a stale_refresh recalculation when the latest completed run is stale (>24h)', async () => {
-            let capturedBody: any
-            useMocks({
-                get: {
-                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
-                        200,
-                        staleCompletedRecalculation,
-                    ],
-                },
-                post: {
-                    // Return a terminal run so triggerRecalculation finishes without arming a poll timer.
-                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/': async ({ request }) => {
-                        capturedBody = await request.json()
-                        return [201, completedRecalculation2]
-                    },
-                },
-            })
-            mountLogic()
-
-            // Stale results still load, but a fresh run is kicked off in the background.
-            await expectLogic(logic)
-                .toDispatchActions(['setCurrentRecalculation', 'triggerRecalculation'])
-                .toFinishAllListeners()
-            expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
-            expect(capturedBody).toEqual({ trigger: 'stale_refresh' })
-        })
-
-        it('does not auto-trigger when the latest completed run is fresh', async () => {
-            // freshCompletedRecalculation has result_source 'recalculation' (a real run), so neither the
-            // staleness path nor the timeseries-fallback path fires.
+        it('does not auto-trigger when the latest completed run is healthy', async () => {
+            // freshCompletedRecalculation has result_source 'recalculation' (a real run) with all metrics
+            // resolved, so neither the config-change heal path nor the timeseries-fallback path fires.
             useMocks({
                 get: {
                     '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
@@ -767,6 +736,40 @@ describe('experimentMetricsLogic', () => {
             // Still in progress, but the finished metric from the partial payload is already on screen.
             expect(logic.values.currentRecalculation).toEqual(expect.objectContaining({ status: 'in_progress' }))
             expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
+        })
+    })
+
+    describe('liveRowsProgress', () => {
+        const asRecalc = (obj: Record<string, unknown>): ExperimentMetricsRecalculationApi =>
+            obj as unknown as ExperimentMetricsRecalculationApi
+
+        it('retains the last nonzero sample within a run and clears on a new run', () => {
+            // Draft experiment: afterMount no-ops, so the reducer can be driven directly.
+            const draft = { ...EXPERIMENT, status: undefined, start_date: null, end_date: null } as Experiment
+            logic = experimentMetricsLogic({ experiment: draft })
+            logic.mount()
+
+            logic.actions.setCurrentRecalculation(
+                asRecalc({ ...inProgressRecalculation, rows_read: 500, estimated_rows_total: 1000 })
+            )
+            expect(logic.values.liveRowsProgress).toEqual({
+                recalculationId: 'recalc-2',
+                rowsRead: 500,
+                estimatedRows: 1000,
+            })
+
+            // A poll without a live sample (all-zeros gap) must not wipe the last value — the 0/0 flash.
+            logic.actions.setCurrentRecalculation(
+                asRecalc({ ...inProgressRecalculation, rows_read: 0, estimated_rows_total: 0 })
+            )
+            expect(logic.values.liveRowsProgress).toEqual({
+                recalculationId: 'recalc-2',
+                rowsRead: 500,
+                estimatedRows: 1000,
+            })
+
+            logic.actions.setCurrentRecalculation(asRecalc({ ...inProgressRecalculation, id: 'recalc-3' }))
+            expect(logic.values.liveRowsProgress).toBeNull()
         })
     })
 

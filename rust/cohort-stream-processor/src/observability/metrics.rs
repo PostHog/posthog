@@ -2,22 +2,17 @@
 
 use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 
+// The `cohort-core`-owned metric names this binary emits: its metric-surface manifest.
+pub use cohort_core::metrics::{
+    COHORT_ELIGIBILITY_TOTAL, COHORT_IN_CYCLE_TOTAL, FILTER_CATALOG_COHORT_PARSE_ERRORS,
+    FILTER_CATALOG_SKIPPED_LEAVES, FILTER_CATALOG_TZ_FALLBACK, STAGE1_GLOBALS_PARSE_ERROR,
+    STAGE1_HOGVM_ERROR, STAGE1_HOGVM_UNKNOWN_FUNCTION,
+};
+
 /// Teams with ≥1 realtime cohort in the current catalog snapshot (gauge).
 pub const FILTER_CATALOG_TEAMS: &str = "filter_catalog_teams";
 /// Distinct `conditionHash`es across all teams in the current snapshot (gauge).
 pub const FILTER_CATALOG_UNIQUE_CONDITIONS: &str = "filter_catalog_unique_conditions";
-/// Leaves dropped during parse, labelled by `reason` (counter).
-pub const FILTER_CATALOG_SKIPPED_LEAVES: &str = "filter_catalog_skipped_leaves_total";
-/// Cohorts skipped because their filter tree failed to parse (counter).
-pub const FILTER_CATALOG_COHORT_PARSE_ERRORS: &str = "filter_catalog_cohort_parse_errors_total";
-/// Teams whose timezone did not parse as an IANA zone and fell back to UTC (counter).
-pub const FILTER_CATALOG_TZ_FALLBACK: &str = "filter_catalog_tz_fallback_total";
-
-/// Cohorts classified by composition eligibility at freeze, labelled by `class` (counter).
-pub const COHORT_ELIGIBILITY_TOTAL: &str = "cohort_eligibility_total";
-/// Cohorts excluded because they sit in a cohort-reference cycle (counter).
-pub const COHORT_IN_CYCLE_TOTAL: &str = "cohort_in_cycle_total";
-
 /// Cascade depths reached, from the `depth` field on cascade messages (histogram). Cohort ids are
 /// logged, not labelled, to keep cardinality bounded.
 pub const CASCADE_DEPTH_OBSERVED: &str = "cascade_depth_observed";
@@ -62,7 +57,7 @@ pub const DURABLE_RESTORE_PARTITIONS_KEPT_TOTAL: &str = "durable_restore_partiti
 /// from the committed offset (counter).
 pub const DURABLE_RESTORE_PARTITIONS_WIPED_STALE_TOTAL: &str =
     "durable_restore_partitions_wiped_stale_total";
-/// `cf_stage1` keys re-seeded into a worker's `EvictionQueue` on spawn during a durable restart,
+/// `cf_behavioral` keys re-seeded into a worker's `EvictionQueue` on spawn during a durable restart,
 /// labelled by `partition` (counter). Re-fires a dormant person's `Left`.
 pub const EVICTION_QUEUE_REBUILT_KEYS_TOTAL: &str = "eviction_queue_rebuilt_keys_total";
 /// Owned partitions that had at least one `cf_pending_transfers` entry re-produced by the eager boot
@@ -118,8 +113,26 @@ pub const STORE_WRITE_BATCH_TOTAL: &str = "store_write_batch_total";
 pub const STORE_WRITE_DURATION_SECONDS: &str = "store_write_duration_seconds";
 /// RocksDB operations that returned an error, labelled by `op` (counter).
 pub const STORE_ERRORS_TOTAL: &str = "store_errors_total";
-/// Malformed inputs the `cf_person_index` merge operator skipped, labelled by `kind` (counter).
-pub const STORE_MERGE_MALFORMED_TOTAL: &str = "store_merge_malformed_total";
+/// Stores destroyed and recreated at open because the on-disk schema version did not match, under the
+/// `COHORT_WIPE_ON_SCHEMA_MISMATCH` opt-in (counter). Non-zero means a store layout revision wiped
+/// durable state; expected only on a deliberate schema migration.
+pub const STORE_SCHEMA_MISMATCH_WIPES_TOTAL: &str = "store_schema_mismatch_wipes_total";
+
+/// Time an offloaded store op waited to acquire its read-lane permit on the async side, before it
+/// was ever spawned, labelled by `op` (histogram, seconds). Recorded only when the lane is bounded.
+pub const STORE_OFFLOAD_PERMIT_WAIT_DURATION_SECONDS: &str =
+    "store_offload_permit_wait_duration_seconds";
+/// Time from `spawn_blocking` to the offloaded closure actually starting, labelled by `op`
+/// (histogram, seconds) — the blocking-pool queue wait plus spawn overhead.
+pub const STORE_OFFLOAD_QUEUE_WAIT_DURATION_SECONDS: &str =
+    "store_offload_queue_wait_duration_seconds";
+/// Execution time of the offloaded op inside the blocking closure, labelled by `op` (histogram,
+/// seconds) — excludes permit and queue waits, so it is the pure on-thread store cost.
+pub const STORE_OFFLOAD_EXEC_DURATION_SECONDS: &str = "store_offload_exec_duration_seconds";
+/// Store ops currently executing inside a blocking closure, labelled by `lane`
+/// (`event`|`maintenance`|`write`|`section`) (gauge). Maintained inside the closure so it stays
+/// correct even if the caller future is dropped mid-flight.
+pub const STORE_OFFLOAD_INFLIGHT: &str = "store_offload_inflight";
 
 /// Latency of a RocksDB read, labelled by `op` (histogram, seconds). `op=get` is sampled 1-in-N
 /// (`StoreConfig::read_sample_ratio`) — use [`STORE_READS_TOTAL`] for exact volume. `op=multi_get`
@@ -186,16 +199,6 @@ pub const TOKIO_IDLE_BLOCKING_THREADS: &str = "tokio_idle_blocking_threads";
 /// Tasks waiting for a blocking thread (gauge).
 pub const TOKIO_BLOCKING_QUEUE_DEPTH: &str = "tokio_blocking_queue_depth";
 
-/// Cohort bytecode invoked a symbol with no registered native (counter). The function name is
-/// logged, not labelled, to keep cardinality bounded.
-pub const STAGE1_HOGVM_UNKNOWN_FUNCTION: &str = "stage1_hogvm_unknown_function_total";
-/// Any other VM/program failure during cohort evaluation, coerced to `false`, labelled by `reason`
-/// (a bounded semantic bucket: `type_coercion`|`stack`|`program`|`runtime`|… — see
-/// `vm_error_reason`) (counter).
-pub const STAGE1_HOGVM_ERROR: &str = "stage1_hogvm_error_total";
-/// `properties`/`person_properties` JSON parse failure, labelled by `field` (counter).
-pub const STAGE1_GLOBALS_PARSE_ERROR: &str = "stage1_globals_parse_error_total";
-
 /// Partitions with a live worker channel registered on the router (gauge).
 pub const PARTITIONS_ACTIVE: &str = "partitions_active";
 /// Messages dropped while routing (no live worker), labelled by `reason` (counter).
@@ -239,25 +242,30 @@ pub const STAGE1_EVENTS_SKIPPED: &str = "stage1_events_skipped_total";
 /// HogVM evaluations, labelled by `kind` — one per unique conditionHash per event (counter).
 pub const STAGE1_CONDITIONS_EVALUATED: &str = "stage1_conditions_evaluated_total";
 /// Condition evaluations skipped because the result was already known, labelled by `reason`
-/// (`person_memo_hit`|`event_name_gate`) (counter).
+/// (`event_name_gate`) (counter).
 pub const STAGE1_CONDITIONS_SKIPPED: &str = "stage1_conditions_skipped_total";
-/// Person-property memo lookups, labelled by `result` (`hit`|`miss`) (counter).
-pub const STAGE1_PERSON_MEMO: &str = "stage1_person_memo_total";
+/// Person side of an event resolved against the durable [`crate::stage1::PersonRecord`], labelled by
+/// `result` (`fresh`|`stale_props`|`stale_catalog`|`stale_both`|`absent`|`corrupt`|`argmax_stale`|
+/// `replay`) (counter). One increment per event that touches the person side. `absent`/`corrupt` come
+/// from the prior-record classification (an evaluation from nothing), not the freshness axis, so they
+/// are not folded into `stale_both`.
+pub const STAGE1_PERSON_RECORD_TOTAL: &str = "stage1_person_record_total";
+/// Encoded byte size of a [`crate::stage1::PersonRecord`] at each write (histogram). Watches record
+/// growth on hot persons; the TTL backstop bounds it.
+pub const STAGE1_PERSON_RECORD_SIZE_BYTES: &str = "stage1_person_record_size_bytes";
+/// Behavioral applies staged per event — the write fan-out of the behavioral side (histogram).
+pub const STAGE1_BEHAVIORAL_APPLIES: &str = "stage1_behavioral_applies";
 /// Leaf membership flips emitted, labelled by `kind` (counter).
 pub const STAGE1_TRANSITIONS: &str = "stage1_transitions_total";
-/// `cf_stage1` records written, labelled by `variant` (counter).
+/// `cf_behavioral` records written, labelled by `variant` (counter).
 pub const STAGE1_STATE_WRITES: &str = "stage1_state_writes_total";
-/// First-time `cf_person_index` appends, one per newly-seen `(person, leaf_state_key)` (counter).
-pub const STAGE1_PERSON_INDEX_APPENDS: &str = "stage1_person_index_appends_total";
 /// Applies skipped because the source `(partition, offset)` was already folded in, labelled by
 /// `variant` (counter).
 pub const STAGE1_REPLAY_SKIPPED: &str = "stage1_replay_skipped_total";
-/// Person-property applies dropped by the event-time argMax tiebreaker (counter).
-pub const STAGE1_ARGMAX_STALE: &str = "stage1_argmax_stale_total";
 /// Applies skipped because the leaf's resolved variant is unsupported, labelled by `variant`
 /// (counter). A defensive guard against a stale catalog.
 pub const STAGE1_UNSUPPORTED_VARIANT_SKIPPED: &str = "stage1_unsupported_variant_skipped_total";
-/// Stored `cf_stage1` values that failed to decode; the key is skipped, not panicked (counter).
+/// Stored `cf_behavioral` values that failed to decode; the key is skipped, not panicked (counter).
 pub const STAGE1_STATE_DECODE_ERROR: &str = "stage1_state_decode_error_total";
 /// End-to-end per-event processing latency in the worker (histogram, seconds).
 pub const STAGE1_EVENT_PROCESS_DURATION: &str = "stage1_event_process_duration_seconds";
@@ -395,6 +403,10 @@ pub const MERGE_HELD_OFFSET_GAUGE: &str = "merge_held_offset";
 pub const MERGE_DRAIN_DURATION_SECONDS: &str = "merge_drain_duration_seconds";
 /// Latency of one transfer apply (histogram, seconds).
 pub const MERGE_APPLY_DURATION_SECONDS: &str = "merge_apply_duration_seconds";
+/// Behavioral rows enumerated for P_old on one merge drain — the drain-scan cost distribution
+/// (histogram). Recorded once per non-replay drain. The drain enumerates P_old's leaves with a prefix
+/// scan, so this is the visibility into how many rows that scan touches.
+pub const MERGE_DRAIN_LEAVES_SCANNED: &str = "merge_drain_leaves_scanned";
 
 /// Merge-CF keys scanned by the GC sweep, labelled by `cf` (counter).
 pub const MERGE_GC_KEYS_SCANNED_TOTAL: &str = "merge_gc_keys_scanned_total";
@@ -418,6 +430,41 @@ pub const STAGE2_ORPHAN_GC_UNDECODABLE_KEYS_TOTAL: &str = "stage2_orphan_gc_unde
 /// Keys the sweep popped but did not evict, labelled by `reason` (counter). Conservation:
 /// `popped == evicted + dropped`.
 pub const SWEEP_KEYS_DROPPED_TOTAL: &str = "sweep_keys_dropped_total";
+
+/// Seed payloads consumed and decoded — tiles and ordered skips both (counter).
+pub const COHORT_STREAM_SEEDS_CONSUMED: &str = "cohort_stream_seeds_consumed_total";
+/// Seed payloads that were empty or failed to decode (counter).
+pub const COHORT_STREAM_SEED_DESERIALIZE_ERRORS: &str =
+    "cohort_stream_seed_deserialize_errors_total";
+/// Decoded seed payloads accumulated per consume → dispatch cycle (histogram).
+pub const COHORT_STREAM_SEEDS_CONSUME_BATCH_SIZE: &str = "cohort_stream_seeds_consume_batch_size";
+/// Seed messages dropped because the partition is no longer owned or shutdown is draining (counter).
+pub const COHORT_STREAM_SEEDS_SKIPPED_NOT_OWNED: &str =
+    "cohort_stream_seeds_skipped_not_owned_total";
+/// Tile applies that advanced a leaf's state, labelled by `variant` (counter).
+pub const SEED_TILES_APPLIED_TOTAL: &str = "cohort_seed_tiles_applied_total";
+/// Tile applies that left the leaf byte-identical (the idempotency path), labelled by `variant`
+/// (counter).
+pub const SEED_TILES_UNCHANGED_TOTAL: &str = "cohort_seed_tiles_unchanged_total";
+/// Tile leaf-applies dropped without a write, labelled by `reason` (counter).
+pub const SEED_TILES_DROPPED_TOTAL: &str = "cohort_seed_tiles_dropped_total";
+/// Consume-side skips marked in order, labelled by `reason` (counter).
+pub const SEED_TILES_SKIPPED_TOTAL: &str = "cohort_seed_tiles_skipped_total";
+/// Tiles re-produced to a merge survivor's partition, counted post-ack (counter).
+pub const SEED_REKEYED_TOTAL: &str = "cohort_seed_rekeyed_total";
+/// Failed tile re-key produces; the seed offset is held (counter).
+pub const SEED_REKEY_PRODUCE_FAILURE_TOTAL: &str = "cohort_seed_rekey_produce_failure_total";
+/// Hop-capped tile redirects applied inline (counter). Non-zero means a corrupt tombstone cycle.
+pub const SEED_REKEY_HOP_CAPPED_TOTAL: &str = "cohort_seed_rekey_hop_capped_total";
+/// The seed commit floor pinned by a sticky offset hold, labelled by `partition` (gauge).
+/// **Alert on a sustained non-zero level.**
+pub const SEED_HELD_OFFSET_GAUGE: &str = "seed_held_offset";
+/// Seed partitions currently held, fence-closed or backpressured (gauge).
+pub const SEED_FENCED_PARTITIONS: &str = "cohort_seed_fenced_partitions";
+/// How far the watermark trails `s_chunk + margin` per fenced partition (gauge, ms).
+pub const SEED_FENCE_DEFICIT_MS: &str = "cohort_seed_fence_deficit_ms";
+/// Age of each owned partition's live watermark, labelled by `partition` (gauge, ms).
+pub const LIVE_WATERMARK_AGE_MS: &str = "cohort_live_watermark_age_ms";
 
 /// Install the global Prometheus recorder. Call once at startup.
 ///
@@ -504,6 +551,19 @@ mod tests {
         // new store/tokio constant is pinned so a rename cannot silently break a panel.
         assert_eq!(STORE_READ_DURATION_SECONDS, "store_read_duration_seconds");
         assert_eq!(STORE_READS_TOTAL, "store_reads_total");
+        assert_eq!(
+            STORE_OFFLOAD_PERMIT_WAIT_DURATION_SECONDS,
+            "store_offload_permit_wait_duration_seconds",
+        );
+        assert_eq!(
+            STORE_OFFLOAD_QUEUE_WAIT_DURATION_SECONDS,
+            "store_offload_queue_wait_duration_seconds",
+        );
+        assert_eq!(
+            STORE_OFFLOAD_EXEC_DURATION_SECONDS,
+            "store_offload_exec_duration_seconds",
+        );
+        assert_eq!(STORE_OFFLOAD_INFLIGHT, "store_offload_inflight");
         assert_eq!(STORE_BLOCK_CACHE_HITS_TOTAL, "store_block_cache_hits_total");
         assert_eq!(
             STORE_BLOCK_CACHE_MISSES_TOTAL,
@@ -581,6 +641,16 @@ mod tests {
     }
 
     #[test]
+    fn person_record_metric_names_are_stable() {
+        assert_eq!(STAGE1_PERSON_RECORD_TOTAL, "stage1_person_record_total");
+        assert_eq!(
+            STAGE1_PERSON_RECORD_SIZE_BYTES,
+            "stage1_person_record_size_bytes",
+        );
+        assert_eq!(STAGE1_BEHAVIORAL_APPLIES, "stage1_behavioral_applies");
+    }
+
+    #[test]
     fn stage2_orphan_gc_metric_names_are_stable() {
         assert_eq!(
             STAGE2_ORPHAN_GC_KEYS_SCANNED_TOTAL,
@@ -598,5 +668,55 @@ mod tests {
             STAGE2_ORPHAN_GC_UNDECODABLE_KEYS_TOTAL,
             "stage2_orphan_gc_undecodable_keys_total",
         );
+    }
+
+    #[test]
+    fn seed_metric_names_are_stable() {
+        assert_eq!(
+            COHORT_STREAM_SEEDS_CONSUMED,
+            "cohort_stream_seeds_consumed_total"
+        );
+        assert_eq!(
+            COHORT_STREAM_SEED_DESERIALIZE_ERRORS,
+            "cohort_stream_seed_deserialize_errors_total",
+        );
+        assert_eq!(
+            COHORT_STREAM_SEEDS_CONSUME_BATCH_SIZE,
+            "cohort_stream_seeds_consume_batch_size",
+        );
+        assert_eq!(
+            COHORT_STREAM_SEEDS_SKIPPED_NOT_OWNED,
+            "cohort_stream_seeds_skipped_not_owned_total",
+        );
+        assert_eq!(SEED_TILES_APPLIED_TOTAL, "cohort_seed_tiles_applied_total");
+        assert_eq!(
+            SEED_TILES_UNCHANGED_TOTAL,
+            "cohort_seed_tiles_unchanged_total"
+        );
+        assert_eq!(SEED_TILES_DROPPED_TOTAL, "cohort_seed_tiles_dropped_total");
+        assert_eq!(SEED_TILES_SKIPPED_TOTAL, "cohort_seed_tiles_skipped_total");
+        assert_eq!(SEED_REKEYED_TOTAL, "cohort_seed_rekeyed_total");
+        assert_eq!(
+            SEED_REKEY_PRODUCE_FAILURE_TOTAL,
+            "cohort_seed_rekey_produce_failure_total",
+        );
+        assert_eq!(
+            SEED_REKEY_HOP_CAPPED_TOTAL,
+            "cohort_seed_rekey_hop_capped_total"
+        );
+        // The held-offset gauge deliberately mirrors merge_held_offset/cascade_held_offset.
+        assert_eq!(SEED_HELD_OFFSET_GAUGE, "seed_held_offset");
+        assert_eq!(SEED_FENCED_PARTITIONS, "cohort_seed_fenced_partitions");
+        assert_eq!(SEED_FENCE_DEFICIT_MS, "cohort_seed_fence_deficit_ms");
+        assert_eq!(LIVE_WATERMARK_AGE_MS, "cohort_live_watermark_age_ms");
+    }
+
+    #[test]
+    fn schema_guard_and_drain_scan_metric_names_are_stable() {
+        assert_eq!(
+            STORE_SCHEMA_MISMATCH_WIPES_TOTAL,
+            "store_schema_mismatch_wipes_total",
+        );
+        assert_eq!(MERGE_DRAIN_LEAVES_SCANNED, "merge_drain_leaves_scanned");
     }
 }

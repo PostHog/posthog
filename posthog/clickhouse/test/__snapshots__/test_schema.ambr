@@ -2,7 +2,7 @@
 # name: test_create_kafka_events_with_disabled_protobuf
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_events_json ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_events_json 
   (
       uuid UUID,
       event VARCHAR,
@@ -157,7 +157,7 @@
 # name: test_create_kafka_table_with_different_kafka_host[kafka_error_tracking_issue_fingerprint_overrides]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_error_tracking_issue_fingerprint_overrides ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_error_tracking_issue_fingerprint_overrides 
   (
       team_id Int64,
       fingerprint VARCHAR,
@@ -172,7 +172,7 @@
 # name: test_create_kafka_table_with_different_kafka_host[kafka_events_dead_letter_queue]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_events_dead_letter_queue ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_events_dead_letter_queue 
   (
       id UUID,
       event_uuid UUID,
@@ -198,7 +198,7 @@
 # name: test_create_kafka_table_with_different_kafka_host[kafka_events_json]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_events_json ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_events_json 
   (
       uuid UUID,
       event VARCHAR,
@@ -242,10 +242,57 @@
   
   '''
 # ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_events_json_native_json]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_events_json_native_json 
+  (
+      uuid UUID,
+      event VARCHAR,
+      properties VARCHAR CODEC(ZSTD(3)),
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id VARCHAR,
+      elements_chain VARCHAR,
+      created_at DateTime64(6, 'UTC'),
+      person_id UUID,
+      person_created_at DateTime64,
+      person_properties VARCHAR Codec(ZSTD(3)),
+      group0_properties VARCHAR Codec(ZSTD(3)),
+      group1_properties VARCHAR Codec(ZSTD(3)),
+      group2_properties VARCHAR Codec(ZSTD(3)),
+      group3_properties VARCHAR Codec(ZSTD(3)),
+      group4_properties VARCHAR Codec(ZSTD(3)),
+      group0_created_at DateTime64,
+      group1_created_at DateTime64,
+      group2_created_at DateTime64,
+      group3_created_at DateTime64,
+      group4_created_at DateTime64,
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      historical_migration Bool
+          , `dmat_string_0` Nullable(String)
+      , `dmat_string_1` Nullable(String)
+      , `dmat_string_2` Nullable(String)
+      , `dmat_string_3` Nullable(String)
+      , `dmat_string_4` Nullable(String)
+      , `dmat_string_5` Nullable(String)
+      , `dmat_string_6` Nullable(String)
+      , `dmat_string_7` Nullable(String)
+      , `dmat_string_8` Nullable(String)
+      , `dmat_string_9` Nullable(String)
+      
+      
+      
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_events_json_test', kafka_group_name = 'clickhouse_events_json_native_json', kafka_format = 'JSONEachRow')
+  
+      SETTINGS kafka_skip_broken_messages = 100
+  
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_groups]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_groups ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_groups 
   (
       group_type_index UInt8,
       group_key VARCHAR,
@@ -329,10 +376,26 @@
   
   '''
 # ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_ingestion_warnings_v2]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_ingestion_warnings_v2
+  (
+      
+      team_id Int64,
+      source LowCardinality(String),
+      type String,
+      details String,
+      timestamp DateTime64(6, 'UTC')
+  
+  ) ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'clickhouse_ingestion_warnings_test', kafka_group_name = 'clickhouse_ingestion_warnings_v2', kafka_format = 'JSONEachRow')
+  
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_log_entries]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_log_entries ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_log_entries 
   (
       team_id UInt64,
       -- The name of the service or product that generated the logs.
@@ -388,7 +451,7 @@
 # name: test_create_kafka_table_with_different_kafka_host[kafka_performance_events]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_performance_events ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_performance_events 
   (
       uuid UUID,
   session_id String,
@@ -445,7 +508,7 @@
 # name: test_create_kafka_table_with_different_kafka_host[kafka_person]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_person ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_person 
   (
       id UUID,
       created_at DateTime64,
@@ -463,7 +526,7 @@
 # name: test_create_kafka_table_with_different_kafka_host[kafka_person_distinct_id2]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_person_distinct_id2 ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_person_distinct_id2 
   (
       team_id Int64,
       distinct_id VARCHAR,
@@ -478,7 +541,7 @@
 # name: test_create_kafka_table_with_different_kafka_host[kafka_person_distinct_id]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_person_distinct_id ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_person_distinct_id 
   (
       distinct_id VARCHAR,
       person_id UUID,
@@ -492,7 +555,7 @@
 # name: test_create_kafka_table_with_different_kafka_host[kafka_person_distinct_id_overrides]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_person_distinct_id_overrides ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_person_distinct_id_overrides 
   (
       team_id Int64,
       distinct_id VARCHAR,
@@ -508,7 +571,7 @@
   '''
   
       CREATE TABLE IF NOT EXISTS `posthog_test`.`kafka_person_overrides`
-      ON CLUSTER 'posthog'
+      
   
       ENGINE = Kafka(
           'kafka:9092', -- Kafka hosts
@@ -539,7 +602,7 @@
 # name: test_create_kafka_table_with_different_kafka_host[kafka_plugin_log_entries]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_plugin_log_entries ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_plugin_log_entries 
   (
       id UUID,
       team_id Int64,
@@ -611,7 +674,7 @@
 # name: test_create_kafka_table_with_different_kafka_host[kafka_session_replay_events]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_session_replay_events ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_session_replay_events 
   (
       session_id VARCHAR,
       team_id Int64,
@@ -646,7 +709,7 @@
 # name: test_create_kafka_table_with_different_kafka_host[kafka_session_replay_features]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_session_replay_features ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_session_replay_features 
   (
       session_id VARCHAR,
       team_id Int64,
@@ -1021,7 +1084,7 @@
 # name: test_create_table_query[channel_definition]
   '''
   
-  CREATE TABLE IF NOT EXISTS channel_definition ON CLUSTER 'posthog' (
+  CREATE TABLE IF NOT EXISTS channel_definition  (
       domain String NOT NULL,
       kind String NOT NULL,
       domain_type String NULL,
@@ -1064,7 +1127,7 @@
 # name: test_create_table_query[cohortpeople]
   '''
   
-  CREATE TABLE IF NOT EXISTS cohortpeople ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS cohortpeople 
   (
       person_id UUID,
       cohort_id Int64,
@@ -1168,7 +1231,7 @@
       
   , _timestamp DateTime
   , _offset UInt64
-  , inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NOW64()
+  , inserted_at DateTime64(6, 'UTC') DEFAULT NOW64()
       
   ) ENGINE = Distributed('posthog_primary_replica', 'posthog_test', 'sharded_events_recent', sipHash64(distinct_id))
   
@@ -1250,7 +1313,7 @@
 # name: test_create_table_query[distributed_system_processes]
   '''
   
-          CREATE TABLE IF NOT EXISTS distributed_system_processes ON CLUSTER 'posthog'
+          CREATE TABLE IF NOT EXISTS distributed_system_processes 
           ENGINE = Distributed(posthog, system, processes)
           SETTINGS skip_unavailable_shards=1
       
@@ -1321,7 +1384,7 @@
 # name: test_create_table_query[error_tracking_issue_fingerprint_overrides]
   '''
   
-  CREATE TABLE IF NOT EXISTS error_tracking_issue_fingerprint_overrides ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS error_tracking_issue_fingerprint_overrides 
   (
       team_id Int64,
       fingerprint VARCHAR,
@@ -1346,7 +1409,7 @@
 # name: test_create_table_query[error_tracking_issue_fingerprint_overrides_mv]
   '''
   
-  CREATE MATERIALIZED VIEW IF NOT EXISTS error_tracking_issue_fingerprint_overrides_mv ON CLUSTER 'posthog'
+  CREATE MATERIALIZED VIEW IF NOT EXISTS error_tracking_issue_fingerprint_overrides_mv 
   TO writable_error_tracking_issue_fingerprint_overrides
   AS SELECT
   team_id,
@@ -1365,7 +1428,7 @@
 # name: test_create_table_query[events]
   '''
   
-  CREATE TABLE IF NOT EXISTS events ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS events 
   (
       uuid UUID,
       event VARCHAR,
@@ -1427,7 +1490,7 @@
 # name: test_create_table_query[events_dead_letter_queue]
   '''
   
-  CREATE TABLE IF NOT EXISTS events_dead_letter_queue ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS events_dead_letter_queue 
   (
       id UUID,
       event_uuid UUID,
@@ -1462,7 +1525,7 @@
 # name: test_create_table_query[events_dead_letter_queue_mv]
   '''
   
-  CREATE MATERIALIZED VIEW IF NOT EXISTS events_dead_letter_queue_mv ON CLUSTER 'posthog'
+  CREATE MATERIALIZED VIEW IF NOT EXISTS events_dead_letter_queue_mv 
   TO posthog_test.writable_events_dead_letter_queue
   AS SELECT
   id,
@@ -1484,6 +1547,59 @@
   _timestamp,
   _offset
   FROM posthog_test.kafka_events_dead_letter_queue
+  
+  '''
+# ---
+# name: test_create_table_query[events_json]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS events_json 
+  (
+      uuid UUID,
+      event String,
+      properties JSON(max_dynamic_types = 8, max_dynamic_paths = 256, `$active_feature_flags` Array(String), `$ai_experiment_id` Nullable(String), `$ai_http_status` Nullable(String), `$ai_is_error` Nullable(String), `$ai_model` Nullable(String), `$ai_parent_id` Nullable(String), `$ai_prompt_name` Nullable(String), `$ai_provider` Nullable(String), `$ai_session_id` Nullable(String), `$ai_span_id` Nullable(String), `$ai_total_cost_usd` Nullable(String), `$ai_trace_id` Nullable(String), `$anon_distinct_id` Nullable(String), `$app_build` Nullable(String), `$app_namespace` Nullable(String), `$app_version` Nullable(String), `$browser` Nullable(String), `$browser_version` Nullable(String), `$current_url` Nullable(String), `$device` Nullable(String), `$device_id` Nullable(String), `$device_model` Nullable(String), `$device_type` Nullable(String), `$el_text` Nullable(String), `$event_type` Nullable(String), `$exception_fingerprint` Nullable(String), `$exception_functions` Array(String), `$exception_issue_id` Nullable(String), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flag` Nullable(String), `$feature_flag_payloads` Nullable(String), `$feature_flag_response` Nullable(String), `$geoip_city_name` Nullable(String), `$geoip_country_code` Nullable(String), `$geoip_country_name` Nullable(String), `$geoip_subdivision_1_code` Nullable(String), `$group_0` Nullable(String), `$group_1` Nullable(String), `$group_2` Nullable(String), `$group_3` Nullable(String), `$group_4` Nullable(String), `$groups` Nullable(String), `$host` Nullable(String), `$initial_pathname` Nullable(String), `$initial_referrer` Nullable(String), `$initial_referring_domain` Nullable(String), `$ip` Nullable(String), `$is_identified` Nullable(String), `$lib` Nullable(String), `$lib_custom_api_host` Nullable(String), `$lib_version` Nullable(String), `$lib_version__minor` Nullable(String), `$os` Nullable(String), `$os_name` Nullable(String), `$os_version` Nullable(String), `$pathname` Nullable(String), `$prev_pageview_max_content_percentage` Nullable(String), `$prev_pageview_max_scroll_percentage` Nullable(String), `$prev_pageview_pathname` Nullable(String), `$process_person_profile` Nullable(String), `$referrer` Nullable(String), `$referring_domain` Nullable(String), `$screen_height` Nullable(String), `$screen_name` Nullable(String), `$screen_width` Nullable(String), `$sent_at` Nullable(String), `$session_id` Nullable(String), `$survey_id` Nullable(String), `$survey_response` Nullable(String), `$survey_response_1` Nullable(String), `$time` Nullable(String), `$user_id` Nullable(String), `$viewport_height` Nullable(String), `$viewport_width` Nullable(String), `$web_vitals_CLS_value` Nullable(String), `$web_vitals_FCP_value` Nullable(String), `$web_vitals_INP_value` Nullable(String), `$web_vitals_LCP_value` Nullable(String), `$window_id` Nullable(String)),
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id String,
+      elements_hash String DEFAULT '',
+      created_at DateTime64(6, 'UTC'),
+      _timestamp DateTime,
+      _offset UInt64,
+      elements_chain String,
+      person_id UUID,
+      person_properties JSON(max_dynamic_types = 6, max_dynamic_paths = 32, `$app_version` Nullable(String), `$browser` Nullable(String), `$current_url` Nullable(String), `$geoip_continent_name` Nullable(String), `$geoip_country_code` Nullable(String), `$geoip_country_name` Nullable(String), `$initial_current_url` Nullable(String), `$initial_fbclid` Nullable(String), `$initial_gad_source` Nullable(String), `$initial_gbraid` Nullable(String), `$initial_gclid` Nullable(String), `$initial_msclkid` Nullable(String), `$initial_pathname` Nullable(String), `$initial_referring_domain` Nullable(String), `$initial_utm_campaign` Nullable(String), `$initial_utm_content` Nullable(String), `$initial_utm_medium` Nullable(String), `$initial_utm_source` Nullable(String), `$initial_utm_term` Nullable(String), `$initial_wbraid` Nullable(String), `$os_name` Nullable(String), `$referring_domain` Nullable(String)),
+      group0_properties String CODEC(ZSTD(3)),
+      group1_properties String CODEC(ZSTD(3)),
+      group2_properties String CODEC(ZSTD(3)),
+      group3_properties String CODEC(ZSTD(3)),
+      group4_properties String CODEC(ZSTD(3)),
+      person_created_at DateTime64(3),
+      group0_created_at DateTime64(3),
+      group1_created_at DateTime64(3),
+      group2_created_at DateTime64(3),
+      group3_created_at DateTime64(3),
+      group4_created_at DateTime64(3),
+      inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT now64(),
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      is_deleted Bool DEFAULT false,
+      consumer_breadcrumbs Array(String),
+      historical_migration Bool DEFAULT false
+      
+      , $group_0 String
+      , $group_1 String
+      , $group_2 String
+      , $group_3 String
+      , $group_4 String
+      , $window_id String
+      , $session_id String
+      , $session_id_uuid Nullable(UInt128)
+      , elements_chain_href String
+      , elements_chain_texts Array(String)
+      , elements_chain_ids Array(String)
+      , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label'))
+  
+      
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_events_json', sipHash64(distinct_id))
   
   '''
 # ---
@@ -1539,6 +1655,48 @@
   
   '''
 # ---
+# name: test_create_table_query[events_json_table_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS events_json_table_mv ON CLUSTER 'posthog'
+  TO posthog_test.writable_events_json
+  AS SELECT
+  uuid,
+  event,
+  ifNull(accurateCastOrNull(properties, 'JSON'), CAST(concat('{"$unparseable_properties":', toJSONString(properties), '}'), 'JSON')) AS properties,
+  timestamp,
+  team_id,
+  distinct_id,
+  elements_chain,
+  created_at,
+  person_id,
+  person_created_at,
+  ifNull(accurateCastOrNull(person_properties, 'JSON'), CAST(concat('{"$unparseable_properties":', toJSONString(person_properties), '}'), 'JSON')) AS person_properties,
+  group0_properties,
+  group1_properties,
+  group2_properties,
+  group3_properties,
+  group4_properties,
+  group0_created_at,
+  group1_created_at,
+  group2_created_at,
+  group3_created_at,
+  group4_created_at,
+  person_mode,
+  historical_migration,
+  _timestamp,
+  _offset,
+  arrayMap(
+      i -> _headers.value[i],
+      arrayFilter(
+          i -> _headers.name[i] = 'kafka-consumer-breadcrumbs',
+          arrayEnumerate(_headers.name)
+      )
+  ) as consumer_breadcrumbs
+  FROM posthog_test.kafka_events_json_native_json
+  
+  '''
+# ---
 # name: test_create_table_query[events_recent]
   '''
   
@@ -1572,7 +1730,7 @@
       
   , _timestamp DateTime
   , _offset UInt64
-  , inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NOW64()
+  , inserted_at DateTime64(6, 'UTC') DEFAULT NOW64()
       
   ) ENGINE = Distributed('posthog_primary_replica', 'posthog_test', 'sharded_events_recent', sipHash64(distinct_id))
   
@@ -1615,7 +1773,7 @@
 # name: test_create_table_query[exchange_rate]
   '''
   
-  CREATE TABLE IF NOT EXISTS `posthog_test`.`exchange_rate` ON CLUSTER 'posthog' (
+  CREATE TABLE IF NOT EXISTS `posthog_test`.`exchange_rate`  (
       currency String,
       date Date,
       rate Decimal64(10),
@@ -1686,7 +1844,7 @@
 # name: test_create_table_query[groups]
   '''
   
-  CREATE TABLE IF NOT EXISTS groups ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS groups 
   (
       group_type_index UInt8,
       group_key VARCHAR,
@@ -1706,7 +1864,7 @@
 # name: test_create_table_query[groups_mv]
   '''
   
-  CREATE MATERIALIZED VIEW IF NOT EXISTS groups_mv ON CLUSTER 'posthog'
+  CREATE MATERIALIZED VIEW IF NOT EXISTS groups_mv 
   TO writable_groups
   AS SELECT
   group_type_index,
@@ -1933,6 +2091,79 @@
   
   '''
 # ---
+# name: test_create_table_query[ingestion_warnings_v2]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS ingestion_warnings_v2
+  (
+      
+      team_id Int64,
+      source LowCardinality(String),
+      type LowCardinality(String),
+      details String,
+      timestamp DateTime64(6, 'UTC'),
+      category LowCardinality(String) DEFAULT coalesce(nullIf(JSONExtractString(details, 'category'), ''), 'unknown'),
+      severity LowCardinality(String) DEFAULT coalesce(nullIf(JSONExtractString(details, 'severity'), ''), 'warning'),
+      pipeline_step LowCardinality(String) DEFAULT coalesce(nullIf(JSONExtractString(details, 'pipelineStep'), ''), 'unknown'),
+      event_uuid Nullable(UUID) DEFAULT toUUIDOrNull(JSONExtractString(details, 'eventUuid')),
+      distinct_id Nullable(String) DEFAULT nullIf(JSONExtractString(details, 'distinctId'), ''),
+      group_key Nullable(String) DEFAULT nullIf(JSONExtractString(details, 'groupKey'), ''),
+      person_id Nullable(UUID) DEFAULT toUUIDOrNull(JSONExtractString(details, 'personId')),
+      _timestamp DateTime,
+      _offset UInt64,
+      _partition UInt64
+  
+  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.ingestion_warnings_v2', '{replica}-{shard}')
+  PARTITION BY toYYYYMM(timestamp)
+  ORDER BY (team_id, type, timestamp)
+  TTL toDateTime(timestamp) + INTERVAL 90 DAY
+  
+  '''
+# ---
+# name: test_create_table_query[ingestion_warnings_v2_distributed]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS ingestion_warnings_v2_distributed
+  (
+      
+      team_id Int64,
+      source LowCardinality(String),
+      type LowCardinality(String),
+      details String,
+      timestamp DateTime64(6, 'UTC'),
+      category LowCardinality(String) DEFAULT coalesce(nullIf(JSONExtractString(details, 'category'), ''), 'unknown'),
+      severity LowCardinality(String) DEFAULT coalesce(nullIf(JSONExtractString(details, 'severity'), ''), 'warning'),
+      pipeline_step LowCardinality(String) DEFAULT coalesce(nullIf(JSONExtractString(details, 'pipelineStep'), ''), 'unknown'),
+      event_uuid Nullable(UUID) DEFAULT toUUIDOrNull(JSONExtractString(details, 'eventUuid')),
+      distinct_id Nullable(String) DEFAULT nullIf(JSONExtractString(details, 'distinctId'), ''),
+      group_key Nullable(String) DEFAULT nullIf(JSONExtractString(details, 'groupKey'), ''),
+      person_id Nullable(UUID) DEFAULT toUUIDOrNull(JSONExtractString(details, 'personId')),
+      _timestamp DateTime,
+      _offset UInt64,
+      _partition UInt64
+  
+  ) ENGINE = Distributed('aux', 'posthog_test', 'ingestion_warnings_v2')
+  
+  '''
+# ---
+# name: test_create_table_query[ingestion_warnings_v2_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS ingestion_warnings_v2_mv
+  TO posthog_test.ingestion_warnings_v2
+  AS SELECT
+      team_id,
+      source,
+      type,
+      details,
+      timestamp,
+      _timestamp,
+      _offset,
+      _partition
+  FROM posthog_test.kafka_ingestion_warnings_v2
+  
+  '''
+# ---
 # name: test_create_table_query[kafka_ai_events_json]
   '''
   
@@ -2044,7 +2275,7 @@
 # name: test_create_table_query[kafka_error_tracking_issue_fingerprint_overrides]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_error_tracking_issue_fingerprint_overrides ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_error_tracking_issue_fingerprint_overrides 
   (
       team_id Int64,
       fingerprint VARCHAR,
@@ -2059,7 +2290,7 @@
 # name: test_create_table_query[kafka_events_dead_letter_queue]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_events_dead_letter_queue ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_events_dead_letter_queue 
   (
       id UUID,
       event_uuid UUID,
@@ -2085,7 +2316,7 @@
 # name: test_create_table_query[kafka_events_json]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_events_json ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_events_json 
   (
       uuid UUID,
       event VARCHAR,
@@ -2129,10 +2360,57 @@
   
   '''
 # ---
+# name: test_create_table_query[kafka_events_json_native_json]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_events_json_native_json 
+  (
+      uuid UUID,
+      event VARCHAR,
+      properties VARCHAR CODEC(ZSTD(3)),
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id VARCHAR,
+      elements_chain VARCHAR,
+      created_at DateTime64(6, 'UTC'),
+      person_id UUID,
+      person_created_at DateTime64,
+      person_properties VARCHAR Codec(ZSTD(3)),
+      group0_properties VARCHAR Codec(ZSTD(3)),
+      group1_properties VARCHAR Codec(ZSTD(3)),
+      group2_properties VARCHAR Codec(ZSTD(3)),
+      group3_properties VARCHAR Codec(ZSTD(3)),
+      group4_properties VARCHAR Codec(ZSTD(3)),
+      group0_created_at DateTime64,
+      group1_created_at DateTime64,
+      group2_created_at DateTime64,
+      group3_created_at DateTime64,
+      group4_created_at DateTime64,
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      historical_migration Bool
+          , `dmat_string_0` Nullable(String)
+      , `dmat_string_1` Nullable(String)
+      , `dmat_string_2` Nullable(String)
+      , `dmat_string_3` Nullable(String)
+      , `dmat_string_4` Nullable(String)
+      , `dmat_string_5` Nullable(String)
+      , `dmat_string_6` Nullable(String)
+      , `dmat_string_7` Nullable(String)
+      , `dmat_string_8` Nullable(String)
+      , `dmat_string_9` Nullable(String)
+      
+      
+      
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_events_json_test', kafka_group_name = 'clickhouse_events_json_native_json', kafka_format = 'JSONEachRow')
+  
+      SETTINGS kafka_skip_broken_messages = 100
+  
+  '''
+# ---
 # name: test_create_table_query[kafka_groups]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_groups ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_groups 
   (
       group_type_index UInt8,
       group_key VARCHAR,
@@ -2216,10 +2494,26 @@
   
   '''
 # ---
+# name: test_create_table_query[kafka_ingestion_warnings_v2]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_ingestion_warnings_v2
+  (
+      
+      team_id Int64,
+      source LowCardinality(String),
+      type String,
+      details String,
+      timestamp DateTime64(6, 'UTC')
+  
+  ) ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'clickhouse_ingestion_warnings_test', kafka_group_name = 'clickhouse_ingestion_warnings_v2', kafka_format = 'JSONEachRow')
+  
+  '''
+# ---
 # name: test_create_table_query[kafka_log_entries]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_log_entries ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_log_entries 
   (
       team_id UInt64,
       -- The name of the service or product that generated the logs.
@@ -2275,7 +2569,7 @@
 # name: test_create_table_query[kafka_performance_events]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_performance_events ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_performance_events 
   (
       uuid UUID,
   session_id String,
@@ -2332,7 +2626,7 @@
 # name: test_create_table_query[kafka_person]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_person ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_person 
   (
       id UUID,
       created_at DateTime64,
@@ -2350,7 +2644,7 @@
 # name: test_create_table_query[kafka_person_distinct_id2]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_person_distinct_id2 ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_person_distinct_id2 
   (
       team_id Int64,
       distinct_id VARCHAR,
@@ -2365,7 +2659,7 @@
 # name: test_create_table_query[kafka_person_distinct_id]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_person_distinct_id ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_person_distinct_id 
   (
       distinct_id VARCHAR,
       person_id UUID,
@@ -2379,7 +2673,7 @@
 # name: test_create_table_query[kafka_person_distinct_id_overrides]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_person_distinct_id_overrides ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_person_distinct_id_overrides 
   (
       team_id Int64,
       distinct_id VARCHAR,
@@ -2395,7 +2689,7 @@
   '''
   
       CREATE TABLE IF NOT EXISTS `posthog_test`.`kafka_person_overrides`
-      ON CLUSTER 'posthog'
+      
   
       ENGINE = Kafka(
           'kafka:9092', -- Kafka hosts
@@ -2426,7 +2720,7 @@
 # name: test_create_table_query[kafka_plugin_log_entries]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_plugin_log_entries ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_plugin_log_entries 
   (
       id UUID,
       team_id Int64,
@@ -2498,7 +2792,7 @@
 # name: test_create_table_query[kafka_session_replay_events]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_session_replay_events ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_session_replay_events 
   (
       session_id VARCHAR,
       team_id Int64,
@@ -2533,7 +2827,7 @@
 # name: test_create_table_query[kafka_session_replay_features]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_session_replay_features ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_session_replay_features 
   (
       session_id VARCHAR,
       team_id Int64,
@@ -2718,14 +3012,14 @@
 # name: test_create_table_query[log_attributes_distributed]
   '''
   
-  CREATE TABLE IF NOT EXISTS posthog_test.log_attributes_distributed AS posthog_test.log_attributes ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'log_attributes')
+  CREATE OR REPLACE TABLE posthog_test.log_attributes_distributed AS posthog_test.log_attributes3 ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'log_attributes3')
   
   '''
 # ---
 # name: test_create_table_query[log_entries]
   '''
   
-  CREATE TABLE IF NOT EXISTS log_entries ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS log_entries 
   (
       team_id UInt64,
       -- The name of the service or product that generated the logs.
@@ -2859,10 +3153,10 @@
   
   '''
 # ---
-# name: test_create_table_query[logs32_to_log_attributes]
+# name: test_create_table_query[logs32_to_log_attributes3]
   '''
   
-  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_test.logs32_to_log_attributes TO posthog_test.log_attributes
+  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_test.logs32_to_log_attributes3 TO posthog_test.log_attributes3
   (
       `team_id` Int32,
       `time_bucket` DateTime64(0),
@@ -2872,6 +3166,7 @@
       `attribute_key` LowCardinality(String),
       `attribute_value` String,
       `attribute_type` LowCardinality(String),
+      `severity_text` LowCardinality(String),
       `attribute_count` SimpleAggregateFunction(sum, UInt64)
   )
   AS SELECT
@@ -2883,6 +3178,7 @@
       attribute_key,
       attribute_value,
       attribute_type,
+      severity_text,
       attribute_count
   FROM
   (
@@ -2892,6 +3188,7 @@
           toStartOfInterval(original_expiry_timestamp, toIntervalMinute(10)) AS original_expiry_time_bucket,
           service_name AS service_name,
           resource_fingerprint,
+          severity_text AS severity_text,
           mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes) AS attributes,
           arrayJoin(attributes) AS attribute,
           'log' AS attribute_type,
@@ -2905,15 +3202,16 @@
           original_expiry_time_bucket,
           service_name,
           resource_fingerprint,
+          severity_text,
           attributes
   )
   
   '''
 # ---
-# name: test_create_table_query[logs32_to_resource_attributes]
+# name: test_create_table_query[logs32_to_resource_attributes3]
   '''
   
-  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_test.logs32_to_resource_attributes TO posthog_test.log_attributes
+  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_test.logs32_to_resource_attributes3 TO posthog_test.log_attributes3
   (
       `team_id` Int32,
       `time_bucket` DateTime64(0),
@@ -2923,6 +3221,7 @@
       `attribute_key` LowCardinality(String),
       `attribute_value` String,
       `attribute_type` LowCardinality(String),
+      `severity_text` LowCardinality(String),
       `attribute_count` SimpleAggregateFunction(sum, UInt64)
   )
   AS SELECT
@@ -2934,6 +3233,7 @@
       attribute_key,
       attribute_value,
       attribute_type,
+      severity_text,
       attribute_count
   FROM
   (
@@ -2943,6 +3243,7 @@
           toStartOfInterval(original_expiry_timestamp, toIntervalMinute(10)) AS original_expiry_time_bucket,
           service_name AS service_name,
           resource_fingerprint,
+          severity_text AS severity_text,
           arrayJoin(resource_attributes) AS attribute,
           'resource' AS attribute_type,
           attribute.1 AS attribute_key,
@@ -2955,6 +3256,7 @@
           original_expiry_time_bucket,
           service_name,
           resource_fingerprint,
+          severity_text,
           resource_attributes
   )
   
@@ -3847,7 +4149,7 @@
 # name: test_create_table_query[performance_events]
   '''
   
-  CREATE TABLE IF NOT EXISTS performance_events ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS performance_events 
   (
       uuid UUID,
   session_id String,
@@ -3920,7 +4222,7 @@
 # name: test_create_table_query[person]
   '''
   
-  CREATE TABLE IF NOT EXISTS person ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS person 
   (
       id UUID,
       created_at DateTime64,
@@ -3946,7 +4248,7 @@
 # name: test_create_table_query[person_distinct_id2]
   '''
   
-  CREATE TABLE IF NOT EXISTS person_distinct_id2 ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS person_distinct_id2 
   (
       team_id Int64,
       distinct_id VARCHAR,
@@ -3971,7 +4273,7 @@
 # name: test_create_table_query[person_distinct_id2_mv]
   '''
   
-  CREATE MATERIALIZED VIEW IF NOT EXISTS person_distinct_id2_mv ON CLUSTER 'posthog'
+  CREATE MATERIALIZED VIEW IF NOT EXISTS person_distinct_id2_mv 
   TO writable_person_distinct_id2
   AS SELECT
   team_id,
@@ -3989,7 +4291,7 @@
 # name: test_create_table_query[person_distinct_id]
   '''
   
-  CREATE TABLE IF NOT EXISTS person_distinct_id ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS person_distinct_id 
   (
       distinct_id VARCHAR,
       person_id UUID,
@@ -4025,7 +4327,7 @@
 # name: test_create_table_query[person_distinct_id_overrides]
   '''
   
-  CREATE TABLE IF NOT EXISTS person_distinct_id_overrides ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS person_distinct_id_overrides 
   (
       team_id Int64,
       distinct_id VARCHAR,
@@ -4069,7 +4371,7 @@
 # name: test_create_table_query[person_mv]
   '''
   
-  CREATE MATERIALIZED VIEW IF NOT EXISTS person_mv ON CLUSTER 'posthog'
+  CREATE MATERIALIZED VIEW IF NOT EXISTS person_mv 
   TO writable_person
   AS SELECT
   id,
@@ -4090,7 +4392,7 @@
   '''
   
       CREATE TABLE IF NOT EXISTS `posthog_test`.`person_overrides`
-      ON CLUSTER 'posthog' (
+       (
           team_id INT NOT NULL,
   
           -- When we merge two people `old_person_id` and `override_person_id`, we
@@ -4154,7 +4456,7 @@
   '''
   
       CREATE MATERIALIZED VIEW IF NOT EXISTS `posthog_test`.`person_overrides_mv`
-      ON CLUSTER 'posthog'
+      
       TO `posthog_test`.`person_overrides`
       AS SELECT
           team_id,
@@ -4173,7 +4475,7 @@
 # name: test_create_table_query[person_static_cohort]
   '''
   
-  CREATE TABLE IF NOT EXISTS person_static_cohort ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS person_static_cohort 
   (
       id UUID,
       person_id UUID,
@@ -4192,7 +4494,7 @@
 # name: test_create_table_query[pg_embeddings]
   '''
   
-  CREATE TABLE IF NOT EXISTS pg_embeddings ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS pg_embeddings 
   (
       domain String,
       team_id Int64,
@@ -4213,7 +4515,7 @@
 # name: test_create_table_query[plugin_log_entries]
   '''
   
-  CREATE TABLE IF NOT EXISTS plugin_log_entries ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS plugin_log_entries 
   (
       id UUID,
       team_id Int64,
@@ -4238,7 +4540,7 @@
 # name: test_create_table_query[plugin_log_entries_mv]
   '''
   
-  CREATE MATERIALIZED VIEW IF NOT EXISTS plugin_log_entries_mv ON CLUSTER 'posthog'
+  CREATE MATERIALIZED VIEW IF NOT EXISTS plugin_log_entries_mv 
   TO writable_plugin_log_entries
   AS SELECT
   id,
@@ -4774,7 +5076,7 @@
 # name: test_create_table_query[raw_sessions]
   '''
   
-  CREATE TABLE IF NOT EXISTS raw_sessions ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS raw_sessions 
   (
       team_id Int64,
       session_id_v7 UInt128, -- integer representation of a uuidv7
@@ -5436,7 +5738,7 @@
 # name: test_create_table_query[session_replay_events_mv]
   '''
   
-  CREATE MATERIALIZED VIEW IF NOT EXISTS session_replay_events_mv ON CLUSTER 'posthog'
+  CREATE MATERIALIZED VIEW IF NOT EXISTS session_replay_events_mv 
   TO posthog_test.writable_session_replay_events (
   `session_id` String, `team_id` Int64, `distinct_id` String,
   `min_first_timestamp` DateTime64(6, 'UTC'),
@@ -5586,7 +5888,7 @@
 # name: test_create_table_query[session_replay_features_mv]
   '''
   
-  CREATE MATERIALIZED VIEW IF NOT EXISTS session_replay_features_mv ON CLUSTER 'posthog'
+  CREATE MATERIALIZED VIEW IF NOT EXISTS session_replay_features_mv 
   TO posthog_test.writable_session_replay_features
   AS SELECT
   session_id,
@@ -5665,7 +5967,7 @@
 # name: test_create_table_query[sessions]
   '''
   
-  CREATE TABLE IF NOT EXISTS sessions ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS sessions 
   (
       -- part of order by so will aggregate correctly
       session_id VARCHAR,
@@ -5721,7 +6023,7 @@
 # name: test_create_table_query[sessions_mv]
   '''
   
-  CREATE MATERIALIZED VIEW IF NOT EXISTS sessions_mv ON CLUSTER 'posthog'
+  CREATE MATERIALIZED VIEW IF NOT EXISTS sessions_mv 
   TO posthog_test.writable_sessions
   AS
   
@@ -5917,7 +6219,7 @@
 # name: test_create_table_query[sharded_app_metrics]
   '''
   
-  CREATE TABLE IF NOT EXISTS sharded_app_metrics ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS sharded_app_metrics 
   (
       team_id Int64,
       timestamp DateTime64(6, 'UTC'),
@@ -5999,7 +6301,7 @@
 # name: test_create_table_query[sharded_events]
   '''
   
-  CREATE TABLE IF NOT EXISTS sharded_events ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS sharded_events 
   (
       uuid UUID,
       event VARCHAR,
@@ -6099,6 +6401,154 @@
   ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
   SAMPLE BY cityHash64(distinct_id)
   
+  
+  '''
+# ---
+# name: test_create_table_query[sharded_events_json]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_events_json 
+  (
+      uuid UUID,
+      event String,
+      properties JSON(max_dynamic_types = 8, max_dynamic_paths = 256, `$active_feature_flags` Array(String), `$ai_experiment_id` Nullable(String), `$ai_http_status` Nullable(String), `$ai_is_error` Nullable(String), `$ai_model` Nullable(String), `$ai_parent_id` Nullable(String), `$ai_prompt_name` Nullable(String), `$ai_provider` Nullable(String), `$ai_session_id` Nullable(String), `$ai_span_id` Nullable(String), `$ai_total_cost_usd` Nullable(String), `$ai_trace_id` Nullable(String), `$anon_distinct_id` Nullable(String), `$app_build` Nullable(String), `$app_namespace` Nullable(String), `$app_version` Nullable(String), `$browser` Nullable(String), `$browser_version` Nullable(String), `$current_url` Nullable(String), `$device` Nullable(String), `$device_id` Nullable(String), `$device_model` Nullable(String), `$device_type` Nullable(String), `$el_text` Nullable(String), `$event_type` Nullable(String), `$exception_fingerprint` Nullable(String), `$exception_functions` Array(String), `$exception_issue_id` Nullable(String), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flag` Nullable(String), `$feature_flag_payloads` Nullable(String), `$feature_flag_response` Nullable(String), `$geoip_city_name` Nullable(String), `$geoip_country_code` Nullable(String), `$geoip_country_name` Nullable(String), `$geoip_subdivision_1_code` Nullable(String), `$group_0` Nullable(String), `$group_1` Nullable(String), `$group_2` Nullable(String), `$group_3` Nullable(String), `$group_4` Nullable(String), `$groups` Nullable(String), `$host` Nullable(String), `$initial_pathname` Nullable(String), `$initial_referrer` Nullable(String), `$initial_referring_domain` Nullable(String), `$ip` Nullable(String), `$is_identified` Nullable(String), `$lib` Nullable(String), `$lib_custom_api_host` Nullable(String), `$lib_version` Nullable(String), `$lib_version__minor` Nullable(String), `$os` Nullable(String), `$os_name` Nullable(String), `$os_version` Nullable(String), `$pathname` Nullable(String), `$prev_pageview_max_content_percentage` Nullable(String), `$prev_pageview_max_scroll_percentage` Nullable(String), `$prev_pageview_pathname` Nullable(String), `$process_person_profile` Nullable(String), `$referrer` Nullable(String), `$referring_domain` Nullable(String), `$screen_height` Nullable(String), `$screen_name` Nullable(String), `$screen_width` Nullable(String), `$sent_at` Nullable(String), `$session_id` Nullable(String), `$survey_id` Nullable(String), `$survey_response` Nullable(String), `$survey_response_1` Nullable(String), `$time` Nullable(String), `$user_id` Nullable(String), `$viewport_height` Nullable(String), `$viewport_width` Nullable(String), `$web_vitals_CLS_value` Nullable(String), `$web_vitals_FCP_value` Nullable(String), `$web_vitals_INP_value` Nullable(String), `$web_vitals_LCP_value` Nullable(String), `$window_id` Nullable(String)),
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id String,
+      elements_hash String DEFAULT '',
+      created_at DateTime64(6, 'UTC'),
+      _timestamp DateTime,
+      _offset UInt64,
+      elements_chain String,
+      person_id UUID,
+      person_properties JSON(max_dynamic_types = 6, max_dynamic_paths = 32, `$app_version` Nullable(String), `$browser` Nullable(String), `$current_url` Nullable(String), `$geoip_continent_name` Nullable(String), `$geoip_country_code` Nullable(String), `$geoip_country_name` Nullable(String), `$initial_current_url` Nullable(String), `$initial_fbclid` Nullable(String), `$initial_gad_source` Nullable(String), `$initial_gbraid` Nullable(String), `$initial_gclid` Nullable(String), `$initial_msclkid` Nullable(String), `$initial_pathname` Nullable(String), `$initial_referring_domain` Nullable(String), `$initial_utm_campaign` Nullable(String), `$initial_utm_content` Nullable(String), `$initial_utm_medium` Nullable(String), `$initial_utm_source` Nullable(String), `$initial_utm_term` Nullable(String), `$initial_wbraid` Nullable(String), `$os_name` Nullable(String), `$referring_domain` Nullable(String)),
+      group0_properties String CODEC(ZSTD(3)),
+      group1_properties String CODEC(ZSTD(3)),
+      group2_properties String CODEC(ZSTD(3)),
+      group3_properties String CODEC(ZSTD(3)),
+      group4_properties String CODEC(ZSTD(3)),
+      person_created_at DateTime64(3),
+      group0_created_at DateTime64(3),
+      group1_created_at DateTime64(3),
+      group2_created_at DateTime64(3),
+      group3_created_at DateTime64(3),
+      group4_created_at DateTime64(3),
+      inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT now64(),
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      is_deleted Bool DEFAULT false,
+      consumer_breadcrumbs Array(String),
+      historical_migration Bool DEFAULT false
+      
+      , $group_0 String ALIAS ifNull(properties.`$group_0`, '')
+      , $group_1 String ALIAS ifNull(properties.`$group_1`, '')
+      , $group_2 String ALIAS ifNull(properties.`$group_2`, '')
+      , $group_3 String ALIAS ifNull(properties.`$group_3`, '')
+      , $group_4 String ALIAS ifNull(properties.`$group_4`, '')
+      , $window_id String ALIAS ifNull(properties.`$window_id`, '')
+      , $session_id String ALIAS ifNull(properties.`$session_id`, '')
+      , $session_id_uuid Nullable(UInt128) ALIAS toUInt128(toUUIDOrNull(properties.`$session_id`))
+      , elements_chain_href String MATERIALIZED extract(elements_chain, '(?::|")href="(.*?)"')
+      , elements_chain_texts Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")text="(.*?)"'))
+      , elements_chain_ids Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")attr_id="(.*?)"'))
+      , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\.|$|:)'))
+  
+          , INDEX kafka_timestamp_minmax_sharded_events _timestamp TYPE minmax GRANULARITY 3
+      , INDEX `minmax_$group_0` properties.`$group_0` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_$group_1` properties.`$group_1` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_$group_2` properties.`$group_2` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_$group_3` properties.`$group_3` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_$group_4` properties.`$group_4` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_$window_id` properties.`$window_id` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_$session_id` properties.`$session_id` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$sent_at` properties.`$sent_at` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$initial_pathname` properties.`$initial_pathname` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$lib_version` properties.`$lib_version` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$initial_utm_campaign` person_properties.`$initial_utm_campaign` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$initial_utm_medium` person_properties.`$initial_utm_medium` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$initial_gclid` person_properties.`$initial_gclid` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$initial_gad_source` person_properties.`$initial_gad_source` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$initial_utm_source` person_properties.`$initial_utm_source` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$initial_referring_domain` person_properties.`$initial_referring_domain` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$initial_utm_term` person_properties.`$initial_utm_term` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$initial_utm_content` person_properties.`$initial_utm_content` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$initial_gbraid` person_properties.`$initial_gbraid` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$initial_wbraid` person_properties.`$initial_wbraid` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$initial_msclkid` person_properties.`$initial_msclkid` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$initial_fbclid` person_properties.`$initial_fbclid` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$geoip_subdivision_1_code` properties.`$geoip_subdivision_1_code` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$prev_pageview_max_scroll_percentage` properties.`$prev_pageview_max_scroll_percentage` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$prev_pageview_max_content_percentage` properties.`$prev_pageview_max_content_percentage` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$prev_pageview_pathname` properties.`$prev_pageview_pathname` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$initial_pathname` person_properties.`$initial_pathname` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$geoip_country_code` person_properties.`$geoip_country_code` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$browser_version` properties.`$browser_version` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$initial_current_url` person_properties.`$initial_current_url` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$current_url` person_properties.`$current_url` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$app_namespace` properties.`$app_namespace` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$os_name` properties.`$os_name` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$os_name` person_properties.`$os_name` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$app_version` person_properties.`$app_version` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$screen_height` properties.`$screen_height` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$screen_width` properties.`$screen_width` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$app_build` properties.`$app_build` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$geoip_country_code` properties.`$geoip_country_code` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$survey_id` properties.`$survey_id` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$survey_response_1` properties.`$survey_response_1` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$survey_response` properties.`$survey_response` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$el_text` properties.`$el_text` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$os_version` properties.`$os_version` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$feature_flag_payloads` properties.`$feature_flag_payloads` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$groups` properties.`$groups` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$feature_flag` properties.`$feature_flag` TYPE minmax GRANULARITY 1
+      , INDEX bf_active_feature_flags properties.`$active_feature_flags` TYPE bloom_filter(0.01) GRANULARITY 1
+      , INDEX `minmax_mat_$device_id` properties.`$device_id` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$geoip_continent_name` person_properties.`$geoip_continent_name` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$feature_flag_response` properties.`$feature_flag_response` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$referring_domain` person_properties.`$referring_domain` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$lib_version__minor` properties.`$lib_version__minor` TYPE minmax GRANULARITY 1
+      , INDEX minmax_inserted_at coalesce(inserted_at, _timestamp) TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$lib_custom_api_host` properties.`$lib_custom_api_host` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$geoip_country_name` person_properties.`$geoip_country_name` TYPE minmax GRANULARITY 1
+      , INDEX is_deleted_idx is_deleted TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$device` properties.`$device` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$exception_issue_id` properties.`$exception_issue_id` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$exception_fingerprint` properties.`$exception_fingerprint` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$web_vitals_LCP_value` properties.`$web_vitals_LCP_value` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$web_vitals_FCP_value` properties.`$web_vitals_FCP_value` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$web_vitals_CLS_value` properties.`$web_vitals_CLS_value` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$web_vitals_INP_value` properties.`$web_vitals_INP_value` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$viewport_width` properties.`$viewport_width` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$viewport_height` properties.`$viewport_height` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$anon_distinct_id` properties.`$anon_distinct_id` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$ai_trace_id` properties.`$ai_trace_id` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$ai_model` properties.`$ai_model` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$ai_provider` properties.`$ai_provider` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$ai_parent_id` properties.`$ai_parent_id` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$ai_span_id` properties.`$ai_span_id` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$ai_http_status` properties.`$ai_http_status` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$process_person_profile` properties.`$process_person_profile` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$app_version` properties.`$app_version` TYPE minmax GRANULARITY 1
+      , INDEX `bloom_mat_$is_identified` properties.`$is_identified` TYPE bloom_filter GRANULARITY 1
+      , INDEX `minmax_$session_id_uuid` toUInt128(toUUIDOrNull(properties.`$session_id`)) TYPE minmax GRANULARITY 1
+      , INDEX `bloom_filter_$ai_trace_id` properties.`$ai_trace_id` TYPE bloom_filter(0.001) GRANULARITY 2
+      , INDEX `bloom_filter_$ai_session_id` properties.`$ai_session_id` TYPE bloom_filter GRANULARITY 1
+      , INDEX `minmax_$ai_session_id` properties.`$ai_session_id` TYPE minmax GRANULARITY 1
+      , INDEX `set_$ai_is_error` properties.`$ai_is_error` TYPE set(7) GRANULARITY 1
+      , INDEX `minmax_mat_$ai_total_cost_usd` properties.`$ai_total_cost_usd` TYPE minmax GRANULARITY 1
+      , INDEX bloom_filter_distinct_id distinct_id TYPE bloom_filter GRANULARITY 1
+      , INDEX minmax_sharded_events_timestamp timestamp TYPE minmax GRANULARITY 1
+      , INDEX minmax_historical_migration historical_migration TYPE minmax GRANULARITY 1
+      , INDEX `bloom_mat_$feature_flag` properties.`$feature_flag` TYPE bloom_filter GRANULARITY 1
+      , INDEX `bloom_filter_$ai_prompt_name` properties.`$ai_prompt_name` TYPE bloom_filter GRANULARITY 1
+      , INDEX `minmax_$ai_prompt_name` properties.`$ai_prompt_name` TYPE minmax GRANULARITY 1
+      , INDEX `bloom_filter_$ai_experiment_id` properties.`$ai_experiment_id` TYPE bloom_filter GRANULARITY 1
+      , INDEX `minmax_$ai_experiment_id` properties.`$ai_experiment_id` TYPE minmax GRANULARITY 1
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.events_json', '{replica}', _timestamp)
+  PARTITION BY toYYYYMM(timestamp)
+  PRIMARY KEY (team_id, toDate(timestamp), event, timestamp, cityHash64(distinct_id))
+  ORDER BY (team_id, toDate(timestamp), event, timestamp, cityHash64(distinct_id), distinct_id, uuid)
+  SAMPLE BY cityHash64(distinct_id)
+  SETTINGS index_granularity = 8192, object_serialization_version = 'v3', object_shared_data_serialization_version = 'map_with_buckets', object_shared_data_serialization_version_for_zero_level_parts = 'map', merge_max_block_size = 131072, merge_max_block_size_bytes = 67108864, vertical_merge_algorithm_min_rows_to_activate = 0
   
   '''
 # ---
@@ -6385,7 +6835,7 @@
 # name: test_create_table_query[sharded_performance_events]
   '''
   
-  CREATE TABLE IF NOT EXISTS sharded_performance_events ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS sharded_performance_events 
   (
       uuid UUID,
   session_id String,
@@ -6755,7 +7205,7 @@
 # name: test_create_table_query[sharded_raw_sessions]
   '''
   
-  CREATE TABLE IF NOT EXISTS sharded_raw_sessions ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS sharded_raw_sessions 
   (
       team_id Int64,
       session_id_v7 UInt128, -- integer representation of a uuidv7
@@ -6974,7 +7424,7 @@
 # name: test_create_table_query[sharded_session_replay_events]
   '''
   
-  CREATE TABLE IF NOT EXISTS sharded_session_replay_events ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS sharded_session_replay_events 
   (
       -- part of order by so will aggregate correctly
       session_id VARCHAR,
@@ -7049,7 +7499,7 @@
 # name: test_create_table_query[sharded_session_replay_features]
   '''
   
-  CREATE TABLE IF NOT EXISTS sharded_session_replay_features ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS sharded_session_replay_features 
   (
       session_id VARCHAR,
       team_id Int64,
@@ -7130,7 +7580,7 @@
 # name: test_create_table_query[sharded_sessions]
   '''
   
-  CREATE TABLE IF NOT EXISTS sharded_sessions ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS sharded_sessions 
   (
       -- part of order by so will aggregate correctly
       session_id VARCHAR,
@@ -7582,6 +8032,201 @@
       lane,
       labels
   FROM kafka_tophog
+  
+  '''
+# ---
+# name: test_create_table_query[trace_attributes2]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.trace_attributes2
+  (
+      `team_id` Int32,
+      `original_expiry_time_bucket` DateTime64(0),
+      `time_bucket` DateTime64(0),
+      `service_name` LowCardinality(String),
+      `resource_fingerprint` UInt64 DEFAULT 0,
+      `attribute_key` LowCardinality(String),
+      `attribute_value` String,
+      `attribute_type` LowCardinality(String),
+      `attribute_count` SimpleAggregateFunction(sum, UInt64),
+      INDEX idx_attribute_key attribute_key TYPE bloom_filter(0.01) GRANULARITY 4,
+      INDEX idx_attribute_value attribute_value TYPE bloom_filter(0.01) GRANULARITY 4,
+      INDEX idx_attribute_key_n3 attribute_key TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 4,
+      INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 4
+  )
+  ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.trace_attributes2', '{replica}-{shard}')
+  PARTITION BY toDate(original_expiry_time_bucket)
+  ORDER BY (team_id, attribute_type, time_bucket, resource_fingerprint, attribute_key, attribute_value)
+  TTL original_expiry_time_bucket
+  SETTINGS
+      index_granularity = 8192
+  
+  '''
+# ---
+# name: test_create_table_query[trace_attributes]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.trace_attributes
+  (
+      `team_id` Int32,
+      `original_expiry_time_bucket` DateTime64(0),
+      `time_bucket` DateTime64(0),
+      `service_name` LowCardinality(String),
+      `resource_fingerprint` UInt64 DEFAULT 0,
+      `attribute_key` LowCardinality(String),
+      `attribute_value` String,
+      `attribute_type` LowCardinality(String),
+      `attribute_count` SimpleAggregateFunction(sum, UInt64),
+      INDEX idx_attribute_key attribute_key TYPE bloom_filter(0.01) GRANULARITY 4,
+      INDEX idx_attribute_value attribute_value TYPE bloom_filter(0.01) GRANULARITY 4,
+      INDEX idx_attribute_key_n3 attribute_key TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 4,
+      INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 4
+  )
+  ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.trace_attributes', '{replica}-{shard}')
+  PARTITION BY toDate(original_expiry_time_bucket)
+  ORDER BY (team_id, attribute_type, time_bucket, resource_fingerprint, attribute_key, attribute_value)
+  TTL original_expiry_time_bucket
+  SETTINGS
+      index_granularity = 8192
+  
+  '''
+# ---
+# name: test_create_table_query[trace_attributes_distributed]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.trace_attributes_distributed AS posthog_test.trace_attributes ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'trace_attributes')
+  
+  '''
+# ---
+# name: test_create_table_query[trace_spans]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.trace_spans
+  (
+      `time_bucket` DateTime MATERIALIZED toStartOfInterval(timestamp, toIntervalHour(4)),
+      `original_expiry_timestamp` DateTime64(6),
+      `uuid` String,
+      `team_id` Int32,
+      `trace_id` String,
+      `span_id` String,
+      `parent_span_id` String,
+      `is_root_span` Bool MATERIALIZED replaceAll(trimRight(parent_span_id, '='), 'A', '') = '',
+      `trace_state` String,
+      `name` LowCardinality(String),
+      `kind` Int8,
+      `flags` UInt32,
+      `timestamp` DateTime64(6),
+      `end_time` DateTime64(6),
+      `observed_timestamp` DateTime64(6),
+      `created_at` DateTime64(6) MATERIALIZED now(),
+      `duration_nano` UInt64 MATERIALIZED toUInt64(dateDiff('microsecond', timestamp, end_time)) * 1000,
+      `status_code` Int16,
+      `service_name` LowCardinality(String),
+      `resource_attributes` Map(LowCardinality(String), String),
+      `resource_fingerprint` UInt64 MATERIALIZED cityHash64(resource_attributes),
+      `instrumentation_scope` String,
+      `attributes_map_str` Map(LowCardinality(String), String),
+      `attributes` Map(LowCardinality(String), String) ALIAS mapApply((k, v) -> (left(k, -5), v), attributes_map_str),
+      `attributes_map_float` Map(LowCardinality(String), Float64) MATERIALIZED mapFilter((k, v) -> (v IS NOT NULL), mapApply((k, v) -> (concat(left(k, -5), '__float'), toFloat64OrNull(v)), attributes_map_str)),
+      `attributes_map_datetime` Map(LowCardinality(String), DateTime64(6)) MATERIALIZED mapFilter((k, v) -> (v IS NOT NULL), mapApply((k, v) -> (concat(left(k, -5), '__datetime'), parseDateTimeBestEffortOrNull(v, 6)), attributes_map_str)),
+      `dropped_attributes_count` UInt32,
+      `dropped_events_count` UInt32,
+      `dropped_links_count` UInt32,
+      `events` Array(String),
+      `links` Array(String),
+  
+      -- kafka metadata
+      `_partition` UInt32,
+      `_topic` String,
+      `_offset` UInt64,
+      `_bytes_uncompressed` UInt64,
+      `_bytes_compressed` UInt64,
+      `_record_count` UInt64,
+  
+      INDEX idx_name name TYPE ngrambf_v1(4, 5000, 2, 0) GRANULARITY 16,
+      INDEX idx_kind kind TYPE minmax GRANULARITY 4,
+      INDEX idx_duration duration_nano TYPE minmax GRANULARITY 1,
+      INDEX idx_status_code status_code TYPE minmax GRANULARITY 1,
+      INDEX idx_timestamp_minmax timestamp TYPE minmax GRANULARITY 1,
+      INDEX idx_observed_minmax observed_timestamp TYPE minmax GRANULARITY 1,
+      INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 16,
+      INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 16,
+      INDEX idx_trace_bloom_part trace_id TYPE bloom_filter(0.00001) GRANULARITY 99999,
+      INDEX idx_span_id_bloom_part span_id TYPE bloom_filter(0.00001) GRANULARITY 99999,
+  
+      -- Powers the Spans-view sparkline (spans per minute via sum(event_count)). is_root_span is a
+      -- projection dimension so the Traces-view sparkline (distinct traces per minute) can serve from
+      -- this projection too via sumIf(event_count, is_root_span = 1) — one root span per trace —
+      -- instead of the uniqExactIf(trace_id, is_root_span = 1) raw scan it currently runs.
+      PROJECTION projection_aggregate_counts
+      (
+          SELECT
+              team_id,
+              time_bucket,
+              toStartOfMinute(timestamp),
+              service_name,
+              resource_fingerprint,
+              is_root_span,
+              count() AS event_count
+          GROUP BY
+              team_id,
+              time_bucket,
+              toStartOfMinute(timestamp),
+              service_name,
+              resource_fingerprint,
+              is_root_span
+      ),
+  
+      PROJECTION projection_index_span_id
+      (
+          SELECT _part_offset
+          ORDER BY span_id
+      ),
+  
+      PROJECTION projection_index_trace_id
+      (
+          SELECT _part_offset
+          ORDER BY trace_id
+      )
+  )
+  ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.trace_spans', '{replica}-{shard}')
+  PARTITION BY toDate(original_expiry_timestamp)
+  PRIMARY KEY (team_id, time_bucket, service_name, resource_fingerprint, status_code, name, timestamp)
+  ORDER BY (team_id, time_bucket, service_name, resource_fingerprint, status_code, name, timestamp)
+  TTL original_expiry_timestamp
+  SETTINGS
+      index_granularity_bytes = 104857600,
+      index_granularity = 8192,
+      ttl_only_drop_parts = 1,
+      allow_part_offset_column_in_projections = 1,
+      map_serialization_version = 'with_buckets'
+  
+  '''
+# ---
+# name: test_create_table_query[trace_spans_distributed]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.trace_spans_distributed AS posthog_test.trace_spans ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'trace_spans')
+  
+  '''
+# ---
+# name: test_create_table_query[trace_spans_kafka_metrics]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.trace_spans_kafka_metrics
+  (
+      `_partition` UInt32,
+      `_topic` String,
+      `max_offset` SimpleAggregateFunction(max, UInt64),
+      `max_observed_timestamp` SimpleAggregateFunction(max, DateTime64(9)),
+      `max_timestamp` SimpleAggregateFunction(max, DateTime64(9)),
+      `max_created_at` SimpleAggregateFunction(max, DateTime64(9)),
+      `max_lag` SimpleAggregateFunction(max, UInt64)
+  )
+  ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.trace_spans_kafka_metrics', '{replica}-{shard}')
+  ORDER BY (_topic, _partition)
+  SETTINGS
+      index_granularity = 8192
   
   '''
 # ---
@@ -8098,7 +8743,7 @@
 # name: test_create_table_query[writable_events]
   '''
   
-  CREATE TABLE IF NOT EXISTS writable_events ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS writable_events 
   (
       uuid UUID,
       event VARCHAR,
@@ -8146,7 +8791,7 @@
 # name: test_create_table_query[writable_events_dead_letter_queue]
   '''
   
-  CREATE TABLE IF NOT EXISTS writable_events_dead_letter_queue ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS writable_events_dead_letter_queue 
   (
       id UUID,
       event_uuid UUID,
@@ -8171,6 +8816,46 @@
   
       
   ) ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'events_dead_letter_queue')
+  
+  '''
+# ---
+# name: test_create_table_query[writable_events_json]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_events_json 
+  (
+      uuid UUID,
+      event String,
+      properties JSON(max_dynamic_types = 8, max_dynamic_paths = 256, `$active_feature_flags` Array(String), `$ai_experiment_id` Nullable(String), `$ai_http_status` Nullable(String), `$ai_is_error` Nullable(String), `$ai_model` Nullable(String), `$ai_parent_id` Nullable(String), `$ai_prompt_name` Nullable(String), `$ai_provider` Nullable(String), `$ai_session_id` Nullable(String), `$ai_span_id` Nullable(String), `$ai_total_cost_usd` Nullable(String), `$ai_trace_id` Nullable(String), `$anon_distinct_id` Nullable(String), `$app_build` Nullable(String), `$app_namespace` Nullable(String), `$app_version` Nullable(String), `$browser` Nullable(String), `$browser_version` Nullable(String), `$current_url` Nullable(String), `$device` Nullable(String), `$device_id` Nullable(String), `$device_model` Nullable(String), `$device_type` Nullable(String), `$el_text` Nullable(String), `$event_type` Nullable(String), `$exception_fingerprint` Nullable(String), `$exception_functions` Array(String), `$exception_issue_id` Nullable(String), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flag` Nullable(String), `$feature_flag_payloads` Nullable(String), `$feature_flag_response` Nullable(String), `$geoip_city_name` Nullable(String), `$geoip_country_code` Nullable(String), `$geoip_country_name` Nullable(String), `$geoip_subdivision_1_code` Nullable(String), `$group_0` Nullable(String), `$group_1` Nullable(String), `$group_2` Nullable(String), `$group_3` Nullable(String), `$group_4` Nullable(String), `$groups` Nullable(String), `$host` Nullable(String), `$initial_pathname` Nullable(String), `$initial_referrer` Nullable(String), `$initial_referring_domain` Nullable(String), `$ip` Nullable(String), `$is_identified` Nullable(String), `$lib` Nullable(String), `$lib_custom_api_host` Nullable(String), `$lib_version` Nullable(String), `$lib_version__minor` Nullable(String), `$os` Nullable(String), `$os_name` Nullable(String), `$os_version` Nullable(String), `$pathname` Nullable(String), `$prev_pageview_max_content_percentage` Nullable(String), `$prev_pageview_max_scroll_percentage` Nullable(String), `$prev_pageview_pathname` Nullable(String), `$process_person_profile` Nullable(String), `$referrer` Nullable(String), `$referring_domain` Nullable(String), `$screen_height` Nullable(String), `$screen_name` Nullable(String), `$screen_width` Nullable(String), `$sent_at` Nullable(String), `$session_id` Nullable(String), `$survey_id` Nullable(String), `$survey_response` Nullable(String), `$survey_response_1` Nullable(String), `$time` Nullable(String), `$user_id` Nullable(String), `$viewport_height` Nullable(String), `$viewport_width` Nullable(String), `$web_vitals_CLS_value` Nullable(String), `$web_vitals_FCP_value` Nullable(String), `$web_vitals_INP_value` Nullable(String), `$web_vitals_LCP_value` Nullable(String), `$window_id` Nullable(String)),
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id String,
+      elements_hash String DEFAULT '',
+      created_at DateTime64(6, 'UTC'),
+      _timestamp DateTime,
+      _offset UInt64,
+      elements_chain String,
+      person_id UUID,
+      person_properties JSON(max_dynamic_types = 6, max_dynamic_paths = 32, `$app_version` Nullable(String), `$browser` Nullable(String), `$current_url` Nullable(String), `$geoip_continent_name` Nullable(String), `$geoip_country_code` Nullable(String), `$geoip_country_name` Nullable(String), `$initial_current_url` Nullable(String), `$initial_fbclid` Nullable(String), `$initial_gad_source` Nullable(String), `$initial_gbraid` Nullable(String), `$initial_gclid` Nullable(String), `$initial_msclkid` Nullable(String), `$initial_pathname` Nullable(String), `$initial_referring_domain` Nullable(String), `$initial_utm_campaign` Nullable(String), `$initial_utm_content` Nullable(String), `$initial_utm_medium` Nullable(String), `$initial_utm_source` Nullable(String), `$initial_utm_term` Nullable(String), `$initial_wbraid` Nullable(String), `$os_name` Nullable(String), `$referring_domain` Nullable(String)),
+      group0_properties String CODEC(ZSTD(3)),
+      group1_properties String CODEC(ZSTD(3)),
+      group2_properties String CODEC(ZSTD(3)),
+      group3_properties String CODEC(ZSTD(3)),
+      group4_properties String CODEC(ZSTD(3)),
+      person_created_at DateTime64(3),
+      group0_created_at DateTime64(3),
+      group1_created_at DateTime64(3),
+      group2_created_at DateTime64(3),
+      group3_created_at DateTime64(3),
+      group4_created_at DateTime64(3),
+      inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT now64(),
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      is_deleted Bool DEFAULT false,
+      consumer_breadcrumbs Array(String),
+      historical_migration Bool DEFAULT false
+      
+      
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_events_json', sipHash64(distinct_id))
   
   '''
 # ---
@@ -8578,7 +9263,7 @@
 # name: test_create_table_query[writable_raw_sessions]
   '''
   
-  CREATE TABLE IF NOT EXISTS writable_raw_sessions ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS writable_raw_sessions 
   (
       team_id Int64,
       session_id_v7 UInt128, -- integer representation of a uuidv7
@@ -8911,7 +9596,7 @@
 # name: test_create_table_query[writable_sessions]
   '''
   
-  CREATE TABLE IF NOT EXISTS writable_sessions ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS writable_sessions 
   (
       -- part of order by so will aggregate correctly
       session_id VARCHAR,
@@ -8985,7 +9670,7 @@
 # name: test_create_table_query[writeable_performance_events]
   '''
   
-  CREATE TABLE IF NOT EXISTS writeable_performance_events ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS writeable_performance_events 
   (
       uuid UUID,
   session_id String,
@@ -9046,7 +9731,7 @@
 # name: test_create_table_query_replicated_and_storage[channel_definition]
   '''
   
-  CREATE TABLE IF NOT EXISTS channel_definition ON CLUSTER 'posthog' (
+  CREATE TABLE IF NOT EXISTS channel_definition  (
       domain String NOT NULL,
       kind String NOT NULL,
       domain_type String NULL,
@@ -9075,7 +9760,7 @@
 # name: test_create_table_query_replicated_and_storage[cohortpeople]
   '''
   
-  CREATE TABLE IF NOT EXISTS cohortpeople ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS cohortpeople 
   (
       person_id UUID,
       cohort_id Int64,
@@ -9104,7 +9789,7 @@
 # name: test_create_table_query_replicated_and_storage[error_tracking_issue_fingerprint_overrides]
   '''
   
-  CREATE TABLE IF NOT EXISTS error_tracking_issue_fingerprint_overrides ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS error_tracking_issue_fingerprint_overrides 
   (
       team_id Int64,
       fingerprint VARCHAR,
@@ -9129,7 +9814,7 @@
 # name: test_create_table_query_replicated_and_storage[events_dead_letter_queue]
   '''
   
-  CREATE TABLE IF NOT EXISTS events_dead_letter_queue ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS events_dead_letter_queue 
   (
       id UUID,
       event_uuid UUID,
@@ -9164,7 +9849,7 @@
 # name: test_create_table_query_replicated_and_storage[exchange_rate]
   '''
   
-  CREATE TABLE IF NOT EXISTS `posthog_test`.`exchange_rate` ON CLUSTER 'posthog' (
+  CREATE TABLE IF NOT EXISTS `posthog_test`.`exchange_rate`  (
       currency String,
       date Date,
       rate Decimal64(10),
@@ -9177,7 +9862,7 @@
 # name: test_create_table_query_replicated_and_storage[groups]
   '''
   
-  CREATE TABLE IF NOT EXISTS groups ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS groups 
   (
       group_type_index UInt8,
       group_key VARCHAR,
@@ -9235,6 +9920,35 @@
   ORDER BY (team_id, function_kind, function_id, invocation_id)
   
   SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[ingestion_warnings_v2]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS ingestion_warnings_v2
+  (
+      
+      team_id Int64,
+      source LowCardinality(String),
+      type LowCardinality(String),
+      details String,
+      timestamp DateTime64(6, 'UTC'),
+      category LowCardinality(String) DEFAULT coalesce(nullIf(JSONExtractString(details, 'category'), ''), 'unknown'),
+      severity LowCardinality(String) DEFAULT coalesce(nullIf(JSONExtractString(details, 'severity'), ''), 'warning'),
+      pipeline_step LowCardinality(String) DEFAULT coalesce(nullIf(JSONExtractString(details, 'pipelineStep'), ''), 'unknown'),
+      event_uuid Nullable(UUID) DEFAULT toUUIDOrNull(JSONExtractString(details, 'eventUuid')),
+      distinct_id Nullable(String) DEFAULT nullIf(JSONExtractString(details, 'distinctId'), ''),
+      group_key Nullable(String) DEFAULT nullIf(JSONExtractString(details, 'groupKey'), ''),
+      person_id Nullable(UUID) DEFAULT toUUIDOrNull(JSONExtractString(details, 'personId')),
+      _timestamp DateTime,
+      _offset UInt64,
+      _partition UInt64
+  
+  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.ingestion_warnings_v2', '{replica}-{shard}')
+  PARTITION BY toYYYYMM(timestamp)
+  ORDER BY (team_id, type, timestamp)
+  TTL toDateTime(timestamp) + INTERVAL 90 DAY
   
   '''
 # ---
@@ -9329,7 +10043,7 @@
 # name: test_create_table_query_replicated_and_storage[log_entries]
   '''
   
-  CREATE TABLE IF NOT EXISTS log_entries ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS log_entries 
   (
       team_id UInt64,
       -- The name of the service or product that generated the logs.
@@ -9791,7 +10505,7 @@
 # name: test_create_table_query_replicated_and_storage[person]
   '''
   
-  CREATE TABLE IF NOT EXISTS person ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS person 
   (
       id UUID,
       created_at DateTime64,
@@ -9817,7 +10531,7 @@
 # name: test_create_table_query_replicated_and_storage[person_distinct_id2]
   '''
   
-  CREATE TABLE IF NOT EXISTS person_distinct_id2 ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS person_distinct_id2 
   (
       team_id Int64,
       distinct_id VARCHAR,
@@ -9842,7 +10556,7 @@
 # name: test_create_table_query_replicated_and_storage[person_distinct_id]
   '''
   
-  CREATE TABLE IF NOT EXISTS person_distinct_id ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS person_distinct_id 
   (
       distinct_id VARCHAR,
       person_id UUID,
@@ -9862,7 +10576,7 @@
 # name: test_create_table_query_replicated_and_storage[person_distinct_id_overrides]
   '''
   
-  CREATE TABLE IF NOT EXISTS person_distinct_id_overrides ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS person_distinct_id_overrides 
   (
       team_id Int64,
       distinct_id VARCHAR,
@@ -9888,7 +10602,7 @@
   '''
   
       CREATE TABLE IF NOT EXISTS `posthog_test`.`person_overrides`
-      ON CLUSTER 'posthog' (
+       (
           team_id INT NOT NULL,
   
           -- When we merge two people `old_person_id` and `override_person_id`, we
@@ -9951,7 +10665,7 @@
 # name: test_create_table_query_replicated_and_storage[person_static_cohort]
   '''
   
-  CREATE TABLE IF NOT EXISTS person_static_cohort ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS person_static_cohort 
   (
       id UUID,
       person_id UUID,
@@ -9970,7 +10684,7 @@
 # name: test_create_table_query_replicated_and_storage[pg_embeddings]
   '''
   
-  CREATE TABLE IF NOT EXISTS pg_embeddings ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS pg_embeddings 
   (
       domain String,
       team_id Int64,
@@ -9991,7 +10705,7 @@
 # name: test_create_table_query_replicated_and_storage[plugin_log_entries]
   '''
   
-  CREATE TABLE IF NOT EXISTS plugin_log_entries ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS plugin_log_entries 
   (
       id UUID,
       team_id Int64,
@@ -10335,7 +11049,7 @@
 # name: test_create_table_query_replicated_and_storage[sharded_app_metrics]
   '''
   
-  CREATE TABLE IF NOT EXISTS sharded_app_metrics ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS sharded_app_metrics 
   (
       team_id Int64,
       timestamp DateTime64(6, 'UTC'),
@@ -10417,7 +11131,7 @@
 # name: test_create_table_query_replicated_and_storage[sharded_events]
   '''
   
-  CREATE TABLE IF NOT EXISTS sharded_events ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS sharded_events 
   (
       uuid UUID,
       event VARCHAR,
@@ -10517,6 +11231,154 @@
   ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
   SAMPLE BY cityHash64(distinct_id)
   SETTINGS storage_policy = 'hot_to_cold'
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_events_json]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_events_json 
+  (
+      uuid UUID,
+      event String,
+      properties JSON(max_dynamic_types = 8, max_dynamic_paths = 256, `$active_feature_flags` Array(String), `$ai_experiment_id` Nullable(String), `$ai_http_status` Nullable(String), `$ai_is_error` Nullable(String), `$ai_model` Nullable(String), `$ai_parent_id` Nullable(String), `$ai_prompt_name` Nullable(String), `$ai_provider` Nullable(String), `$ai_session_id` Nullable(String), `$ai_span_id` Nullable(String), `$ai_total_cost_usd` Nullable(String), `$ai_trace_id` Nullable(String), `$anon_distinct_id` Nullable(String), `$app_build` Nullable(String), `$app_namespace` Nullable(String), `$app_version` Nullable(String), `$browser` Nullable(String), `$browser_version` Nullable(String), `$current_url` Nullable(String), `$device` Nullable(String), `$device_id` Nullable(String), `$device_model` Nullable(String), `$device_type` Nullable(String), `$el_text` Nullable(String), `$event_type` Nullable(String), `$exception_fingerprint` Nullable(String), `$exception_functions` Array(String), `$exception_issue_id` Nullable(String), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flag` Nullable(String), `$feature_flag_payloads` Nullable(String), `$feature_flag_response` Nullable(String), `$geoip_city_name` Nullable(String), `$geoip_country_code` Nullable(String), `$geoip_country_name` Nullable(String), `$geoip_subdivision_1_code` Nullable(String), `$group_0` Nullable(String), `$group_1` Nullable(String), `$group_2` Nullable(String), `$group_3` Nullable(String), `$group_4` Nullable(String), `$groups` Nullable(String), `$host` Nullable(String), `$initial_pathname` Nullable(String), `$initial_referrer` Nullable(String), `$initial_referring_domain` Nullable(String), `$ip` Nullable(String), `$is_identified` Nullable(String), `$lib` Nullable(String), `$lib_custom_api_host` Nullable(String), `$lib_version` Nullable(String), `$lib_version__minor` Nullable(String), `$os` Nullable(String), `$os_name` Nullable(String), `$os_version` Nullable(String), `$pathname` Nullable(String), `$prev_pageview_max_content_percentage` Nullable(String), `$prev_pageview_max_scroll_percentage` Nullable(String), `$prev_pageview_pathname` Nullable(String), `$process_person_profile` Nullable(String), `$referrer` Nullable(String), `$referring_domain` Nullable(String), `$screen_height` Nullable(String), `$screen_name` Nullable(String), `$screen_width` Nullable(String), `$sent_at` Nullable(String), `$session_id` Nullable(String), `$survey_id` Nullable(String), `$survey_response` Nullable(String), `$survey_response_1` Nullable(String), `$time` Nullable(String), `$user_id` Nullable(String), `$viewport_height` Nullable(String), `$viewport_width` Nullable(String), `$web_vitals_CLS_value` Nullable(String), `$web_vitals_FCP_value` Nullable(String), `$web_vitals_INP_value` Nullable(String), `$web_vitals_LCP_value` Nullable(String), `$window_id` Nullable(String)),
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id String,
+      elements_hash String DEFAULT '',
+      created_at DateTime64(6, 'UTC'),
+      _timestamp DateTime,
+      _offset UInt64,
+      elements_chain String,
+      person_id UUID,
+      person_properties JSON(max_dynamic_types = 6, max_dynamic_paths = 32, `$app_version` Nullable(String), `$browser` Nullable(String), `$current_url` Nullable(String), `$geoip_continent_name` Nullable(String), `$geoip_country_code` Nullable(String), `$geoip_country_name` Nullable(String), `$initial_current_url` Nullable(String), `$initial_fbclid` Nullable(String), `$initial_gad_source` Nullable(String), `$initial_gbraid` Nullable(String), `$initial_gclid` Nullable(String), `$initial_msclkid` Nullable(String), `$initial_pathname` Nullable(String), `$initial_referring_domain` Nullable(String), `$initial_utm_campaign` Nullable(String), `$initial_utm_content` Nullable(String), `$initial_utm_medium` Nullable(String), `$initial_utm_source` Nullable(String), `$initial_utm_term` Nullable(String), `$initial_wbraid` Nullable(String), `$os_name` Nullable(String), `$referring_domain` Nullable(String)),
+      group0_properties String CODEC(ZSTD(3)),
+      group1_properties String CODEC(ZSTD(3)),
+      group2_properties String CODEC(ZSTD(3)),
+      group3_properties String CODEC(ZSTD(3)),
+      group4_properties String CODEC(ZSTD(3)),
+      person_created_at DateTime64(3),
+      group0_created_at DateTime64(3),
+      group1_created_at DateTime64(3),
+      group2_created_at DateTime64(3),
+      group3_created_at DateTime64(3),
+      group4_created_at DateTime64(3),
+      inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT now64(),
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      is_deleted Bool DEFAULT false,
+      consumer_breadcrumbs Array(String),
+      historical_migration Bool DEFAULT false
+      
+      , $group_0 String ALIAS ifNull(properties.`$group_0`, '')
+      , $group_1 String ALIAS ifNull(properties.`$group_1`, '')
+      , $group_2 String ALIAS ifNull(properties.`$group_2`, '')
+      , $group_3 String ALIAS ifNull(properties.`$group_3`, '')
+      , $group_4 String ALIAS ifNull(properties.`$group_4`, '')
+      , $window_id String ALIAS ifNull(properties.`$window_id`, '')
+      , $session_id String ALIAS ifNull(properties.`$session_id`, '')
+      , $session_id_uuid Nullable(UInt128) ALIAS toUInt128(toUUIDOrNull(properties.`$session_id`))
+      , elements_chain_href String MATERIALIZED extract(elements_chain, '(?::|")href="(.*?)"')
+      , elements_chain_texts Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")text="(.*?)"'))
+      , elements_chain_ids Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")attr_id="(.*?)"'))
+      , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\.|$|:)'))
+  
+          , INDEX kafka_timestamp_minmax_sharded_events _timestamp TYPE minmax GRANULARITY 3
+      , INDEX `minmax_$group_0` properties.`$group_0` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_$group_1` properties.`$group_1` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_$group_2` properties.`$group_2` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_$group_3` properties.`$group_3` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_$group_4` properties.`$group_4` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_$window_id` properties.`$window_id` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_$session_id` properties.`$session_id` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$sent_at` properties.`$sent_at` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$initial_pathname` properties.`$initial_pathname` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$lib_version` properties.`$lib_version` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$initial_utm_campaign` person_properties.`$initial_utm_campaign` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$initial_utm_medium` person_properties.`$initial_utm_medium` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$initial_gclid` person_properties.`$initial_gclid` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$initial_gad_source` person_properties.`$initial_gad_source` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$initial_utm_source` person_properties.`$initial_utm_source` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$initial_referring_domain` person_properties.`$initial_referring_domain` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$initial_utm_term` person_properties.`$initial_utm_term` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$initial_utm_content` person_properties.`$initial_utm_content` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$initial_gbraid` person_properties.`$initial_gbraid` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$initial_wbraid` person_properties.`$initial_wbraid` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$initial_msclkid` person_properties.`$initial_msclkid` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$initial_fbclid` person_properties.`$initial_fbclid` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$geoip_subdivision_1_code` properties.`$geoip_subdivision_1_code` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$prev_pageview_max_scroll_percentage` properties.`$prev_pageview_max_scroll_percentage` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$prev_pageview_max_content_percentage` properties.`$prev_pageview_max_content_percentage` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$prev_pageview_pathname` properties.`$prev_pageview_pathname` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$initial_pathname` person_properties.`$initial_pathname` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$geoip_country_code` person_properties.`$geoip_country_code` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$browser_version` properties.`$browser_version` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$initial_current_url` person_properties.`$initial_current_url` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$current_url` person_properties.`$current_url` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$app_namespace` properties.`$app_namespace` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$os_name` properties.`$os_name` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$os_name` person_properties.`$os_name` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$app_version` person_properties.`$app_version` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$screen_height` properties.`$screen_height` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$screen_width` properties.`$screen_width` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$app_build` properties.`$app_build` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$geoip_country_code` properties.`$geoip_country_code` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$survey_id` properties.`$survey_id` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$survey_response_1` properties.`$survey_response_1` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$survey_response` properties.`$survey_response` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$el_text` properties.`$el_text` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$os_version` properties.`$os_version` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$feature_flag_payloads` properties.`$feature_flag_payloads` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$groups` properties.`$groups` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$feature_flag` properties.`$feature_flag` TYPE minmax GRANULARITY 1
+      , INDEX bf_active_feature_flags properties.`$active_feature_flags` TYPE bloom_filter(0.01) GRANULARITY 1
+      , INDEX `minmax_mat_$device_id` properties.`$device_id` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$geoip_continent_name` person_properties.`$geoip_continent_name` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$feature_flag_response` properties.`$feature_flag_response` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$referring_domain` person_properties.`$referring_domain` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$lib_version__minor` properties.`$lib_version__minor` TYPE minmax GRANULARITY 1
+      , INDEX minmax_inserted_at coalesce(inserted_at, _timestamp) TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$lib_custom_api_host` properties.`$lib_custom_api_host` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_pp_$geoip_country_name` person_properties.`$geoip_country_name` TYPE minmax GRANULARITY 1
+      , INDEX is_deleted_idx is_deleted TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$device` properties.`$device` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$exception_issue_id` properties.`$exception_issue_id` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$exception_fingerprint` properties.`$exception_fingerprint` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$web_vitals_LCP_value` properties.`$web_vitals_LCP_value` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$web_vitals_FCP_value` properties.`$web_vitals_FCP_value` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$web_vitals_CLS_value` properties.`$web_vitals_CLS_value` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$web_vitals_INP_value` properties.`$web_vitals_INP_value` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$viewport_width` properties.`$viewport_width` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$viewport_height` properties.`$viewport_height` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$anon_distinct_id` properties.`$anon_distinct_id` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$ai_trace_id` properties.`$ai_trace_id` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$ai_model` properties.`$ai_model` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$ai_provider` properties.`$ai_provider` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$ai_parent_id` properties.`$ai_parent_id` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$ai_span_id` properties.`$ai_span_id` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$ai_http_status` properties.`$ai_http_status` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$process_person_profile` properties.`$process_person_profile` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_mat_$app_version` properties.`$app_version` TYPE minmax GRANULARITY 1
+      , INDEX `bloom_mat_$is_identified` properties.`$is_identified` TYPE bloom_filter GRANULARITY 1
+      , INDEX `minmax_$session_id_uuid` toUInt128(toUUIDOrNull(properties.`$session_id`)) TYPE minmax GRANULARITY 1
+      , INDEX `bloom_filter_$ai_trace_id` properties.`$ai_trace_id` TYPE bloom_filter(0.001) GRANULARITY 2
+      , INDEX `bloom_filter_$ai_session_id` properties.`$ai_session_id` TYPE bloom_filter GRANULARITY 1
+      , INDEX `minmax_$ai_session_id` properties.`$ai_session_id` TYPE minmax GRANULARITY 1
+      , INDEX `set_$ai_is_error` properties.`$ai_is_error` TYPE set(7) GRANULARITY 1
+      , INDEX `minmax_mat_$ai_total_cost_usd` properties.`$ai_total_cost_usd` TYPE minmax GRANULARITY 1
+      , INDEX bloom_filter_distinct_id distinct_id TYPE bloom_filter GRANULARITY 1
+      , INDEX minmax_sharded_events_timestamp timestamp TYPE minmax GRANULARITY 1
+      , INDEX minmax_historical_migration historical_migration TYPE minmax GRANULARITY 1
+      , INDEX `bloom_mat_$feature_flag` properties.`$feature_flag` TYPE bloom_filter GRANULARITY 1
+      , INDEX `bloom_filter_$ai_prompt_name` properties.`$ai_prompt_name` TYPE bloom_filter GRANULARITY 1
+      , INDEX `minmax_$ai_prompt_name` properties.`$ai_prompt_name` TYPE minmax GRANULARITY 1
+      , INDEX `bloom_filter_$ai_experiment_id` properties.`$ai_experiment_id` TYPE bloom_filter GRANULARITY 1
+      , INDEX `minmax_$ai_experiment_id` properties.`$ai_experiment_id` TYPE minmax GRANULARITY 1
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.events_json', '{replica}', _timestamp)
+  PARTITION BY toYYYYMM(timestamp)
+  PRIMARY KEY (team_id, toDate(timestamp), event, timestamp, cityHash64(distinct_id))
+  ORDER BY (team_id, toDate(timestamp), event, timestamp, cityHash64(distinct_id), distinct_id, uuid)
+  SAMPLE BY cityHash64(distinct_id)
+  SETTINGS index_granularity = 8192, object_serialization_version = 'v3', object_shared_data_serialization_version = 'map_with_buckets', object_shared_data_serialization_version_for_zero_level_parts = 'map', merge_max_block_size = 131072, merge_max_block_size_bytes = 67108864, vertical_merge_algorithm_min_rows_to_activate = 0
   
   '''
 # ---
@@ -10803,7 +11665,7 @@
 # name: test_create_table_query_replicated_and_storage[sharded_performance_events]
   '''
   
-  CREATE TABLE IF NOT EXISTS sharded_performance_events ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS sharded_performance_events 
   (
       uuid UUID,
   session_id String,
@@ -11173,7 +12035,7 @@
 # name: test_create_table_query_replicated_and_storage[sharded_raw_sessions]
   '''
   
-  CREATE TABLE IF NOT EXISTS sharded_raw_sessions ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS sharded_raw_sessions 
   (
       team_id Int64,
       session_id_v7 UInt128, -- integer representation of a uuidv7
@@ -11392,7 +12254,7 @@
 # name: test_create_table_query_replicated_and_storage[sharded_session_replay_events]
   '''
   
-  CREATE TABLE IF NOT EXISTS sharded_session_replay_events ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS sharded_session_replay_events 
   (
       -- part of order by so will aggregate correctly
       session_id VARCHAR,
@@ -11467,7 +12329,7 @@
 # name: test_create_table_query_replicated_and_storage[sharded_session_replay_features]
   '''
   
-  CREATE TABLE IF NOT EXISTS sharded_session_replay_features ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS sharded_session_replay_features 
   (
       session_id VARCHAR,
       team_id Int64,
@@ -11548,7 +12410,7 @@
 # name: test_create_table_query_replicated_and_storage[sharded_sessions]
   '''
   
-  CREATE TABLE IF NOT EXISTS sharded_sessions ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS sharded_sessions 
   (
       -- part of order by so will aggregate correctly
       session_id VARCHAR,
@@ -11963,6 +12825,187 @@
   ORDER BY (team_id, job_id, time_window_start, path)
   TTL toDateTime(expires_at)
   SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[trace_attributes2]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.trace_attributes2
+  (
+      `team_id` Int32,
+      `original_expiry_time_bucket` DateTime64(0),
+      `time_bucket` DateTime64(0),
+      `service_name` LowCardinality(String),
+      `resource_fingerprint` UInt64 DEFAULT 0,
+      `attribute_key` LowCardinality(String),
+      `attribute_value` String,
+      `attribute_type` LowCardinality(String),
+      `attribute_count` SimpleAggregateFunction(sum, UInt64),
+      INDEX idx_attribute_key attribute_key TYPE bloom_filter(0.01) GRANULARITY 4,
+      INDEX idx_attribute_value attribute_value TYPE bloom_filter(0.01) GRANULARITY 4,
+      INDEX idx_attribute_key_n3 attribute_key TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 4,
+      INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 4
+  )
+  ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.trace_attributes2', '{replica}-{shard}')
+  PARTITION BY toDate(original_expiry_time_bucket)
+  ORDER BY (team_id, attribute_type, time_bucket, resource_fingerprint, attribute_key, attribute_value)
+  TTL original_expiry_time_bucket
+  SETTINGS
+      index_granularity = 8192
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[trace_attributes]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.trace_attributes
+  (
+      `team_id` Int32,
+      `original_expiry_time_bucket` DateTime64(0),
+      `time_bucket` DateTime64(0),
+      `service_name` LowCardinality(String),
+      `resource_fingerprint` UInt64 DEFAULT 0,
+      `attribute_key` LowCardinality(String),
+      `attribute_value` String,
+      `attribute_type` LowCardinality(String),
+      `attribute_count` SimpleAggregateFunction(sum, UInt64),
+      INDEX idx_attribute_key attribute_key TYPE bloom_filter(0.01) GRANULARITY 4,
+      INDEX idx_attribute_value attribute_value TYPE bloom_filter(0.01) GRANULARITY 4,
+      INDEX idx_attribute_key_n3 attribute_key TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 4,
+      INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 4
+  )
+  ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.trace_attributes', '{replica}-{shard}')
+  PARTITION BY toDate(original_expiry_time_bucket)
+  ORDER BY (team_id, attribute_type, time_bucket, resource_fingerprint, attribute_key, attribute_value)
+  TTL original_expiry_time_bucket
+  SETTINGS
+      index_granularity = 8192
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[trace_spans]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.trace_spans
+  (
+      `time_bucket` DateTime MATERIALIZED toStartOfInterval(timestamp, toIntervalHour(4)),
+      `original_expiry_timestamp` DateTime64(6),
+      `uuid` String,
+      `team_id` Int32,
+      `trace_id` String,
+      `span_id` String,
+      `parent_span_id` String,
+      `is_root_span` Bool MATERIALIZED replaceAll(trimRight(parent_span_id, '='), 'A', '') = '',
+      `trace_state` String,
+      `name` LowCardinality(String),
+      `kind` Int8,
+      `flags` UInt32,
+      `timestamp` DateTime64(6),
+      `end_time` DateTime64(6),
+      `observed_timestamp` DateTime64(6),
+      `created_at` DateTime64(6) MATERIALIZED now(),
+      `duration_nano` UInt64 MATERIALIZED toUInt64(dateDiff('microsecond', timestamp, end_time)) * 1000,
+      `status_code` Int16,
+      `service_name` LowCardinality(String),
+      `resource_attributes` Map(LowCardinality(String), String),
+      `resource_fingerprint` UInt64 MATERIALIZED cityHash64(resource_attributes),
+      `instrumentation_scope` String,
+      `attributes_map_str` Map(LowCardinality(String), String),
+      `attributes` Map(LowCardinality(String), String) ALIAS mapApply((k, v) -> (left(k, -5), v), attributes_map_str),
+      `attributes_map_float` Map(LowCardinality(String), Float64) MATERIALIZED mapFilter((k, v) -> (v IS NOT NULL), mapApply((k, v) -> (concat(left(k, -5), '__float'), toFloat64OrNull(v)), attributes_map_str)),
+      `attributes_map_datetime` Map(LowCardinality(String), DateTime64(6)) MATERIALIZED mapFilter((k, v) -> (v IS NOT NULL), mapApply((k, v) -> (concat(left(k, -5), '__datetime'), parseDateTimeBestEffortOrNull(v, 6)), attributes_map_str)),
+      `dropped_attributes_count` UInt32,
+      `dropped_events_count` UInt32,
+      `dropped_links_count` UInt32,
+      `events` Array(String),
+      `links` Array(String),
+  
+      -- kafka metadata
+      `_partition` UInt32,
+      `_topic` String,
+      `_offset` UInt64,
+      `_bytes_uncompressed` UInt64,
+      `_bytes_compressed` UInt64,
+      `_record_count` UInt64,
+  
+      INDEX idx_name name TYPE ngrambf_v1(4, 5000, 2, 0) GRANULARITY 16,
+      INDEX idx_kind kind TYPE minmax GRANULARITY 4,
+      INDEX idx_duration duration_nano TYPE minmax GRANULARITY 1,
+      INDEX idx_status_code status_code TYPE minmax GRANULARITY 1,
+      INDEX idx_timestamp_minmax timestamp TYPE minmax GRANULARITY 1,
+      INDEX idx_observed_minmax observed_timestamp TYPE minmax GRANULARITY 1,
+      INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 16,
+      INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 16,
+      INDEX idx_trace_bloom_part trace_id TYPE bloom_filter(0.00001) GRANULARITY 99999,
+      INDEX idx_span_id_bloom_part span_id TYPE bloom_filter(0.00001) GRANULARITY 99999,
+  
+      -- Powers the Spans-view sparkline (spans per minute via sum(event_count)). is_root_span is a
+      -- projection dimension so the Traces-view sparkline (distinct traces per minute) can serve from
+      -- this projection too via sumIf(event_count, is_root_span = 1) — one root span per trace —
+      -- instead of the uniqExactIf(trace_id, is_root_span = 1) raw scan it currently runs.
+      PROJECTION projection_aggregate_counts
+      (
+          SELECT
+              team_id,
+              time_bucket,
+              toStartOfMinute(timestamp),
+              service_name,
+              resource_fingerprint,
+              is_root_span,
+              count() AS event_count
+          GROUP BY
+              team_id,
+              time_bucket,
+              toStartOfMinute(timestamp),
+              service_name,
+              resource_fingerprint,
+              is_root_span
+      ),
+  
+      PROJECTION projection_index_span_id
+      (
+          SELECT _part_offset
+          ORDER BY span_id
+      ),
+  
+      PROJECTION projection_index_trace_id
+      (
+          SELECT _part_offset
+          ORDER BY trace_id
+      )
+  )
+  ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.trace_spans', '{replica}-{shard}')
+  PARTITION BY toDate(original_expiry_timestamp)
+  PRIMARY KEY (team_id, time_bucket, service_name, resource_fingerprint, status_code, name, timestamp)
+  ORDER BY (team_id, time_bucket, service_name, resource_fingerprint, status_code, name, timestamp)
+  TTL original_expiry_timestamp
+  SETTINGS
+      index_granularity_bytes = 104857600,
+      index_granularity = 8192,
+      ttl_only_drop_parts = 1,
+      allow_part_offset_column_in_projections = 1,
+      map_serialization_version = 'with_buckets'
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[trace_spans_kafka_metrics]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.trace_spans_kafka_metrics
+  (
+      `_partition` UInt32,
+      `_topic` String,
+      `max_offset` SimpleAggregateFunction(max, UInt64),
+      `max_observed_timestamp` SimpleAggregateFunction(max, DateTime64(9)),
+      `max_timestamp` SimpleAggregateFunction(max, DateTime64(9)),
+      `max_created_at` SimpleAggregateFunction(max, DateTime64(9)),
+      `max_lag` SimpleAggregateFunction(max, UInt64)
+  )
+  ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.trace_spans_kafka_metrics', '{replica}-{shard}')
+  ORDER BY (_topic, _partition)
+  SETTINGS
+      index_granularity = 8192
   
   '''
 # ---

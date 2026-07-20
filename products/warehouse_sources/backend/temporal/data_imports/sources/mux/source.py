@@ -37,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MuxSource(ResumableSource[MuxSourceConfig, MuxResumeConfig]):
+    api_docs_url = "https://www.mux.com/docs/api-reference"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.MUX
@@ -79,7 +81,6 @@ Grant the following read permissions:
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

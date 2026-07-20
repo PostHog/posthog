@@ -19,8 +19,8 @@ Attribution (`scout_run_id`, `task_run_id`, `finding_id`, `skill_name`, `skill_v
 is read off the run row so the agent never has to plumb it through. `task_run_id` is the
 join key into the `signals_scouts_runs` LLM-analytics view (the `scout_run_id` bridge row
 is not on that view). The `SignalsScoutSignalExtra`
-shape (defined in `posthog.schema`) is what the existing `_SIGNAL_VARIANT_LOOKUP`
-in `products/signals/backend/api.py` validates against.
+shape (defined in `products/signals/backend/contracts.py`) is what `SIGNAL_VARIANT_LOOKUP`
+validates against.
 """
 
 from __future__ import annotations

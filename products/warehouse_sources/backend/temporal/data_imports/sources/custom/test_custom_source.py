@@ -30,6 +30,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     OAuth2AuthRequestError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import create_auth
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientNonRetryableError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.custom.source import (
     MAX_MANIFEST_RESOURCES,
     PREVIEW_MAX_FANOUT_PARENTS,
@@ -1735,6 +1738,31 @@ class TestCustomSourceNonRetryableErrors(SimpleTestCase):
         assert "not found in config" in str(ctx.exception)
         assert "not found in config" in CustomSource().get_non_retryable_errors()
 
+    def test_http_400_bad_request_is_classified_non_retryable(self):
+        # A custom source's request is entirely manifest-driven, so a 400 is deterministic —
+        # retrying can't fix it. Build the real requests HTTPError message the REST client
+        # raises via raise_for_status(), so this breaks if the matched substring drifts from
+        # what requests actually produces. The URL is a placeholder, never a real customer host.
+        response = Response()
+        response.status_code = 400
+        response.reason = "Bad Request"
+        response.url = "https://api.example.com/opportunities?filter=2026-07-14T03:25:15.495000+00:00"
+        with self.assertRaises(requests.exceptions.HTTPError) as ctx:
+            response.raise_for_status()
+
+        non_retryable = CustomSource().get_non_retryable_errors()
+        assert any(key in str(ctx.exception) for key in non_retryable)
+
+    def test_non_json_response_message_is_classified_non_retryable(self):
+        # The REST client raises RESTClientNonRetryableError when a configured endpoint
+        # returns non-JSON (an HTML/plain-text error page) on a 2xx. Build the real error the
+        # client raises so this breaks if its stable prefix drifts from the classifier's key.
+        # The URL is a placeholder, never a real customer host.
+        error = RESTClientNonRetryableError("Non-JSON response from https://api.example.com/leads")
+
+        non_retryable = CustomSource().get_non_retryable_errors()
+        assert any(key in str(error) for key in non_retryable)
+
     @parameterized.expand(["invalid_client", "invalid_grant"])
     def test_oauth2_permanent_errors_are_classified_non_retryable(self, error_code):
         # A permanent OAuth2 token rejection (invalid_client / invalid_grant) surfaces the
@@ -2422,6 +2450,79 @@ class TestCustomSourceIncrementalDatetimeFormat(SimpleTestCase):
 
         child_params = next((p for p in captured if "since" in p), {})
         assert child_params.get("since") == "2026-06-08T12:53:34Z"
+
+
+class TestCustomSourceIncrementalStartParam(SimpleTestCase):
+    _OMIT = object()
+
+    def _manifest(self, start_param) -> dict:
+        manifest = _minimal_manifest()
+        incremental: dict = {"cursor_path": "updated_at"}
+        if start_param is not self._OMIT:
+            incremental["start_param"] = start_param
+        manifest["resources"][0]["endpoint"]["incremental"] = incremental
+        return manifest
+
+    @parameterized.expand([("missing", _OMIT), ("empty", ""), ("non_string", 123)])
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_missing_start_param_raises_non_retryable(self, _name, start_param, mock_resources):
+        mock_resources.return_value = [_fake_resource("users")]
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(self._manifest(start_param)))
+        inputs = MagicMock(
+            team_id=1,
+            schema_name="users",
+            job_id="job-1",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=None,
+        )
+        with self.assertRaises(NonRetryableException) as ctx:
+            source.source_for_pipeline(config, inputs)
+        assert "start_param" in str(ctx.exception)
+        mock_resources.assert_not_called()
+
+    @parameterized.expand([("missing", _OMIT), ("empty", "")])
+    def test_missing_start_param_rejected_at_validation(self, _name, start_param):
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(self._manifest(start_param)), auth_token="abc")
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert ok is False
+        assert err is not None and "start_param" in err and "'users'" in err
+
+
+class TestCustomSourceIncrementalUnsupportedKeys(SimpleTestCase):
+    def _manifest(self) -> dict:
+        manifest = _minimal_manifest()
+        manifest["resources"][0]["endpoint"]["incremental"] = {
+            "cursor_path": "updated_at",
+            "start_param": "since",
+            "upstream_row_order": "asc",
+        }
+        return manifest
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_unsupported_key_raises_non_retryable_before_engine(self, mock_resources):
+        mock_resources.return_value = [_fake_resource("users")]
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(self._manifest()))
+        inputs = MagicMock(
+            team_id=1,
+            schema_name="users",
+            job_id="job-1",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=None,
+        )
+        with self.assertRaises(NonRetryableException) as ctx:
+            source.source_for_pipeline(config, inputs)
+        assert "upstream_row_order" in str(ctx.exception)
+        mock_resources.assert_not_called()
+
+    def test_unsupported_key_rejected_at_validation(self):
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(self._manifest()), auth_token="abc")
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert ok is False
+        assert err is not None and "upstream_row_order" in err and "'users'" in err
 
 
 def _apikey_manifest() -> dict:

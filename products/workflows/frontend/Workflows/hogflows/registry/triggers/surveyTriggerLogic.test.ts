@@ -1,6 +1,7 @@
 import { resetContext } from 'kea'
 import { expectLogic, testUtilsPlugin } from 'kea-test-utils'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { Survey } from '~/types'
@@ -236,6 +237,9 @@ describe('surveyTriggerLogic', () => {
     })
 
     describe('error handling', () => {
+        beforeEach(silenceKeaLoadersErrors)
+        afterEach(resumeKeaLoadersErrors)
+
         it('handles loadSurveys failure', async () => {
             useSetupMocks({ listError: true })
 

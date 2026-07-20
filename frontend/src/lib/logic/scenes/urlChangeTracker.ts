@@ -56,12 +56,17 @@ interface UrlChangeTrackerConfig {
     maxChangesPerSecond: number
     windowMs: number
     throttleWarningMs: number
+    loopBurstThreshold: number
 }
 
 const DEFAULT_CONFIG: UrlChangeTrackerConfig = {
     maxChangesPerSecond: 4,
     windowMs: 3000,
     throttleWarningMs: 60000,
+    // Above this many changes in the window we always treat the burst as a loop, even when every URL
+    // is distinct. ~16 changes/sec sustained over the window is far beyond human typing but trivially
+    // reached by a runaway router loop, so this catches loops that mutate the URL each iteration.
+    loopBurstThreshold: 50,
 }
 
 class UrlChangeTracker {
@@ -84,7 +89,22 @@ class UrlChangeTracker {
     }
 
     isRapidlyChanging(): boolean {
-        return this.changes.length > this.config.maxChangesPerSecond
+        if (this.changes.length <= this.config.maxChangesPerSecond) {
+            return false
+        }
+        // A runaway loop fires updates far faster and for longer than any human could, so an extreme
+        // burst is always a loop - including one that mutates the URL each iteration (an incrementing
+        // counter, timestamp, or re-serialized param) and so never repeats a URL.
+        if (this.changes.length >= this.config.loopBurstThreshold) {
+            return true
+        }
+        // Below that ceiling, a genuine loop re-sets the same handful of URLs over and over, so the
+        // burst is dominated by duplicates. Legitimate rapid navigation - e.g. a user typing into a
+        // search box that syncs each keystroke to the query string - produces a stream of mostly-distinct
+        // URLs and must not be flagged as a loop. Only treat the burst as rapid when at most half of
+        // the recorded changes are distinct URLs.
+        const uniqueUrls = new Set(this.changes.map((c) => c.url)).size
+        return uniqueUrls * 2 <= this.changes.length
     }
 
     canWarn(): boolean {
@@ -191,6 +211,11 @@ export function captureRapidUrlChangeWarning(
 }
 
 export function trackUrlChange(response: ActionToUrlResponse, logicPath: string, actionName: string): void {
+    // The rapid-change threshold assumes human pacing in a real browser; jest tests
+    // legitimately navigate many times per second, so the heuristic can only false-positive there.
+    if (process.env.NODE_ENV === 'test') {
+        return
+    }
     try {
         const urlString = extractUrlString(response)
         if (urlString === null) {

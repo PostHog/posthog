@@ -35,7 +35,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PaddleSource(ResumableSource[PaddleSourceConfig, PaddleResumeConfig]):
+    api_docs_url = "https://developer.paddle.com"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    has_managed_hogql_schema = True  # canonical Paddle schema in external_table_definitions
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -75,6 +78,10 @@ class PaddleSource(ResumableSource[PaddleSourceConfig, PaddleResumeConfig]):
             "400 Client Error: Bad Request for url: https://api.paddle.com": "Paddle rejected the request parameters. Please check your source configuration and incremental sync state, then try again.",
             "401 Client Error: Unauthorized for url: https://api.paddle.com": "Your Paddle API key is invalid or expired. Please check your API key in Paddle and reconnect.",
             "403 Client Error: Forbidden for url: https://api.paddle.com": "Your Paddle API key does not have the required permissions. Please check your API key permissions in Paddle and try again.",
+            # 404 on a list endpoint we know exists means the resource isn't reachable for this
+            # account — Paddle Billing isn't enabled, or the API key belongs to a different
+            # environment (sandbox vs. production) than the data. Retrying can't change that.
+            "404 Client Error: Not Found for url: https://api.paddle.com": "Paddle couldn't find the requested data. This usually means Paddle Billing isn't enabled for your account, or your API key is for a different environment (sandbox vs. production). Check your Paddle account and reconnect with a matching API key.",
         }
 
     def should_retry_non_retryable_errors(self) -> bool:

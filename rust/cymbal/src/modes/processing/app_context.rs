@@ -3,14 +3,14 @@ use common_redis::{Client as RedisClientTrait, RedisClient};
 use health::HealthRegistry;
 use moka::future::{Cache, CacheBuilder};
 use rdkafka::producer::FutureProducer;
-use sqlx::{postgres::PgPoolOptions, PgPool};
+use sqlx::PgPool;
 use std::{collections::HashSet, sync::Arc, time::Duration};
 use tokio::{sync::Semaphore, task::JoinHandle};
 use tracing::info;
 use uuid::Uuid;
 
 use crate::{
-    core::config::get_aws_config,
+    core::config::{build_pg_pool, get_aws_config},
     core::resolver::build_catalog,
     error::UnhandledError,
     modes::processing::config::{init_global_state, ProcessingConfig},
@@ -73,8 +73,11 @@ impl Drop for AppContext {
 
 impl AppContext {
     pub async fn from_config(config: &ProcessingConfig) -> Result<Self, UnhandledError> {
-        let options = PgPoolOptions::new().max_connections(config.resolver.max_pg_connections);
-        let posthog_pool = options.connect(&config.resolver.database_url).await?;
+        let posthog_pool = build_pg_pool(
+            &config.resolver.database_url,
+            config.resolver.max_pg_connections,
+            "cymbal_processing",
+        )?;
 
         let s3_client = aws_sdk_s3::Client::from_conf(get_aws_config(&config.resolver).await);
         let s3_client = S3Client::new(s3_client);
@@ -175,7 +178,7 @@ impl AppContext {
         let process_request_limiter =
             Arc::new(Semaphore::new(config.process_max_in_flight_requests.max(1)));
 
-        let issue_cache = CacheBuilder::new(1000)
+        let issue_cache = CacheBuilder::new(config.issue_cache_capacity)
             .time_to_live(Duration::from_secs(config.issue_cache_ttl_seconds))
             .build();
 

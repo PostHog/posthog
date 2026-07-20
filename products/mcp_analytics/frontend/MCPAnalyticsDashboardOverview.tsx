@@ -61,6 +61,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                                 propertyFilters={propertyFilters}
                                 onChange={setPropertyFilters}
                                 taxonomicGroupTypes={[
+                                    TaxonomicFilterGroupType.MCPProperties,
                                     TaxonomicFilterGroupType.EventProperties,
                                     TaxonomicFilterGroupType.EventFeatureFlags,
                                 ]}

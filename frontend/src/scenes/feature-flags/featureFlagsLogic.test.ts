@@ -15,6 +15,7 @@ import {
 } from 'scenes/feature-flags/featureFlagsLogic'
 import { urls } from 'scenes/urls'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { FeatureFlagType } from '~/types'
@@ -296,6 +297,10 @@ describe('the feature flags logic', () => {
 
 describe('updateFeatureFlag 409 handling', () => {
     let logic: ReturnType<typeof featureFlagsLogic.build>
+
+    // Every test here rejects updateFeatureFlag on purpose; kea-loaders would log each failure
+    beforeEach(silenceKeaLoadersErrors)
+    afterEach(resumeKeaLoadersErrors)
 
     beforeEach(() => {
         useMocks({

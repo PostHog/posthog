@@ -418,6 +418,24 @@ describe('datetime utils', () => {
             })
         })
 
+        it.each([
+            ['quarter' as const, '2025-04-01T00:00:00+00:00', '2026-06-30T23:59:59+00:00'],
+            ['year' as const, '2025-01-01T00:00:00+00:00', '2026-12-31T23:59:59+00:00'],
+        ])('expands to full periods when grouping by %s', (interval, expectedFrom, expectedTo) => {
+            expect(
+                alignResolvedDateRangeToInterval(
+                    {
+                        date_from: '2025-04-07T00:00:00+00:00',
+                        date_to: '2026-04-07T23:59:59+00:00',
+                    },
+                    interval
+                )
+            ).toEqual({
+                date_from: expectedFrom,
+                date_to: expectedTo,
+            })
+        })
+
         it('preserves a non-UTC timezone offset', () => {
             expect(
                 alignResolvedDateRangeToInterval(

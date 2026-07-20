@@ -9,6 +9,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 
+import { errorTrackingEditAccessDisabledReason } from '../../../utils'
 import { DisabledRuleBanner } from './DisabledRuleBanner'
 import { MatchResultBanner } from './MatchResultBanner'
 
@@ -51,7 +52,7 @@ export function RuleModal({
 
     const isEditing = rule.id !== 'new'
     const defaultSaveDisabled = !filtersOptional && !hasFilters ? 'Add at least one filter' : undefined
-    const resolvedSaveDisabled = saveDisabledReason ?? defaultSaveDisabled
+    const resolvedSaveDisabled = errorTrackingEditAccessDisabledReason() ?? saveDisabledReason ?? defaultSaveDisabled
 
     const [confirmingDelete, setConfirmingDelete] = useState(false)
     const [confirmEnabled, setConfirmEnabled] = useState(false)
@@ -102,7 +103,8 @@ export function RuleModal({
                                 size="small"
                                 loading={deletingLoading}
                                 disabledReason={
-                                    confirmingDelete && !confirmEnabled ? 'Click again to confirm' : undefined
+                                    errorTrackingEditAccessDisabledReason() ??
+                                    (confirmingDelete && !confirmEnabled ? 'Click again to confirm' : undefined)
                                 }
                                 onClick={() => {
                                     if (confirmingDelete && confirmEnabled) {

@@ -143,7 +143,18 @@ class McpDispatcher {
         }
 
         const needsState = requests.some((r) => TRACKED_METHODS.has(r.method))
-        const state = needsState ? await this.stateResolver.resolve(props) : undefined
+        let state: ResolvedState | undefined
+        try {
+            state = needsState ? await this.stateResolver.resolve(props) : undefined
+        } catch (error) {
+            // A failed resolution still fails the handshake for the client, so count
+            // it in mcp_init_total — otherwise MCPServerHighInitErrorRate only sees
+            // failures past this point. The rethrow surfaces as a 500 upstream.
+            if (hasInit) {
+                initTotal.inc({ status: 'error' })
+            }
+            throw error
+        }
 
         const headers: Record<string, string> = { 'Content-Type': 'application/json' }
         if (props.mcpSessionId) {
@@ -205,7 +216,7 @@ class McpDispatcher {
                 : LATEST_PROTOCOL_VERSION
 
             await this.resourceCatalog.revalidateContextMillResources('initialize')
-            const instructions = await this.instructionsBuilder.build(props, state)
+            const instructions = this.instructionsBuilder.build(state)
 
             initDurationSeconds.observe(props.requestStartTime ? (Date.now() - props.requestStartTime) / 1000 : 0)
             initTotal.inc({ status: 'success' })

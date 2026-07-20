@@ -18,7 +18,7 @@ use tracing_subscriber::{fmt, EnvFilter, Layer};
 use cohort_stream_processor::config::Config;
 use cohort_stream_processor::consumers::{
     CascadeRoute, CohortStreamEventsConsumer, EventDispatcher, FollowerConsumer, FollowerRoute,
-    MergeRoute, TransferRoute,
+    MergeRoute, SeedFollowerConsumer, TransferRoute,
 };
 use cohort_stream_processor::filters::{run_refresh_loop, CatalogHandle};
 use cohort_stream_processor::merge::gc::MergeGcSweeper;
@@ -27,18 +27,19 @@ use cohort_stream_processor::observability;
 use cohort_stream_processor::observability::store_stats::StoreStatsSweeper;
 use cohort_stream_processor::observability::tokio_monitor::TokioRuntimeMonitor;
 use cohort_stream_processor::partitions::{
-    run_rebalance_worker, CohortConsumerContext, Follower, FollowerSet, OffsetTracker,
-    PartitionRouter,
+    run_rebalance_worker, CohortConsumerContext, ConsumerPauser, Follower, FollowerSet,
+    LiveWatermarks, OffsetTracker, PartitionPauser, PartitionRouter,
 };
 use cohort_stream_processor::producer::{
-    CascadeSink, KafkaCascadeSink, KafkaMembershipSink, KafkaStreamEventSink, KafkaTransferSink,
-    MembershipSink, NoopCascadeSink, StreamEventSink, TransferSink,
+    CascadeSink, KafkaCascadeSink, KafkaMembershipSink, KafkaSeedTileSink, KafkaStreamEventSink,
+    KafkaTransferSink, MembershipSink, NoopCascadeSink, NoopSeedTileSink, SeedTileSink,
+    StreamEventSink, TransferSink,
 };
 use cohort_stream_processor::store::durability::{
     run_boot_restore, upload_cadence, CheckpointExporter, CheckpointSweeper, OffsetManifest,
     S3Uploader, TrackedTopic, CHECKPOINT_LOOP_NAME,
 };
-use cohort_stream_processor::store::CohortStore;
+use cohort_stream_processor::store::{CohortStore, StoreHandle};
 use cohort_stream_processor::sweep::{run_sweep_loop, run_sweep_loop_delayed, DispatchSweeper};
 use cohort_stream_processor::workers::MergeWorkerDeps;
 
@@ -98,6 +99,12 @@ async fn async_main(config: Config) -> Result<()> {
     let cascade_follower_handle = config.cohort_cascade_enabled.then(|| {
         manager.register(
             "cascade-follower",
+            ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(30)),
+        )
+    });
+    let seed_follower_handle = config.cohort_seed_consumer_enabled.then(|| {
+        manager.register(
+            "seed-follower",
             ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(30)),
         )
     });
@@ -197,6 +204,18 @@ async fn async_main(config: Config) -> Result<()> {
     } else {
         Arc::new(NoopCascadeSink)
     };
+    let seed_tile_sink: Arc<dyn SeedTileSink> = if config.cohort_seed_consumer_enabled {
+        Arc::new(
+            KafkaSeedTileSink::new(
+                &kafka_config,
+                config.cohort_stream_seed_events_topic.clone(),
+            )
+            .await
+            .context("creating cohort_stream_seed_events re-key producer")?,
+        )
+    } else {
+        Arc::new(NoopSeedTileSink)
+    };
     let merge_deps = Arc::new(MergeWorkerDeps {
         transfer_sink,
         stream_event_sink,
@@ -209,22 +228,31 @@ async fn async_main(config: Config) -> Result<()> {
         cascade_tracker: Arc::new(OffsetTracker::new()),
         cascade: config.cascade_config(),
         partition_count: config.cohort_partition_count,
+        seed_tile_sink,
+        seed_tracker: Arc::new(OffsetTracker::new()),
+        // Unconditional (cheap): the event path observes regardless of the seed gate.
+        live_watermarks: Arc::new(LiveWatermarks::new()),
     });
 
     // Cheap `Arc` clones taken before the originals move into the dispatcher: the checkpoint sweeper
-    // needs its own handle on the store and each per-topic tracker to capture the offset manifest.
+    // needs its own raw-store handle and each per-topic tracker to capture the offset manifest.
     // Captured unconditionally to satisfy the borrow checker; consumed only when `checkpoint_enabled`.
+    // The sweeper keeps the raw `CohortStore` rather than the facade because of its must-not-panic
+    // policy (see checkpoint.rs).
     let store_for_checkpoint = store.clone();
-    let store_for_stats = store.clone();
     let events_tracker_for_checkpoint = offset_tracker.clone();
     let merge_tracker_for_checkpoint = merge_deps.merge_tracker.clone();
     let transfer_tracker_for_checkpoint = merge_deps.transfer_tracker.clone();
     let cascade_tracker_for_checkpoint = merge_deps.cascade_tracker.clone();
+    let seed_tracker_for_checkpoint = merge_deps.seed_tracker.clone();
+
+    let handle = StoreHandle::new(store, config.offload_config());
+    let handle_for_stats = handle.clone();
 
     let dispatcher = Arc::new(EventDispatcher::new(
         router,
         offset_tracker,
-        store,
+        handle,
         catalog.clone(),
         sink,
         merge_deps,
@@ -234,8 +262,6 @@ async fn async_main(config: Config) -> Result<()> {
     if config.durable_restore_enabled {
         dispatcher.enable_durable_restore();
     }
-    // Person-memo config, likewise set before any worker spawns.
-    dispatcher.set_person_memo_config(config.person_memo_config());
     // Event-name fan-out gating, likewise set before any worker spawns.
     dispatcher.set_event_name_gating(config.event_name_gating());
 
@@ -247,6 +273,8 @@ async fn async_main(config: Config) -> Result<()> {
     stream_consumer
         .subscribe(&[config.cohort_stream_events_topic.as_str()])
         .context("subscribing to cohort_stream_events")?;
+    // Shared with the seed consumer's idle probe.
+    let stream_consumer = Arc::new(stream_consumer);
 
     let merges_follower_consumer: Arc<StreamConsumer> = Arc::new(
         config
@@ -267,6 +295,18 @@ async fn async_main(config: Config) -> Result<()> {
                 .follower_client_config(&config.kafka_cascade_consumer_group)
                 .create()
                 .context("creating cohort_cascade_events follower consumer")?,
+        ))
+    } else {
+        None
+    };
+    // Gated: a gate-off deploy is safe without the seed topic existing at all.
+    let seed_follower_consumer: Option<Arc<StreamConsumer>> = if config.cohort_seed_consumer_enabled
+    {
+        Some(Arc::new(
+            config
+                .follower_client_config(&config.kafka_seed_consumer_group)
+                .create()
+                .context("creating cohort_stream_seed_events follower consumer")?,
         ))
     } else {
         None
@@ -318,6 +358,19 @@ async fn async_main(config: Config) -> Result<()> {
             cascade_partitions,
         );
     }
+    // A tile must land on the partition owning its person's state slice.
+    if let Some(seed_consumer) = &seed_follower_consumer {
+        let seed_partitions =
+            fetch_partition_count(seed_consumer, &config.cohort_stream_seed_events_topic)?;
+        anyhow::ensure!(
+            seed_partitions as u32 == config.cohort_partition_count,
+            "cohort_stream_seed_events must be co-partitioned with {} at COHORT_PARTITION_COUNT={}: {} has {}",
+            config.cohort_stream_events_topic,
+            config.cohort_partition_count,
+            config.cohort_stream_seed_events_topic,
+            seed_partitions,
+        );
+    }
 
     if let Some(manifest) = restore.manifest.as_ref() {
         commit_follower_offsets_from_manifest(
@@ -337,6 +390,15 @@ async fn async_main(config: Config) -> Result<()> {
                 manifest,
             );
         }
+        // State rolls back to the snapshot, so the seed offsets must roll back with it or the
+        // in-between tiles never replay.
+        if let Some(seed_consumer) = &seed_follower_consumer {
+            commit_follower_offsets_from_manifest(
+                seed_consumer,
+                &config.cohort_stream_seed_events_topic,
+                manifest,
+            );
+        }
     }
 
     let mut follower_mirrors = vec![
@@ -353,6 +415,12 @@ async fn async_main(config: Config) -> Result<()> {
         follower_mirrors.push(Follower::new(
             cascade_consumer.clone(),
             config.cohort_cascade_events_topic.clone(),
+        ));
+    }
+    if let Some(seed_consumer) = &seed_follower_consumer {
+        follower_mirrors.push(Follower::new(
+            seed_consumer.clone(),
+            config.cohort_stream_seed_events_topic.clone(),
         ));
     }
     let followers = Arc::new(FollowerSet::new(follower_mirrors));
@@ -415,7 +483,7 @@ async fn async_main(config: Config) -> Result<()> {
     // Publish store cache/size metrics via the sweep machinery, and Tokio runtime metrics via a
     // separate monitor.
     tokio::spawn(run_sweep_loop(
-        StoreStatsSweeper::new(store_for_stats),
+        StoreStatsSweeper::new(handle_for_stats),
         config.stats_publish_interval(),
         "store_stats",
         consumer_handle.shutdown_token(),
@@ -458,6 +526,12 @@ async fn async_main(config: Config) -> Result<()> {
             trackers.push((
                 config.cohort_cascade_events_topic.clone(),
                 cascade_tracker_for_checkpoint,
+            ));
+        }
+        if config.cohort_seed_consumer_enabled {
+            trackers.push((
+                config.cohort_stream_seed_events_topic.clone(),
+                seed_tracker_for_checkpoint,
             ));
         }
         tokio::spawn(run_sweep_loop(
@@ -511,6 +585,37 @@ async fn async_main(config: Config) -> Result<()> {
             config.offset_commit_interval(),
         );
         spawn_follower_after_catalog_load(catalog.clone(), cascade_follower, cascade_handle);
+    }
+
+    if let (Some(seed_consumer), Some(seed_handle)) = (seed_follower_consumer, seed_follower_handle)
+    {
+        let seed_topic = config.cohort_stream_seed_events_topic.clone();
+        let pauser: Arc<dyn PartitionPauser> = Arc::new(ConsumerPauser::new(
+            seed_consumer.clone(),
+            seed_topic.clone(),
+        ));
+        let seed_follower = SeedFollowerConsumer::new(
+            seed_consumer,
+            seed_topic,
+            stream_consumer.clone(),
+            config.cohort_stream_events_topic.clone(),
+            dispatcher.clone(),
+            seed_handle.clone(),
+            pauser,
+            config.recv_batch_size,
+            config.recv_batch_timeout(),
+            config.offset_commit_interval(),
+            config.cohort_seed_fence_margin_ms,
+            config.seed_idle_probe_interval(),
+        );
+        let seed_catalog = catalog.clone();
+        tokio::spawn(async move {
+            tokio::select! {
+                biased;
+                _ = seed_handle.shutdown_recv() => {}
+                _ = seed_catalog.wait_until_loaded() => seed_follower.process().await,
+            }
+        });
     }
 
     let events_consumer = CohortStreamEventsConsumer::new(
@@ -663,6 +768,10 @@ fn log_startup(config: &Config) {
         cohort_cascade_enabled = config.cohort_cascade_enabled,
         cascade_topic = %config.cohort_cascade_events_topic,
         cascade_consumer_group = %config.kafka_cascade_consumer_group,
+        cohort_seed_consumer_enabled = config.cohort_seed_consumer_enabled,
+        seed_topic = %config.cohort_stream_seed_events_topic,
+        seed_consumer_group = %config.kafka_seed_consumer_group,
+        seed_fence_margin_ms = config.cohort_seed_fence_margin_ms,
         "starting cohort-stream-processor",
     );
 }

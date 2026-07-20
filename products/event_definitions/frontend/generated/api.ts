@@ -9,8 +9,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
-    BulkUpdateTagsRequestApi,
-    BulkUpdateTagsResponseApi,
+    BulkUpdateTagsUUIDRequestApi,
+    BulkUpdateTagsUUIDResponseApi,
     EnterpriseEventDefinitionApi,
     EventDefinitionRecordApi,
     EventDefinitionsByNameRetrieveParams,
@@ -164,34 +164,25 @@ export const getEventDefinitionsBulkUpdateTagsCreateUrl = (projectId: string) =>
 }
 
 /**
- * Bulk update tags on multiple objects.
+ * Add, remove, or replace tags across multiple event definitions in one request.
  *
- * PAT access: this action has no ``required_scopes=`` on the decorator —
- * inheriting viewsets must add ``"bulk_update_tags"`` to their
- * ``scope_object_write_actions`` list to accept personal API keys.
- * Without that opt-in, ``APIScopePermission`` rejects PAT requests with
- * "This action does not support personal API key access". Done per-viewset
- * so granting ``<scope>:write`` for one resource doesn't leak access to
- * sibling resources that share this mixin.
- *
- * Accepts:
- * - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
- *
- * Actions:
- * - "add": Add tags to existing tags on each object
- * - "remove": Remove specific tags from each object
- * - "set": Replace all tags on each object with the provided list
+ * Overrides ``TaggedItemViewSetMixin.bulk_update_tags``, which assumes integer PKs and runs
+ * object-level access-control filtering. Event definitions use UUID PKs and are not an
+ * object-level access-controlled resource — project membership (enforced by the viewset) is
+ * the only boundary, matching the single-object update path — so this scopes by project and
+ * skips the per-object editor check. Tags live on the base ``EventDefinition`` row, so it
+ * operates there regardless of the enterprise extension.
  */
 export const eventDefinitionsBulkUpdateTagsCreate = async (
     projectId: string,
-    bulkUpdateTagsRequestApi: BulkUpdateTagsRequestApi,
+    bulkUpdateTagsUUIDRequestApi: BulkUpdateTagsUUIDRequestApi,
     options?: RequestInit
-): Promise<BulkUpdateTagsResponseApi> => {
-    return apiMutator<BulkUpdateTagsResponseApi>(getEventDefinitionsBulkUpdateTagsCreateUrl(projectId), {
+): Promise<BulkUpdateTagsUUIDResponseApi> => {
+    return apiMutator<BulkUpdateTagsUUIDResponseApi>(getEventDefinitionsBulkUpdateTagsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(bulkUpdateTagsRequestApi),
+        body: JSON.stringify(bulkUpdateTagsUUIDRequestApi),
     })
 }
 

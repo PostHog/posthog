@@ -9,13 +9,15 @@ pub mod backpressure;
 pub mod follower;
 pub mod intake;
 pub mod offset_tracker;
-pub mod partitioner;
 pub mod pause;
 pub mod rebalance;
 pub mod router;
 pub mod shuffle_message;
+pub mod watermarks;
 
-pub use backpressure::Backpressure;
+pub use cohort_core::partitioner;
+
+pub use backpressure::{Backpressure, PartitionHoldover};
 pub use follower::{Follower, FollowerSet, PartitionMirror};
 pub use intake::{Admission, MeteredReceiver, PartitionIntake};
 pub use offset_tracker::{MarkOutcome, OffsetTracker};
@@ -29,3 +31,4 @@ pub use rebalance::{
 };
 pub use router::{PartitionRouter, RouteError, SendOutcome};
 pub use shuffle_message::ShuffleMessage;
+pub use watermarks::{LiveWatermarks, WatermarkMs};

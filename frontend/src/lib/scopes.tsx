@@ -22,9 +22,9 @@ export type APIScope = {
 // both the picker warning (attached below) and the auto-select in personalAPIKeysLogic, so the rule
 // and the copy can't drift. `ScopeAccessRow` renders warnings as plain text — no markdown formatting.
 export const SCOPES_IMPLYING_FEATURE_FLAG_WRITE: Partial<Record<APIScopeObject, string>> = {
-    survey: 'Surveys with targeting also manage a feature flag, so this key needs feature_flag:write too.',
+    survey: 'Surveys with targeting also manage a feature flag, so this key needs write access to feature flags too.',
     early_access_feature:
-        'Early access features manage a linked feature flag, so this key needs feature_flag:write too.',
+        'Early access features manage a linked feature flag, so this key needs write access to feature flags too.',
 }
 
 export const API_SCOPES: APIScope[] = [
@@ -45,7 +45,6 @@ export const API_SCOPES: APIScope[] = [
     { key: 'approvals', objectName: 'Approvals', objectPlural: 'approvals' },
     { key: 'batch_export', objectName: 'Batch export', objectPlural: 'batch exports' },
     { key: 'business_knowledge', objectName: 'Business knowledge', objectPlural: 'business knowledge' },
-    // `clickhouse_test_cluster_perf` is omitted — see `INTERNAL_API_SCOPE_OBJECTS` in posthog/scopes.py.
     { key: 'cohort', objectName: 'Cohort', objectPlural: 'cohorts' },
     { key: 'comment', objectName: 'Comment', objectPlural: 'comments' },
     {
@@ -56,6 +55,14 @@ export const API_SCOPES: APIScope[] = [
     },
     { key: 'customer_analytics', objectName: 'Customer analytics', objectPlural: 'customer analytics' },
     { key: 'customer_journey', objectName: 'Customer journey', objectPlural: 'customer journeys' },
+    { key: 'data_catalog', objectName: 'Data catalog', objectPlural: 'data catalog' },
+    {
+        key: 'data_catalog_approval',
+        objectName: 'Data catalog approval',
+        objectPlural: 'data catalog approvals',
+        info: 'Grants the ability to promote catalog entries (approve a metric, certify a table, accept a relationship). This is the human-in-the-loop trust boundary: agents that can write to the catalog still cannot self-approve without this scope.',
+        disabledActions: ['read'],
+    },
     { key: 'dashboard', objectName: 'Dashboard', objectPlural: 'dashboards' },
     { key: 'dashboard_template', objectName: 'Dashboard template', objectPlural: 'dashboard templates' },
     { key: 'dataset', objectName: 'Dataset', objectPlural: 'datasets' },
@@ -71,6 +78,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'endpoint', objectName: 'Endpoint', objectPlural: 'endpoints' },
     { key: 'engineering_analytics', objectName: 'Engineering analytics', objectPlural: 'engineering analytics' },
     { key: 'event_definition', objectName: 'Event definition', objectPlural: 'event definitions' },
+    { key: 'event_filter', objectName: 'Event filter', objectPlural: 'event filters' },
     { key: 'error_tracking', objectName: 'Error tracking', objectPlural: 'error tracking' },
     { key: 'evaluation', objectName: 'Evaluation', objectPlural: 'evaluations' },
     { key: 'experiment', objectName: 'Experiment', objectPlural: 'experiments' },
@@ -94,10 +102,17 @@ export const API_SCOPES: APIScope[] = [
     { key: 'heatmap', objectName: 'Heatmap', objectPlural: 'heatmaps' },
     { key: 'hog_flow', objectName: 'Workflow', objectPlural: 'workflows' },
     { key: 'hog_function', objectName: 'Hog function', objectPlural: 'hog functions' },
+    {
+        key: 'ingestion_warning',
+        objectName: 'Ingestion warning',
+        objectPlural: 'ingestion warnings',
+        disabledActions: ['write'],
+    },
     { key: 'insight', objectName: 'Insight', objectPlural: 'insights' },
     { key: 'insight_variable', objectName: 'Insight variable', objectPlural: 'insight variables' },
     { key: 'integration', objectName: 'Integration', objectPlural: 'integrations', disabledActions: ['write'] },
     { key: 'legal_document', objectName: 'Legal document', objectPlural: 'legal documents' },
+    { key: 'link', objectName: 'Link', objectPlural: 'links' },
     { key: 'live_debugger', objectName: 'Live debugger', objectPlural: 'live debugger' },
     { key: 'llm_analytics', objectName: 'AI observability', objectPlural: 'AI observability' },
     {
@@ -151,14 +166,10 @@ export const API_SCOPES: APIScope[] = [
         key: 'project',
         objectName: 'Project',
         objectPlural: 'projects',
-        warnings: {
-            write: 'This scope can be used to create or modify projects, including settings about how data is ingested.',
-        },
+        info: 'If you grant write access, this scope can be used to create or modify projects, including settings about how data is ingested.',
     },
     { key: 'property_definition', objectName: 'Property definition', objectPlural: 'property definitions' },
     { key: 'query', objectName: 'Query', objectPlural: 'queries', disabledActions: ['write'] },
-    // `query_performance` is omitted — OAuth-hidden, PAT-grantable only (see `OAUTH_HIDDEN_SCOPE_OBJECTS` in posthog/scopes.py).
-    // `wizard_session` is also omitted for the same reason.
     { key: 'replay_scanner', objectName: 'Replay scanner', objectPlural: 'replay scanners' },
     { key: 'revenue_analytics', objectName: 'Revenue analytics', objectPlural: 'revenue analytics' },
     { key: 'session_recording', objectName: 'Session recording', objectPlural: 'session recordings' },
@@ -199,8 +210,11 @@ export const API_SCOPES: APIScope[] = [
         },
     },
     { key: 'signal_scout', objectName: 'Signals agent', objectPlural: 'signals agents' },
+    { key: 'stamphog', objectName: 'Stamphog', objectPlural: 'stamphog' },
+    { key: 'streamlit_app', objectName: 'Streamlit app', objectPlural: 'Streamlit apps' },
     { key: 'task', objectName: 'Task', objectPlural: 'tasks' },
     { key: 'user_interview', objectName: 'User interview', objectPlural: 'user interviews' },
+    { key: 'vision_action', objectName: 'Vision action', objectPlural: 'vision actions' },
     { key: 'visual_review', objectName: 'Visual review', objectPlural: 'visual reviews' },
     {
         key: 'webhook',
@@ -213,6 +227,30 @@ export const API_SCOPES: APIScope[] = [
     { key: 'web_analytics', objectName: 'Web analytics', objectPlural: 'web analytics' },
 ]
 API_SCOPES.sort((a, b) => a.objectName.localeCompare(b.objectName))
+
+// Scope objects deliberately absent from the key-creation modal above, each with the reason.
+// Every scope object in `API_SCOPE_OBJECTS` must be either offered in `API_SCOPES` or listed here —
+// scopes.test.ts enforces that partition so a newly added backend scope can't silently go missing.
+// Keep the internal/hidden entries in sync with `INTERNAL_API_SCOPE_OBJECTS` and
+// `OAUTH_HIDDEN_SCOPE_OBJECTS` in posthog/scopes.py.
+export const API_SCOPES_OMITTED_FROM_MODAL: Partial<Record<APIScopeObject, string>> = {
+    // INTERNAL_API_SCOPE_OBJECTS — server-minted only, never user-grantable.
+    clickhouse_test_cluster_perf: 'Internal: minted programmatically only.',
+    internal_run: 'Internal: marks a server-minted sandbox/agent run credential.',
+    signal_scout_internal: 'Internal: sandbox-only writes for the headless Signals agent.',
+    signal_scout_report: 'Internal: sandbox-only writes for the scout report channel.',
+    // OAUTH_HIDDEN_SCOPE_OBJECTS — pasteable into a PAT, but never advertised via OAuth/CLI/MCP.
+    batch_import_support: 'OAuth-hidden: staff-only, pasteable into a PAT but not advertised.',
+    query_performance: 'OAuth-hidden: staff-only, pasteable into a PAT but not advertised.',
+    wizard_session: 'OAuth-hidden: pasteable into a PAT but not advertised.',
+    // Umbrella access-control resource that `warehouse_view`/`warehouse_table` inherit from —
+    // the granular scopes are offered instead, so keep the umbrella out of the modal.
+    warehouse_objects: 'Umbrella resource: grant warehouse_view/warehouse_table instead.',
+    // Pending removal — no endpoint enforces these, so they do nothing when granted.
+    // Remove from posthog/scopes.py once no PAK/OAuth grant references them.
+    batch_import: 'Pending removal: no endpoint enforces it (its viewset is INTERNAL).',
+    external_data_schema: 'Pending removal: covered by external_data_source; no viewset uses it.',
+}
 
 export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = ['endpoint:read', 'feature_flag:read'] as const
 
@@ -313,36 +351,6 @@ export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: ProjectSecretAPIKeyScopePrese
 ]
 
 export const DEFAULT_OAUTH_SCOPES = ['openid', 'email', 'profile']
-
-// Scopes required by the PostHog MCP server (https://mcp.posthog.com)
-// These match the scopes_supported in the MCP server's OAuth protected resource metadata
-export const MCP_SERVER_OAUTH_SCOPES = [
-    'openid',
-    'profile',
-    'email',
-    'introspection',
-    'user:read',
-    'user:write',
-    'organization:read',
-    'project:read',
-    'project:write',
-    'feature_flag:read',
-    'feature_flag:write',
-    'experiment:read',
-    'experiment:write',
-    'insight:read',
-    'insight:write',
-    'dashboard:read',
-    'dashboard:write',
-    'query:read',
-    'survey:read',
-    'survey:write',
-    'event_definition:read',
-    'event_definition:write',
-    'error_tracking:read',
-    'logs:read',
-    'tracing:read',
-]
 
 export const getScopeDescription = (scope: string): string | undefined => {
     if (scope === '*') {

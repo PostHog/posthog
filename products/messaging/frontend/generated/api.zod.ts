@@ -163,6 +163,32 @@ export const MessagingPreferencesAddOptOutCreateBody = /* @__PURE__ */ zod.objec
         .describe('Optional message category key. If omitted, the recipient is opted out of all marketing messages.'),
 })
 
+/**
+ * Manually suppress an email address so no workflow sends to it.
+ * @summary Manually add an email address to the suppression list
+ */
+export const messagingSuppressionsAddSuppressionCreateBodyIdentifierMax = 512
+
+export const MessagingSuppressionsAddSuppressionCreateBody = /* @__PURE__ */ zod.object({
+    identifier: zod
+        .string()
+        .max(messagingSuppressionsAddSuppressionCreateBodyIdentifierMax)
+        .describe('The email address to suppress. Will not receive any messages until removed.'),
+})
+
+/**
+ * Remove an address from the suppression list so it can receive messages again.
+ * @summary Remove an email address from the suppression list
+ */
+export const messagingSuppressionsRemoveSuppressionCreateBodyIdentifierMax = 512
+
+export const MessagingSuppressionsRemoveSuppressionCreateBody = /* @__PURE__ */ zod.object({
+    identifier: zod
+        .string()
+        .max(messagingSuppressionsRemoveSuppressionCreateBodyIdentifierMax)
+        .describe('The email address to suppress. Will not receive any messages until removed.'),
+})
+
 export const messagingTemplatesCreateBodyNameMax = 400
 
 export const messagingTemplatesCreateBodyContentOneTemplatingDefault = `liquid`

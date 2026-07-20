@@ -46,6 +46,22 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType, Inc
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
+# Shown when we can't map the failure to a specific cause. Names the usual
+# culprits so the user has something concrete to check, rather than a bare
+# "check your details".
+GENERIC_CONNECTION_ERROR = (
+    "Could not connect to ClickHouse. Check that the host and port are correct, the HTTPS setting matches "
+    "your server, and that PostHog's IP addresses are allowed through any firewall."
+)
+
+# A transient gateway/rate-limit response that survived the in-process connect
+# retries. The connection details are fine — the server is momentarily busy or
+# waking (idle ClickHouse Cloud services routinely 5xx the first request), so
+# ask the user to retry rather than implying their credentials are wrong.
+_TEMPORARILY_UNAVAILABLE = (
+    "ClickHouse is temporarily busy or unavailable and didn't accept the connection. Wait a moment and try again."
+)
+
 # Error message → user-friendly translation. Matched as a substring of the
 # exception string. Patterns are lowercase-matched.
 ClickHouseErrors: dict[str, str] = {
@@ -60,6 +76,14 @@ ClickHouseErrors: dict[str, str] = {
     "connection refused": "Could not connect to ClickHouse on the given host/port",
     "connection timed out": "Connection to ClickHouse timed out. Does your database have our IP addresses allow-listed?",
     "ssl": "TLS/SSL handshake failed. If your server does not use TLS, disable the HTTPS toggle.",
+    # The host answered but isn't serving the ClickHouse HTTP interface on this
+    # host/port (wrong port, a proxy, or a native-protocol port). Same wording
+    # as the sync-time non-retryable handling.
+    "returned response code 404": "We reached your ClickHouse host but it returned a 404, so it isn't serving the ClickHouse HTTP interface on that host/port. Please check the host, port, and HTTPS setting (and any tunnel or proxy in front of it).",
+    "returned response code 429": _TEMPORARILY_UNAVAILABLE,
+    "returned response code 502": _TEMPORARILY_UNAVAILABLE,
+    "returned response code 503": _TEMPORARILY_UNAVAILABLE,
+    "returned response code 504": _TEMPORARILY_UNAVAILABLE,
 }
 
 
@@ -68,6 +92,9 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
     # Lets users pick which columns to sync (and, in the wizard, surfaces the
     # row-filter editor that shares the same column-selection modal).
     supports_column_selection: bool = True
+    supports_row_filters: bool = True
+
+    api_docs_url = "https://clickhouse.com/docs"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -168,6 +195,14 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             "Code: 192": None,  # UNKNOWN_USER
             "Code: 497": None,  # ACCESS_DENIED
             "Authentication failed": None,
+            # Raised by the `sshtunnel` library (via the shared `open_ssh_tunnel` helper) when the
+            # SSH tunnel can't be brought up — the bastion host is unreachable, the host/port is
+            # wrong, the SSH key/credentials are rejected, or a firewall blocks PostHog's IPs. It's
+            # in `Any_Source_Errors`, but the import activity's `_handle_import_error` only consults
+            # this per-source dict, so without the entry a down tunnel retries to the maximum and
+            # reports the customer's gateway misconfig as error-tracking noise. Postgres, MySQL, and
+            # MSSQL already treat this identical error as non-retryable.
+            "Could not establish session to SSH gateway": "Could not connect to your SSH tunnel. Check that the SSH host, port, and credentials are correct, the bastion host is running and reachable, and that PostHog's IP addresses are allowed through its firewall.",
             "Could not resolve the ClickHouse host": None,
             "nodename nor servname provided": None,
             "Name or service not known": None,
@@ -325,16 +360,16 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             )
         except ClickHouseConnectionError as e:
             message = self._translate_error(str(e))
-            return False, message or "Could not connect to ClickHouse. Please check all connection details are valid."
+            return False, message or GENERIC_CONNECTION_ERROR
         except (DatabaseError, OperationalError, ClickHouseError) as e:
             message = self._translate_error(str(e))
             if message is None:
                 capture_exception(e)
-                return False, "Could not connect to ClickHouse. Please check all connection details are valid."
+                return False, GENERIC_CONNECTION_ERROR
             return False, message
         except Exception as e:
             capture_exception(e)
-            return False, "Could not connect to ClickHouse. Please check all connection details are valid."
+            return False, GENERIC_CONNECTION_ERROR
 
         return True, None
 

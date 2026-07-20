@@ -5,8 +5,9 @@ import posthog from 'posthog-js'
 import React from 'react'
 
 import { IconPin, IconPinFilled } from '@posthog/icons'
-import { LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { execHog } from 'lib/hog'
 import { lightenDarkenColor } from 'lib/utils/colors'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
@@ -18,7 +19,9 @@ import { QueryContext } from '~/queries/types'
 import { LoadNext } from '../../DataNode/LoadNext'
 import { renderColumn } from '../../DataTable/renderColumn'
 import { renderColumnMeta } from '../../DataTable/renderColumnMeta'
+import { getContrastingTextClass } from '../colorUtils'
 import { TableDataCell, convertTableValue, dataVisualizationLogic } from '../dataVisualizationLogic'
+import { ColumnScalar } from '../types'
 
 interface TableProps {
     query: DataVisualizationNode
@@ -58,6 +61,39 @@ function getDisplayedColumnTitle(
     return label || title || columnName
 }
 
+function isDateColumn(type: ColumnScalar | undefined): boolean {
+    return type === 'DATE' || type === 'DATETIME'
+}
+
+// Numbers sort numerically, dates chronologically by epoch, everything else by a
+// numeric-aware string compare, and empty cells sort to the bottom of an ascending sort.
+export function compareTableCells(a: TableDataCell<any> | undefined, b: TableDataCell<any> | undefined): number {
+    const aValue = a?.value
+    const bValue = b?.value
+    if (aValue == null && bValue == null) {
+        return 0
+    }
+    if (aValue == null) {
+        return 1
+    }
+    if (bValue == null) {
+        return -1
+    }
+    if (typeof aValue === 'number' && typeof bValue === 'number') {
+        return aValue - bValue
+    }
+    // Parse dates to epoch ms so values with different formats or timezones sort
+    // chronologically rather than lexicographically.
+    if (isDateColumn(a?.type) && isDateColumn(b?.type)) {
+        const aTime = dayjs(aValue as string | number | Date).valueOf()
+        const bTime = dayjs(bValue as string | number | Date).valueOf()
+        if (!Number.isNaN(aTime) && !Number.isNaN(bTime)) {
+            return aTime - bTime
+        }
+    }
+    return String(aValue).localeCompare(String(bValue), undefined, { numeric: true })
+}
+
 // Plain-text representation of a cell, used as the hover title so clipped content is
 // still visible on hover. The full value stays in the DOM (CSS ellipsis only), so
 // selecting and copying a cell copies the whole value, not just the clipped portion.
@@ -86,8 +122,11 @@ export const Table = (props: TableProps): JSX.Element => {
         pinnedColumns,
         isColumnPinned,
         isPinningEnabled,
+        isTransposed,
+        hasSortedTable,
+        hasMoreData,
     } = useValues(dataVisualizationLogic)
-    const { toggleColumnPin } = useActions(dataVisualizationLogic)
+    const { toggleColumnPin, setTableSorted } = useActions(dataVisualizationLogic)
 
     const sourceTabularColumnsByName = new Map(sourceTabularColumns.map((column) => [column.column.name, column]))
 
@@ -97,9 +136,80 @@ export const Table = (props: TableProps): JSX.Element => {
             const columnTitle = settings?.display?.label || title || column.name
             const formattedTitle = typeof columnTitle === 'string' ? formatColumnTitle(columnTitle) : columnTitle
 
+            const computeConditionalFormattingBackground = (data: TableDataCell<any>[]): string | undefined => {
+                const cell = data[index]
+
+                if (cell.isTransposedHeader) {
+                    return undefined
+                }
+
+                const sourceColumnName = cell.sourceColumnName ?? column.name
+                const sourceColumnType = sourceTabularColumnsByName.get(sourceColumnName)?.column.type.name ?? cell.type
+                const conditionalFormattingMatches = conditionalFormattingRules
+                    .filter((n) => n.columnName === sourceColumnName)
+                    .filter((n) => {
+                        const isValidHog = !!n.bytecode && n.bytecode.length > 0 && n.bytecode[0] === '_H'
+                        if (!isValidHog) {
+                            posthog.captureException(new Error('Invalid hog bytecode for conditional formatting'), {
+                                formatRule: n,
+                            })
+                        }
+
+                        return isValidHog
+                    })
+                    .map((n) => ({
+                        rule: n,
+                        result: execHog(n.bytecode, {
+                            globals: {
+                                value: cell.value,
+                                input: convertTableValue(n.input, sourceColumnType),
+                            },
+                            functions: {},
+                            maxAsyncSteps: 0,
+                        }).result,
+                    }))
+                    .find((n) => Boolean(n.result))
+
+                if (!conditionalFormattingMatches) {
+                    return undefined
+                }
+
+                const ruleColor = conditionalFormattingMatches.rule.color
+                const colorMode = conditionalFormattingMatches.rule.colorMode ?? 'light'
+
+                // If the color mode matches the current theme, use the color as it was saved
+                if ((colorMode === 'dark' && isDarkModeOn) || (colorMode === 'light' && !isDarkModeOn)) {
+                    return ruleColor
+                }
+
+                // If the color mode is dark, but we're in light mode - then lighten the color
+                if (colorMode === 'dark' && !isDarkModeOn) {
+                    return lightenDarkenColor(ruleColor, 30)
+                }
+
+                // If the color mode is light, but we're in dark mode - then darken the color
+                return lightenDarkenColor(ruleColor, -30)
+            }
+
+            // The `style` and `className` cell callbacks are invoked independently for the same cell,
+            // so memoize per row record to run the HogVM rules (and any captureException) only once.
+            // The cache lives in this per-render closure, so it can't go stale across theme/rule changes.
+            const backgroundByRecord = new WeakMap<TableDataCell<any>[], string | undefined>()
+            const resolveConditionalFormattingBackground = (data: TableDataCell<any>[]): string | undefined => {
+                if (backgroundByRecord.has(data)) {
+                    return backgroundByRecord.get(data)
+                }
+                const backgroundColor = computeConditionalFormattingBackground(data)
+                backgroundByRecord.set(data, backgroundColor)
+                return backgroundColor
+            }
+
             return {
                 ...columnMeta,
                 key: column.name,
+                // Sorting reorders rows, which doesn't make sense once the table is transposed
+                // (rows become the original columns), so only offer it in the normal orientation.
+                sorter: isTransposed ? undefined : (a, b) => compareTableCells(a[index], b[index]),
                 title: (
                     <div className="flex items-center gap-1">
                         <span>{formattedTitle}</span>
@@ -170,109 +280,66 @@ export const Table = (props: TableProps): JSX.Element => {
                     )
                 },
                 style: (_, data) => {
-                    const cell = data[index]
-
-                    if (cell.isTransposedHeader) {
-                        return undefined
-                    }
-
-                    const sourceColumnName = cell.sourceColumnName ?? column.name
-                    const sourceColumnType =
-                        sourceTabularColumnsByName.get(sourceColumnName)?.column.type.name ?? cell.type
-                    const cf = conditionalFormattingRules
-                        .filter((n) => n.columnName === sourceColumnName)
-                        .filter((n) => {
-                            const isValidHog = !!n.bytecode && n.bytecode.length > 0 && n.bytecode[0] === '_H'
-                            if (!isValidHog) {
-                                posthog.captureException(new Error('Invalid hog bytecode for conditional formatting'), {
-                                    formatRule: n,
-                                })
-                            }
-
-                            return isValidHog
-                        })
-                        .map((n) => {
-                            const res = execHog(n.bytecode, {
-                                globals: {
-                                    value: cell.value,
-                                    input: convertTableValue(n.input, sourceColumnType),
-                                },
-                                functions: {},
-                                maxAsyncSteps: 0,
-                            })
-
-                            return {
-                                rule: n,
-                                result: res.result,
-                            }
-                        })
-
-                    const conditionalFormattingMatches = cf.find((n) => Boolean(n.result))
-
-                    if (conditionalFormattingMatches) {
-                        const ruleColor = conditionalFormattingMatches.rule.color
-                        const colorMode = conditionalFormattingMatches.rule.colorMode ?? 'light'
-
-                        // If the color mode matches the current theme, return as it was saved
-                        if ((colorMode === 'dark' && isDarkModeOn) || (colorMode === 'light' && !isDarkModeOn)) {
-                            return {
-                                backgroundColor: ruleColor,
-                            }
-                        }
-
-                        // If the color mode is dark, but we're in light mode - then lighten the color
-                        if (colorMode === 'dark' && !isDarkModeOn) {
-                            return {
-                                backgroundColor: lightenDarkenColor(ruleColor, 30),
-                            }
-                        }
-
-                        // If the color mode is light, but we're in dark mode - then darken the color
-                        return {
-                            backgroundColor: lightenDarkenColor(ruleColor, -30),
-                        }
-                    }
-
-                    return undefined
+                    const backgroundColor = resolveConditionalFormattingBackground(data)
+                    return backgroundColor ? { backgroundColor } : undefined
+                },
+                className: (_, data) => {
+                    const backgroundColor = resolveConditionalFormattingBackground(data)
+                    // Pin the text color to the cell background rather than inheriting the theme's text
+                    // color, which is near-white in dark mode and unreadable on light backgrounds
+                    return backgroundColor ? getContrastingTextClass(backgroundColor) : ''
                 },
             }
         }
     )
 
     return (
-        <LemonTable
-            className="DataVisualizationTable"
-            dataSource={tabularData}
-            columns={tableColumns}
-            pinnedColumns={isPinningEnabled ? pinnedColumns : undefined}
-            loading={responseLoading}
-            pagination={{ pageSize: DEFAULT_PAGE_SIZE }}
-            maxHeaderWidth="15rem"
-            emptyState={
-                responseError ? (
-                    <InsightErrorState
-                        query={props.query}
-                        excludeDetail
-                        title={
-                            queryCancelled
-                                ? 'The query was cancelled'
-                                : response && 'error' in response
-                                  ? (response as any).error
-                                  : responseError
-                        }
-                    />
-                ) : (
-                    <InsightEmptyState
-                        heading="There are no matching rows for this query"
-                        detail=""
-                        sampleDataVariant="table"
-                    />
-                )
-            }
-            footer={tabularData.length > 0 ? <LoadNext query={props.query} /> : null}
-            rowClassName="DataVizRow"
-            embedded={props.embedded}
-            allowContentScroll={!!props.embedded}
-        />
+        <>
+            {hasSortedTable && hasMoreData && (
+                <LemonBanner type="info" className="mb-2" dismissKey="data-visual">
+                    Sorting only reorders the rows already loaded, not the full dataset.
+                </LemonBanner>
+            )}
+            <LemonTable
+                className="DataVisualizationTable"
+                dataSource={tabularData}
+                columns={tableColumns}
+                pinnedColumns={isPinningEnabled ? pinnedColumns : undefined}
+                loading={responseLoading}
+                useURLForSorting={false}
+                onSort={(newSorting) => {
+                    if (newSorting) {
+                        setTableSorted()
+                    }
+                }}
+                pagination={{ pageSize: DEFAULT_PAGE_SIZE }}
+                maxHeaderWidth="15rem"
+                emptyState={
+                    responseError ? (
+                        <InsightErrorState
+                            query={props.query}
+                            excludeDetail
+                            title={
+                                queryCancelled
+                                    ? 'The query was cancelled'
+                                    : response && 'error' in response
+                                      ? (response as any).error
+                                      : responseError
+                            }
+                        />
+                    ) : (
+                        <InsightEmptyState
+                            heading="There are no matching rows for this query"
+                            detail=""
+                            sampleDataVariant="table"
+                        />
+                    )
+                }
+                footer={tabularData.length > 0 ? <LoadNext query={props.query} /> : null}
+                rowClassName="DataVizRow"
+                embedded={props.embedded}
+                allowContentScroll={!!props.embedded}
+            />
+        </>
     )
 }

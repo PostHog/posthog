@@ -2,8 +2,8 @@ import { useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { type ReactNode, useEffect, useState } from 'react'
 
-import { IconArrowLeft, IconArrowRight, IconCheckCircle, IconCloud, IconGithub, IconTerminal } from '@posthog/icons'
-import { LemonButton, LemonSegmentedButton, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
+import { IconArrowLeft, IconArrowRight, IconCheckCircle, IconGithub } from '@posthog/icons'
+import { LemonButton, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
@@ -19,23 +19,21 @@ import type { TeamType } from '~/types'
 
 import selfDrivingHog from 'public/hedgehog/self-driving-hog.png'
 
+// Deliberate self-driving → legacy import: onboardingLogic owns the completion flow (marking the
+// team onboarded, redirecting out) for both variants.
 import { onboardingLogic } from '../legacy/onboardingLogic'
-import {
-    useWizardTakeoverActive,
-    WizardProgressTracker,
-} from '../legacy/sdks/OnboardingInstallStep/WizardProgressTracker'
 import { type ContextOnboardingStepId, onboardingEventUsageLogic } from '../onboardingEventUsageLogic'
 import { useWizardCommand } from '../shared/SetupWizardBanner'
 import { availableOnboardingProducts, getProductIcon, toSentenceCase } from '../shared/utils'
+import { activeCloudRunLogic, type CloudRunHandle } from '../shared/wizard-sync/activeCloudRunLogic'
+import { installationProgressLogic } from '../shared/wizard-sync/installationProgressLogic'
+import { InstallationProgressView, useLocalWizardRunActive } from '../shared/wizard-sync/InstallationProgressView'
+import { wizardCloudRunLogic } from '../shared/wizard-sync/wizardCloudRunLogic'
+import { WizardCommandBlock } from '../shared/wizard-sync/WizardCommandBlock'
+import { WizardInstallOptions } from '../shared/wizard-sync/WizardInstallOptions'
 import { ContextBillingStep } from './ContextBillingStep'
 import { ContextInviteStep } from './ContextInviteStep'
 import { ContextWarehouseStep } from './ContextWarehouseStep'
-import { activeCloudRunLogic, type CloudRunHandle } from './sdks/OnboardingInstallStep/activeCloudRunLogic'
-import { installationProgressLogic } from './sdks/OnboardingInstallStep/installationProgressLogic'
-import { WizardCloudRunBlock } from './sdks/OnboardingInstallStep/WizardCloudRunBlock'
-import { wizardCloudRunLogic } from './sdks/OnboardingInstallStep/wizardCloudRunLogic'
-import { WizardCommandBlock } from './sdks/OnboardingInstallStep/WizardCommandBlock'
-import { WizardFrameworkBadges } from './sdks/OnboardingInstallStep/WizardModeShell'
 
 /**
  * Context-first onboarding (prototype, legacy variant). A fixed linear flow, one thing per step,
@@ -61,30 +59,13 @@ function WelcomeStep(): JSX.Element {
     )
 }
 
-type InstallMode = 'cloud' | 'local'
-
-// One wizard, two ways to run it: have us run it and open a PR (the self-driving path), or run the
-// CLI yourself. A segmented control switches between them. The cloud path only exists behind
-// ONBOARDING_WIZARD_CLOUD_RUN on cloud/dev; elsewhere this collapses to just the local command.
-// hideHog keeps the compact onboarding card free of the wizard hedgehog.
+// One wizard, two ways to run it — the shared WizardInstallOptions owns the cloud/local switching
+// and framework badges; this wraps it in the self-driving copy and manual-docs fallback.
 function InstallOptions({ onContinue }: { onContinue: () => void }): JSX.Element {
     const cloudRunEnabled = useFeatureFlag('ONBOARDING_WIZARD_CLOUD_RUN', 'test')
     const { isCloudOrDev } = useWizardCommand()
-    const { activeCloudRun } = useValues(activeCloudRunLogic)
-    const { clearActiveCloudRun } = useActions(activeCloudRunLogic)
     const { reportContextOnboardingInstallModeSelected } = useActions(onboardingEventUsageLogic)
-    const [mode, setMode] = useState<InstallMode>('cloud')
     const offerCloud = cloudRunEnabled && isCloudOrDev
-    // GROW-95: once a cloud run is spawned you cannot also run it locally, so the local tab is blocked and
-    // the view pins to the cloud run's progress until it is cleared (e.g. via the failure fallback below).
-    const localBlocked = !!activeCloudRun
-    const effectiveMode: InstallMode = localBlocked ? 'cloud' : mode
-
-    // A failed cloud run's fallback: drop the dead run (unblocks local, clears its FAB) and switch to the command.
-    const runItYourself = (): void => {
-        clearActiveCloudRun()
-        setMode('local')
-    }
 
     // Self-hosted: the wizard CLI / cloud run only target cloud + dev, so both wizard blocks render
     // nothing. Show a real, actionable fallback instead of an empty step.
@@ -116,45 +97,13 @@ function InstallOptions({ onContinue }: { onContinue: () => void }): JSX.Element
                     Run the wizard to get your product's context flowing so agents can start finding and fixing things.
                 </p>
             )}
-            {/* Frameworks are the same whichever way the wizard runs, so the badges sit above the selector. */}
-            {isCloudOrDev && (
-                <div className="pb-2">
-                    <WizardFrameworkBadges />
-                </div>
-            )}
-            {offerCloud && (
-                <LemonSegmentedButton
-                    fullWidth
-                    value={effectiveMode}
-                    onChange={(value) => {
-                        reportContextOnboardingInstallModeSelected(value)
-                        setMode(value)
-                    }}
-                    options={[
-                        {
-                            value: 'cloud',
-                            label: 'Open a pull request',
-                            icon: <IconCloud />,
-                            'data-attr': 'context-wizard-mode-cloud',
-                        },
-                        {
-                            value: 'local',
-                            label: 'Run it yourself',
-                            icon: <IconTerminal />,
-                            disabledReason: localBlocked ? 'A cloud run is in progress.' : undefined,
-                            'data-attr': 'context-wizard-mode-local',
-                        },
-                    ]}
-                />
-            )}
-            {/* No onQueued: unlike the legacy install step, this flow's footer Continue is always
-                enabled (install is non-blocking), so a queued cloud run needs no extra unblock signal. */}
-            {offerCloud && effectiveMode === 'cloud' ? (
-                // GROW-96: kicking off the cloud run is the step's "next" action, so onQueued advances the flow.
-                <WizardCloudRunBlock hideHog onRetryLocally={runItYourself} onQueued={onContinue} />
-            ) : (
-                <WizardCommandBlock hideHog />
-            )}
+            {/* GROW-96: kicking off the cloud run is the step's "next" action, so onQueued advances the flow. */}
+            <WizardInstallOptions
+                hideHog
+                onQueued={onContinue}
+                onModeSelected={reportContextOnboardingInstallModeSelected}
+                localBlock={<WizardCommandBlock hideHog />}
+            />
             <p className="text-xs text-muted m-0 text-center">
                 Rather wire it up by hand?{' '}
                 <Link to="https://posthog.com/docs/getting-started/install" target="_blank">
@@ -167,22 +116,14 @@ function InstallOptions({ onContinue }: { onContinue: () => void }): JSX.Element
 
 // When wizard sync is on and a LOCAL run is in flight, swap the options for the live tracker. A cloud
 // run is already surfaced by the unified Installation layer (WizardCloudRunBlock → InstallationProgressView),
-// and the cloud wizard posts to the same session — so suppress the legacy tracker when a cloud run is
+// and the cloud wizard posts to the same session — so suppress the local run view when a cloud run is
 // active to avoid showing two progress components.
 function InstallStepWithSync({ onContinue }: { onContinue: () => void }): JSX.Element {
-    const isTakeoverActive = useWizardTakeoverActive()
+    const isLocalRunActive = useLocalWizardRunActive()
     const { activeCloudRun } = useValues(activeCloudRunLogic)
-    const { setPanelMounted } = useActions(activeCloudRunLogic)
-    const showLegacyTracker = isTakeoverActive && !activeCloudRun
-    // While the inline legacy tracker shows a local run on this step, claim the shared inline-panel flag
-    // so the detached WizardSyncFab hides and the run is not shown in two places.
-    useEffect(() => {
-        if (showLegacyTracker) {
-            setPanelMounted(true)
-            return () => setPanelMounted(false)
-        }
-    }, [showLegacyTracker, setPanelMounted])
-    return showLegacyTracker ? <WizardProgressTracker /> : <InstallOptions onContinue={onContinue} />
+    // The view claims the shared inline-panel flag itself, so no FAB coordination is needed here.
+    const showLocalRun = isLocalRunActive && !activeCloudRun
+    return showLocalRun ? <InstallationProgressView mode="local" /> : <InstallOptions onContinue={onContinue} />
 }
 
 function InstallStep({ onContinue }: { onContinue: () => void }): JSX.Element {

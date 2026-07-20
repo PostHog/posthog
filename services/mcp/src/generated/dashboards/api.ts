@@ -3,10 +3,56 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 16 enabled ops
+ * PostHog API - MCP 18 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+export const DashboardTemplatesListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const DashboardTemplatesListQueryParams = /* @__PURE__ */ zod.object({
+    is_featured: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Omit for all templates. When set, filter by featured flag; parsed with str_to_bool (same as other API query booleans).'
+        ),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    ordering: zod
+        .string()
+        .optional()
+        .describe(
+            'Optional. When not using `search`, results are sorted with featured templates first (`is_featured=true`), then by `template_name` (case-insensitive A–Z; `-template_name` for Z–A) or by `created_at` (`-created_at` for newest first). When `search` is set, order is featured first, then relevance rank, then case-insensitive name for ties.'
+        ),
+    scope: zod
+        .enum(['feature_flag', 'global', 'organization', 'team'])
+        .optional()
+        .describe(
+            "Optional. `global`: official templates only. `team`: this project's saved templates only (`scope=team` rows for the current project). `organization`: templates shared across all projects in this organization. `feature_flag`: feature-flag dashboard templates only. Omit for official, organization, and this project's templates (default dashboard template picker behavior)."
+        ),
+    search: zod
+        .string()
+        .optional()
+        .describe(
+            'Optional. Full-text search across template name, tags, and description, ranked by relevance. Use it to find templates for a topic (e.g. `retention`, `revenue`, `product analytics`).'
+        ),
+})
+
+export const DashboardTemplatesRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this dashboard template.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
 
 export const DashboardsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -30,7 +76,7 @@ export const DashboardsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            "Optional. Match against dashboard `name`, `description`, and tag names. Returns case-insensitive substring matches and fuzzy trigram matches (typos, transpositions, prefix-as-you-type) together, ordered exact-first, then pinned status, then name; each result's `search_match_type` is `exact` or `similar`. When omitted, dashboards are ordered by pinned status then alphabetical name. Capped at 200 characters; longer queries return a 400 error."
+            "Optional. Match against dashboard `name`, `description`, and tag names. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, transpositions, prefix-as-you-type) matches instead. Results are then ordered by relevance, then pinned status, then name; each result's `search_match_type` is `exact` or `similar`. When omitted, dashboards are ordered by pinned status then alphabetical name. Capped at 200 characters; longer queries return a 400 error."
         ),
 })
 
@@ -44,6 +90,12 @@ export const DashboardsCreateParams = /* @__PURE__ */ zod.object({
 
 export const DashboardsCreateQueryParams = /* @__PURE__ */ zod.object({
     format: zod.enum(['json', 'txt']).optional(),
+    include_dashboards: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.'
+        ),
 })
 
 export const dashboardsCreateBodyNameMax = 400
@@ -97,6 +149,12 @@ export const DashboardsRetrieveQueryParams = /* @__PURE__ */ zod.object({
             'Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.'
         ),
     format: zod.enum(['json', 'txt']).optional(),
+    include_dashboards: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.'
+        ),
     variables_override: zod
         .string()
         .optional()
@@ -116,12 +174,30 @@ export const DashboardsPartialUpdateParams = /* @__PURE__ */ zod.object({
 
 export const DashboardsPartialUpdateQueryParams = /* @__PURE__ */ zod.object({
     format: zod.enum(['json', 'txt']).optional(),
+    include_dashboards: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.'
+        ),
 })
 
 export const dashboardsPartialUpdateBodyNameMax = 400
 
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneLimitDefault = 25
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneLimitMax = 50
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemKeyMax = 400
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemLabelOneMax = 400
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemValueOneItemOneMax = 4000
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemValueOneMax = 100
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemValueTwoMax = 4000
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneMax = 20
 
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoLimitDefault = 10
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoLimitMax = 25
@@ -312,6 +388,102 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                             .optional()
                                             .describe(
                                                 'Limit the feed to a single event name. Omit or null for all events.'
+                                            ),
+                                        properties: zod
+                                            .union([
+                                                zod
+                                                    .array(
+                                                        zod.object({
+                                                            key: zod
+                                                                .string()
+                                                                .min(1)
+                                                                .max(
+                                                                    dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemKeyMax
+                                                                ),
+                                                            label: zod
+                                                                .union([
+                                                                    zod
+                                                                        .string()
+                                                                        .max(
+                                                                            dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemLabelOneMax
+                                                                        ),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                            operator: zod.enum([
+                                                                'exact',
+                                                                'is_not',
+                                                                'icontains',
+                                                                'not_icontains',
+                                                                'regex',
+                                                                'not_regex',
+                                                                'gt',
+                                                                'gte',
+                                                                'lt',
+                                                                'lte',
+                                                                'is_set',
+                                                                'is_not_set',
+                                                                'is_date_exact',
+                                                                'is_date_before',
+                                                                'is_date_after',
+                                                                'between',
+                                                                'not_between',
+                                                                'min',
+                                                                'max',
+                                                                'in',
+                                                                'not_in',
+                                                                'is_cleaned_path_exact',
+                                                                'flag_evaluates_to',
+                                                                'semver_eq',
+                                                                'semver_neq',
+                                                                'semver_gt',
+                                                                'semver_gte',
+                                                                'semver_lt',
+                                                                'semver_lte',
+                                                                'semver_tilde',
+                                                                'semver_caret',
+                                                                'semver_wildcard',
+                                                                'icontains_multi',
+                                                                'not_icontains_multi',
+                                                            ]),
+                                                            type: zod.enum(['event', 'person']),
+                                                            value: zod
+                                                                .union([
+                                                                    zod
+                                                                        .array(
+                                                                            zod.union([
+                                                                                zod
+                                                                                    .string()
+                                                                                    .max(
+                                                                                        dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemValueOneItemOneMax
+                                                                                    ),
+                                                                                zod.number(),
+                                                                                zod.boolean(),
+                                                                            ])
+                                                                        )
+                                                                        .max(
+                                                                            dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemValueOneMax
+                                                                        ),
+                                                                    zod
+                                                                        .string()
+                                                                        .max(
+                                                                            dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemValueTwoMax
+                                                                        ),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        })
+                                                    )
+                                                    .max(
+                                                        dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                'Event and person property filters, matching Activity > Explore events.'
                                             ),
                                     }),
                                     zod.object({
@@ -576,7 +748,7 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                             )
                                             .describe('Sort direction for orderBy.'),
                                         status: zod
-                                            .enum(['draft', 'running', 'paused', 'stopped', 'all'])
+                                            .enum(['draft', 'running', 'paused', 'exposure_frozen', 'stopped', 'all'])
                                             .default(
                                                 dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourStatusDefault
                                             )
@@ -1047,6 +1219,18 @@ export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneNameMax = 400
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOneLimitDefault = 25
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOneLimitMax = 50
 
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemKeyMax = 400
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemLabelOneMax = 400
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemValueOneItemOneMax = 4000
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemValueOneMax = 100
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemValueTwoMax = 4000
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneMax = 20
+
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemTwoNameMax = 400
 
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOneLimitDefault = 10
@@ -1238,6 +1422,100 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                     .union([zod.string().min(1), zod.null()])
                                     .optional()
                                     .describe('Limit the feed to a single event name. Omit or null for all events.'),
+                                properties: zod
+                                    .union([
+                                        zod
+                                            .array(
+                                                zod.object({
+                                                    key: zod
+                                                        .string()
+                                                        .min(1)
+                                                        .max(
+                                                            dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemKeyMax
+                                                        ),
+                                                    label: zod
+                                                        .union([
+                                                            zod
+                                                                .string()
+                                                                .max(
+                                                                    dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemLabelOneMax
+                                                                ),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional(),
+                                                    operator: zod.enum([
+                                                        'exact',
+                                                        'is_not',
+                                                        'icontains',
+                                                        'not_icontains',
+                                                        'regex',
+                                                        'not_regex',
+                                                        'gt',
+                                                        'gte',
+                                                        'lt',
+                                                        'lte',
+                                                        'is_set',
+                                                        'is_not_set',
+                                                        'is_date_exact',
+                                                        'is_date_before',
+                                                        'is_date_after',
+                                                        'between',
+                                                        'not_between',
+                                                        'min',
+                                                        'max',
+                                                        'in',
+                                                        'not_in',
+                                                        'is_cleaned_path_exact',
+                                                        'flag_evaluates_to',
+                                                        'semver_eq',
+                                                        'semver_neq',
+                                                        'semver_gt',
+                                                        'semver_gte',
+                                                        'semver_lt',
+                                                        'semver_lte',
+                                                        'semver_tilde',
+                                                        'semver_caret',
+                                                        'semver_wildcard',
+                                                        'icontains_multi',
+                                                        'not_icontains_multi',
+                                                    ]),
+                                                    type: zod.enum(['event', 'person']),
+                                                    value: zod
+                                                        .union([
+                                                            zod
+                                                                .array(
+                                                                    zod.union([
+                                                                        zod
+                                                                            .string()
+                                                                            .max(
+                                                                                dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemValueOneItemOneMax
+                                                                            ),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                )
+                                                                .max(
+                                                                    dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemValueOneMax
+                                                                ),
+                                                            zod
+                                                                .string()
+                                                                .max(
+                                                                    dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemValueTwoMax
+                                                                ),
+                                                            zod.number(),
+                                                            zod.boolean(),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional(),
+                                                })
+                                            )
+                                            .max(
+                                                dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneMax
+                                            ),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('Event and person property filters, matching Activity > Explore events.'),
                             })
                             .describe('Configuration for the recent events widget.'),
                     }),
@@ -1661,7 +1939,7 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                     )
                                     .describe('Sort direction for orderBy.'),
                                 status: zod
-                                    .enum(['draft', 'running', 'paused', 'stopped', 'all'])
+                                    .enum(['draft', 'running', 'paused', 'exposure_frozen', 'stopped', 'all'])
                                     .default(dashboardsWidgetsBatchCreateBodyWidgetsItemFourConfigOneStatusDefault)
                                     .describe('Experiment status filter.'),
                                 createdBy: zod
@@ -1994,6 +2272,18 @@ export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneNameMax = 400
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOneLimitDefault = 25
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOneLimitMax = 50
 
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemKeyMax = 400
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemLabelOneMax = 400
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemValueOneItemOneMax = 4000
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemValueOneMax = 100
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemValueTwoMax = 4000
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneMax = 20
+
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoNameMax = 400
 
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOneLimitDefault = 10
@@ -2143,6 +2433,100 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                                     .union([zod.string().min(1), zod.null()])
                                     .optional()
                                     .describe('Limit the feed to a single event name. Omit or null for all events.'),
+                                properties: zod
+                                    .union([
+                                        zod
+                                            .array(
+                                                zod.object({
+                                                    key: zod
+                                                        .string()
+                                                        .min(1)
+                                                        .max(
+                                                            dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemKeyMax
+                                                        ),
+                                                    label: zod
+                                                        .union([
+                                                            zod
+                                                                .string()
+                                                                .max(
+                                                                    dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemLabelOneMax
+                                                                ),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional(),
+                                                    operator: zod.enum([
+                                                        'exact',
+                                                        'is_not',
+                                                        'icontains',
+                                                        'not_icontains',
+                                                        'regex',
+                                                        'not_regex',
+                                                        'gt',
+                                                        'gte',
+                                                        'lt',
+                                                        'lte',
+                                                        'is_set',
+                                                        'is_not_set',
+                                                        'is_date_exact',
+                                                        'is_date_before',
+                                                        'is_date_after',
+                                                        'between',
+                                                        'not_between',
+                                                        'min',
+                                                        'max',
+                                                        'in',
+                                                        'not_in',
+                                                        'is_cleaned_path_exact',
+                                                        'flag_evaluates_to',
+                                                        'semver_eq',
+                                                        'semver_neq',
+                                                        'semver_gt',
+                                                        'semver_gte',
+                                                        'semver_lt',
+                                                        'semver_lte',
+                                                        'semver_tilde',
+                                                        'semver_caret',
+                                                        'semver_wildcard',
+                                                        'icontains_multi',
+                                                        'not_icontains_multi',
+                                                    ]),
+                                                    type: zod.enum(['event', 'person']),
+                                                    value: zod
+                                                        .union([
+                                                            zod
+                                                                .array(
+                                                                    zod.union([
+                                                                        zod
+                                                                            .string()
+                                                                            .max(
+                                                                                dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemValueOneItemOneMax
+                                                                            ),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                )
+                                                                .max(
+                                                                    dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemValueOneMax
+                                                                ),
+                                                            zod
+                                                                .string()
+                                                                .max(
+                                                                    dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemValueTwoMax
+                                                                ),
+                                                            zod.number(),
+                                                            zod.boolean(),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional(),
+                                                })
+                                            )
+                                            .max(
+                                                dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneMax
+                                            ),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('Event and person property filters, matching Activity > Explore events.'),
                             })
                             .optional()
                             .describe('New configuration for the recent events widget. Omit to leave unchanged.'),
@@ -2443,7 +2827,7 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                                     )
                                     .describe('Sort direction for orderBy.'),
                                 status: zod
-                                    .enum(['draft', 'running', 'paused', 'stopped', 'all'])
+                                    .enum(['draft', 'running', 'paused', 'exposure_frozen', 'stopped', 'all'])
                                     .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemFourConfigOneStatusDefault)
                                     .describe('Experiment status filter.'),
                                 createdBy: zod

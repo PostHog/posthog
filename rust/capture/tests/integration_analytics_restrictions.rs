@@ -138,6 +138,7 @@ async fn setup_analytics_router_with_restriction(
         None,             // ai_gateway_signing_secret
         ai_routing,
         ai_events_overflow_enabled,
+        None, // ingestion_warning_emitter
     );
 
     (router, sink_clone)
@@ -571,6 +572,7 @@ async fn setup_analytics_router_with_redirect_to_topic(
         None,               // ai_gateway_signing_secret
         AiRouting::Primary, // ai_routing
         false,              // ai_events_overflow_enabled
+        None,               // ingestion_warning_emitter
     );
 
     (router, sink_clone)

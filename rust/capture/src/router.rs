@@ -21,6 +21,7 @@ use crate::otel;
 use crate::test_endpoint;
 use crate::v0_request::DataType;
 use crate::{ai_endpoint, sinks, time::TimeSource, v0_endpoint};
+use common_ingestion_warnings::WarningEmitter;
 use common_redis::Client;
 use limiters::overflow::OverflowLimiter;
 use limiters::redis::RedisLimiter;
@@ -104,6 +105,12 @@ pub struct State {
     pub ai_events_overflow_enabled: bool,
     pub capture_v1_scatter_gather_min_batch: usize,
     pub ai_gateway_signing_secret: Option<String>,
+    /// Best-effort v2 ingestion warnings emitter (fire-and-forget Kafka
+    /// producer behind a per-(token, type) throttle). `None` when disabled —
+    /// emit points skip on `is_none()`, same optionality pattern as
+    /// `overflow_limiter` / `event_restriction_service`. Never awaited and
+    /// never allowed to fail a request.
+    pub ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
 }
 
 #[derive(Clone, Copy)]
@@ -176,6 +183,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     ai_gateway_signing_secret: Option<String>,
     ai_routing: AiRouting,
     ai_events_overflow_enabled: bool,
+    ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
 ) -> Router {
     let state = State {
         sink,
@@ -206,6 +214,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         ai_gateway_signing_secret,
         ai_routing,
         ai_events_overflow_enabled,
+        ingestion_warning_emitter,
     };
 
     // Very permissive CORS policy, as old SDK versions

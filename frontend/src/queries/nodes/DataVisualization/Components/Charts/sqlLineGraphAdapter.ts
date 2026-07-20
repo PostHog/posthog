@@ -1,5 +1,6 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import {
+    type AxisLinesConfig,
     type ChartLegendConfig,
     type Series,
     type SeriesType,
@@ -233,6 +234,9 @@ export function buildSeries(yData: SqlLineYSeries[], visualizationType: ChartDis
             meta: { settings },
             // Per-series type; ignored by the single-type line/bar charts, read by ComboChart.
             type,
+            // A percent-styled column doesn't sum meaningfully with the other columns, so keep it
+            // out of the tooltip's total row (matches the legacy renderer).
+            ...(settings?.formatting?.style === 'percent' ? { visibility: { total: false } } : {}),
             // Only pin an explicit color; otherwise let quill assign palette colors by index.
             ...(color ? { color } : {}),
             ...(settings?.display?.yAxisPosition === 'right' ? { yAxisId: 'right' } : {}),
@@ -243,9 +247,20 @@ export function buildSeries(yData: SqlLineYSeries[], visualizationType: ChartDis
     })
 }
 
-/** Formats a tooltip value with a column's display settings. */
+/** Formats a chart display value (tooltip rows/total, value labels, custom axis ticks) with a
+ *  column's display settings. Values without an explicit style or decimal-place count are capped
+ *  at 3 fraction digits — a computed column (e.g. a ratio) otherwise renders with full float
+ *  precision (`22.222222222222`). The results table keeps full precision on purpose; this rounding
+ *  is chart-display only. */
 export function formatSqlSeriesValue(value: number, settings?: AxisSeriesSettings): string {
-    return String(formatDataWithSettings(value, settings) ?? value)
+    const formatting = settings?.formatting
+    // Styled values round inside formatDataWithSettings. Unstyled values are capped here — at the
+    // column's explicit decimalPlaces when set (formatDataWithSettings skips a falsy 0, so a
+    // zero-decimal column would otherwise keep its fraction digits), else at 3. Prefix/suffix
+    // don't round, so they don't opt out.
+    const hasStyle = !!formatting && (formatting.style ?? 'none') !== 'none'
+    const display = hasStyle || !Number.isFinite(value) ? value : Number(value.toFixed(formatting?.decimalPlaces ?? 3))
+    return String(formatDataWithSettings(display, settings) ?? display)
 }
 
 const isRightAxisSeries = (series: SqlLineYSeries): boolean => series.settings?.display?.yAxisPosition === 'right'
@@ -279,7 +294,11 @@ export function buildSqlTooltipConfig(
     chartSettings: ChartSettings,
     ySeriesData?: SqlLineYSeries[] | null
 ): TooltipConfig {
-    const totalSettings = ySeriesData?.[0]?.settings
+    // The total sums the non-percent columns (percent columns are excluded via
+    // `visibility.total` in buildSeries), so it must format with a column that's actually in the
+    // sum — a blind `[0]` borrows a percent column's style and renders a sum of counts as
+    // "15,061.4%". Matches the legacy renderer's first-summable-column choice.
+    const totalSettings = ySeriesData?.find((series) => series.settings?.formatting?.style !== 'percent')?.settings
     return {
         enabled: true,
         pinnable: true,
@@ -366,6 +385,14 @@ function buildLegendConfig(chartSettings: ChartSettings): ChartLegendConfig {
     return { show: chartSettings.showLegend ?? false, position: 'top', interactive: true }
 }
 
+/** The X/Y axis-border toggles map onto quill's per-edge axis lines — undefined when both are on
+ *  (the default), so the app-level style default still applies. */
+function buildAxisLinesConfig(chartSettings: ChartSettings): AxisLinesConfig | undefined {
+    const x = chartSettings.showXAxisBorder ?? true
+    const y = chartSettings.showYAxisBorder ?? true
+    return x && y ? undefined : { x, y }
+}
+
 /**
  * "Show values on series" — each on-series label formats with its own column's settings, reusing the
  * tooltip's {@link formatSqlSeriesValue} path so labels read identically to the tooltip. `seriesIndex`
@@ -416,6 +443,7 @@ export function buildLineChartConfig({
                   ]
                 : buildYAxisConfig(chartSettings.leftYAxisSettings, leftSeries, chartSettings.yAxisAtZero),
         goalLines: schemaGoalLinesToConfigs(goalLines),
+        showAxisLines: buildAxisLinesConfig(chartSettings),
         trendLines: buildTrendLineConfigs(ySeriesData),
         legend: buildLegendConfig(chartSettings),
         valueLabels: buildValueLabelsConfig(chartSettings, ySeriesData),
@@ -459,13 +487,20 @@ export function buildBarChartConfig({
                       forceLinear: barLayout === 'percent',
                   }),
         goalLines: schemaGoalLinesToConfigs(goalLines),
+        showAxisLines: buildAxisLinesConfig(chartSettings),
         barLayout,
+        // Stacked bars must preserve negative values (SQL results can be negative) so they render
+        // below the zero baseline instead of being clamped to 0. Only the stacked layout stacks.
+        divergingStack: barLayout === 'stacked',
         // Percent bars scale against a [0, 1] domain; trend lines plot raw series values, so they'd
         // render off-scale and invisible.
         trendLines: barLayout === 'percent' ? [] : buildTrendLineConfigs(ySeriesData),
         legend: buildLegendConfig(chartSettings),
         valueLabels: buildValueLabelsConfig(chartSettings, ySeriesData),
-        tooltip: { enabled: true, pinnable: true, placement: 'cursor', ...(labelFormatter ? { labelFormatter } : {}) },
+        tooltip: {
+            ...buildSqlTooltipConfig(chartSettings, ySeriesData),
+            ...(labelFormatter ? { labelFormatter } : {}),
+        },
     }
 }
 
@@ -504,7 +539,11 @@ export function buildComboChartConfig({
                       forceLinear: isPercent,
                   }),
         goalLines: schemaGoalLinesToConfigs(goalLines),
+        showAxisLines: buildAxisLinesConfig(chartSettings),
         barLayout,
+        // Stacked bars must preserve negative values (SQL results can be negative) so they render
+        // below the zero baseline instead of being clamped to 0 — mirrors buildBarChartConfig.
+        divergingStack: barLayout === 'stacked',
         // Percent bars scale against a [0, 1] domain; trend lines plot raw series values, so they'd
         // render off-scale and invisible.
         trendLines: isPercent ? [] : buildTrendLineConfigs(ySeriesData),
