@@ -40,6 +40,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class AssemblyAISource(ResumableSource[AssemblyAISourceConfig, AssemblyAIResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://www.assemblyai.com/docs/api-reference"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -58,7 +61,6 @@ class AssemblyAISource(ResumableSource[AssemblyAISourceConfig, AssemblyAIResumeC
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="AssemblyAI",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption=(
                 "Enter your AssemblyAI API key to sync your speech-to-text transcripts into the PostHog "
                 "Data warehouse. Find your key in the [AssemblyAI dashboard](https://www.assemblyai.com/app/api-keys).\n\n"

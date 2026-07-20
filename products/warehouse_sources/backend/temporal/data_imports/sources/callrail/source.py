@@ -37,6 +37,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class CallRailSource(ResumableSource[CallRailSourceConfig, CallRailResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v3",)
+    default_version = "v3"
+    api_docs_url = "https://apidocs.callrail.com/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -63,7 +66,6 @@ You can create an API key under **Account settings → Integrations → API Keys
 Leave **Account ID** blank to use the first account your key can access, or set it to sync a specific account.""",
             iconPath="/static/services/callrail.png",
             docsUrl="https://posthog.com/docs/cdp/sources/callrail",
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

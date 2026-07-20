@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.
     validate_credentials as validate_anthropic_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.settings import (
+    ANTHROPIC_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -36,16 +37,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class AnthropicSource(ResumableSource[AnthropicSourceConfig, AnthropicResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("2023-06-01",)
+    default_version = "2023-06-01"
+    api_docs_url = "https://platform.claude.com/docs/en/api/versioning"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.ANTHROPIC
-
-    def get_non_retryable_errors(self) -> dict[str, str | None]:
-        return {
-            "401 Client Error: Unauthorized for url: https://api.anthropic.com": "Anthropic authentication failed. Please check that your Admin API key (sk-ant-admin...) is valid and has not been revoked.",
-            "403 Client Error: Forbidden for url: https://api.anthropic.com": "Anthropic denied access. Please check that you are using an Admin API key (sk-ant-admin...), not a regular API key.",
-        }
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -53,14 +51,13 @@ class AnthropicSource(ResumableSource[AnthropicSourceConfig, AnthropicResumeConf
             name=SchemaExternalDataSourceType.ANTHROPIC,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Anthropic",
-            caption="""Enter your Anthropic Admin API key to pull your organization's Claude API usage, costs, members, workspaces, and API keys into the PostHog Data warehouse.
+            releaseStatus=ReleaseStatus.ALPHA,
+            caption="""Enter your Anthropic Admin API key to pull your organization's Claude usage, cost, and admin data into the PostHog Data warehouse.
 
-You need an **Admin API key** (starts with `sk-ant-admin...`), which only organization admins can create in the [Anthropic Console](https://console.anthropic.com/settings/admin-keys). Regular API keys (`sk-ant-api...`) do not work. The Admin API is not available for individual (non-organization) accounts.""",
+Create an Admin API key (prefixed `sk-ant-admin...`) in your [Anthropic Console](https://console.anthropic.com/settings/admin-keys). Only organization admins can create one, and the Admin API is not available for individual accounts.""",
             iconPath="/static/services/anthropic.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/anthropic",
             keywords=["llm", "claude", "ai usage", "cost"],
-            releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [
@@ -83,6 +80,12 @@ You need an **Admin API key** (starts with `sk-ant-admin...`), which only organi
 
         return CANONICAL_DESCRIPTIONS
 
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "401 Client Error: Unauthorized for url: https://api.anthropic.com": "Your Anthropic Admin API key is invalid or has been revoked. Create a new Admin API key in the Anthropic Console, then reconnect.",
+            "403 Client Error: Forbidden for url: https://api.anthropic.com": "Your Anthropic API key does not have organization admin access. Use an Admin API key (prefixed sk-ant-admin) created by an organization admin, then reconnect.",
+        }
+
     def get_schemas(
         self,
         config: AnthropicSourceConfig,
@@ -91,20 +94,21 @@ You need an **Admin API key** (starts with `sk-ant-admin...`), which only organi
         names: list[str] | None = None,
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
+        def _build_schema(endpoint: str) -> SourceSchema:
+            endpoint_config = ANTHROPIC_ENDPOINTS[endpoint]
+            return SourceSchema(
                 name=endpoint,
-                supports_incremental=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
-                supports_append=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
+                supports_incremental=endpoint_config.supports_incremental,
+                supports_append=endpoint_config.supports_append,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                should_sync_default=endpoint_config.should_sync_default,
+                default_incremental_lookback_seconds=endpoint_config.default_incremental_lookback_seconds,
             )
-            for endpoint in list(ENDPOINTS)
-        ]
 
+        schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]
         if names is not None:
             names_set = set(names)
             schemas = [s for s in schemas if s.name in names_set]
-
         return schemas
 
     def validate_credentials(

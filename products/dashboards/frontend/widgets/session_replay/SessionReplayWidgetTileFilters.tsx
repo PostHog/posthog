@@ -1,6 +1,6 @@
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import { useValues } from 'kea'
-import { useMemo, useRef } from 'react'
+import { useMemo } from 'react'
 
 import { IconExternal } from '@posthog/icons'
 
@@ -95,16 +95,16 @@ export function SessionReplayWidgetTileFilters({
     const savedFilterLabel = savedFilterId ? (savedFilterLabelById[savedFilterId] ?? savedFilterId) : null
     const collectionLabel = collectionId ? (collectionLabelById[collectionId] ?? collectionId) : null
 
-    const configRef = useRef(config)
-    configRef.current = config
-    const { persistConfigDebounced, persistConfigNow } = useWidgetTileConfigPersist(onUpdateConfig)
+    const { getLatestConfig, persistConfigDebounced, persistConfigNow } = useWidgetTileConfigPersist(
+        onUpdateConfig,
+        config
+    )
 
     const controlDisabledReason = disabledReason
     const canUpdate = !!onUpdateConfig && !controlDisabledReason
 
     const applyDateFrom = async (value: WidgetDateFromValue): Promise<void> => {
-        const nextConfig = patchSessionReplayWidgetFilterFields(configRef.current, { dateFrom: value })
-        configRef.current = nextConfig
+        const nextConfig = patchSessionReplayWidgetFilterFields(getLatestConfig(), { dateFrom: value })
         await persistConfigNow(nextConfig)
     }
 
@@ -114,10 +114,9 @@ export function SessionReplayWidgetTileFilters({
             window.open(urls.replay(ReplayTabs.Playlists), '_blank', 'noopener,noreferrer')
             return
         }
-        const nextConfig = patchSessionReplayWidgetFilterFields(configRef.current, {
+        const nextConfig = patchSessionReplayWidgetFilterFields(getLatestConfig(), {
             collectionId: value && value !== NONE_VALUE ? value : null,
         })
-        configRef.current = nextConfig
         await persistConfigNow(nextConfig)
     }
 
@@ -127,20 +126,19 @@ export function SessionReplayWidgetTileFilters({
             window.open(urls.replay(), '_blank', 'noopener,noreferrer')
             return
         }
-        const nextConfig = patchSessionReplayWidgetFilterFields(configRef.current, {
+        const nextConfig = patchSessionReplayWidgetFilterFields(getLatestConfig(), {
             savedFilterId: value && value !== NONE_VALUE ? value : null,
         })
-        configRef.current = nextConfig
         await persistConfigNow(nextConfig)
     }
 
     const applyWidgetFilters = (nextWidgetFilters: typeof widgetFilters): void => {
-        const nextConfig = patchSessionReplayWidgetFilterFields(configRef.current, { widgetFilters: nextWidgetFilters })
-        const current = parseSessionReplayWidgetConfig(configRef.current)
+        const latestConfig = getLatestConfig()
+        const nextConfig = patchSessionReplayWidgetFilterFields(latestConfig, { widgetFilters: nextWidgetFilters })
+        const current = parseSessionReplayWidgetConfig(latestConfig)
         if (equal(current.widgetFilters ?? {}, nextWidgetFilters)) {
             return
         }
-        configRef.current = nextConfig
         persistConfigDebounced(nextConfig)
     }
 

@@ -548,22 +548,23 @@ class TestGithubSourceSortMode:
         assert response.sort_mode == expected_sort_mode
 
 
-# A fresh webhook schema must not deadlock: workflow_jobs does no poll backfill
-# (initial_lookback_days == 0), so webhook mode has to activate before the zero-row
-# poll could mark initial_sync_complete — otherwise the gate never opens and queued
-# webhook files never drain. workflow_runs (and the non-webhook endpoints) keep their
-# historical poll backfill, so they must NOT skip that gate.
+# A fresh webhook schema must not deadlock: the webhook-only endpoints (workflow_jobs,
+# workflow_runs, reviews) do no poll backfill (initial_lookback_days == 0), so webhook mode
+# has to activate before the zero-row poll could mark initial_sync_complete — otherwise the
+# gate never opens and queued webhook files never drain. The non-webhook endpoints (issues,
+# commits, ...) keep their historical poll backfill, so they must NOT skip that gate.
 class TestGithubWebhookActivationGate:
     def _make_webhook_manager(self, enabled: bool) -> mock.Mock:
         manager = mock.Mock()
         manager.webhook_enabled = mock.AsyncMock(return_value=enabled)
+        manager.schema_is_webhook = mock.AsyncMock(return_value=True)
         manager.get_items = mock.Mock(return_value=iter([{"id": 1}]))
         return manager
 
     @parameterized.expand(
         [
             ("workflow_jobs_skips_gate", "workflow_jobs", True),
-            ("workflow_runs_keeps_gate", "workflow_runs", False),
+            ("workflow_runs_skips_gate", "workflow_runs", True),
             ("issues_keeps_gate", "issues", False),
         ]
     )
@@ -579,7 +580,7 @@ class TestGithubWebhookActivationGate:
             db_incremental_field_last_value=None,
             webhook_source_manager=manager,
         )
-        manager.webhook_enabled.assert_called_once_with(expected_skip)
+        manager.webhook_enabled.assert_called_once_with(webhook_only=expected_skip)
 
     def test_webhook_path_drains_manager_when_enabled(self) -> None:
         # Gate skipped + webhook_enabled True: items() reads the webhook manager (S3
@@ -1424,10 +1425,9 @@ class TestGithubWebhookSource:
         webhook_capable = {s.name for s in schemas if s.supports_webhooks}
         assert webhook_capable == {"workflow_jobs", "workflow_runs", "reviews"}
 
-    def test_workflow_jobs_is_webhook_only_but_workflow_runs_keeps_poll(self) -> None:
-        # workflow_jobs does no poll backfill (zero floor), so it must not be offered as a
-        # poll mode that would sync an empty table forever — it's webhook-only. workflow_runs
-        # still has a real poll backfill and stays incremental/append-capable.
+    def test_workflow_runs_and_jobs_are_webhook_only(self) -> None:
+        # workflow_jobs and workflow_runs both do no poll backfill (zero floor), so neither is
+        # offered as a poll mode that would sync an empty table forever — both are webhook-only.
         by_name = {s.name: s for s in self.source.get_schemas(_pat_config(), team_id=1)}
 
         jobs = by_name["workflow_jobs"]
@@ -1437,8 +1437,9 @@ class TestGithubWebhookSource:
         assert jobs.supports_webhooks is True
 
         runs = by_name["workflow_runs"]
-        assert runs.webhook_only is False
-        assert runs.supports_incremental is True
+        assert runs.webhook_only is True
+        assert runs.supports_incremental is False
+        assert runs.supports_append is False
         assert runs.supports_webhooks is True
 
     @parameterized.expand(

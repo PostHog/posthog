@@ -5,6 +5,7 @@ from urllib.parse import urlsplit
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -87,7 +88,11 @@ def _extract_rows(payload: Any, endpoint: str) -> list[dict[str, Any]]:
 
 def get_rows(api_key: str, endpoint: str, logger: FilteringBoundLogger) -> Iterator[list[dict[str, Any]]]:
     endpoint_config = TOGETHER_AI_ENDPOINTS[endpoint]
-    session = make_tracked_session(redact_values=(api_key,))
+    # Disable the session's built-in urllib3 retry layer: `_fetch` already retries 429/5xx (via
+    # `TogetherAIRetryableError`) and timeouts/connection errors through tenacity. Leaving the
+    # default `Retry(total=3)` in place would stack under tenacity's 5 attempts, so a rate-limited
+    # endpoint could see far more requests than intended instead of backing off cleanly.
+    session = make_tracked_session(redact_values=(api_key,), retry=Retry(total=0))
 
     url = f"{TOGETHER_AI_BASE_URL}{endpoint_config.path}"
     payload = _fetch(session, url, endpoint_config.params or None, _get_headers(api_key), logger)

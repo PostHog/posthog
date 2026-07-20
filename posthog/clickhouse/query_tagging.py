@@ -52,6 +52,7 @@ class Product(StrEnum):
     COHORTS = "cohorts"
     CONVERSATIONS = "conversations"
     CUSTOMER_ANALYTICS = "customer_analytics"
+    DATA_CATALOG = "data_catalog"
     ENDPOINTS = "endpoints"
     ENGINEERING_ANALYTICS = "engineering_analytics"
     ERROR_TRACKING = "error_tracking"
@@ -59,6 +60,7 @@ class Product(StrEnum):
     FEATURE_FLAGS = "feature_flags"
     GROUP_ANALYTICS = "group_analytics"
     GROWTH = "growth"  # growth-team activation/lifecycle jobs (e.g. production-event detection)
+    HEATMAPS = "heatmaps"
     INGESTION = "ingestion"
     LLM_ANALYTICS = "llm_analytics"
     LOGS = "logs"
@@ -80,6 +82,7 @@ class Product(StrEnum):
     SDK_HEALTH = "sdk_health"
     SESSION_SUMMARY = "session_summary"
     SIGNALS = "signals"
+    SQL_EDITOR = "sql_editor"
     SURVEYS = "surveys"
     USER_INTERVIEWS = "user_interviews"
     WAREHOUSE = "warehouse"

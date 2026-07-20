@@ -28,7 +28,6 @@ class TestLumaSource:
         assert config.label == "Luma"
         assert config.releaseStatus == ReleaseStatus.ALPHA
         # Shipped behind the unreleased flag until the source has synced end-to-end with real credentials.
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/luma"
 
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]

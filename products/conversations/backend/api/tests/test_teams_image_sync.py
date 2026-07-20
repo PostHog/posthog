@@ -42,7 +42,7 @@ class TestTeamsImageIngest(SimpleTestCase):
         mock_save.assert_called_once()
 
     @patch("products.conversations.backend.teams_attachments._download_image")
-    def test_extract_bot_attachments_skips_non_image(self, mock_download: MagicMock) -> None:
+    def test_extract_bot_attachments_skips_adaptive_card(self, mock_download: MagicMock) -> None:
         fake_team = MagicMock()
         fake_team.id = 1
 
@@ -56,6 +56,30 @@ class TestTeamsImageIngest(SimpleTestCase):
 
         assert images == []
         mock_download.assert_not_called()
+
+    @patch("products.conversations.backend.teams_attachments.save_file_to_uploaded_media")
+    @patch("products.conversations.backend.teams_attachments._download_image")
+    def test_extract_bot_attachments_keeps_non_image_file(self, mock_download: MagicMock, mock_save: MagicMock) -> None:
+        mock_download.return_value = b"%PDF-1.4 fake content"
+        mock_save.return_value = "https://app.posthog.com/uploaded_media/pdf"
+
+        fake_team = MagicMock()
+        fake_team.id = 1
+
+        attachments = [
+            {
+                "contentType": "application/pdf",
+                "contentUrl": "https://smba.trafficmanager.net/files/invoice.pdf",
+                "name": "invoice.pdf",
+            }
+        ]
+        results = extract_teams_bot_attachments(attachments, fake_team, "bot-token")
+
+        assert len(results) == 1
+        assert results[0]["mimetype"] == "application/pdf"
+        assert results[0]["name"] == "invoice.pdf"
+        # Non-image bytes are stored without image validation
+        assert mock_save.call_args.kwargs["validate_images"] is False
 
     @patch("products.conversations.backend.teams_attachments.save_file_to_uploaded_media")
     @patch("products.conversations.backend.teams_attachments._download_image")

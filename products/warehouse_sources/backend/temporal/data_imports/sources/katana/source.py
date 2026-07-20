@@ -36,6 +36,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class KatanaSource(ResumableSource[KatanaSourceConfig, KatanaResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://developer.katanamrp.com/reference/api-introduction"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -48,7 +51,6 @@ class KatanaSource(ResumableSource[KatanaSourceConfig, KatanaResumeConfig]):
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Katana",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             keywords=["katana", "mrp", "erp", "inventory", "manufacturing"],
             caption="""Enter your Katana API key to sync your Katana Cloud Inventory (MRP) data into the PostHog Data warehouse.
 

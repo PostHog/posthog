@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat
 from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.constants import (
     REVENUECAT_API_BASE_URL,
     REVENUECAT_AUTO_WEBHOOK_NAME,
-    REVENUECAT_WEBHOOK_EVENT_TYPES,
 )
 
 
@@ -310,7 +309,7 @@ class TestCreateWebhook:
         "products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat._find_webhook_integration"
     )
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat._session")
-    def test_creates_webhook_with_all_known_event_types(self, mock_session, mock_find):
+    def test_creates_webhook_with_authorization_header(self, mock_session, mock_find):
         mock_find.return_value = None
         mock_session.return_value.post.return_value = _ok_json_response({"id": "wh_1"})
 
@@ -327,12 +326,20 @@ class TestCreateWebhook:
         # upfront.
         assert result.pending_inputs == []
 
-        post_kwargs = mock_session.return_value.post.call_args.kwargs
-        body = post_kwargs["json"]
-        assert body["url"] == "https://example.com/h"
-        assert body["name"] == REVENUECAT_AUTO_WEBHOOK_NAME
-        assert set(body["events"]) == set(REVENUECAT_WEBHOOK_EVENT_TYPES)
-        assert body["signing_secret"] == "Bearer my-secret"
+        post_args = mock_session.return_value.post.call_args
+        # `/integrations/webhooks` — plural. The singular path 404s ("Resource
+        # not found"), which used to surface as a bogus "could not find the
+        # project" error on every webhook setup attempt.
+        assert post_args.args[0] == f"{REVENUECAT_API_BASE_URL}/projects/proj_test/integrations/webhooks"
+        # Exact body match: `authorization_header` is the API's field name (a
+        # `signing_secret` key means something else and gets rejected), and
+        # `event_types` is omitted so the integration receives every event
+        # type, current and future.
+        assert post_args.kwargs["json"] == {
+            "name": REVENUECAT_AUTO_WEBHOOK_NAME,
+            "url": "https://example.com/h",
+            "authorization_header": "Bearer my-secret",
+        }
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat._find_webhook_integration"
@@ -351,12 +358,15 @@ class TestCreateWebhook:
         "products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat._find_webhook_integration"
     )
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat._session")
-    def test_fails_when_existing_webhook_and_new_authorization_header_supplied(self, mock_session, mock_find):
-        # RevenueCat has no in-place update for the auth header. If a webhook
-        # already exists and we're asked to bind a new header, fail loudly so
-        # the caller knows to delete + recreate explicitly — silently keeping
-        # the existing webhook would leave it bound to a stale header value.
-        mock_find.return_value = {"id": "wh_existing", "url": "https://example.com/h"}
+    def test_updates_existing_webhook_in_place_when_authorization_header_supplied(self, mock_session, mock_find):
+        # Binding the header must not delete + recreate the integration —
+        # RevenueCat supports in-place updates via a POST to the integration's
+        # own path, and recreating would drop deliveries in the gap. The update
+        # body must carry the delivery-critical fields (existing name, our url)
+        # next to the header so a replace-semantics update can't strand the
+        # integration.
+        mock_find.return_value = {"id": "wh_existing", "url": "https://example.com/h", "name": "My custom hook"}
+        mock_session.return_value.post.return_value = _ok_json_response({"id": "wh_existing"})
 
         result = api_client.create_webhook(
             "sk_test",
@@ -365,10 +375,15 @@ class TestCreateWebhook:
             authorization_header_value="Bearer my-secret",
         )
 
-        assert result.success is False
-        assert result.error is not None
-        assert "already exists" in result.error.lower()
-        mock_session.return_value.post.assert_not_called()
+        assert result.success is True
+        assert result.pending_inputs == []
+        post_args = mock_session.return_value.post.call_args
+        assert post_args.args[0] == f"{REVENUECAT_API_BASE_URL}/projects/proj_test/integrations/webhooks/wh_existing"
+        assert post_args.kwargs["json"] == {
+            "name": "My custom hook",
+            "url": "https://example.com/h",
+            "authorization_header": "Bearer my-secret",
+        }
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat._find_webhook_integration"
@@ -382,6 +397,8 @@ class TestCreateWebhook:
 
         assert result.success is True
         assert result.pending_inputs == ["authorization_header"]
+        body = mock_session.return_value.post.call_args.kwargs["json"]
+        assert "authorization_header" not in body
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat._find_webhook_integration"
@@ -411,7 +428,7 @@ class TestDeleteWebhook:
 
         assert result.success is True
         called_url = mock_session.return_value.delete.call_args.args[0]
-        assert called_url == f"{REVENUECAT_API_BASE_URL}/projects/proj_test/integrations/webhook/wh_1"
+        assert called_url == f"{REVENUECAT_API_BASE_URL}/projects/proj_test/integrations/webhooks/wh_1"
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat._list_webhook_integrations"
@@ -445,11 +462,14 @@ class TestGetExternalWebhookInfo:
         "products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat._list_webhook_integrations"
     )
     def test_returns_info_for_matching_webhook(self, mock_list):
+        # The integration object names its subscription field `event_types`
+        # (lowercase values) — reading the webhook-delivery-payload spelling
+        # (`events`) would report no subscribed events for every integration.
         mock_list.return_value = [
             {
                 "id": "wh_1",
                 "url": "https://example.com/h",
-                "events": ["INITIAL_PURCHASE", "RENEWAL"],
+                "event_types": ["initial_purchase", "renewal"],
                 "name": "PostHog data warehouse",
                 "created_at": 1658399423658,
             }
@@ -461,7 +481,7 @@ class TestGetExternalWebhookInfo:
 
         assert info.exists is True
         assert info.url == "https://example.com/h"
-        assert info.enabled_events == ["INITIAL_PURCHASE", "RENEWAL"]
+        assert info.enabled_events == ["initial_purchase", "renewal"]
         assert info.status == "enabled"
         assert info.description == "PostHog data warehouse"
 

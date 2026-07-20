@@ -28,7 +28,6 @@ class TestRssSource:
         assert config.label == "RSS.com"
         assert config.releaseStatus == ReleaseStatus.ALPHA
         # Intentionally unreleased until validated against a live RSS.com Network-plan account.
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/rss"
 
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]

@@ -33,9 +33,17 @@ posthog/hogql/database/test/__snapshots__/test_database.ambr
 .github/scripts/assign-reviewers.js @PostHog/team-security
 # The vendored CODEOWNERS matcher the auto-assigner (and the ownership skill) depend on.
 .github/scripts/codeowners.js @PostHog/team-security
+# The distributed-ownership resolver the auto-assigner executes on that same
+# pull_request_target event (via `python -m posthog_owners`), with tools/owners
+# as the privileged sys.path root. Anything importable placed in that tree can
+# shadow stdlib/pyyaml for the privileged process — top-level modules (yaml.py),
+# shadow packages (yaml/__init__.py), and extension modules (yaml.so, *.pyd)
+# alike — so the whole directory is gated rather than enumerating suffixes.
+tools/owners/** @PostHog/team-security
 
 # And of course modifying this file can bring us problems so let's have the security team own it.
-# This does not affect CODEOWNERS-soft which is used for assigning non-required reviewers and it's much safer to change.
+# This does not affect the distributed owners.yaml files, which drive non-required reviewer
+# assignment and are much safer to change.
 CODEOWNERS @PostHog/team-security
 
 # PR approval agent — can auto-approve PRs, so changes need review

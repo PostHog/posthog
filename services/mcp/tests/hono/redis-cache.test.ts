@@ -82,7 +82,12 @@ describe('RedisCache', () => {
     describe('set', () => {
         it('should store JSON-serialized values with scoped key', async () => {
             await cache.set('region', 'eu')
-            expect(mockRedis.set).toHaveBeenCalledWith('mcp:token:test-user-hash:region', '"eu"', 'EX', 7 * 24 * 60 * 60)
+            expect(mockRedis.set).toHaveBeenCalledWith(
+                'mcp:token:test-user-hash:region',
+                '"eu"',
+                'EX',
+                7 * 24 * 60 * 60
+            )
         })
 
         it('should isolate different users', async () => {

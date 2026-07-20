@@ -44,7 +44,6 @@ class TestLessAnnoyingCRMSource:
         assert config.name.value == "LessAnnoyingCRM"
         assert config.label == "Less Annoying CRM"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/less-annoying-crm"
 
         assert len(config.fields) == 1

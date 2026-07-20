@@ -310,6 +310,7 @@ jobs:
                       --error \
                       --metrics=off \
                       --verbose \
+                      --jobs 4 \
                       --timeout 300 \
                       --exclude ./cli/ \
                       --exclude ./common/ \

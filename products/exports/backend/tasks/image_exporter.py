@@ -18,7 +18,7 @@ from playwright.sync_api import (
 )
 from prometheus_client import Counter, Histogram
 
-from posthog.schema import FunnelLayout, NodeKind
+from posthog.schema import ChartDisplayType, FunnelLayout, NodeKind
 
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.event_usage import AnalyticsProps, EventSource
@@ -130,7 +130,7 @@ MEASURE_CONTENT_WIDTH_JS = f"""
             return null;
         """
 
-ScreenWidth = Literal[800, 1920, 1400, 4000]
+ScreenWidth = Literal[600, 800, 1920, 1400, 4000]
 CSSSelector = Literal[".InsightCard", ".ExportedInsight", ".replayer-wrapper", ".heatmap-exporter"]
 
 
@@ -192,10 +192,25 @@ def _export_to_png(
             funnels_filter = source.get("funnelsFilter") or {}
             funnel_layout = funnels_filter.get("layout")
             is_left_to_right_funnel = is_funnel and (funnel_layout is None or funnel_layout == FunnelLayout.VERTICAL)
+            # A metric renders as a square card whose height derives from the viewport width, so a
+            # narrower viewport keeps it at dashboard-tile size instead of an 800px-tall square.
+            # Mirrors the frontend's check (InsightVizNode wrapper required), which gates the square
+            # metric CSS — a bare TrendsQuery gets neither, so it must keep the default viewport.
+            trends_filter = source.get("trendsFilter") or {}
+            is_metric = (
+                query.get("kind") == NodeKind.INSIGHT_VIZ_NODE
+                and source.get("kind") == NodeKind.TRENDS_QUERY
+                and trends_filter.get("display") == ChartDisplayType.METRIC
+            )
             # Set initial window size large enough for wide content like left-to-right funnels with many steps
             # Small funnels will be constrained later.
             # The higher the number, the more RAM will be required by the Chromium driver.
-            screenshot_width = 4000 if is_left_to_right_funnel else 800
+            if is_left_to_right_funnel:
+                screenshot_width = 4000
+            elif is_metric:
+                screenshot_width = 600
+            else:
+                screenshot_width = 800
         elif exported_asset.dashboard is not None:
             cache_keys_param = _build_cache_keys_param(insight_cache_keys)
             url_to_render = absolute_uri(f"/exporter?token={access_token}{cache_keys_param}")

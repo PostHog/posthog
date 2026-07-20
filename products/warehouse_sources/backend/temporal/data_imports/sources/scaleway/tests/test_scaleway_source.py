@@ -40,7 +40,6 @@ class TestScalewaySource:
     def test_ships_as_alpha_and_unreleased(self) -> None:
         config = self.source.get_source_config
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/scaleway"
 
     @parameterized.expand([("unauthorized", "401"), ("forbidden", "403")])

@@ -55,7 +55,6 @@ class TestMaxioSource:
         assert config.category == DataWarehouseSourceCategory.PAYMENTS___BILLING
         assert config.label == "Maxio"
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/maxio"
-        assert config.unreleasedSource is True
         assert config.releaseStatus == ReleaseStatus.ALPHA
 
         fields_by_name = {f.name: f for f in config.fields}

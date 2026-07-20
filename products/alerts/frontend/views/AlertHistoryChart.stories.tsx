@@ -190,7 +190,7 @@ function withHistoricalFirings(
 }
 
 const meta: Meta<typeof AlertHistoryChart> = {
-    title: 'Components/Alerts/Alert history chart',
+    title: 'Products/Alerts/Alert history chart',
     component: AlertHistoryChart,
     args: {
         historyLimit: CHART_CHECKS_LIMIT,

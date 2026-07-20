@@ -52,7 +52,6 @@ class TestDeepgramSourceClass:
 
     def test_config_stays_unreleased_alpha_with_docs(self) -> None:
         config = self.source.get_source_config
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/deepgram"
 
     @parameterized.expand(

@@ -243,6 +243,12 @@ class TestMakePaginatedRequest:
         [
             ("read_timeout", requests.exceptions.ReadTimeout("Read timed out. (read timeout=60)")),
             ("connection_reset", requests.exceptions.ConnectionError("Connection aborted")),
+            # ChunkedEncodingError is not a ConnectionError subclass, so it must be listed explicitly
+            # to ride the retry path instead of failing the activity on a connection broken mid-body.
+            (
+                "chunked_encoding_broken",
+                requests.exceptions.ChunkedEncodingError("Connection broken: InvalidChunkLength"),
+            ),
         ]
     )
     @patch("time.sleep", return_value=None)

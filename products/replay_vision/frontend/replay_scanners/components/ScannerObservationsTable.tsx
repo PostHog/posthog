@@ -132,7 +132,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             ),
         },
         {
-            title: 'Recording subject',
+            title: 'Person',
             key: 'recording_subject',
             sorter: true,
             render: (_, obs) =>
@@ -246,7 +246,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                 <LemonInput
                                     type="search"
                                     size="small"
-                                    placeholder="Recording subject email"
+                                    placeholder="Person email"
                                     value={observationSubjectFilter}
                                     onChange={setObservationSubjectFilter}
                                     className="w-56"
@@ -277,6 +277,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                         options={tagFilterOptions}
                                         value={observationTagFilter}
                                         onChange={setObservationTagFilter}
+                                        searchable
                                     />
                                 )}
                                 <LemonButton

@@ -23,9 +23,9 @@ vi.mock('@/resources', () => ({
     getPromptsFromManifest: vi.fn().mockResolvedValue([]),
 }))
 
-import type { RequestProperties } from '@/lib/request-properties'
 import { McpDispatcher } from '@/hono/dispatcher'
 import { ToolCatalog } from '@/hono/tool-catalog'
+import type { RequestProperties } from '@/lib/request-properties'
 
 class MockRedis {
     private store = new Map<string, string>()

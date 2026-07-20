@@ -1,0 +1,76 @@
+name: Seed agent-builder
+
+# Keeps the canonical Agent Builder deployment in sync with the repo.
+# The agent-builder is deliberately a special snowflake: its bundle source is
+# committed (services/agent-tests/src/examples/agent-builder/) but its runtime
+# behaviour also comes from kernel skills (backend/kernel_skills/) that the
+# freeze step injects from the *deployed* backend. Every seed run re-freezes,
+# so a run always picks up the kernel skills the prod backend currently ships.
+#
+# Two triggers, two jobs to do:
+#   - push (path-filtered): bundle edits reach prod as soon as they merge.
+#   - schedule (daily): converges kernel-skill changes, which only take effect
+#     once the backend deploy carrying them has rolled out — a push-time seed
+#     would freeze against the previous backend. The daily run also heals any
+#     manual drift in the live deployment.
+#
+# Churn-free: seed.py compares the freshly frozen bundle_sha256 to the live
+# revision's and skips promote when the artifact is byte-identical, so a
+# scheduled run with nothing to converge promotes nothing.
+on:
+    push:
+        branches:
+            - master
+        paths:
+            - products/agent_platform/services/agent-tests/src/examples/agent-builder/**
+            - products/agent_platform/services/agent-tests/src/examples/seed.py
+            - products/agent_platform/backend/kernel_skills/**
+            - products/agent_platform/backend/logic/trigger_required_secrets.generated.json
+            - .github/workflows/cd-agent-builder-seed.yml
+    schedule:
+        - cron: '17 6 * * *'
+    workflow_dispatch: {}
+
+# Never run two seeds concurrently — each run branches a draft off the live
+# revision and promotes it, so parallel runs would race on the parent.
+concurrency:
+    group: cd-agent-builder-seed
+    cancel-in-progress: false
+
+permissions:
+    contents: read
+
+jobs:
+    seed:
+        name: Seed agent-builder to US prod
+        # Production mutation runs only from the canonical deploy repo
+        # (CD_DEPLOY_ENABLED) and only from master — workflow_dispatch can target
+        # any ref, and an unmerged branch must never run with the prod PAT.
+        if: github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/master'
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        env:
+            POSTHOG_API: https://us.posthog.com
+            PROJECT_ID: '2'
+        steps:
+            - name: Checkout
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      products/agent_platform/services/agent-tests/src/examples
+                      products/agent_platform/backend/logic
+                  sparse-checkout-cone-mode: false
+
+            - name: Seed the agent-builder bundle
+              env:
+                  PAT: ${{ secrets.AGENT_BUILDER_SEED_PAT }}
+              # seed.py is stdlib-only (urllib), no dependency install needed. It
+              # branches a draft off the live revision, pushes the bundle, validates,
+              # freezes (re-injecting current kernel skills), and promotes; the
+              # previously live revision stays archived as the rollback target.
+              run: |
+                  if [ -z "$PAT" ]; then
+                      echo "::error::AGENT_BUILDER_SEED_PAT secret is not set — the seed cannot run. Prod will drift from the repo until it is."
+                      exit 1
+                  fi
+                  python3 products/agent_platform/services/agent-tests/src/examples/seed.py agent-builder

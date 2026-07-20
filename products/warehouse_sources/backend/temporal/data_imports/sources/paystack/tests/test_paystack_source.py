@@ -26,7 +26,6 @@ class TestPaystackSource:
         assert config.name.value == "Paystack"
         assert config.label == "Paystack"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.iconPath == "/static/services/paystack.png"
 
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]

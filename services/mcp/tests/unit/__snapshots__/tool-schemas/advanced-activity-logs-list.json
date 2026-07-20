@@ -27,6 +27,29 @@
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
             "type": "string"
         },
+        "fields": {
+            "description": "Optional subset of response fields to return, each a dot-path from the allowlist. Omit to return all fields. Request only the fields your task needs to keep responses small.",
+            "items": {
+                "enum": [
+                    "id",
+                    "user.id",
+                    "user.first_name",
+                    "user.last_name",
+                    "user.email",
+                    "activity",
+                    "scope",
+                    "item_id",
+                    "detail.name",
+                    "detail.short_id",
+                    "detail.type",
+                    "detail.changes",
+                    "created_at"
+                ],
+                "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+        },
         "hogql_filter": {
             "description": "Reserved for future HogQL-based filtering.",
             "type": "string"

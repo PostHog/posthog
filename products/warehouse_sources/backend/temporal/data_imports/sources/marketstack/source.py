@@ -33,6 +33,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class MarketstackSource(ResumableSource[MarketstackSourceConfig, MarketstackResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://marketstack.com/documentation"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -128,7 +131,6 @@ class MarketstackSource(ResumableSource[MarketstackSourceConfig, MarketstackResu
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Marketstack",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Marketstack access key to pull end-of-day, intraday, splits, and dividends data plus market reference tables (tickers, exchanges, currencies, timezones) into the PostHog Data warehouse.
 
 You can find your access key in your [Marketstack dashboard](https://marketstack.com/dashboard).

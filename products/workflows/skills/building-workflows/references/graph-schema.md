@@ -2,6 +2,16 @@
 
 The contract for `actions` and `edges`. The stored workflow is loose JSON, but **the visual editor validates every node against a strict schema keyed on `type`**. A node that saves successfully but doesn't match this contract will **break the editor view for the whole workflow** when someone opens it. Treat the shapes below as required, not advisory.
 
+## Contents
+
+- Node (action) shape
+- Action types and their `config`
+- Edges
+- `function*` inputs
+- Duration strings (`delay_duration`, `max_wait_duration`)
+- Conversion & exit condition
+- Pre-submit checklist
+
 ## Node (action) shape
 
 Every action object has these common fields plus a type-specific `config`:

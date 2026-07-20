@@ -321,6 +321,13 @@ _CANT_CONNECT_TO_SERVER_CODE = 2003
 # Postgres source, which retries its own "SSL connection has been closed unexpectedly" on connect.
 _SSL_UNEXPECTED_EOF_TOKEN = "[SSL: UNEXPECTED_EOF_WHILE_READING]"
 
+# Newer OpenSSL/Python raise `ssl.SSLZeroReturnError` — "TLS/SSL connection has been closed (EOF)" —
+# for the same peer-closed-the-TLS-connection condition the token above covers, just a different
+# rendering (a clean SSL_ERROR_ZERO_RETURN close rather than an abrupt read EOF). pymysql wraps it as
+# the same 2003 connect failure, so it's equally transient and must be retried too. Match the stable
+# phrase, not the volatile `_ssl.c:<line>` suffix that shifts across Python builds.
+_SSL_CONNECTION_CLOSED_EOF_TOKEN = "TLS/SSL connection has been closed (EOF)"
+
 # paramiko raises a bare, message-less EOFError from `start_client` when the SSH gateway accepts
 # the TCP connection but closes it during the SSH handshake — a non-SSH service on the port, a
 # bastion refusing PostHog's IPs, or a proxy that resets the stream. sshtunnel doesn't wrap it
@@ -344,10 +351,12 @@ def _is_transient_connect_drop(e: BaseException) -> bool:
       A fresh attempt recovers. The one 2013 that is *not* transient is the SSL-version
       mismatch (a deterministic config error, already non-retryable): it arrives with an
       `[SSL: ...` suffix, so exclude that and let it surface.
-    - `2003` (can't connect) carrying an `[SSL: UNEXPECTED_EOF_WHILE_READING]` cause:
-      the peer aborted the TLS handshake with an unexpected EOF — the SSL-flavoured
-      sibling of the 2013 drop, equally transient. The generic 2003 (wrong host/port,
-      firewall) stays non-retryable, so match only the unexpected-EOF token.
+    - `2003` (can't connect) carrying an SSL peer-close cause — either
+      `[SSL: UNEXPECTED_EOF_WHILE_READING]` (an abrupt read EOF) or "TLS/SSL connection
+      has been closed (EOF)" (`SSLZeroReturnError`, a clean close): the peer dropped the
+      TLS connection mid-handshake — the SSL-flavoured sibling of the 2013 drop, equally
+      transient. The generic 2003 (wrong host/port, firewall) stays non-retryable, so
+      match only the SSL peer-close tokens.
     """
     if not isinstance(e, pymysql.err.OperationalError):
         return False
@@ -356,8 +365,25 @@ def _is_transient_connect_drop(e: BaseException) -> bool:
     if code == _LOST_CONNECTION_DURING_QUERY_CODE:
         return "[SSL:" not in args_text
     if code == _CANT_CONNECT_TO_SERVER_CODE:
-        return _SSL_UNEXPECTED_EOF_TOKEN in args_text
+        return _SSL_UNEXPECTED_EOF_TOKEN in args_text or _SSL_CONNECTION_CLOSED_EOF_TOKEN in args_text
     return False
+
+
+# pymysql error code 2006 (CR_SERVER_GONE_ERROR): the server closed the socket while pymysql was
+# writing to it — `_write_bytes` wraps the underlying `ConnectionResetError` / `BrokenPipeError`
+# as "MySQL server has gone away (<os error>)". Mid-handshake (sending the auth packet) this is the
+# write-side sibling of the 2013 read-side drop above: an overloaded server, a proxy/load-balancer
+# idle cull, or a failover reset the connection, all of which a fresh attempt recovers from. Unlike
+# 2013 there's no deterministic-config subcase to exclude, so match the bare code.
+_SERVER_GONE_AWAY_CODE = 2006
+
+
+def _is_transient_connect_gone_away(e: BaseException) -> bool:
+    """Return True if the server went away while establishing the connection — a transient blip."""
+    if not isinstance(e, pymysql.err.OperationalError):
+        return False
+    code = e.args[0] if e.args else None
+    return code == _SERVER_GONE_AWAY_CODE
 
 
 def _is_transient_connect_timeout(e: BaseException) -> bool:
@@ -400,6 +426,28 @@ def _is_transient_connect_dns_failure(e: BaseException) -> bool:
     if code != _CANT_CONNECT_CODE:
         return False
     return _DNS_TEMPORARY_FAILURE_TOKEN in " ".join(str(arg) for arg in e.args)
+
+
+# ECONNRESET at connect time: the peer sent a RST while the connection was being established, so
+# pymysql wraps the underlying `ConnectionResetError` as the 2003 "Can't connect to MySQL server
+# on '<host>' ([Errno 104] Connection reset by peer)" failure. Unlike a refused connection
+# (ECONNREFUSED, "Connection refused") or a failed DNS lookup — deterministic host/port misconfig
+# that stay non-retryable via the "Can't connect to MySQL server on" classifier — a reset means
+# something *was* reachable (an overloaded server, or a TCP proxy/load balancer in front of the DB
+# that accepts then resets while its backend is cycling or briefly down) and dropped us mid-connect,
+# so a fresh attempt usually recovers. Match the stable strerror phrase, not the volatile host or
+# the platform-specific [Errno NNN] prefix.
+_CONNECTION_RESET_TOKEN = "Connection reset by peer"
+
+
+def _is_transient_connect_reset(e: BaseException) -> bool:
+    """Return True if the peer reset the connection during connect — a transient blip."""
+    if not isinstance(e, pymysql.err.OperationalError):
+        return False
+    code = e.args[0] if e.args else None
+    if code != _CANT_CONNECT_CODE:
+        return False
+    return _CONNECTION_RESET_TOKEN in " ".join(str(arg) for arg in e.args)
 
 
 # pymysql raises this `InternalError` from `_read_packet` when an incoming packet's
@@ -459,8 +507,10 @@ def _connect_with_transient_retry(kwargs: dict[str, Any]) -> pymysql.Connection:
             attempt += 1
             if attempt >= _MAX_CONNECT_ATTEMPTS or not (
                 _is_transient_connect_drop(e)
+                or _is_transient_connect_gone_away(e)
                 or _is_transient_connect_timeout(e)
                 or _is_transient_connect_dns_failure(e)
+                or _is_transient_connect_reset(e)
                 or _is_transient_packet_sequence_error(e)
                 or _is_transient_vitess_dial_timeout(e)
             ):
@@ -1319,6 +1369,23 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                     # fetchall(), leaving the cursor in a clean
                     # state for the streaming execute() below.
                     self.explain_query(ss_cursor, query, args, logger)
+
+                    # The best-effort preamble above (the session-timeout SET and the diagnostic
+                    # EXPLAIN) runs on this streaming connection. A transient drop during either
+                    # force-closes the socket silently, which would leave the streaming execute
+                    # below raising an opaque `InterfaceError(0, '')` — pymysql's signal that the
+                    # socket is already gone — that masks the recoverable lost connection. Reopen
+                    # once so the real query runs on a live socket instead of failing the attempt
+                    # on a blip a fresh connection recovers from.
+                    if not streaming_connection.open:
+                        logger.warning(
+                            "MySQL connection dropped during pre-stream setup; reopening before streaming query"
+                        )
+                        # Detach the cursor bound to the dead socket first so its later teardown
+                        # can't drain the freshly reopened connection (see _release_streaming_cursor).
+                        _release_streaming_cursor(ss_cursor)
+                        streaming_connection.connect()
+                        ss_cursor = streaming_connection.cursor(SSCursor)
 
                     ss_cursor.execute(query, args)
 

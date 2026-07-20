@@ -1,4 +1,5 @@
-import { retryImport } from './retryImport'
+import { isChunkLoadError } from './isChunkLoadError'
+import { retryBootImport, retryImport } from './retryImport'
 
 describe('retryImport', () => {
     beforeEach(() => {
@@ -44,6 +45,15 @@ describe('retryImport', () => {
 
         await expect(promise).rejects.toThrow('Failed to fetch dynamically imported module')
         expect(factory).toHaveBeenCalledTimes(3)
+    })
+
+    it('marks a minified boot module-evaluation TypeError without retrying', async () => {
+        const error = new TypeError('g is not a function')
+        const factory = jest.fn().mockRejectedValue(error)
+
+        await expect(retryBootImport(factory)).rejects.toBe(error)
+        expect(factory).toHaveBeenCalledTimes(1)
+        expect(isChunkLoadError(error)).toBe(true)
     })
 
     it('rethrows a non-chunk error immediately without retrying', async () => {
