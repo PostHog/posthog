@@ -14,7 +14,7 @@ from django.utils import timezone
 
 import structlog
 
-from products.signals.backend.artefact_schemas import RelatedTo, parse_artefact_content
+from products.signals.backend.artefact_schemas import ArtefactContentValidationError, RelatedTo, parse_artefact_content
 from products.signals.backend.models import SignalFixVerification, SignalReport, SignalReportArtefact
 
 logger = structlog.get_logger(__name__)
@@ -86,6 +86,11 @@ def evaluate_pending_fix_verifications(*, now: datetime | None = None) -> FixVer
             report_id=OuterRef("report_id"),
             type=SignalReportArtefact.ArtefactType.RELATED_TO,
             created_at__gt=OuterRef("created_at"),
+            # Only the grouping pipeline's system-attributed links count as recurrence
+            # evidence — `related_to` is also writable through the artefact API, and a
+            # user- or task-authored link must not pull a verification forward.
+            created_by__isnull=True,
+            task__isnull=True,
         )
     )
     due = (
@@ -97,7 +102,19 @@ def evaluate_pending_fix_verifications(*, now: datetime | None = None) -> FixVer
 
     stats = FixVerificationSweepStats()
     for verification in due:
-        outcome = _settle_verification(verification, now=now)
+        try:
+            outcome = _settle_verification(verification, now=now)
+        except Exception:
+            # The sweep is global: one team's bad row (or a transient DB error) must not
+            # stop every later team's verifications from settling. The row stays PENDING
+            # and is retried on the next tick.
+            logger.exception(
+                "signals_fix_verification_settle_failed",
+                verification_id=str(verification.id),
+                report_id=str(verification.report_id),
+                team_id=verification.team_id,
+            )
+            continue
         if outcome is None:
             continue
         stats.checked += 1
@@ -132,23 +149,31 @@ def _settle_verification(
 
 
 def _earliest_live_recurrence(verification: SignalFixVerification, report: SignalReport) -> SignalReport | None:
-    """The first still-live report the grouping pipeline linked to `report` after the merge."""
+    """The first still-live report the grouping pipeline linked to `report` after the merge.
+
+    Only system-attributed links are trusted: `related_to` is also writable through the
+    artefact API, and a user- or task-authored link must not decide a terminal outcome.
+    Stored content is still treated as untrusted — malformed rows are skipped, not raised,
+    so one bad artefact can't poison the verification.
+    """
     link_artefacts = SignalReportArtefact.objects.filter(
         report_id=report.id,
         type=SignalReportArtefact.ArtefactType.RELATED_TO,
         created_at__gt=verification.created_at,
+        created_by__isnull=True,
+        task__isnull=True,
     ).order_by("created_at")
 
-    linked_ids: list[str] = []
+    linked_ids: list[uuid.UUID] = []
     for artefact in link_artefacts:
-        content = parse_artefact_content(artefact.type, artefact.content)
-        if isinstance(content, RelatedTo):
-            linked_ids.append(content.report_id)
+        linked_id = _parse_linked_report_id(artefact)
+        if linked_id is not None:
+            linked_ids.append(linked_id)
     if not linked_ids:
         return None
 
     live_by_id = {
-        str(r.id): r
+        r.id: r
         for r in SignalReport.objects.filter(id__in=linked_ids, team_id=verification.team_id).exclude(
             status__in=[SignalReport.Status.DELETED, SignalReport.Status.SUPPRESSED]
         )
@@ -157,6 +182,31 @@ def _earliest_live_recurrence(verification: SignalFixVerification, report: Signa
         if linked_id in live_by_id:
             return live_by_id[linked_id]
     return None
+
+
+def _parse_linked_report_id(artefact: SignalReportArtefact) -> uuid.UUID | None:
+    try:
+        content = parse_artefact_content(artefact.type, artefact.content)
+    except ArtefactContentValidationError:
+        logger.warning(
+            "signals_fix_verification_malformed_link_skipped",
+            artefact_id=str(artefact.id),
+            report_id=str(artefact.report_id),
+            team_id=artefact.team_id,
+        )
+        return None
+    if not isinstance(content, RelatedTo):
+        return None
+    try:
+        return uuid.UUID(content.report_id)
+    except ValueError:
+        logger.warning(
+            "signals_fix_verification_invalid_link_target_skipped",
+            artefact_id=str(artefact.id),
+            report_id=str(artefact.report_id),
+            team_id=artefact.team_id,
+        )
+        return None
 
 
 def _record_outcome(
