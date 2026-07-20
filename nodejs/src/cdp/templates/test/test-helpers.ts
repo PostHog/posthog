@@ -207,7 +207,8 @@ export class TemplateTester {
             undefined as any,
             config.ENCRYPTION_SALT_KEYS,
             config.SITE_URL,
-            new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL)
+            new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL),
+            undefined as any
         )
         return new HogExecutorService(
             {

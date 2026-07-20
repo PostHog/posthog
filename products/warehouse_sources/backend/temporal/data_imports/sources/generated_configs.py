@@ -1612,7 +1612,8 @@ class FireworksAISourceConfig(config.Config):
 
 @config.config
 class FlagsmithSourceConfig(config.Config):
-    pass
+    api_key: str
+    base_url: str | None = None
 
 
 @config.config
@@ -1776,7 +1777,8 @@ class GiteaSourceConfig(config.Config):
 
 @config.config
 class GitguardianSourceConfig(config.Config):
-    pass
+    api_key: str
+    base_url: str | None = None
 
 
 @config.config
@@ -2439,7 +2441,8 @@ class LambdaLabsSourceConfig(config.Config):
 
 @config.config
 class LangSmithSourceConfig(config.Config):
-    pass
+    api_key: str
+    host: str | None = None
 
 
 @config.config
@@ -4102,7 +4105,8 @@ class SonatypeNexusSourceConfig(config.Config):
 
 @config.config
 class SourcegraphSourceConfig(config.Config):
-    pass
+    host: str
+    access_token: str
 
 
 @config.config
