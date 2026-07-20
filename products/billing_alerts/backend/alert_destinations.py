@@ -119,6 +119,6 @@ EVENT_KINDS: tuple[EventKind, ...] = tuple(EVENT_KIND_CONFIG)
 BILLING_ALERT_EVENT_IDS: Final = tuple(spec.event_id for spec in EVENT_KIND_CONFIG.values())
 
 BILLING_ALERT_SLACK_CONTEXT_ELEMENTS = (
-    "Organization billing alert",
-    "Project: <{project.url}|{project.name}>",
+    "Organization-wide billing alert",
+    "Execution project: <{project.url}|{project.name}>",
 )
