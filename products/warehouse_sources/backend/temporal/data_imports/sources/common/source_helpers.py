@@ -19,13 +19,8 @@ def validate_via_probe(
     auth: AuthBase | None = None,
     ok_statuses: tuple[int, ...] = (200,),
     timeout: float = 10.0,
-    allow_redirects: bool = True,
 ) -> tuple[bool, int | None]:
     """Probe ``url`` with a GET and report ``(is_valid, status_code)``.
-
-    Pass ``allow_redirects=False`` when the probe carries a credential in a header (e.g. an API key):
-    it stops ``requests`` from replaying that header to a redirect target, so a compromised or
-    misconfigured endpoint can't exfiltrate the credential off the expected host during validation.
 
     ``session_factory`` should return a tracked session (``make_tracked_session``). ANY failure
     building the session or making the request (transport error, and defensively anything else) maps
@@ -39,13 +34,7 @@ def validate_via_probe(
     """
     try:
         session = session_factory()
-        response = session.get(
-            url,
-            headers=dict(headers) if headers else None,
-            auth=auth,
-            timeout=timeout,
-            allow_redirects=allow_redirects,
-        )
+        response = session.get(url, headers=dict(headers) if headers else None, auth=auth, timeout=timeout)
     except Exception:  # noqa: BLE001 — a credential probe must never raise; any failure means "not validated"
         return False, None
     return response.status_code in ok_statuses, response.status_code

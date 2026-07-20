@@ -330,6 +330,18 @@ class TestValidateCredentials:
         self._patch_session(monkeypatch, requests.ConnectionError("boom"))
         assert validate_credentials("ss-key") == (False, "Could not validate Simplesat API key")
 
+    def test_probe_disables_redirects_to_protect_api_key(self) -> None:
+        # The X-Simplesat-Token header rides on the probe; the session must be built with redirects
+        # pinned off so a redirect can't replay the key to the redirect target during validation.
+        session = mock.MagicMock()
+        session.get.return_value = mock.MagicMock(status_code=200)
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.simplesat.simplesat.make_tracked_session",
+            return_value=session,
+        ) as make_session:
+            validate_credentials("ss-key")
+        assert make_session.call_args.kwargs["allow_redirects"] is False
+
 
 class TestSimplesatSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])

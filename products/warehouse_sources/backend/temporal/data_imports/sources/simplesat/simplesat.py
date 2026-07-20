@@ -124,7 +124,9 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     auth failure, any other status (or an unreachable probe) is reported as not-validated.
     """
     ok, status = validate_via_probe(
-        lambda: make_tracked_session(headers=_headers(), redact_values=(api_key,)),
+        # The X-Simplesat-Token header rides on the probe; pin redirects off on the session so one
+        # can't replay it to a redirect target off the Simplesat host during validation.
+        lambda: make_tracked_session(headers=_headers(), redact_values=(api_key,), allow_redirects=False),
         f"{SIMPLESAT_BASE_URL}{DEFAULT_PROBE_PATH}?page_size=1",
         headers={"X-Simplesat-Token": api_key},
     )

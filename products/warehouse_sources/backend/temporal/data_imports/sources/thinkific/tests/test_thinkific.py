@@ -305,10 +305,10 @@ class TestValidateCredentials:
         assert code is None
 
     def test_probe_disables_redirects_to_protect_api_key(self) -> None:
-        # The X-Auth-API-Key header rides on the probe request; a followed redirect would replay it to
-        # the redirect target, so the probe must disable redirect following.
+        # The X-Auth-API-Key header rides on the probe; the session must be built with redirects
+        # pinned off so a redirect can't replay the key to the redirect target during validation.
         session = mock.MagicMock()
         session.get.return_value = mock.MagicMock(status_code=200)
-        with mock.patch(THINKIFIC_SESSION_PATCH, return_value=session):
+        with mock.patch(THINKIFIC_SESSION_PATCH, return_value=session) as make_session:
             validate_credentials("key", "sub")
-        assert session.get.call_args.kwargs["allow_redirects"] is False
+        assert make_session.call_args.kwargs["allow_redirects"] is False

@@ -154,9 +154,9 @@ def validate_credentials(api_key: str, subdomain: str, endpoint_path: str = "/co
     status_code is None when the request never completed."""
     url = f"{THINKIFIC_BASE_URL}{endpoint_path}?{urlencode({'page': 1, 'limit': 1})}"
     return validate_via_probe(
-        lambda: make_tracked_session(redact_values=(api_key,)),
+        # The X-Auth-API-Key header rides on the probe; pin redirects off on the session so one can't
+        # replay it to a redirect target off the Thinkific host during validation.
+        lambda: make_tracked_session(redact_values=(api_key,), allow_redirects=False),
         url,
         headers=_get_headers(api_key, subdomain),
-        # The X-Auth-API-Key header rides on the probe; don't let a redirect replay it off-host.
-        allow_redirects=False,
     )
