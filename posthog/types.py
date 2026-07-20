@@ -1,6 +1,7 @@
 from typing import Union
 
 from posthog.schema import (
+    AccountCustomPropertyFilter,
     ActionsNode,
     CohortPropertyFilter,
     DataWarehouseNode,
@@ -65,6 +66,7 @@ type AnyPropertyFilter = Union[
     ElementPropertyFilter,
     EventMetadataPropertyFilter,
     RevenueAnalyticsPropertyFilter,
+    AccountCustomPropertyFilter,
     SessionPropertyFilter,
     LogEntryPropertyFilter,
     CohortPropertyFilter,
