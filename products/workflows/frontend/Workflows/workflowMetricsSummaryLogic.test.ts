@@ -142,10 +142,10 @@ describe('detectMessagingChannels', () => {
 
 describe('channelSentLabel', () => {
     it.each([
-        [{ hasEmail: true, hasPush: true }, 'Messages'],
-        [{ hasEmail: false, hasPush: true }, 'Push notifications'],
-        [{ hasEmail: true, hasPush: false }, 'Emails'],
-        [{ hasEmail: false, hasPush: false }, 'Emails'],
+        [{ hasEmail: true, hasPush: true }, 'Messages sent'],
+        [{ hasEmail: false, hasPush: true }, 'Push notifications sent'],
+        [{ hasEmail: true, hasPush: false }, 'Emails sent'],
+        [{ hasEmail: false, hasPush: false }, 'Emails sent'],
     ])('%o -> %s', (channels, expected) => {
         expect(channelSentLabel(channels)).toBe(expected)
     })

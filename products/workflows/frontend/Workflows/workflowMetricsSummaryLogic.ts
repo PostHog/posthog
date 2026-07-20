@@ -84,11 +84,11 @@ export const METRIC_COLORS: Record<string, string> = {
     // Whole-workflow summary
     'Workflows in progress': getColorVar('warning'),
     'Workflows started': getColorVar('success'),
-    Emails: getColorVar('blue'),
-    'Push notifications': getColorVar('data-color-3'),
-    Messages: getColorVar('blue'),
+    'Emails sent': getColorVar('blue'),
+    'Push notifications sent': getColorVar('data-color-3'),
+    'Messages sent': getColorVar('blue'),
     'Workflows completed': getColorVar('warning'),
-    Converted: getColorVar('purple'),
+    'Workflows converted': getColorVar('purple'),
     // Email + push step funnels
     Sent: getColorVar('data-color-1'),
     Delivered: getColorVar('data-color-2'),
@@ -129,9 +129,9 @@ export const WORKFLOW_SUMMARY_METRICS: Record<
         metricNames: ['triggered'],
     },
     persons_messaged: {
-        name: 'Emails',
+        name: 'Emails sent',
         description: 'Total number of emails attempted to be sent by this workflow',
-        color: METRIC_COLORS['Emails'],
+        color: METRIC_COLORS['Emails sent'],
         metricNames: ['email_sent'],
     },
     completed: {
@@ -142,10 +142,10 @@ export const WORKFLOW_SUMMARY_METRICS: Record<
         metricNames: ['succeeded'],
     },
     converted: {
-        name: 'Converted',
+        name: 'Workflows converted',
         description:
             'Total number of conversions recorded for this workflow. A conversion is counted when a person matches the workflow’s conversion goal (property- or event-based), regardless of whether the workflow is set to exit on conversion.',
-        color: METRIC_COLORS['Converted'],
+        color: METRIC_COLORS['Workflows converted'],
         metricNames: ['conversion'],
     },
 }
@@ -944,7 +944,7 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                 detectMessagingChannels(appMetricsTrends),
         ],
 
-        // "Emails" for email-only, "Push notifications" for push-only, "Messages" for both.
+        // "Emails sent" for email-only, "Push notifications sent" for push-only, "Messages sent" for both.
         sentSummaryLabel: [
             (s) => [s.messagingChannels],
             (messagingChannels: { hasEmail: boolean; hasPush: boolean }): string => channelSentLabel(messagingChannels),
@@ -1070,8 +1070,8 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                             const { hasEmail, hasPush } = messagingChannels
                             if (hasEmail && hasPush) {
                                 return [
-                                    { name: 'Emails', values: seriesFor('email_sent') },
-                                    { name: 'Push notifications', values: seriesFor('push_sent') },
+                                    { name: 'Emails sent', values: seriesFor('email_sent') },
+                                    { name: 'Push notifications sent', values: seriesFor('push_sent') },
                                 ]
                             }
                             return [{ name: sentSummaryLabel, values: seriesFor(hasPush ? 'push_sent' : 'email_sent') }]
@@ -1282,9 +1282,9 @@ export function detectMessagingChannels(appMetricsTrends: AppMetricsTimeSeriesRe
     }
 }
 
-// "Emails" for email-only, "Push notifications" for push-only, "Messages" for both.
+// "Emails sent" for email-only, "Push notifications sent" for push-only, "Messages sent" for both.
 export function channelSentLabel({ hasEmail, hasPush }: { hasEmail: boolean; hasPush: boolean }): string {
-    return hasEmail && hasPush ? 'Messages' : hasPush ? 'Push notifications' : 'Emails'
+    return hasEmail && hasPush ? 'Messages sent' : hasPush ? 'Push notifications sent' : 'Emails sent'
 }
 
 export function buildEmailMetricRows(

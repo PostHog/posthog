@@ -202,7 +202,7 @@ export function WorkflowMetricsSummary({
                               : metric.description
                     const sentSeries = (previous?: boolean): AppMetricsTimeSeriesResponse | null => {
                         if (hasEmail && hasPush) {
-                            // Split the combined "Messages" tile into Emails + Push lines. The headline
+                            // Split the combined "Messages sent" tile into Emails + Push lines. The headline
                             // number stays their sum (AppMetricSummary totals across series); the sparkline
                             // and its tooltip break the total down by channel.
                             const emailSeries = getSingleTrendSeries('email_sent', previous)
@@ -211,8 +211,8 @@ export function WorkflowMetricsSummary({
                             return {
                                 labels,
                                 series: [
-                                    { name: 'Emails', values: emailSeries?.series[0]?.values ?? [] },
-                                    { name: 'Push notifications', values: pushSeries?.series[0]?.values ?? [] },
+                                    { name: 'Emails sent', values: emailSeries?.series[0]?.values ?? [] },
+                                    { name: 'Push notifications sent', values: pushSeries?.series[0]?.values ?? [] },
                                 ],
                             }
                         }
