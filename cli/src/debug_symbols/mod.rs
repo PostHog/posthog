@@ -103,29 +103,11 @@ impl DebugSymbolFile {
     }
 }
 
-/// Filter DWARF source paths for native (Rust/C/C++/Go) builds: on top of the
+/// Filter DWARF source paths for native (Rust/C/C++) builds: on top of the
 /// shared system-path filters, drop registry/toolchain sources that aren't
-/// part of the user's project tree.
+/// part of the user's project tree. Go toolchain sources are already trimmed
+/// inside the shared extraction (see `filter_go_toolchain_sources`).
 fn filter_native_source_paths(paths: &[String]) -> Vec<&str> {
-    // The Go standard library gives no fixed marker to filter on — GOROOT
-    // lands wherever the toolchain was installed (/usr/local/go, homebrew
-    // Cellar, nix store). Every Go binary compiles in the runtime package
-    // though, so any path containing /src/runtime/ pins down a GOROOT src
-    // root; everything under it is stdlib. A user project in a directory
-    // literally named src/runtime would be misdetected, costing only its
-    // source context.
-    // Matching happens on /-normalized copies so ELFs built on Windows
-    // (backslash-separated DWARF paths) hit the same filters.
-    let normalize = |p: &str| p.replace('\\', "/");
-    let goroot_src_roots: Vec<String> = paths
-        .iter()
-        .map(|p| normalize(p))
-        .filter_map(|p| {
-            p.find("/src/runtime/")
-                .map(|i| p[..i + "/src/".len()].to_string())
-        })
-        .collect();
-
     source_bundle::filter_source_paths(paths)
         .into_iter()
         .filter(|path| {
@@ -135,19 +117,9 @@ fn filter_native_source_paths(paths: &[String]) -> Vec<&str> {
                 "/rustc/",
                 "/.rustup/toolchains/",
                 "/vendor/",
-                // Go module cache: dependency sources, not project code.
-                "/pkg/mod/",
             ];
-            let normalized = normalize(path);
-            if EXCLUDED.iter().any(|sub| normalized.contains(sub)) {
+            if EXCLUDED.iter().any(|sub| path.contains(sub)) {
                 tracing::debug!("Filtered out (native toolchain): {}", path);
-                return false;
-            }
-            if goroot_src_roots
-                .iter()
-                .any(|root| normalized.starts_with(root.as_str()))
-            {
-                tracing::debug!("Filtered out (Go stdlib): {}", path);
                 return false;
             }
             true
@@ -434,49 +406,4 @@ pub fn elf_debug_id(path: &Path) -> Result<String> {
         .ok_or_else(|| anyhow!("no objects in {}", path.display()))?
         .map_err(|e| anyhow!("parse object in {}: {e}", path.display()))?;
     Ok(object.debug_id().to_string())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::filter_native_source_paths;
-
-    #[test]
-    fn go_toolchain_sources_are_filtered_out() {
-        let paths: Vec<String> = [
-            "/home/u/app/main.go",
-            // GOROOT is found via the /src/runtime/ marker, wherever installed.
-            "/nix/store/abc-go-1.25.5/share/go/src/runtime/proc.go",
-            "/nix/store/abc-go-1.25.5/share/go/src/fmt/print.go",
-            "/opt/homebrew/Cellar/go/1.25.5/libexec/src/runtime/proc.go",
-            "/opt/homebrew/Cellar/go/1.25.5/libexec/src/net/http/server.go",
-            // Module cache holds dependency sources, not project code.
-            "/home/u/go/pkg/mod/github.com/posthog/posthog-go@v1.20.0/error_tracking.go",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
-
-        assert_eq!(
-            filter_native_source_paths(&paths),
-            vec!["/home/u/app/main.go"]
-        );
-    }
-
-    #[test]
-    fn windows_built_elf_paths_hit_the_same_filters() {
-        let paths: Vec<String> = [
-            r"C:\workspace\app\main.go",
-            r"C:\go\src\runtime\proc.go",
-            r"C:\go\src\fmt\print.go",
-            r"C:\Users\u\go\pkg\mod\github.com\dep@v1.0.0\dep.go",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
-
-        assert_eq!(
-            filter_native_source_paths(&paths),
-            vec![r"C:\workspace\app\main.go"]
-        );
-    }
 }

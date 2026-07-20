@@ -67,23 +67,21 @@ pub fn extract_source_paths_from_dwarf_bytes(dwarf_data: &[u8]) -> Result<Vec<St
 
     let mut paths: HashSet<String> = HashSet::new();
 
+    let mut any_go = false;
     for obj in archive.objects() {
         let obj = obj?;
 
-        // Pass 1: CU-only walk to derive the project root prefix.
+        // Pass 1: CU-only walk to derive the project root prefix. Go CUs are
+        // packages, not files: DW_AT_name is the package import path
+        // ("internal/godebug") and DW_AT_comp_dir is "." — they contribute
+        // nothing to the prefix (which cgo C/C++ CUs, when present, still
+        // provide). For Go the line table is the source of truth instead:
+        // on-disk (absolute) `.go`/`.s` paths are kept, and Go toolchain
+        // sources are trimmed after the walk. `-trimpath` builds record no
+        // absolute paths at all, so they yield nothing here by design.
         let cu_info = collect_cu_main_files_gimli(&obj);
-        // Go CUs are packages, not files: DW_AT_name is the package import
-        // path ("internal/godebug") and DW_AT_comp_dir is "." — useless for a
-        // project prefix (they'd derive "./" and reject everything). The line
-        // table is the source of truth instead: on-disk (absolute) file paths
-        // are kept, and the Go-aware toolchain filters trim GOROOT and the
-        // module cache afterwards. `-trimpath` builds record no absolute
-        // paths at all, so they yield nothing here by design.
-        let project_prefix = if cu_info.has_go {
-            None
-        } else {
-            longest_common_prefix(&cu_info.main_files)
-        };
+        any_go |= cu_info.has_go;
+        let project_prefix = longest_common_prefix(&cu_info.main_files);
         tracing::debug!(
             "CU main files: {:?} (go: {})  →  project prefix: {:?}",
             cu_info.main_files,
@@ -99,11 +97,16 @@ pub fn extract_source_paths_from_dwarf_bytes(dwarf_data: &[u8]) -> Result<Vec<St
             if abs_path.is_empty() {
                 continue;
             }
-            // Only keep paths inside the project tree.
+            // Only keep paths inside the project tree, plus — for Go — files
+            // that pass the Go source gate (pure Go binaries derive no prefix;
+            // cgo binaries need the union to keep both languages' sources).
             // If we couldn't derive a prefix fall back to keeping everything
             // (the normal EXCLUDED_PREFIXES / EXCLUDED_SUBSTRINGS filters still apply).
             let in_project = match &project_prefix {
-                Some(prefix) => abs_path.starts_with(prefix.as_str()),
+                Some(prefix) => {
+                    abs_path.starts_with(prefix.as_str())
+                        || (cu_info.has_go && is_bundleable_go_source(&abs_path))
+                }
                 None if cu_info.has_go => is_bundleable_go_source(&abs_path),
                 None => true,
             };
@@ -117,6 +120,9 @@ pub fn extract_source_paths_from_dwarf_bytes(dwarf_data: &[u8]) -> Result<Vec<St
 
     let mut paths: Vec<String> = paths.into_iter().collect();
     paths.sort();
+    if any_go {
+        paths = filter_go_toolchain_sources(paths);
+    }
 
     for p in &paths {
         tracing::debug!("DWARF source path: {}", p);
@@ -137,6 +143,50 @@ fn is_bundleable_go_source(path: &str) -> bool {
             && path.as_bytes()[1] == b':'
             && matches!(path.as_bytes()[2], b'/' | b'\\'));
     absolute && (path.ends_with(".go") || path.ends_with(".s"))
+}
+
+/// Drop Go toolchain sources, keeping project code. Runs for any binary with
+/// Go CUs, on whichever upload path (ELF or dSYM) extracted the paths.
+///
+/// GOROOT gives no fixed marker to filter on — it lands wherever the
+/// toolchain was installed (/usr/local/go, homebrew Cellar, nix store). Every
+/// Go binary compiles in the runtime scheduler though, so a path ending in
+/// `src/runtime/proc.go` pins down a GOROOT src root; everything under it is
+/// stdlib. Anchoring on that exact file (not just a `src/runtime/` directory)
+/// keeps a project that happens to live under a `src/runtime/` path from
+/// wiping out its own sources. Matching happens on /-normalized copies so
+/// ELFs built on Windows (backslash-separated DWARF paths) hit the same
+/// filters.
+fn filter_go_toolchain_sources(paths: Vec<String>) -> Vec<String> {
+    let normalize = |p: &str| p.replace('\\', "/");
+    let goroot_src_roots: Vec<String> = paths
+        .iter()
+        .map(|p| normalize(p))
+        .filter_map(|p| {
+            p.find("/src/runtime/proc.go")
+                .map(|i| p[..i + "/src/".len()].to_string())
+        })
+        .collect();
+
+    paths
+        .into_iter()
+        .filter(|path| {
+            let normalized = normalize(path);
+            // The module cache holds dependency sources, not project code.
+            if normalized.contains("/pkg/mod/") {
+                tracing::debug!("Filtered out (Go module cache): {}", path);
+                return false;
+            }
+            if goroot_src_roots
+                .iter()
+                .any(|root| normalized.starts_with(root.as_str()))
+            {
+                tracing::debug!("Filtered out (Go stdlib): {}", path);
+                return false;
+            }
+            true
+        })
+        .collect()
 }
 
 /// CU-level facts gathered without reading any line program.
@@ -610,7 +660,7 @@ pub fn load_sources_from_zip(
 
 #[cfg(test)]
 mod tests {
-    use super::is_bundleable_go_source;
+    use super::{filter_go_toolchain_sources, is_bundleable_go_source};
 
     #[test]
     fn go_line_table_paths_are_gated_to_absolute_source_files() {
@@ -628,5 +678,60 @@ mod tests {
         // `//line` directives name arbitrary files; only source is bundleable.
         assert!(!is_bundleable_go_source("/etc/passwd"));
         assert!(!is_bundleable_go_source("/home/u/.ssh/id_rsa"));
+    }
+
+    #[test]
+    fn go_toolchain_sources_are_filtered_out() {
+        let paths: Vec<String> = [
+            "/home/u/app/main.go",
+            // GOROOT is found via src/runtime/proc.go, wherever installed.
+            "/nix/store/abc-go-1.25.5/share/go/src/runtime/proc.go",
+            "/nix/store/abc-go-1.25.5/share/go/src/fmt/print.go",
+            "/opt/homebrew/Cellar/go/1.25.5/libexec/src/runtime/proc.go",
+            "/opt/homebrew/Cellar/go/1.25.5/libexec/src/net/http/server.go",
+            // Module cache holds dependency sources, not project code.
+            "/home/u/go/pkg/mod/github.com/posthog/posthog-go@v1.20.0/error_tracking.go",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+
+        assert_eq!(
+            filter_go_toolchain_sources(paths),
+            vec!["/home/u/app/main.go"]
+        );
+    }
+
+    #[test]
+    fn windows_built_binaries_hit_the_same_go_filters() {
+        let paths: Vec<String> = [
+            r"C:\workspace\app\main.go",
+            r"C:\go\src\runtime\proc.go",
+            r"C:\go\src\fmt\print.go",
+            r"C:\Users\u\go\pkg\mod\github.com\dep@v1.0.0\dep.go",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+
+        assert_eq!(
+            filter_go_toolchain_sources(paths),
+            vec![r"C:\workspace\app\main.go"]
+        );
+    }
+
+    #[test]
+    fn projects_under_a_src_runtime_path_keep_their_sources() {
+        // Only the exact stdlib layout (src/runtime/proc.go) marks a GOROOT;
+        // a project directory that merely contains src/runtime/ does not.
+        let paths: Vec<String> = ["/home/u/src/runtime/app/main.go"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+
+        assert_eq!(
+            filter_go_toolchain_sources(paths),
+            vec!["/home/u/src/runtime/app/main.go"]
+        );
     }
 }
