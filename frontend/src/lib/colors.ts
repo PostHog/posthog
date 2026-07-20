@@ -1,5 +1,3 @@
-import posthog from 'posthog-js'
-
 import { RevenueAnalyticsMRRQueryResultItem } from '~/queries/schema/schema-general'
 import { LifecycleToggle } from '~/types'
 
@@ -52,8 +50,11 @@ export type DataColorTheme = Partial<Record<DataColorToken, string>> & {
 export function getColorVar(variable: string): string {
     const colorValue = getComputedStyle(document.body).getPropertyValue('--' + variable)
     if (!colorValue) {
-        posthog.captureException(new Error(`Couldn't find color variable --${variable}`))
-        // Fall back to black or white depending on the theme
+        // Some callers (e.g. the Chart.js Sparkline) still request legacy `vars.scss` color names
+        // like `primary`, `muted` and `danger`. Those live in the lemon-skin variables and may not
+        // be resolved on `document.body` at render time, so a miss here is expected and self-recovering.
+        // Fall back to black or white depending on the theme rather than reporting an exception —
+        // capturing it produced tens of thousands of noise exceptions in error tracking.
         return document.body.getAttribute('theme') === 'light' ? '#000' : '#fff'
     }
     return colorValue.trim()
