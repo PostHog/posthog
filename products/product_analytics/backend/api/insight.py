@@ -64,7 +64,7 @@ from posthog.caching.fetch_from_cache import InsightResult, fetch_cached_respons
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import AccessMethod, tags_context
-from posthog.constants import INSIGHT
+from posthog.constants import INSIGHT, AvailableFeature
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import EventSource, get_event_source, get_request_analytics_properties, report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -827,7 +827,14 @@ class InsightSerializer(InsightBasicSerializer):
         # the editor can't run must not reach a publicly shared surface.
         # Unshared insights save without any access query.
         new_query = validated_data.get("query")
-        if isinstance(new_query, dict) and new_query != instance.query and is_publicly_shared(instance):
+        if (
+            isinstance(new_query, dict)
+            and new_query != instance.query
+            and instance.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
+            # org admins have full access, so skip the gate for a faster save
+            and not (self.user_access_control and self.user_access_control.is_organization_admin)
+            and is_publicly_shared(instance)
+        ):
             blocked = blocked_access_for_user(self.context["request"].user, instance.team, [new_query])
             if blocked:
                 blocked_list = ", ".join(f"`{name}`" for name in blocked)
@@ -946,7 +953,13 @@ class InsightSerializer(InsightBasicSerializer):
 
             # The dashboard's public link would expose this insight's query, so the editor adding
             # it must be able to run it (see the publish gate for the enable-time counterpart).
-            if isinstance(instance.query, dict) and is_publicly_shared(dashboard):
+            if (
+                isinstance(instance.query, dict)
+                and instance.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
+                # org admins have full access, so skip the gate for a faster save
+                and not (self.user_access_control and self.user_access_control.is_organization_admin)
+                and is_publicly_shared(dashboard)
+            ):
                 blocked = blocked_access_for_user(self.context["request"].user, instance.team, [instance.query])
                 if blocked:
                     blocked_list = ", ".join(f"`{name}`" for name in blocked)

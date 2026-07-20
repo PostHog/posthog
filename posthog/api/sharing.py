@@ -490,7 +490,13 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
         # Publishing is the access decision for shared links (queries on the public page execute
         # without warehouse access control), so gate the enable transition: the publisher must have
         # access to everything the artifact queries, or sharing becomes an escalation channel.
-        if request.data.get("enabled") and not instance.enabled:
+        if (
+            request.data.get("enabled")
+            and not instance.enabled
+            and self.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
+            # org admins have full access, so skip the gate for a faster enable
+            and not self.user_access_control.is_organization_admin
+        ):
             blocked_names = blocked_access_for_publisher(cast(User, request.user), self.team, instance)
             if blocked_names:
                 blocked = ", ".join(f"`{name}`" for name in blocked_names)
