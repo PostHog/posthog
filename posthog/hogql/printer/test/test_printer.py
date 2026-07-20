@@ -1909,6 +1909,21 @@ class TestPrinter(BaseTest):
             "not(match(events.event, concat('(?i)', %(hogql_val_17)s)))",
         )
 
+    @parameterized.expand(
+        [
+            ("'' > 100", "greater(%(hogql_val_0)s, 100)"),
+            ("'' >= 100", "greaterOrEquals(%(hogql_val_0)s, 100)"),
+            ("'' < 100", "less(%(hogql_val_0)s, 100)"),
+            ("'' <= 100", "lessOrEquals(%(hogql_val_0)s, 100)"),
+            ("100 > ''", "greater(100, %(hogql_val_0)s)"),
+        ]
+    )
+    def test_mismatched_constant_range_comparison_does_not_crash(self, expr: str, expected: str) -> None:
+        # A range comparison between constants of incompatible types (string vs number) can't be
+        # folded in Python — it used to raise TypeError while printing. It must fall back to SQL,
+        # which ClickHouse coerces. Reachable e.g. via `WHERE {variables.limit} > 100` in endpoints.
+        self.assertEqual(self._expr(expr), expected)
+
     def test_comments(self):
         context = HogQLContext(team_id=self.team.pk)
         self.assertEqual(self._expr("event -- something", context), "events.event")
