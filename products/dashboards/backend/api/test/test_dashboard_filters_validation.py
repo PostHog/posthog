@@ -52,8 +52,6 @@ class TestDashboardFiltersValidation(SimpleTestCase):
         assert self._validate({"date_from": "-7d"}) == {"date_from": "-7d"}
 
     def test_rejects_or_property_group(self):
-        # `DashboardFilter.properties` is AND-combined, so an OR group can't be represented as a flat
-        # list — flattening its leaves would silently flip OR to AND. Reject at the write boundary.
         import rest_framework.serializers as serializers
 
         try:

@@ -91,7 +91,6 @@ class TestInsightModel(BaseTest):
 
         filters = insight.dashboard_filters(dashboard=dashboard)
 
-        # The insight has no own properties, so the dashboard's flattened property is set directly.
         assert filters["properties"] == [dashboard_prop]
 
     def test_dashboard_with_date_from_all_overrides_compare(self) -> None:

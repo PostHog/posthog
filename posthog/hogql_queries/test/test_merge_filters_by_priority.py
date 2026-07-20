@@ -215,8 +215,7 @@ class TestDashboardFilterFromDict(SimpleTestCase):
 
 class TestFlattenPropertyLeaves(SimpleTestCase):
     def test_drops_or_property_group(self):
-        # An OR group can't be represented as a flat list of AND-combined leaves — flattening its
-        # leaves would silently flip OR to AND. Drop the group instead of corrupting its semantics.
+        # OR semantics can't survive flattening to an AND-combined list; drop rather than flip.
         or_group = {
             "type": "OR",
             "values": [
@@ -240,7 +239,6 @@ class TestFlattenPropertyLeaves(SimpleTestCase):
         ]
 
     def test_deeply_nested_group_does_not_recurse_past_depth_cap(self):
-        # A maliciously deep group must hit the depth cap and return empty, not stack-overflow.
         nested = {"key": "$browser", "value": "Chrome", "type": "event"}
         for _ in range(100):
             nested = {"type": "AND", "values": [nested]}
@@ -249,10 +247,6 @@ class TestFlattenPropertyLeaves(SimpleTestCase):
 
 class TestResolveEffectiveDashboardFilters(SimpleTestCase):
     def test_normalizes_single_layer_dict_properties_to_flat_list(self):
-        # When there's no tile override, `merge_filters_by_priority` early-returns the raw base dict
-        # without flattening. `resolve_effective_dashboard_filters` must still normalize so the
-        # returned `effective_filters` carries the flat-list contract downstream consumers
-        # (`DashboardFilter.model_validate` in process_query_dict) require.
         prop = {"key": "$browser", "value": "Chrome", "type": "event"}
         query = {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}}
         _, effective = resolve_effective_dashboard_filters(
