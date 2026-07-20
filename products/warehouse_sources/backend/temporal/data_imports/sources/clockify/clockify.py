@@ -1,49 +1,75 @@
 import dataclasses
-from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.clockify.settings import (
-    CLOCKIFY_ENDPOINTS,
-    ClockifyEndpointConfig,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.clockify.settings import CLOCKIFY_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resources,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    rename_parent_fields,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    PageNumberPaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    EndpointResource,
+    IncrementalConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 
 # Global host. Clockify also serves regional hosts (euc1/use2/euw2/apse2); the global host
 # resolves to the user's region, so a single base URL works for every key.
 CLOCKIFY_BASE_URL = "https://api.clockify.me/api/v1"
 
+# Single-level fan-out endpoints: one GET per workspace. Two-level ones (tasks, time_entries)
+# chain a second parent (projects/users) and are handled explicitly below.
+_WORKSPACE_CHILD_ENDPOINTS = ("users", "clients", "projects", "tags")
 
-class ClockifyRetryableError(Exception):
-    pass
+
+class ClockifyPageNumberPaginator(PageNumberPaginator):
+    """Page/`page-size` pagination over Clockify's bare JSON arrays.
+
+    Clockify exposes no total count, so — like the hand-rolled loop this replaces — a page shorter
+    than the requested size (or an empty page) is the last page. Stopping on a short page avoids the
+    extra empty-page request the plain ``PageNumberPaginator`` would pay.
+    """
+
+    def __init__(self, page_size: int) -> None:
+        super().__init__(base_page=1, page_param="page")
+        self._page_size = page_size
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        if self._has_next_page and data is not None and len(data) < self._page_size:
+            self._has_next_page = False
 
 
 @dataclasses.dataclass
 class ClockifyResumeConfig:
-    # The fan-out scope (workspace + optional parent project/user) and the 1-based page we were
-    # reading when the last batch was yielded. Stable ids, not positional indexes, so scopes
-    # added/removed between a crash and the retry can't resume us into the wrong place.
+    # Opaque paginator/fan-out state handed back by the rest_source framework (paginator page for
+    # workspaces, per-parent completed-path progress for single-level fan-out). Retained as a single
+    # blob so the shape can evolve without a state-format migration.
+    fanout_state: dict[str, Any] | None = None
+    # Legacy fields from the hand-rolled resume format. Kept (with defaults) so an old saved state
+    # still parses via ``dataclass(**saved)``; a run resumed from one starts fan-out fresh (a re-read
+    # the merge dedupes) rather than mis-mapping the old positional scope onto the new state.
     workspace_id: str | None = None
     parent_id: str | None = None
     page: int = 1
 
 
-def _get_headers(api_key: str) -> dict[str, str]:
-    return {"X-Api-Key": api_key, "Accept": "application/json"}
-
-
-def _build_url(base_url: str, params: dict[str, Any]) -> str:
-    if not params:
-        return base_url
-    return f"{base_url}?{urlencode(params)}"
+def _headers() -> dict[str, str]:
+    # Auth (the X-Api-Key header) is supplied via the framework auth config so its value is redacted
+    # from logs; only the non-secret Accept header is set here.
+    return {"Accept": "application/json"}
 
 
 def _format_datetime_z(value: Any) -> str:
@@ -83,47 +109,6 @@ def _clamp_future_value_to_now(value: Any) -> Any:
     return value
 
 
-def validate_credentials(api_key: str) -> bool:
-    """A Clockify API key is user-scoped (no per-endpoint scopes), so one cheap `/user` probe
-    confirms the key is genuine for everything it can reach."""
-    try:
-        response = make_tracked_session().get(f"{CLOCKIFY_BASE_URL}/user", headers=_get_headers(api_key), timeout=10)
-        return response.status_code == 200
-    except Exception:
-        return False
-
-
-@retry(
-    retry=retry_if_exception_type((ClockifyRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger
-) -> list[dict[str, Any]]:
-    """Fetch one page. Clockify list endpoints return a bare JSON array.
-
-    429s (rate limited; Clockify sends no reset header, so we back off) and 5xx are retried;
-    a non-list body or 4xx auth error is surfaced via `raise_for_status()`.
-    """
-    response = session.get(url, headers=headers, timeout=60)
-
-    if response.status_code == 429 or response.status_code >= 500:
-        raise ClockifyRetryableError(f"Clockify API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        logger.error(f"Clockify API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
-
-    data = response.json()
-    if not isinstance(data, list):
-        # Every list endpoint we hit returns an array; a dict here is an unexpected error shape.
-        logger.error(f"Clockify API returned a non-list body: url={url}, body={response.text}")
-        return []
-    return data
-
-
 def _flatten_time_entry(item: dict[str, Any]) -> dict[str, Any]:
     """Surface the nested `timeInterval` object as top-level columns so the interval start can be
     used as the incremental cursor and partition key."""
@@ -135,220 +120,190 @@ def _flatten_time_entry(item: dict[str, Any]) -> dict[str, Any]:
     return item
 
 
-def _get_item_mapper(endpoint: str) -> Callable[[dict[str, Any]], dict[str, Any]] | None:
-    if endpoint == "time_entries":
-        return _flatten_time_entry
-    return None
+# Fan-out injects the parent id under the framework's ``_<parent>_<field>`` naming; rename it back to
+# the flat ``workspace_id`` / ``project_id`` / ``user_id`` columns the tables have always exposed.
+_rename_workspace = rename_parent_fields("workspaces", {"id": "workspace_id"})
+_rename_task_parents = rename_parent_fields("projects", {"workspace_id": "workspace_id", "id": "project_id"})
+_rename_time_entry_parents = rename_parent_fields("users", {"workspace_id": "workspace_id", "id": "user_id"})
 
 
-def _list_ids(
-    session: requests.Session, headers: dict[str, str], base_path: str, page_size: int, logger: FilteringBoundLogger
-) -> Iterator[str]:
-    """Page through a workspace-scoped list endpoint, yielding each row's id. Used to enumerate
-    the parents (projects/users) a two-level fan-out walks over."""
-    page = 1
-    while True:
-        data = _fetch_page(session, _build_url(base_path, {"page": page, "page-size": page_size}), headers, logger)
-        if not data:
-            break
-        for item in data:
-            yield item["id"]
-        if len(data) < page_size:
-            break
-        page += 1
+def _time_entry_map(row: dict[str, Any]) -> dict[str, Any]:
+    return _rename_time_entry_parents(_flatten_time_entry(row))
 
 
-def _list_workspace_ids(session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger) -> list[str]:
-    data = _fetch_page(session, f"{CLOCKIFY_BASE_URL}/workspaces", headers, logger)
-    return [workspace["id"] for workspace in data]
+def _incremental_config(
+    should_use_incremental_field: bool, db_incremental_field_last_value: Any
+) -> IncrementalConfig | None:
+    """Server-side `start` filter for time_entries, only when we have a cursor to filter on.
 
-
-def _build_scopes(
-    session: requests.Session,
-    headers: dict[str, str],
-    config: ClockifyEndpointConfig,
-    logger: FilteringBoundLogger,
-) -> list[tuple[str, str | None, str]]:
-    """Materialize the (workspace_id, parent_id, full_url) tuples this endpoint iterates.
-
-    Built up front so resume can match the saved scope by id. For single-level fan-out
-    parent_id is None; for two-level fan-out we enumerate the parent endpoint per workspace.
+    Mirrors the old behaviour: no filter on a first (full) sync, and the persisted watermark is
+    clamped to now and formatted the way Clockify's `start` expects.
     """
-    scopes: list[tuple[str, str | None, str]] = []
-    for workspace_id in _list_workspace_ids(session, headers, logger):
-        if config.fan_out_parent is None:
-            scopes.append((workspace_id, None, CLOCKIFY_BASE_URL + config.path.format(workspace_id=workspace_id)))
-            continue
-
-        assert config.parent_id_placeholder is not None  # set whenever fan_out_parent is
-        parent_config = CLOCKIFY_ENDPOINTS[config.fan_out_parent]
-        parent_path = CLOCKIFY_BASE_URL + parent_config.path.format(workspace_id=workspace_id)
-        for parent_id in _list_ids(session, headers, parent_path, parent_config.page_size, logger):
-            url = CLOCKIFY_BASE_URL + config.path.format(
-                **{"workspace_id": workspace_id, config.parent_id_placeholder: parent_id}
-            )
-            scopes.append((workspace_id, parent_id, url))
-    return scopes
+    if not should_use_incremental_field or db_incremental_field_last_value is None:
+        return None
+    return {
+        "start_param": "start",
+        "cursor_path": "time_interval_start",
+        "convert": lambda value: _format_datetime_z(_clamp_future_value_to_now(value)),
+    }
 
 
-def _find_scope_index(
-    scopes: list[tuple[str, str | None, str]], workspace_id: str | None, parent_id: str | None
-) -> int | None:
-    for index, (scope_workspace_id, scope_parent_id, _url) in enumerate(scopes):
-        if scope_workspace_id == workspace_id and scope_parent_id == parent_id:
-            return index
-    return None
+def _workspaces_resource() -> EndpointResource:
+    config = CLOCKIFY_ENDPOINTS["workspaces"]
+    return {
+        "name": "workspaces",
+        "endpoint": {
+            "path": config.path,
+            "params": {"page-size": config.page_size},
+            "paginator": ClockifyPageNumberPaginator(config.page_size),
+            "data_selector_required": True,
+        },
+    }
 
 
-def _paginate_scope(
-    session: requests.Session,
-    headers: dict[str, str],
-    base_url: str,
-    config: ClockifyEndpointConfig,
-    batcher: Batcher,
-    manager: ResumableSourceManager[ClockifyResumeConfig],
-    logger: FilteringBoundLogger,
-    mapper: Callable[[dict[str, Any]], dict[str, Any]] | None,
-    workspace_id: str | None,
-    parent_id: str | None,
-    start_page: int,
-    inject: dict[str, str],
-    extra_params: dict[str, Any],
-) -> Iterator[Any]:
-    """Page through one scope, batching rows. Saves resume state AFTER yielding each batch so a
-    crash re-reads the current page (merge dedupes on the primary key) rather than skipping it."""
-    page = start_page
-    while True:
-        params: dict[str, Any] = {"page": page, "page-size": config.page_size, **extra_params}
-        data = _fetch_page(session, _build_url(base_url, params), headers, logger)
-        if not data:
-            break
-
-        for item in data:
-            row = mapper(item) if mapper else item
-            row.update(inject)
-            batcher.batch(row)
-            if batcher.should_yield():
-                yield batcher.get_table()
-                manager.save_state(ClockifyResumeConfig(workspace_id=workspace_id, parent_id=parent_id, page=page))
-
-        # A short page (fewer rows than asked for) is the last page.
-        if len(data) < config.page_size:
-            break
-        page += 1
+def _workspace_child_resource(endpoint: str) -> EndpointResource:
+    config = CLOCKIFY_ENDPOINTS[endpoint]
+    return {
+        "name": endpoint,
+        "include_from_parent": ["id"],
+        "endpoint": {
+            "path": config.path,
+            "params": {
+                "workspace_id": {"type": "resolve", "resource": "workspaces", "field": "id"},
+                "page-size": config.page_size,
+            },
+            "paginator": ClockifyPageNumberPaginator(config.page_size),
+            "data_selector_required": True,
+        },
+        "data_map": _rename_workspace,
+    }
 
 
-def get_rows(
+def _tasks_resource() -> EndpointResource:
+    config = CLOCKIFY_ENDPOINTS["tasks"]
+    return {
+        "name": "tasks",
+        "include_from_parent": ["workspace_id", "id"],
+        "endpoint": {
+            "path": config.path,
+            "params": {
+                "workspace_id": {"type": "resolve", "resource": "projects", "field": "workspace_id"},
+                "project_id": {"type": "resolve", "resource": "projects", "field": "id"},
+                "page-size": config.page_size,
+            },
+            "paginator": ClockifyPageNumberPaginator(config.page_size),
+            "data_selector_required": True,
+        },
+        "data_map": _rename_task_parents,
+    }
+
+
+def _time_entries_resource(incremental: IncrementalConfig | None) -> EndpointResource:
+    config = CLOCKIFY_ENDPOINTS["time_entries"]
+    endpoint: dict[str, Any] = {
+        "path": config.path,
+        "params": {
+            "workspace_id": {"type": "resolve", "resource": "users", "field": "workspace_id"},
+            "user_id": {"type": "resolve", "resource": "users", "field": "id"},
+            "page-size": config.page_size,
+        },
+        "paginator": ClockifyPageNumberPaginator(config.page_size),
+        "data_selector_required": True,
+    }
+    if incremental is not None:
+        endpoint["incremental"] = incremental
+    return {
+        "name": "time_entries",
+        "include_from_parent": ["workspace_id", "id"],
+        "endpoint": endpoint,
+        "data_map": _time_entry_map,
+    }
+
+
+def _resources_for(endpoint: str, incremental: IncrementalConfig | None) -> list[EndpointResource]:
+    if endpoint == "workspaces":
+        return [_workspaces_resource()]
+    if endpoint in _WORKSPACE_CHILD_ENDPOINTS:
+        return [_workspaces_resource(), _workspace_child_resource(endpoint)]
+    if endpoint == "tasks":
+        return [_workspaces_resource(), _workspace_child_resource("projects"), _tasks_resource()]
+    if endpoint == "time_entries":
+        return [_workspaces_resource(), _workspace_child_resource("users"), _time_entries_resource(incremental)]
+    raise ValueError(f"Unknown Clockify endpoint: {endpoint}")
+
+
+def _build_rest_config(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[ClockifyResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-    incremental_field: str | None = None,
-) -> Iterator[Any]:
-    config = CLOCKIFY_ENDPOINTS[endpoint]
-    headers = _get_headers(api_key)
-    session = make_tracked_session()
-    batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
-    mapper = _get_item_mapper(endpoint)
-
-    # Workspaces is the one non-fan-out endpoint.
-    if not config.workspace_scoped:
-        resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-        start_page = resume.page if resume is not None else 1
-        yield from _paginate_scope(
-            session,
-            headers,
-            CLOCKIFY_BASE_URL + config.path,
-            config,
-            batcher,
-            resumable_source_manager,
-            logger,
-            mapper,
-            workspace_id=None,
-            parent_id=None,
-            start_page=start_page,
-            inject={},
-            extra_params={},
-        )
-        if batcher.should_yield(include_incomplete_chunk=True):
-            yield batcher.get_table()
-        return
-
-    # Server-side incremental filter (time_entries only). `incremental_field` is the user's chosen
-    # cursor; we only have a filter param when the endpoint declares one.
-    extra_params: dict[str, Any] = {}
-    if should_use_incremental_field and db_incremental_field_last_value and config.incremental_param:
-        cursor_value = _clamp_future_value_to_now(db_incremental_field_last_value)
-        extra_params[config.incremental_param] = _format_datetime_z(cursor_value)
-
-    scopes = _build_scopes(session, headers, config, logger)
-
-    # Resolve resume to a starting scope + page. If the bookmarked scope no longer exists, start
-    # from the beginning — merge dedupes the re-pulled rows on the primary key.
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    start_index = 0
-    resume_page = 1
-    if resume is not None:
-        matched = _find_scope_index(scopes, resume.workspace_id, resume.parent_id)
-        if matched is not None:
-            start_index = matched
-            resume_page = resume.page
-            logger.debug(f"Clockify: resuming {endpoint} from scope index {matched}, page {resume_page}")
-
-    for index in range(start_index, len(scopes)):
-        workspace_id, parent_id, url = scopes[index]
-        inject: dict[str, str] = {"workspace_id": workspace_id}
-        if parent_id is not None and config.parent_id_placeholder is not None:
-            inject[config.parent_id_placeholder] = parent_id
-        yield from _paginate_scope(
-            session,
-            headers,
-            url,
-            config,
-            batcher,
-            resumable_source_manager,
-            logger,
-            mapper,
-            workspace_id=workspace_id,
-            parent_id=parent_id,
-            start_page=resume_page if index == start_index else 1,
-            inject=inject,
-            extra_params=extra_params,
-        )
-
-    if batcher.should_yield(include_incomplete_chunk=True):
-        yield batcher.get_table()
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> RESTAPIConfig:
+    incremental = _incremental_config(should_use_incremental_field, db_incremental_field_last_value)
+    return {
+        "client": {
+            "base_url": CLOCKIFY_BASE_URL,
+            "headers": _headers(),
+            "auth": {"type": "api_key", "api_key": api_key, "name": "X-Api-Key", "location": "header"},
+        },
+        "resource_defaults": {},
+        "resources": _resources_for(endpoint, incremental),
+    }
 
 
 def clockify_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[ClockifyResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
-    incremental_field: str | None = None,
 ) -> SourceResponse:
-    endpoint_config = CLOCKIFY_ENDPOINTS[endpoint]
+    config = CLOCKIFY_ENDPOINTS[endpoint]
+    rest_config = _build_rest_config(api_key, endpoint, should_use_incremental_field, db_incremental_field_last_value)
+
+    initial_paginator_state: dict[str, Any] | None = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.fanout_state is not None:
+            initial_paginator_state = resume.fanout_state
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Save AFTER a page is yielded so a crash re-yields the last page (merge dedupes) rather
+        # than skipping it. A ``None`` state means no page remains — nothing to persist. Never fires
+        # for the two-level fan-outs (tasks/time_entries), where the framework disables resume.
+        if state is not None:
+            resumable_source_manager.save_state(ClockifyResumeConfig(fanout_state=state))
+
+    resources = rest_api_resources(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+    resource: Resource = next(r for r in resources if r.name == endpoint)
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-            incremental_field=incremental_field,
-        ),
-        primary_keys=endpoint_config.primary_keys,
-        sort_mode=endpoint_config.sort_mode,
+        items=lambda: resource,
+        primary_keys=config.primary_keys,
+        sort_mode=config.sort_mode,
         partition_count=1,
         partition_size=1,
-        partition_mode="datetime" if endpoint_config.partition_key else None,
-        partition_format="week" if endpoint_config.partition_key else None,
-        partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="week" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
     )
+
+
+def validate_credentials(api_key: str) -> bool:
+    """A Clockify API key is user-scoped (no per-endpoint scopes), so one cheap `/user` probe
+    confirms the key is genuine for everything it can reach."""
+    ok, _status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{CLOCKIFY_BASE_URL}/user",
+        headers={"X-Api-Key": api_key, **_headers()},
+    )
+    return ok

@@ -1,17 +1,19 @@
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import urlencode
 
-import orjson
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Request
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubplanner.settings import (
     HUBPLANNER_ENDPOINTS,
     HubPlannerEndpointConfig,
@@ -24,15 +26,59 @@ HUBPLANNER_BASE_URL = "https://api.hubplanner.com/v1"
 PAGE_SIZE = 1000
 
 
-class HubPlannerRetryableError(Exception):
-    pass
-
-
 @dataclasses.dataclass
 class HubPlannerResumeConfig:
     # Next 0-indexed page to fetch. Pagination is page-number based, so the page index is the
     # only cursor we need to persist to resume mid-endpoint after a heartbeat timeout.
     page: int = 0
+
+
+class HubPlannerPagePaginator(BasePaginator):
+    """Page-number paginator that terminates on a short page.
+
+    Hub Planner's list/search endpoints have no next-page token; the last page is the one
+    returning fewer rows than the requested limit. The built-in ``PageNumberPaginator`` only
+    stops on a fully empty page (costing one extra request), so we keep the exact short-page
+    stop here.
+    """
+
+    def __init__(self, page_size: int, page_param: str = "page", base_page: int = 0) -> None:
+        super().__init__()
+        self.page_size = page_size
+        self.page_param = page_param
+        self.page = base_page
+
+    def _inject_page(self, request: Request) -> None:
+        if request.params is None:
+            request.params = {}
+        request.params[self.page_param] = self.page
+
+    def init_request(self, request: Request) -> None:
+        self._inject_page(request)
+
+    def update_state(self, response: Any, data: Optional[list[Any]] = None) -> None:
+        # A short page (fewer rows than the limit) — including an empty page — is the last page.
+        if data is None or len(data) < self.page_size:
+            self._has_next_page = False
+            return
+        self.page += 1
+        self._has_next_page = True
+
+    def update_request(self, request: Request) -> None:
+        self._inject_page(request)
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        # self.page points at the next page to fetch once update_state has advanced it.
+        return {"page": self.page} if self._has_next_page else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        page = state.get("page")
+        if page is not None:
+            self.page = int(page)
+            self._has_next_page = True
+
+    def __str__(self) -> str:
+        return f"HubPlannerPagePaginator(page={self.page})"
 
 
 def _format_value(value: Any) -> str:
@@ -49,75 +95,34 @@ def _format_value(value: Any) -> str:
     return str(value)
 
 
-def _get_headers(api_key: str) -> dict[str, str]:
-    # Despite Hub Planner's docs calling this an "OAuth 2.0 Bearer Token", the API key is placed
-    # raw in the Authorization header with no `Bearer ` prefix (verified against the live API).
-    return {
-        "Authorization": api_key,
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
-
-
 def _build_url(base_url: str, params: dict[str, Any]) -> str:
     if not params:
         return base_url
     return f"{base_url}?{urlencode(params)}"
 
 
+def _probe_headers(api_key: str) -> dict[str, str]:
+    # Despite Hub Planner's docs calling this an "OAuth 2.0 Bearer Token", the API key is placed
+    # raw in the Authorization header with no `Bearer ` prefix (verified against the live API).
+    return {"Authorization": api_key, "Content-Type": "application/json", "Accept": "application/json"}
+
+
+def _non_secret_headers() -> dict[str, str]:
+    # Auth (the raw API key on the Authorization header) is supplied via the framework auth config
+    # so its value is redacted from logs and error messages; only these non-secret headers are set.
+    return {"Content-Type": "application/json", "Accept": "application/json"}
+
+
 def validate_credentials(api_key: str) -> bool:
     # One cheap probe: list a single project. A valid key returns 200; an invalid or
     # insufficiently-permissioned key returns 403 (Hub Planner keys are account-wide, not
     # per-resource scoped, so a reachable /project confirms the whole token).
-    url = _build_url(f"{HUBPLANNER_BASE_URL}/project", {"page": 0, "limit": 1})
-    try:
-        response = make_tracked_session(redact_values=(api_key,)).get(url, headers=_get_headers(api_key), timeout=10)
-        return response.status_code == 200
-    except Exception:
-        return False
-
-
-@retry(
-    retry=retry_if_exception_type(
-        (
-            HubPlannerRetryableError,
-            requests.ReadTimeout,
-            requests.ConnectionError,
-            requests.exceptions.ChunkedEncodingError,
-        )
-    ),
-    stop=stop_after_attempt(5),
-    # Hub Planner returns 429 with a Retry-After header on burst (50 req / 5s) or daily
-    # (6000/day) limits; exponential jitter keeps us comfortably under both without parsing it.
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session,
-    method: str,
-    url: str,
-    headers: dict[str, str],
-    body: Optional[dict[str, Any]],
-    logger: FilteringBoundLogger,
-) -> list[dict[str, Any]]:
-    data = orjson.dumps(body) if body is not None else None
-    response = session.request(method, url, headers=headers, data=data, timeout=60)
-
-    if response.status_code == 429 or response.status_code >= 500:
-        raise HubPlannerRetryableError(f"Hub Planner API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        # Never log the response body: Hub Planner echoes the supplied API key back in auth-error
-        # bodies, so logging it would leak the credential.
-        logger.error(f"Hub Planner API error: status={response.status_code}, url={url}")
-        response.raise_for_status()
-
-    payload = response.json()
-    # Every list/search endpoint returns a bare JSON array; guard against an unexpected object.
-    if not isinstance(payload, list):
-        logger.warning(f"Hub Planner: expected a list response, got {type(payload).__name__} from url={url}")
-        return []
-    return payload
+    ok, _status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        _build_url(f"{HUBPLANNER_BASE_URL}/project", {"page": 0, "limit": 1}),
+        headers=_probe_headers(api_key),
+    )
+    return ok
 
 
 def _build_request_plan(
@@ -151,68 +156,82 @@ def _build_request_plan(
     return "GET", config.path, None, None
 
 
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[HubPlannerResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = HUBPLANNER_ENDPOINTS[endpoint]
-    headers = _get_headers(api_key)
-    # One session reused across every page so urllib3 keeps the connection alive.
-    session = make_tracked_session(redact_values=(api_key,))
-
-    method, path, body, sort_field = _build_request_plan(
-        config, should_use_incremental_field, db_incremental_field_last_value
-    )
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    page = resume.page if resume else 0
-
-    while True:
-        params: dict[str, Any] = {"page": page, "limit": PAGE_SIZE}
-        if sort_field:
-            params["sort"] = sort_field
-        url = _build_url(f"{HUBPLANNER_BASE_URL}{path}", params)
-
-        items = _fetch_page(session, method, url, headers, body, logger)
-
-        if items:
-            yield items
-
-        # A short page (fewer rows than requested) is the last page — the API has no next-page
-        # token, so we page until the server returns less than the limit.
-        if len(items) < PAGE_SIZE:
-            break
-
-        page += 1
-        # Save AFTER yielding so a crash re-yields the last page rather than skipping it; the
-        # delta merge dedupes the re-pulled rows on the primary key.
-        resumable_source_manager.save_state(HubPlannerResumeConfig(page=page))
-
-
 def hubplanner_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[HubPlannerResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = HUBPLANNER_ENDPOINTS[endpoint]
 
+    method, path, body, sort_field = _build_request_plan(
+        config, should_use_incremental_field, db_incremental_field_last_value
+    )
+
+    # `page` is injected per request by the paginator; `limit` and `sort` are static query params.
+    params: dict[str, Any] = {"limit": PAGE_SIZE}
+    if sort_field:
+        params["sort"] = sort_field
+
+    endpoint_config: dict[str, Any] = {
+        "path": path,
+        "method": method,
+        "params": params,
+        "paginator": HubPlannerPagePaginator(page_size=PAGE_SIZE),
+        # Every list/search endpoint returns a bare JSON array; a non-list body means the
+        # response shape changed — fail loud rather than syncing a stray object as a row.
+        "data_selector_required": True,
+    }
+    # Only search (POST) requests carry a JSON body — an empty {} for a full search, or the
+    # incremental `$gte` filter. Full-refresh GETs send no body at all.
+    if body is not None:
+        endpoint_config["json"] = body
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": HUBPLANNER_BASE_URL,
+            "headers": _non_secret_headers(),
+            # Raw API key on the Authorization header (no Bearer prefix); redacted from logs/errors.
+            "auth": {"type": "api_key", "api_key": api_key, "name": "Authorization", "location": "header"},
+        },
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": endpoint_config,
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"page": resume.page}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
+        # the last page (merge dedupes) rather than skipping it.
+        if state and state.get("page") is not None:
+            resumable_source_manager.save_state(HubPlannerResumeConfig(page=int(state["page"])))
+
+    # We inject the incremental filter into the POST body ourselves (Hub Planner uses a Mongo-style
+    # `$gte` operator, not a flat query param), so the framework's server-side param injection is
+    # unused here — pass None for its incremental value.
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
@@ -220,4 +239,5 @@ def hubplanner_source(
         partition_format="week" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
         sort_mode="asc",
+        column_hints=resource.column_hints,
     )

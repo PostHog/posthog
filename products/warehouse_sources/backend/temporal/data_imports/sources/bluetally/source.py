@@ -96,7 +96,7 @@ If your account has multi-tenancy enabled, also enter the tenant ID the key shou
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            # An invalid or expired API key surfaces as a requests HTTPError when `_fetch_page`
+            # An invalid or expired API key surfaces as a requests HTTPError when the REST client
             # calls `raise_for_status()`. Retrying can never satisfy a credential problem, so stop
             # the sync. Match the stable status text and base host, not the per-request path/query.
             "401 Client Error: Unauthorized for url: https://app.bluetallyapp.com": "Your BlueTally API key is invalid or has expired. Create a new key under Settings → API Keys in BlueTally, then reconnect.",
@@ -149,7 +149,8 @@ If your account has multi-tenancy enabled, also enter the tenant ID the key shou
         return bluetally_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             tenant_id=config.tenant_id,
         )

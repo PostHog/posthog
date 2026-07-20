@@ -1,11 +1,8 @@
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable
 from typing import Any, Optional
-from urllib.parse import urlsplit
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudbeds.settings import (
@@ -13,27 +10,27 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cloudbeds.
     CloudbedsEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    PageNumberPaginator,
+    SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 
 CLOUDBEDS_BASE_URL = "https://api.cloudbeds.com/api/v1.2"
 # List endpoints accept pageSize up to 100 (the default); the largest page minimises round trips
 # against Cloudbeds' 5 req/sec property-credential rate limit.
 PAGE_SIZE = 100
-REQUEST_TIMEOUT_SECONDS = 60
 # Cheap endpoint used to confirm a token is genuine. Every credential (API key or OAuth token) can
 # read the properties it is scoped to, so one probe validates the token itself; per-endpoint scopes
 # are handled at sync time via get_non_retryable_errors.
 DEFAULT_PROBE_PATH = "/getHotels"
-
-
-class CloudbedsRetryableError(Exception):
-    pass
-
-
-class CloudbedsApiError(Exception):
-    """Cloudbeds returned HTTP 200 with `success: false` (bad params, missing scope, ...)."""
-
-    pass
 
 
 @dataclasses.dataclass
@@ -44,172 +41,148 @@ class CloudbedsResumeConfig:
     page: int | None = None
 
 
-def _headers(api_key: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
+class CloudbedsPageNumberPaginator(PageNumberPaginator):
+    """1-based ``pageNumber`` pagination with short-page termination.
+
+    Cloudbeds exposes no usable page total, so a page shorter than the requested ``pageSize`` (or an
+    empty one) is the last page — stop there instead of paying one extra empty-page request. Resume
+    is inherited from ``PageNumberPaginator`` (``self.page`` points at the next unfetched page).
+    """
+
+    def __init__(self, page_size: int) -> None:
+        super().__init__(base_page=1, page_param="pageNumber")
+        self._page_size = page_size
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        if self._has_next_page and data is not None and len(data) < self._page_size:
+            self._has_next_page = False
 
 
-def _flatten_rows(rows: list[dict[str, Any]], config: CloudbedsEndpointConfig) -> list[dict[str, Any]]:
-    if not config.flatten_field:
-        return rows
+def _headers() -> dict[str, str]:
+    # Bearer auth is supplied via the framework auth config so the key is redacted from logs and
+    # raised error messages; only the non-secret Accept header is set here.
+    return {"Accept": "application/json"}
 
-    flattened: list[dict[str, Any]] = []
-    for parent in rows:
-        nested = parent.get(config.flatten_field)
+
+def _flatten_map(config: CloudbedsEndpointConfig) -> Callable[[dict[str, Any]], list[dict[str, Any]]]:
+    """Explode a parent row's nested list (e.g. getRooms' per-property ``rooms``) into one row each,
+    copying the parent's ``flatten_parent_fields`` in — the 1-to-many form of ``data_map``."""
+    flatten_field = config.flatten_field
+    parent_fields = config.flatten_parent_fields
+
+    def flatten(parent: dict[str, Any]) -> list[dict[str, Any]]:
+        nested = parent.get(flatten_field)
         if not isinstance(nested, list):
-            continue
+            return []
         # Direct access so a missing required parent field (e.g. propertyID) fails fast instead of
         # silently writing None across every flattened child row.
-        parent_fields = {key: parent[key] for key in config.flatten_parent_fields}
-        for row in nested:
-            flattened.append({**row, **parent_fields})
-    return flattened
+        merged = {key: parent[key] for key in parent_fields}
+        return [{**row, **merged} for row in nested]
 
-
-@retry(
-    retry=retry_if_exception_type((CloudbedsRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session,
-    path: str,
-    params: dict[str, Any],
-    logger: FilteringBoundLogger,
-) -> list[dict[str, Any]]:
-    response = session.get(f"{CLOUDBEDS_BASE_URL}{path}", params=params, timeout=REQUEST_TIMEOUT_SECONDS)
-
-    # Exceeding Cloudbeds' rate limit (5 req/sec for property credentials) returns 429; backing off
-    # matters because repeated violations can temporarily suspend the credential.
-    if response.status_code == 429 or response.status_code >= 500:
-        raise CloudbedsRetryableError(f"Cloudbeds API error (retryable): status={response.status_code}, path={path}")
-
-    if not response.ok:
-        # Cloudbeds error bodies can echo guest/reservation data, so log only a short capped
-        # excerpt rather than the full body.
-        logger.error(f"Cloudbeds API error: status={response.status_code}, path={path}, body={response.text[:200]}")
-        # raise_for_status() would embed the full request URL in the exception, which is surfaced as
-        # the schema's latest_error. Cloudbeds authenticates via the Authorization header today, but
-        # rebuild the error from scheme/host/path only so a redirect or future query-param auth can
-        # never leak the api_key into stored error state. The "<status> Client Error: <reason> for
-        # url: https://api.cloudbeds.com" prefix stays stable for get_non_retryable_errors() matching.
-        safe = urlsplit(response.url)
-        raise requests.HTTPError(
-            f"{response.status_code} Client Error: {response.reason} for url: {safe.scheme}://{safe.netloc}{safe.path}",
-            response=response,
-        )
-
-    data = response.json()
-    if not isinstance(data, dict):
-        raise CloudbedsRetryableError(f"Cloudbeds returned an unexpected payload for {path}: {type(data).__name__}")
-
-    # Cloudbeds signals request-level errors (bad params, missing OAuth scope, ...) as HTTP 200 with
-    # success=false and a message - these are not transient, so fail instead of retrying.
-    if data.get("success") is False:
-        raise CloudbedsApiError(f"Cloudbeds API request to {path} failed: {data.get('message', 'unknown error')}")
-
-    rows = data.get("data")
-    if not isinstance(rows, list):
-        raise CloudbedsRetryableError(f"Cloudbeds returned an unexpected data payload for {path}")
-
-    return rows
-
-
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[CloudbedsResumeConfig],
-    property_id: str | None = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = CLOUDBEDS_ENDPOINTS[endpoint]
-    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
-
-    # Group (multi-property) credentials require propertyID to scope reads; single-property
-    # credentials can omit it.
-    base_params: dict[str, Any] = {"propertyID": property_id} if property_id else {}
-
-    if not config.paginated:
-        rows = _fetch_page(session, config.path, base_params, logger)
-        flattened = _flatten_rows(rows, config)
-        if flattened:
-            yield flattened
-        return
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    page = resume.page if (resume and resume.page) else 1
-    if resume and resume.page:
-        logger.debug(f"Cloudbeds: resuming {endpoint} from page {page}")
-
-    while True:
-        params = {**base_params, "pageNumber": page, "pageSize": PAGE_SIZE}
-        rows = _fetch_page(session, config.path, params, logger)
-        flattened = _flatten_rows(rows, config)
-        if flattened:
-            yield flattened
-
-        # A short (or empty) page means we've reached the end of the collection.
-        if len(rows) < PAGE_SIZE:
-            break
-
-        page += 1
-        # Save AFTER yielding so a crash re-fetches from the next page (already-yielded pages are
-        # persisted); merge dedupes the re-pulled page on the primary key.
-        resumable_source_manager.save_state(CloudbedsResumeConfig(page=page))
+    return flatten
 
 
 def cloudbeds_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[CloudbedsResumeConfig],
     property_id: str | None = None,
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = CLOUDBEDS_ENDPOINTS[endpoint]
 
+    # Group (multi-property) credentials require propertyID to scope reads; single-property
+    # credentials can omit it. Sent on every request (the paginator only touches pageNumber).
+    params: dict[str, Any] = {}
+    if property_id:
+        params["propertyID"] = property_id
+
+    paginator: BasePaginator
+    if config.paginated:
+        paginator = CloudbedsPageNumberPaginator(PAGE_SIZE)
+        params["pageSize"] = PAGE_SIZE
+    else:
+        paginator = SinglePagePaginator()
+
+    endpoint_config: EndpointResource = {
+        "name": endpoint,
+        "endpoint": {
+            "path": config.path,
+            "params": params,
+            "data_selector": "data",
+            # Cloudbeds wraps rows under `data`; a 200 body without it — a `success: false` error
+            # envelope (bad params / missing scope) or a changed shape — fails loud instead of
+            # silently syncing 0 rows. A present-but-empty `data` list is still a valid 0-row page.
+            "data_selector_required": True,
+        },
+    }
+    if config.flatten_field:
+        endpoint_config["data_map"] = _flatten_map(config)
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": CLOUDBEDS_BASE_URL,
+            "headers": _headers(),
+            "auth": {"type": "bearer", "token": api_key},
+            "paginator": paginator,
+        },
+        "resources": [endpoint_config],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if config.paginated and resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.page is not None:
+            initial_paginator_state = {"page": resume.page}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-fetches
+        # from the next page (already-yielded pages are persisted) and merge dedupes the re-pull.
+        if state and state.get("page") is not None:
+            resumable_source_manager.save_state(CloudbedsResumeConfig(page=int(state["page"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            property_id=property_id,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
+        column_hints=resource.column_hints,
     )
 
 
-def check_access(
-    api_key: str, property_id: str | None = None, path: str = DEFAULT_PROBE_PATH
-) -> tuple[int, Optional[str]]:
+def validate_credentials(api_key: str, property_id: str | None = None) -> tuple[bool, str | None]:
     """Probe a single endpoint to validate the API key or OAuth access token.
 
-    Returns ``(status, message)``: ``200`` reachable, ``401``/``403`` auth failure, ``0`` for a
-    connection problem, other HTTP status otherwise.
+    One probe validates the token itself; per-endpoint OAuth scopes surface at sync time via
+    get_non_retryable_errors. 401/403 map to an invalid-key message; any other non-200 reports the
+    status; an unreachable probe reports a generic connection failure.
     """
-    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
-    params: dict[str, Any] = {"propertyID": property_id} if property_id else {}
-    try:
-        response = session.get(f"{CLOUDBEDS_BASE_URL}{path}", params=params, timeout=15)
-    except Exception as e:
-        return 0, f"Could not connect to Cloudbeds: {e}"
+    url = f"{CLOUDBEDS_BASE_URL}{DEFAULT_PROBE_PATH}"
+    if property_id:
+        url = f"{url}?propertyID={property_id}"
 
-    if response.status_code in (401, 403):
-        return response.status_code, None
-
-    if not response.ok:
-        return response.status_code, f"Cloudbeds returned HTTP {response.status_code}"
-
-    return 200, None
-
-
-def validate_credentials(api_key: str, property_id: str | None = None) -> tuple[bool, str | None]:
-    status, message = check_access(api_key, property_id)
-    if status == 200:
+    ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        url,
+        headers={"Authorization": f"Bearer {api_key}", **_headers()},
+    )
+    if ok:
         return True, None
     if status in (401, 403):
         return False, "Invalid Cloudbeds API key"
-    return False, message or "Could not validate Cloudbeds API key"
+    if status is None:
+        return False, "Could not connect to Cloudbeds"
+    return False, f"Cloudbeds returned HTTP {status}"

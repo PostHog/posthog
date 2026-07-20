@@ -1,30 +1,38 @@
+import json
 from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
 from freezegun import freeze_time
-from unittest.mock import MagicMock
+from unittest import mock
 
 import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientRetryableError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.elasticemail import elasticemail
 from products.warehouse_sources.backend.temporal.data_imports.sources.elasticemail.elasticemail import (
     AUTH_ERROR_MARKER,
-    ElasticEmailAuthError,
     ElasticEmailResumeConfig,
-    ElasticEmailRetryableError,
-    _build_params,
     _build_url,
     _clamp_future_value_to_now,
     _format_datetime,
     _is_auth_error_body,
+    _static_params,
     elasticemail_source,
-    get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.elasticemail.settings import (
     ELASTICEMAIL_ENDPOINTS,
+)
+
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the elasticemail module.
+ELASTICEMAIL_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.elasticemail.elasticemail.make_tracked_session"
 )
 
 
@@ -62,22 +70,19 @@ class TestClampFutureValueToNow:
         assert _clamp_future_value_to_now("cursor") == "cursor"
 
 
-class TestBuildParams:
+class TestStaticParams:
     def test_events_incremental_adds_from_filter(self) -> None:
-        params = _build_params(
+        params = _static_params(
             ELASTICEMAIL_ENDPOINTS["events"],
-            offset=0,
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
         )
         assert params["from"] == "2026-03-04T02:58:14"
         assert params["orderBy"] == "DateAscending"
-        assert params["limit"] == elasticemail.PAGE_SIZE
 
     def test_events_without_cursor_has_no_from(self) -> None:
-        params = _build_params(
+        params = _static_params(
             ELASTICEMAIL_ENDPOINTS["events"],
-            offset=0,
             should_use_incremental_field=True,
             db_incremental_field_last_value=None,
         )
@@ -85,19 +90,16 @@ class TestBuildParams:
 
     def test_full_refresh_endpoint_never_adds_from(self) -> None:
         # Contacts has no server-side time filter, so a cursor value must not leak into the request.
-        params = _build_params(
+        params = _static_params(
             ELASTICEMAIL_ENDPOINTS["contacts"],
-            offset=40,
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
         )
         assert "from" not in params
-        assert params["offset"] == 40
 
     def test_templates_carries_required_scope_type(self) -> None:
-        params = _build_params(
+        params = _static_params(
             ELASTICEMAIL_ENDPOINTS["templates"],
-            offset=0,
             should_use_incremental_field=False,
             db_incremental_field_last_value=None,
         )
@@ -130,56 +132,200 @@ def _make_response(status_code: int, *, json_body: Any = None, text: str | None 
     response = requests.Response()
     response.status_code = status_code
     if json_body is not None:
-        import json
-
         response._content = json.dumps(json_body).encode()
     elif text is not None:
         response._content = text.encode()
     return response
 
 
-class _FakeSession:
-    def __init__(self, response: requests.Response) -> None:
-        self._response = response
-        self.requested_urls: list[str] = []
-
-    def get(self, url: str, headers: dict[str, str], timeout: int) -> requests.Response:
-        self.requested_urls.append(url)
-        return self._response
+def _make_manager(resume_state: ElasticEmailResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
 
 
-class TestFetchPage:
-    # Call the undecorated body so tests exercise the status handling without tenacity's retry/backoff.
-    _fetch = staticmethod(elasticemail._fetch_page.__wrapped__)  # type: ignore[attr-defined]
-    _url = "https://api.elasticemail.com/v4/contacts"
+def _wire(session: mock.MagicMock, responses: list[requests.Response]) -> list[dict[str, Any]]:
+    """Wire a mock session and capture each request's params AT SEND TIME.
 
-    def test_returns_list_on_ok(self) -> None:
-        session = _FakeSession(_make_response(200, json_body=[{"Email": "a@b.com"}]))
-        assert self._fetch(session, self._url, {}, MagicMock()) == [{"Email": "a@b.com"}]
+    ``request.params`` is a single dict mutated in place across pages, so snapshot a copy when each
+    request is prepared rather than reading the shared dict after the run.
+    """
+    session.headers = {}
+    param_snapshots: list[dict[str, Any]] = []
 
+    def _prepare(request: Any) -> mock.MagicMock:
+        param_snapshots.append(dict(request.params or {}))
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return param_snapshots
+
+
+def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any) -> Any:
+    return elasticemail_source(
+        api_key="key",
+        endpoint=endpoint,
+        team_id=1,
+        job_id="job",
+        resumable_source_manager=manager,
+        **kwargs,
+    )
+
+
+def _rows(source_response: Any) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+class TestPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_paginates_until_short_page(self, MockSession: Any) -> None:
+        session = MockSession.return_value
+        full_page = [{"Email": f"c{i}@x.com"} for i in range(elasticemail.PAGE_SIZE)]
+        params = _wire(
+            session,
+            [_make_response(200, json_body=full_page), _make_response(200, json_body=[{"Email": "last@x.com"}])],
+        )
+
+        rows = _rows(_source("contacts", _make_manager()))
+
+        assert [r["Email"] for r in rows] == [*(f"c{i}@x.com" for i in range(elasticemail.PAGE_SIZE)), "last@x.com"]
+        assert params[0]["offset"] == 0
+        assert params[0]["limit"] == elasticemail.PAGE_SIZE
+        assert params[1]["offset"] == elasticemail.PAGE_SIZE
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_short_first_page_makes_one_request_and_no_checkpoint(self, MockSession: Any) -> None:
+        session = MockSession.return_value
+        _wire(session, [_make_response(200, json_body=[{"Email": "a@x.com"}, {"Email": "b@x.com"}])])
+
+        manager = _make_manager()
+        rows = _rows(_source("contacts", manager))
+
+        assert [r["Email"] for r in rows] == ["a@x.com", "b@x.com"]
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_saves_offset_after_each_non_final_page(self, MockSession: Any) -> None:
+        session = MockSession.return_value
+        full_page = [{"Email": f"c{i}@x.com"} for i in range(elasticemail.PAGE_SIZE)]
+        _wire(
+            session,
+            [_make_response(200, json_body=full_page), _make_response(200, json_body=[{"Email": "last@x.com"}])],
+        )
+
+        manager = _make_manager()
+        _rows(_source("contacts", manager))
+
+        # State is saved after the full page (points at the next page); the short final page saves nothing.
+        assert [c.args[0] for c in manager.save_state.call_args_list] == [
+            ElasticEmailResumeConfig(offset=elasticemail.PAGE_SIZE)
+        ]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_offset(self, MockSession: Any) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_make_response(200, json_body=[{"Email": "resumed@x.com"}])])
+
+        manager = _make_manager(ElasticEmailResumeConfig(offset=2000))
+        rows = _rows(_source("contacts", manager))
+
+        assert params[0]["offset"] == 2000
+        assert [r["Email"] for r in rows] == ["resumed@x.com"]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_first_page_terminates(self, MockSession: Any) -> None:
+        session = MockSession.return_value
+        _wire(session, [_make_response(200, json_body=[])])
+
+        manager = _make_manager()
+        rows = _rows(_source("contacts", manager))
+
+        assert rows == []
+        assert session.send.call_count == 1
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_events_incremental_from_filter_reaches_request(self, MockSession: Any) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_make_response(200, json_body=[{"MsgID": "m1"}])])
+
+        _rows(
+            _source(
+                "events",
+                _make_manager(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
+            )
+        )
+
+        assert params[0]["from"] == "2026-03-04T02:58:14"
+        assert params[0]["orderBy"] == "DateAscending"
+
+
+def _wire_repeating(session: mock.MagicMock, response: requests.Response) -> None:
+    """Return the same response for every send — a retryable status is re-issued until attempts run out."""
+    session.headers = {}
+    session.prepare_request.side_effect = lambda request: mock.MagicMock()
+    session.send.return_value = response
+
+
+class TestErrorClassification:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 502)])
-    def test_retryable_statuses_raise_retryable(self, _name: str, status: int) -> None:
-        session = _FakeSession(_make_response(status, text="boom"))
-        with pytest.raises(ElasticEmailRetryableError):
-            self._fetch(session, self._url, {}, MagicMock())
+    @mock.patch("time.sleep", return_value=None)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_retryable_statuses_raise_retryable(self, _name: str, status: int, MockSession: Any, _sleep: Any) -> None:
+        session = MockSession.return_value
+        _wire_repeating(session, _make_response(status, text="boom"))
+        with pytest.raises(RESTClientRetryableError):
+            _rows(_source("contacts", _make_manager()))
 
-    @parameterized.expand([("expired_key", 400, '{"Error":"APIKey Expired"}'), ("unauthorized", 401, "")])
-    def test_auth_failures_raise_auth_error(self, _name: str, status: int, body: str) -> None:
-        session = _FakeSession(_make_response(status, text=body))
-        with pytest.raises(ElasticEmailAuthError) as exc:
-            self._fetch(session, self._url, {}, MagicMock())
+    @parameterized.expand(
+        [
+            ("expired_key_400", 400, '{"Error":"APIKey Expired"}'),
+            ("incorrect_key_400", 400, '{"Error":"Incorrect API key."}'),
+            ("unauthorized_401", 401, ""),
+            ("forbidden_403", 403, ""),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_auth_failures_raise_marked_error(self, _name: str, status: int, body: str, MockSession: Any) -> None:
+        # A bad/expired/under-scoped key surfaces a permanent, marker-carrying error so the pipeline's
+        # non-retryable classifier stops the sync instead of hammering the dead key.
+        session = MockSession.return_value
+        _wire(session, [_make_response(status, text=body)])
+        with pytest.raises(ValueError) as exc:
+            _rows(_source("contacts", _make_manager()))
         assert AUTH_ERROR_MARKER in str(exc.value)
 
-    def test_non_list_payload_raises_retryable(self) -> None:
-        session = _FakeSession(_make_response(200, json_body={"Error": "unexpected"}))
-        with pytest.raises(ElasticEmailRetryableError):
-            self._fetch(session, self._url, {}, MagicMock())
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_generic_400_is_not_marked_as_auth(self, MockSession: Any) -> None:
+        # A non-credential 400 raises an HTTPError with no auth marker, so the pipeline retries it as usual.
+        session = MockSession.return_value
+        _wire(session, [_make_response(400, text='{"Error":"Invalid date range"}')])
+        with pytest.raises(requests.HTTPError) as exc:
+            _rows(_source("contacts", _make_manager()))
+        assert AUTH_ERROR_MARKER not in str(exc.value)
 
-    def test_non_json_body_raises_retryable(self) -> None:
-        # A 200 with an HTML/proxy body must not propagate a raw JSONDecodeError past the retry layer.
-        session = _FakeSession(_make_response(200, text="<html>gateway timeout</html>"))
-        with pytest.raises(ElasticEmailRetryableError):
-            self._fetch(session, self._url, {}, MagicMock())
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_non_list_payload_raises_shape_error(self, MockSession: Any) -> None:
+        # A 200 object payload is an unexpected shape; fail loud rather than sync the object as a row.
+        # The error carries no auth marker, so the pipeline retries it as a transient shape change.
+        session = MockSession.return_value
+        _wire(session, [_make_response(200, json_body={"Error": "unexpected"})])
+        with pytest.raises(ValueError) as exc:
+            _rows(_source("contacts", _make_manager()))
+        assert AUTH_ERROR_MARKER not in str(exc.value)
+
+    @mock.patch("time.sleep", return_value=None)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_non_json_body_raises_retryable(self, MockSession: Any, _sleep: Any) -> None:
+        # A 200 with an HTML/proxy body must not propagate a raw JSONDecodeError; it is retried.
+        session = MockSession.return_value
+        _wire_repeating(session, _make_response(200, text="<html>gateway timeout</html>"))
+        with pytest.raises(RESTClientRetryableError):
+            _rows(_source("contacts", _make_manager()))
 
 
 class TestValidateCredentials:
@@ -194,116 +340,28 @@ class TestValidateCredentials:
         ]
     )
     def test_status_mapping(self, _name: str, status: int, body: str, expected: bool) -> None:
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(
-                elasticemail,
-                "make_tracked_session",
-                lambda **_: _FakeSession(_make_response(status, text=body)),
-            )
+        with mock.patch.object(
+            elasticemail,
+            "make_tracked_session",
+            lambda **_: _FakeSession(_make_response(status, text=body)),
+        ):
             assert validate_credentials("key") is expected
 
-    def test_transport_exception_is_invalid(self, monkeypatch: Any) -> None:
+    def test_transport_exception_is_invalid(self) -> None:
         class _Boom:
             def get(self, *a: Any, **k: Any) -> Any:
                 raise requests.ConnectionError("down")
 
-        monkeypatch.setattr(elasticemail, "make_tracked_session", lambda **_: _Boom())
-        assert validate_credentials("key") is False
+        with mock.patch.object(elasticemail, "make_tracked_session", lambda **_: _Boom()):
+            assert validate_credentials("key") is False
 
 
-class _FakeBatcher:
-    """Yields after every page so the save-after-batch contract is testable without 2000+ rows."""
+class _FakeSession:
+    def __init__(self, response: requests.Response) -> None:
+        self._response = response
 
-    def __init__(self, **_kwargs: Any) -> None:
-        self._rows: list[dict] = []
-
-    def batch(self, item: dict) -> None:
-        self._rows.append(item)
-
-    def should_yield(self, include_incomplete_chunk: bool = False) -> bool:
-        return len(self._rows) > 0
-
-    def get_table(self) -> list[dict]:
-        rows = self._rows
-        self._rows = []
-        return rows
-
-
-class _FakeManager:
-    def __init__(self, state: ElasticEmailResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[ElasticEmailResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> ElasticEmailResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: ElasticEmailResumeConfig) -> None:
-        self.saved.append(data)
-
-
-class TestGetRows:
-    def _patch(self, monkeypatch: Any, pages: dict[int, list[dict]]) -> list[int]:
-        requested_offsets: list[int] = []
-
-        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> list[dict]:
-            # Offset is the last query param built by _build_params/_build_url.
-            offset = int(url.split("offset=")[1].split("&")[0])
-            requested_offsets.append(offset)
-            return pages[offset]
-
-        monkeypatch.setattr(elasticemail, "_fetch_page", fake_fetch)
-        monkeypatch.setattr(elasticemail, "Batcher", _FakeBatcher)
-        monkeypatch.setattr(elasticemail, "PAGE_SIZE", 2)
-        return requested_offsets
-
-    def _collect(self, manager: _FakeManager) -> list[dict]:
-        rows: list[dict] = []
-        for table in get_rows(
-            api_key="key",
-            endpoint="contacts",
-            logger=MagicMock(),
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-        ):
-            rows.extend(table)
-        return rows
-
-    def test_paginates_until_short_page(self, monkeypatch: Any) -> None:
-        offsets = self._patch(
-            monkeypatch,
-            {
-                0: [{"Email": "a"}, {"Email": "b"}],
-                2: [{"Email": "c"}, {"Email": "d"}],
-                4: [{"Email": "e"}],  # short page → terminate
-            },
-        )
-        rows = self._collect(_FakeManager())
-        assert [r["Email"] for r in rows] == ["a", "b", "c", "d", "e"]
-        assert offsets == [0, 2, 4]
-
-    def test_saves_offset_after_each_non_final_page(self, monkeypatch: Any) -> None:
-        self._patch(
-            monkeypatch,
-            {0: [{"Email": "a"}, {"Email": "b"}], 2: [{"Email": "c"}, {"Email": "d"}], 4: [{"Email": "e"}]},
-        )
-        manager = _FakeManager()
-        self._collect(manager)
-        # State is saved after the two full pages (next offsets 2 and 4); the short final page saves nothing.
-        assert [s.offset for s in manager.saved] == [2, 4]
-
-    def test_resumes_from_saved_offset(self, monkeypatch: Any) -> None:
-        offsets = self._patch(monkeypatch, {2: [{"Email": "c"}, {"Email": "d"}], 4: [{"Email": "e"}]})
-        rows = self._collect(_FakeManager(ElasticEmailResumeConfig(offset=2)))
-        assert offsets[0] == 2
-        assert [r["Email"] for r in rows] == ["c", "d", "e"]
-
-    def test_empty_first_page_terminates(self, monkeypatch: Any) -> None:
-        offsets = self._patch(monkeypatch, {0: []})
-        rows = self._collect(_FakeManager())
-        assert rows == []
-        assert offsets == [0]
+    def get(self, url: str, headers: dict[str, str], timeout: int) -> requests.Response:
+        return self._response
 
 
 class TestElasticemailSource:
@@ -319,12 +377,7 @@ class TestElasticemailSource:
         ]
     )
     def test_source_response_shape(self, endpoint: str, primary_keys: list[str], partition_key: str | None) -> None:
-        response = elasticemail_source(
-            api_key="key",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
+        response = _source(endpoint, _make_manager())
         assert response.name == endpoint
         assert response.primary_keys == primary_keys
         assert response.sort_mode == "asc"

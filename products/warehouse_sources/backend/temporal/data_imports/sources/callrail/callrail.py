@@ -2,19 +2,21 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode
-
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.callrail.settings import (
-    CALLRAIL_ENDPOINTS,
-    CallRailEndpointConfig,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.callrail.settings import CALLRAIL_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    PageNumberPaginator,
+    SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ApiKeyAuthConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 
 CALLRAIL_BASE_URL = "https://api.callrail.com/v3"
 
@@ -25,10 +27,6 @@ PER_PAGE = 250
 # Hard cap so a runaway pagination loop (e.g. the API never signaling the last page) can't scan
 # forever. 250 rows/page * this cap bounds a single endpoint sync.
 MAX_PAGES = 100_000
-
-
-class CallRailRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
@@ -48,6 +46,17 @@ def _get_headers(api_key: str) -> dict[str, str]:
     }
 
 
+def _auth_config(api_key: str) -> ApiKeyAuthConfig:
+    # Framework auth so the credential value is redacted from logs/samples; the full header value
+    # is the secret since CallRail wraps the key in token="...".
+    return {
+        "type": "api_key",
+        "name": "Authorization",
+        "api_key": f'Token token="{api_key}"',
+        "location": "header",
+    }
+
+
 def _format_start_date(value: Any) -> str | None:
     """Format an incremental cursor value as the YYYY-MM-DD `start_date` the API filters on.
 
@@ -64,35 +73,7 @@ def _format_start_date(value: Any) -> str | None:
     return None
 
 
-@retry(
-    retry=retry_if_exception_type((CallRailRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=60),
-    reraise=True,
-)
-def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> dict:
-    response = session.get(url, headers=headers, timeout=60)
-
-    # 429 is the per-account rate limit (1,000/hour, 10,000/day). Back off and retry rather than
-    # failing the sync. 5xx are transient server errors.
-    if response.status_code == 429 or response.status_code >= 500:
-        raise CallRailRetryableError(f"CallRail API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        logger.error(f"CallRail API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
-
-    return response.json()
-
-
-def _build_url(base: str, params: dict[str, Any]) -> str:
-    clean = {k: v for k, v in params.items() if v is not None}
-    return f"{base}?{urlencode(clean)}" if clean else base
-
-
-def resolve_account_id(
-    session: requests.Session, api_key: str, logger: FilteringBoundLogger, account_id: str | None = None
-) -> str:
+def resolve_account_id(api_key: str, team_id: int, job_id: str, account_id: str | None = None) -> str:
     """Return the account id to scope data requests to.
 
     CallRail data endpoints are all nested under /v3/a/{account_id}/, so we must resolve one first.
@@ -102,97 +83,122 @@ def resolve_account_id(
         return account_id
 
     # We only ever read the first account, so request a single row like validate_credentials does.
-    url = _build_url(f"{CALLRAIL_BASE_URL}/a.json", {"per_page": 1})
-    data = _fetch_page(session, url, _get_headers(api_key), logger)
-    accounts = data.get("accounts", [])
-    if not accounts:
-        raise ValueError("No CallRail accounts are accessible with this API key.")
-    return str(accounts[0]["id"])
+    accounts_config: RESTAPIConfig = {
+        "client": {
+            "base_url": CALLRAIL_BASE_URL,
+            "headers": {"Accept": "application/json"},
+            "auth": _auth_config(api_key),
+        },
+        "resources": [
+            {
+                "name": "accounts",
+                "endpoint": {
+                    "path": "/a.json",
+                    "params": {"per_page": 1},
+                    "data_selector": "accounts",
+                    "paginator": SinglePagePaginator(),
+                },
+            }
+        ],
+    }
+    for page in rest_api_resource(accounts_config, team_id, job_id, None):
+        for account in page:
+            return str(account["id"])
+    raise ValueError("No CallRail accounts are accessible with this API key.")
 
 
 def validate_credentials(api_key: str) -> bool:
     """Confirm the API key is genuine by hitting the accounts endpoint."""
-    url = _build_url(f"{CALLRAIL_BASE_URL}/a.json", {"per_page": 1})
-    try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=10)
-        return response.status_code == 200
-    except Exception:
-        return False
-
-
-def _build_params(
-    config: CallRailEndpointConfig,
-    should_use_incremental_field: bool,
-    db_incremental_field_last_value: Any,
-) -> dict[str, Any]:
-    params: dict[str, Any] = {"per_page": PER_PAGE}
-
-    if config.sort_field:
-        # Ascending on the cursor field so the pipeline watermark advances safely and full-refresh
-        # pages don't skip/duplicate rows inserted mid-sync.
-        params["sort"] = config.sort_field
-        params["order"] = "asc"
-
-    if config.supports_incremental and should_use_incremental_field:
-        start_date = _format_start_date(db_incremental_field_last_value)
-        if start_date:
-            params["start_date"] = start_date
-
-    return params
+    ok, _status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{CALLRAIL_BASE_URL}/a.json?per_page=1",
+        headers=_get_headers(api_key),
+    )
+    return ok
 
 
 def get_rows(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[CallRailResumeConfig],
     account_id: str | None = None,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = CALLRAIL_ENDPOINTS[endpoint]
-    headers = _get_headers(api_key)
-    # One session reused across pages so urllib3 keeps the connection alive.
-    session = make_tracked_session()
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    initial_paginator_state: Optional[dict[str, Any]] = None
     if resume is not None:
         resolved_account_id = resume.account_id
-        page = resume.page
-        logger.debug(f"CallRail: resuming {endpoint} from page={page}, account_id={resolved_account_id}")
+        initial_paginator_state = {"page": resume.page}
     else:
-        resolved_account_id = resolve_account_id(session, api_key, logger, account_id)
-        page = 1
+        resolved_account_id = resolve_account_id(api_key, team_id, job_id, account_id)
 
-    base = f"{CALLRAIL_BASE_URL}/a/{resolved_account_id}{config.path}"
-    params = _build_params(config, should_use_incremental_field, db_incremental_field_last_value)
+    params: dict[str, Any] = {"per_page": PER_PAGE}
+    if config.sort_field:
+        # Ascending on the cursor field so the pipeline watermark advances safely and full-refresh
+        # pages don't skip/duplicate rows inserted mid-sync.
+        params["sort"] = config.sort_field
+        params["order"] = "asc"
 
-    while page <= MAX_PAGES:
-        url = _build_url(base, {**params, "page": page})
-        data = _fetch_page(session, url, headers, logger)
+    endpoint_config: dict[str, Any] = {
+        "path": f"/a/{resolved_account_id}{config.path}",
+        "params": params,
+        # Key the list lives under in the JSON envelope; a missing key reads as an empty page and
+        # ends pagination, matching the API's "no more data" signal.
+        "data_selector": config.response_key,
+        # `total_pages` in the body is the number of PAGES, so pagination stops after the last page
+        # without paying an extra empty-page request.
+        "paginator": PageNumberPaginator(
+            base_page=1,
+            page_param="page",
+            total_path="total_pages",
+            maximum_page=MAX_PAGES,
+        ),
+    }
+    if config.supports_incremental and should_use_incremental_field:
+        endpoint_config["incremental"] = {
+            "start_param": "start_date",
+            "cursor_path": config.sort_field,
+            "convert": _format_start_date,
+        }
 
-        rows = data.get(config.response_key, [])
-        if not rows:
-            break
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": CALLRAIL_BASE_URL,
+            "headers": {"Accept": "application/json"},
+            "auth": _auth_config(api_key),
+        },
+        "resources": [{"name": endpoint, "endpoint": endpoint_config}],
+    }
 
-        yield rows
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; the framework calls this AFTER a page is yielded
+        # so a crash re-pulls from the next page rather than losing the page we just handed off;
+        # the merge dedupes any overlap on the primary key.
+        if state and state.get("page") is not None:
+            resumable_source_manager.save_state(
+                CallRailResumeConfig(account_id=resolved_account_id, page=int(state["page"]))
+            )
 
-        total_pages = data.get("total_pages")
-        page += 1
-        if total_pages is not None and page > total_pages:
-            break
-
-        # Save AFTER yielding so a crash re-pulls from the next page rather than losing the page we
-        # just handed off; the merge dedupes any overlap on the primary key.
-        resumable_source_manager.save_state(CallRailResumeConfig(account_id=resolved_account_id, page=page))
-    else:
-        logger.warning(f"CallRail: hit MAX_PAGES={MAX_PAGES} for {endpoint}, stopping pagination")
+    yield from rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
 
 
 def callrail_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[CallRailResumeConfig],
     account_id: str | None = None,
     should_use_incremental_field: bool = False,
@@ -202,10 +208,13 @@ def callrail_source(
 
     return SourceResponse(
         name=endpoint,
+        # Lazy so account resolution (a network call) happens at iteration time, not when the
+        # SourceResponse is built.
         items=lambda: get_rows(
             api_key=api_key,
             endpoint=endpoint,
-            logger=logger,
+            team_id=team_id,
+            job_id=job_id,
             resumable_source_manager=resumable_source_manager,
             account_id=account_id,
             should_use_incremental_field=should_use_incremental_field,

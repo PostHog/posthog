@@ -150,6 +150,7 @@ You can create a personal or service access token in your [LaunchDarkly account 
         return launchdarkly_source(
             access_token=config.access_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

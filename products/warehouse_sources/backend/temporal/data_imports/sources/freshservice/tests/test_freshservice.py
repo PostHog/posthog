@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
@@ -5,68 +6,78 @@ import pytest
 from unittest import mock
 
 import requests
-import structlog
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshservice.freshservice import (
     FreshserviceResumeConfig,
     _format_updated_since,
-    _parse_retry_after,
-    build_initial_url,
-    extract_items,
-    get_rows,
+    freshservice_source,
     normalize_domain,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.freshservice.settings import (
-    FRESHSERVICE_ENDPOINTS,
-)
 
-logger = structlog.get_logger()
-
-PATCH_SESSION = (
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the freshservice module.
+FRESHSERVICE_SESSION_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.freshservice.freshservice.make_tracked_session"
 )
 
 
-class FakeResponse:
-    def __init__(
-        self,
-        json_data: Any = None,
-        status_code: int = 200,
-        links: Optional[dict] = None,
-        text: str = "",
-        headers: Optional[dict] = None,
-    ) -> None:
-        self._json = json_data
-        self.status_code = status_code
-        self.ok = 200 <= status_code < 400
-        self.links = links or {}
-        self.text = text
-        self.headers = headers or {}
-
-    def json(self) -> Any:
-        return self._json
-
-    def raise_for_status(self) -> None:
-        if not self.ok:
-            real_response = requests.Response()
-            real_response.status_code = self.status_code
-            raise requests.HTTPError(f"{self.status_code} Client Error", response=real_response)
+def _response(body: Any, *, status: int = 200, next_url: Optional[str] = None) -> Response:
+    resp = Response()
+    resp.status_code = status
+    resp._content = json.dumps(body).encode()
+    resp.url = "https://acme.freshservice.com/api/v2/tickets"
+    if next_url:
+        # RFC 5988 Link header — requests parses this into Response.links.
+        resp.headers["Link"] = f'<{next_url}>; rel="next"'
+    return resp
 
 
-class FakeResumableManager:
-    def __init__(self, resume: Optional[FreshserviceResumeConfig] = None) -> None:
-        self._resume = resume
-        self.saved: list[FreshserviceResumeConfig] = []
+def _make_manager(resume_state: Optional[FreshserviceResumeConfig] = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
 
-    def can_resume(self) -> bool:
-        return self._resume is not None
 
-    def load_state(self) -> Optional[FreshserviceResumeConfig]:
-        return self._resume
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session and capture each request's url + params AT SEND TIME.
 
-    def save_state(self, data: FreshserviceResumeConfig) -> None:
-        self.saved.append(data)
+    ``request.params`` is one dict mutated in place across pages, so snapshot a copy when each
+    request is prepared rather than inspecting the final state.
+    """
+    session.headers = {}
+    snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        snapshots.append({"url": request.url, "params": dict(request.params or {})})
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return snapshots
+
+
+def _run(
+    endpoint: str,
+    *,
+    manager: Optional[mock.MagicMock] = None,
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
+) -> list[dict[str, Any]]:
+    source_response = freshservice_source(
+        api_key="key",
+        domain="acme",
+        endpoint=endpoint,
+        team_id=1,
+        job_id="job-1",
+        resumable_source_manager=manager if manager is not None else _make_manager(),
+        should_use_incremental_field=should_use_incremental_field,
+        db_incremental_field_last_value=db_incremental_field_last_value,
+    )
+    return [row for page in source_response.items() for row in page]
 
 
 class TestNormalizeDomain:
@@ -102,128 +113,155 @@ class TestFormatUpdatedSince:
         assert "+00:00" not in _format_updated_since(datetime(2026, 3, 4, tzinfo=UTC))
 
 
-class TestParseRetryAfter:
-    @pytest.mark.parametrize(
-        "value, expected",
-        [
-            ("30", 30.0),
-            ("0", 0.0),
-            (None, None),
-            ("", None),
-            ("not-a-number", None),
-        ],
-    )
-    def test_parse_retry_after(self, value: Optional[str], expected: Optional[float]) -> None:
-        assert _parse_retry_after(value) == expected
+class TestRequestParams:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_full_refresh_sends_per_page_only(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(session, [_response({"agents": [{"id": 1}]})])
 
+        _run("agents")
 
-class TestBuildInitialUrl:
-    def test_full_refresh_has_per_page_only(self) -> None:
-        url = build_initial_url("acme", FRESHSERVICE_ENDPOINTS["agents"], False, None)
-        assert url.startswith("https://acme.freshservice.com/api/v2/agents?")
-        assert "per_page=100" in url
-        assert "updated_since" not in url
+        assert snapshots[0]["params"]["per_page"] == 100
+        assert "updated_since" not in snapshots[0]["params"]
 
-    def test_tickets_incremental_uses_updated_since_and_ordering(self) -> None:
-        url = build_initial_url("acme", FRESHSERVICE_ENDPOINTS["tickets"], True, datetime(2026, 3, 4, tzinfo=UTC))
-        assert "updated_since=2026-03-04T00%3A00%3A00Z" in url
-        assert "order_by=updated_at" in url
-        assert "order_type=asc" in url
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_tickets_incremental_sends_updated_since_and_ordering(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(session, [_response({"tickets": [{"id": 1}]})])
 
-    def test_incremental_without_last_value_omits_filter(self) -> None:
-        url = build_initial_url("acme", FRESHSERVICE_ENDPOINTS["tickets"], True, None)
-        assert "updated_since" not in url
+        _run(
+            "tickets",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
+        )
 
-    def test_full_refresh_endpoint_ignores_incremental_flag(self) -> None:
+        params = snapshots[0]["params"]
+        assert params["updated_since"] == "2026-03-04T00:00:00Z"
+        assert params["order_by"] == "updated_at"
+        assert params["order_type"] == "asc"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_without_last_value_omits_filter(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(session, [_response({"tickets": [{"id": 1}]})])
+
+        _run("tickets", should_use_incremental_field=True, db_incremental_field_last_value=None)
+
+        assert "updated_since" not in snapshots[0]["params"]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_full_refresh_endpoint_ignores_incremental_flag(self, MockSession) -> None:
         # `problems` has no server-side filter, so it never gets an updated_since param even when
         # the pipeline requests incremental.
-        url = build_initial_url("acme", FRESHSERVICE_ENDPOINTS["problems"], True, datetime(2026, 3, 4, tzinfo=UTC))
-        assert "updated_since" not in url
+        session = MockSession.return_value
+        snapshots = _wire(session, [_response({"problems": [{"id": 1}]})])
+
+        _run(
+            "problems",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
+        )
+
+        assert "updated_since" not in snapshots[0]["params"]
 
 
-class TestExtractItems:
-    def test_unwraps_resource_envelope(self) -> None:
-        assert extract_items({"tickets": [{"id": 1}]}, FRESHSERVICE_ENDPOINTS["tickets"]) == [{"id": 1}]
+class TestDataSelector:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_unwraps_resource_envelope(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"tickets": [{"id": 1}, {"id": 2}]})])
 
-    def test_software_uses_applications_key(self) -> None:
+        assert _run("tickets") == [{"id": 1}, {"id": 2}]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_software_uses_applications_key(self, MockSession) -> None:
         # The software table maps to /api/v2/applications, which wraps rows under "applications".
-        assert extract_items({"applications": [{"id": 7}]}, FRESHSERVICE_ENDPOINTS["software"]) == [{"id": 7}]
+        session = MockSession.return_value
+        _wire(session, [_response({"applications": [{"id": 7}]})])
 
-    def test_agent_groups_uses_groups_key(self) -> None:
-        assert extract_items({"groups": [{"id": 3}]}, FRESHSERVICE_ENDPOINTS["agent_groups"]) == [{"id": 3}]
+        assert _run("software") == [{"id": 7}]
 
-    def test_wrong_key_returns_empty(self) -> None:
-        assert extract_items({"problems": [{"id": 1}]}, FRESHSERVICE_ENDPOINTS["tickets"]) == []
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_agent_groups_uses_groups_key(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"groups": [{"id": 3}]})])
 
-    def test_bare_array_fallback(self) -> None:
-        assert extract_items([{"id": 1}], FRESHSERVICE_ENDPOINTS["tickets"]) == [{"id": 1}]
+        assert _run("agent_groups") == [{"id": 3}]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_wrong_key_yields_no_rows(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"problems": [{"id": 1}]})])
+
+        assert _run("tickets") == []
 
 
-class TestGetRows:
-    def test_paginates_via_link_header_and_saves_state(self) -> None:
+class TestPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_paginates_via_link_header_and_saves_state(self, MockSession) -> None:
+        session = MockSession.return_value
         next_url = "https://acme.freshservice.com/api/v2/tickets?per_page=100&page=2"
-        responses = [
-            FakeResponse({"tickets": [{"id": 1}]}, links={"next": {"url": next_url}}),
-            FakeResponse({"tickets": [{"id": 2}]}, links={}),
-        ]
-        manager = FakeResumableManager()
-        session = mock.MagicMock()
-        session.get.side_effect = responses
+        snapshots = _wire(
+            session,
+            [
+                _response({"tickets": [{"id": 1}]}, next_url=next_url),
+                _response({"tickets": [{"id": 2}]}),
+            ],
+        )
 
-        with mock.patch(PATCH_SESSION, return_value=session):
-            rows = list(get_rows("key", "acme", "tickets", logger, manager))  # type: ignore[arg-type]
+        manager = _make_manager()
+        rows = _run("tickets", manager=manager)
 
-        assert rows == [[{"id": 1}], [{"id": 2}]]
+        assert rows == [{"id": 1}, {"id": 2}]
+        # Second request follows the Link-header next URL.
+        assert snapshots[1]["url"] == next_url
         # State saved once, after the first (only non-terminal) page.
-        assert manager.saved == [FreshserviceResumeConfig(next_url=next_url)]
+        manager.save_state.assert_called_once()
+        assert manager.save_state.call_args.args[0] == FreshserviceResumeConfig(next_url=next_url)
 
-    def test_single_page_saves_no_state(self) -> None:
-        manager = FakeResumableManager()
-        session = mock.MagicMock()
-        session.get.side_effect = [FakeResponse({"agents": [{"id": 1}]}, links={})]
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_single_page_saves_no_state(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"agents": [{"id": 1}]})])
 
-        with mock.patch(PATCH_SESSION, return_value=session):
-            rows = list(get_rows("key", "acme", "agents", logger, manager))  # type: ignore[arg-type]
+        manager = _make_manager()
+        rows = _run("agents", manager=manager)
 
-        assert rows == [[{"id": 1}]]
-        assert manager.saved == []
+        assert rows == [{"id": 1}]
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
 
-    def test_resumes_from_saved_state(self) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_state(self, MockSession) -> None:
+        session = MockSession.return_value
         resume_url = "https://acme.freshservice.com/api/v2/tickets?per_page=100&page=5"
-        manager = FakeResumableManager(resume=FreshserviceResumeConfig(next_url=resume_url))
-        session = mock.MagicMock()
-        session.get.side_effect = [FakeResponse({"tickets": [{"id": 50}]}, links={})]
+        snapshots = _wire(session, [_response({"tickets": [{"id": 50}]})])
 
-        with mock.patch(PATCH_SESSION, return_value=session):
-            rows = list(get_rows("key", "acme", "tickets", logger, manager))  # type: ignore[arg-type]
+        manager = _make_manager(resume_state=FreshserviceResumeConfig(next_url=resume_url))
+        rows = _run("tickets", manager=manager)
 
-        assert rows == [[{"id": 50}]]
+        assert rows == [{"id": 50}]
         # First request must hit the resumed URL, not a freshly-built initial URL.
-        assert session.get.call_args_list[0].args[0] == resume_url
+        assert snapshots[0]["url"] == resume_url
 
     @pytest.mark.parametrize("status_code", [401, 403, 404])
-    def test_non_retryable_status_raises(self, status_code: int) -> None:
-        manager = FakeResumableManager()
-        session = mock.MagicMock()
-        session.get.side_effect = [FakeResponse(status_code=status_code, text="boom")]
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_non_retryable_status_raises(self, MockSession, status_code: int) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"error": "boom"}, status=status_code)])
 
-        with mock.patch(PATCH_SESSION, return_value=session):
-            with pytest.raises(requests.HTTPError):
-                list(get_rows("key", "acme", "tickets", logger, manager))  # type: ignore[arg-type]
+        with pytest.raises(requests.HTTPError):
+            _run("tickets")
 
 
 class TestValidateCredentials:
     @pytest.mark.parametrize("status_code", [200, 401, 403])
-    def test_returns_status_code(self, status_code: int) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = FakeResponse(status_code=status_code)
+    @mock.patch(FRESHSERVICE_SESSION_PATCH)
+    def test_returns_status_code(self, mock_session, status_code: int) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
+        assert validate_credentials("acme", "key") == status_code
 
-        with mock.patch(PATCH_SESSION, return_value=session):
-            assert validate_credentials("acme", "key") == status_code
-
-    def test_connection_error_returns_none(self) -> None:
-        session = mock.MagicMock()
-        session.get.side_effect = requests.ConnectionError("nope")
-
-        with mock.patch(PATCH_SESSION, return_value=session):
-            assert validate_credentials("acme", "key") is None
+    @mock.patch(FRESHSERVICE_SESSION_PATCH)
+    def test_connection_error_returns_none(self, mock_session) -> None:
+        mock_session.return_value.get.side_effect = requests.ConnectionError("nope")
+        assert validate_credentials("acme", "key") is None

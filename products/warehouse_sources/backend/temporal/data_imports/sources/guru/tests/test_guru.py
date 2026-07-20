@@ -1,21 +1,44 @@
+import json
 from datetime import UTC, date, datetime
 from typing import Any
-from urllib.parse import parse_qs, urlparse
 
 import pytest
 from unittest import mock
 
+from requests import Response
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.guru.guru import (
     GuruResumeConfig,
     _build_params,
-    _build_url,
     _format_last_modified,
     _normalize_member,
-    get_rows,
     guru_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.guru.settings import ENDPOINTS, GURU_ENDPOINTS
+
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the guru module.
+GURU_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.guru.guru.make_tracked_session"
+
+
+def _response(items: Any, next_link: str | None = None) -> Response:
+    resp = Response()
+    resp.status_code = 200
+    resp._content = json.dumps(items).encode()
+    if next_link:
+        # requests parses `response.links` from the RFC 5988 Link header.
+        resp.headers["Link"] = f'<{next_link}>; rel="next-page"'
+    return resp
+
+
+def _redirect(location: str) -> Response:
+    resp = Response()
+    resp.status_code = 302
+    resp.headers["Location"] = location
+    resp._content = b""
+    return resp
 
 
 def _make_manager(resume_state: GuruResumeConfig | None = None) -> mock.MagicMock:
@@ -25,15 +48,43 @@ def _make_manager(resume_state: GuruResumeConfig | None = None) -> mock.MagicMoc
     return manager
 
 
-def _response(items: list[dict[str, Any]], next_link: str | None = None) -> mock.MagicMock:
-    resp = mock.MagicMock()
-    resp.json.return_value = items
-    resp.status_code = 200
-    resp.ok = True
-    resp.is_redirect = False
-    resp.is_permanent_redirect = False
-    resp.links = {"next-page": {"url": next_link}} if next_link else {}
-    return resp
+def _wire(session: mock.MagicMock, responses: list[Response]) -> tuple[list[dict[str, Any]], list[str]]:
+    """Wire a mock session, capturing each request's params and URL AT PREPARE TIME.
+
+    ``request.params``/``request.url`` are mutated in place across pages, so snapshot copies when
+    each request is prepared. The returned prepared object carries the real URL so the client's
+    SSRF host check runs against it.
+    """
+    session.headers = {}
+    param_snapshots: list[dict[str, Any]] = []
+    url_snapshots: list[str] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        param_snapshots.append(dict(request.params or {}))
+        url_snapshots.append(request.url)
+        prepared = mock.MagicMock()
+        prepared.url = request.url
+        return prepared
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return param_snapshots, url_snapshots
+
+
+def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any):
+    return guru_source(
+        "user@company.com",
+        "token",
+        endpoint,
+        team_id=1,
+        job_id="j",
+        resumable_source_manager=manager,
+        **kwargs,
+    )
+
+
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
 
 
 class TestFormatLastModified:
@@ -100,16 +151,6 @@ class TestBuildParams:
         assert params == {}
 
 
-class TestBuildUrl:
-    def test_no_params(self):
-        assert _build_url("/collections", {}) == "https://api.getguru.com/api/v1/collections"
-
-    def test_encodes_gql_query(self):
-        url = _build_url("/search/query", {"q": "lastModified >= 2024-01-01T00:00:00+00:00"})
-        parsed = urlparse(url)
-        assert parse_qs(parsed.query)["q"] == ["lastModified >= 2024-01-01T00:00:00+00:00"]
-
-
 class TestNormalizeMember:
     def test_copies_nested_user_email_to_top_level(self):
         item = {"user": {"email": "jane@company.com", "firstName": "Jane"}, "groups": []}
@@ -146,7 +187,7 @@ class TestValidateCredentials:
             (500, False),
         ],
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.guru.guru.make_tracked_session")
+    @mock.patch(GURU_SESSION_PATCH)
     def test_validate_credentials_status_mapping(self, mock_session, status_code, expected):
         response = mock.MagicMock()
         response.status_code = status_code
@@ -154,126 +195,123 @@ class TestValidateCredentials:
 
         assert validate_credentials("user@company.com", "token") is expected
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.guru.guru.make_tracked_session")
+    @mock.patch(GURU_SESSION_PATCH)
     def test_validate_credentials_swallows_exceptions(self, mock_session):
         mock_session.return_value.get.side_effect = Exception("boom")
         assert validate_credentials("user@company.com", "token") is False
 
 
 class TestGetRows:
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.guru.guru.make_tracked_session")
-    def test_paginates_via_link_header(self, mock_session):
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_paginates_via_link_header(self, MockSession):
+        session = MockSession.return_value
         next_url = "https://api.getguru.com/api/v1/collections?token=abc"
-        mock_session.return_value.get.side_effect = [
-            _response([{"id": "1"}, {"id": "2"}], next_link=next_url),
-            _response([{"id": "3"}]),
-        ]
+        _wire(session, [_response([{"id": "1"}, {"id": "2"}], next_link=next_url), _response([{"id": "3"}])])
 
         manager = _make_manager()
-        batches = list(get_rows("user@company.com", "token", "collections", mock.MagicMock(), manager))
+        rows = _rows(_source("collections", manager))
 
-        assert [item["id"] for batch in batches for item in batch] == ["1", "2", "3"]
+        assert [row["id"] for row in rows] == ["1", "2", "3"]
         # State is saved only while a next page exists, after the page is yielded.
         manager.save_state.assert_called_once()
         assert manager.save_state.call_args.args[0].next_url == next_url
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.guru.guru.make_tracked_session")
-    def test_resumes_from_saved_state(self, mock_session):
-        mock_session.return_value.get.return_value = _response([{"id": "9"}])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_state(self, MockSession):
+        session = MockSession.return_value
+        _, urls = _wire(session, [_response([{"id": "9"}])])
 
         resume_url = "https://api.getguru.com/api/v1/collections?token=resume"
         manager = _make_manager(GuruResumeConfig(next_url=resume_url))
 
-        list(get_rows("user@company.com", "token", "collections", mock.MagicMock(), manager))
+        _rows(_source("collections", manager))
 
-        assert mock_session.return_value.get.call_args_list[0].args[0] == resume_url
+        assert urls[0] == resume_url
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.guru.guru.make_tracked_session")
-    def test_stops_pagination_when_next_url_host_differs(self, mock_session):
-        # A tampered Link header pointing off-host must not move the credentialed request.
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_rejects_next_url_with_foreign_host(self, MockSession):
+        # A tampered Link header pointing off-host must not move the credentialed request; the
+        # SSRF host pin rejects it loudly rather than silently exfiltrating the Basic auth header.
+        session = MockSession.return_value
         evil_url = "http://169.254.169.254/latest/meta-data"
-        mock_session.return_value.get.side_effect = [
-            _response([{"id": "1"}], next_link=evil_url),
-        ]
+        _wire(session, [_response([{"id": "1"}], next_link=evil_url), _response([{"id": "2"}])])
 
-        manager = _make_manager()
-        batches = list(get_rows("user@company.com", "token", "collections", mock.MagicMock(), manager))
+        with pytest.raises(ValueError, match="disallowed host"):
+            _rows(_source("collections", _make_manager()))
 
-        assert [item["id"] for batch in batches for item in batch] == ["1"]
-        # Only one request was made; the off-host next URL was neither followed nor saved.
-        assert mock_session.return_value.get.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.guru.guru.make_tracked_session")
-    def test_ignores_resume_url_with_foreign_host(self, mock_session):
-        mock_session.return_value.get.return_value = _response([])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_rejects_resume_url_with_foreign_host(self, MockSession):
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": "9"}])])
 
         manager = _make_manager(GuruResumeConfig(next_url="http://169.254.169.254/latest/meta-data"))
-        list(get_rows("user@company.com", "token", "collections", mock.MagicMock(), manager))
+        with pytest.raises(ValueError, match="disallowed host"):
+            _rows(_source("collections", manager))
 
-        # Falls back to the canonical built URL rather than the foreign resume URL.
-        assert mock_session.return_value.get.call_args.args[0].startswith("https://api.getguru.com/api/v1/collections")
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_rejects_redirect_response(self, MockSession):
+        # Redirects are disabled so a 3xx can't silently move the credentialed request off-host.
+        session = MockSession.return_value
+        _wire(session, [_redirect("http://169.254.169.254/latest/meta-data")])
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.guru.guru.make_tracked_session")
-    def test_members_rows_are_normalized(self, mock_session):
-        mock_session.return_value.get.return_value = _response([{"user": {"email": "jane@company.com"}}])
+        with pytest.raises(ValueError, match="[Rr]edirect"):
+            _rows(_source("collections", _make_manager()))
 
-        manager = _make_manager()
-        batches = list(get_rows("user@company.com", "token", "members", mock.MagicMock(), manager))
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_members_rows_are_normalized(self, MockSession):
+        session = MockSession.return_value
+        _wire(session, [_response([{"user": {"email": "jane@company.com"}}])])
 
-        assert batches == [[{"user": {"email": "jane@company.com"}, "email": "jane@company.com"}]]
+        rows = _rows(_source("members", _make_manager()))
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.guru.guru.make_tracked_session")
-    def test_incremental_request_includes_gql_filter(self, mock_session):
-        mock_session.return_value.get.return_value = _response([])
+        assert rows == [{"user": {"email": "jane@company.com"}, "email": "jane@company.com"}]
 
-        manager = _make_manager()
-        list(
-            get_rows(
-                "user@company.com",
-                "token",
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_request_includes_gql_filter(self, MockSession):
+        session = MockSession.return_value
+        params, _ = _wire(session, [_response([])])
+
+        _rows(
+            _source(
                 "cards",
-                mock.MagicMock(),
-                manager,
+                _make_manager(),
                 should_use_incremental_field=True,
                 db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
                 incremental_field="lastModified",
             )
         )
 
-        url = mock_session.return_value.get.call_args.args[0]
-        query = parse_qs(urlparse(url).query)
-        assert query["q"] == ["lastModified >= 2024-01-01T00:00:00+00:00"]
-        assert query["sortField"] == ["lastModified"]
-        assert query["sortOrder"] == ["asc"]
+        assert params[0]["q"] == "lastModified >= 2024-01-01T00:00:00+00:00"
+        assert params[0]["sortField"] == "lastModified"
+        assert params[0]["sortOrder"] == "asc"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.guru.guru.make_tracked_session")
-    def test_empty_response_stops_without_saving_state(self, mock_session):
-        mock_session.return_value.get.return_value = _response([])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_response_stops_without_saving_state(self, MockSession):
+        session = MockSession.return_value
+        _wire(session, [_response([])])
 
         manager = _make_manager()
-        batches = list(get_rows("user@company.com", "token", "cards", mock.MagicMock(), manager))
+        rows = _rows(_source("cards", manager))
 
-        assert batches == []
+        assert rows == []
         manager.save_state.assert_not_called()
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.guru.guru.make_tracked_session")
-    def test_non_list_response_yields_nothing(self, mock_session):
-        resp = _response([])
-        resp.json.return_value = {"error": "unexpected"}
-        mock_session.return_value.get.return_value = resp
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_non_list_response_fails_loud(self, MockSession):
+        # A 200 body that isn't a bare array means the response shape changed — fail loud rather
+        # than wrapping the stray object as a single row.
+        session = MockSession.return_value
+        _wire(session, [_response({"error": "unexpected"})])
 
-        manager = _make_manager()
-        batches = list(get_rows("user@company.com", "token", "cards", mock.MagicMock(), manager))
-
-        assert batches == []
+        with pytest.raises(ValueError, match="list response body"):
+            _rows(_source("cards", _make_manager()))
 
 
 class TestGuruSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint):
         config = GURU_ENDPOINTS[endpoint]
-        response = guru_source("user@company.com", "token", endpoint, mock.MagicMock(), _make_manager())
+        response = _source(endpoint, _make_manager())
 
         assert response.name == endpoint
         assert response.primary_keys == [config.primary_key]

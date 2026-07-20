@@ -1,197 +1,273 @@
+import json
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest import mock
 
 import requests
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.canny.canny import (
     PAGE_SIZE,
+    CannyBodyAuth,
     CannyResumeConfig,
-    CannyRetryableError,
-    _build_body,
-    _extract_records,
-    _handle_response,
     canny_source,
-    get_rows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.canny.settings import (
-    CANNY_ENDPOINTS,
-    ENDPOINTS,
-    CannyEndpointConfig,
+from products.warehouse_sources.backend.temporal.data_imports.sources.canny.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientRetryableError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
-_POSTS = CANNY_ENDPOINTS["posts"]
-_BOARDS = CANNY_ENDPOINTS["boards"]
-
-
-def _resp(body: Any, status: int = 200) -> Any:
-    response = MagicMock()
-    response.status_code = status
-    response.ok = 200 <= status < 400
-    response.json.return_value = body
-    response.text = str(body)
-    return response
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the canny module.
+CANNY_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.canny.canny.make_tracked_session"
+)
 
 
-def _full_page(key: str) -> dict[str, Any]:
-    return {key: [{"id": str(i)} for i in range(PAGE_SIZE)], "hasMore": True}
+def _response(body: Any, status: int = 200, reason: str = "") -> Response:
+    resp = Response()
+    resp.status_code = status
+    resp.reason = reason
+    resp.url = "https://canny.io/api/v1/posts/list"
+    resp._content = json.dumps(body).encode()
+    return resp
 
 
-def _drive(
-    endpoint: str, manager: Any, responses: list[Any]
-) -> tuple[list[dict[str, Any]], list[list[dict[str, Any]]]]:
-    """Drive ``get_rows`` with a mocked tracked session, returning (posted_bodies, yielded_batches)."""
-    posted_bodies: list[dict[str, Any]] = []
-    response_iter = iter(responses)
-
-    def fake_post(url: str, data: Any = None, timeout: Any = None, **_kwargs: Any) -> Any:
-        posted_bodies.append(dict(data or {}))
-        return next(response_iter)
-
-    with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.canny.canny.make_tracked_session"
-    ) as MockSession:
-        MockSession.return_value.post.side_effect = fake_post
-        batches = list(get_rows(api_key="k", endpoint=endpoint, logger=MagicMock(), resumable_source_manager=manager))
-
-    return posted_bodies, batches
+def _page(key: str, ids: list[str], has_more: bool) -> Response:
+    return _response({key: [{"id": i} for i in ids], "hasMore": has_more})
 
 
-class TestBuildBody:
-    def test_paginated_includes_skip_and_limit(self) -> None:
-        assert _build_body("k", _POSTS, skip=200) == {"apiKey": "k", "skip": 200, "limit": PAGE_SIZE}
-
-    def test_unpaginated_only_api_key(self) -> None:
-        # boards/list takes no pagination params.
-        assert _build_body("k", _BOARDS, skip=0) == {"apiKey": "k"}
+def _full_page(key: str, start: int, has_more: bool = True) -> Response:
+    return _page(key, [str(i) for i in range(start, start + PAGE_SIZE)], has_more)
 
 
-class TestExtractRecords:
-    def test_extracts_configured_key(self) -> None:
-        config = CannyEndpointConfig(path="/v1/x/list", data_key="statusChanges")
-        assert _extract_records({"statusChanges": [{"id": "1"}]}, config) == [{"id": "1"}]
-
-    @pytest.mark.parametrize("body", [{}, {"posts": None}, {"posts": {"id": "1"}}, {"other": [{"id": "1"}]}])
-    def test_missing_or_non_list_returns_empty(self, body: dict[str, Any]) -> None:
-        assert _extract_records(body, _POSTS) == []
+def _make_manager(resume_state: CannyResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
 
 
-class TestHandleResponse:
-    # Exercise the per-response classification directly, so a single attempt's behaviour can be
-    # asserted without driving the tenacity retry loop (and its real backoff sleeps).
-    def _handle(self, response: Any) -> dict[str, Any]:
-        return _handle_response(response, "https://canny.io/api/v1/posts/list", MagicMock())
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session and return a list that captures each request's JSON body AT SEND TIME.
 
-    @pytest.mark.parametrize("status", [429, 500, 503])
-    def test_retryable_statuses_raise_retryable_error(self, status: int) -> None:
-        with pytest.raises(CannyRetryableError):
-            self._handle(_resp({}, status=status))
+    ``request.json`` is a single dict mutated in place across pages, so inspecting it after the run
+    shows only the final state — snapshot a copy when each request is prepared instead.
+    """
+    session.headers = {}
+    body_snapshots: list[dict[str, Any]] = []
 
-    @pytest.mark.parametrize("status", [400, 401, 403])
-    def test_client_errors_raise_http_error(self, status: int) -> None:
-        response = _resp({}, status=status)
-        response.raise_for_status.side_effect = requests.HTTPError(f"{status} Client Error", response=response)
-        with pytest.raises(requests.HTTPError):
-            self._handle(response)
+    def _prepare(request: Any) -> mock.MagicMock:
+        body_snapshots.append(dict(request.json or {}))
+        return mock.MagicMock()
 
-    def test_error_body_on_200_raises_http_error(self) -> None:
-        # Canny can return 200 with an {"error": ...} body for a bad API key.
-        with pytest.raises(requests.HTTPError, match="invalid API key"):
-            self._handle(_resp({"error": "invalid API key"}))
-
-    def test_success_returns_body(self) -> None:
-        assert self._handle(_resp({"posts": [], "hasMore": False})) == {"posts": [], "hasMore": False}
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return body_snapshots
 
 
-class TestGetRows:
-    def test_paginates_until_has_more_false_and_saves_after_each_page(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
 
-        responses = [
-            _full_page("posts"),
-            _full_page("posts"),
-            {"posts": [{"id": "final"}], "hasMore": False},
-        ]
-        posted, batches = _drive("posts", manager, [_resp(r) for r in responses])
 
-        assert [b.get("skip") for b in posted] == [0, PAGE_SIZE, PAGE_SIZE * 2]
-        assert len(batches) == 3
+def _source(endpoint: str, manager: mock.MagicMock, api_key: str = "k"):
+    return canny_source(api_key=api_key, endpoint=endpoint, team_id=1, job_id="j", resumable_source_manager=manager)
+
+
+class TestCannyBodyAuth:
+    def test_injects_api_key_into_existing_json_body(self) -> None:
+        request = requests.Request(
+            method="POST",
+            url="https://canny.io/api/v1/posts/list",
+            json={"skip": 0, "limit": PAGE_SIZE},
+            auth=CannyBodyAuth("secret"),
+        )
+        prepared = requests.Session().prepare_request(request)
+        assert json.loads(prepared.body) == {"skip": 0, "limit": PAGE_SIZE, "apiKey": "secret"}
+
+    def test_creates_body_when_absent(self) -> None:
+        # boards/list sends no pagination params, so the body is just the key.
+        request = requests.Request(
+            method="POST", url="https://canny.io/api/v1/boards/list", auth=CannyBodyAuth("secret")
+        )
+        prepared = requests.Session().prepare_request(request)
+        assert json.loads(prepared.body) == {"apiKey": "secret"}
+
+    def test_declares_api_key_as_secret_for_redaction(self) -> None:
+        assert CannyBodyAuth("secret").secret_values() == ("secret",)
+
+
+class TestPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_paginates_until_has_more_false_and_saves_after_each_page(self, MockSession) -> None:
+        session = MockSession.return_value
+        bodies = _wire(
+            session,
+            [_full_page("posts", 0), _full_page("posts", PAGE_SIZE), _page("posts", ["final"], has_more=False)],
+        )
+
+        manager = _make_manager()
+        rows = _rows(_source("posts", manager))
+
+        assert [r["id"] for r in rows] == [*(str(i) for i in range(2 * PAGE_SIZE)), "final"]
+        assert [b.get("skip") for b in bodies] == [0, PAGE_SIZE, PAGE_SIZE * 2]
+        assert all(b.get("limit") == PAGE_SIZE for b in bodies)
         # State is saved after each non-terminal page so a crash re-yields rather than skips.
         saved = [call.args[0] for call in manager.save_state.call_args_list]
         assert saved == [CannyResumeConfig(skip=PAGE_SIZE), CannyResumeConfig(skip=PAGE_SIZE * 2)]
 
-    def test_resume_seeds_skip_from_saved_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = CannyResumeConfig(skip=PAGE_SIZE * 2)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_full_page_with_has_more_false_stops_without_extra_request(self, MockSession) -> None:
+        # Termination is driven by Canny's hasMore flag, not page size — a full last page must
+        # not trigger a wasted empty-page probe.
+        session = MockSession.return_value
+        _wire(session, [_full_page("posts", 0, has_more=False)])
 
-        posted, batches = _drive("posts", manager, [_resp({"posts": [{"id": "x"}], "hasMore": False})])
+        rows = _rows(_source("posts", _make_manager()))
 
-        assert posted[0].get("skip") == PAGE_SIZE * 2
+        assert len(rows) == PAGE_SIZE
+        assert session.send.call_count == 1
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resume_seeds_skip_from_saved_state(self, MockSession) -> None:
+        session = MockSession.return_value
+        bodies = _wire(session, [_page("posts", ["x"], has_more=False)])
+
+        manager = _make_manager(CannyResumeConfig(skip=PAGE_SIZE * 2))
+        rows = _rows(_source("posts", manager))
+
+        assert bodies[0].get("skip") == PAGE_SIZE * 2
         manager.load_state.assert_called_once()
-        assert len(batches) == 1
+        assert [r["id"] for r in rows] == ["x"]
 
-    def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_terminal_single_page_does_not_save_state(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_page("posts", ["only"], has_more=False)])
 
-        _, batches = _drive("posts", manager, [_resp({"posts": [{"id": "only"}], "hasMore": False})])
+        manager = _make_manager()
+        rows = _rows(_source("posts", manager))
 
-        assert len(batches) == 1
+        assert [r["id"] for r in rows] == ["only"]
         manager.save_state.assert_not_called()
 
-    def test_unpaginated_endpoint_fetches_once(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_unpaginated_endpoint_fetches_once_without_pagination_params(self, MockSession) -> None:
+        session = MockSession.return_value
         # boards/list has no hasMore flag; a single fetch must terminate the loop.
-        posted, batches = _drive("boards", manager, [_resp({"boards": [{"id": "b1"}]})])
+        bodies = _wire(session, [_response({"boards": [{"id": "b1"}]})])
 
-        assert len(posted) == 1
-        assert "skip" not in posted[0]
-        assert batches == [[{"id": "b1"}]]
+        manager = _make_manager()
+        rows = _rows(_source("boards", manager))
+
+        assert session.send.call_count == 1
+        assert "skip" not in bodies[0]
+        assert "limit" not in bodies[0]
+        assert rows == [{"id": "b1"}]
         manager.save_state.assert_not_called()
 
-    def test_empty_page_yields_nothing(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_page_yields_nothing(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_page("posts", [], has_more=False)])
 
-        _, batches = _drive("posts", manager, [_resp({"posts": [], "hasMore": False})])
-
-        assert batches == []
+        manager = _make_manager()
+        assert _rows(_source("posts", manager)) == []
         manager.save_state.assert_not_called()
 
-    def test_error_body_propagates(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+    @pytest.mark.parametrize(
+        "body",
+        [{}, {"posts": None}, {"posts": {"id": "1"}}, {"other": [{"id": "1"}]}],
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_missing_or_non_list_data_key_yields_nothing(self, MockSession, body: dict[str, Any]) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response(body)])
 
-        with pytest.raises(requests.HTTPError):
-            _drive("posts", manager, [_resp({"error": "invalid API key"})])
+        assert _rows(_source("posts", _make_manager())) == []
 
-    def test_registers_api_key_for_redaction(self) -> None:
-        # The secret rides in the POST body through the tracked transport; it must be redacted so it
-        # never lands in HTTP logs/samples.
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_error_body_on_200_raises_http_error(self, MockSession) -> None:
+        # Canny can return 200 with an {"error": ...} body for a bad API key; the message must
+        # carry the error text so the friendly non-retryable mapping can match it.
+        session = MockSession.return_value
+        _wire(session, [_response({"error": "invalid API key"})])
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.canny.canny.make_tracked_session"
-        ) as MockSession:
-            MockSession.return_value.post.return_value = _resp({"posts": [], "hasMore": False})
-            list(get_rows(api_key="secret", endpoint="posts", logger=MagicMock(), resumable_source_manager=manager))
+        with pytest.raises(requests.HTTPError, match="invalid API key"):
+            _rows(_source("posts", _make_manager()))
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_error_body_on_unpaginated_endpoint_raises(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"error": "invalid API key"})])
+
+        with pytest.raises(requests.HTTPError, match="invalid API key"):
+            _rows(_source("boards", _make_manager()))
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_registers_api_key_for_redaction(self, MockSession) -> None:
+        # The secret rides in the POST body through the tracked transport; it must be redacted so
+        # it never lands in HTTP logs/samples.
+        session = MockSession.return_value
+        _wire(session, [_page("posts", [], has_more=False)])
+
+        _rows(_source("posts", _make_manager(), api_key="secret"))
 
         MockSession.assert_called_once_with(redact_values=("secret",))
 
 
+class TestRetries:
+    @pytest.mark.parametrize("status", [429, 500, 503])
+    @mock.patch("time.sleep")
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_retryable_status_is_retried_then_succeeds(self, MockSession, _sleep, status: int) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({}, status=status), _page("posts", ["a"], has_more=False)])
+
+        rows = _rows(_source("posts", _make_manager()))
+
+        assert [r["id"] for r in rows] == ["a"]
+        assert session.send.call_count == 2
+
+    @mock.patch("time.sleep")
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_retries_exhaust_then_raise(self, MockSession, _sleep) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({}, status=500)] * 5)
+
+        with pytest.raises(RESTClientRetryableError):
+            _rows(_source("posts", _make_manager()))
+        assert session.send.call_count == 5
+
+    @pytest.mark.parametrize(
+        ("status", "reason"),
+        [(400, "Bad Request"), (401, "Unauthorized"), (403, "Forbidden")],
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_client_errors_raise_http_error_without_retry(self, MockSession, status: int, reason: str) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({}, status=status, reason=reason)])
+
+        with pytest.raises(requests.HTTPError, match=f"{status} Client Error"):
+            _rows(_source("posts", _make_manager()))
+        assert session.send.call_count == 1
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_unauthorized_message_matches_non_retryable_mapping(self, MockSession) -> None:
+        # source.py maps this exact substring to the friendly invalid-key message.
+        session = MockSession.return_value
+        _wire(session, [_response({}, status=401, reason="Unauthorized")])
+
+        with pytest.raises(requests.HTTPError, match="401 Client Error: Unauthorized for url: https://canny.io"):
+            _rows(_source("posts", _make_manager()))
+
+
 class TestValidateCredentials:
     def _validate(self, response: Any = None, raises: Exception | None = None) -> bool:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.canny.canny.make_tracked_session"
-        ) as MockSession:
+        with mock.patch(CANNY_SESSION_PATCH) as MockSession:
             post = MockSession.return_value.post
             if raises is not None:
                 post.side_effect = raises
@@ -200,22 +276,20 @@ class TestValidateCredentials:
             return validate_credentials("k")
 
     def test_valid_key(self) -> None:
-        assert self._validate(_resp({"boards": []})) is True
+        assert self._validate(_response({"boards": []})) is True
 
     def test_error_body_is_invalid(self) -> None:
-        assert self._validate(_resp({"error": "invalid API key"})) is False
+        assert self._validate(_response({"error": "invalid API key"})) is False
 
     def test_non_ok_is_invalid(self) -> None:
-        assert self._validate(_resp({}, status=401)) is False
+        assert self._validate(_response({}, status=401)) is False
 
     def test_network_error_is_invalid(self) -> None:
         assert self._validate(raises=requests.ConnectionError("boom")) is False
 
     def test_registers_api_key_for_redaction(self) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.canny.canny.make_tracked_session"
-        ) as MockSession:
-            MockSession.return_value.post.return_value = _resp({"boards": []})
+        with mock.patch(CANNY_SESSION_PATCH) as MockSession:
+            MockSession.return_value.post.return_value = _response({"boards": []})
             validate_credentials("secret")
 
         MockSession.assert_called_once_with(redact_values=("secret",))
@@ -224,9 +298,7 @@ class TestValidateCredentials:
 class TestCannySource:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_source_response_shape(self, endpoint: str) -> None:
-        response = canny_source(
-            api_key="k", endpoint=endpoint, logger=MagicMock(), resumable_source_manager=MagicMock()
-        )
+        response = _source(endpoint, _make_manager())
         assert response.name == endpoint
         assert response.primary_keys == ["id"]
         # Every Canny object carries a stable `created` timestamp we partition on.

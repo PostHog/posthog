@@ -1,16 +1,21 @@
 import dataclasses
-from collections.abc import Iterator
 from datetime import date, datetime
 from typing import Any, Optional
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
-
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    JSONResponseCursorPaginator,
+    SinglePagePaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.incident_io.settings import (
     INCIDENT_IO_ENDPOINTS,
     IncidentIoEndpointConfig,
@@ -18,28 +23,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.incident_i
 
 # Single global host — incident.io has no regions or per-account base paths.
 INCIDENT_IO_BASE_URL = "https://api.incident.io"
-REQUEST_TIMEOUT_SECONDS = 60
 VALIDATION_TIMEOUT_SECONDS = 10
-MAX_RETRIES = 5
-MAX_RETRY_AFTER_SECONDS = 120
-
-
-class IncidentIoRetryableError(Exception):
-    def __init__(self, message: str, retry_after: Optional[float] = None):
-        super().__init__(message)
-        self.retry_after = retry_after
 
 
 @dataclasses.dataclass
 class IncidentIoResumeConfig:
     next_url: str
-
-
-def _get_headers(api_key: str) -> dict[str, str]:
-    return {
-        "Authorization": f"Bearer {api_key}",
-        "Accept": "application/json",
-    }
 
 
 def _build_url(path: str, params: dict[str, Any]) -> str:
@@ -59,6 +48,10 @@ def _params_from_url(url: str) -> dict[str, str]:
     params = dict(parse_qsl(urlsplit(url).query))
     params.pop("after", None)
     return params
+
+
+def _after_from_url(url: str) -> Optional[str]:
+    return dict(parse_qsl(urlsplit(url).query)).get("after")
 
 
 def _format_filter_value(value: Any) -> Optional[str]:
@@ -97,24 +90,14 @@ def _build_params(
     return params
 
 
-def _parse_retry_after(header_value: Optional[str]) -> Optional[float]:
-    if not header_value:
-        return None
-    try:
-        return max(0.0, float(header_value))
-    except ValueError:
-        # Retry-After can also be an HTTP date; fall back to exponential backoff.
-        return None
-
-
-_fallback_wait = wait_exponential_jitter(initial=1, max=60)
-
-
-def _wait_with_retry_after(retry_state: RetryCallState) -> float:
-    exception = retry_state.outcome.exception() if retry_state.outcome else None
-    if isinstance(exception, IncidentIoRetryableError) and exception.retry_after is not None:
-        return min(exception.retry_after, MAX_RETRY_AFTER_SECONDS)
-    return _fallback_wait(retry_state)
+def _client_config(api_key: str) -> dict[str, Any]:
+    # Bearer token goes through the framework auth config so it's redacted from logs and raised
+    # errors; only the non-secret Accept header rides in the client headers.
+    return {
+        "base_url": INCIDENT_IO_BASE_URL,
+        "headers": {"Accept": "application/json"},
+        "auth": {"type": "bearer", "token": api_key},
+    }
 
 
 def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tuple[bool, str | None]:
@@ -128,19 +111,20 @@ def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tup
     config = INCIDENT_IO_ENDPOINTS.get(schema_name or "", INCIDENT_IO_ENDPOINTS["incidents"])
     params: dict[str, Any] = {"page_size": 1} if config.paginated else {}
 
-    try:
-        response = make_tracked_session().get(
-            _build_url(config.path, params),
-            headers=_get_headers(api_key),
-            timeout=VALIDATION_TIMEOUT_SECONDS,
-        )
-    except Exception:
+    _ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        _build_url(config.path, params),
+        headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+        timeout=VALIDATION_TIMEOUT_SECONDS,
+    )
+
+    if status is None:
         return False, "Unable to reach the incident.io API. Please try again."
 
-    if response.status_code == 401:
+    if status == 401:
         return False, "incident.io authentication failed. Please check that your API key is valid."
 
-    if response.status_code == 403:
+    if status == 403:
         if schema_name is None:
             return True, None
         return (
@@ -148,85 +132,17 @@ def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tup
             f"Your incident.io API key can't list {schema_name}. incident.io API keys have per-resource permissions — grant the key the 'view' scope for this resource and try again.",
         )
 
-    if response.ok:
+    if status < 400:
         return True, None
 
-    return False, f"incident.io API returned an unexpected response (status {response.status_code})."
-
-
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[IncidentIoResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-    incremental_field: str | None = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = INCIDENT_IO_ENDPOINTS[endpoint]
-    headers = _get_headers(api_key)
-
-    incremental_value = _format_filter_value(db_incremental_field_last_value) if should_use_incremental_field else None
-
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume_config is not None:
-        url: str = resume_config.next_url
-        params: dict[str, Any] = _params_from_url(url)
-        logger.debug(f"incident.io: resuming from URL: {url}")
-    else:
-        params = _build_params(config, incremental_field if should_use_incremental_field else None, incremental_value)
-        url = _build_url(config.path, params)
-
-    @retry(
-        retry=retry_if_exception_type((IncidentIoRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(MAX_RETRIES),
-        wait=_wait_with_retry_after,
-        reraise=True,
-    )
-    def fetch_page(page_url: str) -> dict[str, Any]:
-        response = make_tracked_session().get(page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
-
-        # incident.io rate-limits at 1,200 req/min; honor Retry-After when present and
-        # fall back to exponential backoff otherwise.
-        if response.status_code == 429:
-            raise IncidentIoRetryableError(
-                f"incident.io rate limit hit: url={page_url}",
-                retry_after=_parse_retry_after(response.headers.get("Retry-After")),
-            )
-
-        if response.status_code >= 500:
-            raise IncidentIoRetryableError(
-                f"incident.io API error (retryable): status={response.status_code}, url={page_url}"
-            )
-
-        if not response.ok:
-            logger.error(f"incident.io API error: status={response.status_code}, body={response.text}, url={page_url}")
-            response.raise_for_status()
-
-        return response.json()
-
-    while True:
-        data = fetch_page(url)
-        items = data.get(config.data_key) or []
-
-        if items:
-            yield items
-
-        # `pagination_meta.after` is a record ID tied to this run's ordering — it's only
-        # valid as a within-run page cursor, never persisted as the incremental watermark
-        # (the pipeline persists the max incremental field value instead).
-        after = (data.get("pagination_meta") or {}).get("after")
-        if not config.paginated or not after:
-            break
-
-        url = _build_url(config.path, {**params, "after": after})
-        resumable_source_manager.save_state(IncidentIoResumeConfig(next_url=url))
+    return False, f"incident.io API returned an unexpected response (status {status})."
 
 
 def incident_io_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[IncidentIoResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
@@ -234,17 +150,64 @@ def incident_io_source(
 ) -> SourceResponse:
     config = INCIDENT_IO_ENDPOINTS[endpoint]
 
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume is not None:
+        # Preserve the interrupted chain's filters and cursor verbatim — never recompute the
+        # `gte` filter from a possibly-advanced watermark against an old `after` cursor.
+        params: dict[str, Any] = _params_from_url(resume.next_url)
+        after = _after_from_url(resume.next_url)
+        if after is not None:
+            initial_paginator_state = {"cursor": after}
+    else:
+        incremental_value = (
+            _format_filter_value(db_incremental_field_last_value) if should_use_incremental_field else None
+        )
+        params = _build_params(config, incremental_field if should_use_incremental_field else None, incremental_value)
+
+    # incident.io paginates via a record-ID cursor in `pagination_meta.after`, replayed as the
+    # `after` query param. Config-style endpoints return the full list in one unpaginated response.
+    paginator: BasePaginator = (
+        JSONResponseCursorPaginator(cursor_path="pagination_meta.after", cursor_param="after")
+        if config.paginated
+        else SinglePagePaginator()
+    )
+
+    rest_config: RESTAPIConfig = {
+        "client": _client_config(api_key),
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": params,
+                    "data_selector": config.data_key,
+                    "paginator": paginator,
+                },
+            }
+        ],
+    }
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only while a next page remains; save AFTER a page is yielded so a crash re-yields
+        # the last page (merge dedupes on id) rather than skipping it. The saved URL keeps the
+        # run's filters so resume replays the exact same chain with the next cursor.
+        if state and state.get("cursor"):
+            url = _build_url(config.path, {**params, "after": state["cursor"]})
+            resumable_source_manager.save_state(IncidentIoResumeConfig(next_url=url))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-            incremental_field=incremental_field,
-        ),
+        items=lambda: resource,
         primary_keys=[config.primary_key],
         # Incidents are requested with `sort_by=created_at_oldest_first` (the only sortable
         # endpoint). When syncing incrementally on `updated_at`, values within a run aren't
