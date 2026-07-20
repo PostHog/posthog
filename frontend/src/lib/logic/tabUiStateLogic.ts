@@ -131,6 +131,14 @@ export const tabUiStateLogic = kea<tabUiStateLogicType>([
                     if (next.length === existing.length) {
                         return state
                     }
+                    if (next.length === 0) {
+                        // Drop the empty slot rather than keeping `[vizKey]: []` forever — ad-hoc
+                        // tables get a fresh vizKey every mount, so an emptied slot will never be
+                        // reused and would otherwise grow this bucket unboundedly per session.
+                        const nextTabState = { ...tabState }
+                        delete nextTabState[vizKey]
+                        return { ...state, [tabId]: nextTabState }
+                    }
                     return { ...state, [tabId]: { ...tabState, [vizKey]: next } }
                 },
                 clearTabUiState: (state, { tabId }) => {

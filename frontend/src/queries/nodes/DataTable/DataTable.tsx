@@ -147,6 +147,8 @@ const DEFAULT_COLUMN_FEATURES = [
     ColumnFeature.canRemove,
 ]
 
+const EVENT_DETAIL_TABLE_PROPS = { pagination: { pageSize: 50, hideOnSinglePage: true } }
+
 let uniqueNode = 0
 
 export function DataTable({
@@ -757,7 +759,7 @@ export function DataTable({
                                 return (
                                     <EventDetails
                                         event={result[columnsInResponse.indexOf('*')] ?? {}}
-                                        tableProps={{ pagination: { pageSize: 50, hideOnSinglePage: true } }}
+                                        tableProps={EVENT_DETAIL_TABLE_PROPS}
                                     />
                                 )
                             }
@@ -765,7 +767,7 @@ export function DataTable({
                                 return (
                                     <EventDetails
                                         event={result as EventType}
-                                        tableProps={{ pagination: { pageSize: 50, hideOnSinglePage: true } }}
+                                        tableProps={EVENT_DETAIL_TABLE_PROPS}
                                     />
                                 )
                             }

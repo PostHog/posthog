@@ -39,6 +39,14 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
         }
         return ''
     }
+    const eventId = getEventId(event)
+
+    // Each tab's PropertiesTable paginates independently, so give every embedded LemonTable a
+    // unique id — otherwise LemonTable's router-backed pagination stores the current page under
+    // the shared `?page=` search param, and paging one expanded event's table pages every other
+    // expanded table (and every tab of this same EventDetails) at once.
+    const tablePropsForTab = (tabKey: string): Partial<LemonTableProps<Record<string, any>>> | undefined =>
+        tableProps ? { ...tableProps, id: `event-details-${eventId}-${tabKey}` } : undefined
 
     return (
         <EventPropertyTabs
@@ -132,7 +140,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                     type={PropertyDefinitionType.Event}
                                     properties={properties}
                                     sortProperties
-                                    tableProps={tableProps}
+                                    tableProps={tablePropsForTab(tabKey)}
                                     collapsible
                                 />
                             </div>
@@ -151,7 +159,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                     type={PropertyDefinitionType.Event}
                                     properties={properties}
                                     useDetectedPropertyType={true}
-                                    tableProps={tableProps}
+                                    tableProps={tablePropsForTab(tabKey)}
                                     searchable
                                     collapsible
                                 />
@@ -171,7 +179,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                     type={PropertyDefinitionType.Event}
                                     properties={properties}
                                     useDetectedPropertyType={true}
-                                    tableProps={tableProps}
+                                    tableProps={tablePropsForTab(tabKey)}
                                     searchable
                                     collapsible
                                 />
@@ -201,7 +209,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                     type={PropertyDefinitionType.Event}
                                     properties={properties}
                                     useDetectedPropertyType={['flags', 'properties'].includes(tabKey)}
-                                    tableProps={tableProps}
+                                    tableProps={tablePropsForTab(tabKey)}
                                     filterable={tabKey === 'properties'}
                                     sortProperties
                                     // metadata is so short, that serachable is wasted space

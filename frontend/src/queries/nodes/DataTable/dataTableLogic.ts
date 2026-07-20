@@ -282,8 +282,7 @@ export interface dataTableLogicMeta {
             currentTeam: TeamPublicType | TeamType | null
         ) => DataTableRow[] | null
         getExpandedRowKey: (
-            columnsInResponse: string[] | null,
-            query: DataTableNode
+            columnsInResponse: string[] | null
         ) => (row: DataTableRow, rowIndex: number) => ExpandedRowKey
         visibleExpandedRowKeys: (
             dataTableRows: DataTableRow[] | null,
@@ -373,6 +372,12 @@ export const dataTableLogic = kea<dataTableLogicType>([
         // events no longer visible so the collection can't grow unbounded across
         // pagination/query changes, and a reordered result can't inherit expansion.
         loadDataSuccess: () => {
+            // A `null` result (no team in export/shared context, an empty query, a validation
+            // failure) means "no data received", not "no rows are visible" — reconciling against
+            // it would wipe every persisted expansion key for this vizKey.
+            if (values.dataTableRows === null) {
+                return
+            }
             const visibleKeys = values.visibleExpandedRowKeys
             actions.reconcileExpandedRows(undefined, props.vizKey, visibleKeys)
         },
@@ -501,16 +506,12 @@ export const dataTableLogic = kea<dataTableLogicType>([
             { resultEqualityCheck: objectsEqual },
         ],
         getExpandedRowKey: [
-            (s, p) => [s.columnsInResponse, p.query],
-            (
-                columnsInResponse: string[] | null,
-                query: DataTableNode
-            ): ((row: DataTableRow, rowIndex: number) => ExpandedRowKey) => {
-                const starColumnIndex = columnsInResponse?.includes('*')
-                    ? columnsInResponse.indexOf('*')
-                    : isEventsQuery(query.source)
-                      ? 0
-                      : null
+            (s) => [s.columnsInResponse],
+            (columnsInResponse: string[] | null): ((row: DataTableRow, rowIndex: number) => ExpandedRowKey) => {
+                // Only column 0 holding `*` guarantees the full event is at that position — an
+                // events query can `select` other columns first (e.g. `person`), so guessing
+                // index 0 without `*` would key expansion off the wrong object.
+                const starColumnIndex = columnsInResponse?.includes('*') ? columnsInResponse.indexOf('*') : null
                 return (row, rowIndex) => getRowExpansionKey(row, rowIndex, starColumnIndex)
             },
         ],
