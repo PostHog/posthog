@@ -7703,6 +7703,7 @@ export const externalDataSources = [
     'Kommo',
     'Axiom',
     'Plivo',
+    'DataForSEO',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

@@ -225,6 +225,7 @@
           ExternalDataSourceType.CUSTOMERIO: CustomerIOSourceConfig,
           ExternalDataSourceType.CUSTOMERLY: CustomerlySourceConfig,
           ExternalDataSourceType.DAGSTERCLOUD: DagsterCloudSourceConfig,
+          ExternalDataSourceType.DATAFORSEO: DataForSEOSourceConfig,
           ExternalDataSourceType.DATABRICKS: DatabricksSourceConfig,
           ExternalDataSourceType.DATADOG: DatadogSourceConfig,
           ExternalDataSourceType.DATAHUB: DatahubSourceConfig,
