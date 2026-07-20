@@ -359,7 +359,7 @@ class RESTClient:
 
         if response.status_code == 429 or response.status_code >= 500:
             raise RESTClientRetryableError(
-                self._redact(f"HTTP {response.status_code} for {_safe_url(response.url)}"),
+                self._redact(f"HTTP {response.status_code} for {response.url}"),
                 retry_after=_parse_retry_after(response),
             )
 
@@ -396,9 +396,7 @@ class RESTClient:
                 raise RESTClientNonRetryableError(
                     self._redact(f"Non-JSON response from {_safe_url(response.url)}")
                 ) from e
-            raise RESTClientRetryableError(
-                self._redact(f"Malformed JSON response from {_safe_url(response.url)}: {e}")
-            ) from e
+            raise RESTClientRetryableError(self._redact(f"Malformed JSON response from {response.url}: {e}")) from e
 
         # Runs inside the retry loop so an unexpected-but-parseable 200 body (wrong shape) can be
         # reissued as retryable rather than surfacing as a permanent error or a garbage row.

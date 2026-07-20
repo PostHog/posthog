@@ -209,46 +209,39 @@ class TestRetry:
 
 
 class TestApiVersionHeader:
-    def _headers_for_version(self, api_version: str) -> dict[str, str]:
-        """Return the headers get_rows sends for a given resolved version."""
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-        captured: dict[str, str] = {}
+    def _headers_for(self, endpoint: str, manager: MagicMock, **source_kwargs: Any) -> dict[str, str]:
+        """Return the session headers mailerlite_source pins for a run.
 
-        def fake_get(url: str, *_args: Any, **kwargs: Any) -> Response:
-            captured.update(kwargs["headers"])
-            return _make_response(_page([{"id": "1"}], None))
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite.mailerlite.make_tracked_session"
-        ) as MockSession:
-            MockSession.return_value.get.side_effect = fake_get
-            list(get_rows("test-key", "subscribers", MagicMock(), manager, api_version=api_version))
-        return captured
+        The REST client merges its configured headers onto the session (``session.headers``),
+        so the ``X-Version`` pin lands there rather than on each individual request.
+        """
+        with patch(CLIENT_SESSION_PATCH) as MockSession:
+            session = MockSession.return_value
+            _wire(session, [_page([{"id": "1"}], None)])
+            source = mailerlite_source(
+                api_key="test-key",
+                endpoint=endpoint,
+                team_id=1,
+                job_id="j",
+                resumable_source_manager=manager,
+                **source_kwargs,
+            )
+            list(cast("Iterable[Any]", source.items()))
+        return session.headers
 
     def test_v1_sends_no_version_header(self) -> None:
         # v1 predates version pinning; existing syncs must stay byte-for-byte unchanged.
-        headers = self._headers_for_version(MAILERLITE_V1)
+        headers = self._headers_for("subscribers", _make_manager(), api_version=MAILERLITE_V1)
         assert "X-Version" not in headers
 
-    def test_default_get_rows_version_is_v1(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-        captured: dict[str, str] = {}
-
-        def fake_get(url: str, *_args: Any, **kwargs: Any) -> Response:
-            captured.update(kwargs["headers"])
-            return _make_response(_page([{"id": "1"}], None))
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite.mailerlite.make_tracked_session"
-        ) as MockSession:
-            MockSession.return_value.get.side_effect = fake_get
-            list(get_rows("test-key", "subscribers", MagicMock(), manager))
-        assert "X-Version" not in captured
+    def test_default_source_version_is_v1(self) -> None:
+        # The function-level default stays v1; the source class resolves an unpinned instance to
+        # its v2 default before calling, so existing unpinned callers here are unchanged.
+        headers = self._headers_for("subscribers", _make_manager())
+        assert "X-Version" not in headers
 
     def test_v2_pins_version_header(self) -> None:
-        headers = self._headers_for_version(MAILERLITE_V2)
+        headers = self._headers_for("subscribers", _make_manager(), api_version=MAILERLITE_V2)
         assert headers["X-Version"] == "2038-01-19"
 
 
