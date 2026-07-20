@@ -48,7 +48,7 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
         url="https://mcp.box.com",
         description="Search and manage Box content with Box AI-powered Q&A and extraction.",
         auth_type="oauth",
-        category="productivity",
+        category="data",
         icon_domain="box.com",
     ),
     CatalogEntry(
@@ -63,8 +63,8 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
         name="Cisco ThousandEyes",
         url="https://api.thousandeyes.com/mcp",
         description="Query ThousandEyes network intelligence and internet performance data.",
-        auth_type="api_key",
-        category="infra",
+        auth_type="oauth",
+        category="data",
         icon_domain="thousandeyes.com",
     ),
     CatalogEntry(
@@ -72,7 +72,7 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
         url="https://api.circle.com/v1/codegen/mcp",
         description="Build on Circle stablecoin, wallet, and payment infrastructure.",
         auth_type="api_key",
-        category="business",
+        category="dev",
         icon_domain="circle.com",
     ),
     CatalogEntry(
@@ -88,7 +88,7 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
         url="https://mcp.clickhouse.cloud/mcp",
         description="Query ClickHouse Cloud databases, schemas, and analytics.",
         auth_type="oauth",
-        category="data",
+        category="infra",
         icon_domain="clickhouse.com",
     ),
     CatalogEntry(
@@ -104,7 +104,7 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
         url="https://mcp.context7.com/mcp",
         description="Retrieve up-to-date developer documentation for libraries and frameworks.",
         auth_type="api_key",
-        category="dev",
+        category="productivity",
         icon_domain="context7.com",
     ),
     CatalogEntry(
@@ -112,7 +112,7 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
         url="https://mcp.datadoghq.com/api/unstable/mcp-server/mcp",
         description="Query Datadog logs, metrics, traces, and dashboards.",
         auth_type="oauth",
-        category="infra",
+        category="data",
         icon_domain="datadoghq.com",
     ),
     CatalogEntry(
@@ -136,7 +136,7 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
         url="https://api.cloud.firetiger.com/mcp/v1",
         description="Run Firetiger telemetry queries, investigations, and observability automation.",
         auth_type="oauth",
-        category="infra",
+        category="dev",
         icon_domain="firetiger.com",
     ),
     CatalogEntry(
@@ -216,7 +216,7 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
         url="https://mcp.neon.tech/mcp",
         description="Manage Neon serverless Postgres projects, branches, and databases.",
         auth_type="oauth",
-        category="data",
+        category="infra",
         icon_domain="neon.tech",
     ),
     CatalogEntry(
@@ -248,7 +248,7 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
         url="https://mcp.pscale.dev/mcp/planetscale",
         description="Manage PlanetScale databases, branches, schemas, and insights.",
         auth_type="oauth",
-        category="data",
+        category="infra",
         icon_domain="planetscale.com",
     ),
     CatalogEntry(
@@ -264,7 +264,7 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
         url="https://mcp.prisma.io/mcp",
         description="Manage Prisma Postgres databases and ORM workflows.",
         auth_type="oauth",
-        category="data",
+        category="infra",
         icon_domain="prisma.io",
     ),
     CatalogEntry(
@@ -272,15 +272,15 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
         url="https://mcp.render.com/mcp",
         description="Deploy, debug, and monitor applications on Render.",
         auth_type="api_key",
-        category="infra",
+        category="dev",
         icon_domain="render.com",
     ),
     CatalogEntry(
         name="Sanity",
-        url="https://mcp.sanity.io/mcp",
+        url="https://mcp.sanity.io",
         description="Work with Sanity content studio, schemas, and structured content.",
         auth_type="oauth",
-        category="design",
+        category="dev",
         icon_domain="sanity.io",
     ),
     CatalogEntry(
@@ -328,7 +328,7 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
         url="https://mcp.supabase.com/mcp",
         description="Manage Supabase projects, databases, and branches.",
         auth_type="oauth",
-        category="data",
+        category="infra",
         icon_domain="supabase.com",
     ),
     CatalogEntry(
@@ -344,7 +344,7 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
         url="https://agent.thoughtspot.app/mcp",
         description="Search ThoughtSpot developer docs and embedded analytics APIs.",
         auth_type="oauth",
-        category="data",
+        category="dev",
         icon_domain="thoughtspot.com",
     ),
     CatalogEntry(
@@ -352,7 +352,7 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
         url="https://mcp.wix.com/mcp",
         description="Manage Wix sites, apps, and dashboard extensions.",
         auth_type="oauth",
-        category="design",
+        category="business",
         icon_domain="wix.com",
     ),
 ]
