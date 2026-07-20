@@ -227,6 +227,20 @@ def on_worker_process_shutdown(**kwargs) -> None:
 
         multiprocess.mark_process_dead(os.getpid())
 
+    # Flush the posthoganalytics SDK's final metrics window: `client.metrics`
+    # aggregates in memory and flushes on an interval, so a recycled child
+    # (--max-tasks-per-child) would otherwise drop up to one interval of samples.
+    # Inert on SDK versions without the metrics API and on untouched/disabled clients.
+    import posthoganalytics  # noqa: PLC0415 — keep the SDK off the celery import path
+
+    try:
+        client = posthoganalytics.default_client
+        metrics = getattr(client, "metrics", None) if client is not None else None
+        if metrics is not None:
+            metrics.flush()
+    except Exception:
+        logger.warning("posthoganalytics_metrics_flush_failed", exc_info=True)
+
 
 # Set up clickhouse query instrumentation
 @task_prerun.connect

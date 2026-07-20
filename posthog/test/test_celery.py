@@ -1,7 +1,45 @@
 from unittest import TestCase
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+import posthoganalytics
+from parameterized import parameterized
+
+from posthog.celery import on_worker_process_shutdown
 from posthog.tasks.tasks import clickhouse_errors_count
+
+
+class TestWorkerShutdownFlushesAnalyticsMetrics(TestCase):
+    def test_flushes_sdk_metrics_tail_window(self) -> None:
+        client = MagicMock()
+        with patch.object(posthoganalytics, "default_client", client):
+            on_worker_process_shutdown()
+        client.metrics.flush.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("no_default_client", lambda: None),
+            # The pinned SDK version has no `metrics` API — the hook must stay
+            # inert (a bare `client.metrics.flush()` would raise on every
+            # worker recycle until the dependency is bumped).
+            (
+                "real_client_on_pinned_sdk_version",
+                lambda: posthoganalytics.Client("phc_test", sync_mode=True, disabled=True),
+            ),
+            ("flush_raises", lambda: MagicMock(**{"metrics.flush.side_effect": RuntimeError("network down")})),
+        ]
+    )
+    def test_handler_never_breaks_worker_shutdown(self, _name: str, client_factory) -> None:
+        with patch.object(posthoganalytics, "default_client", client_factory()):
+            on_worker_process_shutdown()
+
+
+class TestAnalyticsMetricsConfig(TestCase):
+    def test_apps_ready_configures_module_level_metrics(self) -> None:
+        # Deleting the "unused" attr assignment in apps.py before the SDK bump
+        # would make the bump silently ship service_name='unknown_service'.
+        config = getattr(posthoganalytics, "metrics", None)
+        assert isinstance(config, dict)
+        assert config["service_name"]
 
 
 class TestCeleryMetrics(TestCase):
