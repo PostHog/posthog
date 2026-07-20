@@ -65,14 +65,8 @@ tools:
     data-catalog-certifications-list:
         operation: data_catalog_certifications_list
         enabled: false
-    data-catalog-certifications-partial-update:
-        operation: data_catalog_certifications_partial_update
-        enabled: false
     data-catalog-certifications-retrieve:
         operation: data_catalog_certifications_retrieve
-        enabled: false
-    data-catalog-certifications-update:
-        operation: data_catalog_certifications_update
         enabled: false
     data-catalog-metric-approve:
         operation: data_catalog_metrics_approve_create
