@@ -724,7 +724,7 @@ jobs:
     # Collate job - single required status check for branch protection.
     # Individual jobs skip entirely when no Rust changes, saving runner time.
     rust_tests:
-        needs: [changes, affected, build, test, linting]
+        needs: [changes, affected, build, test, linting, personhog-gate]
         name: Rust Tests Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -763,6 +763,13 @@ jobs:
 
                   if [[ "${{ needs.linting.result }}" != "success" && "${{ needs.linting.result }}" != "skipped" ]]; then
                     echo "Rust linting failed."
+                    exit 1
+                  fi
+
+                  # Skips unless the affected computation marks personhog-test-harness,
+                  # so this only blocks on PRs where the e2e gate actually ran.
+                  if [[ "${{ needs.personhog-gate.result }}" != "success" && "${{ needs.personhog-gate.result }}" != "skipped" ]]; then
+                    echo "PersonHog e2e gate did not succeed (result: ${{ needs.personhog-gate.result }})."
                     exit 1
                   fi
 
