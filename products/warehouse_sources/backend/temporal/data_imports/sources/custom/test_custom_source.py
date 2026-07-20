@@ -30,6 +30,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     OAuth2AuthRequestError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import create_auth
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientNonRetryableError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.custom.source import (
     MAX_MANIFEST_RESOURCES,
     PREVIEW_MAX_FANOUT_PARENTS,
@@ -1749,6 +1752,16 @@ class TestCustomSourceNonRetryableErrors(SimpleTestCase):
 
         non_retryable = CustomSource().get_non_retryable_errors()
         assert any(key in str(ctx.exception) for key in non_retryable)
+
+    def test_non_json_response_message_is_classified_non_retryable(self):
+        # The REST client raises RESTClientNonRetryableError when a configured endpoint
+        # returns non-JSON (an HTML/plain-text error page) on a 2xx. Build the real error the
+        # client raises so this breaks if its stable prefix drifts from the classifier's key.
+        # The URL is a placeholder, never a real customer host.
+        error = RESTClientNonRetryableError("Non-JSON response from https://api.example.com/leads")
+
+        non_retryable = CustomSource().get_non_retryable_errors()
+        assert any(key in str(error) for key in non_retryable)
 
     @parameterized.expand(["invalid_client", "invalid_grant"])
     def test_oauth2_permanent_errors_are_classified_non_retryable(self, error_code):
