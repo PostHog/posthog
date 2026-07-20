@@ -893,7 +893,7 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
     )
 }
 
-function InternalDataTableVisualization(
+export function InternalDataTableVisualization(
     props: DataTableVisualizationProps & { showSettingsPanel: boolean }
 ): JSX.Element | null {
     const {
