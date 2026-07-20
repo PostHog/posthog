@@ -492,6 +492,7 @@ class EnrichedReviewer(ContractModel):
     github_name: str | None
     relevant_commits: list[RelevantCommit]
     user: SignalReviewerUserInfo | None
+    reason: str | None = None
 
 
 # ── Union over all signal variants ──────────────────────────────────────────────

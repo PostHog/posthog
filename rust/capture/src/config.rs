@@ -191,6 +191,18 @@ pub struct Config {
     /// Defaults to redis_connection_timeout_ms if unset.
     pub global_rate_limit_redis_connection_timeout_ms: Option<u64>,
 
+    /// Redis key holding the dynamic custom per-key rate-limit thresholds
+    /// (JSON object of `{key: threshold}`), written by Django. When set, the
+    /// per-(token, distinct_id) limiter refreshes its custom thresholds from
+    /// this key on a timer, overriding the static CSV overrides. Sourced from
+    /// the same Redis as event restrictions (`event_restrictions_redis_url`).
+    /// When unset, the limiter uses only the static CSV overrides.
+    pub global_rate_limit_custom_threshold_key: Option<String>,
+
+    /// How often to refresh the dynamic custom thresholds from Redis (seconds).
+    #[envconfig(default = "60")]
+    pub global_rate_limit_custom_threshold_refresh_secs: u64,
+
     // Event restrictions configuration (reads from Redis, synced by Django)
     #[envconfig(default = "false")]
     pub event_restrictions_enabled: bool,

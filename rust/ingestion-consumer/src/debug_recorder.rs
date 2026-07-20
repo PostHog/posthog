@@ -176,6 +176,11 @@ pub struct DebugState {
     pub group_id: String,
     pub workers: Vec<WorkerStatus>,
     pub dispatcher: DispatcherLoad,
+    /// This pod's index among its ready peers; `None` while not yet ready or
+    /// when peer awareness is disabled.
+    pub peer_index: Option<usize>,
+    /// Ready peer count; `None` when peer awareness is disabled.
+    pub peer_count: Option<usize>,
     pub events: Vec<DebugEvent>,
 }
 
@@ -186,6 +191,10 @@ pub struct DebugLoad {
     pub group_id: String,
     pub workers: Vec<WorkerStatus>,
     pub dispatcher: DispatcherLoad,
+    /// See [`DebugState::peer_index`].
+    pub peer_index: Option<usize>,
+    /// See [`DebugState::peer_count`].
+    pub peer_count: Option<usize>,
 }
 
 /// Bounded rolling event buffer plus a broadcast channel for live subscribers.

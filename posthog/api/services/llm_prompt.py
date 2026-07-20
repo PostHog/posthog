@@ -273,7 +273,9 @@ def archive_prompt(team: Team, prompt_name: str) -> list[int]:
             is_latest=False,
         )
 
-        LLMPromptLabel.objects.filter(team=team, prompt_name=prompt_name).delete()
+        # Instance-level deletes so ModelActivityMixin logs each label removal.
+        for label in LLMPromptLabel.objects.filter(team=team, prompt_name=prompt_name):
+            label.delete()
 
         def invalidate_caches_on_commit() -> None:
             invalidate_prompt_latest_cache(team.id, prompt_name)

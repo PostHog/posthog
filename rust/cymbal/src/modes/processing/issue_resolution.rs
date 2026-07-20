@@ -411,6 +411,12 @@ pub async fn send_issue_spiking_notification(
     computed_baseline: f64,
     current_bucket_value: f64,
 ) -> Result<(), UnhandledError> {
+    let assignment = issue
+        .get_assignments(&context.posthog_pool)
+        .await?
+        .into_iter()
+        .next();
+
     publish_ingestion_notification(
         context,
         IngestionNotification::IssueSpiking(IssueSpiking {
@@ -418,6 +424,7 @@ pub async fn send_issue_spiking_notification(
             issue: issue_notification_context(issue, processed_properties),
             computed_baseline,
             current_bucket_value,
+            assignee: assignment_to_string(assignment)?,
         }),
     )
     .await

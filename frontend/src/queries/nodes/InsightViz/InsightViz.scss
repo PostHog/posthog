@@ -245,6 +245,23 @@
     }
 }
 
+// In the exporter the trends wrapper is `.InsightCard__viz` (embedded), which is flex-sized with no
+// definite height — so a bottom in-chart legend's `max-height: 40%` cap can't resolve and the plot
+// stretches the card taller and taller. Pin a viewport height on the displays that draw the in-chart
+// legend so the exported chart stays a bounded, page-filling card (mirrors `.TrendsInsight`'s explicit
+// height in the app). Table/world map/number/metric are excluded — they size to content or are their
+// own card. `8rem` leaves room for the export header and padding above the chart.
+.ExportedInsight {
+    .InsightCard__viz--ActionsLineGraph,
+    .InsightCard__viz--ActionsLineGraphCumulative,
+    .InsightCard__viz--ActionsAreaGraph,
+    .InsightCard__viz--ActionsBar,
+    .InsightCard__viz--ActionsUnstackedBar,
+    .InsightCard__viz--ActionsPie {
+        height: calc(100vh - 8rem);
+    }
+}
+
 // Drop the viz padding so the Metric sparkline can bleed to the card edges.
 .InsightVizDisplay__content:has(.Metric) {
     padding: 0;
