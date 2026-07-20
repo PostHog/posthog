@@ -16,8 +16,8 @@ export interface RolesFuse extends Fuse<RoleType> {}
 export interface assigneeSelectLogicValues {
     filteredMembers: OrganizationMemberType[] // membersLogic
     me: OrganizationMemberType | null // membersLogic
-    meFirstMembers: OrganizationMemberType[] // membersLogic
     membersLoading: boolean // membersLogic
+    sortedMembers: OrganizationMemberType[] | null // membersLogic
     roles: RoleType[] // rolesLogic
     rolesLoading: boolean // rolesLogic
     currentUserMember: OrganizationMemberType | null
@@ -58,7 +58,7 @@ export interface assigneeSelectLogicMeta {
         ) => OrganizationMemberType[]
         resolveAssignee: (
             roles: RoleType[],
-            meFirstMembers: OrganizationMemberType[]
+            sortedMembers: OrganizationMemberType[] | null
         ) => (assignee: TicketAssignee) => Assignee
     }
 }
@@ -75,7 +75,7 @@ export const assigneeSelectLogic = kea<assigneeSelectLogicType>([
     connect(() => ({
         values: [
             membersLogic,
-            ['meFirstMembers', 'filteredMembers', 'membersLoading', 'me'],
+            ['sortedMembers', 'filteredMembers', 'membersLoading', 'me'],
             rolesLogic,
             ['roles', 'rolesLoading'],
         ],
@@ -130,11 +130,8 @@ export const assigneeSelectLogic = kea<assigneeSelectLogicType>([
                     : filteredMembers,
         ],
         resolveAssignee: [
-            (s) => [s.roles, s.meFirstMembers],
-            (
-                roles: RoleType[],
-                members: import('~/types').OrganizationMemberType[]
-            ): ((assignee: TicketAssignee) => Assignee) => {
+            (s) => [s.roles, s.sortedMembers],
+            (roles: RoleType[], members: OrganizationMemberType[] | null): ((assignee: TicketAssignee) => Assignee) => {
                 return (assignee: TicketAssignee) => {
                     if (assignee) {
                         if (assignee.type === 'role') {
@@ -148,7 +145,7 @@ export const assigneeSelectLogic = kea<assigneeSelectLogicType>([
                                 : null
                         }
 
-                        const assignedMember = members.find((member) => String(member.user.id) === String(assignee.id))
+                        const assignedMember = members?.find((member) => String(member.user.id) === String(assignee.id))
                         return assignedMember
                             ? {
                                   id: assignedMember.user.id,
