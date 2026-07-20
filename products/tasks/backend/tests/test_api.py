@@ -3959,6 +3959,10 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
         mock_run_task_automation.assert_not_called()
 
 
+_PR_URL = "https://github.com/posthog/posthog-js/pull/1"
+_OTHER_PR_URL = "https://github.com/posthog/posthog-js/pull/2"
+
+
 class TestTaskRunAPI(BaseTaskAPITest):
     def _create_run_for_origin(self, origin_product: Task.OriginProduct) -> tuple[Task, TaskRun]:
         task = Task.objects.create(
@@ -3992,6 +3996,52 @@ class TestTaskRunAPI(BaseTaskAPITest):
         # A non-UUID task id in the URL must 404, not 500 through the UUIDField filter.
         response = self.client.get("/api/projects/@current/tasks/not-a-uuid/runs/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @parameterized.expand(
+        [
+            # Both caller-controlled output writers have to enforce this: the dedicated set_output
+            # action and the generic run PATCH, which merges `output` just the same.
+            (endpoint, case_name, webhook_flag, caller_pr_url, expected)
+            for endpoint in ("set_output/", "")
+            for case_name, webhook_flag, caller_pr_url, expected in [
+                ("caller_cannot_forge", None, _PR_URL, False),
+                ("webhook_flag_survives_caller_write", True, _PR_URL, True),
+                # The attestation is about one PR — repointing the run drops it rather than
+                # transferring GitHub's word about the old PR onto a new one.
+                ("flag_dropped_when_caller_changes_pr", True, _OTHER_PR_URL, False),
+            ]
+        ]
+    )
+    @patch("products.tasks.backend.facade.api._post_slack_update_for_pr")
+    @patch("products.tasks.backend.models.TaskRun.emit_progress_event")
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    def test_caller_output_writes_never_set_pr_merged(
+        self,
+        endpoint: str,
+        _case_name: str,
+        webhook_flag: bool | None,
+        caller_pr_url: str,
+        expected: bool,
+        _mock_publish_stream_state_event: MagicMock,
+        _mock_emit_progress_event: MagicMock,
+        _mock_post_slack_update_for_pr: MagicMock,
+    ) -> None:
+        # pr_merged is GitHub's word that the PR merged, and signals reads it to decide refund
+        # finality — so a task:write caller must not be able to write, clear, or move it.
+        task, run = self._create_run_for_origin(Task.OriginProduct.USER_CREATED)
+        if webhook_flag is not None:
+            run.output = {"pr_url": _PR_URL, "pr_merged": webhook_flag}
+            run.save(update_fields=["output"])
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/{endpoint}",
+            {"output": {"pr_url": caller_pr_url, "pr_merged": True}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run.refresh_from_db()
+        self.assertEqual((run.output or {}).get("pr_merged", False), expected)
 
     @patch("products.tasks.backend.facade.api._post_slack_update_for_pr")
     @patch("products.tasks.backend.models.TaskRun.emit_progress_event")
