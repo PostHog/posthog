@@ -11,13 +11,15 @@
 //! no call site changes, and the `/metrics` scrape endpoint is unchanged.
 
 use std::collections::HashMap;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use metrics::{Counter, Gauge, Histogram, Key, KeyName, Metadata, Recorder, SharedString, Unit};
-use metrics_util::registry::{AtomicStorage, Registry};
+use metrics::{
+    Counter, Gauge, Histogram, HistogramFn, Key, KeyName, Metadata, Recorder, SharedString, Unit,
+};
+use metrics_util::registry::{Registry, Storage};
 use tracing::{error, info};
 use uuid::Uuid;
 
@@ -27,10 +29,10 @@ use crate::metric_record::{compute_series_fingerprint, KafkaMetricRow};
 pub const SERVICE_NAME: &str = "capture-logs";
 const INSTRUMENTATION_SCOPE: &str = "capture-logs/internal-metrics";
 
-/// Histogram observations are drained per export interval and re-bucketed into
-/// explicit OTel bounds, chosen by the metric's naming convention. The Prometheus
-/// exporter's single global ladder (milliseconds-shaped) makes `*_seconds`
-/// histograms unreadable there; here each unit gets a fitting ladder.
+/// Histogram observations are aggregated into explicit OTel bounds at record
+/// time, chosen by the metric's naming convention. The Prometheus exporter's
+/// single global ladder (milliseconds-shaped) makes `*_seconds` histograms
+/// unreadable there; here each unit gets a fitting ladder.
 const SECONDS_BOUNDS: &[f64] = &[
     0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0,
 ];
@@ -53,12 +55,95 @@ fn bounds_for(metric_name: &str) -> &'static [f64] {
     }
 }
 
+/// A histogram that folds each observation into fixed OTel buckets as it is
+/// recorded. Memory per series is constant (one atomic per bucket plus a
+/// running sum/count), no matter how many samples arrive between drains —
+/// unlike `AtomicStorage`'s raw-observation buffer, which grows linearly with
+/// request volume and would let a flood of public requests balloon memory.
+struct BucketedHistogram {
+    bounds: &'static [f64],
+    /// One slot per bound plus the overflow bucket past the last bound.
+    bucket_counts: Vec<AtomicU64>,
+    /// f64 bits; updated via CAS since there is no atomic f64 add.
+    sum_bits: AtomicU64,
+}
+
+impl BucketedHistogram {
+    fn new(bounds: &'static [f64]) -> Self {
+        Self {
+            bounds,
+            bucket_counts: (0..bounds.len() + 1).map(|_| AtomicU64::new(0)).collect(),
+            sum_bits: AtomicU64::new(0),
+        }
+    }
+
+    /// Take and reset the interval's aggregate. Returns `None` when no
+    /// observations were recorded since the previous drain.
+    fn drain(&self) -> Option<(i64, f64, Vec<i64>)> {
+        let counts: Vec<i64> = self
+            .bucket_counts
+            .iter()
+            .map(|c| c.swap(0, Ordering::Relaxed) as i64)
+            .collect();
+        let count: i64 = counts.iter().sum();
+        let sum = f64::from_bits(self.sum_bits.swap(0, Ordering::Relaxed));
+        if count == 0 {
+            return None;
+        }
+        Some((count, sum, counts))
+    }
+}
+
+impl HistogramFn for BucketedHistogram {
+    fn record(&self, value: f64) {
+        // OTel explicit-bounds semantics: bucket i counts values <= bounds[i],
+        // with one overflow bucket past the last bound.
+        let idx = self.bounds.partition_point(|bound| *bound < value);
+        self.bucket_counts[idx].fetch_add(1, Ordering::Relaxed);
+        let mut current = self.sum_bits.load(Ordering::Relaxed);
+        loop {
+            let next = (f64::from_bits(current) + value).to_bits();
+            match self.sum_bits.compare_exchange_weak(
+                current,
+                next,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => break,
+                Err(actual) => current = actual,
+            }
+        }
+    }
+}
+
+/// `AtomicStorage`, except histograms aggregate into fixed buckets at record
+/// time instead of buffering every raw observation until the next drain.
+struct BoundedStorage;
+
+impl Storage<Key> for BoundedStorage {
+    type Counter = Arc<AtomicU64>;
+    type Gauge = Arc<AtomicU64>;
+    type Histogram = Arc<BucketedHistogram>;
+
+    fn counter(&self, _: &Key) -> Self::Counter {
+        Arc::new(AtomicU64::new(0))
+    }
+
+    fn gauge(&self, _: &Key) -> Self::Gauge {
+        Arc::new(AtomicU64::new(0))
+    }
+
+    fn histogram(&self, key: &Key) -> Self::Histogram {
+        Arc::new(BucketedHistogram::new(bounds_for(key.name())))
+    }
+}
+
 /// A `metrics::Recorder` backed by a plain atomic registry. Counters and gauges
-/// hold their current value; histograms buffer raw observations until the next
-/// drain (exported with delta temporality).
+/// hold their current value; histograms aggregate observations into fixed
+/// buckets, reset on each drain (exported with delta temporality).
 #[derive(Clone)]
 pub struct InternalMetricsRecorder {
-    registry: Arc<Registry<Key, AtomicStorage>>,
+    registry: Arc<Registry<Key, BoundedStorage>>,
 }
 
 impl Default for InternalMetricsRecorder {
@@ -70,7 +155,7 @@ impl Default for InternalMetricsRecorder {
 impl InternalMetricsRecorder {
     pub fn new() -> Self {
         Self {
-            registry: Arc::new(Registry::atomic()),
+            registry: Arc::new(Registry::new(BoundedStorage)),
         }
     }
 
@@ -95,26 +180,14 @@ impl InternalMetricsRecorder {
             rows.push(row);
         });
 
-        self.registry.visit_histograms(|key, bucket| {
-            let mut values: Vec<f64> = Vec::new();
-            bucket.clear_with(|chunk| values.extend_from_slice(chunk));
-            if values.is_empty() {
+        self.registry.visit_histograms(|key, histogram| {
+            let Some((count, sum, counts)) = histogram.drain() else {
                 return;
-            }
-            let bounds = bounds_for(key.name());
-            // OTel explicit-bounds semantics: bucket i counts values <= bounds[i],
-            // with one overflow bucket past the last bound.
-            let mut counts = vec![0i64; bounds.len() + 1];
-            let mut sum = 0.0;
-            for value in &values {
-                sum += value;
-                let idx = bounds.partition_point(|bound| bound < value);
-                counts[idx] += 1;
-            }
+            };
             let mut row = base_row(key, "histogram", now, resource_attributes);
             row.value = sum;
-            row.count = values.len() as i64;
-            row.histogram_bounds = bounds.to_vec();
+            row.count = count;
+            row.histogram_bounds = histogram.bounds.to_vec();
             row.histogram_counts = counts;
             row.aggregation_temporality = "delta".to_string();
             rows.push(row);
@@ -313,6 +386,34 @@ mod tests {
         assert_eq!(row.histogram_counts.iter().sum::<i64>(), row.count);
 
         // Delta: observations were consumed, next drain emits nothing for it.
+        assert!(recorder.drain_rows(&test_resource()).is_empty());
+    }
+
+    #[test]
+    fn histogram_storage_stays_bounded_under_many_observations() {
+        let recorder = InternalMetricsRecorder::new();
+        metrics::with_local_recorder(&recorder, || {
+            let h = histogram!("request_duration_seconds");
+            for i in 0..100_000u32 {
+                h.record(f64::from(i % 1_000) / 100.0);
+            }
+        });
+
+        // Storage is a fixed bucket ladder regardless of sample volume — raw
+        // observations must never be retained between drains.
+        let mut stored_slots = 0;
+        recorder.registry.visit_histograms(|_, histogram| {
+            stored_slots = histogram.bucket_counts.len();
+        });
+        assert_eq!(stored_slots, SECONDS_BOUNDS.len() + 1);
+
+        // Aggregation at record time still yields the exact drain totals.
+        let rows = recorder.drain_rows(&test_resource());
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].count, 100_000);
+        assert_eq!(rows[0].histogram_counts.iter().sum::<i64>(), 100_000);
+        // 100 passes over 0.00..9.99 in 0.01 steps.
+        assert!((rows[0].value - 499_500.0).abs() < 1e-3);
         assert!(recorder.drain_rows(&test_resource()).is_empty());
     }
 
