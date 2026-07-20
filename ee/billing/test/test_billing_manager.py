@@ -282,6 +282,55 @@ class TestBillingManager(BaseTest):
         }
 
     @patch("posthoganalytics.capture")
+    @patch("ee.billing.billing_manager.requests.get")
+    @patch("ee.billing.billing_manager.requests.post")
+    def test_activate_subscription_refreshes_quota_limits(self, post_mock, get_mock, patch_capture):
+        organization = self.organization
+        organization.usage = {
+            "events": {"usage": 90, "limit": 1000, "todays_usage": 10},
+            "ai_credits": {
+                "usage": 1200,
+                "limit": 20000,
+                "todays_usage": 150,
+                "quota_limited_until": 1612137599,
+            },
+            "period": ["2024-01-01T00:00:00Z", "2024-01-31T23:59:59Z"],
+        }
+        organization.save()
+
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        post_mock.return_value = MagicMock(status_code=200, json=MagicMock(return_value={"success": True}))
+        get_mock.return_value = MagicMock(
+            status_code=200,
+            json=MagicMock(
+                return_value={
+                    "customer": {
+                        "usage_summary": {
+                            "events": {"usage": 90, "limit": 1000},
+                            "ai_credits": {"usage": 1200, "limit": 20000},
+                        },
+                        "billing_period": {
+                            "current_period_start": "2024-01-01T00:00:00Z",
+                            "current_period_end": "2024-01-31T23:59:59Z",
+                        },
+                    }
+                }
+            ),
+        )
+
+        BillingManager(license).activate_subscription(organization, {"products": "all_products:"})
+        organization.refresh_from_db()
+
+        # Activating a subscription re-syncs billing so the stale AI-credit quota limit clears
+        # immediately, rather than waiting for the periodic quota-limiting job.
+        assert "quota_limited_until" not in organization.usage["ai_credits"]
+
+    @patch("posthoganalytics.capture")
     def test_update_org_details_applies_never_drop_data_before_recomputing_existing_quota_limits(self, patch_capture):
         organization = self.organization
         organization.usage = {

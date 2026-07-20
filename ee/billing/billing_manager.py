@@ -321,7 +321,28 @@ class BillingManager:
 
         handle_billing_service_error(res)
 
+        self.refresh_org_billing_state(organization)
+
         return res.json()
+
+    def refresh_org_billing_state(self, organization: Organization) -> None:
+        """Re-sync the org's local billing state from the billing service.
+
+        Running update_org_details refreshes the org's usage limits and rewrites the
+        Redis quota-limiting sets, so a plan change clears quota limits (including AI
+        credits) right away instead of waiting for the periodic quota-limiting job.
+        Failures are swallowed: that job and the frontend's billing reload are backstops,
+        and a refresh error should not fail the plan-change request itself.
+        """
+        if not self.license or not self.license.is_v2_license:
+            return
+
+        try:
+            billing_service_response = self._get_billing(organization)
+            if cast(dict[str, Any], billing_service_response).get("customer"):
+                self.update_org_details(organization, billing_service_response)
+        except Exception as e:
+            capture_exception(e, {"organization_id": organization.id})
 
     def deactivate_products(self, organization: Organization, products: str) -> None:
         res = requests.post(
@@ -713,6 +734,7 @@ class BillingManager:
 
         handle_billing_service_error(res)
         self.update_available_product_features(organization)
+        self.refresh_org_billing_state(organization)
 
         return res.json()
 
