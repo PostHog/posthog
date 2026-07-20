@@ -294,7 +294,7 @@ describe('ActionFilterRow', () => {
                 expect(screen.getByTestId('box-plot-property-select')).toBeInTheDocument()
             })
 
-            it('offers warehouse columns in the box plot property selector for data warehouse series', async () => {
+            it('offers only numeric warehouse columns in the box plot property selector for data warehouse series', async () => {
                 databaseTableListLogic.mount()
                 databaseTableListLogic.actions.loadDatabaseSuccess({
                     tables: {
@@ -307,6 +307,12 @@ describe('ActionFilterRow', () => {
                                     name: 'duration',
                                     hogql_value: 'duration',
                                     type: 'float',
+                                    schema_valid: true,
+                                },
+                                customer_name: {
+                                    name: 'customer_name',
+                                    hogql_value: 'customer_name',
+                                    type: 'string',
                                     schema_valid: true,
                                 },
                             },
@@ -333,7 +339,11 @@ describe('ActionFilterRow', () => {
                 })
 
                 await userEvent.click(screen.getByTestId('box-plot-property-select'))
-                await userEvent.click(await screen.findByText('duration'))
+                await screen.findByText('duration')
+                // The box plot runner applies toFloat() to the selected column, so non-numeric
+                // columns must not be offered
+                expect(screen.queryByText('customer_name')).not.toBeInTheDocument()
+                await userEvent.click(screen.getByText('duration'))
 
                 await waitFor(() => {
                     expect(setFilters).toHaveBeenCalledWith(

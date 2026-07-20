@@ -33,7 +33,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { MathCategory, mathTypeToApiValues, mathsLogic } from 'scenes/trends/mathsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { DatabaseSerializedFieldType, NodeKind } from '~/queries/schema/schema-general'
 import {
     AnyPropertyFilter,
     BaseMathType,
@@ -69,6 +69,10 @@ const DragHandle = ({ listeners }: DragHandleProps): JSX.Element => (
         <SortableDragIcon />
     </span>
 )
+
+// The taxonomic filter's showNumericalPropsOnly flag doesn't filter warehouse schema columns,
+// so numeric-only pickers must not be fed non-numeric columns in the first place.
+const NUMERIC_SCHEMA_FIELD_TYPES: DatabaseSerializedFieldType[] = ['integer', 'float', 'decimal']
 
 export function ActionFilterRow({
     logic,
@@ -610,6 +614,10 @@ export function ActionFilterRow({
                                                     isDataWarehouseFilter && filter.name
                                                         ? Object.values(
                                                               dataWarehouseTablesMap[filter.name]?.fields ?? []
+                                                          ).filter(
+                                                              (field) =>
+                                                                  !(isBoxPlotContext || showNumericalPropsOnly) ||
+                                                                  NUMERIC_SCHEMA_FIELD_TYPES.includes(field.type)
                                                           )
                                                         : []
                                                 }
