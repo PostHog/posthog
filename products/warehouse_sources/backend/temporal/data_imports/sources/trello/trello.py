@@ -9,6 +9,8 @@ from requests import Request, Response
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    ClientConfig,
+    Endpoint,
     RESTAPIConfig,
     rest_api_resource,
     rest_api_resources,
@@ -146,7 +148,7 @@ def validate_credentials(api_key: str, api_token: str) -> tuple[bool, str | None
     return False, response.text or f"Trello API returned status {response.status_code}"
 
 
-def _client_config(api_key: str, api_token: str) -> dict[str, Any]:
+def _client_config(api_key: str, api_token: str) -> ClientConfig:
     # Framework auth carries the composite OAuth header so its value is redacted from logs and
     # raised errors; only non-secret headers would go in ``headers`` (Trello needs none).
     return {
@@ -160,9 +162,7 @@ def _client_config(api_key: str, api_token: str) -> dict[str, Any]:
     }
 
 
-def _member_resource(
-    config: TrelloEndpointConfig, client_config: dict[str, Any], team_id: int, job_id: str
-) -> Resource:
+def _member_resource(config: TrelloEndpointConfig, client_config: ClientConfig, team_id: int, job_id: str) -> Resource:
     rest_config: RESTAPIConfig = {
         "client": client_config,
         "resource_defaults": {},
@@ -187,7 +187,7 @@ def _member_resource(
 
 def _board_resource(
     config: TrelloEndpointConfig,
-    client_config: dict[str, Any],
+    client_config: ClientConfig,
     team_id: int,
     job_id: str,
     manager: ResumableSourceManager[TrelloResumeConfig],
@@ -197,7 +197,7 @@ def _board_resource(
         TrelloActionsPaginator(limit=config.page_size) if config.paginated else SinglePagePaginator()
     )
 
-    child_endpoint: dict[str, Any] = {
+    child_endpoint: Endpoint = {
         "path": f"/boards/{{board_id}}/{config.path}",
         "params": {
             "board_id": {"type": "resolve", "resource": "boards", "field": "id"},

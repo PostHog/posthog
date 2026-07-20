@@ -93,7 +93,7 @@ def _extract_rows(payload: Any) -> list[dict[str, Any]]:
     return [row for row in (_flatten_resource(item) for item in items) if row is not None]
 
 
-def _map_row(item: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
+def _map_row(item: Any) -> dict[str, Any] | list[dict[str, Any]]:
     """Per-item reshape wired into the rest_source resource.
 
     With no ``data_selector`` the framework hands us each element of a top-level array

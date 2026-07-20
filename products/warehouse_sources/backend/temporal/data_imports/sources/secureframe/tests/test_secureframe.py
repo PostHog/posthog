@@ -1,5 +1,6 @@
 import json
-from typing import Any
+from collections.abc import Iterable
+from typing import Any, cast
 
 import pytest
 from unittest import mock
@@ -194,7 +195,7 @@ class TestPagination:
             job_id="j",
             resumable_source_manager=manager,
         )
-        rows_iterator = iter(source.items())
+        rows_iterator = iter(cast("Iterable[Any]", source.items()))
 
         next(rows_iterator)
         # Paused at the first yield: page 1 is in flight downstream, so no checkpoint yet —

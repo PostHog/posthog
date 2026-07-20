@@ -1,6 +1,6 @@
 import dataclasses
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from urllib.parse import urlparse
 
 import requests
@@ -80,7 +80,10 @@ class ServiceNowAuth:
         """Framework auth config so the secret is redacted from logs and error messages."""
         if self.api_key:
             return {"type": "api_key", "api_key": self.api_key, "name": "x-sn-apikey", "location": "header"}
-        return {"type": "http_basic", "username": self.username, "password": self.password}
+        return cast(
+            AuthConfig,
+            {"type": "http_basic", "username": self.username, "password": self.password},
+        )
 
     def secret_values(self) -> tuple[str, ...]:
         return tuple(v for v in (self.api_key, self.password) if v)

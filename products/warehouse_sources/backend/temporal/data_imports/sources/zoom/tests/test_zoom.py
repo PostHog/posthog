@@ -1,5 +1,5 @@
 import json
-from typing import Any
+from typing import Any, cast
 
 from unittest.mock import MagicMock, patch
 
@@ -86,7 +86,7 @@ class TestOAuthConfig:
         assert auth.token_url == ZOOM_OAUTH_URL
         assert auth.client_id == "client-1"
         assert auth.client_secret == "secret-1"
-        assert auth.grant_type == "account_credentials"
+        assert cast(str, auth.grant_type) == "account_credentials"
         assert auth.client_auth_method == "basic"
         assert auth.extra_token_request_params == {"account_id": "acc-1"}
 

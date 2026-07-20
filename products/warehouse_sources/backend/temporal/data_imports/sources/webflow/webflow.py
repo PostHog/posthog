@@ -8,6 +8,8 @@ import requests
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    Endpoint,
+    EndpointResource,
     RESTAPIConfig,
     rest_api_resource,
 )
@@ -170,7 +172,7 @@ def webflow_source(
     else:
         paginator = SinglePagePaginator()
 
-    endpoint: dict[str, Any] = {
+    endpoint: Endpoint = {
         "path": path,
         "params": params,
         # A single-object endpoint (/sites/{site_id}) has no list envelope; "$" wraps the
@@ -178,7 +180,7 @@ def webflow_source(
         "data_selector": "$" if config.single_object else config.data_key,
     }
 
-    resource_config: dict[str, Any] = {
+    resource_config: EndpointResource = {
         "name": schema_name,
         "endpoint": endpoint,
     }

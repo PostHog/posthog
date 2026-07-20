@@ -1,6 +1,6 @@
 import json
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -76,7 +76,7 @@ def _drive(
             job_id="j",
             resumable_source_manager=manager,
         )
-        rows = [row for page in response.items() for row in page]
+        rows = [row for page in cast("Iterable[Any]", response.items()) for row in page]
     return rows, urls, params
 
 
@@ -196,7 +196,7 @@ class TestGetRows:
                 job_id="j",
                 resumable_source_manager=manager,
             )
-            list(response.items())
+            list(cast("Iterable[Any]", response.items()))
 
         assert urls[0] == "https://api.webflow.com/v2/sites/..%2F..%2Fsites/pages"
 

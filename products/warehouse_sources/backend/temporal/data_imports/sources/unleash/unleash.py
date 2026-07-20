@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    Endpoint,
     RESTAPIConfig,
     rest_api_resource,
 )
@@ -125,7 +126,7 @@ def unleash_source(
     config = UNLEASH_ENDPOINTS[endpoint]
     base_url = normalize_instance_url(instance_url)
 
-    endpoint_config: dict[str, Any] = {
+    endpoint_config: Endpoint = {
         "path": config.path,
         # A 200 whose body isn't the expected list shape (missing data key, wrong type) is treated
         # as a transient upstream glitch and retried — the retryable counterpart of the old

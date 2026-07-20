@@ -10,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponsePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ApiKeyAuthConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.smartreach.settings import SMARTREACH_ENDPOINTS
@@ -34,7 +35,7 @@ def _headers() -> dict[str, str]:
     return {"Accept": "application/json"}
 
 
-def _api_key_auth(api_key: str) -> dict[str, str]:
+def _api_key_auth(api_key: str) -> ApiKeyAuthConfig:
     return {"type": "api_key", "api_key": api_key, "name": "X-API-KEY", "location": "header"}
 
 

@@ -205,7 +205,7 @@ class TestErrorClassification:
     def _no_sleep() -> Any:
         # The client retries retryable errors with exponential backoff; neutralize the sleep so
         # retry-path tests stay instant and deterministic.
-        return mock.patch.object(RESTClient._send_request.retry, "sleep", lambda *a, **k: None)
+        return mock.patch.object(RESTClient._send_request.retry, "sleep", lambda *a, **k: None)  # type: ignore[attr-defined]
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
     @mock.patch(CLIENT_SESSION_PATCH)

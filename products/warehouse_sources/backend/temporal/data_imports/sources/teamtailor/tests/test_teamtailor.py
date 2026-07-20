@@ -1,5 +1,6 @@
 import json
-from typing import Any
+from collections.abc import Iterable
+from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -53,7 +54,7 @@ def _make_manager(resume_state: TeamtailorResumeConfig | None = None) -> MagicMo
     return manager
 
 
-def _wire(mock_make_session: MagicMock, responses: list[Any]) -> tuple[MagicMock, list[str]]:
+def _wire(mock_make_session: MagicMock, responses: list[Any]) -> tuple[requests.Session, list[str]]:
     """Route the RESTClient's session through a real ``requests.Session`` so ``prepared.url`` is a
     genuine URL, while ``send`` returns each fixture in order. A fixture that is an ``Exception`` is
     raised. Returns the session and the list of URLs sent, in order."""
@@ -75,7 +76,7 @@ def _wire(mock_make_session: MagicMock, responses: list[Any]) -> tuple[MagicMock
 
 def _rows(endpoint: str, manager: MagicMock) -> list[dict[str, Any]]:
     response = teamtailor_source("tt-key", endpoint, team_id=1, job_id="j", resumable_source_manager=manager)
-    return [row for page in response.items() for row in page]
+    return [row for page in cast("Iterable[Any]", response.items()) for row in page]
 
 
 class TestPagination:
@@ -148,7 +149,7 @@ class TestErrorHandling:
         with pytest.raises(RESTClientRetryableError):
             _rows("candidates", _make_manager())
         # The client retries transient statuses up to its default attempt cap before giving up.
-        assert session.send.call_count == 5
+        assert cast("MagicMock", session.send).call_count == 5
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
     @patch("tenacity.nap.time.sleep")
@@ -160,7 +161,7 @@ class TestErrorHandling:
         with pytest.raises(requests.HTTPError):
             _rows("candidates", _make_manager())
         # Auth/not-found failures are permanent — the request is issued exactly once.
-        assert session.send.call_count == 1
+        assert cast("MagicMock", session.send).call_count == 1
 
     @patch("tenacity.nap.time.sleep")
     @patch(CLIENT_SESSION_PATCH)
@@ -170,7 +171,7 @@ class TestErrorHandling:
         session, _ = _wire(mock_make_session, [_raw([{"id": "1"}], status=200)])
         with pytest.raises(RESTClientRetryableError):
             _rows("candidates", _make_manager())
-        assert session.send.call_count == 5
+        assert cast("MagicMock", session.send).call_count == 5
 
 
 class TestAuthHeaders:

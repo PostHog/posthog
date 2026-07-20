@@ -1,7 +1,7 @@
 import json
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -285,7 +285,7 @@ class TestFanOutRuns:
     def test_legacy_resume_state_still_deserializes(self) -> None:
         # State persisted by the pre-migration fan-out carried page + workflow_permanent_id; it must
         # still parse (ResumableSourceManager does dataclass(**saved)) after adding fanout_state.
-        restored = SkyvernResumeConfig(**{"page": 3, "workflow_permanent_id": "wpid_9"})
+        restored = SkyvernResumeConfig(**cast("dict[str, Any]", {"page": 3, "workflow_permanent_id": "wpid_9"}))
         assert restored.page == 3
         assert restored.fanout_state is None
 

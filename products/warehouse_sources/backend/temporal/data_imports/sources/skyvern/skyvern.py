@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     PageNumberPaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.skyvern.settings import (
@@ -96,7 +97,7 @@ def _created_at_start(
     return _format_datetime_z(dt)
 
 
-def _client_config(api_key: str, base_url: str | None) -> dict[str, Any]:
+def _client_config(api_key: str, base_url: str | None) -> ClientConfig:
     return {
         "base_url": _base_url(base_url),
         # Only the non-secret Accept header lives here; the API key rides the framework auth so it's
@@ -113,7 +114,7 @@ def _client_config(api_key: str, base_url: str | None) -> dict[str, Any]:
 def _simple_resource(
     config: SkyvernEndpointConfig,
     endpoint: str,
-    client_config: dict[str, Any],
+    client_config: ClientConfig,
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[SkyvernResumeConfig],
@@ -165,7 +166,7 @@ def _simple_resource(
 def _fan_out_resource(
     config: SkyvernEndpointConfig,
     endpoint: str,
-    client_config: dict[str, Any],
+    client_config: ClientConfig,
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[SkyvernResumeConfig],
