@@ -6,6 +6,15 @@ export function isAccessDeniedError(error: { status?: number; code?: string | nu
     return error.status === 403 && error.code === 'permission_denied'
 }
 
+/**
+ * A connectivity-layer failure (e.g. `TypeError: Failed to fetch` from an offline blip, dropped
+ * connection, ad blocker, or aborted navigation). The request never reached the server, so `handleFetch`
+ * wraps it in an `ApiError` with no HTTP status.
+ */
+export function isNetworkError(error: unknown): boolean {
+    return error instanceof ApiError && error.status === undefined
+}
+
 export class ApiError extends Error {
     /** Django REST Framework `detail` - used in downstream error handling. */
     detail: string | null

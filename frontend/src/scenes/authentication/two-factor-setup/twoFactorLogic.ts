@@ -5,6 +5,7 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { isNetworkError } from 'lib/api-error'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -136,7 +137,16 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
             null as TwoFactorStatus | null,
             {
                 loadStatus: async () => {
-                    return await api.get('api/users/@me/two_factor_status/')
+                    try {
+                        return await api.get('api/users/@me/two_factor_status/')
+                    } catch (e) {
+                        // A transient connectivity blip shouldn't surface as an uncaught error;
+                        // keep the last known status and let the user retry.
+                        if (isNetworkError(e)) {
+                            return values.status
+                        }
+                        throw e
+                    }
                 },
             },
         ],
