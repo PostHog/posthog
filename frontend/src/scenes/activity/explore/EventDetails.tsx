@@ -15,6 +15,7 @@ import { ReplayCaptureDiagnosticsModalButton } from 'scenes/session-recordings/c
 import { hasReplayDiagnosticSignals } from 'scenes/session-recordings/utils/replayCaptureDiagnostics'
 import { urls } from 'scenes/urls'
 
+import { eventIdentityKey } from '~/queries/nodes/DataTable/dataTableLogic'
 import { KNOWN_PROMOTED_PROPERTY_PARENTS } from '~/taxonomy/taxonomy'
 import { PropertyDefinitionType } from '~/types'
 
@@ -30,15 +31,7 @@ interface EventDetailsProps {
 }
 
 export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Element {
-    const getEventId = (event: ErrorPropertyTabEvent): string => {
-        if ('uuid' in event && event.uuid) {
-            return event.uuid
-        }
-        if ('id' in event && event.id) {
-            return event.id
-        }
-        return ''
-    }
+    const getEventId = (event: ErrorPropertyTabEvent): string => String(eventIdentityKey(event) ?? '')
     const eventId = getEventId(event)
 
     // Each tab's PropertiesTable paginates independently, so give every embedded LemonTable a
