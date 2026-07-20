@@ -15,6 +15,8 @@ export const makeExperimentSessionContextItem = (
     first_exposure_timestamp: '2023-05-01T14:46:24.000000Z',
     experiment_start_date: '2023-04-01T00:00:00Z',
     experiment_end_date: null,
+    metrics_in_session: [],
+    seen_reason: 'exposure',
     ...overrides,
 })
 
