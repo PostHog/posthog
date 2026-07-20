@@ -31,7 +31,7 @@ export const UNOWNED_TEAM = 'unowned'
 
 export interface TeamCIHealthRow {
     ownerTeam: string
-    /** Owned tests one commit was seen both failing and passing: the queue's `confirmed_flake`. */
+    /** Owned tests an in-job retry recovered in the window: the queue's `confirmed_flake`. */
     flakyTestCount: number
     flakyTestCountPrior: number
     /** Owned tests that failed with no such proof and still hit the blast-radius bar. */

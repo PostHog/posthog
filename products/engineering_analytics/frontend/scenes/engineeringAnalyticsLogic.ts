@@ -34,6 +34,7 @@ import {
 } from '../generated/api'
 import type {
     BrokenTestRowApi,
+    FlakyTestItemClassificationEnumApi,
     GitHubSourceApi,
     PullRequestListItemApi,
     PushCISampleApi,
@@ -443,10 +444,10 @@ export function quarantineCountsOf(rows: QuarantineEntryRow[]): QuarantineCounts
     return { ...counts, pastExpiry: counts.inGrace + counts.overdue }
 }
 
-/** Leaderboard windows the UI offers; the endpoint accepts any window up to 30 days. */
+/** Test-health windows the UI offers; the endpoint accepts any window up to 30 days. */
 export type FlakyTestWindow = '-7d' | '-14d' | '-30d'
 export const DEFAULT_FLAKY_TEST_WINDOW: FlakyTestWindow = '-7d'
-export type FlakyTestClassification = 'confirmed_flake' | 'suspected_regression' | 'quarantined'
+export type FlakyTestClassification = FlakyTestItemClassificationEnumApi
 
 export interface FlakyTestRow {
     /** Reconstructed pytest nodeid (the CI span name): a stable grouping/display key. */
@@ -454,7 +455,7 @@ export interface FlakyTestRow {
     /** Runnable pytest selector for the quarantine action; exact when the CI reporter emitted it. */
     selector: string
     classification: FlakyTestClassification
-    /** Runs where one commit both failed and passed. Above zero is the only proof of flakiness. */
+    /** Runs where an in-job retry recovered the test after failing: the only proof of flakiness here. */
     rerunPassedRunCount: number
     failedRunCount: number
     failedPrCount: number
@@ -465,7 +466,7 @@ export interface FlakyTestRow {
 
 export interface FlakyTestsData {
     rows: FlakyTestRow[]
-    /** True when more tests qualified than the cap; rows are the strongest `limit`. */
+    /** True when more tests qualified than the cap; rows are the highest-ranked `limit`. */
     truncated: boolean
     limit: number
 }
