@@ -51,43 +51,23 @@ class ErrorTrackingExternalReferenceSerializer(serializers.Serializer):
     )
     integration_id = serializers.IntegerField(
         write_only=True,
-        help_text="ID of the connected integration to link the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira').",
+        help_text="ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira').",
     )
     config = ExternalReferenceConfigField(
         write_only=True,
-        required=False,
         help_text=(
-            "Provider-specific fields describing a NEW external issue to create. Supply this OR external_context, "
-            "not both. Required keys depend on the integration kind: github -> {repository, title, body}; "
-            "gitlab -> {title, body}; linear -> {team_id, title, description}; "
-            "jira -> {project_key, title, description}. Examples: "
+            "Provider-specific fields describing the external issue to create. Required keys depend on the "
+            "integration kind: github -> {repository, title, body}; gitlab -> {title, body}; "
+            "linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: "
             'github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; '
             'linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; '
             'jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}.'
-        ),
-    )
-    external_context = ExternalReferenceContextField(
-        write_only=True,
-        required=False,
-        help_text=(
-            "Identifier of an EXISTING external issue to link (from the search-issues endpoint). Supply this OR "
-            "config, not both. Required keys depend on the integration kind: github -> {repository, number}; "
-            "gitlab -> {issue_id}; linear -> {id}; jira -> {key}."
         ),
     )
     issue = serializers.UUIDField(write_only=True, help_text="ID of the error tracking issue to link the reference to.")
     external_url = serializers.SerializerMethodField(
         help_text="URL of the linked external issue in the provider's system."
     )
-
-    def validate(self, attrs: dict) -> dict:
-        has_config = attrs.get("config") is not None
-        has_context = attrs.get("external_context") is not None
-        if has_config == has_context:
-            raise ValidationError(
-                "Provide either config (to create a new issue) or external_context (to link an existing one)."
-            )
-        return attrs
 
     @extend_schema_field(serializers.CharField())
     def get_external_url(self, reference: contracts.ErrorTrackingExternalReference) -> str:
@@ -98,6 +78,23 @@ class ErrorTrackingExternalReferenceSerializer(serializers.Serializer):
             raise ValidationError("Missing required external context fields")
 
         raise ValidationError("Provider not supported")
+
+
+@extend_schema_serializer(component_name="ErrorTrackingExternalReferenceLink")
+class ErrorTrackingExternalReferenceLinkSerializer(serializers.Serializer):
+    integration_id = serializers.IntegerField(
+        write_only=True,
+        help_text="ID of the connected integration the existing issue lives in (one of 'github', 'gitlab', 'linear', 'jira').",
+    )
+    issue = serializers.UUIDField(write_only=True, help_text="ID of the error tracking issue to link the reference to.")
+    external_context = ExternalReferenceContextField(
+        write_only=True,
+        help_text=(
+            "Identifier of the existing external issue to link, as returned by the search-issues endpoint. "
+            "Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; "
+            "linear -> {id}; jira -> {key}."
+        ),
+    )
 
 
 class ErrorTrackingExternalIssueSearchQuerySerializer(serializers.Serializer):
@@ -170,14 +167,41 @@ class ErrorTrackingExternalReferenceViewSet(TeamAndOrgViewSetMixin, ForbidDestro
                 team_id=self.team.id,
                 issue_id=issue_id,
                 integration_id=serializer.validated_data["integration_id"],
-                config=serializer.validated_data.get("config"),
-                external_context=serializer.validated_data.get("external_context"),
+                config=serializer.validated_data["config"],
             )
         except ExternalReferenceValidationError as error:
             logger.warning("Failed to create external reference", exc_info=error)
             raise ValidationError(str(error)) from error
 
         response_serializer = self.get_serializer(reference)
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        request=ErrorTrackingExternalReferenceLinkSerializer,
+        responses={201: ErrorTrackingExternalReferenceSerializer},
+    )
+    @action(methods=["POST"], detail=False, url_path="link_issue")
+    def link_issue(self, request: Request, *args, **kwargs) -> Response:
+        """Link an error to an issue that already exists in the connected provider."""
+        serializer = ErrorTrackingExternalReferenceLinkSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        issue_id = serializer.validated_data["issue"]
+        if not isinstance(issue_id, UUID):
+            issue_id = UUID(str(issue_id))
+
+        try:
+            reference = create_external_reference(
+                team_id=self.team.id,
+                issue_id=issue_id,
+                integration_id=serializer.validated_data["integration_id"],
+                external_context=serializer.validated_data["external_context"],
+            )
+        except ExternalReferenceValidationError as error:
+            logger.warning("Failed to link external reference", exc_info=error)
+            raise ValidationError(str(error)) from error
+
+        response_serializer = ErrorTrackingExternalReferenceSerializer(reference)
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
     @extend_schema(

@@ -4380,13 +4380,16 @@ const api = {
             integrationId: number,
             externalContext: Record<string, string | number>
         ): Promise<ErrorTrackingExternalReference> {
-            return await new ApiRequest().errorTrackingExternalReference().create({
-                data: {
-                    integration_id: integrationId,
-                    issue: issueId,
-                    external_context: externalContext,
-                },
-            })
+            return await new ApiRequest()
+                .errorTrackingExternalReference()
+                .withAction('link_issue')
+                .create({
+                    data: {
+                        integration_id: integrationId,
+                        issue: issueId,
+                        external_context: externalContext,
+                    },
+                })
         },
 
         async searchExternalIssues(

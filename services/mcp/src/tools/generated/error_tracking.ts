@@ -171,9 +171,6 @@ const errorTrackingExternalReferencesCreate = (): ToolBase<
         if (params.config !== undefined) {
             body['config'] = params.config
         }
-        if (params.external_context !== undefined) {
-            body['external_context'] = params.external_context
-        }
         if (params.issue !== undefined) {
             body['issue'] = params.issue
         }

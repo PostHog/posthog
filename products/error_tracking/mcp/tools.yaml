@@ -152,9 +152,6 @@ tools:
     error-tracking-external-references-retrieve:
         operation: error_tracking_external_references_retrieve
         enabled: false
-    error-tracking-external-references-search-issues-retrieve:
-        operation: error_tracking_external_references_search_issues_retrieve
-        enabled: false
     error-tracking-fingerprints-destroy:
         operation: error_tracking_fingerprints_destroy
         enabled: false

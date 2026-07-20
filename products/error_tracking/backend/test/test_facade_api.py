@@ -223,9 +223,7 @@ class TestErrorTrackingFacadeAPI(BaseTest):
             sensitive_config={"access_token": "access-token"},
         )
 
-        assert (
-            api.search_external_issues(team_id=self.team.id, integration_id=integration.id, search="boom") == results
-        )
+        assert api.search_external_issues(team_id=self.team.id, integration_id=integration.id, search="boom") == results
         mock_search_issues.assert_called_once_with("boom")
 
     def test_issue_exists(self):

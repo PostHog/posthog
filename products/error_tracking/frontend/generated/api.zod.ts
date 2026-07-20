@@ -151,19 +151,12 @@ export const ErrorTrackingExternalReferencesCreateBody = /* @__PURE__ */ zod.obj
     integration_id: zod
         .number()
         .describe(
-            "ID of the connected integration to link the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira')."
+            "ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira')."
         ),
     config: zod
         .record(zod.string(), zod.string())
-        .optional()
         .describe(
-            'Provider-specific fields describing a NEW external issue to create. Supply this OR external_context, not both. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {\"repository\":\"posthog\",\"title\":\"Checkout TypeError\",\"body\":\"Stack trace\"}; linear {\"team_id\":\"team-id\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}; jira {\"project_key\":\"ENG\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}.'
-        ),
-    external_context: zod
-        .record(zod.string(), zod.unknown())
-        .optional()
-        .describe(
-            'Identifier of an EXISTING external issue to link (from the search-issues endpoint). Supply this OR config, not both. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}.'
+            'Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {\"repository\":\"posthog\",\"title\":\"Checkout TypeError\",\"body\":\"Stack trace\"}; linear {\"team_id\":\"team-id\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}; jira {\"project_key\":\"ENG\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}.'
         ),
     issue: zod.uuid().describe('ID of the error tracking issue to link the reference to.'),
 })
@@ -287,19 +280,12 @@ export const ErrorTrackingIssuesAssignPartialUpdateBody = /* @__PURE__ */ zod
                     integration_id: zod
                         .number()
                         .describe(
-                            "ID of the connected integration to link the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira')."
+                            "ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira')."
                         ),
                     config: zod
                         .record(zod.string(), zod.string())
-                        .optional()
                         .describe(
-                            'Provider-specific fields describing a NEW external issue to create. Supply this OR external_context, not both. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {\"repository\":\"posthog\",\"title\":\"Checkout TypeError\",\"body\":\"Stack trace\"}; linear {\"team_id\":\"team-id\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}; jira {\"project_key\":\"ENG\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}.'
-                        ),
-                    external_context: zod
-                        .record(zod.string(), zod.unknown())
-                        .optional()
-                        .describe(
-                            'Identifier of an EXISTING external issue to link (from the search-issues endpoint). Supply this OR config, not both. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}.'
+                            'Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {\"repository\":\"posthog\",\"title\":\"Checkout TypeError\",\"body\":\"Stack trace\"}; linear {\"team_id\":\"team-id\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}; jira {\"project_key\":\"ENG\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}.'
                         ),
                     issue: zod.uuid().describe('ID of the error tracking issue to link the reference to.'),
                     external_url: zod.string().describe("URL of the linked external issue in the provider's system."),
@@ -347,19 +333,12 @@ export const ErrorTrackingIssuesCohortUpdateBody = /* @__PURE__ */ zod
                 integration_id: zod
                     .number()
                     .describe(
-                        "ID of the connected integration to link the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira')."
+                        "ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira')."
                     ),
                 config: zod
                     .record(zod.string(), zod.string())
-                    .optional()
                     .describe(
-                        'Provider-specific fields describing a NEW external issue to create. Supply this OR external_context, not both. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {\"repository\":\"posthog\",\"title\":\"Checkout TypeError\",\"body\":\"Stack trace\"}; linear {\"team_id\":\"team-id\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}; jira {\"project_key\":\"ENG\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}.'
-                    ),
-                external_context: zod
-                    .record(zod.string(), zod.unknown())
-                    .optional()
-                    .describe(
-                        'Identifier of an EXISTING external issue to link (from the search-issues endpoint). Supply this OR config, not both. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}.'
+                        'Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {\"repository\":\"posthog\",\"title\":\"Checkout TypeError\",\"body\":\"Stack trace\"}; linear {\"team_id\":\"team-id\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}; jira {\"project_key\":\"ENG\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}.'
                     ),
                 issue: zod.uuid().describe('ID of the error tracking issue to link the reference to.'),
                 external_url: zod.string().describe("URL of the linked external issue in the provider's system."),
@@ -427,19 +406,12 @@ export const ErrorTrackingIssuesBulkCreateBody = /* @__PURE__ */ zod
                 integration_id: zod
                     .number()
                     .describe(
-                        "ID of the connected integration to link the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira')."
+                        "ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira')."
                     ),
                 config: zod
                     .record(zod.string(), zod.string())
-                    .optional()
                     .describe(
-                        'Provider-specific fields describing a NEW external issue to create. Supply this OR external_context, not both. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {\"repository\":\"posthog\",\"title\":\"Checkout TypeError\",\"body\":\"Stack trace\"}; linear {\"team_id\":\"team-id\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}; jira {\"project_key\":\"ENG\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}.'
-                    ),
-                external_context: zod
-                    .record(zod.string(), zod.unknown())
-                    .optional()
-                    .describe(
-                        'Identifier of an EXISTING external issue to link (from the search-issues endpoint). Supply this OR config, not both. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}.'
+                        'Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {\"repository\":\"posthog\",\"title\":\"Checkout TypeError\",\"body\":\"Stack trace\"}; linear {\"team_id\":\"team-id\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}; jira {\"project_key\":\"ENG\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}.'
                     ),
                 issue: zod.uuid().describe('ID of the error tracking issue to link the reference to.'),
                 external_url: zod.string().describe("URL of the linked external issue in the provider's system."),
