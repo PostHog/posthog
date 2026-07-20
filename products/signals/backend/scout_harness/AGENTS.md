@@ -191,11 +191,11 @@ one sandbox session → zero or more emitted signals.
   possible. The token backs the preinstalled `gh` CLI via `GH_TOKEN`/`GITHUB_TOKEN`.
   Separately, the **`gh` prompt guidance** for code-derived reviewer evidence — commit history by
   path, cross-checked against `scout-members-list`, cited in each reviewer's `reason` — renders
-  only for report-channel scouts on teams granted `github_read_access` in the `signals-scout`
-  flag payload (`team_configs`/`default_team_config`, resolved by
-  `team_limits.github_read_access_for_team`, default off) AND passing the mint-feasibility
-  preflight (`tasks_facade.can_mint_readonly_github_token`), so a tokenless run is never steered
-  at `gh`.
+  only for report-channel scouts whose team passes both the `github_read_access` posture in the
+  `signals-scout` flag payload (`team_configs`/`default_team_config`, resolved by
+  `team_limits.github_read_access_for_team`; default ON, an explicit `false` at either layer is
+  the kill switch) AND the mint-feasibility preflight
+  (`tasks_facade.can_mint_readonly_github_token`), so a tokenless run is never steered at `gh`.
 - `MultiTurnSession.start()` creates a Tasks `(Task, TaskRun)` pair to drive the
   sandbox. The bridge row links to its `TaskRun` via a `OneToOne` FK (`task_run`), created
   by the `on_task_run_created` hook before the agent's first turn — this powers the

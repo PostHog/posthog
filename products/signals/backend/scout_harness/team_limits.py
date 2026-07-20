@@ -76,10 +76,11 @@ MAX_RUNS_PER_TEAM_PER_DAY: int | None = None
 # Key inside `team_configs` / `default_team_config` that overrides `MAX_RUNS_PER_TEAM_PER_DAY`.
 TEAM_CONFIG_MAX_RUNS_PER_DAY = "max_runs_per_day"
 
-# Key inside `team_configs` / `default_team_config` granting report-channel scouts a READ-ONLY
-# GitHub token in their sandbox (`gh` evidence gathering for reviewer routing — commit history by
-# path, PR metadata; the token carries no write permissions). Default off; flip per-team for
-# dogfooders via `team_configs`, fleet-wide via `default_team_config`, no deploy either way.
+# Key inside `team_configs` / `default_team_config` controlling whether report-channel scouts get
+# the `gh` evidence-gathering prompt guidance (reviewer routing from commit history by path, PR
+# metadata — backed by the read-only token every scout sandbox gets regardless). Default ON so it
+# just works for every enrolled team with a usable GitHub install; set `false` per-team via
+# `team_configs` or fleet-wide via `default_team_config` as the kill switch, no deploy either way.
 TEAM_CONFIG_GITHUB_READ_ACCESS = "github_read_access"
 
 # Per-scout holdback denylist. A list of canonical scout skill names a team must NOT get: the
@@ -323,20 +324,22 @@ def _resolve_global_max_runs_per_tick(payload: dict | None, default: int) -> int
 
 
 def _resolve_github_read_access(team_id: int, team_configs: dict[int, dict], default_team_config: dict) -> bool:
-    """Whether report-channel scouts on this team get a read-only GitHub token, most-specific
-    layer first: `team_configs[team_id]` → `default_team_config` → off. Only a literal boolean is
-    honored at each layer; anything else falls through, so a typo can't silently grant access.
+    """Whether report-channel scouts on this team get the `gh` evidence prompt guidance,
+    most-specific layer first: `team_configs[team_id]` → `default_team_config` → on. Only a
+    literal boolean is honored at each layer; anything else falls through, so a typo'd override
+    can't silently flip the posture either way. Defaulting on is safe because the guidance is
+    additionally preflighted on a mintable team-level install, and the token itself is read-only.
     """
     for source in ((team_configs.get(team_id) or {}), default_team_config):
         override = source.get(TEAM_CONFIG_GITHUB_READ_ACCESS)
         if isinstance(override, bool):
             return override
-    return False
+    return True
 
 
 def github_read_access_for_team(canonical_team_id: int) -> bool:
-    """One-shot flag-payload read → whether this (canonical) team's report-channel scouts get a
-    read-only GitHub token in their sandbox. Missing/unreadable payload → off (fail closed)."""
+    """One-shot flag-payload read → whether this (canonical) team's report-channel scouts get the
+    `gh` evidence prompt guidance. Missing/unreadable payload → on (the default posture)."""
     payload = _read_flag_payload()
     team_configs = _canonicalize_team_config_keys(_team_configs(payload))
     return _resolve_github_read_access(canonical_team_id, team_configs, _default_team_config(payload))

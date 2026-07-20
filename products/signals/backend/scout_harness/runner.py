@@ -391,10 +391,11 @@ async def _spawn_and_run(
     # every scout run downscopes that to a read-only mint (or nothing when the mint fails) —
     # a strict privilege reduction, independent of the prompt-guidance flag below.
     #
-    # The `gh` guidance in the prompt is gated separately: report-channel scouts only, per-team
-    # `github_read_access` in the `signals-scout` flag payload, AND a mint preflight — the prompt
-    # must not name `gh` when the team has no usable installation to mint from (the scout would
-    # burn budget on 401s before falling back).
+    # The `gh` guidance in the prompt is gated separately: report-channel scouts only, the
+    # `github_read_access` posture in the `signals-scout` flag payload (default on; per-team or
+    # fleet-wide `false` is the kill switch), AND a mint preflight — the prompt must not name
+    # `gh` when the team has no usable installation to mint from (the scout would burn budget
+    # on 401s before falling back).
     github_prompt_guidance = report_channel and await database_sync_to_async(
         github_read_access_for_team, thread_sensitive=False
     )(team.id)

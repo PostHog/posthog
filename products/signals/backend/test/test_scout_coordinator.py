@@ -1094,14 +1094,14 @@ def test_resolve_withheld_skills(team_configs, default_cfg, expected):
 @pytest.mark.parametrize(
     "team_configs,default_cfg,expected",
     [
-        ({}, {}, False),  # nothing set → off (fail closed: this grants a GitHub token)
-        ({}, {"github_read_access": True}, True),  # fleet default grants
-        ({7: {"github_read_access": True}}, {}, True),  # per-team grant
-        # per-team explicit False wins over a fleet-wide grant (revoke one team without a deploy)
-        ({7: {"github_read_access": False}}, {"github_read_access": True}, False),
-        # only literal booleans are honored — a truthy string/int must never grant token access
-        ({7: {"github_read_access": "true"}}, {}, False),
-        ({7: {"github_read_access": 1}}, {"github_read_access": False}, False),
+        ({}, {}, True),  # nothing set → on ("just works" for every enrolled team)
+        ({}, {"github_read_access": False}, False),  # fleet-wide kill switch
+        ({7: {"github_read_access": False}}, {}, False),  # per-team revoke
+        # per-team explicit True wins over a fleet-wide revoke (re-grant one team without a deploy)
+        ({7: {"github_read_access": True}}, {"github_read_access": False}, True),
+        # only literal booleans are honored — a non-bool must never flip the posture either way
+        ({7: {"github_read_access": "false"}}, {}, True),
+        ({7: {"github_read_access": 0}}, {"github_read_access": False}, False),
     ],
 )
 def test_resolve_github_read_access(team_configs, default_cfg, expected):
