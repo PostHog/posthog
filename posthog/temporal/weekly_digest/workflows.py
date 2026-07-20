@@ -1,4 +1,3 @@
-import os
 import asyncio
 import itertools
 from datetime import UTC, datetime, timedelta
@@ -6,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from django.conf import settings
 
 from temporalio import common, workflow
+from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.weekly_digest.activities import (
@@ -47,11 +47,19 @@ class WeeklyDigestWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, input: WeeklyDigestInput) -> None:
+        # Resolve Redis config from Django settings (populated from env at settings load, outside
+        # the workflow sandbox). Fail loudly if the host is unset rather than silently defaulting
+        # to localhost, which surfaces later as a confusing "connection refused" in every activity.
         if input.common.redis_host is None:
-            input.common.redis_host = os.getenv("WEEKLY_DIGEST_REDIS_HOST", "localhost")
+            if settings.WEEKLY_DIGEST_REDIS_HOST is None:
+                raise ApplicationError(
+                    "WEEKLY_DIGEST_REDIS_HOST is not configured for the weekly digest worker",
+                    non_retryable=True,
+                )
+            input.common.redis_host = settings.WEEKLY_DIGEST_REDIS_HOST
 
         if input.common.redis_port is None:
-            input.common.redis_port = int(os.getenv("WEEKLY_DIGEST_REDIS_PORT", "6379"))
+            input.common.redis_port = settings.WEEKLY_DIGEST_REDIS_PORT
 
         if input.common.django_redis_url is None:
             input.common.django_redis_url = settings.REDIS_URL

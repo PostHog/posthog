@@ -561,6 +561,14 @@ AI_GATEWAY_REDIS_URL = os.getenv("AI_GATEWAY_REDIS_URL", "redis://localhost:6381
 
 TASKS_REDIS_URL = os.getenv("TASKS_REDIS_URL", None)
 
+# Dedicated Redis for the weekly digest Temporal workflow, isolated from the main cache so a
+# large digest generation run doesn't churn hot keys. Resolved here (at settings load, outside
+# the Temporal workflow sandbox) instead of via os.getenv inside the workflow: an unset host must
+# surface as a clear error rather than silently falling back to localhost. Defaults to localhost
+# only in dev/test; in production it is None until configured, and the workflow fails loudly.
+WEEKLY_DIGEST_REDIS_HOST = os.getenv("WEEKLY_DIGEST_REDIS_HOST", "localhost" if DEBUG or TEST else None)
+WEEKLY_DIGEST_REDIS_PORT = int(os.getenv("WEEKLY_DIGEST_REDIS_PORT", "6379"))
+
 # Public base URL of the LLM gateway, surfaced in the app's per-gateway endpoint
 # examples (…/v1/<slug>/messages). Deployment-specific; empty until configured,
 # except in local dev where it defaults to the gateway's local listen addr
