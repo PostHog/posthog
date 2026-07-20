@@ -1,3 +1,4 @@
+import re
 import abc
 import uuid
 import typing
@@ -17,6 +18,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.batch_exports.backend.hogql_source import UnsupportedHogQLQueryError, parse_hogql_select_for_batch_export
 from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
 from products.batch_exports.backend.temporal import sql
 from products.batch_exports.backend.temporal.metrics import log_query_duration
@@ -28,13 +30,43 @@ QueryParameters = dict[str, typing.Any]
 BatchExportDateRange = tuple[dt.datetime | None, dt.datetime]
 
 
+def _print_setting_value(value: typing.Any) -> str:
+    """Render a setting value the same way the HogQL printer does."""
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    return str(value)
+
+
+# A SETTINGS clause at the very end of the query, i.e. at the top level: anything after
+# a subquery's SETTINGS clause includes at least its closing parenthesis.
+TRAILING_SETTINGS_CLAUSE = re.compile(r"\bSETTINGS\s+[^()]*$", re.IGNORECASE)
+
+
+def append_settings_to_query(printed_query: str, settings_pairs: list[str]) -> str:
+    """Append a `SETTINGS` clause (given as `name=value` strings) to a printed query.
+
+    If the query already ends in a top-level SETTINGS clause (the printer merges in
+    settings required by some tables), extend it rather than open a second one. A
+    SETTINGS clause inside a subquery (e.g. from a lazy table expansion) doesn't count.
+    """
+    if not settings_pairs:
+        return printed_query
+    separator = ", " if TRAILING_SETTINGS_CLAUSE.search(printed_query) else " SETTINGS "
+    return printed_query + separator + ", ".join(settings_pairs)
+
+
 class RecordBatchModel(abc.ABC):
     """Base class for models that can be produced as record batches.
 
     Attributes:
        team_id: The ID of the team we are producing records for.
        batch_export_id: The ID of the batch export we are producing records for.
+       wait_for_data_interval_end: Whether to wait before querying until the data
+           interval end has passed and replication lag past it has settled. Models
+           without data interval semantics query "as of now" and skip the wait.
     """
+
+    wait_for_data_interval_end: bool = True
 
     def __init__(self, team_id: int, batch_export_id: str | None = None):
         self.team_id = team_id
@@ -66,13 +98,48 @@ class RecordBatchModel(abc.ABC):
         return tags.to_json()
 
     @abc.abstractmethod
+    def get_hogql_query(
+        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
+        """Return the HogQL query to export, scoped to the given data interval."""
+        raise NotImplementedError
+
+    def _get_insert_settings(self) -> list[str]:
+        """Extra `SETTINGS` (as `name=value` strings) to string-append to the INSERT query.
+
+        Models that bake their settings onto the query AST return an empty list; models
+        whose query can lack an AST settings slot (e.g. a UNION, which parses to an
+        `ast.SelectSetQuery`) append them here. The log comment is always appended on
+        top of these.
+        """
+        return []
+
+    async def _print_query(
+        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime, output_format: str | None
+    ) -> tuple[str, QueryParameters]:
+        """Transpile the model's HogQL query to ClickHouse SQL, returning it with its parameters."""
+        hogql_query = self.get_hogql_query(data_interval_start, data_interval_end)
+        context = await self.get_hogql_context()
+
+        prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
+            hogql_query, context=context, dialect="clickhouse", stack=[]
+        )
+        assert prepared_hogql_query is not None
+        if output_format is not None:
+            context.output_format = output_format
+        # Printing can lazily read from Postgres (e.g. the events table checks the
+        # new-events-schema instance setting), so it must run off the event loop.
+        printed = await database_sync_to_async(print_prepared_ast)(
+            prepared_hogql_query, context=context, dialect="clickhouse", stack=[]
+        )
+        return printed, context.values
+
     async def as_query_with_parameters(
         self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
     ) -> tuple[Query, QueryParameters]:
         """Produce a printed query and any necessary ClickHouse query parameters."""
-        raise NotImplementedError
+        return await self._print_query(data_interval_start, data_interval_end, output_format="ArrowStream")
 
-    @abc.abstractmethod
     async def as_insert_into_s3_query_with_parameters(
         self,
         data_interval_start: dt.datetime | None,
@@ -82,8 +149,15 @@ class RecordBatchModel(abc.ABC):
         s3_secret: str | None,
         num_partitions: int,
     ) -> tuple[Query, QueryParameters]:
-        """Produce a printed query and any necessary ClickHouse query parameters."""
-        raise NotImplementedError
+        """Produce an `INSERT INTO FUNCTION s3(...)` query and its ClickHouse parameters."""
+        printed, parameters = await self._print_query(data_interval_start, data_interval_end, output_format=None)
+        printed = append_settings_to_query(printed, [*self._get_insert_settings(), "log_comment={log_comment}"])
+        s3_function = sql.get_s3_function_call(s3_folder, s3_key, s3_secret, num_partitions)
+        insert_query = f"""
+INSERT INTO FUNCTION {s3_function}
+{printed}
+"""
+        return insert_query, parameters
 
 
 class SessionsRecordBatchModel(RecordBatchModel):
@@ -135,64 +209,6 @@ class SessionsRecordBatchModel(RecordBatchModel):
         hogql_query.where = where_and
 
         return hogql_query
-
-    async def as_query_with_parameters(
-        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
-    ) -> tuple[Query, QueryParameters]:
-        """Produce a printed query and any necessary ClickHouse query parameters."""
-        hogql_query = self.get_hogql_query(data_interval_start, data_interval_end)
-        context = await self.get_hogql_context()
-
-        prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
-            hogql_query, context=context, dialect="clickhouse", stack=[]
-        )
-        assert prepared_hogql_query is not None
-        context.output_format = "ArrowStream"
-        printed = print_prepared_ast(
-            prepared_hogql_query,
-            context=context,
-            dialect="clickhouse",
-            stack=[],
-        )
-        return printed, context.values
-
-    async def as_insert_into_s3_query_with_parameters(
-        self,
-        data_interval_start: dt.datetime | None,
-        data_interval_end: dt.datetime,
-        s3_folder: str,
-        s3_key: str | None,
-        s3_secret: str | None,
-        num_partitions: int,
-    ) -> tuple[Query, QueryParameters]:
-        """Produce a printed query and any necessary ClickHouse query parameters."""
-        hogql_query = self.get_hogql_query(data_interval_start, data_interval_end)
-        context = await self.get_hogql_context()
-
-        prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
-            hogql_query, context=context, dialect="clickhouse", stack=[]
-        )
-        assert prepared_hogql_query is not None
-        printed = print_prepared_ast(
-            prepared_hogql_query,
-            context=context,
-            dialect="clickhouse",
-            stack=[],
-        )
-
-        log_comment = "log_comment={log_comment}"
-        if "settings" not in printed.lower():
-            log_comment = " SETTINGS log_comment={log_comment}"
-        else:
-            log_comment = ", " + log_comment
-
-        s3_function = sql.get_s3_function_call(s3_folder, s3_key, s3_secret, num_partitions)
-        insert_query = f"""
-INSERT INTO FUNCTION {s3_function}
-{printed}{log_comment}
-"""
-
-        return insert_query, context.values
 
     def get_backfill_info_hogql_query(
         self, start_at: dt.datetime | None, end_at: dt.datetime | None
@@ -305,6 +321,43 @@ INSERT INTO FUNCTION {s3_function}
         return min_timestamp, record_count
 
 
+class HogQLQueryRecordBatchModel(RecordBatchModel):
+    """A model to produce record batches from an arbitrary HogQL query.
+
+    The query is stored as a raw HogQL string and transpiled to ClickHouse SQL at run
+    time, so it stays resilient to printer changes.
+
+    TODO: Data interval bounds are accepted to satisfy the base class contract but ignored: the
+    query has no interval semantics yet.
+    """
+
+    # The query is executed as-is with no data interval, so there is nothing to wait for.
+    wait_for_data_interval_end = False
+
+    def __init__(self, team_id: int, hogql_query: str, batch_export_id: str | None = None):
+        super().__init__(team_id=team_id, batch_export_id=batch_export_id)
+        self.hogql_query = hogql_query
+
+    def get_hogql_query(
+        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
+        """Return the parsed HogQL query used for this model.
+
+        The data interval bounds are ignored: the query is exported as-is (see the class
+        docstring). They are accepted to satisfy the base class contract.
+        """
+        return parse_hogql_select_for_batch_export(self.hogql_query)
+
+    def _get_insert_settings(self) -> list[str]:
+        # The user query may not parse to a simple `ast.SelectQuery` (e.g. a UNION parses
+        # to an `ast.SelectSetQuery`, which has no `settings` field to attach these to), so
+        # we append them to the printed SQL as a string, which works for either shape.
+        return [
+            f"{name}={_print_setting_value(value)}"
+            for name, value in sql.HogQLQueryBatchExportSettings().model_dump(exclude_none=True).items()
+        ]
+
+
 def resolve_batch_exports_model(
     team_id: int,
     batch_export_model: BatchExportModel | None = None,
@@ -318,7 +371,7 @@ def resolve_batch_exports_model(
     be removed.
     """
     model: BatchExportModel | BatchExportSchema | None = None
-    record_batch_model = None
+    record_batch_model: RecordBatchModel | None = None
     if batch_export_schema is None:
         model = batch_export_model
         if model is not None:
@@ -329,6 +382,12 @@ def resolve_batch_exports_model(
 
             if model_name == "sessions":
                 record_batch_model = SessionsRecordBatchModel(team_id=team_id, batch_export_id=batch_export_id)
+            elif model_name == "hogql":
+                if model.hogql_query is None:
+                    raise UnsupportedHogQLQueryError("Batch export model is 'hogql' but no HogQL query was provided")
+                record_batch_model = HogQLQueryRecordBatchModel(
+                    team_id=team_id, hogql_query=model.hogql_query, batch_export_id=batch_export_id
+                )
         else:
             model_name = "events"
             extra_query_parameters = None
