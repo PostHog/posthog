@@ -191,6 +191,23 @@ describe('commentsLogic', () => {
         expect(logic.values.expandedThreadIds.has('thread-1')).toBe(true)
     })
 
+    it('startNewComment exits reply mode and focuses the footer composer once it registers', () => {
+        logic.actions.setRichContentEditor(createEditor(DRAFT_CONTENT))
+        logic.actions.setReplyingComment('thread-1')
+
+        logic.actions.startNewComment()
+        expect(logic.values.replyingCommentId).toBeNull()
+
+        const footerEditor = createEditor(null)
+        logic.actions.setRichContentEditor(footerEditor)
+        expect(footerEditor.focus).toHaveBeenCalledWith('end')
+
+        // One-shot: an unrelated later remount must not steal focus
+        const remountedEditor = createEditor(null)
+        logic.actions.setRichContentEditor(remountedEditor)
+        expect(remountedEditor.focus).not.toHaveBeenCalled()
+    })
+
     it('expands the thread containing a deep-linked reply', async () => {
         useMocks({
             get: {

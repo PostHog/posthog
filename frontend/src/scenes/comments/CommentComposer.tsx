@@ -18,9 +18,8 @@ export const CommentComposer = ({ variant = 'footer', ...props }: CommentCompose
     const { key, commentsLoading, replyingCommentId, itemContext, isEmpty, composerDraft } = useValues(
         commentsLogic(props)
     )
-    const { sendComposedContent, clearItemContext, setRichContentEditor, onRichContentEditorUpdate } = useActions(
-        commentsLogic(props)
-    )
+    const { sendComposedContent, clearItemContext, setRichContentEditor, onRichContentEditorUpdate, startNewComment } =
+        useActions(commentsLogic(props))
 
     const placeholder = replyingCommentId
         ? 'Reply...'
@@ -37,8 +36,19 @@ export const CommentComposer = ({ variant = 'footer', ...props }: CommentCompose
     }, [key, variant, clearItemContext])
 
     if (variant === 'footer' && replyingCommentId) {
-        // The composer is rendered inline in the thread being replied to
-        return null
+        // The composer is rendered inline in the thread being replied to - offer a way back
+        return (
+            <div className="flex justify-end pt-2">
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    onClick={() => startNewComment()}
+                    data-attr="discussions-new-comment"
+                >
+                    New comment
+                </LemonButton>
+            </div>
+        )
     }
 
     const buttonSize = variant === 'inline-reply' ? 'small' : undefined

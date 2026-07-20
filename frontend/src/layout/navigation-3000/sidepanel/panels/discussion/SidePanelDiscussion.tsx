@@ -77,7 +77,6 @@ const DiscussionContent = ({
     children?: React.ReactNode
 }): JSX.Element => {
     const { selectedTabOptions } = useValues(sidePanelStateLogic)
-    const { replyingCommentId } = useValues(commentsLogic(logicProps))
     const { setSelectedComment } = useActions(commentsLogic(logicProps))
     const { setCommentsListRef } = useActions(sidePanelDiscussionLogic)
 
@@ -93,11 +92,10 @@ const DiscussionContent = ({
                 <CommentsList {...logicProps} />
             </div>
 
-            {!replyingCommentId ? (
-                <div className="border-t px-3 pb-3">
-                    <CommentComposer {...logicProps} />
-                </div>
-            ) : null}
+            {/* Renders the full composer, or a "New comment" button while a reply is in progress */}
+            <div className="border-t px-3 pb-3">
+                <CommentComposer {...logicProps} />
+            </div>
         </>
     )
 }
