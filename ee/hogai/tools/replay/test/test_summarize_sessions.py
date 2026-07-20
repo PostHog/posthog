@@ -34,7 +34,9 @@ class TestSummarizeSessionsTool(NonAtomicBaseTest):
         bounds = (datetime(2025, 1, 1), datetime(2025, 1, 2))
         with (
             patch.object(
-                SummarizeSessionsTool._find_sessions_timestamps_with_retry.retry, "sleep", lambda *a, **k: None
+                SummarizeSessionsTool._find_sessions_timestamps_with_retry.retry,  # type: ignore[attr-defined]
+                "sleep",
+                lambda *a, **k: None,
             ),
             patch(
                 "ee.hogai.tools.replay.summarize_sessions.find_sessions_timestamps",
