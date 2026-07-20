@@ -249,6 +249,7 @@ export interface signalSourcesLogicActions {
             | 'Aviator'
             | 'Awin'
             | 'AwsCloudTrail'
+            | 'Axiom'
             | 'AzureBlob'
             | 'AzureDevOps'
             | 'AzureTableStorage'
@@ -358,6 +359,7 @@ export interface signalSourcesLogicActions {
             | 'Coupa'
             | 'Coveralls'
             | 'CratesIO'
+            | 'Crisp'
             | 'Criteo'
             | 'Cronitor'
             | 'Crunchbase'
@@ -370,6 +372,7 @@ export interface signalSourcesLogicActions {
             | 'DagsterCloud'
             | 'Databricks'
             | 'Datadog'
+            | 'DataForSEO'
             | 'Datahub'
             | 'Datascope'
             | 'Datorama'
@@ -583,6 +586,7 @@ export interface signalSourcesLogicActions {
             | 'Klaus'
             | 'Klaviyo'
             | 'Knock'
+            | 'Kommo'
             | 'KongKonnect'
             | 'Koyeb'
             | 'Kubecost'
@@ -760,6 +764,7 @@ export interface signalSourcesLogicActions {
             | 'Planhat'
             | 'PlatformSh'
             | 'Plausible'
+            | 'Plivo'
             | 'Plunk'
             | 'Pocket'
             | 'Podium'
@@ -776,6 +781,7 @@ export interface signalSourcesLogicActions {
             | 'Productboard'
             | 'Productive'
             | 'PromptingCompany'
+            | 'PromptWatch'
             | 'PulumiCloud'
             | 'Pylon'
             | 'PyPI'
@@ -880,6 +886,7 @@ export interface signalSourcesLogicActions {
             | 'Skyvern'
             | 'Slack'
             | 'Slash'
+            | 'Sleekplan'
             | 'Smaily'
             | 'SmartEngage'
             | 'Smartreach'
@@ -1109,6 +1116,7 @@ export interface signalSourcesLogicActions {
             | 'Aviator'
             | 'Awin'
             | 'AwsCloudTrail'
+            | 'Axiom'
             | 'AzureBlob'
             | 'AzureDevOps'
             | 'AzureTableStorage'
@@ -1218,6 +1226,7 @@ export interface signalSourcesLogicActions {
             | 'Coupa'
             | 'Coveralls'
             | 'CratesIO'
+            | 'Crisp'
             | 'Criteo'
             | 'Cronitor'
             | 'Crunchbase'
@@ -1230,6 +1239,7 @@ export interface signalSourcesLogicActions {
             | 'DagsterCloud'
             | 'Databricks'
             | 'Datadog'
+            | 'DataForSEO'
             | 'Datahub'
             | 'Datascope'
             | 'Datorama'
@@ -1443,6 +1453,7 @@ export interface signalSourcesLogicActions {
             | 'Klaus'
             | 'Klaviyo'
             | 'Knock'
+            | 'Kommo'
             | 'KongKonnect'
             | 'Koyeb'
             | 'Kubecost'
@@ -1620,6 +1631,7 @@ export interface signalSourcesLogicActions {
             | 'Planhat'
             | 'PlatformSh'
             | 'Plausible'
+            | 'Plivo'
             | 'Plunk'
             | 'Pocket'
             | 'Podium'
@@ -1636,6 +1648,7 @@ export interface signalSourcesLogicActions {
             | 'Productboard'
             | 'Productive'
             | 'PromptingCompany'
+            | 'PromptWatch'
             | 'PulumiCloud'
             | 'Pylon'
             | 'PyPI'
@@ -1740,6 +1753,7 @@ export interface signalSourcesLogicActions {
             | 'Skyvern'
             | 'Slack'
             | 'Slash'
+            | 'Sleekplan'
             | 'Smaily'
             | 'SmartEngage'
             | 'Smartreach'
@@ -2451,9 +2465,10 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 })
             },
             toggleConversations: () => {
+                // The optimistic reducer flips the config before this listener runs,
+                // so config.enabled already reflects the desired state.
                 const config = values.conversationsConfig
-                // Send the flipped target state. A missing config row means "off", so first toggle enables.
-                const desiredEnabled = !(config?.enabled ?? false)
+                const desiredEnabled = config?.enabled ?? true
                 actions.toggleSignalSource({
                     sourceProduct: SignalSourceProduct.Conversations,
                     sourceType: SignalSourceType.Ticket,

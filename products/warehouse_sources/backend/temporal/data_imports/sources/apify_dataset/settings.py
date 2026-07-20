@@ -18,7 +18,6 @@ PRIMARY_KEYS: dict[str, list[str] | None] = {
 }
 
 # No advertised incremental fields: dataset items are append-only with no server-side `updated_after`
-# style filter, so an "incremental" sync would still page through every row. Ship full refresh only.
-INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
-    DATASET_ITEMS_ENDPOINT: [],
-}
+# style filter, so an "incremental" sync would still page through every row. Ship full refresh only —
+# leaving the endpoint out of the map keeps `build_endpoint_schemas` from advertising incremental sync.
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}

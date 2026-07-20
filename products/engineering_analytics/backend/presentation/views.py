@@ -119,6 +119,15 @@ _SOURCE_ID = OpenApiParameter(
     "source when the team has more than one.",
 )
 
+_REPO = OpenApiParameter(
+    name="repo",
+    type=OpenApiTypes.STR,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    description="'owner/name' repository to scope to when the selected source syncs several repositories "
+    "(from the `sources` list). Defaults to the source's first repository.",
+)
+
 
 def _bad_request(exc: ValueError, *, fallback: str) -> Response:
     return Response({"detail": str(exc) or fallback}, status=status.HTTP_400_BAD_REQUEST)
@@ -220,10 +229,11 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         operation_id="engineering_analytics_sources",
         responses={200: GitHubSourceSerializer(many=True)},
         description=(
-            "The team's connected GitHub data warehouse sources, oldest first. Populate a source picker "
-            "from this and pass a chosen `id` back as `source_id` to the other endpoints. A team can connect "
-            "GitHub more than once (e.g. one source per repository); this lists them all, including any whose "
-            "tables aren't fully synced yet."
+            "The team's selectable GitHub repositories, oldest source first — one entry per repository a "
+            "source is configured to sync, so a source syncing several repositories appears once per repo. "
+            "Populate a repo picker from this and pass a chosen entry's `id` back as `source_id` and its "
+            "`repo` back as `repo` to the other endpoints. Includes repositories whose tables aren't fully "
+            "synced yet."
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)
@@ -233,7 +243,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
 
     @extend_schema(
         operation_id="engineering_analytics_ci_cards",
-        parameters=[_SOURCE_ID],
+        parameters=[_SOURCE_ID, _REPO],
         responses={
             200: CICardSummarySerializer,
             400: OpenApiResponse(description="Invalid source_id."),
@@ -250,6 +260,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             result = api.get_ci_cards(
                 team=self.team,
                 source_id=request.query_params.get("source_id") or None,
+                repo=request.query_params.get("repo") or None,
                 user_access_control=self.user_access_control,
             )
         except ValueError as exc:
@@ -268,6 +279,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 description="Optional GitHub login to scope the list to one author's pull requests.",
             ),
             _SOURCE_ID,
+            _REPO,
         ],
         responses={
             200: PullRequestListSerializer,
@@ -288,6 +300,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 date_from=request.query_params.get("date_from") or None,
                 author=request.query_params.get("author") or None,
                 source_id=request.query_params.get("source_id") or None,
+                repo=request.query_params.get("repo") or None,
                 user_access_control=self.user_access_control,
             )
         except ValueError as exc:
@@ -296,7 +309,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
 
     @extend_schema(
         operation_id="engineering_analytics_workflow_health",
-        parameters=[_WORKFLOW_DATE_FROM, _DATE_TO, _BRANCH, _RUN_SCOPE, _SOURCE_ID],
+        parameters=[_WORKFLOW_DATE_FROM, _DATE_TO, _BRANCH, _RUN_SCOPE, _SOURCE_ID, _REPO],
         responses={
             200: WorkflowHealthItemSerializer(many=True),
             400: OpenApiResponse(
@@ -322,6 +335,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 branch=request.query_params.get("branch") or None,
                 run_scope=request.query_params.get("run_scope") or None,
                 source_id=request.query_params.get("source_id") or None,
+                repo=request.query_params.get("repo") or None,
                 user_access_control=self.user_access_control,
             )
         except ValueError as exc:
@@ -593,6 +607,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 description="GitHub Actions run id to inspect.",
             ),
             _SOURCE_ID,
+            _REPO,
         ],
         responses={
             200: WorkflowRunDetailSerializer,
@@ -611,6 +626,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 team=self.team,
                 run_id=_require_int_param(request, "run_id"),
                 source_id=request.query_params.get("source_id") or None,
+                repo=request.query_params.get("repo") or None,
                 user_access_control=self.user_access_control,
             )
         except ValueError as exc:
@@ -795,6 +811,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             _DATE_FROM,
             _DATE_TO,
             _SOURCE_ID,
+            _REPO,
         ],
         responses={
             200: WorkflowCostSerializer(many=True),
@@ -818,6 +835,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 date_from=request.query_params.get("date_from") or None,
                 date_to=request.query_params.get("date_to") or None,
                 source_id=request.query_params.get("source_id") or None,
+                repo=request.query_params.get("repo") or None,
                 user_access_control=self.user_access_control,
             )
         except ValueError as exc:
@@ -843,6 +861,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 "explicit attempt to avoid mixing jobs across a re-run's attempts.",
             ),
             _SOURCE_ID,
+            _REPO,
         ],
         responses={
             200: WorkflowJobSerializer(many=True),
@@ -862,6 +881,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 run_id=_require_int_param(request, "run_id"),
                 run_attempt=_optional_int_param(request, "run_attempt"),
                 source_id=request.query_params.get("source_id") or None,
+                repo=request.query_params.get("repo") or None,
                 user_access_control=self.user_access_control,
             )
         except ValueError as exc:
@@ -904,6 +924,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 description="Maximum number of tests to return (1-200). Defaults to 50.",
             ),
             _SOURCE_ID,
+            _REPO,
         ],
         responses={
             200: FlakyTestListSerializer,
@@ -928,6 +949,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 min_failed_prs=_optional_int_param(request, "min_failed_prs"),
                 limit=_optional_int_param(request, "limit"),
                 source_id=request.query_params.get("source_id") or None,
+                repo=request.query_params.get("repo") or None,
                 user_access_control=self.user_access_control,
             )
         except ValueError as exc:
@@ -1117,7 +1139,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
 
     @extend_schema(
         operation_id="engineering_analytics_broken_tests",
-        parameters=[_SOURCE_ID],
+        parameters=[_SOURCE_ID, _REPO],
         responses={
             200: BrokenTestsResultSerializer,
             400: OpenApiResponse(description="Invalid source_id."),
@@ -1140,6 +1162,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             result = api.get_broken_tests(
                 team=self.team,
                 source_id=request.query_params.get("source_id") or None,
+                repo=request.query_params.get("repo") or None,
                 user_access_control=self.user_access_control,
             )
         except ValueError as exc:
@@ -1161,6 +1184,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 "headline-only consumers like the weekly digest. Defaults to true.",
             ),
             _SOURCE_ID,
+            _REPO,
         ],
         responses={
             200: RepoOverviewSerializer,
@@ -1184,6 +1208,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 date_to=request.query_params.get("date_to") or None,
                 include_series=_bool_param(request, "include_series", default=True),
                 source_id=request.query_params.get("source_id") or None,
+                repo=request.query_params.get("repo") or None,
                 user_access_control=self.user_access_control,
             )
         except ValueError as exc:
@@ -1192,7 +1217,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
 
     @extend_schema(
         operation_id="engineering_analytics_current_branch_health",
-        parameters=[_SOURCE_ID],
+        parameters=[_SOURCE_ID, _REPO],
         responses={
             200: CurrentBranchHealthSerializer,
             400: OpenApiResponse(description="Invalid source_id."),
@@ -1209,6 +1234,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             result = api.get_current_branch_health(
                 team=self.team,
                 source_id=request.query_params.get("source_id") or None,
+                repo=request.query_params.get("repo") or None,
                 user_access_control=self.user_access_control,
             )
         except ValueError as exc:
@@ -1231,6 +1257,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 "Omit or leave blank to use the repo's detected default branch.",
             ),
             _SOURCE_ID,
+            _REPO,
         ],
         responses={
             200: WorkflowRunActivitySerializer,
@@ -1255,6 +1282,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 date_to=request.query_params.get("date_to") or None,
                 branch=request.query_params.get("branch") or None,
                 source_id=request.query_params.get("source_id") or None,
+                repo=request.query_params.get("repo") or None,
                 user_access_control=self.user_access_control,
             )
         except ValueError as exc:
@@ -1263,7 +1291,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
 
     @extend_schema(
         operation_id="engineering_analytics_master_failures",
-        parameters=[_WORKFLOW_DATE_FROM, _DATE_TO, _BRANCH, _SOURCE_ID],
+        parameters=[_WORKFLOW_DATE_FROM, _DATE_TO, _BRANCH, _SOURCE_ID, _REPO],
         responses={
             200: MasterFailureGroupSerializer(many=True),
             400: OpenApiResponse(description="Invalid date_from, date_to, or source_id, or a window over 366 days."),
@@ -1285,6 +1313,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 date_to=request.query_params.get("date_to") or None,
                 branch=request.query_params.get("branch") or None,
                 source_id=request.query_params.get("source_id") or None,
+                repo=request.query_params.get("repo") or None,
                 user_access_control=self.user_access_control,
             )
         except ValueError as exc:
@@ -1302,6 +1331,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 description="Workflow run id whose failure logs to fetch.",
             ),
             _SOURCE_ID,
+            _REPO,
         ],
         responses={
             200: RunFailureLogsSerializer,
@@ -1320,6 +1350,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 team=self.team,
                 run_id=_require_int_param(request, "run_id"),
                 source_id=request.query_params.get("source_id") or None,
+                repo=request.query_params.get("repo") or None,
                 user_access_control=self.user_access_control,
             )
         except ValueError as exc:
@@ -1340,6 +1371,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             _DATE_TO,
             _BRANCH,
             _SOURCE_ID,
+            _REPO,
         ],
         responses={
             200: WorkflowJobAggregateSerializer(many=True),
@@ -1366,6 +1398,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 date_to=request.query_params.get("date_to") or None,
                 branch=request.query_params.get("branch") or None,
                 source_id=request.query_params.get("source_id") or None,
+                repo=request.query_params.get("repo") or None,
                 user_access_control=self.user_access_control,
             )
         except ValueError as exc:

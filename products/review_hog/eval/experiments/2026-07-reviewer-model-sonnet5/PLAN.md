@@ -1,7 +1,7 @@
 # Reviewer-model experiment — Opus 4.8 @ xhigh vs Sonnet 5 @ xhigh (review stage only)
 
 > **Working scratchpad. Survives compaction — update the Run log + Decisions as we go.**
-> Companion to `../../../ARCHITECTURE.md` (model-switch reference at "📍 Reference — where the sandbox model +
+> Companion to `../../../DECISIONS.md` (model-switch reference at "📍 Reference — where the sandbox model +
 > reasoning-effort switch lives") and the topology round's archive at `../2026-07-reviewer-topology/`
 > (read its `FINAL_REPORT.md` for the yardstick + config vocabulary). This round is a slice of
 > `../../POTENTIAL_EXPERIMENTS.md` Tier-1 item 3 ("Reviewer-stage effort and model tiers"), with its
@@ -65,7 +65,7 @@ nudge, new chunking constants), so archived C7 (18.9/21.5M in, 6 valid ×2, pinn
    `LABEL=<label> RUN_SECONDS=<s> RUN_START_EPOCH=<epoch> OUT_DIR=products/review_hog/eval/experiments/2026-07-reviewer-model-sonnet5/runs flox activate -- bash -c "DJANGO_SETTINGS_MODULE=posthog.settings python manage.py shell -c \"exec(open('products/review_hog/eval/scripts/dump_result.py').read())\""`
 4. **Arm-B model verification (MANDATORY):** the dump's per-model token table must show the review-unit
    generations on `claude-sonnet-5`. The agent silently falls back to its default when the gateway doesn't
-   serve the requested model (`sanitizedModel` — ARCHITECTURE.md:2843), so a fallback run looks normal and
+   serve the requested model (`sanitizedModel` — DECISIONS.md § "📍 Reference — where the sandbox model + reasoning-effort switch lives"), so a fallback run looks normal and
    must be VOIDED, root-caused, and re-run.
 5. **No-verdict check (BEFORE reset — learned from A1):** `grep -c "no-verdict" <dump>`. A validator warm
    session can die mid-run on an upstream timeout, leaving issues unruled (looks like a low valid count).

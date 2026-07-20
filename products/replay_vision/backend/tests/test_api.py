@@ -1,10 +1,10 @@
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -14,6 +14,7 @@ from posthog.models import Organization, PersonalAPIKey, Team, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
+from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.digest import SCANNER_DIGEST_RRULE
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -28,6 +29,7 @@ from products.replay_vision.backend.models.replay_scanner import (
 )
 from products.replay_vision.backend.models.vision_action import VisionAction
 from products.replay_vision.backend.queries.scanner_candidate_query import SETTLE_INTERVAL
+from products.replay_vision.backend.quota import _current_period_bounds
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_WORKFLOW_NAME,
     build_apply_scanner_workflow_id,
@@ -1990,3 +1992,86 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
         resp = self.client.post(self.estimate_url, data={"scanner_id": str(other_scanner.id)}, format="json")
         self.assertEqual(resp.status_code, 400, resp.json())
         self.assertEqual(resp.json()["attr"], "scanner_id")
+
+
+class TestScannerSpend(_VisionAPITestCase):
+    def _succeeded_observation(self, scanner: ReplayScanner, session_id: str, created_at=None) -> ReplayObservation:
+        observation = ReplayObservation.objects.create(
+            scanner=scanner,
+            session_id=session_id,
+            scanner_snapshot=_snapshot_for(scanner),
+            triggered_by=ObservationTrigger.SCHEDULE,
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+        )
+        if created_at is not None:
+            ReplayObservation.objects.filter(pk=observation.pk).update(created_at=created_at)
+        return observation
+
+    def _credits_by_name(self, response_json: dict) -> dict[str, int]:
+        return {row["name"]: row["credits_this_month"] for row in response_json["results"]}
+
+    def test_credits_this_month_sums_current_period_succeeded_observations(self) -> None:
+        spender = self._create_scanner(name="spender")
+        self._create_scanner(name="idle")
+        self._succeeded_observation(spender, "in-window-1")
+        self._succeeded_observation(spender, "in-window-2")
+        ReplayObservation.objects.create(
+            scanner=spender,
+            session_id="failed-in-window",
+            scanner_snapshot=_snapshot_for(spender),
+            triggered_by=ObservationTrigger.SCHEDULE,
+            status=ObservationStatus.FAILED,
+            completed_at=timezone.now(),
+        )
+        self._succeeded_observation(spender, "last-period", created_at=timezone.now() - timedelta(days=45))
+
+        resp = self.client.get(self.scanners_url)
+        self.assertEqual(resp.status_code, 200, resp.json())
+        credits = self._credits_by_name(resp.json())
+        self.assertEqual(credits["spender"], 2 * observation_credits_for_model(spender.model))
+        self.assertEqual(credits["idle"], 0)
+
+    def test_order_by_credits_matches_displayed_values(self) -> None:
+        low = self._create_scanner(name="low")
+        high = self._create_scanner(name="high")
+        self._succeeded_observation(low, "low-1")
+        for i in range(3):
+            self._succeeded_observation(high, f"high-{i}")
+
+        resp = self.client.get(f"{self.scanners_url}?order_by=-credits_this_month")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        rows = resp.json()["results"]
+        displayed = [row["credits_this_month"] for row in rows]
+        self.assertEqual(displayed, sorted(displayed, reverse=True))
+        self.assertEqual([row["name"] for row in rows[:2]], ["high", "low"])
+
+
+class TestCurrentPeriodBounds(SimpleTestCase):
+    NOW = datetime(2026, 7, 15, 12, 0, tzinfo=UTC)
+    MONTH_BOUNDS = (datetime(2026, 7, 1, tzinfo=UTC), datetime(2026, 8, 1, tzinfo=UTC))
+
+    @parameterized.expand(
+        [
+            ("no_organization", None, MONTH_BOUNDS),
+            ("no_usage", {}, MONTH_BOUNDS),
+            (
+                "current_billing_period",
+                {"period": ["2026-07-10T00:00:00+00:00", "2026-08-10T00:00:00+00:00"]},
+                (datetime(2026, 7, 10, tzinfo=UTC), datetime(2026, 8, 10, tzinfo=UTC)),
+            ),
+            (
+                "stale_billing_period_falls_back_to_month",
+                {"period": ["2026-05-10T00:00:00+00:00", "2026-06-10T00:00:00+00:00"]},
+                MONTH_BOUNDS,
+            ),
+            (
+                "naive_timestamps_treated_as_utc",
+                {"period": ["2026-07-10T00:00:00", "2026-08-10T00:00:00"]},
+                (datetime(2026, 7, 10, tzinfo=UTC), datetime(2026, 8, 10, tzinfo=UTC)),
+            ),
+        ]
+    )
+    def test_period_selection(self, _name: str, usage: dict | None, expected: tuple[datetime, datetime]) -> None:
+        organization = Organization(usage=usage) if usage is not None else None
+        self.assertEqual(_current_period_bounds(organization, self.NOW), expected)

@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     MAX_RETRY_AFTER_SECONDS,
     RESTClient,
+    RESTClientNonRetryableError,
     RESTClientRetryableError,
     _parse_retry_after,
 )
@@ -50,6 +51,18 @@ def _make_truncated_response(status_code: int = 200) -> Response:
     resp = Response()
     resp.status_code = status_code
     resp._content = b'{"results": [{"id": 1, "name": "unterminated'
+    resp.headers["Content-Type"] = "application/json"
+    resp.url = "https://api.example.com/items"
+    return resp
+
+
+def _make_non_json_response(content: bytes, status_code: int = 200) -> Response:
+    # A successful response whose body never begins as JSON — an HTML/plain-text error
+    # page or login redirect returned with a 2xx. `response.json()` raises "Expecting
+    # value: line 1 column 1 (char 0)", identical to a truncated body cut off at the start.
+    resp = Response()
+    resp.status_code = status_code
+    resp._content = content
     resp.headers["Content-Type"] = "application/json"
     resp.url = "https://api.example.com/items"
     return resp
@@ -342,6 +355,58 @@ class TestRESTClient:
             list(client.paginate(path="/items", paginator=SinglePagePaginator()))
 
         assert mock_session.send.call_count == 5
+
+    @pytest.mark.parametrize(
+        "content",
+        [
+            pytest.param(b"<!DOCTYPE html><html><body>Service unavailable</body></html>", id="html"),
+            pytest.param(b"  <html>login required</html>", id="html_leading_whitespace"),
+            pytest.param(b"Not Found", id="plain_text"),
+        ],
+    )
+    @patch("tenacity.nap.time.sleep")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+    )
+    def test_non_json_response_body_is_non_retryable(self, MockSession, mock_sleep, content) -> None:
+        # A 2xx whose body never begins as JSON is a deterministic non-JSON response, not a
+        # truncated page: fail fast and non-retryably rather than re-fetching the same body
+        # to the retry cap (contrast the truncated-JSON case, which stays retryable).
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.return_value = MagicMock()
+        mock_session.send.return_value = _make_non_json_response(content)
+
+        client = RESTClient(base_url="https://api.example.com")
+        with pytest.raises(RESTClientNonRetryableError, match="Non-JSON response from"):
+            list(client.paginate(path="/items", paginator=SinglePagePaginator()))
+
+        assert mock_session.send.call_count == 1
+        mock_sleep.assert_not_called()
+
+    @patch("tenacity.nap.time.sleep")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+    )
+    def test_non_json_error_message_omits_query_string_secret(self, MockSession, mock_sleep) -> None:
+        # An api_key auth with location="query" puts the secret in the URL. This message flows
+        # into non-retryable-error analytics where session-value redaction doesn't reach, so it
+        # must carry only scheme/host/path — never the query string that holds the key.
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.return_value = MagicMock()
+        resp = _make_non_json_response(b"<html>nope</html>")
+        resp.url = "https://api.example.com/leads?api_key=super-secret-value&page=1"
+        mock_session.send.return_value = resp
+
+        client = RESTClient(base_url="https://api.example.com")
+        with pytest.raises(RESTClientNonRetryableError) as ctx:
+            list(client.paginate(path="/leads", paginator=SinglePagePaginator()))
+
+        message = str(ctx.value)
+        assert "super-secret-value" not in message
+        assert "api_key" not in message
+        assert "https://api.example.com/leads" in message
 
     @pytest.mark.parametrize("content", [b"", b"   \n\t"], ids=["empty", "whitespace_only"])
     @patch("tenacity.nap.time.sleep")

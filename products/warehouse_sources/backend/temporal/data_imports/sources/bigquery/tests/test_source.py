@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.b
     BIGQUERY_INVALID_IDENTIFIER_ERROR,
     BIGQUERY_INVALID_KEY_FILE_ERROR,
     BIGQUERY_MISSING_KEY_FILE_FIELDS_ERROR,
+    BIGQUERY_QUERY_CREATE_RETRY,
     BIGQUERY_QUERY_JOB_RETRY,
     BIGQUERY_READ_ROWS_RETRY,
     BIGQUERY_TOKEN_RESPONSE_ERROR,
@@ -1344,6 +1345,14 @@ def test_has_duplicate_primary_keys_captures_unexpected_errors():
             "exceeded quota for tabledata.list bytes per second per project. For more information, "
             "see https://cloud.google.com/bigquery/docs/troubleshoot-quotas"
         ),
+        # The queued-jobs quota (reason `quotaExceeded`, location `max_queued_jobs`) is transient —
+        # the queue drains as running jobs finish — so it must be retried rather than crashing the
+        # sync. Volatile ids redacted.
+        Forbidden(
+            "Quota exceeded: Your project_and_region exceeded quota for max number of jobs that can "
+            "be queued per project. For more information, see "
+            "https://cloud.google.com/bigquery/docs/troubleshoot-quotas"
+        ),
     ],
 )
 def test_bigquery_query_job_retry_retries_transient_job_errors(exc):
@@ -1366,6 +1375,22 @@ def test_bigquery_query_job_retry_retries_transient_job_errors(exc):
 )
 def test_bigquery_query_job_retry_does_not_retry_deterministic_errors(exc):
     assert BIGQUERY_QUERY_JOB_RETRY._predicate(exc) is False
+
+
+def test_bigquery_query_create_retry_retries_queued_jobs_quota():
+    """The queued-jobs quota is rejected at `jobs.insert`, which `job_retry` never wraps — only the
+    `retry` on `client.query()` can wait it out — so the create retry must cover it while still
+    leaving the administrator-set daily cost cap to surface non-retryably."""
+    queued_jobs = Forbidden(
+        "Quota exceeded: Your project_and_region exceeded quota for max number of jobs that can be "
+        "queued per project. For more information, see https://cloud.google.com/bigquery/docs/troubleshoot-quotas"
+    )
+    custom_quota = Forbidden(
+        "Custom quota exceeded: Your usage exceeded the custom quota for QueryUsagePerDay, "
+        "which is set by your administrator.; reason: quotaExceeded"
+    )
+    assert BIGQUERY_QUERY_CREATE_RETRY._predicate(queued_jobs) is True
+    assert BIGQUERY_QUERY_CREATE_RETRY._predicate(custom_quota) is False
 
 
 @pytest.mark.parametrize(
@@ -1408,6 +1433,7 @@ def test_bigquery_get_primary_keys_for_table_passes_job_retry():
     _get_primary_keys_for_table(table, client)
 
     assert client.query.return_value.result.call_args.kwargs["job_retry"] is BIGQUERY_QUERY_JOB_RETRY
+    assert client.query.call_args.kwargs["retry"] is BIGQUERY_QUERY_CREATE_RETRY
 
 
 def test_run_destination_query_passes_job_retry():
@@ -1421,6 +1447,7 @@ def test_run_destination_query_passes_job_retry():
     )
 
     assert client.query.return_value.result.call_args.kwargs["job_retry"] is BIGQUERY_QUERY_JOB_RETRY
+    assert client.query.call_args.kwargs["retry"] is BIGQUERY_QUERY_CREATE_RETRY
 
 
 def test_query_result_passes_job_retry():
@@ -1431,6 +1458,7 @@ def test_query_result_passes_job_retry():
     _query_result_with_job_retry(client, "SELECT COUNT(*)", job_config=mock.MagicMock(), project="prj")
 
     assert client.query.return_value.result.call_args.kwargs["job_retry"] is BIGQUERY_QUERY_JOB_RETRY
+    assert client.query.call_args.kwargs["retry"] is BIGQUERY_QUERY_CREATE_RETRY
 
 
 @pytest.mark.parametrize(

@@ -7,7 +7,7 @@ Use this path when adding a reusable alert capability, option, or advanced behav
 | Capability                                                                       | Primary source of truth                                              | Also inspect                                                                           |
 | -------------------------------------------------------------------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | Lifecycle state, notification action, control-plane transition, or policy option | `common/alerting/state_machine.py`                                   | Shared decision tests, every adopter policy and adapter, semgrep rule                  |
-| Fixed-cadence or shard behavior                                                  | `common/alerting/scheduling.py`                                      | Product wrappers, create/update paths, due queries, scheduler interval                 |
+| Fixed-cadence, calendar, timezone, or schedule-restriction behavior              | `products/alerts/backend/scheduling.py`                              | Product wrappers, create/update paths, due queries, scheduler interval, DST boundaries |
 | Destination type or destination-wide option                                      | `products/alerts/backend/destination_configs.py`                     | HogFunction templates/sub-templates, facade exports, product allowlists, `AlertWizard` |
 | HogFunction persistence or delivery semantics                                    | `products/alerts/backend/destinations.py`                            | Worker batching, rollback, delivery metrics, destination tests                         |
 | Email transport capability                                                       | `products/alerts/backend/email_notifications.py`                     | Facade export, campaign-key semantics, adopter templates and tests                     |
@@ -29,10 +29,12 @@ If the change crosses rows, update each row deliberately. Do not hide a cross-la
 
 ### Scheduling
 
-- Keep fixed-grid math separate from calendar and timezone rules.
+- Keep scheduling helpers pure Python with no Django or product model imports.
+- Keep fixed-grid and calendar contracts explicit instead of branching on product names.
 - Make scheduler interval assumptions explicit.
 - Preserve deterministic UUID-based sharding and stable steady-state cadence.
-- Test missed intervals, drift healing, cadence changes, and boundary times.
+- Preserve local wall-clock anchors across DST changes and evaluate restrictions in the team's timezone.
+- Test missed intervals, drift healing, cadence changes, DST transitions, overnight windows, and boundary times.
 - Keep due eligibility with the product unless a real cross-product model contract exists.
 
 ### Destinations and advanced destination options
@@ -78,6 +80,19 @@ For an advanced option on an existing destination, decide whether it is transpor
 
 Do not route unrelated product evaluators through this package solely because it is named `evaluation`.
 
+### Shared product alert frontend
+
+Extend `products/alerts/frontend/components/` only when a second adopter has the same presentation contract.
+
+- Keep shared components container-agnostic and free of product-name branches.
+- Accept normalized definition rows, destination view models, evaluation points, thresholds, scheduling state, and enabled counts.
+- Keep API calls, form schemas, kea logic, payload construction, product filters, detector configuration, simulations, and history tables in product adapters.
+- Prefer small composable definition primitives over one component with optional props for every alert product.
+- Preserve pending destination retry behavior, loading states, and submit guards.
+- Add or update shared component stories and verify at least one insight and one logs path when changing a shared contract.
+
+Read [frontend-alerting.md](frontend-alerting.md) for the current component map and adoption workflow.
+
 ### AlertWizard
 
 - Put business logic in keyed kea logic, not React hooks.
@@ -105,7 +120,8 @@ Verify both the shared layer and reference adopters:
 - Destination, delivery, email, or evaluation tests for the changed contract.
 - Logs tests for lifecycle, scheduling, HogFunction delivery, and rollback changes.
 - Insight alert tests for model/API, evaluation, email, or calendar scheduling changes.
-- `AlertWizard` logic tests and at least one adopter path for frontend changes.
+- Shared alert component stories and at least one insight and one logs adopter path for frontend changes.
+- `AlertWizard` logic tests and at least one adopter path when the wizard contract changes.
 - OpenAPI generation and frontend typecheck for API contract changes.
 - The alert-state semgrep rule when lifecycle mutation paths change.
 

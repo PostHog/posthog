@@ -7,6 +7,8 @@ class EarlyAccessFeaturesConfig(AppConfig):
     label = "early_access_features"
 
     def ready(self) -> None:
+        # Register the post_save signal that auto-creates a waitlist survey for
+        # concept-stage ("Coming Soon") features.
         from posthog.api.file_system.deletion import (
             register_file_system_type,
             register_post_delete_hook,
@@ -14,6 +16,8 @@ class EarlyAccessFeaturesConfig(AppConfig):
         )
         from posthog.helpers.impersonation import is_impersonated
         from posthog.models.activity_logging.activity_log import Detail, log_activity
+
+        import products.early_access_features.backend.signals  # noqa: F401
 
         def _with_feature_flag(queryset):
             return queryset.select_related("feature_flag")

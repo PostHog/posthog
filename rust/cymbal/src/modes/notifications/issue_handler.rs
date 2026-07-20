@@ -42,7 +42,9 @@ pub async fn handle_issue_created(
         &event_properties,
     )
     .await?;
-    let sentry_integration = event_properties.other.contains_key("$sentry_event_id");
+    let sentry_integration = event_properties
+        .properties()
+        .contains_key("$sentry_event_id");
 
     send_issue_created_internal_event(
         &context.cyclotron_producer,
@@ -109,6 +111,7 @@ pub async fn handle_issue_spiking(
         issue,
         computed_baseline,
         current_bucket_value,
+        assignee,
     } = notification;
     let IssueNotificationContext {
         issue_id,
@@ -157,7 +160,8 @@ pub async fn handle_issue_spiking(
         &context.internal_events_topic,
         meta.notification_id,
         &issue,
-        &event_properties.fingerprint,
+        assignee,
+        &event_properties,
         detected_at,
         computed_baseline,
         current_bucket_value,
