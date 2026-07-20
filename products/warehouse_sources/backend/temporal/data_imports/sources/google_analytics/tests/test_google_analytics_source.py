@@ -36,7 +36,7 @@ def test_get_source_config_fields():
     assert field_names == {"google_analytics_integration_id", "property_id"}
     assert cfg.label == "Google Analytics"
     assert cfg.featureFlag == "dwh-google-analytics"
-    assert cfg.releaseStatus == ReleaseStatus.ALPHA
+    assert cfg.releaseStatus == ReleaseStatus.BETA
     assert not cfg.unreleasedSource
 
 
