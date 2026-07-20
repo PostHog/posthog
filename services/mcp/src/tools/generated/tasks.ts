@@ -17,6 +17,7 @@ import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const TasksCreateSchema = TasksCreateBody.omit({
     title_manually_set: true,
+    origin_product: true,
     github_integration: true,
     github_user_integration: true,
     signal_report: true,
@@ -55,9 +56,6 @@ const tasksCreate = (): ToolBase<typeof TasksCreateSchema, WithPostHogUrl<Schema
         }
         if (params.description !== undefined) {
             body['description'] = params.description
-        }
-        if (params.origin_product !== undefined) {
-            body['origin_product'] = params.origin_product
         }
         if (params.repository !== undefined) {
             body['repository'] = params.repository
