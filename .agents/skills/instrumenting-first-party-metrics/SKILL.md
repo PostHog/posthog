@@ -1,82 +1,74 @@
 ---
 name: instrumenting-first-party-metrics
-description: 'How to emit first-party metrics from PostHog backend code (Django web, Celery, Temporal) so they reach both Grafana and the PostHog Metrics product. Use when adding a Prometheus counter, gauge, or histogram, when asked to push or ship metrics into PostHog metrics, or when tempted to add OTel SDK setup or metrics env vars to app code. Covers the prometheus_client + OtelInstrumentFactory twin pattern, what is already wired (scraping, multiprocess mode, OTLP push gating), and what not to touch.'
+description: 'How to instrument PostHog''s own Metrics product from PostHog-owned code — record counters, gauges, and histograms that land in posthog.metrics, the same way customers do. Use when adding application metrics in this monorepo (web, Celery, Temporal), when asked to push or ship metrics into posthog metrics, or when unsure whether the SDK in this environment supports posthog.metrics yet. Covers the environment decision (SDK-first per the public docs, OTel fallback when the SDK path is not available), the exact version gates per SDK, what is already wired internally, and how to validate metrics actually arrive.'
 ---
 
 # Instrumenting first-party metrics
 
-## When to use this
+Goal: get application metrics from PostHog's own code into the **PostHog Metrics product** (`posthog.metrics` table, Metrics UI), the same way customers do.
+Follow the [public docs](https://posthog.com/docs/metrics/installation) wherever possible; use OTel only as the fallback when the SDK path isn't available in your environment.
+Never invent env vars or hand-roll OTel providers — every environment below already has a working path.
 
-You're adding a metric to PostHog's own backend code — counting task outcomes, timing an operation, gauging a backlog — and you want it visible in Grafana, the PostHog Metrics product, or both. Also read this before concluding that new env vars, OTel SDK setup, or exporter wiring are needed: they aren't.
+## Step 1 — identify the environment and pick the path
 
-This is for code in this repo. To instrument a customer's app (or any external codebase), that's the `posthog.metrics` SDK API and OTLP endpoint described in the [public metrics docs](https://posthog.com/docs/metrics/installation) — do not use those approaches here.
+| Where you are | First choice | Fallback |
+|---|---|---|
+| Monorepo Python (web, Celery, Temporal) | SDK: `posthoganalytics.default_client.metrics` — IF the pinned version supports it (see version gates) | `OtelInstrumentFactory` in `posthog/otel_metrics.py` |
+| Monorepo Node services (`nodejs/`) | — (services don't run posthog-node) | internal twin: `nodejs/src/common/metrics/otel-metrics.ts` |
+| PostHog-owned standalone service / script / other repo | SDK per public docs: `posthog.metrics.count/gauge/histogram` | OTLP env vars per docs (`OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=<host>/i/v1/metrics`, Bearer project token) |
 
-## Two sinks, one declaration
+## Step 2 — check the version gate (don't assume)
 
-Every metric here has up to two destinations:
+`posthog.metrics` shipped in: **posthog-python 7.23.0** (`posthoganalytics` is the same package renamed), **posthog-node 5.43.0**, **posthog-js ~1.399.0** (runtime check: `typeof posthog.metrics?.count === 'function'`).
 
-1. **Grafana** — a plain `prometheus_client` `Counter`/`Gauge`/`Histogram`, scraped from the process. Always works, zero wiring.
-2. **PostHog Metrics product** — an OTLP "twin" pushed through `posthog/otel_metrics.py` to our own ingest. Opt-in per call site, one extra line.
+- Monorepo: `grep posthoganalytics pyproject.toml` and compare against 7.23.0. Below the gate → use the OTel fallback until the bump lands.
+- The monorepo is bump-ready: `apps.py` sets the module-level metrics config (service name/version/environment) and Celery's `worker_process_shutdown` flushes the final window, both inert on pre-7.23 versions. Once `posthoganalytics>=7.23` is pinned, the SDK path works from web and Celery with no further app changes.
+- Elsewhere: check the lockfile/requirements against the versions above; upgrade rather than work around.
 
-Declare the Prometheus instrument module-level, next to the code that emits it (see the `posthog/metrics.py` docstring — only shared label constants live centrally):
+## Step 3 — instrument (keep it doc-shaped)
+
+**SDK path** (mirrors the public docs exactly):
 
 ```python
-from prometheus_client import Counter
-
-JOBS_PROCESSED_COUNTER = Counter(
-    "posthog_myarea_jobs_processed",
-    "Jobs processed by my area's worker.",
-    labelnames=["outcome"],
-)
+client.metrics.count("invoices.processed", 1, attributes={"plan": "pro"})
+client.metrics.gauge("queue.depth", 42)
+client.metrics.histogram("job.duration", 187, unit="ms")
 ```
 
-## Scraping is already wired — touch nothing
+- In the monorepo (post-bump) the client is `posthoganalytics.default_client` — config and flush hooks are already wired; just record.
+- Short-lived processes and recycling workers must flush (`client.metrics.flush()`); the monorepo Celery hook already does this.
+- Set a service name (monorepo: already configured from `OTEL_SERVICE_NAME`, fallback `posthog`); it's how the Metrics UI filters.
 
-- **Web**: Nginx Unit / Granian serve aggregated metrics on port 8001 (`bin/unit_metrics.py`, `bin/granian_metrics.py`).
-- **Celery**: each worker exposes port 8001 via the `worker_process_init` handler in `posthog/celery.py`.
-- **Multiprocess mode**: `PROMETHEUS_MULTIPROC_DIR` is exported by `bin/docker-server-unit` and `bin/docker-worker-celery`.
-
-A new instrument on the default registry is picked up automatically. No env var, no registration, no per-metric config.
-
-## Reaching the Metrics product: the twin pattern
-
-Declare one factory per area, module-level, and record a twin beside each Prometheus update:
+**OTel fallback in the monorepo** — `posthog/otel_metrics.py`, zero setup by the caller:
 
 ```python
 from posthog.otel_metrics import OtelInstrumentFactory
 
 _otel = OtelInstrumentFactory("myarea")
-
-def process_job(...):
-    JOBS_PROCESSED_COUNTER.labels(outcome="success").inc()
-    _otel.record_counter_twin(JOBS_PROCESSED_COUNTER, 1, {"outcome": "success"})
+_otel.counter("myarea.jobs.processed").add(1, {"outcome": "success"})
+_otel.histogram("myarea.job.duration", unit="s").record(1.87, {"queue": "default"})
+_otel.gauge("myarea.backlog").set(42)
 ```
 
-The twin derives its name, description, and histogram buckets from the Prometheus instrument, so the two sinks can't drift. Available: `record_counter_twin`, `record_histogram_twin`, `record_gauge_twin`, and `timed_histogram_twin` (a context manager that times a block into both sinks at once).
+Reference call sites: `products/dashboards/backend/access.py` (smallest), `products/replay_vision/backend/temporal/metrics.py` (full module).
+If a `prometheus_client` instrument already exists at the site and its Grafana series must be kept, mirror it with `record_counter_twin`/`record_histogram_twin`/`record_gauge_twin`/`timed_histogram_twin` instead of a direct instrument — the twin derives name/buckets from it so the sinks can't drift.
 
-For a new metric that only needs the Metrics product (no Grafana dashboard), use the factory's direct instruments instead of a twin: `_otel.counter(name).add(...)`, `_otel.histogram(name).record(...)`, `_otel.gauge(name).set(...)`.
+**Rules for both paths**: dot-separated stable names (`jobs.processed`, not `metric1`); explicit `unit` on histograms; low-cardinality attributes only (`route`, `status`, `plan` — never user/session/request IDs; `team_id` sparingly and deliberately).
 
-Reference call sites, simplest to fullest:
+## Step 4 — validate it actually works
 
-- `products/dashboards/backend/access.py` — one counter twin, minimal setup
-- `posthog/session_recordings/session_recording_api.py` — `timed_histogram_twin` around blob fetches
-- `products/replay_vision/backend/temporal/metrics.py` — a full product metrics module (Temporal context)
+1. **Know where it lands.** SDK path in the monorepo → the dogfood US project (token set in `apps.py`). Internal OTel path → whatever project charts' `OTEL_METRICS_EXPORT_TOKEN` points at. These can differ — confirm before building dashboards.
+2. **Dev/test gotchas.** In monorepo DEBUG and TEST the default client is `disabled` → the SDK path records nothing locally (by design). `OTEL_METRICS_EXPORT_URL`/`_TOKEN` are unset locally → the OTel factory no-ops. To exercise the pipe for real, use a scratch script with an explicit `Posthog(token, host, metrics={"service_name": "<yourname>-scratch"})` client against a real project, or `bin/verify-metrics-pipe` for the local collector pipe.
+3. **Observe arrival** (~1 min ingestion lag): MCP `metric-names-list` (search your metric name) then `query-metrics` (counters: `increase`; gauges: `avg`; histograms: `histogram_quantile`), or the Metrics UI name picker, or SQL: `SELECT * FROM posthog.metrics WHERE metric_name = '...' ORDER BY timestamp DESC LIMIT 10`.
+4. **Unit tests.** OTel factory twins/instruments swallow errors by design — assert on behavior around them, or use `reset_otel_metrics_for_tests()` + `override_settings` to exercise gating. SDK path: mock the client or assert against `client.metrics._series` state; never hit the network in tests.
 
 ## What not to do
 
-- **Don't set env vars.** `OTEL_METRICS_EXPORT_URL` and `OTEL_METRICS_EXPORT_TOKEN` gate the OTLP push, but they're per-deployment charts config. Unset (as in local dev and self-hosted), the factory records into a no-op meter — free and safe. Nothing to add to `.env`, settings defaults, or docker-compose.
-- **Don't build providers or exporters.** `posthog/otel_metrics.py` handles lazy, per-PID (fork-safe) provider init and keeps the OTel SDK off the `django.setup()` path. Adding `MeterProvider`/`PeriodicExportingMetricReader` setup anywhere else duplicates it wrongly.
-- **Don't create OTel instruments at import time or cache them yourself.** They'd bind to the no-op meter forever. The factory caches per-process and rebuilds after forks.
-- **Don't use the customer-facing path here.** No `posthog.metrics` SDK calls, no `OTEL_EXPORTER_OTLP_METRICS_*` env vars — that's for external apps.
-- **Don't attach high-cardinality labels.** Every unique label combination is a series in both sinks. `team_id` is used sparingly and deliberately; user/session/request IDs never.
+- **Don't add env vars.** `OTEL_METRICS_EXPORT_URL`/`_TOKEN` (internal push) are charts-level deployment config; `OTEL_EXPORTER_OTLP_METRICS_*` belongs in external apps only. Unset means safe no-op, not misconfiguration.
+- **Don't build `MeterProvider`s/exporters or cache OTel instruments yourself** — `posthog/otel_metrics.py` owns lazy, fork-safe, per-PID provider lifecycle.
+- **Don't hand-roll a workaround when the version gate fails** — the fix is the dependency bump (wiring is pre-landed), or the OTel factory in the meantime.
 
-## Adjacent mechanisms
+## Adjacent (not this skill's job)
 
-- **Short-lived batch jobs** (a metric emitted once per run, no live process to scrape): `pushed_metrics_registry` / `PushGatewayTask` in `posthog/metrics.py` and `posthog/tasks/utils.py`, gated on `PROM_PUSHGATEWAY_ADDRESS`. Prefer the twin pattern for anything running inside web/celery/temporal workers.
-- **Node services**: `nodejs/src/common/metrics/otel-metrics.ts` is the TypeScript twin of `posthog/otel_metrics.py` and shares the same env-var pair.
-
-## Verifying
-
-- **Unit tests**: assert on the Prometheus instrument (twins swallow all errors by design, so they can't be asserted through failures). To exercise the OTLP gating itself, use `reset_otel_metrics_for_tests()` with `override_settings`.
-- **End to end locally**: `bin/verify-metrics-pipe` exercises the local pipe; `otel-collector-config.dev.yaml` shows the dev collector setup.
-- **Naming note**: `prometheus_client` strips `_total` from counter names internally and re-appends it on scrape; twins restore it, so the same name appears in Grafana and the Metrics product.
+Grafana dashboards via scraped `prometheus_client` instruments (port 8001, always-on), and `pushed_metrics_registry`/`PushGatewayTask` for one-shot batch jobs (`PROM_PUSHGATEWAY_ADDRESS`), still exist and keep working — this skill is about the Metrics product.
+Keep a prom instrument (with a twin) only when an existing Grafana dashboard depends on it.
