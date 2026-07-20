@@ -1,8 +1,6 @@
 import clsx from 'clsx'
 import { useEffect, useState } from 'react'
 
-import { Link } from '@posthog/lemon-ui'
-
 import { dayjs } from 'lib/dayjs'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
@@ -71,9 +69,9 @@ export function MetricRetryDetails({ retry, className }: { retry: MetricRetryInf
             )}
             <div className="text-muted text-xs">
                 Retry {retry.attempt} of {retry.max_attempts} · next attempt {countdown} ·{' '}
-                <Link to={RECALCULATION_RETRY_DOCS_URL} target="_blank">
+                {/* <Link to={RECALCULATION_RETRY_DOCS_URL} target="_blank">
                     Why do we retry?
-                </Link>
+                </Link> */}
             </div>
         </div>
     )
