@@ -1,3 +1,5 @@
+import { getHogEvalExampleSource } from './hogEvalExamples'
+
 export type EvaluationTemplateIcon =
     | 'target'
     | 'thumbs-up'
@@ -67,23 +69,7 @@ export const defaultEvaluationTemplates: readonly EvaluationTemplate[] = [
         description: 'Flag expensive or slow generations using Hog code',
         evaluation_type: 'hog',
         icon: 'code',
-        source: `// Flag generations that are too expensive or too slow
-let max_cost := 0.05
-let max_latency := 10
-
-let cost := ifNull(properties.$ai_total_cost_usd, 0)
-let latency := ifNull(properties.$ai_latency, 0)
-
-if (cost > max_cost) {
-    print(concat('Cost $', toString(cost), ' exceeds budget $', toString(max_cost)))
-    return false
-}
-if (latency > max_latency) {
-    print(concat('Latency ', toString(latency), 's exceeds limit ', toString(max_latency), 's'))
-    return false
-}
-print(concat('OK — cost: $', toString(cost), ', latency: ', toString(latency), 's'))
-return true`,
+        source: getHogEvalExampleSource('Cost & latency guard'),
     },
     {
         key: 'hallucination',
@@ -117,19 +103,7 @@ return true`,
         description: 'Check the output contains required keywords using Hog code',
         evaluation_type: 'hog',
         icon: 'search',
-        source: `// Check that the output contains all expected keywords
-let keywords := ['hello', 'world']
-let missing := []
-for (let i, kw in keywords) {
-    if (not (output ilike concat('%', kw, '%'))) {
-        missing := arrayPushBack(missing, kw)
-    }
-}
-if (length(missing) > 0) {
-    print('Missing keywords:', missing)
-    return false
-}
-return true`,
+        source: getHogEvalExampleSource('Contains keywords'),
     },
     {
         key: 'tools_called',
@@ -137,23 +111,7 @@ return true`,
         description: 'Check that specific tools were called using Hog code',
         evaluation_type: 'hog',
         icon: 'wrench',
-        source: `// Check that specific tools were called in the output
-let expected := ['get_weather', 'get_news']
-let found := []
-let missing := []
-for (let i, tool in expected) {
-    if (output ilike concat('%', tool, '%')) {
-        found := arrayPushBack(found, tool)
-    } else {
-        missing := arrayPushBack(missing, tool)
-    }
-}
-print('Found:', found)
-if (length(missing) > 0) {
-    print('Missing:', missing)
-    return false
-}
-return true`,
+        source: getHogEvalExampleSource('Tools called'),
     },
     {
         key: 'sentiment',
