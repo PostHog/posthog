@@ -37,7 +37,7 @@ const USE_CASE_LABELS: Record<MCPNotificationUseCase, string> = {
 }
 
 export function MCPAnalyticsNotifications(): JSX.Element {
-    const { notifications, notificationsLoaded, notificationsFailed, pendingToggleIds } =
+    const { notifications, notificationsLoading, notificationsLoaded, notificationsFailed, pendingToggleIds } =
         useValues(mcpAnalyticsNotificationsLogic)
     const { searchParams } = useValues(router)
     const { loadNotifications, toggleNotificationEnabled, deleteNotification } =
@@ -184,9 +184,12 @@ export function MCPAnalyticsNotifications(): JSX.Element {
                                     checked={fn.enabled}
                                     onChange={() => toggleNotificationEnabled(fn.id, !fn.enabled)}
                                     loading={!!pendingToggleIds[fn.id]}
+                                    // Refresh in flight: a mutation started now could be clobbered by the stale response
+                                    disabled={notificationsLoading}
                                 />
                                 <ConfirmDeleteButton
                                     onDelete={() => deleteNotification(fn)}
+                                    disabledReason={notificationsLoading ? 'Refreshing notifications…' : undefined}
                                     data-attr="mcp-analytics-notification-delete"
                                 />
                             </div>

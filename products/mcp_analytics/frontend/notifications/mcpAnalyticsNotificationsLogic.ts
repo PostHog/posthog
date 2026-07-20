@@ -44,6 +44,7 @@ export interface mcpAnalyticsNotificationsLogicValues {
     notificationsFailed: boolean
     notificationsLoaded: boolean
     notificationsLoading: boolean
+    pendingDeleteIds: Record<string, true>
     pendingToggleIds: Record<string, true>
 }
 
@@ -51,6 +52,12 @@ export interface mcpAnalyticsNotificationsLogicValues {
 export interface mcpAnalyticsNotificationsLogicActions {
     deleteNotification: (notification: HogFunctionType) => {
         notification: HogFunctionType
+    }
+    deleteNotificationSettled: (notificationId: string) => {
+        notificationId: string
+    }
+    deleteNotificationStarted: (notificationId: string) => {
+        notificationId: string
     }
     loadNotificationCount: () => any
     loadNotificationCountFailure: (
@@ -112,8 +119,10 @@ export const mcpAnalyticsNotificationsLogic = kea<mcpAnalyticsNotificationsLogic
         toggleNotificationEnabledStarted: (notificationId: string) => ({ notificationId }),
         toggleNotificationEnabledSettled: (notificationId: string) => ({ notificationId }),
         deleteNotification: (notification: HogFunctionType) => ({ notification }),
+        deleteNotificationStarted: (notificationId: string) => ({ notificationId }),
+        deleteNotificationSettled: (notificationId: string) => ({ notificationId }),
     }),
-    loaders(() => ({
+    loaders(({ values }) => ({
         notificationCount: [
             0,
             {
@@ -134,6 +143,20 @@ export const mcpAnalyticsNotificationsLogic = kea<mcpAnalyticsNotificationsLogic
                 loadNotifications: async (): Promise<HogFunctionType[]> => {
                     const notifications: HogFunctionType[] = []
 
+                    // A reload can race in-flight mutations: a GET that read the DB before a
+                    // toggle/delete landed would otherwise revert the toggle or resurrect the
+                    // deleted row. Keep the local value for rows with a pending mutation.
+                    const reconcile = (fetched: HogFunctionType[]): HogFunctionType[] =>
+                        fetched
+                            .filter((notification) => !values.pendingDeleteIds[notification.id])
+                            .map((notification) => {
+                                if (!values.pendingToggleIds[notification.id]) {
+                                    return notification
+                                }
+                                const local = values.notifications.find((item) => item.id === notification.id)
+                                return local ? { ...notification, enabled: local.enabled } : notification
+                            })
+
                     for (let page = 0; page < MCP_NOTIFICATION_MAX_PAGES; page++) {
                         const response = await api.hogFunctions.list({
                             filter_groups: getMCPNotificationFilterGroups(),
@@ -145,7 +168,7 @@ export const mcpAnalyticsNotificationsLogic = kea<mcpAnalyticsNotificationsLogic
                         notifications.push(...response.results.filter((notification) => !notification.deleted))
 
                         if (!response.next) {
-                            return notifications
+                            return reconcile(notifications)
                         }
                     }
 
@@ -163,6 +186,20 @@ export const mcpAnalyticsNotificationsLogic = kea<mcpAnalyticsNotificationsLogic
                     [notificationId]: true,
                 }),
                 toggleNotificationEnabledSettled: (state, { notificationId }) => {
+                    const nextState = { ...state }
+                    delete nextState[notificationId]
+                    return nextState
+                },
+            },
+        ],
+        pendingDeleteIds: [
+            {} as Record<string, true>,
+            {
+                deleteNotificationStarted: (state, { notificationId }) => ({
+                    ...state,
+                    [notificationId]: true,
+                }),
+                deleteNotificationSettled: (state, { notificationId }) => {
                     const nextState = { ...state }
                     delete nextState[notificationId]
                     return nextState
@@ -232,6 +269,7 @@ export const mcpAnalyticsNotificationsLogic = kea<mcpAnalyticsNotificationsLogic
             }
         },
         deleteNotification: async ({ notification }) => {
+            actions.deleteNotificationStarted(notification.id)
             actions.loadNotificationsSuccess(values.notifications.filter((item) => item.id !== notification.id))
 
             let callbackFired = false
@@ -240,6 +278,8 @@ export const mcpAnalyticsNotificationsLogic = kea<mcpAnalyticsNotificationsLogic
                 object: { id: notification.id, name: notification.name },
                 callback: (undo) => {
                     callbackFired = true
+                    // Settle before reloading so the undone row isn't filtered back out
+                    actions.deleteNotificationSettled(notification.id)
                     if (undo) {
                         actions.loadNotifications()
                     }
@@ -247,6 +287,7 @@ export const mcpAnalyticsNotificationsLogic = kea<mcpAnalyticsNotificationsLogic
             })
 
             if (!callbackFired) {
+                actions.deleteNotificationSettled(notification.id)
                 actions.loadNotifications()
             }
         },
