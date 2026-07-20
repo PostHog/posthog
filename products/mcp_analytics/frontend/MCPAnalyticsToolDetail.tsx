@@ -6,6 +6,7 @@ import { LemonDivider, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import {
     type ChartTheme,
     type Series,
+    type TimeInterval,
     TimeSeriesLineChart,
     type TimeSeriesLineChartConfig,
 } from '@posthog/quill-charts'
@@ -36,7 +37,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { SceneExport } from '~/scenes/sceneTypes'
 
-import { formatBucketLabel, formatMs, formatMsAsSeconds } from './dashboard/formatters'
+import { formatMs, formatMsAsSeconds } from './dashboard/formatters'
 import { HarnessLogo, HarnessPill } from './dashboard/harness'
 import { MetricTile } from './dashboard/MetricTile'
 import { mcpAnalyticsFeaturePreviewGate } from './featurePreviewGate'
@@ -49,6 +50,7 @@ import {
     mcpAnalyticsToolDetailLogic,
 } from './mcpAnalyticsToolDetailLogic'
 import { mcpToolQualityUrlWithDates } from './mcpAnalyticsToolQualityLogic'
+import { formatBucketLabel } from './timeBuckets'
 
 export const scene: SceneExport<MCPAnalyticsToolDetailLogicProps> = {
     component: MCPAnalyticsToolDetail,
@@ -201,18 +203,20 @@ function StatTiles({
     daily,
     theme,
     dateRangeLabel,
+    interval,
 }: {
     summary: ToolSummary | null
     loading: boolean
     daily: DailyChartData
     theme: ChartTheme
     dateRangeLabel: string
+    interval: TimeInterval
 }): JSX.Element {
     const calls = summary?.calls ?? 0
     const errors = summary?.errors ?? 0
     const errorRate = calls ? (errors / calls) * 100 : 0
     const errorRateDaily = daily.calls.map((c, i) => (c ? (daily.errors[i] / c) * 100 : 0))
-    const sparkLabels = daily.labels.map(formatBucketLabel)
+    const sparkLabels = daily.labels.map((label) => formatBucketLabel(label, interval))
 
     const tiles: {
         label: string
@@ -357,7 +361,11 @@ function DescriptionBlock({
     )
 }
 
-function trendChartConfig(timezone: string, yAxis?: TimeSeriesLineChartConfig['yAxis']): TimeSeriesLineChartConfig {
+function trendChartConfig(
+    timezone: string,
+    interval: TimeInterval,
+    yAxis?: TimeSeriesLineChartConfig['yAxis']
+): TimeSeriesLineChartConfig {
     return {
         curve: 'monotone',
         showAxisLines: true,
@@ -365,7 +373,7 @@ function trendChartConfig(timezone: string, yAxis?: TimeSeriesLineChartConfig['y
         showCrosshair: true,
         showGrid: true,
         yAxis,
-        xAxis: { interval: 'day', timezone },
+        xAxis: { interval, timezone },
         tooltip: { placement: 'cursor' },
     }
 }
@@ -460,6 +468,7 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
         topUserRowsLoading,
         dateRangeLabel,
         dateFilter,
+        interval,
     } = useValues(mcpAnalyticsToolDetailLogic({ toolName }))
     const { timezone } = useValues(teamLogic)
 
@@ -472,10 +481,10 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
         () => seriesFor(dailyChartData, theme, ['p50', 'p95']),
         [dailyChartData, theme]
     )
-    const countsConfig = useChartConfig(() => trendChartConfig(timezone), [timezone])
+    const countsConfig = useChartConfig(() => trendChartConfig(timezone, interval), [timezone, interval])
     const latencyConfig = useChartConfig(
-        () => trendChartConfig(timezone, { tickFormatter: formatMsAsSeconds }),
-        [timezone]
+        () => trendChartConfig(timezone, interval, { tickFormatter: formatMsAsSeconds }),
+        [timezone, interval]
     )
 
     return (
@@ -499,6 +508,7 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
                     daily={dailyChartData}
                     theme={theme}
                     dateRangeLabel={dateRangeLabel}
+                    interval={interval}
                 />
             </div>
 

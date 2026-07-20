@@ -31,4 +31,4 @@ class TestPublishedPrioritiesFor:
         # The stored setting converts via IssuePriority(value) only at build/publish — enum drift
         # would fail reviews after the full sandbox spend, so lock the mirror here instead.
         assert {c.value for c in ReviewUserSettings.UrgencyThreshold} == {p.value for p in IssuePriority}
-        assert DEFAULT_URGENCY_THRESHOLD.value == ReviewUserSettings.UrgencyThreshold.SHOULD_FIX.value
+        assert DEFAULT_URGENCY_THRESHOLD.value == ReviewUserSettings.UrgencyThreshold.CONSIDER.value

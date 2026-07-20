@@ -1,10 +1,8 @@
 from datetime import datetime
 from typing import Literal, Optional, cast
 
-from django.db import models
-from django.db.models.functions.comparison import Coalesce
-
 from posthog.hogql import ast
+from posthog.hogql.constants import EXCEPTION_STRING_ARRAY_PROPERTIES
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import BooleanDatabaseField, DateTimeDatabaseField, StringJSONDatabaseField
 from posthog.hogql.database.s3_table import S3Table
@@ -19,21 +17,20 @@ from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.errors import QueryError
 from posthog.hogql.escape_sql import escape_hogql_identifier
 from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
+from posthog.hogql.property_metadata import load_property_metadata
 from posthog.hogql.property_planner import PropertySourceKind, plan_property_access
 from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
 from posthog.hogql.type_system import normalized_runtime_type, parse_sql_runtime_type
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
+from posthog.clickhouse.events_json import EVENTS_PROPERTIES_JSON_SUBCOLUMNS, PERSON_PROPERTIES_JSON_SUBCOLUMNS
 from posthog.clickhouse.materialized_columns import (
-    DMAT_STRING_COLUMN_NAME_PREFIX,
     MATERIALIZATION_VALID_TABLES,
     MaterializedColumn,
     TablesWithMaterializedColumns,
     get_materialized_column_for_property,
 )
-from posthog.models import Team
-from posthog.models.event.sql import EVENTS_PROPERTIES_JSON_SUBCOLUMNS, PERSON_PROPERTIES_JSON_SUBCOLUMNS
-from posthog.models.property import PropertyName, TableColumn
+from posthog.property_columns import PropertyName, TableColumn
 
 _JSON_EXTRACT_SCALAR_CASTS: dict[str, tuple[str, object]] = {
     "JSONExtractString": ("String", ""),
@@ -45,120 +42,44 @@ _JSON_EXTRACT_SCALAR_CASTS: dict[str, tuple[str, object]] = {
 
 
 def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
-    from posthog.models import PropertyDefinition
-    from posthog.models.materialized_column_slots import MaterializedColumnSlot, MaterializedColumnSlotState
-
     if not context or not context.team_id:
-        return
-
-    if not context.team:
-        context.team = Team.objects.get(id=context.team_id)
-
-    if not context.team:
         return
 
     # find all properties
     property_finder = PropertyFinder(context)
     property_finder.visit(node)
 
-    # Load event property definitions with their materialized slots in a single query
-    event_property_definitions = (
-        PropertyDefinition.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-        )
-        .filter(
-            effective_project_id=context.team.project_id,
-            name__in=property_finder.event_properties,
-            type__in=[None, PropertyDefinition.Type.EVENT],
-        )
-        .prefetch_related(
-            models.Prefetch(
-                "materialized_column_slots",
-                queryset=MaterializedColumnSlot.objects.filter(
-                    team_id=context.team_id, state=MaterializedColumnSlotState.READY
-                ),
-            )
-        )
-        if property_finder.event_properties
-        else []
+    metadata = load_property_metadata(
+        context,
+        event_property_names=property_finder.event_properties,
+        person_property_names=property_finder.person_properties,
+        group_property_names=property_finder.group_properties,
     )
-
-    event_properties: dict[str, dict[str, str | None]] = {}
-    for prop_def in event_property_definitions:
-        if not prop_def.property_type:
-            continue
-
-        prop_info: dict[str, str | None] = {"type": prop_def.property_type}
-        slot = prop_def.materialized_column_slots.first()
-        if slot:
-            prop_info["dmat"] = f"{DMAT_STRING_COLUMN_NAME_PREFIX}{slot.slot_index}"
-
-        event_properties[prop_def.name] = prop_info
-
-    person_property_values = (
-        PropertyDefinition.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-        )
-        .filter(
-            effective_project_id=context.team.project_id,
-            name__in=property_finder.person_properties,
-            type=PropertyDefinition.Type.PERSON,
-        )
-        .values_list("name", "property_type")
-        if property_finder.person_properties
-        else []
-    )
-    person_properties: dict[str, dict[str, str | None]] = {
-        name: {"type": property_type} for name, property_type in person_property_values if property_type
-    }
-
-    group_properties: dict[str, dict[str, str | None]] = {}
-    for group_id, properties in property_finder.group_properties.items():
-        if not properties:
-            continue
-        group_property_values = (
-            PropertyDefinition.objects.alias(
-                effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-            )
-            .filter(
-                effective_project_id=context.team.project_id,
-                name__in=properties,
-                type=PropertyDefinition.Type.GROUP,
-                group_type_index=group_id,
-            )
-            .values_list("name", "property_type")
-        )
-        group_properties.update(
-            {
-                f"{group_id}_{name}": {"type": property_type}
-                for name, property_type in group_property_values
-                if property_type
-            }
-        )
+    context.property_metadata = metadata
 
     if context.type_observability is not None:
         context.type_observability.record_property_definition_lookup(
             property_source="event",
-            known_count=len(event_properties),
+            known_count=len(metadata.event_properties),
             total_count=len(property_finder.event_properties),
         )
         context.type_observability.record_property_definition_lookup(
             property_source="person",
-            known_count=len(person_properties),
+            known_count=len(metadata.person_properties),
             total_count=len(property_finder.person_properties),
         )
         context.type_observability.record_property_definition_lookup(
             property_source="group",
-            known_count=len(group_properties),
+            known_count=len(metadata.group_properties),
             total_count=sum(len(properties) for properties in property_finder.group_properties.values()),
         )
 
     timezone = context.database.get_timezone() if context and context.database else "UTC"
     context.property_swapper = PropertySwapper(
         timezone=timezone,
-        event_properties=event_properties,
-        person_properties=person_properties,
-        group_properties=group_properties,
+        event_properties=metadata.event_properties,
+        person_properties=metadata.person_properties,
+        group_properties=metadata.group_properties,
         context=context,
         setTimeZones=True,
     )
@@ -227,6 +148,13 @@ class PropertySwapper(CloningVisitor):
     # Numeric-typed property in one of these, we must not auto-convert the property
     # to Float, the raw String value has to flow through for the parser to work.
     _STRING_INPUT_CONVERSIONS: set[str] = {"toFloatOrZero", "toIntOrZero", "toFloatOrDefault", "toIntOrDefault"}
+
+    # ClickHouse array-membership functions whose first argument must be an array. Users write these
+    # against exception properties (e.g. hasAny(properties.$exception_values, [...])), but those
+    # properties are stored as a raw JSON String once materialized, so the bare column read raises
+    # ILLEGAL_TYPE_OF_ARGUMENT. We extract the array via JSONExtract(..., 'Array(String)') — the same
+    # wrapping property_to_expr applies to typed exception filters.
+    _ARRAY_MEMBERSHIP_FUNCTIONS: set[str] = {"has", "hasAll", "hasAny", "hasSubstr"}
 
     def __init__(
         self,
@@ -321,10 +249,57 @@ class PropertySwapper(CloningVisitor):
 
         self._inside_call_depth += 1
         try:
-            return super().visit_call(node)
+            result = super().visit_call(node)
         finally:
             self._inside_call_depth -= 1
             self._suppress_numeric_conversion = saved_suppress
+
+        return self._maybe_extract_exception_string_array(result)
+
+    def _maybe_extract_exception_string_array(self, node: ast.Expr) -> ast.Expr:
+        """Wrap a bare exception-array property passed to an array-membership function in
+        JSONExtract(..., 'Array(String)'), so it type-checks against its materialized String column.
+
+        Only bare property reads are wrapped: property_to_expr already emits its own JSONExtract for
+        typed filters, and a user who wrote the extract by hand passes a Call here — neither is a bare
+        Field, so neither gets double-wrapped.
+        """
+        if not isinstance(node, ast.Call) or node.name not in self._ARRAY_MEMBERSHIP_FUNCTIONS or not node.args:
+            return node
+        if not self._is_exception_string_array_field(node.args[0]):
+            return node
+        node.args[0] = self._extract_string_array(node.args[0])
+        return node
+
+    def _is_exception_string_array_field(self, expr: ast.Expr) -> bool:
+        if isinstance(expr, ast.Alias):
+            expr = expr.expr
+        if not isinstance(expr, ast.Field):
+            return False
+        type = expr.type
+        if not (isinstance(type, ast.PropertyType) and type.field_type.name == "properties" and len(type.chain) == 1):
+            return False
+        if str(type.chain[0]) not in EXCEPTION_STRING_ARRAY_PROPERTIES:
+            return False
+        table_type = type.field_type.table_type
+        if not isinstance(table_type, ast.BaseTableType):
+            return False
+        return isinstance(table_type.resolve_database_table(self.context), EventsTable)
+
+    @staticmethod
+    def _extract_string_array(field: ast.Expr) -> ast.Call:
+        return ast.Call(
+            name="JSONExtract",
+            args=[
+                ast.Call(name="ifNull", args=[field, ast.Constant(value="")]),
+                ast.Constant(value="Array(String)"),
+            ],
+            type=ast.CallType(
+                name="JSONExtract",
+                arg_types=[ast.StringType(nullable=True), ast.StringType()],
+                return_type=ast.ArrayType(item_type=ast.StringType()),
+            ),
+        )
 
     def _try_rewrite_json_extract_to_mat_column(self, node: ast.Call) -> ast.Expr | None:
         """Rewrite safe direct JSON property extraction to avoid reading the raw JSON blob.

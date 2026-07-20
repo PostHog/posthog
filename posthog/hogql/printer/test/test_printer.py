@@ -8075,6 +8075,8 @@ SNOWFLAKE_EMIT_CASES: list[tuple[str, str, str]] = [
     # count() means "count all rows"; Snowflake rejects a bare COUNT(), so emit COUNT(*).
     ("count_star", "count()", "count(*)"),
     ("count_expr", "count(event)", 'count(events."event")'),
+    # Snowflake supports COUNT(DISTINCT expr) — the count handler must honor the distinct flag.
+    ("count_distinct", "count(distinct event)", 'count(DISTINCT events."event")'),
     # Passthrough (valid Snowflake verbatim)
     ("avg", "avg(1)", "avg(1)"),
     ("coalesce", "coalesce(1, 2)", "coalesce(1, 2)"),

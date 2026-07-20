@@ -9,6 +9,7 @@ import { MetricCard, type MetricChange } from '@posthog/quill-charts'
 
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { cn } from 'lib/utils/css-classes'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 /** Relative change in percent, or null when there's no meaningful baseline. */
 export function percentChange(current: number | null | undefined, previous: number | null | undefined): number | null {
@@ -64,6 +65,30 @@ export function DeltaBadge({
                 {unit}
             </span>
         </Tooltip>
+    )
+}
+
+/** Current count + delta vs the prior window; a zero prior with current signal reads "new". */
+export function CountWithDelta({
+    current,
+    prior,
+    goodWhenDown = true,
+}: {
+    current: number
+    prior: number
+    goodWhenDown?: boolean
+}): JSX.Element {
+    return (
+        <div className="flex items-baseline justify-end gap-1.5">
+            <span className="text-sm font-semibold tabular-nums">{humanFriendlyNumber(current)}</span>
+            {prior > 0 ? (
+                <DeltaBadge value={percentChange(current, prior)} goodWhenDown={goodWhenDown} />
+            ) : current > 0 ? (
+                <Tooltip title="No signal in the previous window. This is new.">
+                    <span className="text-xs font-semibold whitespace-nowrap text-danger">new</span>
+                </Tooltip>
+            ) : null}
+        </div>
     )
 }
 

@@ -7,7 +7,7 @@ describe('evaluationCapabilities', () => {
     >([
         ['boolean', 'generation', true, true],
         ['sentiment', 'generation', true, false],
-        ['boolean', 'trace', false, false],
+        ['boolean', 'trace', true, false],
         ['sentiment', 'trace', false, false],
     ])(
         'supports the expected capabilities for %s %s evaluations',

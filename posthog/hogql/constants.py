@@ -53,6 +53,19 @@ BREAKDOWN_VALUES_LIMIT = 25
 BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES = 300
 BREAKDOWN_VALUE_MAX_LENGTH = 400
 
+# Event properties that hold a JSON-encoded array of strings. When materialized they are stored
+# as a raw String column, so any array function (hasAny/hasAll/...) run against them must first
+# extract the array via JSONExtract(..., 'Array(String)'). See posthog/hogql/property.py and the
+# PropertySwapper transform, which both apply that wrapping.
+EXCEPTION_STRING_ARRAY_PROPERTIES = frozenset(
+    {
+        "$exception_types",
+        "$exception_values",
+        "$exception_sources",
+        "$exception_functions",
+    }
+)
+
 type HogQLDialect = Literal["hogql", "clickhouse", "postgres", "duckdb", "mysql", "snowflake", "redshift"]
 
 # All dialects that compile to an external SQL database queried directly (as opposed to
@@ -187,6 +200,13 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     allow_experimental_join_condition: Optional[bool] = True
     preferred_block_size_bytes: Optional[int] = None
     use_hive_partitioning: Optional[int] = 0
+    # Serve repeated scans of the same parts from the server's uncompressed block cache
+    # instead of re-decompressing. Off by default (None): only opt in for interactive
+    # queries that re-read the same narrow data repeatedly, and mind that scans larger
+    # than the two merge_tree_*_to_use_cache guards below bypass the cache entirely.
+    use_uncompressed_cache: Optional[bool] = None
+    merge_tree_max_rows_to_use_cache: Optional[int] = None
+    merge_tree_max_bytes_to_use_cache: Optional[int] = None
 
 
 def get_default_hogql_global_settings(

@@ -38,6 +38,7 @@ class KandjiSource(SimpleSource[KandjiSourceConfig]):
     # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to
     # render in public docs without credentials.
     lists_tables_without_credentials = True
+    api_docs_url = "https://api-docs.kandji.io/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

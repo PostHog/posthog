@@ -93,7 +93,7 @@ function ChartsScopeHeader(): JSX.Element {
 }
 
 export function MCPAnalyticsToolQuality(): JSX.Element {
-    const { dailyChartData, dailyStatsLoading } = useValues(mcpAnalyticsToolQualityLogic)
+    const { dailyChartData, dailyStatsLoading, interval } = useValues(mcpAnalyticsToolQualityLogic)
     const { timezone } = useValues(teamLogic)
 
     const theme = useChartTheme()
@@ -102,7 +102,13 @@ export function MCPAnalyticsToolQuality(): JSX.Element {
         <div className="flex flex-col gap-4" data-quill>
             <FilterBar />
             <ChartsScopeHeader />
-            <ToolQualityCharts data={dailyChartData} loading={dailyStatsLoading} theme={theme} timezone={timezone} />
+            <ToolQualityCharts
+                data={dailyChartData}
+                loading={dailyStatsLoading}
+                theme={theme}
+                timezone={timezone}
+                interval={interval}
+            />
             <ToolQualityTable />
         </div>
     )

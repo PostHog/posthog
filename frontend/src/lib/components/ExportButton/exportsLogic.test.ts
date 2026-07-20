@@ -19,7 +19,7 @@ jest.mock('lib/lemon-ui/LemonToast', () => ({
 }))
 jest.mock('./exporter', () => ({
     ...jest.requireActual('./exporter'),
-    downloadExportedAsset: jest.fn(),
+    downloadExportedAsset: jest.fn().mockResolvedValue(true),
 }))
 
 const asset = (overrides: Partial<ExportedAssetType> = {}): ExportedAssetType => ({
@@ -178,6 +178,25 @@ describe('exportsLogic', () => {
             }
             expect(jest.mocked(downloadExportedAsset).mock.calls).toEqual(expectsDownload ? [[response]] : [])
             expect(logic.values.freshUndownloadedExports.map((a) => a.id)).toEqual(freshIds)
+        })
+
+        it('does not confirm completion when the content download fails', async () => {
+            // The export toast must not settle as "Export complete!" if retrieval failed — otherwise
+            // the user sees success followed by a broken download (the reported black-screen symptom).
+            jest.mocked(downloadExportedAsset).mockResolvedValueOnce(false)
+            jest.spyOn(api.exports, 'create').mockResolvedValue(
+                asset({ id: 14, export_format: ExporterFormat.PNG, has_content: true })
+            )
+
+            logic.actions.createExport({ exportData: { export_format: ExporterFormat.PNG } })
+            await flush()
+
+            // The export promise rejects instead of resolving to "Export complete!"...
+            const runPromise = jest.mocked(lemonToast.promise).mock.calls[0][0]
+            await expect(runPromise).rejects.toThrow('Export download failed')
+            // ...and the generic failure toast is dismissed, since downloadExportedAsset
+            // already surfaced the specific error.
+            expect(lemonToast.dismiss).toHaveBeenCalled()
         })
 
         it('replaces the failure toast with the upsell survey when the export limit is reached', async () => {

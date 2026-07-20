@@ -470,6 +470,22 @@ class TestGetRows:
         # Only the first page's (legitimate) continuation was saved.
         assert manager.save_state.call_count == 1
 
+    def test_resource_limit_422_is_retried_then_recovers(self):
+        # Langfuse maps a transient ClickHouse resource/timeout to 422 (validation errors are 400).
+        # A 422 must flow through the backoff and recover, not surface as a fatal HTTPError that
+        # fails the sync. Patch the wait so the retry doesn't sleep.
+        manager = self._manager()
+        with mock.patch.object(langfuse_module, "_retry_wait", return_value=0):
+            rows, session = self._run(
+                manager,
+                [
+                    _response(status_code=422, json_data={"error": "Request timed out"}),
+                    _page([{"id": "t1"}], page=1, total_pages=1),
+                ],
+            )
+        assert [r["id"] for r in rows] == ["t1"]
+        assert session.get.call_count == 2
+
     def test_page_limit_raises_after_checkpointing_next_page(self):
         # A hostile host reporting ever-more totalPages would otherwise keep the loop alive until
         # the activity timeout. The run must abort at the cap — retryably, with the next page

@@ -23,10 +23,11 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
 )
 from posthog.temporal.ai_observability.eval_reports.report_agent.state import EvalReportAgentState
 from posthog.temporal.ai_observability.eval_reports.report_agent.tools import (
-    EVAL_REPORT_TOOLS,
     _ch_ts,
     _fetch_period_summary,
+    get_eval_report_tools,
 )
+from posthog.temporal.ai_observability.eval_reports.targets import GENERATION_TARGET
 from posthog.temporal.ai_observability.llm_endpoint import build_langchain_chat_client
 
 logger = structlog.get_logger(__name__)
@@ -39,6 +40,7 @@ def _compute_metrics(
     period_end: str,
     previous_period_start: str,
     output_type: str = "boolean",
+    evaluation_target: str = GENERATION_TARGET,
 ) -> EvalReportMetrics:
     """Compute report metrics directly via HogQL (independent of agent state).
 
@@ -54,9 +56,11 @@ def _compute_metrics(
         ts_prev_start = _ch_ts(previous_period_start)
         definition = get_outcome_definition(output_type)
 
-        result_counts, total = _fetch_period_summary(team_id, evaluation_id, ts_start, ts_end, definition)
+        result_counts, total = _fetch_period_summary(
+            team_id, evaluation_id, ts_start, ts_end, definition, evaluation_target
+        )
         previous_result_counts, previous_total = _fetch_period_summary(
-            team_id, evaluation_id, ts_prev_start, ts_start, definition
+            team_id, evaluation_id, ts_prev_start, ts_start, definition, evaluation_target
         )
 
         return EvalReportMetrics(
@@ -73,7 +77,12 @@ def _compute_metrics(
         return empty
 
 
-def _fallback_content(evaluation_name: str, metrics: EvalReportMetrics, reason: str) -> EvalReportContent:
+def _fallback_content(
+    evaluation_name: str,
+    metrics: EvalReportMetrics,
+    reason: str,
+    evaluation_target: str = "generation",
+) -> EvalReportContent:
     """Produce a minimal valid EvalReportContent when the agent fails or validates out.
 
     The metrics are always populated (we compute them independently), so even
@@ -81,10 +90,14 @@ def _fallback_content(evaluation_name: str, metrics: EvalReportMetrics, reason: 
     went wrong at the agent level so the user isn't left staring at an empty UI.
     """
     if metrics.total_runs == 0:
+        ingestion_hint = (
+            "trace evaluation results are being ingested"
+            if evaluation_target == "trace"
+            else "`$ai_generation` events are being ingested"
+        )
         summary = (
             f"No evaluation runs recorded for **{evaluation_name}** in this period. "
-            f"Check that the evaluation is enabled and that `$ai_generation` events "
-            f"are being ingested."
+            f"Check that the evaluation is enabled and that {ingestion_hint}."
         )
     elif metrics.output_type == "boolean":
         trend = ""
@@ -124,6 +137,7 @@ def _fallback_content(evaluation_name: str, metrics: EvalReportMetrics, reason: 
         summary = f"**Outcome distribution:** {distribution}{trend}, across {metrics.total_runs} runs."
 
     return EvalReportContent(
+        evaluation_target=evaluation_target,
         title=f"Automated fallback report for {evaluation_name}",
         sections=[
             ReportSection(
@@ -146,7 +160,7 @@ def _append_references_section(content: EvalReportContent) -> None:
     """
     if not content.citations:
         return
-    refs_lines = [f"{i}. `{c.generation_id}` — {c.reason}" for i, c in enumerate(content.citations, 1)]
+    refs_lines = [f"{i}. `{c.generation_id or c.trace_id}` — {c.reason}" for i, c in enumerate(content.citations, 1)]
     content.sections.append(ReportSection(title="References", content="\n".join(refs_lines)))
 
 
@@ -184,6 +198,7 @@ def run_eval_report_agent(
     previous_period_start: str,
     report_prompt_guidance: str = "",
     output_type: str = "boolean",
+    evaluation_target: str = "generation",
 ) -> EvalReportContent:
     """Run the evaluation report agent and return the generated content.
 
@@ -206,6 +221,7 @@ def run_eval_report_agent(
         period_end,
         previous_period_start,
         output_type=output_type,
+        evaluation_target=evaluation_target,
     )
 
     llm = build_langchain_chat_client(EVAL_REPORT_AGENT_MODEL, EVAL_REPORT_AGENT_TIMEOUT, ai_product="aio_eval_reports")
@@ -214,6 +230,7 @@ def run_eval_report_agent(
         evaluation_name=evaluation_name,
         evaluation_description=evaluation_description,
         evaluation_type=evaluation_type,
+        evaluation_target=evaluation_target,
         evaluation_prompt=evaluation_prompt,
         output_type=output_type,
         period_start=period_start,
@@ -223,7 +240,7 @@ def run_eval_report_agent(
 
     agent = create_react_agent(
         model=llm,
-        tools=EVAL_REPORT_TOOLS,
+        tools=get_eval_report_tools(evaluation_target),
         prompt=system_prompt,
         state_schema=EvalReportAgentState,
     )
@@ -239,12 +256,14 @@ def run_eval_report_agent(
         "evaluation_description": evaluation_description,
         "evaluation_prompt": evaluation_prompt,
         "evaluation_type": evaluation_type,
+        "evaluation_target": evaluation_target,
         "output_type": output_type,
         "period_start": period_start,
         "period_end": period_end,
         "previous_period_start": previous_period_start,
         "report_prompt_guidance": report_prompt_guidance,
-        "report": EvalReportContent(metrics=metrics),
+        "report": EvalReportContent(evaluation_target=evaluation_target, metrics=metrics),
+        "trace_id_allowlist": [],
     }
 
     from posthog.temporal.ai_observability.eval_reports.metrics import increment_errors, increment_report_generated
@@ -273,9 +292,12 @@ def run_eval_report_agent(
     try:
         result = agent.invoke(initial_state, config)
 
-        content: EvalReportContent = result.get("report", EvalReportContent(metrics=metrics))
+        content: EvalReportContent = result.get(
+            "report", EvalReportContent(evaluation_target=evaluation_target, metrics=metrics)
+        )
         # Always overwrite metrics with the trusted computation — the agent cannot
         # fabricate numbers by mutating state["report"].metrics.
+        content.evaluation_target = evaluation_target
         content.metrics = metrics
 
         validation_error = _validate_agent_output(content)
@@ -290,7 +312,7 @@ def run_eval_report_agent(
                 title=content.title,
                 section_count=len(content.sections),
             )
-            return _fallback_content(evaluation_name, metrics, validation_error)
+            return _fallback_content(evaluation_name, metrics, validation_error, evaluation_target)
 
         _append_references_section(content)
 
@@ -318,4 +340,9 @@ def run_eval_report_agent(
             team_id=team_id,
             evaluation_id=evaluation_id,
         )
-        return _fallback_content(evaluation_name, metrics, f"agent raised {type(e).__name__}")
+        return _fallback_content(
+            evaluation_name,
+            metrics,
+            f"agent raised {type(e).__name__}",
+            evaluation_target,
+        )

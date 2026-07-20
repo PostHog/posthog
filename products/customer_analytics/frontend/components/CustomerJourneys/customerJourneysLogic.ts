@@ -45,7 +45,7 @@ export interface customerJourneysLogicActions {
         journeyId: string,
         journeyName: string,
         stepCount: number,
-        delay?: number
+        delay?: number | undefined
     ) => {
         delay: number | undefined
         journeyId: string

@@ -262,6 +262,25 @@ export interface _HasSpansResponseApi {
     hasSpans: boolean
 }
 
+export interface _TracingLatencyHeatmapRequestApi {
+    /** The latency-heatmap query to execute. */
+    query: _TracingDurationHistogramQueryBodyApi
+}
+
+export interface _TracingLatencyHeatmapCellApi {
+    /** ISO 8601 UTC start of the time bucket. */
+    time: string
+    /** Lower edge of the 1-2-5 series duration bucket in nanoseconds (1ms, 2ms, 5ms, 10ms, ...). 0 on the sentinel row that enumerates a time bucket with no matching spans. */
+    bucket_ns: number
+    /** Spans (or traces when rootSpans is true) in this cell. 0 only on sentinel rows. */
+    count: number
+}
+
+export interface _TracingLatencyHeatmapResponseApi {
+    /** Sparse heatmap cells ordered by time then duration bucket. Every time bucket in the window appears in at least one row, so the full x axis can be derived from the response. */
+    results: _TracingLatencyHeatmapCellApi[]
+}
+
 /**
  * * `timestamp` - timestamp
  * * `duration` - duration

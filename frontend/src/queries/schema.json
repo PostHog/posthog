@@ -653,7 +653,16 @@
             "type": "object"
         },
         "AggregationAxisFormat": {
-            "enum": ["numeric", "duration", "duration_ms", "percentage", "percentage_scaled", "currency", "short"],
+            "enum": [
+                "numeric",
+                "duration",
+                "duration_ms",
+                "duration_ns",
+                "percentage",
+                "percentage_scaled",
+                "currency",
+                "short"
+            ],
             "type": "string"
         },
         "AlertCalculationInterval": {
@@ -23243,6 +23252,7 @@
                 "Pinecone",
                 "PlatformSh",
                 "PromptingCompany",
+                "PromptWatch",
                 "Qdrant",
                 "Render",
                 "Replicate",
@@ -23371,7 +23381,13 @@
                 "Kajabi",
                 "Shopware",
                 "Dubsado",
-                "Campfire"
+                "Campfire",
+                "Crisp",
+                "Kommo",
+                "Axiom",
+                "Plivo",
+                "DataForSEO",
+                "Sleekplan"
             ],
             "type": "string"
         },
@@ -28407,10 +28423,14 @@
         },
         "MCPToolDailyStatsQuery": {
             "additionalProperties": false,
-            "description": "Per-day activity series for a single MCP tool over the last 30 days.",
+            "description": "Per-bucket activity series for a single MCP tool over the selected window.",
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "Bucket granularity for the series. The frontend passes getDefaultInterval so a sub-day window buckets by hour/minute instead of collapsing to a single day point. Defaults to day."
                 },
                 "kind": {
                     "const": "MCPToolDailyStatsQuery",
@@ -33440,6 +33460,7 @@
                 "data warehouse sources table",
                 "experiment created",
                 "experiment analyzed",
+                "experiment view recordings",
                 "feature flag created",
                 "session_replay_set_filters",
                 "session_replay_experiment_link_clicked",
@@ -33620,6 +33641,7 @@
                 "platform_and_support",
                 "product_analytics",
                 "product_tours",
+                "pulse",
                 "revenue_analytics",
                 "review_hog",
                 "session_replay",

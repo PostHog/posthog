@@ -513,6 +513,10 @@ export interface ChartDrawArgs {
 export interface DragRect {
     x0: number
     x1: number
+    /** Present only during a 2D (`onAreaSelect`) drag — the vertical pixel range, unordered.
+     *  When absent the selection spans the full plot height. */
+    y0?: number
+    y1?: number
 }
 
 export interface DateRangeZoomData {
@@ -520,6 +524,21 @@ export interface DateRangeZoomData {
     endLabel: string
     startIndex: number
     endIndex: number
+}
+
+/** Payload of a completed 2D brush ({@link ChartProps.onAreaSelect}). The x axis resolves to
+ *  labels like `onDateRangeZoom`; the y axis stays in canvas pixels — the core is label-generic
+ *  and has no y-band concept, so chart-type adapters map the pixel range onto their own scales
+ *  (e.g. the Heatmap converts it to row indices). */
+export interface AreaSelectData {
+    startLabel: string
+    endLabel: string
+    startIndex: number
+    endIndex: number
+    /** Top of the dragged range in canvas pixels (always <= yPixel1). */
+    yPixel0: number
+    /** Bottom of the dragged range in canvas pixels. */
+    yPixel1: number
 }
 
 /** `true` = drew a visible highlight; `false` = nothing visible (freeze the fade timer). */

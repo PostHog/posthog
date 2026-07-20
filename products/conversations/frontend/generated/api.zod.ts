@@ -122,7 +122,9 @@ export const ConversationsOpenCreateBody = /* @__PURE__ */ zod
                             .describe('Optional human-readable label rendered in the context block.'),
                         value: zod.string().optional().describe('Free-text content. Only for `text` attachments.'),
                     })
-                    .describe('One typed attachment carried by a sandbox message.')
+                    .describe(
+                        'One typed attachment carried by a sandbox message.\n\nDEPRECATED PATH — do not extend. This structured `attached_context` (and its server-side wrap in\n`context_wrapper.py`) exists only for the legacy Max conversations bridge and is removed with it;\nthe live path wraps context client-side (`products\/posthog_ai\/frontend\/utils\/posthogContextBlock.ts`).'
+                    )
             )
             .optional()
             .describe('Typed PostHog entities (and free text) attached to this message.'),
@@ -165,13 +167,15 @@ export const ConversationsTicketsCreateBody = /* @__PURE__ */ zod
             ),
         priority: zod
             .union([
-                zod.enum(['low', 'medium', 'high']).describe('\* `low` - Low\n\* `medium` - Medium\n\* `high` - High'),
+                zod
+                    .enum(['low', 'medium', 'high', 'critical'])
+                    .describe('\* `low` - Low\n\* `medium` - Medium\n\* `high` - High\n\* `critical` - Critical'),
                 zod.enum(['']),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Ticket priority: low, medium, or high. Null if unset.\n\n\* `low` - Low\n\* `medium` - Medium\n\* `high` - High'
+                'Ticket priority: low, medium, high, or critical. Null if unset.\n\n\* `low` - Low\n\* `medium` - Medium\n\* `high` - High\n\* `critical` - Critical'
             ),
         anonymous_traits: zod.unknown().optional().describe('Customer-provided traits such as name and email'),
         ai_resolved: zod.boolean().optional(),
@@ -201,13 +205,15 @@ export const ConversationsTicketsUpdateBody = /* @__PURE__ */ zod
             ),
         priority: zod
             .union([
-                zod.enum(['low', 'medium', 'high']).describe('\* `low` - Low\n\* `medium` - Medium\n\* `high` - High'),
+                zod
+                    .enum(['low', 'medium', 'high', 'critical'])
+                    .describe('\* `low` - Low\n\* `medium` - Medium\n\* `high` - High\n\* `critical` - Critical'),
                 zod.enum(['']),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Ticket priority: low, medium, or high. Null if unset.\n\n\* `low` - Low\n\* `medium` - Medium\n\* `high` - High'
+                'Ticket priority: low, medium, high, or critical. Null if unset.\n\n\* `low` - Low\n\* `medium` - Medium\n\* `high` - High\n\* `critical` - Critical'
             ),
         anonymous_traits: zod.unknown().optional().describe('Customer-provided traits such as name and email'),
         ai_resolved: zod.boolean().optional(),
@@ -234,13 +240,15 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
             ),
         priority: zod
             .union([
-                zod.enum(['low', 'medium', 'high']).describe('\* `low` - Low\n\* `medium` - Medium\n\* `high` - High'),
+                zod
+                    .enum(['low', 'medium', 'high', 'critical'])
+                    .describe('\* `low` - Low\n\* `medium` - Medium\n\* `high` - High\n\* `critical` - Critical'),
                 zod.enum(['']),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Ticket priority: low, medium, or high. Null if unset.\n\n\* `low` - Low\n\* `medium` - Medium\n\* `high` - High'
+                'Ticket priority: low, medium, high, or critical. Null if unset.\n\n\* `low` - Low\n\* `medium` - Medium\n\* `high` - High\n\* `critical` - Critical'
             ),
         anonymous_traits: zod.unknown().optional().describe('Customer-provided traits such as name and email'),
         ai_resolved: zod.boolean().optional(),
