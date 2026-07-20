@@ -35,6 +35,9 @@ class LinodeSource(ResumableSource[LinodeSourceConfig, LinodeResumeConfig]):
     # get_schemas iterates the static ENDPOINTS catalog with no I/O, so the table list is safe to
     # render in public docs without credentials.
     lists_tables_without_credentials = True
+    supported_versions = ("v4",)
+    default_version = "v4"
+    api_docs_url = "https://techdocs.akamai.com/linode-api/reference"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -75,7 +78,6 @@ Create a personal access token in the [Linode Cloud Manager](https://cloud.linod
             ),
             # Kept hidden until the sync logic has been exercised against a live account (we could not
             # curl-verify the incremental X-Filter behavior without credentials).
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

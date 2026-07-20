@@ -14,7 +14,13 @@ from products.replay_vision.backend.models import ReplayObservation, ReplayScann
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ObservationTrigger
 from products.replay_vision.backend.models.replay_scanner import ScannerModel, ScannerType
 from products.replay_vision.backend.models.vision_action import VisionActionRunStatus
-from products.replay_vision.backend.temporal.vision_actions.synthesis import _markdown_to_slack, _synthesize
+from products.replay_vision.backend.temporal.vision_actions.synthesis import (
+    SLACK_BLOCK_TEXT_LIMIT,
+    _markdown_to_slack,
+    _slack_blocks,
+    _split_long_line,
+    _synthesize,
+)
 from products.replay_vision.backend.temporal.vision_actions.types import SynthesisStatus, SynthesizeGroupSummaryInputs
 from products.replay_vision.backend.tests.helpers import snapshot_for
 
@@ -115,6 +121,10 @@ class TestVisionActionSynthesis(BaseTest):
         # Slack conversion: heading + bold → *...* — stored under output["slack"]
         self.assertIn("*Summary*", run.output["slack"])
         self.assertIn("*Two*", run.output["slack"])
+        # Delivery renders the pre-split blocks; a short report is one section block of the same text.
+        self.assertEqual(
+            run.output["slack_blocks"], [{"type": "section", "text": {"type": "mrkdwn", "text": run.output["slack"]}}]
+        )
 
     def test_labels_each_observation_line_for_citation(self) -> None:
         # Every fed observation line is prefixed with a 1-based `[obs N]` label so the model can cite the
@@ -623,11 +633,14 @@ class TestMarkdownToSlack(BaseTest):
         self.assertNotIn("#", out)
         self.assertNotIn("**", out)
 
-    def test_truncates_long_text(self) -> None:
-        # Slack auto-splits messages over ~4k characters, so the payload must always fit one message.
+    def test_truncates_only_past_the_api_cap(self) -> None:
+        # Truncation is a last resort against Slack's ~40k chat.postMessage rejection; display
+        # splitting is handled by `_slack_blocks`, so ordinary long reports must NOT be cut.
         out = _markdown_to_slack("x" * 50_000, team_id=self.team.id, observation_ids=[])
-        self.assertLessEqual(len(out), 4_000)
+        self.assertLessEqual(len(out), 39_000)
         self.assertIn("truncated", out)
+        untouched = _markdown_to_slack("line\n" * 1_500, team_id=self.team.id, observation_ids=[])
+        self.assertNotIn("truncated", untouched)
 
     def test_truncation_does_not_split_a_citation_link(self) -> None:
         # A citation link straddling the cut point must be dropped whole, not cut in half — a dangling
@@ -637,7 +650,7 @@ class TestMarkdownToSlack(BaseTest):
         obs_id = str(uuid4())
         text = "a" * (SLACK_TEXT_MAX - 50) + "\n" + "More friction at checkout [obs 1] and beyond. " * 5
         out = _markdown_to_slack(text, team_id=self.team.id, observation_ids=[obs_id])
-        self.assertLessEqual(len(out), 4_000)
+        self.assertLessEqual(len(out), SLACK_TEXT_MAX + 100)
         self.assertIn("truncated", out)
         self.assertEqual(out.count("<"), out.count(">"))
         self.assertNotIn(obs_id[:8], out)  # the straddling link is gone entirely, not half-emitted
@@ -653,3 +666,36 @@ class TestMarkdownToSlack(BaseTest):
         # The host must not appear as a live (unquoted) URL in the output.
         sanitized = out.replace("`https://evil.example.com/exfil`", "")
         self.assertNotIn("https://evil.example.com/exfil", sanitized)
+
+    def test_slack_blocks_split_at_line_boundaries_and_keep_links_whole(self) -> None:
+        # Slack auto-splits `text` over ~4k at arbitrary positions, cutting <url|[N]> links in half —
+        # the pre-split blocks are what delivery renders instead, so every block must fit Slack's
+        # 3,000-char section limit, split only at line breaks, and carry the whole report.
+        link = f"<https://us.posthog.com/project/1/replay-vision/observations/{uuid4()}|[1]>"
+        paragraph = f"Users hit friction at checkout and abandoned their carts repeatedly. {link}"
+        text = "\n".join(paragraph for _ in range(80))  # ~11k characters
+
+        blocks = _slack_blocks(text)
+
+        self.assertGreater(len(blocks), 1)
+        for block in blocks:
+            self.assertEqual(block["type"], "section")
+            self.assertLessEqual(len(block["text"]["text"]), SLACK_BLOCK_TEXT_LIMIT)
+            # No half links: every < has its closing > within the same block.
+            self.assertEqual(block["text"]["text"].count("<"), block["text"]["text"].count(">"))
+        # Nothing dropped: rejoining the blocks reproduces the full report.
+        self.assertEqual("\n".join(b["text"]["text"] for b in blocks), text)
+
+    @parameterized.expand(
+        [
+            ("leading_token", "<https://evil.example/" + "a" * (SLACK_BLOCK_TEXT_LIMIT * 2)),
+            ("whitespace_then_token", "   <" + "a" * (SLACK_BLOCK_TEXT_LIMIT * 2)),
+        ]
+    )
+    def test_split_long_line_consumes_unterminated_leading_token(self, _label: str, line: str) -> None:
+        # A line opening with an unterminated `<` token longer than the block limit used to make
+        # the back-up-before-the-token cut resolve to position 0 — zero forward progress, spinning
+        # the synthesis activity forever. The hard-cut guard must always consume input.
+        parts = _split_long_line(line)
+        self.assertTrue(all(len(p) <= SLACK_BLOCK_TEXT_LIMIT for p in parts))
+        self.assertEqual("".join(parts).replace(" ", ""), line.replace(" ", ""))

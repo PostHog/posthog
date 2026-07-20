@@ -39,6 +39,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HarveySource(ResumableSource[HarveySourceConfig, HarveyResumeConfig]):
+    api_docs_url = "https://developers.harvey.ai/"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -90,7 +91,6 @@ Each token carries a per-endpoint permissions list — grant access for the endp
                     ),
                 ],
             ),
-            unreleasedSource=True,
             releaseStatus=ReleaseStatus.ALPHA,
         )
 

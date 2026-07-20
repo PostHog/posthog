@@ -7,6 +7,7 @@ if TYPE_CHECKING:
 from posthog.schema import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -45,6 +46,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], WebhookSource[SlackSourceConfig], OAuthMixin):
+    api_docs_url = "https://api.slack.com/web"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SLACK
@@ -89,8 +92,7 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
             category=DataWarehouseSourceCategory.COMMUNICATION,
             caption="Connect your Slack workspace to sync channels, users, and messages.",
             iconPath="/static/services/slack.png",
-            featureFlag="slack-dwh",
-            releaseStatus="alpha",
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

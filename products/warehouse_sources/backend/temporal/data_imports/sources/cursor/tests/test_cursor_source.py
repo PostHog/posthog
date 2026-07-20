@@ -49,7 +49,6 @@ class TestCursorSource:
 
         assert config.name == SchemaExternalDataSourceType.CURSOR
         assert config.label == "Cursor"
-        assert config.unreleasedSource is True
         field = config.fields[0]
         assert isinstance(field, SourceFieldInputConfig)
         assert len(config.fields) == 1

@@ -36,6 +36,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class WorkableSource(ResumableSource[WorkableSourceConfig, WorkableResumeConfig]):
+    supported_versions = ("v3",)
+    default_version = "v3"
+    api_docs_url = "https://workable.readme.io/reference/generate-an-access-token"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.WORKABLE
@@ -47,7 +51,6 @@ class WorkableSource(ResumableSource[WorkableSourceConfig, WorkableResumeConfig]
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Workable",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Workable account subdomain and an SPI access token to pull your Workable recruiting data into the PostHog Data warehouse.
 
 You can create an access token in your Workable account under **Settings > Integrations > Access Tokens** (admins only). Grant the following read scopes:

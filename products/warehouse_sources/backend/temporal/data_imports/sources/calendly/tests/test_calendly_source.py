@@ -3,7 +3,11 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.calendly.calendly import CalendlyResumeConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.calendly.calendly import (
+    CALENDLY_API_VERSION_V1,
+    CALENDLY_API_VERSION_V2,
+    CalendlyResumeConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.calendly.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.calendly.source import CalendlySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -151,6 +155,27 @@ class TestCalendlySource:
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00.000000Z"
+
+    def test_supported_versions_declares_both_and_defaults_to_v2(self):
+        # New sources must start on v2; v1 stays supported so existing pins keep resolving.
+        assert self.source.default_version == CALENDLY_API_VERSION_V2
+        assert set(self.source.supported_versions) == {CALENDLY_API_VERSION_V1, CALENDLY_API_VERSION_V2}
+
+    @pytest.mark.parametrize(
+        "pin, expected",
+        [
+            (CALENDLY_API_VERSION_V1, CALENDLY_API_VERSION_V1),
+            (CALENDLY_API_VERSION_V2, CALENDLY_API_VERSION_V2),
+            (None, CALENDLY_API_VERSION_V2),
+        ],
+    )
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.calendly.source.calendly_source")
+    def test_source_for_pipeline_resolves_api_version(self, mock_calendly_source, pin, expected):
+        inputs = _make_inputs(api_version=pin)
+
+        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+
+        assert mock_calendly_source.call_args.kwargs["api_version"] == expected
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.calendly.source.calendly_source")
     def test_source_for_pipeline_drops_last_value_when_not_incremental(self, mock_calendly_source):

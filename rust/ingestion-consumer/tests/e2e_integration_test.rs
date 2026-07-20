@@ -303,7 +303,9 @@ impl FakeWorker {
                         }
                     }
                 }),
-            );
+            )
+            // Like the real Express worker, inflate gzipped request bodies.
+            .layer(tower_http::decompression::RequestDecompressionLayer::new());
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -456,6 +458,7 @@ impl Harness {
             None,
             &worker_urls,
             1,
+            true,
         ));
         spawn_reaper(
             Arc::clone(&registry),
@@ -484,6 +487,7 @@ impl Harness {
                 max_in_flight_batches: max_in_flight,
                 group_id: "e2e-test".to_string(),
                 deferred_flush_timeout,
+                debug_recorder: None,
             },
             handle,
         );
@@ -532,6 +536,7 @@ impl Harness {
             None,
             &worker_urls,
             1,
+            true,
         ));
         spawn_reaper(
             Arc::clone(&registry),
@@ -558,6 +563,7 @@ impl Harness {
                 max_in_flight_batches: self.max_in_flight,
                 group_id: "e2e-test".to_string(),
                 deferred_flush_timeout: self.deferred_flush_timeout,
+                debug_recorder: None,
             },
             handle,
         );
@@ -1260,7 +1266,7 @@ async fn drain_defer_flush_delivers_to_survivor_over_http() {
     let probe_token = CancellationToken::new();
     Arc::clone(&registry).start_probing(probe_token.clone());
     let dispatcher = Dispatcher::new(Arc::clone(&registry));
-    let transport = HttpTransport::new(Duration::from_secs(5), 0, None, &urls, 1);
+    let transport = HttpTransport::new(Duration::from_secs(5), 0, None, &urls, 1, true);
 
     // batch-1: user-1 pins to a worker. Send it for real but DON'T resolve, so it
     // is genuinely in flight on that worker.
@@ -2014,6 +2020,7 @@ async fn second_consumer_joining_the_group_preserves_all_messages() {
         None,
         &worker_urls,
         1,
+        true,
     ));
     let mut manager2 = Manager::builder("e2e-c2").with_trap_signals(false).build();
     let handle2 = manager2.register("consumer", ComponentOptions::new());
@@ -2029,6 +2036,7 @@ async fn second_consumer_joining_the_group_preserves_all_messages() {
             max_in_flight_batches: 1,
             group_id: "e2e-test".to_string(),
             deferred_flush_timeout: Duration::from_secs(60),
+            debug_recorder: None,
         },
         handle2,
     );
@@ -2086,6 +2094,7 @@ async fn fenced_static_member_exits_on_fatal_error() {
         None,
         &urls,
         1,
+        true,
     ));
     let mut manager = Manager::builder("e2e-fenced")
         .with_trap_signals(false)
@@ -2103,6 +2112,7 @@ async fn fenced_static_member_exits_on_fatal_error() {
             max_in_flight_batches: 1,
             group_id: "e2e-test".to_string(),
             deferred_flush_timeout: Duration::from_secs(60),
+            debug_recorder: None,
         },
         handle,
     );

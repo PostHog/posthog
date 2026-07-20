@@ -17,6 +17,10 @@ export const visionActionsCreateBodyNameMax = 255
 export const visionActionsCreateBodyTriggerConfigOneTimezoneDefault = `UTC`
 export const visionActionsCreateBodySynthesisConfigOnePromptGuideMax = 500
 
+export const visionActionsCreateBodyAlertConfigOneFrequencyDefault = `on_breach`
+export const visionActionsCreateBodyAlertConfigOneMetricDefault = `count`
+export const visionActionsCreateBodyAlertConfigOneDirectionDefault = `above`
+
 export const VisionActionsCreateBody = /* @__PURE__ */ zod.object({
     name: zod
         .string()
@@ -38,11 +42,11 @@ export const VisionActionsCreateBody = /* @__PURE__ */ zod.object({
             "What fires the action. MVP supports 'schedule' only.\n\n\* `schedule` - Schedule\n\* `threshold` - Threshold"
         ),
     mode: zod
-        .enum(['group_summary', 'per_observation'])
-        .describe('\* `group_summary` - Group summary\n\* `per_observation` - Per observation')
+        .enum(['group_summary', 'alert', 'per_observation'])
+        .describe('\* `group_summary` - Group summary\n\* `alert` - Alert\n\* `per_observation` - Per observation')
         .optional()
         .describe(
-            "What the action produces. MVP supports 'group_summary' only.\n\n\* `group_summary` - Group summary\n\* `per_observation` - Per observation"
+            "What the action produces. MVP supports 'group_summary' only.\n\n\* `group_summary` - Group summary\n\* `alert` - Alert\n\* `per_observation` - Per observation"
         ),
     trigger_config: zod
         .object({
@@ -103,6 +107,48 @@ export const VisionActionsCreateBody = /* @__PURE__ */ zod.object({
         .describe('Options for the group-summary synthesis step.')
         .optional()
         .describe('Synthesis options for the group summary, e.g. {prompt_guide}.'),
+    alert_config: zod
+        .object({
+            frequency: zod
+                .enum(['every_match', 'on_breach'])
+                .describe('\* `every_match` - Every new match\n\* `on_breach` - When a threshold is crossed')
+                .default(visionActionsCreateBodyAlertConfigOneFrequencyDefault)
+                .describe(
+                    "'every_match' notifies about every new matching observation (batched per check); 'on_breach' notifies once when the threshold condition starts holding. Defaults to 'on_breach'.\n\n\* `every_match` - Every new match\n\* `on_breach` - When a threshold is crossed"
+                ),
+            metric: zod
+                .enum(['count', 'avg_score'])
+                .describe('\* `count` - Count of matching observations\n\* `avg_score` - Average score')
+                .default(visionActionsCreateBodyAlertConfigOneMetricDefault)
+                .describe(
+                    "What to measure over the window: 'count' of targeted observations, or 'avg_score' (the mean scorer score; scorer scanners only). every_match supports 'count' only.\n\n\* `count` - Count of matching observations\n\* `avg_score` - Average score"
+                ),
+            threshold: zod
+                .number()
+                .optional()
+                .describe(
+                    "The alert fires when the metric is at or above ('above') or at or below ('below') this value, per 'direction'. Required for on_breach; ignored for every_match."
+                ),
+            direction: zod
+                .enum(['above', 'below'])
+                .describe('\* `above` - At or above\n\* `below` - At or below')
+                .default(visionActionsCreateBodyAlertConfigOneDirectionDefault)
+                .describe(
+                    "Which side of the threshold breaches: 'above' fires when the metric is at or above it, 'below' when at or below (e.g. an average score dropping under a floor). Both inclusive. Defaults to 'above'; ignored for every_match.\n\n\* `above` - At or above\n\* `below` - At or below"
+                ),
+            window_days: zod
+                .union([zod.literal(1), zod.literal(3), zod.literal(7), zod.literal(14), zod.literal(30)])
+                .describe('\* `1` - 1 day\n\* `3` - 3 days\n\* `7` - 7 days\n\* `14` - 14 days\n\* `30` - 30 days')
+                .optional()
+                .describe(
+                    "Rolling lookback window for on_breach conditions, ending at each check. Defaults to 1 day. every_match ignores it (each check covers what's new since the previous one).\n\n\* `1` - 1 day\n\* `3` - 3 days\n\* `7` - 7 days\n\* `14` - 14 days\n\* `30` - 30 days"
+                ),
+        })
+        .describe(
+            "The alert condition for mode='alert', applied after `selection` targeting. 'every_match'\nnotifies about each new match since the previous check; 'on_breach' compares a metric to a\nthreshold over a rolling window and notifies on the transition into breach."
+        )
+        .optional()
+        .describe("Alert condition; required when mode is 'alert', ignored otherwise."),
     delivery_config: zod
         .array(
             zod
@@ -130,6 +176,10 @@ export const visionActionsPartialUpdateBodyNameMax = 255
 export const visionActionsPartialUpdateBodyTriggerConfigOneTimezoneDefault = `UTC`
 export const visionActionsPartialUpdateBodySynthesisConfigOnePromptGuideMax = 500
 
+export const visionActionsPartialUpdateBodyAlertConfigOneFrequencyDefault = `on_breach`
+export const visionActionsPartialUpdateBodyAlertConfigOneMetricDefault = `count`
+export const visionActionsPartialUpdateBodyAlertConfigOneDirectionDefault = `above`
+
 export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
         .string()
@@ -155,11 +205,11 @@ export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod.object({
             "What fires the action. MVP supports 'schedule' only.\n\n\* `schedule` - Schedule\n\* `threshold` - Threshold"
         ),
     mode: zod
-        .enum(['group_summary', 'per_observation'])
-        .describe('\* `group_summary` - Group summary\n\* `per_observation` - Per observation')
+        .enum(['group_summary', 'alert', 'per_observation'])
+        .describe('\* `group_summary` - Group summary\n\* `alert` - Alert\n\* `per_observation` - Per observation')
         .optional()
         .describe(
-            "What the action produces. MVP supports 'group_summary' only.\n\n\* `group_summary` - Group summary\n\* `per_observation` - Per observation"
+            "What the action produces. MVP supports 'group_summary' only.\n\n\* `group_summary` - Group summary\n\* `alert` - Alert\n\* `per_observation` - Per observation"
         ),
     trigger_config: zod
         .object({
@@ -220,6 +270,48 @@ export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Options for the group-summary synthesis step.')
         .optional()
         .describe('Synthesis options for the group summary, e.g. {prompt_guide}.'),
+    alert_config: zod
+        .object({
+            frequency: zod
+                .enum(['every_match', 'on_breach'])
+                .describe('\* `every_match` - Every new match\n\* `on_breach` - When a threshold is crossed')
+                .default(visionActionsPartialUpdateBodyAlertConfigOneFrequencyDefault)
+                .describe(
+                    "'every_match' notifies about every new matching observation (batched per check); 'on_breach' notifies once when the threshold condition starts holding. Defaults to 'on_breach'.\n\n\* `every_match` - Every new match\n\* `on_breach` - When a threshold is crossed"
+                ),
+            metric: zod
+                .enum(['count', 'avg_score'])
+                .describe('\* `count` - Count of matching observations\n\* `avg_score` - Average score')
+                .default(visionActionsPartialUpdateBodyAlertConfigOneMetricDefault)
+                .describe(
+                    "What to measure over the window: 'count' of targeted observations, or 'avg_score' (the mean scorer score; scorer scanners only). every_match supports 'count' only.\n\n\* `count` - Count of matching observations\n\* `avg_score` - Average score"
+                ),
+            threshold: zod
+                .number()
+                .optional()
+                .describe(
+                    "The alert fires when the metric is at or above ('above') or at or below ('below') this value, per 'direction'. Required for on_breach; ignored for every_match."
+                ),
+            direction: zod
+                .enum(['above', 'below'])
+                .describe('\* `above` - At or above\n\* `below` - At or below')
+                .default(visionActionsPartialUpdateBodyAlertConfigOneDirectionDefault)
+                .describe(
+                    "Which side of the threshold breaches: 'above' fires when the metric is at or above it, 'below' when at or below (e.g. an average score dropping under a floor). Both inclusive. Defaults to 'above'; ignored for every_match.\n\n\* `above` - At or above\n\* `below` - At or below"
+                ),
+            window_days: zod
+                .union([zod.literal(1), zod.literal(3), zod.literal(7), zod.literal(14), zod.literal(30)])
+                .describe('\* `1` - 1 day\n\* `3` - 3 days\n\* `7` - 7 days\n\* `14` - 14 days\n\* `30` - 30 days')
+                .optional()
+                .describe(
+                    "Rolling lookback window for on_breach conditions, ending at each check. Defaults to 1 day. every_match ignores it (each check covers what's new since the previous one).\n\n\* `1` - 1 day\n\* `3` - 3 days\n\* `7` - 7 days\n\* `14` - 14 days\n\* `30` - 30 days"
+                ),
+        })
+        .describe(
+            "The alert condition for mode='alert', applied after `selection` targeting. 'every_match'\nnotifies about each new match since the previous check; 'on_breach' compares a metric to a\nthreshold over a rolling window and notifies on the transition into breach."
+        )
+        .optional()
+        .describe("Alert condition; required when mode is 'alert', ignored otherwise."),
     delivery_config: zod
         .array(
             zod
@@ -419,6 +511,42 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod.object({
             'When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals.'
         ),
 })
+
+/**
+ * Save the users this scanner matched as a static cohort, for surveys, funnels, and retention analysis.
+ */
+export const visionScannersAffectedCohortCreateBodyWindowDaysDefault = 30
+export const visionScannersAffectedCohortCreateBodyWindowDaysMax = 90
+
+export const visionScannersAffectedCohortCreateBodyTagMax = 100
+
+export const VisionScannersAffectedCohortCreateBody = /* @__PURE__ */ zod
+    .object({
+        window_days: zod
+            .number()
+            .min(1)
+            .max(visionScannersAffectedCohortCreateBodyWindowDaysMax)
+            .default(visionScannersAffectedCohortCreateBodyWindowDaysDefault)
+            .describe('Trailing window of observations to count. Defaults to 30 days.'),
+        tag: zod
+            .string()
+            .max(visionScannersAffectedCohortCreateBodyTagMax)
+            .nullish()
+            .describe(
+                'Classifier scanners only, required for them: count sessions carrying this tag (fixed or freeform). Not applicable to other scanner types.'
+            ),
+        min_score: zod
+            .number()
+            .nullish()
+            .describe(
+                'Scorer scanners only: count sessions scoring at or above this value. Scorers require `min_score` and\/or `max_score`. Not applicable to other scanner types.'
+            ),
+        max_score: zod
+            .number()
+            .nullish()
+            .describe('Scorer scanners only: count sessions scoring at or below this value.'),
+    })
+    .describe('Body of POST \/vision\/scanners\/:id\/affected_cohort\/. Same qualifiers as the impact GET.')
 
 /**
  * Apply this scanner to one specific session, on demand. Returns 202 with the workflow handle.

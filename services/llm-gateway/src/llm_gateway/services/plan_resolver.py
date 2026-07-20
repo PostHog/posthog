@@ -44,6 +44,7 @@ class PlanInfo:
     plan_key: str | None
     seat_created_at: str | None
     billing_period: BillingPeriod | None = None
+    seat_missing: bool = False
 
 
 def _redis_key(user_id: int) -> str:
@@ -54,20 +55,6 @@ def is_pro_plan(plan_key: str | None) -> bool:
     if not plan_key:
         return False
     return any(plan_key.startswith(p) for p in PRO_PLAN_PREFIXES)
-
-
-def is_usage_based_plan(plan_key: str | None) -> bool:
-    """Whether the plan bills usage-based (vs seat-based subscription).
-
-    Prefix-matched like :func:`is_pro_plan`, but settings-driven so the prefix
-    can be corrected by env var when billing finalizes the plan key. Unknown or
-    missing plans are NOT usage-based, so a flaky plan resolution falls back to
-    the standard seat-based/free limits rather than the usage-based user cost
-    limit.
-    """
-    if not plan_key:
-        return False
-    return any(plan_key.startswith(p) for p in get_settings().usage_based_plan_prefixes)
 
 
 def parse_iso_utc(value: str) -> datetime:
@@ -156,16 +143,17 @@ class PlanResolver:
             return cached
 
         try:
-            plan_key, seat_created_at, billing_period = await self._fetch_plan(auth_header)
+            plan_key, seat_created_at, billing_period, seat_missing = await self._fetch_plan(auth_header)
         except Exception:
             logger.warning("seat_fetch_failed", user_id=user_id, exc_info=True)
             return PlanInfo(plan_key=None, seat_created_at=None)
 
-        await self._set_cached(user_id, plan_key, seat_created_at, billing_period)
+        await self._set_cached(user_id, plan_key, seat_created_at, billing_period, seat_missing)
         return PlanInfo(
             plan_key=plan_key,
             seat_created_at=seat_created_at,
             billing_period=billing_period,
+            seat_missing=seat_missing,
         )
 
     async def _get_cached(self, user_id: int) -> PlanInfo | None:
@@ -182,6 +170,7 @@ class PlanResolver:
                     plan_key=plan_key,
                     seat_created_at=seat_created_at,
                     billing_period=billing_period,
+                    seat_missing=bool(data.get("seat_missing", False)),
                 )
         except Exception:
             logger.debug("plan_cache_read_failed", user_id=user_id)
@@ -193,12 +182,17 @@ class PlanResolver:
         plan_key: str | None,
         seat_created_at: str | None,
         billing_period: BillingPeriod | None = None,
+        seat_missing: bool = False,
     ) -> None:
         if not self._redis:
             return
         ttl = get_settings().plan_cache_ttl
         try:
-            payload: dict[str, object] = {"plan_key": plan_key, "created_at": seat_created_at}
+            payload: dict[str, object] = {
+                "plan_key": plan_key,
+                "created_at": seat_created_at,
+                "seat_missing": seat_missing,
+            }
             if billing_period:
                 payload["billing_period"] = {
                     "current_period_start": billing_period.current_period_start,
@@ -210,15 +204,17 @@ class PlanResolver:
         except Exception:
             logger.debug("plan_cache_write_failed", user_id=user_id)
 
-    async def _fetch_plan(self, auth_header: str) -> tuple[str | None, str | None, BillingPeriod | None]:
+    async def _fetch_plan(self, auth_header: str) -> tuple[str | None, str | None, BillingPeriod | None, bool]:
         """Call the PostHog API seats endpoint to get the user's plan.
 
         Raises on transient HTTP failures so the caller can skip caching.
-        Returns (None, None, None) for legitimate "no plan" states (404, no API URL).
+        Returns (None, None, None, seat_missing) for legitimate "no plan"
+        states — seat_missing is True only for a definitive 404 (the user has
+        no seat), not for a missing API URL.
         """
         settings = get_settings()
         if not settings.posthog_api_base_url:
-            return None, None, None
+            return None, None, None, False
 
         url = f"{settings.posthog_api_base_url.rstrip('/')}/api/seats/me/"
         resp = await self._http.get(
@@ -228,8 +224,8 @@ class PlanResolver:
             timeout=2.0,
         )
         if resp.status_code == 404:
-            return None, None, None
+            return None, None, None, True
         resp.raise_for_status()
         data = resp.json()
         billing_period = _parse_billing_period(data.get("billing_period"))
-        return data.get("plan_key"), data.get("created_at"), billing_period
+        return data.get("plan_key"), data.get("created_at"), billing_period, False

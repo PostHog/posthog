@@ -169,8 +169,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
         evaluation = Evaluation.objects.get(name="Trace target")
         self.assertEqual(evaluation.target, "trace")
         self.assertEqual(evaluation.target_config, {"window_seconds": 30 * 60})
-        # Reports run a generation-oriented agent — a trace eval must not get an auto-created report.
-        self.assertEqual(EvaluationReport.objects.filter(evaluation=evaluation).count(), 0)
+        self.assertEqual(EvaluationReport.objects.filter(evaluation=evaluation).count(), 1)
 
     def test_trace_target_accepts_custom_window(self):
         response = self.client.post(
@@ -291,7 +290,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(Evaluation.objects.filter(name="Will Rollback").count(), 0)
         self.assertEqual(EvaluationReport.objects.count(), 0)
 
-    def test_can_create_sentiment_evaluation_without_default_report(self):
+    def test_can_create_sentiment_evaluation_with_default_report(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/evaluations/",
             {
@@ -311,7 +310,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(evaluation.evaluation_config, {"source": "user_messages"})
         self.assertEqual(evaluation.output_type, "sentiment")
         self.assertEqual(evaluation.output_config, {})
-        self.assertEqual(EvaluationReport.objects.filter(evaluation=evaluation).count(), 0)
+        self.assertEqual(EvaluationReport.objects.filter(evaluation=evaluation).count(), 1)
 
     def test_rejects_sentiment_evaluation_with_trace_target(self):
         response = self.client.post(

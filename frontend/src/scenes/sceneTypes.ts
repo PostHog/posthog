@@ -13,6 +13,7 @@ export enum Scene {
     AgenticAccountMismatch = 'AgenticAccountMismatch',
     AgenticAuthorize = 'AgenticAuthorize',
     AIGateway = 'AIGateway',
+    Alerts = 'Alerts',
     Annotations = 'Annotations',
     Approval = 'Approval',
     AsyncMigrations = 'AsyncMigrations',
@@ -130,6 +131,7 @@ export enum Scene {
     PropertyDefinitions = 'PropertyDefinitions',
     PropertyDefinitionEdit = 'PropertyDefinitionEdit',
     QueryPerformance = 'QueryPerformance',
+    Quickstart = 'Quickstart',
     Replay = 'Replay',
     ReplayFilePlayback = 'ReplayFilePlayback',
     ReplayPlaylist = 'ReplayPlaylist',
@@ -321,6 +323,8 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.DashboardTemplateCopy]: AccessControlResourceType.Dashboard,
 
     // Insights
+    // TODO: Add an Alerts access control resource instead of inheriting Insight permissions.
+    [Scene.Alerts]: AccessControlResourceType.Insight,
     [Scene.Insight]: AccessControlResourceType.Insight,
     [Scene.SavedInsights]: AccessControlResourceType.Insight,
 
@@ -345,6 +349,9 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
 
     // Marketing Analytics
     [Scene.MarketingAnalytics]: AccessControlResourceType.WebAnalytics,
+
+    // Metrics
+    [Scene.Metrics]: AccessControlResourceType.Metrics,
 
     // Surveys
     [Scene.Survey]: AccessControlResourceType.Survey,

@@ -13,13 +13,14 @@ from llm_gateway.auth.service import AuthService, get_auth_service
 from llm_gateway.circuit_breaker import AnthropicCircuitBreaker
 from llm_gateway.products.config import (
     ALLOWED_PRODUCTS,
+    check_free_tier_model_access,
     check_product_access,
     get_product_config,
     resolve_product_alias,
 )
 from llm_gateway.rate_limiting.cost_refresh import ensure_costs_fresh
 from llm_gateway.rate_limiting.runner import ThrottleRunner
-from llm_gateway.rate_limiting.throttles import ThrottleContext
+from llm_gateway.rate_limiting.throttles import ThrottleContext, is_usage_unlimited
 from llm_gateway.request_context import (
     extract_posthog_provider_from_headers,
     get_request_id,
@@ -76,18 +77,35 @@ async def get_cached_body(request: Request) -> bytes | None:
 
 
 async def get_request_json(request: Request) -> dict[str, Any] | None:
+    """Parse the JSON body as a dict, caching the result for reuse — the
+    access-check chain reads it several times per request."""
+    if hasattr(request.state, "_cached_json"):
+        return request.state._cached_json
+    parsed: dict[str, Any] | None = None
     body = await get_cached_body(request)
-    if not body:
-        return None
-    try:
-        data = json.loads(body)
-        return data if isinstance(data, dict) else None
-    except (json.JSONDecodeError, TypeError):
-        return None
+    if body:
+        try:
+            data = json.loads(body)
+            parsed = data if isinstance(data, dict) else None
+        except (json.JSONDecodeError, TypeError):
+            parsed = None
+    request.state._cached_json = parsed
+    return parsed
 
 
 async def get_model_from_request(request: Request) -> str | None:
-    """Extract model name from request body if present."""
+    """Extract the model from the request body (JSON, or form for the
+    transcription routes). None is safe: every route requires a model at
+    validation, so such a request never reaches an upstream."""
+    content_type = request.headers.get("content-type", "").lower()
+    if content_type.startswith(("multipart/form-data", "application/x-www-form-urlencoded")):
+        try:
+            form = await request.form()
+        except Exception:
+            # malformed forms fail the endpoint's own parsing too
+            return None
+        model = form.get("model")
+        return model if isinstance(model, str) else None
     data = await get_request_json(request)
     if data is None:
         return None
@@ -120,6 +138,7 @@ async def enforce_product_access(
         application_id=user.application_id,
         model=model,
         provider=provider,
+        scopes=user.scopes,
     )
 
     if not allowed:
@@ -133,14 +152,8 @@ async def _extract_end_user_id_from_body(request: Request) -> str | None:
     For OpenAI-compatible endpoints, this is the top-level `user` field.
     For Anthropic endpoints, this is `metadata.user_id`.
     """
-    body = await get_cached_body(request)
-    if not body:
-        return None
-    try:
-        data = json.loads(body)
-    except (json.JSONDecodeError, TypeError):
-        return None
-    if not isinstance(data, dict):
+    data = await get_request_json(request)
+    if data is None:
         return None
 
     user_id = data.get("user")
@@ -169,6 +182,10 @@ async def resolve_plan_and_quota(
     billing into a credit bucket we overlap them. Unbilled products short-circuit
     the throttle stack regardless of quota state, so we skip the resolver entirely
     rather than paying for the Redis GET (and the HTTP fallback on cache miss).
+
+    Caveat: ``code_usage_billing_active`` rides the quota fetch, so a product
+    without a credit bucket always reads as unbilled — removing or repointing
+    posthog_code's bucket would silently turn off the org-billed cap bypass.
     """
     product_config = get_product_config(product)
     if product_config and product_config.credit_bucket is not None:
@@ -202,6 +219,31 @@ async def enforce_throttles(
         product=product,
     )
 
+    model_allowed, model_error = check_free_tier_model_access(
+        product=product,
+        model=await get_model_from_request(request),
+        provider=await get_provider_from_request(request),
+        code_usage_billed=quota_status.code_usage_billing_active,
+        usage_unlimited=is_usage_unlimited(user),
+    )
+    if not model_allowed:
+        logger.warning(
+            "free_tier_model_blocked",
+            user_id=user.user_id,
+            team_id=user.team_id,
+            product=product,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": {
+                    "message": f"{model_error} (rate_limit)",
+                    "type": "permission_error",
+                    "code": "model_gate",
+                }
+            },
+        )
+
     context = ThrottleContext(
         user=user,
         product=product,
@@ -209,6 +251,8 @@ async def enforce_throttles(
         end_user_id=end_user_id,
         plan_key=plan_info.plan_key,
         seat_created_at=plan_info.seat_created_at,
+        seat_missing=plan_info.seat_missing,
+        code_usage_billed=quota_status.code_usage_billing_active,
         billing_period_start=plan_info.billing_period.current_period_start if plan_info.billing_period else None,
         credits_exhausted=quota_status.limited,
     )
@@ -227,11 +271,16 @@ async def enforce_throttles(
             status_code=result.status_code,
         )
         headers = {"Retry-After": str(result.retry_after)} if result.retry_after is not None else None
+        reason = result.detail
+        message = (
+            f"Rate limit exceeded: {reason}" if reason and reason != "Rate limit exceeded" else "Rate limit exceeded"
+        )
         detail = {
             "error": {
-                "message": "Rate limit exceeded",
+                "message": message,
                 "type": "rate_limit_error",
-                "reason": result.detail,
+                "reason": reason,
+                **({"code": result.scope} if result.scope else {}),
             }
         }
         raise HTTPException(status_code=result.status_code, detail=detail, headers=headers)

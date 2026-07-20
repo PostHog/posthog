@@ -80,6 +80,7 @@ ActivityScope = Literal[
     "ExternalDataSource",
     "ExternalDataSchema",
     "Evaluation",
+    "LLMPromptLabel",
     "LLMTrace",
     "AIGatewayCredit",
     "WebAnalyticsFilterPreset",
@@ -96,6 +97,7 @@ ActivityScope = Literal[
     "StreamlitApp",
     "Metric",
     "TableCertification",
+    "Billing",
 ]
 ChangeAction = Literal[
     "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out", "copied"
@@ -198,6 +200,19 @@ class ActivityLog(UUIDTModel):
                 name="idx_alog_team_scp_act_crtd",
                 condition=models.Q(was_impersonated=False) & models.Q(is_system=False),
             ),
+            # Advanced activity logs default list ordering. The org- and team-scoped list
+            # endpoints order by -created_at with no scope filter, so the scope-led indexes
+            # above can't serve the sort, and the org indexes above are partial on a detail
+            # predicate the list query never carries. These full indexes let the LIMITed
+            # ordered scan walk created_at directly instead of sorting the whole partition.
+            models.Index(
+                fields=["organization_id", "-created_at"],
+                name="idx_alog_org_created_at",
+            ),
+            models.Index(
+                fields=["team_id", "-created_at"],
+                name="idx_alog_team_created_at",
+            ),
         ]
 
     team_id = models.PositiveIntegerField(null=True)
@@ -256,6 +271,11 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
     ],
     "ExternalDataSource": [
         "job_inputs",
+    ],
+    "HogFlow": [
+        # Full content snapshot including action inputs (auth headers, API keys) — record that a
+        # draft was staged/published/discarded, never its contents.
+        "draft",
     ],
     "OrganizationDomain": [
         "_scim_bearer_token",

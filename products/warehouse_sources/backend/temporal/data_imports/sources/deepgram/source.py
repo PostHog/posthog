@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class DeepgramSource(ResumableSource[DeepgramSourceConfig, DeepgramResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://developers.deepgram.com/reference/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -49,7 +50,6 @@ class DeepgramSource(ResumableSource[DeepgramSourceConfig, DeepgramResumeConfig]
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Deepgram",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Deepgram API key to sync your Deepgram Management API data into the PostHog Data warehouse.
 
 You can create an API key in your [Deepgram Console](https://console.deepgram.com/) under **Settings → API Keys**. A key with a read-capable scope (e.g. `member`) is sufficient — the source only reads projects, members, keys, balances, invites, and the request log.""",

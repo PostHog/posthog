@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CursorSource(ResumableSource[CursorSourceConfig, CursorResumeConfig]):
+    api_docs_url = "https://cursor.com/docs/account/teams/admin-api"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -70,7 +71,6 @@ You need a Cursor team plan (Business or Enterprise). A team admin can create an
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

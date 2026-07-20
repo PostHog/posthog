@@ -14,7 +14,13 @@ import pytest
 from unittest import mock
 
 import yaml
-from hogli_commands.devenv.generator import DevenvConfig, MprocsConfig, MprocsGenerator, load_devenv_config
+from hogli_commands.devenv.generator import (
+    DevenvConfig,
+    MprocsConfig,
+    MprocsGenerator,
+    build_docker_compose_command,
+    load_devenv_config,
+)
 from hogli_commands.devenv.registry import ProcessRegistry, create_mprocs_registry
 from hogli_commands.devenv.resolver import Capability, Intent, IntentMap, IntentResolver, load_intent_map
 from hogli_commands.devenv.wizard import _parse_exclude_input
@@ -438,6 +444,40 @@ class TestDockerProfiles:
         # feature_flags needs etcd (coordination)
         result = resolver.resolve(["feature_flags"])
         assert "etcd" in result.docker_profiles
+
+
+class TestDockerComposeProjectName:
+    """Test project-name selection in the generated docker compose command."""
+
+    def test_defaults_to_posthog_when_unset(self, monkeypatch: Any) -> None:
+        monkeypatch.delenv("COMPOSE_PROJECT_NAME", raising=False)
+
+        cmd = build_docker_compose_command([])
+
+        assert "-p posthog " in cmd
+
+    def test_defaults_to_posthog_when_empty(self, monkeypatch: Any) -> None:
+        monkeypatch.setenv("COMPOSE_PROJECT_NAME", "")
+
+        cmd = build_docker_compose_command([])
+
+        assert "-p posthog " in cmd
+
+    @parameterized.expand(
+        [
+            ("plain name", "posthog-worktree", "posthog-worktree"),
+            ("value with a space", "posthog dev", "posthog dev"),
+            ("value with shell metacharacters", "posthog; rm -rf /", "posthog; rm -rf /"),
+        ]
+    )
+    def test_project_name_from_env_is_shell_quoted(self, _name: str, env_value: str, expected_value: str) -> None:
+        with mock.patch.dict(os.environ, {"COMPOSE_PROJECT_NAME": env_value}):
+            cmd = build_docker_compose_command([])
+
+        # The quoted project name must round-trip through shlex.split as a single token,
+        # proving it can't be split into extra shell arguments or inject shell syntax.
+        tokens = shlex.split(cmd)
+        assert tokens[tokens.index("-p") + 1] == expected_value
 
 
 class TestIntentMapLoading:

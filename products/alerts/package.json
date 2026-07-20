@@ -21,7 +21,7 @@
         "@posthog/lemon-ui": "*",
         "@types/react": "*",
         "chartjs-plugin-annotation": "*",
-        "fast-deep-equal": "*",
+        "fast-equals": "catalog:",
         "react": "*",
         "typescript": "catalog:*",
         "zod": "*"

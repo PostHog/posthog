@@ -12,14 +12,17 @@ import {
     IconNotification,
     IconCheck,
     IconPencil,
+    IconRocket,
     IconStar,
 } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
 import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
@@ -160,6 +163,7 @@ export function NavTabBrowse(): JSX.Element {
         activePanelIdentifierFromUrlAiFirst,
         pathname,
     } = useValues(panelLayoutLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
     const { recentItems, recentItemsLoading } = useValues(navRecentsLogic)
     const { isEditMode, checkedTools } = useValues(editToolsLogic)
@@ -201,6 +205,17 @@ export function NavTabBrowse(): JSX.Element {
                     <SectionTrigger icon={<IconFolder />} label="Project" isCollapsed={isLayoutNavCollapsed} />
                 )}
                 <Collapsible.Panel className={cn('pl-2 pt-1', isLayoutNavCollapsed && 'items-center pl-0')}>
+                    {featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE] === 'test' && (
+                        <NavLink
+                            to={urls.quickstart()}
+                            label="Quickstart"
+                            icon={<IconRocket />}
+                            isCollapsed={isLayoutNavCollapsed}
+                            data-attr="nav-item-quickstart"
+                            onClick={() => posthog.capture('nav item clicked', { item: 'quickstart' })}
+                        />
+                    )}
+
                     <NavLink
                         to={urls.projectRoot()}
                         label="Home"

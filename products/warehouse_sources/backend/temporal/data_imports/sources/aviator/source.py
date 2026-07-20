@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class AviatorSource(ResumableSource[AviatorSourceConfig, AviatorResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://docs.aviator.co/api/reference"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -49,7 +50,6 @@ class AviatorSource(ResumableSource[AviatorSourceConfig, AviatorResumeConfig]):
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Aviator",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Aviator API token to pull your merge-queue data into the PostHog Data warehouse.
 
 Create a user access token (it starts with `av_uat_`) from your [Aviator account settings](https://www.aviator.co/), then paste it below. The token inherits your account's repository access, so no extra scopes are required.""",

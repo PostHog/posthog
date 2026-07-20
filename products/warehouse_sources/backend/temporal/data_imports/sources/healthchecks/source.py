@@ -43,6 +43,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class HealthchecksSource(
     ResumableSource[HealthchecksSourceConfig, HealthchecksResumeConfig], ValidateDatabaseHostMixin
 ):
+    supported_versions = ("v3",)
+    default_version = "v3"
+    api_docs_url = "https://healthchecks.io/docs/api/"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -69,7 +73,6 @@ Leave the base URL blank for Healthchecks.io Cloud, or set it to your instance U
             iconPath="/static/services/healthchecks.png",
             docsUrl="https://posthog.com/docs/cdp/sources/healthchecks",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

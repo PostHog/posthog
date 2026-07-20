@@ -2483,19 +2483,14 @@ export const LogsAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
     type: zod
         .enum(['slack', 'webhook', 'teams'])
         .describe('* `slack` - slack\n* `webhook` - webhook\n* `teams` - teams')
-        .describe(
-            'Destination type — slack, webhook, or teams.\n\n* `slack` - slack\n* `webhook` - webhook\n* `teams` - teams'
-        ),
+        .describe('Notification destination type.\n\n* `slack` - slack\n* `webhook` - webhook\n* `teams` - teams'),
     slack_workspace_id: zod
         .number()
         .optional()
         .describe('Integration ID for the Slack workspace. Required when type=slack.'),
     slack_channel_id: zod.string().optional().describe('Slack channel ID. Required when type=slack.'),
     slack_channel_name: zod.string().optional().describe('Human-readable channel name for display.'),
-    webhook_url: zod
-        .url()
-        .optional()
-        .describe('HTTPS endpoint to POST to. Required when type=webhook, or the Teams webhook URL when type=teams.'),
+    webhook_url: zod.url().optional().describe('HTTPS endpoint to post to. Required for webhook and teams.'),
 })
 
 /**
@@ -2510,10 +2505,13 @@ export const LogsAlertsDestinationsDeleteCreateParams = /* @__PURE__ */ zod.obje
         ),
 })
 
+export const logsAlertsDestinationsDeleteCreateBodyHogFunctionIdsMax = 4
+
 export const LogsAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object({
     hog_function_ids: zod
         .array(zod.string())
         .min(1)
+        .max(logsAlertsDestinationsDeleteCreateBodyHogFunctionIdsMax)
         .describe('HogFunction IDs to delete as one atomic destination group.'),
 })
 

@@ -52,12 +52,9 @@ class TestAviatorSource:
         assert field.required is True
         assert field.secret is True
 
-    def test_source_config_is_alpha_and_unreleased(self) -> None:
-        # The source ships hidden (unreleasedSource) and labelled alpha; a regression that flipped
-        # either would expose an unfinished connector to every user.
+    def test_source_config_is_alpha(self) -> None:
         config = self.source.get_source_config
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/aviator"
 
     def test_lists_tables_without_credentials(self) -> None:

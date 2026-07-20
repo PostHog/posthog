@@ -7,13 +7,19 @@ table names), then returns canonical contract types. The curated query builders
 only in canonical types.
 """
 
+from dataclasses import replace
 from datetime import datetime
 from typing import TYPE_CHECKING
+
+import structlog
 
 from posthog.models.team import Team
 from posthog.utils import relative_date_parse
 
 from products.engineering_analytics.backend.facade.contracts import (
+    BROKEN_TEST_SPARKLINE_HOURS,
+    BranchPRMatch,
+    BrokenTestsResult,
     CICardSummary,
     CIFailureLogs,
     CurrentBranchHealth,
@@ -25,6 +31,9 @@ from products.engineering_analytics.backend.facade.contracts import (
     PullRequestList,
     RepoOverview,
     RunFailureLogs,
+    TeamCIActivity,
+    TeamCIHealthList,
+    TeamMergeTrend,
     WorkflowCost,
     WorkflowHealthItem,
     WorkflowHealthRunScope,
@@ -39,6 +48,7 @@ from products.engineering_analytics.backend.logic.quarantine import (
     request_quarantine as request_quarantine,
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries.broken_tests import query_broken_tests
 from products.engineering_analytics.backend.logic.queries.ci_cards import query_ci_cards
 from products.engineering_analytics.backend.logic.queries.ci_failure_logs import (
     query_ci_failure_logs,
@@ -47,6 +57,7 @@ from products.engineering_analytics.backend.logic.queries.ci_failure_logs import
 from products.engineering_analytics.backend.logic.queries.current_branch_health import query_current_branch_health
 from products.engineering_analytics.backend.logic.queries.flaky_tests import query_flaky_tests
 from products.engineering_analytics.backend.logic.queries.job_aggregates import query_job_aggregates
+from products.engineering_analytics.backend.logic.queries.llm_spend import query_pr_llm_spend
 from products.engineering_analytics.backend.logic.queries.master_failures import query_master_failures
 from products.engineering_analytics.backend.logic.queries.pr_cost import (
     query_author_workflow_costs,
@@ -63,6 +74,12 @@ from products.engineering_analytics.backend.logic.queries.repo_overview import (
     query_repo_series,
 )
 from products.engineering_analytics.backend.logic.queries.repo_run_activity import query_repo_run_activity
+from products.engineering_analytics.backend.logic.queries.resolve_branch import query_resolve_branch
+from products.engineering_analytics.backend.logic.queries.team_ci_health import (
+    query_team_ci_activity,
+    query_team_ci_health,
+)
+from products.engineering_analytics.backend.logic.queries.team_merge_trend import query_team_merge_trend
 from products.engineering_analytics.backend.logic.queries.workflow_health import query_workflow_health
 from products.engineering_analytics.backend.logic.queries.workflow_jobs import query_workflow_jobs
 from products.engineering_analytics.backend.logic.queries.workflow_run import query_workflow_run
@@ -72,6 +89,8 @@ from products.engineering_analytics.backend.logic.sources import list_github_sou
 
 if TYPE_CHECKING:
     from posthog.rbac.user_access_control import UserAccessControl
+
+logger = structlog.get_logger(__name__)
 
 # Default recency window when a caller omits date_from. Relative strings (-30d) and
 # ISO8601 are both accepted and resolved against the team's timezone.
@@ -94,6 +113,21 @@ _DEFAULT_FLAKY_MIN_FAILED_PRS = 3
 _DEFAULT_FLAKY_LIMIT = 50
 _MAX_FLAKY_LIMIT = 200
 
+# Team CI health rollups scan the current window plus an equal-length prior twin, so the
+# default sits below the flaky ceiling to keep both windows inside Traces retention. At the
+# 30d cap the prior twin reaches past retention and *_prior counts read low.
+_DEFAULT_TEAM_WINDOW = "-14d"
+_DEFAULT_TEAM_LIMIT = 100
+_MAX_TEAM_LIMIT = 200
+_DEFAULT_TEAM_TEST_LIMIT = 25
+_MAX_TEAM_TEST_LIMIT = 100
+
+# Broken-tests panel: a fixed short window (not caller-tunable in v1, like current_branch_health).
+# Two days keeps the logs-cluster scan light while still spanning the classifier's boundaries — a
+# flaky failure needs a >24h span and a novel one needs first-seen <24h, both fitting inside 48h.
+_BROKEN_TESTS_WINDOW_DAYS = 2
+_BROKEN_TESTS_LIMIT = 200
+
 
 # Each builder operates on an already-resolved CuratedGitHubSource: source selection and per-source
 # warehouse access control happen once at the facade, which hands these builders the authorized
@@ -112,6 +146,20 @@ def build_pr_runs(*, curated: CuratedGitHubSource, pr_number: int, repo: str | N
     return query_pr_runs(curated=curated, pr_number=pr_number, repo_owner=owner, repo_name=name)
 
 
+def build_resolve_branch(
+    *, curated: CuratedGitHubSource, branch: str | None, repo: str | None, timestamp: datetime | None = None
+) -> list[BranchPRMatch]:
+    resolved_branch = (branch or "").strip()
+    if not resolved_branch:
+        raise ValueError("provide a branch to resolve")
+    # repo is an optional narrowing filter: absent -> (None, None); malformed (bare org) -> raises.
+    owner, name = _split_repo(repo)
+    # timestamp (the trace's capture time) only reorders results toward the PR active then; never filters.
+    return query_resolve_branch(
+        curated=curated, branch=resolved_branch, repo_owner=owner, repo_name=name, timestamp=timestamp
+    )
+
+
 def build_ci_failure_logs(*, curated: CuratedGitHubSource, pr_number: int, repo: str | None) -> CIFailureLogs:
     owner, name = _split_repo(repo)
     if not (owner and name):
@@ -123,7 +171,19 @@ def build_pr_cost(*, curated: CuratedGitHubSource, pr_number: int, repo: str | N
     owner, name = _split_repo(repo)
     if not (owner and name):
         raise ValueError("repo must be in 'owner/name' format")
-    return query_pr_cost(curated=curated, pr_number=pr_number, repo_owner=owner, repo_name=name)
+    # LLM token spend is an additive component joined by branch from the events table, merged onto the
+    # CI cost summary. Kept sequential: HogQL table resolution reads warehouse metadata through the
+    # request's DB connection, which worker threads don't share.
+    summary = query_pr_cost(curated=curated, pr_number=pr_number, repo_owner=owner, repo_name=name)
+    # The spend join scans the events table across the PR's whole lifetime, so a long-lived PR on an
+    # AI-heavy team can time out; the enrichment is optional, so it degrades to null instead of
+    # taking the whole cost summary down with it.
+    try:
+        llm_spend = query_pr_llm_spend(curated=curated, pr_number=pr_number, repo_owner=owner, repo_name=name)
+    except Exception:
+        logger.warning("engineering_analytics.pr_llm_spend_failed", pr_number=pr_number, exc_info=True)
+        llm_spend = None
+    return replace(summary, llm_spend=llm_spend)
 
 
 def build_workflow_run(*, curated: CuratedGitHubSource, run_id: int) -> WorkflowRunDetail | None:
@@ -284,6 +344,97 @@ def build_flaky_tests(
         min_rerun_passes=min_rerun_passes,
         min_failed_prs=min_failed_prs,
         limit=limit,
+    )
+
+
+def build_team_ci_health(
+    *,
+    curated: CuratedGitHubSource,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    min_rerun_passes: int | None = None,
+    min_failed_prs: int | None = None,
+    limit: int | None = None,
+) -> TeamCIHealthList:
+    parsed_from, parsed_to = _parse_window(
+        curated.team, date_from, date_to, default=_DEFAULT_TEAM_WINDOW, max_days=_MAX_FLAKY_WINDOW_DAYS
+    )
+    min_rerun_passes = min_rerun_passes if min_rerun_passes is not None else _DEFAULT_FLAKY_MIN_RERUN_PASSES
+    min_failed_prs = min_failed_prs if min_failed_prs is not None else _DEFAULT_FLAKY_MIN_FAILED_PRS
+    # Same explicit-positive-bar rule as the flaky leaderboard: a zero threshold would
+    # silently qualify every test with any signal span.
+    if min_rerun_passes < 1 or min_failed_prs < 1:
+        raise ValueError("min_rerun_passes and min_failed_prs must be at least 1")
+    limit = limit if limit is not None else _DEFAULT_TEAM_LIMIT
+    if not 1 <= limit <= _MAX_TEAM_LIMIT:
+        raise ValueError(f"limit must be between 1 and {_MAX_TEAM_LIMIT}")
+    return query_team_ci_health(
+        curated=curated,
+        date_from=parsed_from,
+        date_to=parsed_to,
+        min_rerun_passes=min_rerun_passes,
+        min_failed_prs=min_failed_prs,
+        limit=limit,
+    )
+
+
+def build_team_ci_activity(
+    *,
+    curated: CuratedGitHubSource,
+    owner_team: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    test_limit: int | None = None,
+) -> TeamCIActivity:
+    normalized_team = owner_team.strip()
+    if not normalized_team:
+        raise ValueError("owner_team is required")
+    parsed_from, parsed_to = _parse_window(
+        curated.team, date_from, date_to, default=_DEFAULT_TEAM_WINDOW, max_days=_MAX_FLAKY_WINDOW_DAYS
+    )
+    test_limit = test_limit if test_limit is not None else _DEFAULT_TEAM_TEST_LIMIT
+    if not 1 <= test_limit <= _MAX_TEAM_TEST_LIMIT:
+        raise ValueError(f"test_limit must be between 1 and {_MAX_TEAM_TEST_LIMIT}")
+    return query_team_ci_activity(
+        curated=curated,
+        owner_team=normalized_team,
+        date_from=parsed_from,
+        date_to=parsed_to,
+        test_limit=test_limit,
+    )
+
+
+def build_team_merge_trend(
+    *,
+    curated: CuratedGitHubSource,
+    owner_team: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> TeamMergeTrend:
+    normalized_team = owner_team.strip()
+    if not normalized_team:
+        raise ValueError("owner_team is required")
+    parsed_from, parsed_to = _parse_window(
+        curated.team, date_from, date_to, default=_DEFAULT_TEAM_WINDOW, max_days=_MAX_FLAKY_WINDOW_DAYS
+    )
+    return query_team_merge_trend(
+        curated=curated,
+        owner_team=normalized_team,
+        date_from=parsed_from,
+        date_to=parsed_to,
+    )
+
+
+def build_broken_tests(*, curated: CuratedGitHubSource) -> BrokenTestsResult:
+    # Fixed windows resolved through the module's relative-date entry point (like current_branch_health):
+    # the 2-day analysis window and the 24h sparkline window. The SQL uses now() for the age/span/offset
+    # math, so these bounds only floor the scans.
+    return query_broken_tests(
+        curated=curated,
+        date_from=_parse_date(curated.team, f"-{_BROKEN_TESTS_WINDOW_DAYS}d"),
+        hourly_from=_parse_date(curated.team, f"-{BROKEN_TEST_SPARKLINE_HOURS}h"),
+        window_days=_BROKEN_TESTS_WINDOW_DAYS,
+        limit=_BROKEN_TESTS_LIMIT,
     )
 
 

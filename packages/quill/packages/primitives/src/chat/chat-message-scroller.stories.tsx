@@ -110,7 +110,7 @@ export const Default = {
                             <ChatMarkerIcon>
                                 <Spinner />
                             </ChatMarkerIcon>
-                            <ChatMarkerContent className="shimmer">Reading large-file.ts…</ChatMarkerContent>
+                            <ChatMarkerContent className="quill-shimmer">Reading large-file.ts…</ChatMarkerContent>
                         </ChatMarker>
                     </ChatMessageContent>
                 </ChatMessage>

@@ -1,12 +1,16 @@
+use std::io::Write;
 use std::sync::Arc;
 use std::time::Duration;
 
 use dashmap::DashMap;
+use flate2::write::GzEncoder;
+use flate2::Compression;
 use metrics::{counter, gauge, histogram};
 use rand::Rng;
 use tokio::sync::Semaphore;
 use tracing::{error, info, warn};
 
+use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder};
 use crate::types::{IngestBatchRequest, IngestBatchResponse, SerializedKafkaMessage};
 
 /// RAII guard that tracks the number of batches currently in flight to a
@@ -58,9 +62,15 @@ pub struct HttpTransport {
     api_secret: Option<String>,
     worker_semaphores: DashMap<String, Arc<Semaphore>>,
     worker_concurrent_batches: usize,
+    /// Gzip request bodies (`Content-Encoding: gzip`). Batch bodies are JSON
+    /// wrapping JSON-text Kafka messages, so they compress several-fold; the
+    /// worker's Express body parser inflates transparently.
+    compression_enabled: bool,
     /// Process-unique sender id stamped on every request, so the worker-side
     /// feed-order sentinel can rebaseline when the consumer restarts.
     consumer_id: String,
+    /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
+    debug_recorder: Option<Arc<DebugRecorder>>,
 }
 
 impl HttpTransport {
@@ -70,6 +80,7 @@ impl HttpTransport {
         api_secret: Option<String>,
         worker_urls: &[String],
         worker_concurrent_batches: usize,
+        compression_enabled: bool,
     ) -> Self {
         assert!(
             worker_concurrent_batches > 0,
@@ -98,8 +109,15 @@ impl HttpTransport {
             api_secret,
             worker_semaphores,
             worker_concurrent_batches,
+            compression_enabled,
             consumer_id: make_consumer_id(),
+            debug_recorder: None,
         }
+    }
+
+    /// Inject the debug UI recorder. Call before the transport is shared.
+    pub fn set_debug_recorder(&mut self, recorder: Arc<DebugRecorder>) {
+        self.debug_recorder = Some(recorder);
     }
 
     /// Get the worker's concurrency semaphore, creating it on first use so the
@@ -231,6 +249,12 @@ impl HttpTransport {
                     "reason" => if last_was_busy { "busy" } else { "error" },
                 )
                 .increment(1);
+                record_if(&self.debug_recorder, || DebugEventKind::SendRetry {
+                    worker: worker_url.to_string(),
+                    batch_id: batch_id.to_string(),
+                    attempt,
+                    reason: if last_was_busy { "busy" } else { "error" },
+                });
             }
 
             let start = std::time::Instant::now();
@@ -295,6 +319,12 @@ impl HttpTransport {
         );
         counter!("ingestion_consumer_transport_exhausted_total", "worker" => worker_url.to_string())
             .increment(1);
+        record_if(&self.debug_recorder, || DebugEventKind::SendExhausted {
+            worker: worker_url.to_string(),
+            batch_id: batch_id.to_string(),
+            messages: message_count,
+            error: err.to_string(),
+        });
         Err(SendError {
             error: err,
             messages: request.messages,
@@ -306,7 +336,26 @@ impl HttpTransport {
         url: &str,
         request: &IngestBatchRequest,
     ) -> Result<IngestBatchResponse, TransportError> {
-        let mut req_builder = self.client.post(url).json(request);
+        // Serialized per attempt: the retry loop flips `request.replay`
+        // between attempts, so the body can't be built once up front.
+        let json = serde_json::to_vec(request)?;
+        counter!("ingestion_consumer_transport_body_bytes_total", "encoding" => "raw")
+            .increment(json.len() as u64);
+
+        let mut req_builder = self
+            .client
+            .post(url)
+            .header(reqwest::header::CONTENT_TYPE, "application/json");
+        if self.compression_enabled {
+            let body = gzip(&json);
+            counter!("ingestion_consumer_transport_body_bytes_total", "encoding" => "gzip")
+                .increment(body.len() as u64);
+            req_builder = req_builder
+                .header(reqwest::header::CONTENT_ENCODING, "gzip")
+                .body(body);
+        } else {
+            req_builder = req_builder.body(json);
+        }
         if let Some(secret) = &self.api_secret {
             req_builder = req_builder.header("X-Internal-Api-Secret", secret);
         }
@@ -345,6 +394,9 @@ pub enum TransportError {
     #[error("HTTP request failed: {0}")]
     Http(#[from] reqwest::Error),
 
+    #[error("Failed to serialize request: {0}")]
+    Serialize(#[from] serde_json::Error),
+
     #[error("Worker busy (HTTP 503): {0}")]
     WorkerBusy(String),
 
@@ -368,6 +420,7 @@ impl TransportError {
         match self {
             TransportError::HttpStatus(status, _) => *status >= 500,
             TransportError::Http(_) => true,
+            TransportError::Serialize(_) => false,
             TransportError::WorkerBusy(_) => true,
             TransportError::WorkerError(_) => true,
             TransportError::RetriesExhausted => false,
@@ -388,6 +441,19 @@ fn make_consumer_id() -> String {
         .as_millis();
     let rand: u32 = rand::random();
     format!("{ts:x}-{rand:08x}")
+}
+
+/// Gzip a serialized body. Level `fast` (1): the payload is JSON text that
+/// already compresses several-fold at the lowest level, and this sits on the
+/// per-batch send path where CPU spent compressing delays the batch.
+fn gzip(bytes: &[u8]) -> Vec<u8> {
+    let mut encoder = GzEncoder::new(Vec::with_capacity(bytes.len() / 4), Compression::fast());
+    encoder
+        .write_all(bytes)
+        .expect("writing to a Vec cannot fail");
+    encoder
+        .finish()
+        .expect("finishing a Vec-backed gzip stream cannot fail")
 }
 
 fn retry_backoff(attempt: u32, busy: bool) -> Duration {

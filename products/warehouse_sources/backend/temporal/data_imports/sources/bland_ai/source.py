@@ -34,6 +34,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class BlandAISource(ResumableSource[BlandAISourceConfig, BlandAIResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://docs.bland.ai"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -46,7 +47,6 @@ class BlandAISource(ResumableSource[BlandAISourceConfig, BlandAIResumeConfig]):
             category=DataWarehouseSourceCategory.COMMUNICATION,
             label="Bland AI",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption=(
                 "Enter your Bland AI API key to sync your AI phone calls, transcripts, and "
                 "conversational pathways into the PostHog Data warehouse. Find your key in the "

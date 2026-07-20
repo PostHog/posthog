@@ -37,6 +37,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class K6CloudSource(ResumableSource[K6CloudSourceConfig, K6CloudResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v6",)
+    default_version = "v6"
+    api_docs_url = "https://grafana.com/docs/grafana-cloud/testing/k6/reference/cloud-rest-api/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -82,7 +85,6 @@ Create a Personal API token (or use a Grafana Stack API token) and find your sta
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

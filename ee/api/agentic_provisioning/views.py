@@ -727,9 +727,29 @@ def _handle_new_user(
         org_analytics_metadata=organization.get_analytics_metadata(),
     )
 
+    # Optional drop-flow wizard block: link the GitHub grant to the bootstrap team and
+    # enqueue a cloud wizard run in the same call. A wizard failure never fails the
+    # request — the account exists, so the partner gets the account plus a structured
+    # wizard.error and retries via the granular resource actions. Partners that don't
+    # send a wizard block are unaffected (no wizard key, unchanged email behavior).
+    # Grants are region-local, so this request must hit the region that minted the grant.
+    wizard_config = configuration.get("wizard")
+    wizard_payload: dict[str, Any] | None = None
+    if isinstance(wizard_config, dict) and partner is not None:
+        wizard_payload = _process_wizard_block(partner=partner, user=user, team=team, wizard_config=wizard_config)
+
+    # Queued after the wizard block so the "we're setting up your repo" email only
+    # sends once the run actually exists; the email still goes out (without the
+    # repository paragraph) when the wizard block failed, since the account is real.
     try:
         reset_token = password_reset_token_generator.make_token(user)
-        send_provisioning_welcome.delay(user.id, reset_token, partner_label)
+        wizard_repository: str | None = None
+        if wizard_payload is not None and "error" not in wizard_payload and isinstance(wizard_config, dict):
+            wizard_repository = str(wizard_config.get("repository"))
+        if wizard_repository:
+            send_provisioning_welcome.delay(user.id, reset_token, partner_label, repository=wizard_repository)
+        else:
+            send_provisioning_welcome.delay(user.id, reset_token, partner_label)
     except Exception:
         capture_exception(additional_properties={"user_id": user.id, "step": "provisioning_welcome_email"})
 
@@ -752,7 +772,59 @@ def _handle_new_user(
         timeout=AUTH_CODE_TTL_SECONDS,
     )
 
-    return Response({"id": request_id, "type": "oauth", "oauth": {"code": code}})
+    response_body: dict[str, Any] = {"id": request_id, "type": "oauth", "oauth": {"code": code}}
+    if wizard_payload is not None:
+        response_body["wizard"] = wizard_payload
+    return Response(response_body)
+
+
+def _process_wizard_block(*, partner: OAuthApplication, user: User, team: Team, wizard_config: dict) -> dict[str, Any]:
+    """Run the bundled drop flow for a freshly bootstrapped account: link the GitHub
+    grant to the team, then enqueue the cloud wizard run.
+
+    Never raises — returns either the run payload ({task_id, run_id, status}) or
+    {"error": {code, message}} for the partner to branch on and retry granularly.
+    """
+    try:
+        grant_id = wizard_config.get("grant_id")
+        installation_id = wizard_config.get("installation_id")
+        repository = wizard_config.get("repository")
+        if not grant_id or not installation_id or not repository:
+            return {
+                "error": {
+                    "code": "invalid_request",
+                    "message": "wizard requires grant_id, installation_id and repository",
+                }
+            }
+
+        error, _integration, _already_linked = _link_github_grant_to_team(
+            partner=partner,
+            user=user,
+            team=team,
+            grant_id=str(grant_id),
+            installation_id=str(installation_id),
+        )
+        if error is not None:
+            return {"error": error.data.get("error", {"code": "invalid_request", "message": "GitHub link failed"})}
+
+        error, run_payload = _create_wizard_run(
+            partner=partner,
+            user_id=user.id,
+            team=team,
+            repository=str(repository),
+            branch=str(wizard_config.get("branch") or "") or None,
+        )
+        if error is not None:
+            return {
+                "error": error.data.get(
+                    "error", {"code": "run_creation_failed", "message": "Failed to start the wizard run"}
+                )
+            }
+        assert run_payload is not None
+        return dict(run_payload)
+    except Exception:
+        capture_exception(additional_properties={"team_id": team.id, "step": "account_requests_wizard_block"})
+        return {"error": {"code": "run_creation_failed", "message": "Unexpected error starting the wizard run"}}
 
 
 def _build_authorize_url(confirmation_secret: str, scopes: list[str], region: str = "") -> str:
@@ -2109,7 +2181,10 @@ def _apply_provisioned_onboarding_flags(user: User, team: Team) -> None:
     """Keep the app from routing a partner-provisioned account into onboarding on first
     login. Only applied to unclaimed accounts (never logged in, no password set) so an
     existing user going through the consent path keeps their onboarding state."""
-    if user.last_login is not None or user.has_usable_password():
+    # Bootstrapped accounts store password="" (create_user skips set_password when the
+    # password is None), which Django counts as *usable* — treat it as no password.
+    has_password = bool(user.password) and user.has_usable_password()
+    if user.last_login is not None or has_password:
         return
     if user.onboarding_skipped_at is None:
         user.onboarding_skipped_at = timezone.now()
@@ -2316,6 +2391,24 @@ def _create_wizard_run(
         return error, None
     if error := _enforce_partner_rate_limit(partner, "wizard_runs"):
         return error, None
+
+    # Verifying the grant user owns the installation doesn't prove the installation can
+    # reach the requested repo — a valid grant for one installation could otherwise report
+    # wizard success for an owner/repo it can't operate on. Fail fast instead (after the
+    # rate limits, so this GitHub call can't be used as an unthrottled probe).
+    if GitHubIntegration.first_for_team_repository(team.id, repository, source="integration") is None:
+        _capture_provisioning_event(
+            "wizard_run", "error", partner=partner, error_code="github_integration_required", team_id=team.id
+        )
+        return (
+            error_response(
+                "github_integration_required",
+                "The team does not have a GitHub integration that can access this repository",
+                resource_id=str(team.id),
+                status=400,
+            ),
+            None,
+        )
 
     try:
         created = tasks_facade.create_wizard_cloud_run(

@@ -50,13 +50,33 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
   at `edit_report`, and a signal-channel custom scout keeps the scratchpad-only path). A
   pristine canonical scout never sees
   it — applying such a suggestion would mark the seeded row diverged and cut it off from
-  upstream sync; canonical-skill defects route upstream via the operational-friction
-  (`agent-feedback`) section instead.
+  upstream sync. Canonical scouts get the _canonical-improvement_ section instead
+  (`_CANONICAL_IMPROVEMENT`): skill-content gaps observed in the wild route upstream to the
+  PostHog team via the `agent-feedback` MCP tool with `feedback_type="scout"` plus structured
+  fields (`scout_skill_name`, `scout_skill_version`, `scout_category`) so fleet-wide feedback
+  aggregates per skill/version, deduped across runs via `reported:<skill-name>:<topic>`
+  scratchpad entries. The section's generalization rules are load-bearing privacy-wise — the
+  feedback leaves the customer's project, so it must carry the pattern, never the project's
+  data (no PII, values, URLs, numbers, or custom event/property names); tool/harness friction
+  still routes via the shared operational-friction section. A _report-channel_ custom scout's run identity also
+  carries a **skill authors** line (`LoadedSkill.authors`, rendered by `_skill_authors_line`):
+  creator + recent editors resolved server-side from the skill's version rows, which the
+  escalation guidance points `suggested_reviewers` at (creator first, via `scout-members-list`) —
+  without it a scout only sees its pinned version's `created_by`, i.e. the last editor,
+  and would route ownership to whoever most recently touched the skill. The line is gated on
+  the report channel: a signal-channel scout has no `suggested_reviewers` field, so member
+  names/emails (PII) must not reach its prompt.
 - `skill_loader.py`
   Resolves `signals-scout-*` skills from the team's `LLMSkill` rows. Defines
-  `SIGNALS_SCOUT_SKILL_PREFIX` and `LoadedSkill` (body + version + allowed_tools + origin), plus
+  `SIGNALS_SCOUT_SKILL_PREFIX` and `LoadedSkill` (body + version + allowed_tools + origin + authors), plus
   `REPORT_CHANNEL_TOOLS` / `skill_uses_report_channel` — the shared report-channel opt-in
   predicate the runner (scope posture) and prompt builder (persona fork) both resolve from.
+  `resolve_skill_authors` aggregates distinct non-null `created_by` across a skill's version rows
+  (creator = earliest first-authored, then editors by last-edit recency, capped), restricted to
+  `team.all_users_with_access()` so a revoked author's profile stops flowing into a privileged
+  prompt. Resolution is opt-in via `load_skill_for_run(..., include_authors=True)` — only the
+  runner's prompt-building path pays for it; the report-authorization gate in `views.py` loads
+  the skill per report write just to check `allowed_tools` and skips it.
 - `lazy_seed.py`
   Canonical skill sync. Reads `products/signals/skills/signals-scout-*/` from disk and
   reconciles them against the team's `LLMSkill` rows: creates missing rows, updates
@@ -125,8 +145,8 @@ ACTIVITY_SLACK_S`, the activity-level ceiling that gates the workflow's
   `SignalScoutRunViewSet`, `SignalScoutConfigViewSet`, `SignalScratchpadViewSet`,
   `SignalProjectProfileViewSet`, `SignalScoutMetadataViewSet`, `SignalScoutMembersViewSet`.
   Routed under `environment_signals_scout_*` basenames in `posthog/api/__init__.py`
-  and exposed as `signals-scout-*` MCP tools via `products/signals/mcp/tools.yaml`.
-  `SignalScoutMembersViewSet` (`signals-scout-members-list`) is the reviewer-routing roster:
+  and exposed as `scout-*` MCP tools via `products/signals/mcp/tools.yaml`.
+  `SignalScoutMembersViewSet` (`scout-members-list`) is the reviewer-routing roster:
   it returns the project's members (those with access to the team) with `user_uuid` / `email` /
   `github_login` so a report-channel scout can populate `suggested_reviewers` at cold start. The roster
   is member PII the scout needs to route, gated on the internal `signal_scout_internal` scope object

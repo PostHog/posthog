@@ -66,7 +66,6 @@ class TestChargifySource:
         assert config.label == "Chargify"
         assert config.category == DataWarehouseSourceCategory.PAYMENTS___BILLING
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/chargify"
         assert config.iconPath == "/static/services/chargify.png"
 

@@ -36,6 +36,9 @@ from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 class TestProductIntent(BaseTest):
     def setUp(self):
         super().setUp()
+        # Joining the org seeds the fixed default product set; these tests assert on
+        # product-intent-driven rows, so start from a clean slate.
+        UserProductList.objects.filter(user=self.user, team=self.team).delete()
         self.product_intent = ProductIntent.objects.create(team=self.team, product_type=ProductKey.DATA_WAREHOUSE)
 
     def test_str_representation(self):

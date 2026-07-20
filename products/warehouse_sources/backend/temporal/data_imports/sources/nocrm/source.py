@@ -37,6 +37,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class NoCRMSource(ResumableSource[NoCRMSourceConfig, NoCRMResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://www.nocrm.io/api"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -55,7 +58,6 @@ class NoCRMSource(ResumableSource[NoCRMSourceConfig, NoCRMResumeConfig]):
             category=DataWarehouseSourceCategory.CRM,
             label="noCRM.io",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your noCRM.io account subdomain and API key to automatically pull your noCRM.io data into the PostHog Data warehouse.
 
 Your subdomain is the first part of your noCRM.io URL — for `acme.nocrm.io`, enter `acme`.
