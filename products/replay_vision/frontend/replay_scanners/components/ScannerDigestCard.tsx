@@ -151,7 +151,15 @@ export function ScannerDigestCard({
                     </>
                 }
             />
-            <div className={expanded ? undefined : 'max-h-60 overflow-hidden'}>
+            {/* The mask's fixed offsets (vs percentages) keep short, unclipped digests fully opaque:
+                content under 12rem never reaches the fade band that softens the 15rem (max-h-60) cut. */}
+            <div
+                className={
+                    expanded
+                        ? undefined
+                        : 'max-h-60 overflow-hidden [mask-image:linear-gradient(to_bottom,black_12rem,transparent_15rem)]'
+                }
+            >
                 {/* LLM/replay-derived content: render non-PostHog images as links, not auto-fetched <img>s. */}
                 <LemonMarkdown className="text-sm" disableImages>
                     {latestRun.synthesized_markdown}

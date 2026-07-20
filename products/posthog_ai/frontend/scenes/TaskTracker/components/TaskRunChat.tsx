@@ -16,6 +16,7 @@ import { ComposerModelEffortPickers } from '../../../components/composer/Compose
 import { ComposerModePicker } from '../../../components/composer/ComposerModePicker'
 import { ComposerModeShortcut } from '../../../components/composer/ComposerModeShortcut'
 import { useDebouncedDraft } from '../../../components/composer/useDebouncedDraft'
+import { useForegroundStream } from '../../../hooks/useForegroundStream'
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
 
 export interface TaskRunChatProps {
@@ -76,6 +77,10 @@ function TaskRunChatContent({
     logicProps: RunInteractionLogicProps
     readOnly: boolean
 }): JSX.Element {
+    // This surface renders the approval card, so persist tools must prompt here — register as a
+    // foreground stream (same key resolution as `RunSurface.Root`). A read-only staff view omits the
+    // composer and could never answer a forced prompt, so it stays a background consumer.
+    useForegroundStream(readOnly ? null : (logicProps.streamKey ?? logicProps.runId))
     return (
         // `RunSurface.Root` and `runInteractionLogic` deliberately share the same stream key (`streamKey ?? runId`,
         // resolved inside each): the composer slot's gating must read the exact stream the thread renders. The

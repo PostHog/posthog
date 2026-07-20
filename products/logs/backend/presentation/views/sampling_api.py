@@ -21,71 +21,13 @@ from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.logs.backend.models import LogsExclusionRule
-
-# Keep aligned with `MAX_FILTER_GROUP_DEPTH` / `MAX_FILTER_GROUP_NODES` in
-# `nodejs/src/logs-ingestion/sampling/filter-group-match.ts` and
-# `compile-rules.ts`. Both depth and breadth are bounded so an adversarially
-# deep or wide filter_group cannot stack-overflow or CPU-burn the per-record
-# evaluator in the Node ingestion worker. The breadth cap is the more
-# realistic abuse vector — depth 1 with 10k sibling leaves passes the depth
-# check but costs O(leaves) per log record.
-MAX_FILTER_GROUP_DEPTH = 16
-MAX_FILTER_GROUP_NODES = 256
-
-
-def _filter_group_depth(node: Any, depth: int = 0) -> int:
-    # Short-circuit once we've crossed the cap — we don't need the true depth,
-    # just that it exceeds MAX_FILTER_GROUP_DEPTH. Prevents Python RecursionError
-    # on adversarial payloads that pass pydantic-core (Rust) validation, which
-    # has a more generous recursion limit than ours.
-    if depth > MAX_FILTER_GROUP_DEPTH:
-        return depth
-    if not isinstance(node, dict):
-        return depth
-    values = node.get("values")
-    if not isinstance(values, list) or node.get("type") not in ("AND", "OR"):
-        return depth
-    max_child = depth
-    for child in values:
-        d = _filter_group_depth(child, depth + 1)
-        if d > max_child:
-            max_child = d
-    return max_child
-
-
-def _filter_group_node_count(node: Any) -> int:
-    """Total node count across the filter group (groups + leaves). Short-circuits
-    once the cap is exceeded so adversarial payloads don't get fully traversed."""
-    if not isinstance(node, dict):
-        return 1
-    total = 1
-    values = node.get("values")
-    if not isinstance(values, list) or node.get("type") not in ("AND", "OR"):
-        return total
-    for child in values:
-        total += _filter_group_node_count(child)
-        if total > MAX_FILTER_GROUP_NODES:
-            return total
-    return total
-
-
-def _filter_group_has_empty_group(node: Any) -> bool:
-    """True when any group node in the tree has an empty `values` list. The worker's
-    matchFilterGroup treats empty groups as no-match (dropping is irreversible, so
-    vacuous filters fail closed), which makes a rule carrying one silently inert —
-    worst on rate_limit, where `{"type": "AND", "values": []}` reads like "cap
-    everything" but caps nothing.
-
-    Recurses without a depth short-circuit of its own — callers must run the
-    MAX_FILTER_GROUP_DEPTH check first so the tree is already bounded."""
-    if not isinstance(node, dict):
-        return False
-    values = node.get("values")
-    if not isinstance(values, list) or node.get("type") not in ("AND", "OR"):
-        return False
-    if len(values) == 0:
-        return True
-    return any(_filter_group_has_empty_group(child) for child in values)
+from products.logs.backend.presentation.filter_group_validation import (
+    MAX_FILTER_GROUP_DEPTH,
+    MAX_FILTER_GROUP_NODES,
+    filter_group_depth,
+    filter_group_has_empty_group,
+    filter_group_node_count,
+)
 
 
 class LogsSamplingRuleSerializer(serializers.ModelSerializer):
@@ -268,7 +210,7 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
         # stack-overflow + CPU footgun on every log line. Matches
         # `MAX_FILTER_GROUP_DEPTH` in
         # `nodejs/src/logs-ingestion/sampling/filter-group-match.ts`.
-        if _filter_group_depth(filter_group) > MAX_FILTER_GROUP_DEPTH:
+        if filter_group_depth(filter_group) > MAX_FILTER_GROUP_DEPTH:
             raise ValidationError(
                 {"config": {"filter_group": f"filter_group is nested too deeply (max depth {MAX_FILTER_GROUP_DEPTH})."}}
             )
@@ -277,7 +219,7 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
         # more realistic abuse vector: it passes the depth check but
         # costs O(leaves) on every log line through the ingestion
         # worker. Matches `MAX_FILTER_GROUP_NODES` in `compile-rules.ts`.
-        if _filter_group_node_count(filter_group) > MAX_FILTER_GROUP_NODES:
+        if filter_group_node_count(filter_group) > MAX_FILTER_GROUP_NODES:
             raise ValidationError(
                 {
                     "config": {
@@ -286,10 +228,10 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
                 }
             )
         # Well-formed but empty groups pass Pydantic, yet the worker treats them as
-        # no-match — the rule would be silently inert (see _filter_group_has_empty_group).
+        # no-match — the rule would be silently inert (see filter_group_has_empty_group).
         # Ordering constraint: this walk recurses without its own depth short-circuit,
         # so it must run only after the depth check above has bounded the tree.
-        if reject_vacuous and _filter_group_has_empty_group(filter_group):
+        if reject_vacuous and filter_group_has_empty_group(filter_group):
             raise ValidationError(
                 {
                     "config": {

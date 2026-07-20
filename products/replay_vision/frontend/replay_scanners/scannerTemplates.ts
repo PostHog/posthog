@@ -140,6 +140,7 @@ export function newScanner(templateKey?: string | null): ReplayScanner {
         estimated_monthly_credits: null,
         // Seed price for the unsaved scanner; the server-computed value takes over after the first save.
         credits_per_observation: OBSERVATION_CREDITS_BY_MODEL[DEFAULT_MODEL],
+        credits_this_month: 0,
     } as const
 
     const template = findScannerTemplate(templateKey ?? undefined)

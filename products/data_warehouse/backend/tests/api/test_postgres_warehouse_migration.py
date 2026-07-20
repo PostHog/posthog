@@ -17,6 +17,16 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseTable,
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 
 
+def _stub_source_security_gate(source_mock) -> None:
+    """The update path asks the source whether an edit introduces a new connection host or leaves
+    row-backed credentials preserved; a bare MagicMock returns truthy for both, which would wrongly
+    trip the credential-reentry gate. Stub them to their real (falsy) defaults."""
+    source_mock.connection_host_fields = []
+    source_mock.server_managed_job_input_fields.return_value = []
+    source_mock.job_inputs_add_connection_host.return_value = False
+    source_mock.has_preserved_row_backed_credentials.return_value = False
+
+
 class TestPostgresWarehouseMigration(APIBaseTest):
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_qualifies_legacy_warehouse_rows_in_place(self, mock_get_source):
@@ -319,6 +329,7 @@ class TestPostgresWarehouseMigration(APIBaseTest):
         source_mock.validate_config.return_value = (True, [])
         source_mock.validate_credentials_for_access_method.return_value = (True, None)
         source_mock.validate_credentials.return_value = (True, None)
+        _stub_source_security_gate(source_mock)
 
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
@@ -403,6 +414,7 @@ class TestPostgresWarehouseMigration(APIBaseTest):
         source_mock.validate_config.return_value = (True, [])
         source_mock.validate_credentials_for_access_method.return_value = (True, None)
         source_mock.validate_credentials.return_value = (True, None)
+        _stub_source_security_gate(source_mock)
 
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
