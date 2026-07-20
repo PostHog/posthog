@@ -42,7 +42,7 @@ _dispatch_executor = ThreadPoolExecutor(
 _dispatch_slots = threading.BoundedSemaphore(_DISPATCH_MAX_PENDING)
 
 
-def _domain_from_email(email: str) -> str | None:
+def domain_from_email(email: str) -> str | None:
     _, address = parseaddr(email or "")
     if "@" not in address:
         return None
@@ -61,7 +61,7 @@ def start_signup_enrichment_workflow(*, organization_id: str, distinct_id: str |
     if get_instance_region() != "US":
         return
 
-    domain = _domain_from_email(email)
+    domain = domain_from_email(email)
     if not domain:
         return
 

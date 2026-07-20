@@ -10,11 +10,12 @@ import time
 import datetime as dt
 from typing import Any
 
-from django.core.management.base import BaseCommand, CommandError
+from django.core.management.base import BaseCommand, CommandError, CommandParser
 
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.temporal.signup_enrichment.trigger import _domain_from_email, dispatch_signup_enrichment
+from posthog.temporal.signup_enrichment.trigger import dispatch_signup_enrichment, domain_from_email
 from posthog.temporal.signup_enrichment.workflow import SignupEnrichmentInputs
+from posthog.utils import get_instance_region
 
 
 class Command(BaseCommand):
@@ -23,7 +24,7 @@ class Command(BaseCommand):
         "(work email) but have no archived provider fetch, i.e. enrichment never completed."
     )
 
-    def add_arguments(self, parser: Any) -> None:
+    def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--after", required=True, help="ISO 8601 datetime (UTC if naive): orgs created at or after")
         parser.add_argument("--before", required=True, help="ISO 8601 datetime (UTC if naive): orgs created before")
         parser.add_argument("--limit", type=int, default=None, help="Dispatch at most this many orgs")
@@ -31,10 +32,15 @@ class Command(BaseCommand):
         parser.add_argument("--dry-run", action="store_true", help="List the orgs without dispatching")
 
     def handle(self, *args: Any, **options: Any) -> None:
+        # Enrichment is US-only for v0 (mirrors the signup-path region gate).
+        if get_instance_region() != "US":
+            raise CommandError("Signup enrichment is US-only; refusing to dispatch in this region")
+
         after = self._parse_datetime(options["after"])
         before = self._parse_datetime(options["before"])
         if after >= before:
             raise CommandError("--after must be earlier than --before")
+        limit: int | None = options["limit"]
 
         orgs = (
             Organization.objects.filter(
@@ -44,12 +50,13 @@ class Command(BaseCommand):
             )
             .exclude(enrichment_fetches__isnull=False)
             .order_by("created_at")
+            .iterator()
         )
-        if options["limit"]:
-            orgs = orgs[: options["limit"]]
 
         dispatched = skipped = 0
         for org in orgs:
+            if limit is not None and dispatched >= limit:
+                break
             membership = (
                 OrganizationMembership.objects.filter(organization=org)
                 .select_related("user")
@@ -57,7 +64,7 @@ class Command(BaseCommand):
                 .first()
             )
             user = membership.user if membership else None
-            domain = _domain_from_email(user.email) if user else None
+            domain = domain_from_email(user.email) if user else None
             if user is None or not user.distinct_id or not domain:
                 skipped += 1
                 self.stdout.write(f"skip {org.id} ({org.created_at:%Y-%m-%d %H:%M}) (no usable signup member)")

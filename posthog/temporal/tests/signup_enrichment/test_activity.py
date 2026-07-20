@@ -60,11 +60,7 @@ async def test_connection_cleanup_runs_on_the_orm_thread():
     # Django connections are thread-local and the ORM work runs on asgiref's shared sync-executor
     # thread. Cleanup on any other thread is a no-op, and a dead connection in the executor thread
     # then fails every activity on the worker until the pod is replaced.
-    cleanup_thread = None
-
-    def record_cleanup_thread():
-        nonlocal cleanup_thread
-        cleanup_thread = threading.get_ident()
+    cleanup_threads = []
 
     pha_client, (get_client, enrich, det, snapshot) = _patches(enrich_return={"return_value": None})
     with (
@@ -72,13 +68,17 @@ async def test_connection_cleanup_runs_on_the_orm_thread():
         enrich,
         det,
         snapshot,
-        patch(f"{_MODULE}.close_old_connections", side_effect=record_cleanup_thread),
+        patch(
+            "posthog.temporal.common.utils._close_initialized_connections",
+            side_effect=lambda: cleanup_threads.append(threading.get_ident()),
+        ),
+        patch("posthog.temporal.common.utils.settings.TEST", False),
     ):
         await ActivityEnvironment().run(enrich_signup_organization_activity, _INPUTS)
 
     orm_thread = await sync_to_async(threading.get_ident)()
-    assert cleanup_thread == orm_thread
-    assert cleanup_thread != threading.get_ident()
+    assert cleanup_threads and all(t == orm_thread for t in cleanup_threads)
+    assert orm_thread != threading.get_ident()
 
 
 @pytest.mark.parametrize("attempt,expect_signal", [(1, False), (MAX_ENRICH_ATTEMPTS, True)])
