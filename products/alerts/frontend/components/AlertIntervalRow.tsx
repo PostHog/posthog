@@ -110,7 +110,7 @@ export function AlertIntervalRow({
         alertForm.calculation_interval === AlertCalculationInterval.REAL_TIME ? 'Run alert' : 'Run alert every'
 
     return (
-        <div className="space-y-2">
+        <div>
             <AlertDefinitionRow label={scheduleLabel}>
                 <LemonField name="calculation_interval">
                     {({ value, onChange }) => (
@@ -150,7 +150,7 @@ export function AlertIntervalRow({
                 </LemonField>
                 {evaluatedWindow}
             </AlertDefinitionRow>
-            {nextEvaluation}
+            {nextEvaluation ? <div className="mt-1">{nextEvaluation}</div> : null}
         </div>
     )
 }
