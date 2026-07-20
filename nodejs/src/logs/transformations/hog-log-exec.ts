@@ -160,6 +160,28 @@ function coerceStringMap(value: unknown): Record<string, string> | null {
  * Returns 'invalid' (record untouched) when the result is not record-shaped — the
  * caller treats that as a failure and fails open.
  */
+function redactSensitiveStrings(value: unknown, sensitiveValues: string[] | undefined): unknown {
+    if (!sensitiveValues?.length) {
+        return value
+    }
+    if (typeof value === 'string') {
+        let out = value
+        for (const sensitive of sensitiveValues) {
+            out = out.replaceAll(sensitive, '***REDACTED***')
+        }
+        return out
+    }
+    if (Array.isArray(value)) {
+        return value.map((item) => redactSensitiveStrings(item, sensitiveValues))
+    }
+    if (value && typeof value === 'object') {
+        return Object.fromEntries(
+            Object.entries(value).map(([key, item]) => [key, redactSensitiveStrings(item, sensitiveValues)])
+        )
+    }
+    return value
+}
+
 export function applyTransformResult(record: LogRecord, execResult: unknown): 'mutated' | 'dropped' | 'invalid' {
     if (execResult === null || execResult === undefined || execResult === false) {
         return 'dropped'
@@ -321,7 +343,10 @@ export function executeLogTransformation(
         return { status: 'failed', durationMs, logs, error: 'VM did not finish execution' }
     }
 
-    const converted = convertHogToJS(execResult.result)
+    // Redact secrets from the returned record before it's applied: a transformation
+    // can copy a decrypted input into a writable field, and Logs readers must not be
+    // able to recover encrypted input values that way.
+    const converted = redactSensitiveStrings(convertHogToJS(execResult.result), options.sensitiveValues)
     const applied = applyTransformResult(record, converted)
 
     if (applied === 'invalid') {

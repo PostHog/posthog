@@ -400,6 +400,30 @@ describe('LogsTransformerService', () => {
         expect(printed?.message).not.toContain('super-secret-key')
     })
 
+    it('redacts nested encrypted input values, not just top-level strings', async () => {
+        // Secret inputs are schema-validated as any JSON value; a string buried in a
+        // dict must be redacted like a top-level string secret.
+        setFunctions([
+            await createFunction(
+                `
+                print('token is', inputs.credentials.token)
+                throw Error('boom')
+            `,
+                {
+                    encrypted_inputs: { credentials: { value: { token: 'nested-secret-token' }, order: 0 } },
+                } as any
+            ),
+        ])
+        const records = [createRecord()]
+
+        await service.transformRecords(TEAM_ID, records)
+
+        const queuedLogs = monitoring.queueLogs.mock.calls.flatMap(([logs]) => logs)
+        const printed = queuedLogs.find((entry) => entry.message.includes('token is'))
+        expect(printed?.message).toContain('***REDACTED***')
+        expect(printed?.message).not.toContain('nested-secret-token')
+    })
+
     it('redacts encrypted input values from the thrown error message', async () => {
         // print() output is sanitized at capture, but the thrown error string is
         // queued as the error-level log entry — throwing a secret must not let it

@@ -20,6 +20,29 @@ import {
     resolveLogTransformationInputs,
 } from './hog-log-exec'
 
+const MAX_SENSITIVE_VALUE_DEPTH = 6
+
+function collectStringLeaves(value: unknown, out: string[], depth = 0): void {
+    if (depth > MAX_SENSITIVE_VALUE_DEPTH) {
+        return
+    }
+    if (typeof value === 'string' && value.length > 0) {
+        out.push(value)
+        return
+    }
+    if (Array.isArray(value)) {
+        for (const item of value) {
+            collectStringLeaves(item, out, depth + 1)
+        }
+        return
+    }
+    if (value && typeof value === 'object') {
+        for (const item of Object.values(value)) {
+            collectStringLeaves(item, out, depth + 1)
+        }
+    }
+}
+
 export const transformationRecordsCounter = new Counter({
     name: 'logs_ingestion_transformations_records_total',
     help: 'Per-record log transformation outcomes',
@@ -417,9 +440,12 @@ export class LogsTransformerService {
     private getSensitiveValues(fn: HogFunctionType, cache: Map<string, string[]>): string[] {
         let values = cache.get(fn.id)
         if (!values) {
-            values = Object.values(fn.encrypted_inputs ?? {})
-                .map((input) => input?.value)
-                .filter((value): value is string => typeof value === 'string' && value.length > 0)
+            // Secret inputs are schema-validated as any JSON value, so redaction must
+            // cover string leaves nested in dicts/arrays, not just top-level strings.
+            values = []
+            for (const input of Object.values(fn.encrypted_inputs ?? {})) {
+                collectStringLeaves(input?.value, values)
+            }
             cache.set(fn.id, values)
         }
         return values
