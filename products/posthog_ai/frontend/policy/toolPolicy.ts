@@ -26,8 +26,36 @@ export function isFullAutoMode(mode: string | null | undefined): boolean {
 /** A sub-tool is destructive when one of these verbs appears as a whole `-`-bounded segment. */
 const POSTHOG_DESTRUCTIVE_SUBTOOL_RE = /(^|-)(partial-update|update|patch|delete|destroy)(-|$)/i
 
+/**
+ * Destructive-annotated sub-tools whose names carry no destructive verb segment (publish, ship,
+ * merge, archive, …). Mirrors `POSTHOG_EXEC_DESTRUCTIVE_SUB_TOOLS` in
+ * `products/tasks/backend/constants.py`, which a backend test keeps complete against the
+ * `annotations.destructive: true` tools in `products/*\/mcp/*.yaml` — update both together.
+ */
+const POSTHOG_DESTRUCTIVE_SUB_TOOLS = new Set([
+    'error-tracking-bypass-rules-create',
+    'error-tracking-issues-merge-create',
+    'error-tracking-issues-split-create',
+    'error-tracking-suppression-rules-create',
+    'experiment-ship-variant',
+    'external-data-schemas-resync',
+    'external-data-sources-repair-cdc-create',
+    'heatmaps-saved-regenerate',
+    'inbox-reports-bulk-set-state',
+    'inbox-reports-set-state',
+    'llma-prompt-label-set',
+    'scout-scratchpad-forget',
+    'signals-scout-scratchpad-forget',
+    'skill-archive',
+    'user-interview-topics-remove-interviewee',
+    'visual-review-runs-finalize-create',
+    'workflows-discard-draft',
+    'workflows-publish',
+    'workflows-test-run',
+])
+
 export function isPostHogDestructiveSubTool(subTool: string): boolean {
-    return POSTHOG_DESTRUCTIVE_SUBTOOL_RE.test(subTool)
+    return POSTHOG_DESTRUCTIVE_SUBTOOL_RE.test(subTool) || POSTHOG_DESTRUCTIVE_SUB_TOOLS.has(subTool.toLowerCase())
 }
 
 export type PermissionDecision = 'auto_allow' | 'prompt'

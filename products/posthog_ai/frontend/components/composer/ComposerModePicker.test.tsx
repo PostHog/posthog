@@ -19,7 +19,7 @@ describe('ComposerModePicker', () => {
 
         expect(
             screen.getByText(
-                'Accepts file edits and shell commands automatically. Asks before PostHog tools that change or publish live data.'
+                'Accepts file edits and shell commands automatically. Always asks before PostHog tools that change live data. Creating or publishing content asks only while you watch the run.'
             )
         ).toBeInTheDocument()
         expect(

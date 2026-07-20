@@ -343,10 +343,10 @@ export function PermissionInput({ streamKey, request }: PermissionInputProps): J
     const mappedOptions = defaultOptions.length > 0 ? defaultOptions : mapPermissionOptions(request.options, true)
 
     const display = getPermissionDisplay(request)
-    const requestBody = request.description ?? request.title
-    // The description often just repeats the tool title — use it as the headline only when it says
-    // more; otherwise the tool title is the headline and the evidence block skips its label.
-    const headlineBody = requestBody && requestBody !== display.title ? requestBody : undefined
+    // Only a genuine wire-level description that says more than the tool title becomes the
+    // headline; a title-only request keeps the derived tool title as its headline (and the
+    // evidence block skips its label) so the tool identity is stated exactly once.
+    const headlineBody = request.description && request.description !== display.title ? request.description : undefined
 
     return (
         <div className="flex flex-col gap-2.5 p-3">

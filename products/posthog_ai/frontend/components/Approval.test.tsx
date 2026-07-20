@@ -95,6 +95,16 @@ describe('Sandbox approval input area', () => {
             expect(screen.queryByText('Approval required')).not.toBeInTheDocument()
         })
 
+        it('states the tool identity exactly once when the request has a title but no description', () => {
+            render(<PermissionInput streamKey="conv-1" request={makeRequest({ description: undefined })} />)
+
+            // getByText throws on multiple matches, so this also asserts the identity isn't duplicated
+            // between the headline and the evidence label.
+            expect(screen.getByText('posthog - insight-create (MCP)')).toBeInTheDocument()
+            // The raw adapter title must not ride in as a second statement of the same identity.
+            expect(screen.queryByText('Create insight')).not.toBeInTheDocument()
+        })
+
         it('renders the unwrapped PostHog exec payload like PostHog Code', () => {
             render(
                 <PermissionInput
