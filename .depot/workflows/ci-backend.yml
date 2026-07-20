@@ -35,6 +35,9 @@
 #   changes confined to it (script deps, the reporter's availability guard) need no depot bump.
 # - OpenAPI types: the check-openapi-types job is folded into check-migrations as a
 #   check-only step (drift still fails the run); only its auto-commit side effect is dropped
+# - events_json variants: the shadow never doubles the matrix (no RUN_NEW_EVENTS_SCHEMA
+#   plumbing), so canonical changes confined to that gating — e.g. skipping the
+#   events_json suite on master — need no depot bump
 # - actions/cache reads/writes route to Depot Cache, not GitHub Actions Cache,
 #   so shared keys with canonical (schema, uv, pnpm) do not collide
 # - Three data-modeling tests deselected (Depot-only MinIO 403 quarantine)
