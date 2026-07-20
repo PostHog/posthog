@@ -3,8 +3,19 @@ import { combineUrl, router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import * as judgePng from '@posthog/brand/hoggies/png/judge'
-import { IconArrowLeft, IconCode, IconEye, IconPlus, IconTarget, IconThumbsUp, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
+import {
+    IconArrowLeft,
+    IconCode,
+    IconEmoji,
+    IconEye,
+    IconPlus,
+    IconSearch,
+    IconTarget,
+    IconThumbsUp,
+    IconWarning,
+    IconWrench,
+} from '@posthog/icons'
+import { LemonButton, LemonTag, LemonTagType, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -35,6 +46,12 @@ function getTemplateIcon(icon: EvaluationTemplate['icon']): JSX.Element {
             return <IconWarning className={iconClass} />
         case 'code':
             return <IconCode className={iconClass} />
+        case 'search':
+            return <IconSearch className={iconClass} />
+        case 'wrench':
+            return <IconWrench className={iconClass} />
+        case 'emoji':
+            return <IconEmoji className={iconClass} />
         default: {
             const exhaustiveCheck: never = icon
             return exhaustiveCheck
@@ -42,8 +59,27 @@ function getTemplateIcon(icon: EvaluationTemplate['icon']): JSX.Element {
     }
 }
 
+function getTemplateTypeTag(evaluationType: EvaluationTemplate['evaluation_type']): {
+    label: string
+    type: LemonTagType
+} {
+    switch (evaluationType) {
+        case 'hog':
+            return { label: 'Hog', type: 'option' }
+        case 'sentiment':
+            return { label: 'Sentiment', type: 'success' }
+        case 'llm_judge':
+            return { label: 'LLM judge', type: 'caution' }
+        default: {
+            const exhaustiveCheck: never = evaluationType
+            return exhaustiveCheck
+        }
+    }
+}
+
 function TemplateRow({ template }: TemplateRowProps): JSX.Element {
     const isBlank = template === 'blank'
+    const typeTag = isBlank ? null : getTemplateTypeTag(template.evaluation_type)
     const { searchParams } = useValues(router)
 
     const handleClick = (): void => {
@@ -76,9 +112,9 @@ function TemplateRow({ template }: TemplateRowProps): JSX.Element {
                     <h3 className="text-base font-semibold text-default mb-0">
                         {isBlank ? 'Create from scratch' : template.name}
                     </h3>
-                    {!isBlank && (
-                        <LemonTag type={template.evaluation_type === 'hog' ? 'option' : 'caution'} size="small">
-                            {template.evaluation_type === 'hog' ? 'Hog' : 'LLM judge'}
+                    {typeTag && (
+                        <LemonTag type={typeTag.type} size="small">
+                            {typeTag.label}
                         </LemonTag>
                     )}
                 </div>

@@ -225,7 +225,12 @@ export function AIObservabilityEvaluation(): JSX.Element {
         if (hasUnsavedChanges) {
             resetEvaluation()
         }
-        push(combineUrl(urls.aiObservabilityEvaluations(), searchParams).url)
+        // From the create form, Back returns to the template picker; editing an existing
+        // evaluation returns to the evaluations list.
+        const destination = isNewEvaluation
+            ? urls.aiObservabilityEvaluationTemplates()
+            : urls.aiObservabilityEvaluations()
+        push(combineUrl(destination, searchParams).url)
     }
 
     const hogEvaluationMethodOptions: { value: EvaluationType; label: string }[] = [

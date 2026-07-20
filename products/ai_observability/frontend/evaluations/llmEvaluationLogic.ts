@@ -817,7 +817,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     updated_at: new Date().toISOString(),
                 }
                 const newEvaluation: EvaluationConfig =
-                    props.evaluationType === 'sentiment'
+                    props.evaluationType === 'sentiment' || template?.evaluation_type === 'sentiment'
                         ? {
                               ...baseFields,
                               evaluation_type: 'sentiment' as const,
@@ -1174,6 +1174,17 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     key: 'AIObservabilityEvaluations',
                     iconType: 'llm_evaluations',
                 },
+                // A new evaluation is created from the template picker, so make that its parent.
+                ...(!evaluation?.id
+                    ? [
+                          {
+                              name: 'Templates',
+                              path: combineUrl(urls.aiObservabilityEvaluationTemplates(), searchParams).url,
+                              key: 'AIObservabilityEvaluationTemplates',
+                              iconType: 'llm_evaluations' as const,
+                          },
+                      ]
+                    : []),
                 {
                     name: evaluation?.name || 'New Evaluation',
                     key: 'AIObservabilityEvaluationEdit',
