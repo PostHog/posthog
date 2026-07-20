@@ -1131,10 +1131,12 @@ class TestWebStatsPathsSessionIdSetInsert(ClickhouseTestMixin, APIBaseTest):
                 modifiers = create_default_modifiers_for_team(self.team)
                 modifiers.sessionIdPushdown = pushdown
                 context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
+                inner: ast.Expr
                 if isinstance(template, str):
                     inner = parse_select(template, placeholders={**placeholders, **windows})
                 else:
                     inner = replace_placeholders(template, dict(windows))
+                assert isinstance(inner, ast.SelectQuery)
                 sql, _ = prepare_and_print_ast(inner, context=context, dialect="clickhouse")
                 merged = f"""
                     SELECT formatDateTime(time_window_start, '%%Y-%%m-%%d %%H:%%i:%%S') AS window_key,
