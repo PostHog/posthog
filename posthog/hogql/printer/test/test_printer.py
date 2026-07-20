@@ -629,6 +629,14 @@ class TestPrinter(BaseTest):
         self.assertEqual(self._expr("1 == null"), "0")
         self.assertEqual(self._expr("1 != null"), "1")
 
+    def test_constant_folding_with_incomparable_types_does_not_crash(self):
+        # Comparing a string constant to an int constant can't be folded in Python
+        # (raises TypeError); the printer must fall through to emitting SQL instead of crashing.
+        self.assertEqual(self._expr("'a' < 1"), "less(%(hogql_val_0)s, 1)")
+        self.assertEqual(self._expr("'a' > 1"), "greater(%(hogql_val_0)s, 1)")
+        self.assertEqual(self._expr("'a' <= 1"), "lessOrEquals(%(hogql_val_0)s, 1)")
+        self.assertEqual(self._expr("'a' >= 1"), "greaterOrEquals(%(hogql_val_0)s, 1)")
+
     def test_fields_and_properties(self):
         self.assertEqual(
             self._expr("properties.bla"),
