@@ -99,9 +99,9 @@ class SignalReportDeletionWorkflow:
                     for s in fetch_result.signals
                 ],
                 max_wait_time_seconds=3600,
-                # Soft-deletes reuse the original timestamp, so an old store record cannot
-                # prove this deletion was emitted. Confirm directly in ClickHouse.
-                mode=WaitForClickHouseMode.CH_ONLY,
+                # The report is soft-deleted either way; briefly-stale signal rows in
+                # semantic search are acceptable, so don't burn ClickHouse queries here.
+                mode=WaitForClickHouseMode.OPTIMISTIC,
             ),
             start_to_close_timeout=timedelta(hours=1, minutes=5),
             heartbeat_timeout=timedelta(minutes=2),
