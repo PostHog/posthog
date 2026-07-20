@@ -65,6 +65,11 @@ function withProductIntentsFrom(
     if (!currentTeam || !response) {
         return response ?? currentTeam
     }
+    if (response.id !== currentTeam.id) {
+        // The response is for a different team than the one now active (the team switched while
+        // the request was in flight) — don't graft the old team's intents onto the current one.
+        return currentTeam
+    }
     return { ...currentTeam, product_intents: response.product_intents }
 }
 

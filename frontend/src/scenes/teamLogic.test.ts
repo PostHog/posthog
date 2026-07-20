@@ -112,6 +112,30 @@ describe('teamLogic', () => {
                 { product_type: 'session_replay' },
             ])
         })
+
+        it('ignores a response for a different team (team switched mid-flight)', async () => {
+            await expectLogic(logic).toDispatchActions(['loadCurrentTeamSuccess'])
+            useMocks({
+                patch: {
+                    '/api/environments/:id/complete_product_onboarding': () => [
+                        200,
+                        {
+                            ...MOCK_DEFAULT_TEAM,
+                            id: MOCK_TEAM_ID + 1,
+                            product_intents: [{ product_type: 'surveys' }],
+                        },
+                    ],
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.recordProductIntentOnboardingComplete({ product_type: ProductKey.SURVEYS })
+            }).toDispatchActions(['recordProductIntentOnboardingCompleteSuccess'])
+
+            // The stale team's intents must not be grafted onto the team that is now active.
+            expect(logic.values.currentTeam?.id).toBe(MOCK_TEAM_ID)
+            expect((logic.values.currentTeam as TeamType)?.product_intents).toBeUndefined()
+        })
     })
 
     describe('before team is loaded', () => {
