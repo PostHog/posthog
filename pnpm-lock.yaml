@@ -2860,6 +2860,9 @@ importers:
       '@posthog/lemon-ui':
         specifier: '*'
         version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(react@18.3.1)))(kea@4.0.0-pre.6(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@posthog/quill-primitives':
+        specifier: workspace:*
+        version: link:../../packages/quill/packages/primitives
       '@tiptap/core':
         specifier: 3.20.6
         version: 3.20.6(@tiptap/pm@3.20.6)

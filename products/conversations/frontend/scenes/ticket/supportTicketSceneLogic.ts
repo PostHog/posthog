@@ -23,6 +23,7 @@ import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { isUUIDLike } from 'lib/utils/guards'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
 import api from '~/lib/api'
@@ -39,6 +40,7 @@ import {
 } from 'products/business_knowledge/frontend/generated/api'
 
 import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types'
+import type { UserType } from '../../../../../frontend/src/types'
 import type { TicketAssignee } from '../../components/Assignee'
 import { supportTicketCounterLogic } from '../../supportTicketCounterLogic'
 import type {
@@ -166,6 +168,7 @@ export function getEmailReplyBlockedReason(
 export interface supportTicketSceneLogicValues {
     draftModeDefault: boolean // conversationsDraftModeLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
+    user: UserType | null // userLogic
     assignee: TicketAssignee
     breadcrumbs: Breadcrumb[]
     chatMessages: ChatMessage[]
@@ -294,12 +297,14 @@ export interface supportTicketSceneLogicActions {
         content: string,
         richContent: Record<string, unknown> | null,
         isPrivate: boolean,
-        onSuccess?: () => void
+        onSuccess?: () => void,
+        statusAfterSend?: TicketStatus
     ) => {
         content: string
         isPrivate: boolean
         onSuccess: (() => void) | undefined
         richContent: Record<string, unknown> | null
+        statusAfterSend: TicketStatus | undefined
     }
     setAssignee: (assignee: TicketAssignee) => {
         assignee: TicketAssignee
@@ -407,7 +412,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
     key((props) => props.id),
     connect(() => ({
         actions: [supportTicketsSceneLogic, ['loadTickets']],
-        values: [teamLogic, ['currentTeam'], conversationsDraftModeLogic, ['draftModeDefault']],
+        values: [teamLogic, ['currentTeam'], conversationsDraftModeLogic, ['draftModeDefault'], userLogic, ['user']],
     })),
     actions({
         loadTicket: true,
@@ -429,12 +434,14 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             content: string,
             richContent: Record<string, unknown> | null,
             isPrivate: boolean,
-            onSuccess?: () => void
+            onSuccess?: () => void,
+            statusAfterSend?: TicketStatus
         ) => ({
             content,
             richContent,
             isPrivate,
             onSuccess,
+            statusAfterSend,
         }),
         setMessageSending: (sending: boolean) => ({ sending }),
 
@@ -955,7 +962,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setOlderMessagesLoading(false)
             }
         },
-        sendMessage: async ({ content, richContent, isPrivate, onSuccess }) => {
+        sendMessage: async ({ content, richContent, isPrivate, onSuccess, statusAfterSend }) => {
             if (props.id === 'new' || !values.ticket?.id) {
                 actions.setMessageSending(false)
                 return
@@ -981,6 +988,13 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 onSuccess?.()
                 if (!isPrivate) {
                     actions.incrementUnreadCustomerCount()
+                }
+                if (statusAfterSend) {
+                    actions.setStatus(statusAfterSend)
+                    if (!values.assignee && values.user) {
+                        actions.setAssignee({ type: 'user', id: values.user.id })
+                    }
+                    actions.updateTicket()
                 }
                 setTimeout(() => {
                     actions.loadMessages()

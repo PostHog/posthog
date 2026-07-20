@@ -1,16 +1,24 @@
 import { JSONContent } from '@tiptap/core'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconLock } from '@posthog/icons'
+import { IconChevronDown, IconLock } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@posthog/quill-primitives'
 
 import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
+import type { TicketStatus } from '../../types'
 import { SupportEditor, serializeToMarkdown } from '../Editor'
 
 export interface MessageInputProps {
-    onSendMessage: (content: string, richContent: JSONContent | null, isPrivate: boolean, onSuccess: () => void) => void
+    onSendMessage: (
+        content: string,
+        richContent: JSONContent | null,
+        isPrivate: boolean,
+        onSuccess: () => void,
+        statusAfterSend?: TicketStatus
+    ) => void
     messageSending: boolean
     placeholder?: string
     buttonText?: string
@@ -35,6 +43,8 @@ export interface MessageInputProps {
     onDraftModeChange?: (enabled: boolean) => void
     /** Recipient description shown in the draft-mode send confirmation (e.g. "This will send to ...") */
     sendConfirmationMessage?: string
+    /** When provided, renders a dropdown next to the send button to send and set the ticket status in one go */
+    sendAndSetStatusOptions?: { value: TicketStatus; label: string }[]
 }
 
 export function MessageInput({
@@ -53,6 +63,7 @@ export function MessageInput({
     draftMode = false,
     onDraftModeChange,
     sendConfirmationMessage,
+    sendAndSetStatusOptions,
 }: MessageInputProps): JSX.Element {
     const [isEmpty, setIsEmpty] = useState(!draftContent)
     const [isUploading, setIsUploading] = useState(false)
@@ -67,7 +78,7 @@ export function MessageInput({
     const isPrivate = controlledIsPrivate ?? localIsPrivate
     const setIsPrivate = onPrivateChange ?? setLocalIsPrivate
 
-    const handleSubmit = (): void => {
+    const handleSubmit = (statusAfterSend?: TicketStatus): void => {
         // These guard the Cmd+Enter path, which bypasses the (disabled) button.
         if (replyDisabledReason && !isPrivate) {
             return
@@ -79,16 +90,22 @@ export function MessageInput({
             const richContent = editorRef.current.getJSON()
             const content = serializeToMarkdown(richContent)
             const doSend = (): void => {
-                onSendMessage(content, richContent, isPrivate, () => {
-                    editorRef.current?.clear()
-                    setIsEmpty(true)
-                    onDraftChange?.(null)
-                    if (onPrivateChange) {
-                        onPrivateChange(false)
-                    } else {
-                        setLocalIsPrivate(false)
-                    }
-                })
+                onSendMessage(
+                    content,
+                    richContent,
+                    isPrivate,
+                    () => {
+                        editorRef.current?.clear()
+                        setIsEmpty(true)
+                        onDraftChange?.(null)
+                        if (onPrivateChange) {
+                            onPrivateChange(false)
+                        } else {
+                            setLocalIsPrivate(false)
+                        }
+                    },
+                    statusAfterSend
+                )
             }
             // Private notes are never sent externally, so they skip the draft-mode confirmation.
             if (draftMode && !isPrivate && sendConfirmationMessage) {
@@ -111,6 +128,15 @@ export function MessageInput({
         }
     }
 
+    const sendBlockedReason =
+        replyDisabledReason && !isPrivate
+            ? replyDisabledReason
+            : isEmpty
+              ? 'No message'
+              : isUploading
+                ? 'Uploading image...'
+                : undefined
+
     return (
         <div>
             <SupportEditor
@@ -123,7 +149,7 @@ export function MessageInput({
                     }
                 }}
                 onUpdate={handleUpdate}
-                onPressCmdEnter={handleSubmit}
+                onPressCmdEnter={() => handleSubmit()}
                 onUploadingChange={setIsUploading}
                 disabled={messageSending}
                 minRows={minRows}
@@ -163,22 +189,50 @@ export function MessageInput({
                         </Tooltip>
                     )}
                     {extraActions}
-                    <LemonButton
-                        type="primary"
-                        onClick={handleSubmit}
-                        loading={messageSending}
-                        disabledReason={
-                            replyDisabledReason && !isPrivate
-                                ? replyDisabledReason
-                                : isEmpty
-                                  ? 'No message'
-                                  : isUploading
-                                    ? 'Uploading image...'
-                                    : undefined
-                        }
-                    >
-                        {isPrivate ? 'Attach' : buttonText}
-                    </LemonButton>
+                    {sendAndSetStatusOptions?.length ? (
+                        <div className="flex items-center gap-px">
+                            <LemonButton
+                                type="primary"
+                                className="rounded-r-none"
+                                onClick={() => handleSubmit()}
+                                loading={messageSending}
+                                disabledReason={sendBlockedReason}
+                            >
+                                {isPrivate ? 'Attach' : buttonText}
+                            </LemonButton>
+                            <DropdownMenu>
+                                <DropdownMenuTrigger
+                                    disabled={!!sendBlockedReason || messageSending}
+                                    render={
+                                        <LemonButton
+                                            type="primary"
+                                            className="rounded-l-none"
+                                            icon={<IconChevronDown />}
+                                            loading={messageSending}
+                                            disabledReason={sendBlockedReason}
+                                            aria-label="Send and set ticket status"
+                                        />
+                                    }
+                                />
+                                <DropdownMenuContent align="end" className="w-auto">
+                                    {sendAndSetStatusOptions.map((option) => (
+                                        <DropdownMenuItem key={option.value} onClick={() => handleSubmit(option.value)}>
+                                            {option.label}
+                                        </DropdownMenuItem>
+                                    ))}
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        </div>
+                    ) : (
+                        <LemonButton
+                            type="primary"
+                            onClick={() => handleSubmit()}
+                            loading={messageSending}
+                            disabledReason={sendBlockedReason}
+                        >
+                            {isPrivate ? 'Attach' : buttonText}
+                        </LemonButton>
+                    )}
                 </div>
             </div>
         </div>

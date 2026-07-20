@@ -2,7 +2,7 @@ import { JSONContent } from '@tiptap/core'
 
 import { LemonCard } from '@posthog/lemon-ui'
 
-import type { AiReplyFeedbackRating, ChatMessage, Ticket } from '../../types'
+import type { AiReplyFeedbackRating, ChatMessage, Ticket, TicketStatus } from '../../types'
 import { MessageInput } from './MessageInput'
 import { MessageList } from './MessageList'
 
@@ -13,7 +13,13 @@ export interface ChatViewProps {
     hasMoreMessages?: boolean
     olderMessagesLoading?: boolean
     ticket?: Ticket
-    onSendMessage: (content: string, richContent: JSONContent | null, isPrivate: boolean, onSuccess: () => void) => void
+    onSendMessage: (
+        content: string,
+        richContent: JSONContent | null,
+        isPrivate: boolean,
+        onSuccess: () => void,
+        statusAfterSend?: TicketStatus
+    ) => void
     onLoadOlderMessages?: () => void
     header?: React.ReactNode
     minHeight?: string
@@ -42,6 +48,8 @@ export interface ChatViewProps {
     onDraftModeChange?: (enabled: boolean) => void
     /** Recipient description shown in the draft-mode send confirmation */
     sendConfirmationMessage?: string
+    /** When provided, renders a dropdown next to the send button to send and set the ticket status in one go */
+    sendAndSetStatusOptions?: { value: TicketStatus; label: string }[]
     latestAiMessageId?: string | null
     feedbackByMessageId?: Record<string, AiReplyFeedbackRating>
     showAiReplyFeedback?: boolean
@@ -71,6 +79,7 @@ export function ChatView({
     draftMode,
     onDraftModeChange,
     sendConfirmationMessage,
+    sendAndSetStatusOptions,
     latestAiMessageId,
     feedbackByMessageId,
     showAiReplyFeedback,
@@ -112,6 +121,7 @@ export function ChatView({
                     draftMode={draftMode}
                     onDraftModeChange={onDraftModeChange}
                     sendConfirmationMessage={sendConfirmationMessage}
+                    sendAndSetStatusOptions={sendAndSetStatusOptions}
                 />
             </div>
         </LemonCard>
