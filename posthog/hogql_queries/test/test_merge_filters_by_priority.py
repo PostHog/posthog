@@ -187,7 +187,9 @@ class TestDashboardFilterFromDict(SimpleTestCase):
     def test_flat_list_properties_pass_through(self):
         built = dashboard_filter_from_dict({"properties": [{"key": "$browser", "value": "Chrome", "type": "event"}]})
         assert built.properties is not None
-        assert [(p.key, p.value) for p in built.properties] == [("$browser", "Chrome")]
+        assert [p.model_dump(exclude_none=True, mode="json") for p in built.properties] == [
+            {"key": "$browser", "type": "event", "value": "Chrome", "operator": "exact"}
+        ]
 
     def test_property_group_dict_is_flattened_instead_of_raising(self):
         # `DashboardFilter.properties` is typed as a flat list, so a property-group dict used to raise a
@@ -203,7 +205,9 @@ class TestDashboardFilterFromDict(SimpleTestCase):
             }
         )
         assert built.properties is not None
-        assert [(p.key, p.value) for p in built.properties] == [("$browser", "Chrome")]
+        assert [p.model_dump(exclude_none=True, mode="json") for p in built.properties] == [
+            {"key": "$browser", "type": "event", "value": "Chrome", "operator": "exact"}
+        ]
         assert built.date_from == "-7d"
 
 
