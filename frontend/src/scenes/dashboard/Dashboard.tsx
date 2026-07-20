@@ -24,6 +24,7 @@ import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 import { teamLogic } from '../teamLogic'
 import { AddInsightToDashboardModal } from './addInsightToDashboardModal/AddInsightToDashboardModal'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
+import { DashboardAutoRefreshRestrictionBanner } from './DashboardAutoRefreshRestrictionBanner'
 import { DashboardHeader } from './DashboardHeader'
 import { DashboardOverridesBanner } from './DashboardOverridesBanner'
 import { DashboardPublicAccessBanner } from './DashboardPublicAccessBanner'
@@ -146,6 +147,7 @@ function DashboardScene({
                     })}
                 >
                     <DashboardOverridesBanner />
+                    <DashboardAutoRefreshRestrictionBanner placement={placement} />
 
                     <SceneStickyBar showBorderBottom={false} className="flex gap-2 space-y-0">
                         <DashboardFilterBar backTo={backTo} />

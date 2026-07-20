@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { render } from '@testing-library/react'
+import { fireEvent, render } from '@testing-library/react'
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
@@ -136,16 +136,22 @@ jest.mock('react-grid-layout/extras', () => ({
 }))
 
 jest.mock('@posthog/products-dashboards/frontend/components/DashboardWidgetItem/DashboardWidgetItem', () => ({
-    DashboardWidgetItem: () => <div data-attr="widget-card" />,
+    DashboardWidgetItem: ({ onRefresh }: { onRefresh: () => void }) => (
+        <button data-attr="widget-card" onClick={onRefresh}>
+            Refresh widget
+        </button>
+    ),
 }))
 
 const mockedUseValues = useValues as jest.Mock
 const mockedUseActions = useActions as jest.Mock
 const mockedUseAsyncActions = useAsyncActions as jest.Mock
+let refreshDashboardWidgetsMock: jest.Mock
 
 describe('DashboardItems', () => {
     beforeEach(() => {
         jest.clearAllMocks()
+        refreshDashboardWidgetsMock = jest.fn()
 
         mockedUseValues.mockImplementation((logic) => {
             if (logic === dashboardLogic) {
@@ -197,7 +203,7 @@ describe('DashboardItems', () => {
                     removeTile: jest.fn(),
                     duplicateTile: jest.fn(),
                     refreshDashboardItem: jest.fn(),
-                    refreshDashboardWidgets: jest.fn(),
+                    refreshDashboardWidgets: refreshDashboardWidgetsMock,
                     moveToDashboard: jest.fn(),
                     copyToDashboard: jest.fn(),
                     setTileOverride: jest.fn(),
@@ -242,7 +248,7 @@ describe('DashboardItems', () => {
         expect(container.firstChild).toMatchSnapshot()
     })
 
-    it('shows widget tiles on public dashboards', () => {
+    it('shows widget tiles and dispatches an explicit refresh mode on public dashboards', () => {
         const widgetTile = {
             id: 2,
             widget: { id: 1, widget_type: 'error_tracking_list', config: {} },
@@ -283,6 +289,14 @@ describe('DashboardItems', () => {
         })
 
         const { getByTestId } = render(<DashboardItems />)
-        expect(getByTestId('widget-card')).toBeInTheDocument()
+        const widgetCard = getByTestId('widget-card')
+        expect(widgetCard).toBeInTheDocument()
+
+        fireEvent.click(widgetCard)
+
+        expect(refreshDashboardWidgetsMock).toHaveBeenCalledWith({
+            tileIds: [widgetTile.id],
+            refresh: 'force_blocking',
+        })
     })
 })

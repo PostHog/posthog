@@ -10,7 +10,7 @@ import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { InsightShortId, QueryBasedInsightModel } from '~/types'
+import { DashboardType, InsightShortId, QueryBasedInsightModel } from '~/types'
 import { AvailableFeature } from '~/types'
 
 import { sharingLogic } from './sharingLogic'
@@ -113,6 +113,24 @@ describe('SharingModal (dashboard)', () => {
 
         // Dashboard options smoke checks
         expect(screen.getByText(/Show PostHog branding/i)).toBeInTheDocument()
+    })
+
+    it('warns when a long dashboard range disables auto refresh', async () => {
+        const dashboard = {
+            id: dashboardId,
+            name: 'Expensive dashboard',
+            filters: { date_from: '-90d' },
+            tiles: [],
+        } as unknown as DashboardType<QueryBasedInsightModel>
+
+        render(<DashboardSharingModalWrapper extraProps={{ dashboard }} />)
+
+        expect(
+            await screen.findByText(
+                'Auto refresh is disabled because querying more than 30 days of data is too expensive. Set the dashboard to the last 7 days to enable it.'
+            )
+        ).toBeInTheDocument()
+        expect(screen.getAllByText('Set to last 7 days')).not.toHaveLength(0)
     })
 
     it('calls onSharingEnabledChange after the dashboard sharing switch update succeeds', async () => {

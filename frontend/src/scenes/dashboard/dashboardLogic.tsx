@@ -135,6 +135,7 @@ import {
     runWithLimit,
     shouldSharedDashboardAutoForceForStaleTime,
     shouldSnapshotUrlAtEditModeEntry,
+    type DashboardInsightRefreshMode,
 } from './dashboardUtils'
 import { TileFiltersOverride } from './TileFiltersOverride'
 import { tileLogic } from './tileLogic'
@@ -576,13 +577,13 @@ export interface dashboardLogicActions {
     }
     refreshDashboardItems: (payload: {
         action: DashboardLoadAction | RefreshDashboardItemsAction
-        forceRefresh?: boolean
+        refresh: DashboardInsightRefreshMode
     }) => {
         action: DashboardLoadAction | RefreshDashboardItemsAction
-        forceRefresh?: boolean | undefined
+        refresh: DashboardInsightRefreshMode
     }
-    refreshDashboardWidgets: (payload: { forceRefresh?: boolean; tileIds: number[] }) => {
-        forceRefresh?: boolean | undefined
+    refreshDashboardWidgets: (payload: { refresh: DashboardInsightRefreshMode; tileIds: number[] }) => {
+        refresh: DashboardInsightRefreshMode
         tileIds: number[]
     }
     removeTile: (tile: DashboardTile<QueryBasedInsightModel>) => {
@@ -1148,9 +1149,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
         /** Refresh tiles of a loaded dashboard e.g. stale tiles after initial load, previewed tiles after applying filters, etc. */
         refreshDashboardItems: (payload: {
             action: RefreshDashboardItemsAction | DashboardLoadAction
-            forceRefresh?: boolean
+            refresh: DashboardInsightRefreshMode
         }) => payload,
-        refreshDashboardWidgets: (payload: { tileIds: number[]; forceRefresh?: boolean }) => payload,
+        refreshDashboardWidgets: (payload: { tileIds: number[]; refresh: DashboardInsightRefreshMode }) => payload,
         /** Debounced run_widgets refresh for a single tile (tile filters). */
         scheduleRefreshDashboardWidgets: (tileId: number) => ({ tileId }),
         applyWidgetIssueMetadataChange: (payload: {
@@ -2904,7 +2905,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             // Shared logic for refreshing dashboard items after load (used by both regular and streaming loads)
             if (values.placement !== DashboardPlacement.Export) {
                 const loadAction = values.dashboardLoadData.action!
-                actions.refreshDashboardItems({ action: loadAction, forceRefresh: false })
+                actions.refreshDashboardItems({ action: loadAction, refresh: 'blocking' })
             }
 
             if (values.shouldReportOnAPILoad) {
@@ -2917,7 +2918,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         scheduleRefreshDashboardWidgets: ({ tileId }: { tileId: number }) => {
             if (!cache.widgetTileRefreshScheduler) {
                 cache.widgetTileRefreshScheduler = createDashboardWidgetTileRefreshScheduler((id) =>
-                    actions.refreshDashboardWidgets({ tileIds: [id], forceRefresh: true })
+                    actions.refreshDashboardWidgets({ tileIds: [id], refresh: 'force_blocking' })
                 )
             }
             cache.widgetTileRefreshScheduler.schedule(tileId)
@@ -3155,7 +3156,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (createdTiles.length > 0) {
                 actions.refreshDashboardWidgets({
                     tileIds: createdTiles.map((tile) => tile.id),
-                    forceRefresh: true,
+                    refresh: 'force_blocking',
                 })
             }
         },
@@ -3315,7 +3316,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         /** Triggered from dashboard refresh button, when user refreshes entire dashboard */
         triggerDashboardRefresh: () => {
             actions.resetInterval()
-            actions.refreshDashboardItems({ action: RefreshDashboardItemsAction.Refresh, forceRefresh: true })
+            actions.refreshDashboardItems({ action: RefreshDashboardItemsAction.Refresh, refresh: 'force_blocking' })
             if (
                 values.dashboardWidgetsEnabled &&
                 values.placement !== DashboardPlacement.Export &&
@@ -3323,7 +3324,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             ) {
                 const widgetTileIds = values.widgetTiles.map((tile) => tile.id)
                 if (widgetTileIds.length > 0) {
-                    actions.refreshDashboardWidgets({ tileIds: widgetTileIds, forceRefresh: true })
+                    actions.refreshDashboardWidgets({ tileIds: widgetTileIds, refresh: 'force_blocking' })
                 }
             }
         },
@@ -3384,7 +3385,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.setRefreshError(insight.short_id, e)
             }
         },
-        refreshDashboardItems: async ({ action, forceRefresh }, breakpoint) => {
+        refreshDashboardItems: async ({ action, refresh }, breakpoint) => {
             const dashboardRefreshStartTime = performance.now()
             const isInitialLoad =
                 action === DashboardLoadAction.InitialLoad || action === DashboardLoadAction.InitialLoadWithVariables
@@ -3403,7 +3404,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // only refresh stale insights
                 .filter(
                     (t) =>
-                        forceRefresh ||
+                        refresh === 'force_blocking' ||
                         !isInitialLoadOrUpdate ||
                         !t.insight.cache_target_age ||
                         dayjs(t.insight.cache_target_age).isBefore(dayjs())
@@ -3463,7 +3464,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             insight,
                             dashboardId,
                             queryId,
-                            forceRefresh ? 'force_blocking' : 'blocking', // 'blocking' returns cached data if available, when manual refresh is triggered we want fresh results
+                            refresh,
                             methodOptions,
                             effectiveRefreshFilters,
                             urlVariables,
@@ -3510,7 +3511,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                 // update last refresh time, only if we've forced a blocking refresh of the dashboard
                 // and all tiles were refreshed
-                if (forceRefresh && tilesAbortedCount === 0 && tilesErroredCount === 0) {
+                if (refresh === 'force_blocking' && tilesAbortedCount === 0 && tilesErroredCount === 0) {
                     actions.updateDashboardLastRefresh(dayjs())
                 }
 
@@ -3539,7 +3540,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     urlVariables,
                     lastDashboardRefresh,
                     action,
-                    !!forceRefresh,
+                    refresh,
                     {
                         totalTileCount,
                         tilesStaleCount,
@@ -3553,7 +3554,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             if (
                 isInitialLoad &&
-                !forceRefresh &&
+                refresh === 'blocking' &&
                 tilesErroredCount === 0 &&
                 tilesAbortedCount === 0 &&
                 values.placement === DashboardPlacement.Public
@@ -3568,11 +3569,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             ) {
                 const widgetTileIds = values.widgetTiles.map((tile) => tile.id)
                 if (widgetTileIds.length > 0) {
-                    actions.refreshDashboardWidgets({ tileIds: widgetTileIds, forceRefresh: !!forceRefresh })
+                    actions.refreshDashboardWidgets({ tileIds: widgetTileIds, refresh })
                 }
             }
         },
-        refreshDashboardWidgets: async ({ tileIds, forceRefresh }, breakpoint) => {
+        refreshDashboardWidgets: async ({ tileIds, refresh }, breakpoint) => {
             if (
                 values.placement === DashboardPlacement.Export ||
                 values.placement === DashboardPlacement.Public ||
@@ -3582,7 +3583,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
 
             const staleTileIds = tileIds.filter((tileId) => {
-                if (forceRefresh) {
+                if (refresh === 'force_blocking') {
                     return true
                 }
                 const fetchedAt = values.widgetRefreshStatus[tileId]?.fetchedAt
@@ -3675,7 +3676,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 if (createdTiles.length > 0) {
                     actions.refreshDashboardWidgets({
                         tileIds: createdTiles.map((tile) => tile.id),
-                        forceRefresh: true,
+                        refresh: 'force_blocking',
                     })
                 }
 
@@ -3723,7 +3724,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 cache.shouldRefreshTilesAfterSave = false
                 actions.refreshDashboardItems({
                     action: RefreshDashboardItemsAction.Preview,
-                    forceRefresh: false,
+                    refresh: 'blocking',
                 })
             }
         },
@@ -3785,7 +3786,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // reset tile data by reloading dashboard
                 actions.refreshDashboardItems({
                     action: RefreshDashboardItemsAction.Preview,
-                    forceRefresh: false,
+                    refresh: 'blocking',
                 })
 
                 // also reset layout to that we stored in dashboardLayouts
@@ -3800,7 +3801,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // reset tile data by reloading dashboard
                 actions.refreshDashboardItems({
                     action: RefreshDashboardItemsAction.Refresh,
-                    forceRefresh: false,
+                    refresh: 'blocking',
                 })
             } else if (
                 mode === null &&
@@ -3845,22 +3846,23 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         resetInterval: () => {
             if (values.autoRefresh.enabled) {
+                const refresh = values.placement === DashboardPlacement.Public ? 'force_blocking' : 'blocking'
                 // Refresh right now after enabling if we haven't refreshed recently
                 if (
                     !values.itemsLoading &&
-                    values.lastDashboardRefresh &&
-                    values.lastDashboardRefresh.isBefore(now().subtract(values.autoRefresh.interval, 'seconds'))
+                    values.effectiveLastRefresh &&
+                    values.effectiveLastRefresh.isBefore(now().subtract(values.autoRefresh.interval, 'seconds'))
                 ) {
                     actions.refreshDashboardItems({
                         action: RefreshDashboardItemsAction.Refresh,
-                        forceRefresh: true,
+                        refresh,
                     })
                 }
                 cache.disposables.add(() => {
                     const intervalId = window.setInterval(() => {
                         actions.refreshDashboardItems({
                             action: RefreshDashboardItemsAction.Refresh,
-                            forceRefresh: true,
+                            refresh,
                         })
                     }, values.autoRefresh.interval * 1000)
                     return () => clearInterval(intervalId)
@@ -3953,7 +3955,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         applyFilters: () => {
             actions.refreshDashboardItems({
                 action: RefreshDashboardItemsAction.Preview,
-                forceRefresh: false,
+                refresh: 'blocking',
             })
         },
         setProperties: ({ properties }) => {
@@ -3964,7 +3966,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (values.canAutoPreview) {
                 actions.refreshDashboardItems({
                     action: RefreshDashboardItemsAction.Preview,
-                    forceRefresh: false,
+                    refresh: 'blocking',
                 })
             }
         },
@@ -3977,7 +3979,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (values.canAutoPreview) {
                 actions.refreshDashboardItems({
                     action: RefreshDashboardItemsAction.Preview,
-                    forceRefresh: false,
+                    refresh: 'blocking',
                 })
             }
         },
@@ -3989,7 +3991,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (values.canAutoPreview) {
                 actions.refreshDashboardItems({
                     action: RefreshDashboardItemsAction.Preview,
-                    forceRefresh: false,
+                    refresh: 'blocking',
                 })
             }
         },
@@ -4001,7 +4003,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (values.canAutoPreview) {
                 actions.refreshDashboardItems({
                     action: RefreshDashboardItemsAction.Preview,
-                    forceRefresh: false,
+                    refresh: 'blocking',
                 })
             }
         },
@@ -4009,7 +4011,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (values.tiles.length > 0) {
                 actions.refreshDashboardItems({
                     action: RefreshDashboardItemsAction.Preview,
-                    forceRefresh: false,
+                    refresh: 'blocking',
                 })
             }
         },
@@ -4020,7 +4022,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             actions.refreshDashboardItems({
                 action: RefreshDashboardItemsAction.Preview,
-                forceRefresh: false,
+                refresh: 'blocking',
             })
             if (values.dashboardMode !== DashboardMode.Edit) {
                 actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardVariableOverride)

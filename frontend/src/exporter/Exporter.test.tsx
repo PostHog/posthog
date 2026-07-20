@@ -55,6 +55,12 @@ describe('Exporter (shared dashboard)', () => {
         expect(getAllByText(/Auto refresh every/i).length).toBeGreaterThan(0)
     })
 
+    it('shows when dashboard auto refresh is disabled', () => {
+        const { getAllByText } = render(<Exporter {...makeDashboardExport({ dashboardAutoRefreshEnabled: false })} />)
+
+        expect(getAllByText('Auto refresh off').length).toBeGreaterThan(0)
+    })
+
     it('does not show auto refresh text for image exports', () => {
         const { container } = render(<Exporter {...makeDashboardExport({ type: ExportType.Image })} />)
 

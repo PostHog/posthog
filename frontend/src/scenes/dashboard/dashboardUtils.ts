@@ -14,7 +14,7 @@ import { toParams } from 'lib/utils/url'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { pollForResults } from '~/queries/query'
-import { DashboardFilter, HogQLVariable, TileFilters } from '~/queries/schema/schema-general'
+import { DashboardFilter, HogQLVariable, RefreshType, TileFilters } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -240,6 +240,13 @@ export const layoutsByTile = (layouts: ResponsiveLayouts): Record<string, Record
 }
 
 /**
+ * Dashboard insight modes that return a completed result:
+ * - `blocking` returns recent cached results, otherwise calculates synchronously.
+ * - `force_blocking` always calculates synchronously, even when cached results are available.
+ */
+export type DashboardInsightRefreshMode = Extract<RefreshType, 'blocking' | 'force_blocking'>
+
+/**
  * Fetches an insight with a retry and polling mechanism.
  * It first attempts to fetch the insight synchronously. If rate-limited, it retries with exponential backoff.
  * After multiple failed attempts, it switches to asynchronous polling to fetch the result.
@@ -249,7 +256,7 @@ export async function getInsightWithRetry(
     insight: QueryBasedInsightModel,
     dashboardId: number,
     queryId: string,
-    refresh: 'force_blocking' | 'blocking',
+    refresh: DashboardInsightRefreshMode,
     methodOptions?: ApiMethodOptions,
     filtersOverride?: DashboardFilter,
     variablesOverride?: Record<string, HogQLVariable>,

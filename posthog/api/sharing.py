@@ -52,6 +52,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.access import dashboard_access_method, record_dashboard_view
 from products.dashboards.backend.api.dashboard import DashboardSerializer
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.shared_dashboard_refresh import dashboard_allows_auto_refresh
 from products.exports.backend.api.exports import ExportedAssetSerializer
 from products.exports.backend.models.exported_asset import (
     EXPORTED_ASSET_PURPOSE_RENDER,
@@ -1068,6 +1069,8 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 dashboard_data = DashboardSerializer(resource.dashboard, context=context).data
                 # We don't want the dashboard to be accidentally loaded via the shared endpoint
                 exported_data.update({"dashboard": dashboard_data})
+            if isinstance(resource, SharingConfiguration):
+                exported_data["dashboardAutoRefreshEnabled"] = dashboard_allows_auto_refresh(resource.dashboard)
             exported_data.update({"themes": get_themes_for_team(resource.team)})
             dashboard_insights = [
                 tile.insight

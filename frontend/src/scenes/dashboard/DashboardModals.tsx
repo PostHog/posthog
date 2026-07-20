@@ -54,6 +54,7 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType<QueryB
                 isOpen={dashboardMode === DashboardMode.Sharing}
                 closeModal={() => push(urls.dashboard(dashboard.id))}
                 dashboardId={dashboard.id}
+                dashboard={dashboard}
                 userAccessLevel={dashboard.user_access_level}
                 onSharingEnabledChange={(enabled) => updateDashboardSuccess({ ...dashboard, is_shared: enabled })}
             />
