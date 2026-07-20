@@ -206,6 +206,7 @@ const logsAlertsEventsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/alerts/${encodeURIComponent(String(params.id))}/events/`,
             query: {
+                kind: params.kind,
                 limit: params.limit,
                 offset: params.offset,
             },

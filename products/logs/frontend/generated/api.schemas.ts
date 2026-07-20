@@ -1904,6 +1904,10 @@ export type LogsAlertsListParams = {
 
 export type LogsAlertsEventsListParams = {
     /**
+     * Narrow the event history to a single event kind.
+     */
+    kind?: LogsAlertsEventsListKind
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -1912,6 +1916,19 @@ export type LogsAlertsEventsListParams = {
      */
     offset?: number
 }
+
+export type LogsAlertsEventsListKind = (typeof LogsAlertsEventsListKind)[keyof typeof LogsAlertsEventsListKind]
+
+export const LogsAlertsEventsListKind = {
+    BrokenConfig: 'broken_config',
+    Check: 'check',
+    Disable: 'disable',
+    Enable: 'enable',
+    Reset: 'reset',
+    Snooze: 'snooze',
+    ThresholdChange: 'threshold_change',
+    Unsnooze: 'unsnooze',
+} as const
 
 export type LogsAttributesRetrieveParams = {
     /**
