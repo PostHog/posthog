@@ -91,12 +91,8 @@ def _ensure_managed_source_locked(
     username: str,
     password: str,
     reader_configured: bool,
-    reactivate_deleted: bool,
 ) -> ExternalDataSource | None:
     existing = _managed_source_queryset(team_id).select_for_update().order_by("-created_at").first()
-    if existing is not None and existing.deleted and not reactivate_deleted:
-        # Deprovision leaves a tombstone so a queued status task cannot recreate the source.
-        return None
 
     config = _source_config(server, username=username, password=password)
     if existing is not None:
@@ -208,7 +204,6 @@ def ensure_managed_warehouse_direct_source(*, team_id: int, organization_id: str
             username=username,
             password=password,
             reader_configured=reader_configured,
-            reactivate_deleted=True,
         )
         if source is None:
             raise RuntimeError("Failed to create the managed warehouse query source")
@@ -356,12 +351,6 @@ def update_managed_warehouse_password(*, organization_id: str | UUID, password: 
 
     with transaction.atomic():
         server = DuckgresServer.objects.select_for_update().get(organization_id=organization_id)
-        list(
-            Team.objects.select_for_update()
-            .filter(organization_id=organization_id)
-            .order_by("id")
-            .values_list("id", flat=True)
-        )
         server.password = password
         server.save(update_fields=["password", "updated_at"])
 
@@ -373,12 +362,6 @@ def soft_delete_managed_warehouse_sources(*, organization_id: str | UUID) -> Non
     now = timezone.now()
     with transaction.atomic():
         DuckgresServer.objects.select_for_update().filter(organization_id=organization_id).first()
-        list(
-            Team.objects.select_for_update()
-            .filter(organization_id=organization_id)
-            .order_by("id")
-            .values_list("id", flat=True)
-        )
         sources = list(_managed_sources_for_org(organization_id).select_for_update().order_by("team_id"))
         DuckgresServerTeam.objects.filter(server__organization_id=organization_id).update(backfill_enabled=False)
         DataWarehouseTable.raw_objects.filter(

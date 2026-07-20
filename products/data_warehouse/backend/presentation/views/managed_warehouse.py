@@ -415,8 +415,9 @@ def _remove_direct_connection_sources(organization_id: UUID | str) -> None:
 def ensure_direct_connection_tables(team_id: int, organization_id: UUID | str) -> None:
     """Queue discovery of the team's managed-warehouse tables for the SQL editor.
 
-    Called from the warehouse-status read once the warehouse is `ready`. The task is guarded
-    by a per-team lock and self-skips after discovery, so repeated status polls stay cheap.
+    Called from the warehouse-status read once the warehouse is `ready`. Repeated requests are
+    coalesced for a short interval, while later runs re-introspect the live catalog so newly created
+    project tables appear automatically.
     """
     # Keep the Celery and data-warehouse task stack off this adapter's import path.
     from products.data_warehouse.backend.facade.api import schedule_managed_warehouse_tables_reconcile  # noqa: PLC0415

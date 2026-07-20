@@ -44,6 +44,7 @@ EXTERNAL_DATA_FAILURE_DIGEST_DELAY_SECONDS = 15 * 60
 # after this if a worker dies mid-flight.
 EXTERNAL_DATA_FAILURE_DIGEST_LOCK_TIMEOUT_SECONDS = 120
 MANAGED_WAREHOUSE_RECONCILE_LOCK_TIMEOUT_SECONDS = 120
+MANAGED_WAREHOUSE_RECONCILE_INTERVAL_SECONDS = 60
 
 
 @shared_task(ignore_result=True, name="products.data_warehouse.backend.tasks.reconcile_managed_warehouse_tables")
@@ -61,7 +62,15 @@ def reconcile_managed_warehouse_tables_task(team_id: int, organization_id: str) 
 
 
 def schedule_managed_warehouse_tables_reconcile(*, team_id: int, organization_id: str | UUID) -> None:
-    reconcile_managed_warehouse_tables_task.delay(team_id=team_id, organization_id=str(organization_id))
+    client = get_client()
+    schedule_key = f"managed_warehouse_reconcile_scheduled:{team_id}"
+    if not client.set(schedule_key, "1", ex=MANAGED_WAREHOUSE_RECONCILE_INTERVAL_SECONDS, nx=True):
+        return
+    try:
+        reconcile_managed_warehouse_tables_task.delay(team_id=team_id, organization_id=str(organization_id))
+    except Exception:
+        client.delete(schedule_key)
+        raise
 
 
 @shared_task(ignore_result=True, name="products.data_warehouse.backend.tasks.send_external_data_failure_digest_task")

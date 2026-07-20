@@ -314,6 +314,27 @@ class TestReconcileManagedWarehouseTables:
         sql, _context = allowed_query.generate_clickhouse_sql()
         assert "events_prod" in sql
 
+        metadata_cursor = MagicMock()
+        metadata_cursor.fetchone.return_value = ("ducklake", "Duckgres")
+        query_cursor = MagicMock()
+        query_cursor.fetchall.return_value = [("row-uuid",)]
+        column = MagicMock(type_code=25)
+        column.name = "uuid"
+        query_cursor.description = [column]
+        connection = MagicMock()
+        connection.execute.side_effect = [metadata_cursor, MagicMock()]
+        connection.cursor.return_value.__enter__.return_value = query_cursor
+        with patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect") as connect:
+            connect.return_value.__enter__.return_value = connection
+            response = allowed_query.execute()
+
+        assert response.results == [("row-uuid",)]
+        assert [call.args[0] for call in connection.execute.call_args_list] == [
+            "SELECT current_database(), version()",
+            "USE ducklake",
+        ]
+        query_cursor.execute.assert_called_once_with(sql, None)
+
         forbidden_query = HogQLQueryExecutor(
             query="SELECT uuid FROM posthog.events_other",
             team=team,
