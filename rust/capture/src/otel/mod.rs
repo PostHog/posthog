@@ -212,6 +212,7 @@ pub async fn otel_handler(
     stamp_overflow_reason(
         &mut processed_events,
         state.overflow_limiter.as_ref(),
+        state.ai_events_overflow_limiter.as_ref(),
         state.ai_events_overflow_enabled,
     );
 

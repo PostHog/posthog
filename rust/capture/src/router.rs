@@ -73,6 +73,14 @@ pub struct State {
     /// pipeline alongside every other routing decision, and so the sink stays
     /// a pure mechanism layer with cheap Arc-based clones.
     pub overflow_limiter: Option<Arc<OverflowLimiter>>,
+    /// Dedicated overflow limiter for the AI lane (`DataType::AiEvents` /
+    /// `Destination::AiEvents`). Same knobs as `overflow_limiter` but a
+    /// separate governor instance, so per-key budgets are isolated: analytics
+    /// volume never pushes a key's AI events into AI overflow and AI volume
+    /// never burns the analytics budget. Only built when both
+    /// `OVERFLOW_ENABLED` and the AI overflow valve are set; `None` leaves
+    /// the AI lane subject to restriction-driven `force_overflow` only.
+    pub ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
     /// Redis-backed replay overflow limiter for session recording sessions.
     /// When present, the recordings pipeline calls `is_limited(session_id)`
     /// and stamps `ProcessedEventMetadata::overflow_reason = ReplayLimited` so
@@ -161,6 +169,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     capture_v1_max_compressed_body_bytes: usize,
     capture_v1_max_decompressed_body_bytes: usize,
     overflow_limiter: Option<Arc<OverflowLimiter>>,
+    ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
     replay_overflow_limiter: Option<Arc<RedisLimiter>>,
     v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
     capture_v1_scatter_gather_min_batch: usize,
@@ -190,6 +199,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         capture_v1_max_compressed_body_bytes,
         capture_v1_max_decompressed_body_bytes,
         overflow_limiter,
+        ai_events_overflow_limiter,
         replay_overflow_limiter,
         v1_sink_router,
         capture_v1_scatter_gather_min_batch,

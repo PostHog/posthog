@@ -1107,6 +1107,7 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
             10 * 1024 * 1024,   // capture_v1_max_compressed_body_bytes
             50 * 1024 * 1024,   // capture_v1_max_decompressed_body_bytes
             None,               // overflow_limiter
+            None,               // ai_events_overflow_limiter
             None,               // replay_overflow_limiter
             None,               // v1_sink_router
             8,                  // capture_v1_scatter_gather_min_batch

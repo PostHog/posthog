@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::time::Instant;
 
 use chrono::{DateTime, Utc};
@@ -97,9 +98,10 @@ pub async fn process_batch(
 
     // Overflow and global rate limit are independent checks on different axes:
     // overflow reroutes bursting keys; global rate limit disables person processing.
-    if let Some(ref limiter) = state.overflow_limiter {
+    if state.overflow_limiter.is_some() || state.ai_events_overflow_limiter.is_some() {
         apply_overflow_stamping(
-            limiter,
+            state.overflow_limiter.as_ref(),
+            state.ai_events_overflow_limiter.as_ref(),
             context,
             state.ai_events_overflow_enabled,
             &mut events,
@@ -525,24 +527,31 @@ fn apply_historical_rerouting(
 }
 
 fn apply_overflow_stamping(
-    limiter: &OverflowLimiter,
+    analytics_limiter: Option<&Arc<OverflowLimiter>>,
+    ai_limiter: Option<&Arc<OverflowLimiter>>,
     ctx: &RequestContext,
     ai_events_overflow_enabled: bool,
     events: &mut [WrappedEvent],
 ) {
     for event in events.iter_mut() {
-        // Each overflowing lane keeps its own overflow destination, so an
-        // overflowing AI event lands on AI overflow, never analytics
-        // overflow. The AI lane only participates when the AI overflow valve
-        // (CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC) is armed.
-        let overflow_destination = match event.destination {
-            Destination::AnalyticsMain => Destination::Overflow,
-            Destination::AiEvents if ai_events_overflow_enabled => Destination::AiEventsOverflow,
+        // Each overflowing lane keeps its own overflow destination AND its
+        // own limiter instance, so an overflowing AI event lands on AI
+        // overflow (never analytics overflow) and the per-key budgets are
+        // isolated between the lanes. The AI lane only participates when the
+        // AI overflow valve (CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC) is armed.
+        let (overflow_destination, lane_limiter) = match event.destination {
+            Destination::AnalyticsMain => (Destination::Overflow, analytics_limiter),
+            Destination::AiEvents if ai_events_overflow_enabled => {
+                (Destination::AiEventsOverflow, ai_limiter)
+            }
             _ => continue,
         };
         if event.result == EventResult::Drop {
             continue;
         }
+        let Some(limiter) = lane_limiter else {
+            continue;
+        };
 
         let key = event.partition_key(ctx);
 
@@ -2635,24 +2644,28 @@ mod tests {
 
     // --- apply_overflow_stamping ---
 
-    fn overflow_limiter(per_second: u32, burst: u32, force_keys: Option<&str>) -> OverflowLimiter {
+    fn overflow_limiter(
+        per_second: u32,
+        burst: u32,
+        force_keys: Option<&str>,
+    ) -> Arc<OverflowLimiter> {
         use std::num::NonZeroU32;
-        OverflowLimiter::new(
+        Arc::new(OverflowLimiter::new(
             NonZeroU32::new(per_second).unwrap(),
             NonZeroU32::new(burst).unwrap(),
             force_keys.map(String::from),
             false,
-        )
+        ))
     }
 
-    fn overflow_limiter_preserving(per_second: u32, burst: u32) -> OverflowLimiter {
+    fn overflow_limiter_preserving(per_second: u32, burst: u32) -> Arc<OverflowLimiter> {
         use std::num::NonZeroU32;
-        OverflowLimiter::new(
+        Arc::new(OverflowLimiter::new(
             NonZeroU32::new(per_second).unwrap(),
             NonZeroU32::new(burst).unwrap(),
             None,
             true,
-        )
+        ))
     }
 
     #[test]
@@ -2661,7 +2674,7 @@ mod tests {
         let mut events = vec![wrapped_event("$pageview", "user-1")];
         let limiter = overflow_limiter(100, 100, None);
 
-        apply_overflow_stamping(&limiter, &ctx, false, &mut events);
+        apply_overflow_stamping(Some(&limiter), None, &ctx, false, &mut events);
 
         assert_eq!(events[0].destination, Destination::AnalyticsMain);
         assert!(!events[0].force_disable_person_processing);
@@ -2674,7 +2687,7 @@ mod tests {
         let mut events = vec![wrapped_event("$pageview", "user-1")];
         let limiter = overflow_limiter(100, 100, Some("phc_tok:user-1"));
 
-        apply_overflow_stamping(&limiter, &ctx, false, &mut events);
+        apply_overflow_stamping(Some(&limiter), None, &ctx, false, &mut events);
 
         assert_eq!(events[0].destination, Destination::Overflow);
         assert!(events[0].force_disable_person_processing);
@@ -2687,7 +2700,7 @@ mod tests {
         let mut events = vec![wrapped_event("$pageview", "user-1")];
         let limiter = overflow_limiter(100, 100, Some("phc_tok"));
 
-        apply_overflow_stamping(&limiter, &ctx, false, &mut events);
+        apply_overflow_stamping(Some(&limiter), None, &ctx, false, &mut events);
 
         assert_eq!(events[0].destination, Destination::Overflow);
         assert!(events[0].force_disable_person_processing);
@@ -2704,7 +2717,7 @@ mod tests {
             wrapped_event("$pageview", "user-1"),
         ];
 
-        apply_overflow_stamping(&limiter, &ctx, false, &mut events);
+        apply_overflow_stamping(Some(&limiter), None, &ctx, false, &mut events);
 
         assert_eq!(events[0].destination, Destination::AnalyticsMain);
         assert!(!events[0].force_disable_person_processing);
@@ -2722,7 +2735,7 @@ mod tests {
             wrapped_event("$pageview", "user-1"),
         ];
 
-        apply_overflow_stamping(&limiter, &ctx, false, &mut events);
+        apply_overflow_stamping(Some(&limiter), None, &ctx, false, &mut events);
 
         assert_eq!(events[1].destination, Destination::Overflow);
         assert!(
@@ -2738,7 +2751,7 @@ mod tests {
         let mut events = vec![wrapped_event("$pageview", "user-1")];
         events[0].destination = Destination::AnalyticsHistorical;
 
-        apply_overflow_stamping(&limiter, &ctx, false, &mut events);
+        apply_overflow_stamping(Some(&limiter), None, &ctx, false, &mut events);
 
         assert_eq!(
             events[0].destination,
@@ -2754,7 +2767,7 @@ mod tests {
         let mut events = vec![wrapped_event("$pageview", "user-1")];
         events[0].result = EventResult::Drop;
 
-        apply_overflow_stamping(&limiter, &ctx, false, &mut events);
+        apply_overflow_stamping(Some(&limiter), None, &ctx, false, &mut events);
 
         assert_eq!(events[0].destination, Destination::AnalyticsMain);
     }
@@ -2776,7 +2789,13 @@ mod tests {
         let mut events = vec![wrapped_event("$ai_generation", "user-1")];
         events[0].destination = Destination::AiEvents;
 
-        apply_overflow_stamping(&limiter, &ctx, ai_events_overflow_enabled, &mut events);
+        apply_overflow_stamping(
+            None,
+            Some(&limiter),
+            &ctx,
+            ai_events_overflow_enabled,
+            &mut events,
+        );
 
         assert_eq!(events[0].destination, expected_destination);
         assert_eq!(
@@ -2797,7 +2816,7 @@ mod tests {
         events[0].destination = Destination::AiEvents;
         events[1].destination = Destination::AiEvents;
 
-        apply_overflow_stamping(&limiter, &ctx, true, &mut events);
+        apply_overflow_stamping(None, Some(&limiter), &ctx, true, &mut events);
 
         assert_eq!(events[0].destination, Destination::AiEvents);
         assert_eq!(events[1].destination, Destination::AiEventsOverflow);
@@ -2805,6 +2824,50 @@ mod tests {
             !events[1].force_disable_person_processing,
             "preserve_locality=true means person processing stays enabled"
         );
+    }
+
+    /// The two lanes consult separate limiter instances: a key the analytics
+    /// limiter force-routes must not drag the same key's AI event into AI
+    /// overflow, and vice versa.
+    #[rstest::rstest]
+    #[case::analytics_force_key_leaves_ai_untouched(
+        Some("phc_tok:user-1"),
+        None,
+        Destination::Overflow,
+        Destination::AiEvents
+    )]
+    #[case::ai_force_key_leaves_analytics_untouched(
+        None,
+        Some("phc_tok:user-1"),
+        Destination::AnalyticsMain,
+        Destination::AiEventsOverflow
+    )]
+    fn overflow_lane_budgets_are_isolated_per_key(
+        #[case] analytics_force_keys: Option<&str>,
+        #[case] ai_force_keys: Option<&str>,
+        #[case] expected_analytics_destination: Destination,
+        #[case] expected_ai_destination: Destination,
+    ) {
+        let mut ctx = test_utils::test_context();
+        ctx.api_token = "phc_tok".to_string();
+        let analytics_limiter = overflow_limiter(100, 100, analytics_force_keys);
+        let ai_limiter = overflow_limiter(100, 100, ai_force_keys);
+        let mut events = vec![
+            wrapped_event("$pageview", "user-1"),
+            wrapped_event("$ai_generation", "user-1"),
+        ];
+        events[1].destination = Destination::AiEvents;
+
+        apply_overflow_stamping(
+            Some(&analytics_limiter),
+            Some(&ai_limiter),
+            &ctx,
+            true,
+            &mut events,
+        );
+
+        assert_eq!(events[0].destination, expected_analytics_destination);
+        assert_eq!(events[1].destination, expected_ai_destination);
     }
     // =========================================================================
     // apply_gateway_provenance tests — the verify→billing wiring

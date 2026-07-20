@@ -191,6 +191,7 @@ async fn setup_ai_router_with_restriction(
         10 * 1024 * 1024,   // capture_v1_max_compressed_body_bytes
         50 * 1024 * 1024,   // capture_v1_max_decompressed_body_bytes
         None,               // overflow_limiter
+        None,               // ai_events_overflow_limiter
         None,               // replay_overflow_limiter
         None,               // v1_sink_router
         8,                  // capture_v1_scatter_gather_min_batch
@@ -512,6 +513,7 @@ async fn setup_ai_router_with_redirect_to_topic(
         10 * 1024 * 1024,   // capture_v1_max_compressed_body_bytes
         50 * 1024 * 1024,   // capture_v1_max_decompressed_body_bytes
         None,               // overflow_limiter
+        None,               // ai_events_overflow_limiter
         None,               // replay_overflow_limiter
         None,               // v1_sink_router
         8,                  // capture_v1_scatter_gather_min_batch
@@ -592,6 +594,7 @@ async fn setup_ai_router_with_force_overflow_and_limiter(
         10 * 1024 * 1024,       // capture_v1_max_compressed_body_bytes
         50 * 1024 * 1024,       // capture_v1_max_decompressed_body_bytes
         Some(overflow_limiter), // overflow_limiter
+        None,                   // ai_events_overflow_limiter
         None,                   // replay_overflow_limiter
         None,                   // v1_sink_router
         8,                      // capture_v1_scatter_gather_min_batch

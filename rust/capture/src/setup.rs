@@ -388,6 +388,34 @@ pub async fn build_components(
         "AI events topic routing policy"
     );
 
+    // The AI lane gets its own limiter instance with the same knobs: the
+    // governor state (per-`token:distinct_id` budgets) is what must stay
+    // isolated, so analytics volume can never push a key's AI events into
+    // AI overflow and AI volume never burns the analytics budget. No
+    // `report_metrics` task for this one — the `partition_limits_key_count`
+    // gauge is unlabelled and keeps meaning the analytics limiter.
+    let ai_events_overflow_limiter: Option<Arc<OverflowLimiter>> =
+        if config.overflow_enabled && ai_events_overflow_enabled {
+            let limiter = OverflowLimiter::new(
+                config.overflow_per_second_limit,
+                config.overflow_burst_limit,
+                config.ingestion_force_overflow_by_token_distinct_id.clone(),
+                config.overflow_preserve_partition_locality,
+            );
+
+            {
+                // Keep the governor's per-key state from growing unbounded.
+                let limiter = limiter.clone();
+                tokio::spawn(async move {
+                    limiter.clean_state().await;
+                });
+            }
+
+            Some(Arc::new(limiter))
+        } else {
+            None
+        };
+
     let v1_sink_router = if !config.capture_v1_sinks.is_empty() {
         Some(
             create_v1_sink_router(&config, &sink_env, v1_sink_handles)
@@ -423,6 +451,7 @@ pub async fn build_components(
         config.capture_v1_max_compressed_body_bytes,
         config.capture_v1_max_decompressed_body_bytes,
         overflow_limiter,
+        ai_events_overflow_limiter,
         replay_overflow_limiter,
         v1_sink_router.clone(),
         config.capture_v1_scatter_gather_min_batch,

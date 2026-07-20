@@ -78,6 +78,7 @@ fn setup_analytics_router(
     ai_routing: AiRouting,
     ai_events_overflow_enabled: bool,
     overflow_limiter: Option<Arc<OverflowLimiter>>,
+    ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
 ) -> (Router, CapturingSink) {
     let (readiness, liveness, _monitor) = test_lifecycle_handlers();
 
@@ -122,6 +123,7 @@ fn setup_analytics_router(
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
         50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
         overflow_limiter,
+        ai_events_overflow_limiter,
         None, // replay_overflow_limiter
         None, // v1_sink_router
         8,    // capture_v1_scatter_gather_min_batch
@@ -183,7 +185,7 @@ async fn mixed_batch_diverts_only_ai_events_per_routing_mode(
     #[case] ai_events_overflow_enabled: bool,
     #[case] expected_ai_data_type: DataType,
 ) {
-    let (router, sink) = setup_analytics_router(ai_routing, ai_events_overflow_enabled, None);
+    let (router, sink) = setup_analytics_router(ai_routing, ai_events_overflow_enabled, None, None);
     let client = TestClient::new(router);
 
     post_batch(&client, mixed_batch_payload()).await;
@@ -208,10 +210,21 @@ async fn mixed_batch_diverts_only_ai_events_per_routing_mode(
     assert_eq!(pageview.metadata.data_type, DataType::AnalyticsMain);
 }
 
-/// With `secondary` routing, a force-limited key overflow-stamps the diverted
-/// `$ai_*` event only when the AI overflow valve is armed, while the
-/// `$pageview` on the same hot key stamps in both cases (the analytics lane
-/// is valve-independent). Catches the router failing to thread
+fn force_keyed_limiter() -> Arc<OverflowLimiter> {
+    let hot_key = format!("{TOKEN}:{DISTINCT_ID}");
+    Arc::new(OverflowLimiter::new(
+        NonZeroU32::new(1_000).unwrap(),
+        NonZeroU32::new(1_000).unwrap(),
+        Some(hot_key),
+        false, // preserve_locality
+    ))
+}
+
+/// With `secondary` routing, a force-limited key on the AI limiter
+/// overflow-stamps the diverted `$ai_*` event only when the AI overflow
+/// valve is armed, while the `$pageview` on the same hot key (force-limited
+/// on the analytics limiter) stamps in both cases (the analytics lane is
+/// valve-independent). Catches the router failing to thread
 /// `ai_events_overflow_enabled` into the pipeline, which the process-level
 /// valve test cannot see.
 #[rstest]
@@ -222,18 +235,11 @@ async fn ai_lane_overflow_stamping_gated_on_valve(
     #[case] ai_events_overflow_enabled: bool,
     #[case] expected_ai_reason: Option<OverflowReason>,
 ) {
-    let hot_key = format!("{TOKEN}:{DISTINCT_ID}");
-    let limiter = Arc::new(OverflowLimiter::new(
-        NonZeroU32::new(1_000).unwrap(),
-        NonZeroU32::new(1_000).unwrap(),
-        Some(hot_key),
-        false, // preserve_locality
-    ));
-
     let (router, sink) = setup_analytics_router(
         AiRouting::Secondary,
         ai_events_overflow_enabled,
-        Some(limiter),
+        Some(force_keyed_limiter()),
+        Some(force_keyed_limiter()),
     );
     let client = TestClient::new(router);
 
@@ -258,5 +264,51 @@ async fn ai_lane_overflow_stamping_gated_on_valve(
         pageview.metadata.overflow_reason,
         Some(OverflowReason::ForceLimited),
         "the analytics lane must keep overflowing regardless of the AI valve"
+    );
+}
+
+/// The two lanes consult separate limiter instances end-to-end: a key that
+/// the analytics limiter force-routes must not drag the same key's diverted
+/// `$ai_*` event into AI overflow (and the pageview must still stamp).
+/// Catches the router wiring one limiter instance into both slots.
+#[tokio::test]
+async fn ai_lane_overflow_isolated_from_analytics_limiter() {
+    let clean_ai_limiter = Arc::new(OverflowLimiter::new(
+        NonZeroU32::new(1_000).unwrap(),
+        NonZeroU32::new(1_000).unwrap(),
+        None,
+        false, // preserve_locality
+    ));
+
+    let (router, sink) = setup_analytics_router(
+        AiRouting::Secondary,
+        true, // valve armed
+        Some(force_keyed_limiter()),
+        Some(clean_ai_limiter),
+    );
+    let client = TestClient::new(router);
+
+    post_batch(&client, mixed_batch_payload()).await;
+
+    let events = sink.get_events().await;
+    assert_eq!(events.len(), 2);
+
+    let ai_event = events
+        .iter()
+        .find(|e| e.metadata.event_name == "$ai_generation")
+        .expect("$ai_generation must reach the sink");
+    assert_eq!(ai_event.metadata.data_type, DataType::AiEvents);
+    assert_eq!(
+        ai_event.metadata.overflow_reason, None,
+        "the analytics limiter's force-routed key must not stamp the AI lane"
+    );
+
+    let pageview = events
+        .iter()
+        .find(|e| e.metadata.event_name == "$pageview")
+        .expect("$pageview must reach the sink");
+    assert_eq!(
+        pageview.metadata.overflow_reason,
+        Some(OverflowReason::ForceLimited)
     );
 }
