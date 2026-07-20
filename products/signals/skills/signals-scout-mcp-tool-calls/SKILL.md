@@ -123,7 +123,7 @@ Encode the scope in the key prefix so future runs find it with one `text=mcp` se
 - key `dedupe:mcp_analytics:category:<category>` — _"Filed report on the data-warehouse category 2026-07-09 (4 tools: view-create 41%, view-update 39%, …). Skip unless the tool set or shapes change."_ One stable key per category — update it in place, don't mint a dated variant.
 - key `addressed:mcp_analytics:<tool>` — _"<tool> 5xx fixed 2026-06-30; back to baseline."_
 - key `report:mcp_analytics:category:<category>` — _"Report `019f0a96-…` covers the insights category's problem tools (query-run, list-insights). Edit it (append_note fresh numbers / newly-problematic tools) while the category still has problem tools and the report is live; if it was resolved and the category later regresses, that's a fresh report."_
-- key `reviewer:mcp_analytics:<category>` — _"insights MCP tools routed to `alice` (GitHub login, from members-list) — reuse without re-resolving."_
+- key `reviewer:mcp_analytics:<category>` — _"insights MCP tools routed to `alice` (owns the insights MCP surface per human correction on report `019f…`) — reuse while that evidence stands."_ Record the **evidence**, not just the login: a memory that says only "routed to alice" is indistinguishable from a guess, and blind reuse compounds a mis-route across every future run. Set the same evidence as the reviewer's `reason` when you author.
 
 ## Decide
 

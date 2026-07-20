@@ -139,6 +139,14 @@ class TestLlamaCloudSource:
             ("401 Client Error: Unauthorized for url: https://api.cloud.llamaindex.ai/api/v2/parse?page_size=100",),
             ("401 Client Error: Unauthorized for url: https://api.cloud.eu.llamaindex.ai/api/v2/projects",),
             ("403 Client Error: Forbidden for url: https://api.cloud.llamaindex.ai/api/v1/beta/files",),
+            # The beta usage-metrics endpoint 400s for organizations it isn't available to; the
+            # request is otherwise valid, so retrying can't help. Both regional hosts must match.
+            (
+                "400 Client Error: Bad Request for url: https://api.cloud.llamaindex.ai/api/v1/beta/usage-metrics?page_size=100&organization_id=00000000-0000-0000-0000-000000000000",
+            ),
+            (
+                "400 Client Error: Bad Request for url: https://api.cloud.eu.llamaindex.ai/api/v1/beta/usage-metrics?page_size=100&organization_id=00000000-0000-0000-0000-000000000000",
+            ),
         ]
     )
     def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
@@ -149,6 +157,9 @@ class TestLlamaCloudSource:
         [
             ("500 Server Error: Internal Server Error for url: https://api.cloud.llamaindex.ai/api/v2/parse",),
             ("401 Client Error: Unauthorized for url: https://api.example.com/api/v2/parse",),
+            # A 400 on a different endpoint may be a fixable bug in our request, so it must stay
+            # retryable and keep surfacing rather than being swallowed by the usage-metrics key.
+            ("400 Client Error: Bad Request for url: https://api.cloud.llamaindex.ai/api/v2/parse?page_size=100",),
         ]
     )
     def test_non_retryable_errors_ignore_unrelated(self, unrelated_error: str) -> None:

@@ -17,9 +17,16 @@ from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.constants import SANDBOX_EVENT_INGEST_FEATURE_FLAG
 from products.tasks.backend.error_telemetry import truncate_error_message
+from products.tasks.backend.feature_flags import is_native_steering_signals_enabled
 from products.tasks.backend.metrics import observe_task_run_workflow_start
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.build_image.workflow import BuildSandboxImageInput
+from products.tasks.backend.temporal.constants import (
+    SEND_STEER_SIGNAL,
+    STEERING_PROTOCOL_QUERY,
+    STEERING_PROTOCOL_QUERY_TIMEOUT,
+    STEERING_PROTOCOL_VERSION,
+)
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskInput
 from products.tasks.backend.temporal.slack_relay.activities import RelaySlackMessageInput
 
@@ -465,10 +472,41 @@ def execute_build_sandbox_image_workflow(image_id: str, team_id: int, *, refresh
     )
 
 
-def signal_task_followup_message(workflow_id: str, message: str | None, artifact_ids: list[str]) -> None:
+def signal_task_followup_message(
+    workflow_id: str,
+    message: str | None,
+    artifact_ids: list[str],
+    message_id: str | None = None,
+    actor_user_id: int | None = None,
+    context: dict[str, Any] | None = None,
+    *,
+    steer: bool = False,
+) -> None:
+    """Legacy positional signal args stay frozen for worker deploy compatibility."""
     client = sync_connect()
     handle = client.get_workflow_handle(workflow_id)
-    asyncio.run(handle.signal("send_followup_message", args=[message, artifact_ids]))
+
+    async def signal() -> None:
+        signal_name = "send_followup_message"
+        if steer and is_native_steering_signals_enabled():
+            try:
+                protocol_version = await handle.query(
+                    STEERING_PROTOCOL_QUERY,
+                    rpc_timeout=STEERING_PROTOCOL_QUERY_TIMEOUT,
+                )
+            except Exception:
+                logger.info(
+                    "task_followup_steering_capability_unavailable",
+                    extra={"workflow_id": workflow_id},
+                    exc_info=True,
+                )
+            else:
+                if isinstance(protocol_version, int) and protocol_version >= STEERING_PROTOCOL_VERSION:
+                    signal_name = SEND_STEER_SIGNAL
+        signal_args = [message, artifact_ids, message_id, actor_user_id, context]
+        await handle.signal(signal_name, args=signal_args)
+
+    asyncio.run(signal())
 
 
 def signal_agent_text_delta(workflow_id: str, text: str) -> None:
@@ -485,6 +523,7 @@ def execute_posthog_code_agent_relay_workflow(
     user_message_ts: str | None = None,
     delete_progress: bool = True,
     reaction_emoji: str | None = None,
+    message_id: str | None = None,
 ) -> str:
     relay_id = relay_id or str(uuid.uuid4())
     workflow_id = f"posthog-code-agent-relay-{run_id}-{relay_id}"
@@ -500,6 +539,7 @@ def execute_posthog_code_agent_relay_workflow(
                 user_message_ts=user_message_ts,
                 delete_progress=delete_progress,
                 reaction_emoji=reaction_emoji,
+                message_id=message_id,
             ),
             id=workflow_id,
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,

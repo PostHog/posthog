@@ -32,6 +32,8 @@ export interface EnrichedReviewer {
     github_name: string | null
     relevant_commits: RelevantCommit[]
     user: SignalReviewerUserInfo | null
+    /** Why this reviewer was chosen. Absent on artefacts stored before the field existed. */
+    reason?: string | null
 }
 
 /** P0 (highest) – P4 (lowest). Mirrors desktop `SignalReportPriority`. */

@@ -11,7 +11,7 @@ import { Request } from 'express'
 import { createHash } from 'node:crypto'
 import type { z } from 'zod'
 
-import { TRIGGER_ROUTES } from '@posthog/agent-shared'
+import { type Trigger, TRIGGER_ROUTES } from '@posthog/agent-shared'
 
 import { principalDisplay } from '../enqueue/acl'
 import { enqueueOrResume } from '../enqueue/enqueue'
@@ -28,7 +28,8 @@ async function webhookHandler(ctx: AuthedRouteCtx<z.infer<typeof WebhookBodySche
     const body = ctx.parsed
     const externalKeyHeader = req.headers['x-external-key']
     const externalKey = typeof externalKeyHeader === 'string' ? externalKeyHeader : null
-    const idempotencyKey = extractProviderIdempotencyKey(req, body)
+    const trigger = resolved.revision.spec.triggers.find((t) => t.type === 'webhook')
+    const idempotencyKey = extractIdempotencyKey(req, body, trigger)
     const sessionPrincipal = ctx.principal
     const outcome = await enqueueOrResume(
         { queue: deps.queue },
@@ -95,6 +96,31 @@ function extractProviderIdempotencyKey(req: Request, parsedBody: unknown): strin
         }
     }
     return undefined
+}
+
+/**
+ * Prefer the verified HMAC signature as the dedup key when the trigger uses an
+ * `hmac_sha256` auth mode. The signature is an unforgeable function of the body
+ * (the mount guard already verified it before this handler ran), so a replay
+ * that resends the same signed body under a fresh `X-GitHub-Delivery` — which
+ * is NOT part of the signed content — still collapses to one session, closing
+ * the signature-covers-body-only replay window. Falls back to the
+ * provider-header key for unsigned deliveries (Stripe id, GitHub delivery, …),
+ * whose header+body-digest form defends the separate pre-emption spoof.
+ */
+function extractIdempotencyKey(req: Request, parsedBody: unknown, trigger: Trigger | undefined): string | undefined {
+    if (trigger?.type === 'webhook') {
+        for (const mode of trigger.auth.modes) {
+            if (mode.type === 'shared_secret' && mode.scheme === 'hmac_sha256') {
+                const v = req.headers[mode.header.toLowerCase()]
+                const sig = typeof v === 'string' ? v : Array.isArray(v) ? v[0] : undefined
+                if (sig && sig.length > 0) {
+                    return `webhook:sig:${sig}`
+                }
+            }
+        }
+    }
+    return extractProviderIdempotencyKey(req, parsedBody)
 }
 
 /** The published `bodySchema` is intentionally loose — webhook accepts any
