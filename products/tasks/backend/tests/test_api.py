@@ -4801,6 +4801,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             run_id=str(run.id),
             text="Which license should I use?",
             delete_progress=True,
+            message_id=None,
         )
 
     @parameterized.expand(
@@ -4853,6 +4854,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             run_id=str(run.id),
             text=expected_posted_text,
             delete_progress=True,
+            message_id=None,
         )
 
     @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
