@@ -16,7 +16,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.api.services.query import process_query_dict
 from posthog.caching.utils import largest_teams
 from posthog.clickhouse.query_tagging import Feature, get_team_query_tags, tag_queries
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
@@ -205,7 +205,7 @@ def schedule_warming_for_teams_task():
     queue=CeleryQueue.ANALYTICS_LIMITED.value,  # Important! Prevents Clickhouse from being overwhelmed
     ignore_result=True,
     expires=60 * 60,
-    autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
+    autoretry_for=CH_TRANSIENT_ERRORS,
     retry_backoff=2,
     retry_backoff_max=3,
     max_retries=3,
@@ -271,7 +271,7 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
                     },
                 )
 
-        except CHQueryErrorTooManySimultaneousQueries:
+        except CH_TRANSIENT_ERRORS:
             raise
         except Exception as e:
             capture_exception(e)

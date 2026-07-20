@@ -19,10 +19,10 @@ from structlog import get_logger
 
 from posthog.hogql.constants import LimitContext
 
-from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
+from posthog.clickhouse.client.limit import limit_concurrency
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
-from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorTooManySimultaneousQueries
+from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import pushed_metrics_registry
 from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
@@ -345,11 +345,9 @@ def redis_heartbeat() -> None:
     ignore_result=True,
     queue=CeleryQueue.ANALYTICS_QUERIES.value,
     acks_late=True,
-    autoretry_for=(
-        # Important: Only retry for things that might be okay on the next try
-        CHQueryErrorTooManySimultaneousQueries,
-        ConcurrencyLimitExceeded,
-    ),
+    # Important: Only retry for things that might be okay on the next try — transient ClickHouse
+    # capacity errors (which surface as ClickHouseAtCapacity / ConcurrencyLimitExceeded).
+    autoretry_for=CH_TRANSIENT_ERRORS,
     retry_backoff=1,
     retry_backoff_max=10,
     max_retries=10,
