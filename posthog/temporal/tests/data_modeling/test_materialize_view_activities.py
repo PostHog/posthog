@@ -1068,7 +1068,7 @@ class _EmptyArrowClient:
         if on_schema is not None:
             on_schema(self.schema)
         return
-        yield
+        yield  # type: ignore[unreachable]  # makes this an async generator that yields no batches
 
     @contextlib.asynccontextmanager
     async def apost_query(self, query, *data, query_parameters=None, query_id=None):
