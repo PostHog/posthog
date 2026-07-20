@@ -307,6 +307,32 @@ describe('hog-log-exec', () => {
             expect(record.body).toBe(originalBody)
         })
 
+        it('caps the complete record: under-cap fields must not combine past the cap', async () => {
+            // body alone is under the cap here, but severity_text and the attribute
+            // map push the combined record over — the cap must be on the whole record.
+            const record = createRecord()
+            const originalSeverity = record.severity_text
+            const outcome = await run(
+                `
+                let rec := record
+                let s := 'xxxxxxxxxxxxxxxx'
+                for (let i := 0; i < 15; i := i + 1) {
+                    s := concat(s, s)
+                }
+                rec.body := s
+                rec.severity_text := s
+                rec.attributes.padding := s
+                return rec
+                `,
+                record,
+                {},
+                { timeoutMs: 1000 }
+            )
+
+            expect(outcome.status).toBe('failed')
+            expect(record.severity_text).toBe(originalSeverity)
+        })
+
         it('contains a cyclic returned record instead of throwing out of the executor', async () => {
             // A transformation can build a cycle; the redaction traversal must not
             // recurse forever — an uncaught throw here escapes the per-function
