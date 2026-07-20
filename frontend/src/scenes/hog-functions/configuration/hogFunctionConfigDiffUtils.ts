@@ -12,6 +12,8 @@ export interface HogFunctionFieldDiff {
     field: string
     /** Sentence-case field label, e.g. 'Filters', 'Source code'. */
     label: string
+    /** How the field's display text was produced — drives the diff viewer's syntax highlighting. */
+    kind: 'json' | 'text'
     status: HogFunctionFieldStatus
     /** Pretty-printed current value (empty when `added`). */
     currentText: string
@@ -62,8 +64,12 @@ const DIFFABLE_FIELDS: DiffableField[] = [
     { field: 'masking', label: 'Masking', kind: 'json' },
 ]
 
-/** Per-side character cap — a larger value collapses to the +/- stat summary in the card. */
-export const MAX_DIFF_FIELD_CHARS = 4000
+/**
+ * Per-side character cap — a larger value collapses to the +/- stat summary in the card. The diff
+ * viewer hides unchanged regions, so this is a safety valve against pathological payloads, not a
+ * render budget.
+ */
+export const MAX_DIFF_FIELD_CHARS = 50_000
 
 function isEmptyValue(value: unknown): boolean {
     if (value == null || value === '') {
@@ -132,6 +138,7 @@ export function buildHogFunctionConfigDiff(
         diffs.push({
             field,
             label,
+            kind,
             status,
             currentText,
             proposedText,
