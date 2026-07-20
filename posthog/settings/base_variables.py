@@ -81,6 +81,11 @@ if AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE:
     # Fail at boot on a malformed value rather than 500ing requests and temporal runs later.
     datetime.fromisoformat(AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE)
 
+# PostHog's own internal support project (US cloud). Support tickets and ticket-based
+# "login as customer" impersonation are scoped to this team. Set the env var in local
+# dev to point at your dev project; override in tests via @override_settings.
+POSTHOG_INTERNAL_TEAM_ID: int = get_from_env("POSTHOG_INTERNAL_TEAM_ID", 2, type_cast=int)
+
 # Duckgres - URL, internal secret, and PG endpoint for the managed warehouse service
 DUCKGRES_API_URL: str | None = get_from_env("DUCKGRES_API_URL", optional=True)
 DUCKGRES_INTERNAL_SECRET: str | None = get_from_env("DUCKGRES_INTERNAL_SECRET", optional=True)

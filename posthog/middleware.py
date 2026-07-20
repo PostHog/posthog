@@ -1359,6 +1359,9 @@ IMPERSONATION_READ_ONLY_SESSION_KEY = "impersonation_read_only"
 # in-app starts and can be surfaced to the frontend and the activity log.
 IMPERSONATION_REASON_SESSION_KEY = "impersonation_reason"
 
+# Session key holding the support ticket an impersonation session was started from
+IMPERSONATION_TICKET_ID_SESSION_KEY = "impersonation_ticket_id"
+
 
 def is_read_only_impersonation(request: HttpRequest) -> bool:
     """Check if the current session is a read-only impersonation session."""

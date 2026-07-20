@@ -97,3 +97,32 @@ export async function adminLoginAs({ userId, reason, readOnly }: AdminLoginAsPar
         throw new Error(`django-loginas request resulted in status ${loginResponse.status}`)
     }
 }
+
+export interface LoginAsFromTicketResult {
+    success?: boolean
+    ticket_id?: string
+    // Set when the ticket belongs to a different region; staff should be sent there instead.
+    redirect_url?: string
+    redirect_region?: string
+}
+
+export async function loginAsFromTicket(ticketId: string): Promise<LoginAsFromTicketResult> {
+    await ensureAdminOAuth2()
+
+    const response = await fetch('/admin/impersonation/from-ticket/', {
+        method: 'POST',
+        credentials: 'same-origin',
+        mode: 'cors',
+        headers: {
+            'X-CSRFToken': getCookie('posthog_csrftoken') as string,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ ticket_id: ticketId }),
+    })
+
+    const data: LoginAsFromTicketResult & { error?: string } = await response.json().catch(() => ({}))
+    if (!response.ok) {
+        throw new Error(data.error || `Impersonation request resulted in status ${response.status}`)
+    }
+    return data
+}

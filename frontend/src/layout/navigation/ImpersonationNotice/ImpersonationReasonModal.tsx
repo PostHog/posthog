@@ -7,6 +7,7 @@ export interface ImpersonationReasonModalCancelButton {
     status?: 'default' | 'danger'
     onClick: () => void
     sideAction?: SideAction
+    loading?: boolean
 }
 
 export interface ImpersonationReasonModalProps {
@@ -83,6 +84,7 @@ export function ImpersonationReasonModal({
                             status={cancel.status}
                             onClick={cancel.onClick}
                             sideAction={cancel.sideAction}
+                            loading={cancel.loading}
                         >
                             {cancel.label}
                         </LemonButton>

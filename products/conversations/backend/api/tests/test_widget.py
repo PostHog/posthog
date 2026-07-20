@@ -1,8 +1,9 @@
 import uuid
 
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, override_settings
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -541,6 +542,48 @@ class TestWidgetAPI(BaseTest):
             **self._get_headers(),
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @parameterized.expand(
+        [
+            ("us", "https://us.posthog.com/project/2/home", "US"),
+            ("eu", "https://eu.posthog.com/project/2/home", "EU"),
+            ("unknown_subdomain", "https://app.posthog.com/home", None),
+            ("non_posthog", "https://example.com/home", None),
+        ]
+    )
+    def test_infers_region_for_internal_team(self, _name, current_url, expected_region):
+        with override_settings(POSTHOG_INTERNAL_TEAM_ID=self.team.pk):
+            response = self.client.post(
+                "/api/conversations/v1/widget/message",
+                {
+                    "message": "Hi",
+                    "widget_session_id": self.widget_session_id,
+                    "distinct_id": self.distinct_id,
+                    "session_context": {"current_url": current_url},
+                },
+                format="json",
+                **self._get_headers(),
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ticket = Ticket.objects.get(id=response.json()["ticket_id"])
+        self.assertEqual(ticket.anonymous_traits.get("region"), expected_region)
+
+    def test_does_not_infer_region_for_other_teams(self):
+        # team.pk is not the internal support team here, so no region is inferred.
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            {
+                "message": "Hi",
+                "widget_session_id": self.widget_session_id,
+                "distinct_id": self.distinct_id,
+                "session_context": {"current_url": "https://eu.posthog.com/project/2/home"},
+            },
+            format="json",
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ticket = Ticket.objects.get(id=response.json()["ticket_id"])
+        self.assertNotIn("region", ticket.anonymous_traits)
 
 
 class TestWidgetCacheInvalidation(BaseTest):

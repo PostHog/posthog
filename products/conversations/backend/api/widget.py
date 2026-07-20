@@ -13,7 +13,9 @@ Anonymous users are controlled by widget_session_id. Verified users are controll
 
 import uuid
 import logging
+from urllib.parse import urlparse
 
+from django.conf import settings
 from django.db.models import F, Q
 
 from rest_framework import serializers, status
@@ -52,6 +54,19 @@ from products.conversations.backend.models.constants import ChannelDetail
 from products.conversations.backend.services.identity import verify_identity_hash
 
 logger = logging.getLogger(__name__)
+
+_REGION_BY_SUBDOMAIN = {"us": "US", "eu": "EU"}
+
+
+def _infer_posthog_region(current_url: str) -> str | None:
+    """Map a *.posthog.com app URL to its cloud region (US/EU), or None if not inferable."""
+    try:
+        hostname = urlparse(current_url).hostname or ""
+    except ValueError:
+        return None
+    if not hostname.endswith(".posthog.com"):
+        return None
+    return _REGION_BY_SUBDOMAIN.get(hostname.split(".")[0])
 
 
 class IdentityVerificationFailed(Exception):
@@ -133,6 +148,12 @@ class WidgetMessageView(APIView):
         traits = serializer.validated_data.get("traits", {})
         session_id = serializer.validated_data.get("session_id")
         session_context = serializer.validated_data.get("session_context", {})
+
+        # For PostHog's internal support project, infer the region from the app URL
+        # so ticket-based "login as customer" can route staff to the right region.
+        if team.pk == settings.POSTHOG_INTERNAL_TEAM_ID and (current_url := session_context.get("current_url")):
+            if region := _infer_posthog_region(current_url):
+                traits["region"] = region
 
         # Handle optional ticket_id (UUID field)
         raw_ticket_id = request.data.get("ticket_id")

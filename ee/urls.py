@@ -15,7 +15,7 @@ from posthog.views import api_key_search_view, redis_edit_ttl_view, redis_values
 
 from products.cdp.backend.api import hooks
 
-from ee.admin.loginas_views import loginas_user, upgrade_impersonation
+from ee.admin.loginas_views import loginas_user, loginas_user_from_ticket, upgrade_impersonation
 from ee.admin.oauth_views import admin_auth_check, admin_oauth_success
 from ee.api import integration
 from ee.api.agentic_provisioning import views as agentic_provisioning_views
@@ -241,6 +241,7 @@ if settings.ADMIN_PORTAL_ENABLED:
         ),
         path("admin/login/user/<str:user_id>/", loginas_user, name="loginas-user-login"),
         path("admin/impersonation/upgrade/", upgrade_impersonation, name="impersonation-upgrade"),
+        path("admin/impersonation/from-ticket/", loginas_user_from_ticket, name="impersonation-from-ticket"),
         path("admin/", include("loginas.urls")),
         path("admin/", admin.site.urls),
     ]
