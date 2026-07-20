@@ -689,7 +689,8 @@ jobs:
     # Runs product tests in parallel — one matrix job per group
     # Each job gets its own runner + Docker stack, so no shared DB conflicts
     # Small products (< 50 tests) are grouped into a single job to avoid setup overhead
-    # Keep this cancellation-aware: always() prevents superseded matrix jobs from receiving runner cancellation.
+    # A status function is required to inspect dependency results after failures.
+    # Use !cancelled(), not always(), so superseded matrix jobs still receive cancellation.
     turbo-tests:
         needs: [changes, turbo-discover, detect-snapshot-mode, build-product-test-matrix, get_clickhouse_versions]
         if: >-
@@ -2356,7 +2357,8 @@ jobs:
         # 3. OR turbo-discover itself failed (conservative: run Django on detection failure)
         # The non-empty include guard covers drafts in skip mode and selected runs
         # that chose zero files — an empty matrix would otherwise fail the job.
-        # Keep this cancellation-aware: always() prevents superseded matrix jobs from receiving runner cancellation.
+        # A status function is required to inspect dependency results after failures.
+        # Use !cancelled(), not always(), so superseded matrix jobs still receive cancellation.
         if: |
             !cancelled() &&
             needs.changes.outputs.backend == 'true' &&
@@ -3166,7 +3168,8 @@ jobs:
         runs-on: ubuntu-latest
         # Headroom for downloading every shard's JUnit for the failure rollup.
         timeout-minutes: 8
-        # Intentional exception: this required gate must evaluate cancelled dependencies and fail closed.
+        # Intentional always(): this required gate must inspect failed and cancelled
+        # dependencies and fail closed.
         if: always()
         steps:
             - name: Summarize dependency results
