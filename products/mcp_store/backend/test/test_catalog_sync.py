@@ -123,6 +123,30 @@ class TestSyncMCPCatalog(TestCase):
         assert template.oauth_credentials == {"client_id": "shared-client", "client_secret": "shhh"}
         assert template.oauth_metadata == {"authorization_endpoint": "https://auth.linear.app/authorize"}
 
+    def test_auth_type_change_deactivates_active_template(self):
+        # An active row was vetted under its old auth model; letting a catalog auth_type
+        # flip through while it stays active would route new installs down the wrong
+        # auth branch (e.g. the API-key path with no key provisioned).
+        template = MCPServerTemplate.objects.create(
+            name="Linear",
+            url="https://mcp.linear.app/mcp",
+            description="Manage Linear issues.",
+            auth_type="api_key",
+            category="dev",
+            is_active=True,
+            oauth_credentials={"client_id": "shared-client", "client_secret": "shhh"},
+        )
+
+        with patch("products.mcp_store.backend.catalog_sync.probe_mcp_server") as probe_mock:
+            counts = sync_mcp_catalog(entries=[_entry(auth_type="oauth")])
+
+        probe_mock.assert_not_called()
+        template.refresh_from_db()
+        assert counts.updated == 1
+        assert template.auth_type == "oauth"
+        assert template.is_active is False
+        assert template.oauth_credentials == {"client_id": "shared-client", "client_secret": "shhh"}
+
     def test_identical_entry_is_a_noop_without_probing(self):
         entry = _entry()
         with patch("products.mcp_store.backend.catalog_sync.probe_mcp_server", return_value=_dcr_pass_probe()):

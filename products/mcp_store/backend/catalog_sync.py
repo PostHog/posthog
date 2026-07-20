@@ -4,10 +4,15 @@ Semantics, chosen so the sync can run unattended at every app startup:
 
 - Rows are keyed on ``url``. A catalog entry with no row **creates** one; an entry with an
   existing row **updates content fields only** (name, description, auth_type, category,
-  icon_domain, docs_url).
+  icon_domain, docs_url). A changed ``url`` is therefore a new identity: the sync creates a
+  fresh row and leaves the old row — and installations pointing at it — untouched. Retire
+  the old row by deactivating it in admin.
 - The sync never touches operational state: ``is_active`` after creation,
   ``oauth_credentials`` (operator-provisioned shared client creds), or ``oauth_metadata``
   once set. Rows absent from the catalog (admin-added or removed entries) are left alone.
+  One fail-closed exception: an ``auth_type`` flip on an active row deactivates it, since
+  the row was vetted and activated under the old auth model — an operator re-vets and
+  reactivates in admin.
 - **Activation gate**: a newly created entry is probed live (``probe.probe_mcp_server``)
   and born active only when the probe passes for the auth model the catalog declares —
   DCR OAuth servers must complete a real client registration and serve an authorization
@@ -99,6 +104,17 @@ def _update_template(template: MCPServerTemplate, entry: CatalogEntry, counts: S
         return
     for f in changed:
         setattr(template, f, getattr(entry, f))
+    if "auth_type" in changed and template.is_active:
+        # The row was vetted and activated under the old auth model — e.g. an
+        # oauth→api_key flip would route new installs through the API-key branch
+        # with no key provisioned. Fail closed; an operator re-vets and reactivates.
+        template.is_active = False
+        changed.append("is_active")
+        logger.warning(
+            "mcp_catalog_sync.deactivated_on_auth_type_change",
+            url=entry.url,
+            auth_type=entry.auth_type,
+        )
     template.save(update_fields=[*changed, "updated_at"])
     counts.updated += 1
 
