@@ -73,9 +73,9 @@ _PRIORITY_LABELS = {
 # Self-hosted on pr-assets (SHA-pinned, permanent) rather than hotlinked, to keep it copyright-clean.
 _NO_ISSUES_GIF_URL = (
     "https://raw.githubusercontent.com/PostHog/pr-assets/"
-    "f1e44af03c5b884871f774d198f5934787a8da5c/2026/07/9b53d405-e8e6-4fba-ac7d-f23f8706cd67.gif"
+    "2cfa8ec2d6e5c88ed94a98881499a09153681886/2026/07/41e56d03-cfbe-4660-b7d5-8774d805af5c.gif"
 )
-_NO_ISSUES_GIF_ALT = "A happy hedgehog floating with a flower"
+_NO_ISSUES_GIF_ALT = "Someone relaxing in a sunny garden"
 
 
 def status_marker(report_id: str) -> str:
