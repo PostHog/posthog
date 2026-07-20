@@ -26,7 +26,7 @@ export const SUPPORT_TICKETS_PAGE_SIZE = 20
 
 // Must mirror the filter reducers' defaults below. The date range is deliberately
 // omitted: it's a persisted user preference, so clearing a view restores the
-// pre-view selection (dateRangeBeforeView) instead of a fixed default.
+// pre-view selection (dateRangeBeforeView), falling back to all time.
 const DEFAULT_TICKET_FILTERS: TicketViewFilters = {
     status: [],
     priority: [],
@@ -593,7 +593,10 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         resetFilters: () => {
             const dateRangeBeforeView = values.dateRangeBeforeView
             actions.clearActiveView()
-            actions.applyViewFilters({ ...DEFAULT_TICKET_FILTERS, ...dateRangeBeforeView })
+            actions.applyViewFilters({
+                ...DEFAULT_TICKET_FILTERS,
+                ...(dateRangeBeforeView ?? { dateFrom: null, dateTo: null }),
+            })
         },
         setActiveView: ({ view }) => {
             if (view) {
