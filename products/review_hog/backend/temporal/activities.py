@@ -49,6 +49,7 @@ from products.review_hog.backend.reviewer.lazy_seed import (
     sync_canonical_authoring,
     sync_canonical_blind_spots,
     sync_canonical_perspectives,
+    sync_canonical_resolution,
     sync_canonical_validation,
 )
 from products.review_hog.backend.reviewer.models import generate_all_schemas
@@ -220,6 +221,10 @@ class ResolveActingUserResult:
     review_inbox_prs: bool = False
     # Which chain link resolved: "author" | "default" | "override" (observability + tests).
     resolved_from: str = "author"
+    # Whether a published review of this user's PRs chains into the resolution stage. Defaults False
+    # — the SKIP value — so pre-field histories replay deterministically (the chained dispatch is a
+    # new workflow command; old runs must never reach it on replay). The model default is True.
+    resolve_comments: bool = False
 
 
 @dataclass
@@ -608,6 +613,9 @@ def _resolve_acting_user(
         urgency_threshold=str(settings.urgency_threshold),
         review_inbox_prs=settings.review_inbox_prs,
         resolved_from=resolved_from,
+        # Same author-protection shape as `review_labeled_prs`: the borrowed default user's personal
+        # switch never governs someone else's PR — an unmapped author gets the default posture (on).
+        resolve_comments=settings.resolve_comments if resolved_from in ("author", "override") else True,
     )
 
 
@@ -639,6 +647,7 @@ def _sync_review_skills(team_id: int) -> None:
     sync_canonical_perspectives(team, prune=True)
     sync_canonical_validation(team, prune=True)
     sync_canonical_blind_spots(team, prune=True)
+    sync_canonical_resolution(team, prune=True)
     sync_canonical_authoring(team, prune=True)
 
 

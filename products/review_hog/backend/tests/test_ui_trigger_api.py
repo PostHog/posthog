@@ -12,6 +12,7 @@ from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
 
 _START = "products.review_hog.backend.api.reviews.start_review_pr_workflow"
+_START_RESOLUTION = "products.review_hog.backend.api.reviews.start_resolution_workflow"
 _ACCESS = "products.review_hog.backend.api.reviews.GitHubIntegration.first_for_team_repository"
 _META = "products.review_hog.backend.api.reviews._fetch_pr_metadata"
 
@@ -25,10 +26,11 @@ def _pr_meta(**overrides: object) -> MagicMock:
 
 
 class TestReviewHogUiTriggerApi(APIBaseTest):
-    def _trigger(self, pr_url: str):
-        return self.client.post(
-            f"/api/projects/{self.team.id}/review_hog/reviews/trigger/", {"pr_url": pr_url}, format="json"
-        )
+    def _trigger(self, pr_url: str, run_mode: str | None = None):
+        body: dict[str, str] = {"pr_url": pr_url}
+        if run_mode is not None:
+            body["run_mode"] = run_mode
+        return self.client.post(f"/api/projects/{self.team.id}/review_hog/reviews/trigger/", body, format="json")
 
     @patch(_META, return_value=_pr_meta())
     @patch(_ACCESS, return_value=object())
@@ -37,7 +39,7 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
         # The URL is canonicalized (trailing /files dropped) and the requester is both the run user
         # and the acting user — losing the override would make the review follow the PR author's
         # perspectives instead of the person who asked for it.
-        with override_settings(REVIEWHOG_TEAM_ID=self.team.id):
+        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
             resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123/files")
 
         self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
@@ -50,17 +52,84 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
             publish=True,
             acting_user_id=self.user.id,
             trigger_source="ui",
+            # None = the requester's resolve_comments setting decides whether resolution chains.
+            resolve_comments=None,
         )
+
+    @patch(_META, return_value=_pr_meta())
+    @patch(_ACCESS, return_value=object())
+    @patch(_START_RESOLUTION)
+    @patch(_START, return_value="wf-ui-1")
+    def test_review_only_mode_pins_resolution_off_for_the_run(
+        self, mock_start, mock_start_resolution, _mock_access, _mock_meta
+    ):
+        # The split button's "review without resolving": the per-run override must reach the
+        # workflow as an explicit False — passing None would fall back to the user's setting.
+        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
+            resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123", run_mode="review_only")
+
+        self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
+        self.assertIs(mock_start.call_args.kwargs["resolve_comments"], False)
+        mock_start_resolution.assert_not_called()
+
+    @patch(_META, return_value=_pr_meta(head_sha="abc123"))
+    @patch(_ACCESS, return_value=object())
+    @patch(_START_RESOLUTION, return_value="wf-resolve-1")
+    @patch(_START)
+    def test_resolve_only_mode_runs_even_on_an_already_reviewed_head(
+        self, mock_start, mock_start_resolution, _mock_access, _mock_meta
+    ):
+        # Settling threads on a reviewed head is resolve-only's whole point: the already_reviewed
+        # early-return must not apply, and no review workflow may start. A published-at-head report
+        # is exactly the state a "Review" click would refuse.
+        ReviewReport.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            repository="posthog/posthog.com",
+            pr_number=123,
+            pr_url="https://github.com/PostHog/posthog.com/pull/123",
+            head_branch="feat-branch",
+            base_branch="master",
+            published_head_sha="abc123",
+        )
+        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
+            resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123/files", run_mode="resolve_only")
+
+        self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
+        self.assertEqual(resp.json(), {"workflow_id": "wf-resolve-1", "status": "started"})
+        mock_start.assert_not_called()
+        mock_start_resolution.assert_called_once_with(
+            pr_url="https://github.com/PostHog/posthog.com/pull/123",
+            team_id=self.team.id,
+            user_id=self.user.id,
+            acting_user_id=self.user.id,
+            trigger_source="ui",
+        )
+
+    @patch(_ACCESS, return_value=object())
+    @patch(_START_RESOLUTION)
+    @patch(_START)
+    def test_resolve_only_mode_keeps_the_synchronous_pr_gates(self, mock_start, mock_start_resolution, _mock_access):
+        # Resolve-only shares the sync UX checks: a closed PR must be rejected here, in the UI,
+        # not die async in the resolution workflow's prepare step where nothing surfaces.
+        with (
+            override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]),
+            patch(_META, return_value=_pr_meta(state="closed")),
+        ):
+            resp = self._trigger("https://github.com/PostHog/posthog.com/pull/7", run_mode="resolve_only")
+
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, resp.content)
+        mock_start.assert_not_called()
+        mock_start_resolution.assert_not_called()
 
     @parameterized.expand(
         [
-            ("team_unset", None),
-            ("other_team", 999_999),
+            ("team_unset", []),
+            ("other_team", [999_999]),
         ]
     )
     @patch(_START)
     def test_rejected_unless_the_project_is_the_reviewhog_team(self, _name, team_setting, mock_start):
-        with override_settings(REVIEWHOG_TEAM_ID=team_setting):
+        with override_settings(REVIEWHOG_TEAM_IDS=team_setting):
             resp = self._trigger("https://github.com/PostHog/posthog/pull/1")
 
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
@@ -68,7 +137,7 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
 
     @patch(_START)
     def test_non_pr_github_url_rejected(self, mock_start):
-        with override_settings(REVIEWHOG_TEAM_ID=self.team.id):
+        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
             resp = self._trigger("https://github.com/PostHog/posthog/issues/1")
 
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
@@ -77,7 +146,7 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
     @patch(_ACCESS, return_value=None)
     @patch(_START)
     def test_inaccessible_repository_rejected_without_starting_a_workflow(self, mock_start, _mock_access):
-        with override_settings(REVIEWHOG_TEAM_ID=self.team.id):
+        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
             resp = self._trigger("https://github.com/other-org/private-repo/pull/5")
 
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
@@ -99,7 +168,7 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
         side_effect = meta_or_error if isinstance(meta_or_error, Exception) else None
         return_value = None if side_effect else meta_or_error
         with (
-            override_settings(REVIEWHOG_TEAM_ID=self.team.id),
+            override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]),
             patch(_META, side_effect=side_effect, return_value=return_value),
         ):
             resp = self._trigger("https://github.com/PostHog/posthog.com/pull/7")
@@ -132,7 +201,7 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
             base_branch="master",
             published_head_sha=published_head_sha,
         )
-        with override_settings(REVIEWHOG_TEAM_ID=self.team.id):
+        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
             resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123")
 
         self.assertEqual(resp.status_code, expected_status, resp.content)
@@ -150,7 +219,7 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
         # Both GitHub calls must map through github_rate_limited_response — an unwrapped call
         # surfaces a 500 to the person clicking Review, exactly during retry-prone windows.
         with (
-            override_settings(REVIEWHOG_TEAM_ID=self.team.id),
+            override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]),
             patch(_ACCESS, return_value=object()),
             patch(rate_limited_call, side_effect=GitHubRateLimitError("rate limited", retry_after=30)),
         ):
@@ -168,7 +237,7 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
         ]
     )
     def test_settings_expose_whether_reviews_can_be_triggered_here(self, _name, is_reviewhog_team):
-        with override_settings(REVIEWHOG_TEAM_ID=self.team.id if is_reviewhog_team else self.team.id + 1):
+        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id] if is_reviewhog_team else [self.team.id + 1]):
             resp = self.client.get(f"/api/projects/{self.team.id}/review_hog/settings/")
 
         self.assertEqual(resp.status_code, status.HTTP_200_OK)

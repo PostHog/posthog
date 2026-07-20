@@ -42,7 +42,7 @@ from products.review_hog.backend.reviewer.progress import (
 )
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError, github_api_request
 from products.review_hog.backend.reviewer.tools.github_meta import PRFetcher, PRMetadata, PRParser
-from products.review_hog.backend.temporal.client import start_review_pr_workflow
+from products.review_hog.backend.temporal.client import start_resolution_workflow, start_review_pr_workflow
 from products.review_hog.backend.temporal.types import TRIGGER_UI
 
 logger = logging.getLogger(__name__)
@@ -211,10 +211,27 @@ class ReviewRecentReviewsPageSerializer(serializers.Serializer):
     )
 
 
+# What the trigger runs. The default 'review' includes the resolution stage when the requesting
+# user's `resolve_comments` setting is on; the other two are the split button's explicit variants.
+RUN_MODE_REVIEW = "review"
+RUN_MODE_REVIEW_ONLY = "review_only"
+RUN_MODE_RESOLVE_ONLY = "resolve_only"
+
+
 class ReviewTriggerRequestSerializer(serializers.Serializer):
     pr_url = serializers.CharField(
         help_text="GitHub pull request URL to review, e.g. 'https://github.com/PostHog/posthog.com/pull/123'. "
         "The repository must be accessible to the project's GitHub App installation.",
+    )
+    run_mode = serializers.ChoiceField(
+        required=False,
+        default=RUN_MODE_REVIEW,
+        choices=[RUN_MODE_REVIEW, RUN_MODE_REVIEW_ONLY, RUN_MODE_RESOLVE_ONLY],
+        help_text="What to run on the pull request. 'review' (default) reviews it and, when the "
+        "requesting user's resolve_comments setting is on, chains the resolution stage; "
+        "'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips "
+        "the review and only runs the resolution stage on the PR's existing unresolved review "
+        "threads.",
     )
 
 
@@ -613,11 +630,14 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         summary="Start a review of a pull request",
         description="Start a ReviewHog review of any pull request the project's GitHub App installation can "
         "access, and publish it back to the PR. The requesting user is the review's acting user: their "
-        "enabled perspectives, blind-spot check, validator, and urgency threshold drive the run, and it "
-        "appears under their recent reviews. Nonexistent, closed, and fork PRs are rejected synchronously; "
+        "enabled perspectives, blind-spot check, validator, urgency threshold, and resolution criteria "
+        "drive the run, and it appears under their recent reviews. `run_mode` picks the variant: a review "
+        "(which chains the resolution stage per the user's resolve_comments setting), a review without "
+        "resolving, or resolution only. Nonexistent, closed, and fork PRs are rejected synchronously; "
         "a PR whose current commit already has a published review returns 'already_reviewed' without "
-        "starting a run, and triggering a PR whose review is currently running joins the in-flight run. "
-        "Otherwise non-blocking: returns the Temporal workflow id immediately while the review runs in "
+        "starting a run (resolve_only skips that check — settling threads on a reviewed head is its whole "
+        "point), and triggering a PR whose run is currently in flight joins that run. "
+        "Otherwise non-blocking: returns the Temporal workflow id immediately while the run executes in "
         "the worker.",
     )
     @action(methods=["POST"], detail=False)
@@ -625,7 +645,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         team_id = resolve_effective_team_id(self.team_id)
         # Dogfood gate: the UI trigger only runs on the designated ReviewHog team for now — reviews are
         # expensive, so widening beyond it is a deliberate later decision, not a default.
-        if not settings.REVIEWHOG_TEAM_ID or team_id != settings.REVIEWHOG_TEAM_ID:
+        if team_id not in settings.REVIEWHOG_TEAM_IDS:
             return Response(
                 {"error": "ReviewHog reviews can't be started from this project yet"},
                 status=status.HTTP_403_FORBIDDEN,
@@ -681,6 +701,29 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 {"error": f"Pull request #{pr_number} is {pr_meta.state}; ReviewHog reviews open pull requests"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        run_mode: str = serializer.validated_data["run_mode"]
+        # Rebuilt canonical URL: the parser accepts trailing paths (e.g. …/pull/123/files).
+        pr_url = f"https://github.com/{pr_info['owner']}/{pr_info['repo']}/pull/{pr_info['pr_number']}"
+        # The requester is both the run user (sandbox identity) and the acting user (whose
+        # perspectives/validator/threshold/criteria apply). The route is authenticated, so never anonymous.
+        requester_id = cast(User, request.user).id
+
+        if run_mode == RUN_MODE_RESOLVE_ONLY:
+            # No already-reviewed early-return here: an already-reviewed head is exactly when a
+            # standalone resolution run is useful (the threads exist, the review won't re-run).
+            workflow_id = start_resolution_workflow(
+                pr_url=pr_url,
+                team_id=team_id,
+                user_id=requester_id,
+                acting_user_id=requester_id,
+                trigger_source=TRIGGER_UI,
+            )
+            logger.info(f"ReviewHog UI trigger started resolution {workflow_id} for {pr_url} by user {requester_id}")
+            return Response(
+                ReviewTriggerResponseSerializer({"workflow_id": workflow_id, "status": "started"}).data,
+                status=status.HTTP_202_ACCEPTED,
+            )
+
         # Repository casing can differ per trigger (the report stores whatever its trigger carried).
         report = (
             ReviewReport.objects.for_team(team_id).filter(repository__iexact=repository, pr_number=pr_number).first()
@@ -692,11 +735,6 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 ReviewTriggerResponseSerializer({"workflow_id": "", "status": "already_reviewed"}).data,
                 status=status.HTTP_200_OK,
             )
-        # Rebuilt canonical URL: the parser accepts trailing paths (e.g. …/pull/123/files).
-        pr_url = f"https://github.com/{pr_info['owner']}/{pr_info['repo']}/pull/{pr_info['pr_number']}"
-        # The requester is both the run user (sandbox identity) and the acting user (whose
-        # perspectives/validator/threshold apply). The route is authenticated, so never anonymous.
-        requester_id = cast(User, request.user).id
         workflow_id = start_review_pr_workflow(
             pr_url=pr_url,
             team_id=team_id,
@@ -704,6 +742,8 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             publish=True,
             acting_user_id=requester_id,
             trigger_source=TRIGGER_UI,
+            # None = the requester's resolve_comments setting decides; review_only pins it off.
+            resolve_comments=False if run_mode == RUN_MODE_REVIEW_ONLY else None,
         )
         logger.info(f"ReviewHog UI trigger started workflow {workflow_id} for {pr_url} by user {requester_id}")
         return Response(

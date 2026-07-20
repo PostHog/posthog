@@ -4,7 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { ReviewHogReviewsListScope } from 'products/review_hog/frontend/generated/api.schemas'
+import { ReviewHogReviewsListScope, RunModeEnumApi } from 'products/review_hog/frontend/generated/api.schemas'
 
 import { MAX_REVIEWS_LIMIT, REVIEWS_PAGE_SIZE, reviewHogSettingsLogic } from './reviewHogSettingsLogic'
 
@@ -35,11 +35,17 @@ describe('reviewHogSettingsLogic', () => {
                 ],
                 '/api/projects/:team_id/review_hog/settings/': () => [
                     200,
-                    { review_inbox_prs: false, review_labeled_prs: true, urgency_threshold: 'should_fix' },
+                    {
+                        review_inbox_prs: false,
+                        review_labeled_prs: true,
+                        resolve_comments: true,
+                        urgency_threshold: 'should_fix',
+                    },
                 ],
                 '/api/projects/:team_id/review_hog/perspectives/': () => [200, []],
                 '/api/projects/:team_id/review_hog/blind_spots/': () => [200, []],
                 '/api/projects/:team_id/review_hog/validators/': () => [200, []],
+                '/api/projects/:team_id/review_hog/resolution/': () => [200, []],
             },
             post: {
                 '/api/projects/:team_id/review_hog/reviews/trigger/': () => [
@@ -122,6 +128,34 @@ describe('reviewHogSettingsLogic', () => {
         await expectLogic(logic).toDispatchActions(['submitTriggerReviewFinished'])
 
         expect(triggerCalls).toBe(1)
+    })
+
+    it('a resolve-only run sends its mode and does not arm the review watch', async () => {
+        // Resolve-only runs never create the report row the watch polls for — arming it would poll
+        // idle for two minutes; and dropping run_mode from the POST would silently degrade the
+        // split button's side actions into plain reviews.
+        let requestBody: Record<string, unknown> | null = null
+        useMocks({
+            post: {
+                '/api/projects/:team_id/review_hog/reviews/trigger/': async ({ request }) => {
+                    requestBody = (await request.json()) as Record<string, unknown>
+                    return [202, { workflow_id: 'wf-resolve-1', status: 'started' }]
+                },
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions([
+            'loadRecentReviewsSuccess',
+            'applyDefaultReviewsScope',
+            'loadRecentReviewsSuccess',
+        ])
+        logic.actions.setTriggerPrUrl('https://github.com/PostHog/posthog.com/pull/1')
+
+        await expectLogic(logic, () => logic.actions.submitTriggerReview(RunModeEnumApi.ResolveOnly))
+            .toDispatchActions(['submitTriggerReview', 'loadRecentReviews', 'submitTriggerReviewFinished'])
+            .toNotHaveDispatchedActions(['startTriggeredReviewWatch'])
+            .toMatchValues({ triggeringReview: false, triggerPrUrl: '', awaitingTriggeredReview: false })
+        expect(requestBody).toMatchObject({ run_mode: 'resolve_only' })
     })
 
     it('an already-reviewed PR informs without arming the watch', async () => {

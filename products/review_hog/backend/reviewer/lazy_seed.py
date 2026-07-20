@@ -38,6 +38,7 @@ from products.review_hog.backend.reviewer.skill_loader import (
     REVIEW_HOG_AUTHORING_PREFIX,
     REVIEW_HOG_BLIND_SPOTS_PREFIX,
     REVIEW_HOG_PERSPECTIVE_PREFIX,
+    REVIEW_HOG_RESOLUTION_PREFIX,
     REVIEW_HOG_VALIDATION_PREFIX,
 )
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
@@ -236,6 +237,11 @@ def discover_canonical_validation(skills_dir: Path | None = None) -> tuple[Canon
 def discover_canonical_blind_spots(skills_dir: Path | None = None) -> tuple[CanonicalSkill, ...]:
     """Every parsed `review-hog-blind-spots-*` skill on disk (the single general sweep today)."""
     return _discover_canonical(REVIEW_HOG_BLIND_SPOTS_PREFIX, skills_dir)
+
+
+def discover_canonical_resolution(skills_dir: Path | None = None) -> tuple[CanonicalSkill, ...]:
+    """Every parsed `review-hog-resolution-*` skill on disk (the single criteria skill today)."""
+    return _discover_canonical(REVIEW_HOG_RESOLUTION_PREFIX, skills_dir)
 
 
 def discover_canonical_authoring(skills_dir: Path | None = None) -> tuple[CanonicalSkill, ...]:
@@ -538,6 +544,17 @@ def sync_canonical_blind_spots(team: Team, *, prune: bool = False) -> SyncResult
         canonicals=discover_canonical_blind_spots(),
         category=REVIEW_HOG_SKILL_CATEGORY,
         prefix=REVIEW_HOG_BLIND_SPOTS_PREFIX,
+        prune=prune,
+    )
+
+
+def sync_canonical_resolution(team: Team, *, prune: bool = False) -> SyncResult:
+    """Reconcile a team's rows with the canonical `review-hog-resolution-*` criteria skill on disk."""
+    return _sync_canonicals(
+        team,
+        canonicals=discover_canonical_resolution(),
+        category=REVIEW_HOG_SKILL_CATEGORY,
+        prefix=REVIEW_HOG_RESOLUTION_PREFIX,
         prune=prune,
     )
 

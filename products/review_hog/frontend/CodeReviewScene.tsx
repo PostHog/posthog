@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import {
     IconBalance,
+    IconChat,
     IconChevronDown,
     IconDirectedGraph,
     IconExternal,
@@ -12,6 +13,7 @@ import {
     IconSearch,
     IconShield,
     IconStack,
+    IconWrench,
 } from '@posthog/icons'
 import {
     LemonBanner,
@@ -50,14 +52,14 @@ import type {
     ReviewRecentReviewApi,
     UrgencyThresholdEnumApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
-import { ReviewHogReviewsListScope } from 'products/review_hog/frontend/generated/api.schemas'
+import { ReviewHogReviewsListScope, RunModeEnumApi } from 'products/review_hog/frontend/generated/api.schemas'
 
 import { REVIEWS_PAGE_SIZE, ReviewDrawerTab, ReviewSkillKind, reviewHogSettingsLogic } from './reviewHogSettingsLogic'
 
 /** "review-hog-perspective-logic-correctness" → "Logic correctness" */
 function prettifySkillName(skillName: string): string {
     const cleaned = skillName
-        .replace(/^review-hog-(perspective|blind-spots|validation)-/, '')
+        .replace(/^review-hog-(perspective|blind-spots|validation|resolution)-/, '')
         .replace(/[-_]/g, ' ')
         .trim()
     return cleaned ? cleaned.charAt(0).toUpperCase() + cleaned.slice(1) : skillName
@@ -97,6 +99,22 @@ const PIPELINE_PHASES: { name: string; hint: string; steps: { number: string; ti
             { number: '07', title: 'Dedupe', caption: 'overlapping findings are merged' },
             { number: '08', title: 'Validate', caption: 'each finding is checked against your quality bar' },
             { number: '09', title: 'Publish', caption: 'a cleaned-up review lands on the pull request' },
+        ],
+    },
+    {
+        name: 'Resolve',
+        hint: 'settle the review comments',
+        steps: [
+            {
+                number: '10',
+                title: 'Triage threads',
+                caption: 'every unresolved comment thread is judged against your resolution criteria',
+            },
+            {
+                number: '11',
+                title: 'Fix & reply',
+                caption: 'worth-and-safe asks land on the branch, and every thread gets a reply',
+            },
         ],
     },
 ]
@@ -227,7 +245,8 @@ function PipelineSection(): JSX.Element {
     return (
         <section className="flex flex-col gap-4 border-t border-primary pt-8">
             <SectionHeader icon={<IconDirectedGraph />} title="How we review your PRs">
-                Every review runs through the same steps before it's published.
+                Every review runs through the same steps before it's published, then works through the comment threads
+                it leaves open.
             </SectionHeader>
             <div className="flex flex-wrap items-stretch gap-2.5">
                 {PIPELINE_PHASES.map((phase, i) => (
@@ -602,8 +621,11 @@ function RecentReviewsSection(): JSX.Element | null {
 
 /**
  * "Review a pull request": paste any PR URL the project's GitHub App installation can access and
- * start a publishing review, acting as the requesting user. Hidden unless the backend says this
- * project can trigger reviews (limited to the designated ReviewHog team while in alpha).
+ * start a publishing review, acting as the requesting user. A review resolves the PR's comment
+ * threads afterwards when the user's resolve_comments setting is on; the split button's side
+ * actions are the per-run variants (review without resolving / resolve only). Hidden unless the
+ * backend says this project can trigger reviews (limited to the designated ReviewHog team while
+ * in alpha).
  */
 function TriggerReviewSection(): JSX.Element | null {
     const { settings, triggerPrUrl, triggeringReview } = useValues(reviewHogSettingsLogic)
@@ -612,6 +634,8 @@ function TriggerReviewSection(): JSX.Element | null {
     if (!settings?.can_trigger_reviews) {
         return null
     }
+    const noUrlReason = !triggerPrUrl.trim() ? 'Paste a pull request URL first' : undefined
+    const inFlightReason = triggeringReview ? 'A run is already starting…' : undefined
     return (
         <section className="flex flex-col gap-4">
             <SectionHeader icon={<IconGithub />} title="Review a pull request">
@@ -635,7 +659,32 @@ function TriggerReviewSection(): JSX.Element | null {
                     type="primary"
                     htmlType="submit"
                     loading={triggeringReview}
-                    disabledReason={!triggerPrUrl.trim() ? 'Paste a pull request URL first' : undefined}
+                    disabledReason={noUrlReason}
+                    sideAction={{
+                        icon: <IconChevronDown />,
+                        disabledReason: noUrlReason ?? inFlightReason,
+                        dropdown: {
+                            placement: 'bottom-end',
+                            overlay: (
+                                <>
+                                    <LemonButton
+                                        fullWidth
+                                        onClick={() => submitTriggerReview(RunModeEnumApi.ReviewOnly)}
+                                        tooltip="Review the pull request but leave its comment threads alone, whatever your setting says."
+                                    >
+                                        Review without resolving comments
+                                    </LemonButton>
+                                    <LemonButton
+                                        fullWidth
+                                        onClick={() => submitTriggerReview(RunModeEnumApi.ResolveOnly)}
+                                        tooltip="Skip the review and only work through the pull request's existing unresolved comment threads."
+                                    >
+                                        Only resolve existing comments
+                                    </LemonButton>
+                                </>
+                            ),
+                        },
+                    }}
                 >
                     Review
                 </LemonButton>
@@ -1023,7 +1072,8 @@ function TriggersSection(): JSX.Element {
     return (
         <section className="flex flex-col gap-4 border-t border-primary pt-8">
             <SectionHeader icon={<IconFilter />} title="What gets reviewed">
-                Choose which pull requests ReviewHog picks up automatically.
+                Choose which pull requests ReviewHog picks up automatically, and whether reviews also resolve the
+                comment threads on them.
             </SectionHeader>
             <LemonCard hoverEffect={false} className="divide-y divide-primary p-0">
                 <div className="flex items-center gap-4 p-4">
@@ -1070,6 +1120,24 @@ function TriggersSection(): JSX.Element {
                         aria-label="Review all your PRs with the reviewhog label"
                         checked={settings?.review_labeled_prs ?? true}
                         onChange={(checked) => updateSettings({ review_labeled_prs: checked })}
+                        disabledReason={switchDisabledReason}
+                    />
+                </div>
+                <div className="flex items-center gap-4 p-4">
+                    <div className="flex size-9 shrink-0 items-center justify-center rounded border border-primary bg-primary">
+                        <IconChat className="size-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                        <div className="text-sm font-semibold">Resolve comments on your PRs</div>
+                        <div className="text-xs text-secondary">
+                            After a review of your pull request is published, ReviewHog works through its unresolved
+                            comment threads: safe fixes land on the branch, and every thread gets a reply.
+                        </div>
+                    </div>
+                    <LemonSwitch
+                        aria-label="Resolve comments on your PRs"
+                        checked={settings?.resolve_comments ?? true}
+                        onChange={(checked) => updateSettings({ resolve_comments: checked })}
                         disabledReason={switchDisabledReason}
                     />
                 </div>
@@ -1524,8 +1592,8 @@ export const scene: SceneExport = {
  */
 export function CodeReviewScene(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { blindSpots, validators, initialLoadFailed } = useValues(reviewHogSettingsLogic)
-    const { selectBlindSpots, selectValidator, loadAll } = useActions(reviewHogSettingsLogic)
+    const { blindSpots, validators, resolutionSkills, initialLoadFailed } = useValues(reviewHogSettingsLogic)
+    const { selectBlindSpots, selectValidator, selectResolutionSkill, loadAll } = useActions(reviewHogSettingsLogic)
 
     if (user != null && !user.is_staff) {
         return <NotFound object="page" />
@@ -1593,6 +1661,16 @@ export function CodeReviewScene(): JSX.Element {
                     preamble={<ValidatorEffectivenessCard />}
                     skills={validators?.map((s) => ({ ...s, on: s.active })) ?? null}
                     onSelect={selectValidator}
+                />
+                <SingleActiveSection
+                    icon={<IconWrench />}
+                    title="Resolution criteria"
+                    intro="After a review is published, ReviewHog works through the pull request's unresolved comment threads: asks that are worth it and safe get implemented on the branch, and every thread gets a reply. These criteria set that bar. Keep several on hand, but only one is applied."
+                    kind="resolution"
+                    kindLabel="resolution criteria"
+                    createLabel="Create your own resolution criteria"
+                    skills={resolutionSkills?.map((s) => ({ ...s, on: s.active })) ?? null}
+                    onSelect={selectResolutionSkill}
                 />
 
                 <SkillDrawer />

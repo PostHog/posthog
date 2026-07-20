@@ -2002,6 +2002,11 @@ the **right substrate** — keep it; the loop only fixes what's positional. **Si
 
 #### Action plane — "implement the fixes" (step 4)
 
+> **⚠️ Superseded for comment-shaped fixes (2026-07-17).** The C→A ordering below is kept as history.
+> The action plane is now the **resolution stage** (Stage 7): direct signed commits to the PR head branch,
+> driven by the PR's unresolved review threads — not suggestion blocks, not a companion PR.
+> Stage 7 records the settled design and the scoped consent model that replaces "never push the author's branch".
+
 Today ReviewHog only reviews + comments; editing code is net-new. Three tiers (verified against the real Tasks
 write path):
 
@@ -2769,6 +2774,129 @@ fleet-level control during alpha).
    unobserved live: receipt `outcome="published"` (needs a findings-bearing inbox PR; publish
    machinery proven by the manual leg on #68108) and the **repeat turn on the same report — the
    first real exercise of re-review**. Log those here when they happen.
+
+---
+
+### 🛠️ Stage 7 — the resolution stage (design settled 2026-07-17; BUILT first cut 2026-07-17 — pending live e2e)
+
+> **Status: built (first cut), not yet exercised live.** Grilled to closure with the maintainer on 2026-07-17;
+> the settled vocabulary lives in [CONTEXT.md](./CONTEXT.md) (the "Resolution stage" block) and is not repeated here.
+> This section records what was decided, the two decisions it deliberately supersedes, and the build map.
+> The stage was prototyped as an interactive triage skill (verify each unresolved thread against current code,
+> fix on confirmation, reply, resolve); this is its autonomous adaptation.
+>
+> **As built (same day):** everything below landed as designed. Topology map: `backend/temporal/resolution.py`
+> (`ResolvePRWorkflow`, id `resolve-pr:{team}:{owner}/{repo}:{pr}` — reuses the review's setup activities, then ONE
+> long `resolve_threads_activity` owning fetch → gates → pre-filter → warm session → verdict-driven side effects;
+> 4h ceiling, 5m heartbeat, 2 attempts with per-thread skip-resume à la validation). Thread I/O:
+> `reviewer/tools/github_threads.py` (GraphQL `reviewThreads` fetch + reply/resolve mutations over the gated egress
+> transport; `order_threads` priority tiers; `classify_thread` pre-filter incl. partial-delivery redelivery;
+> `should_resolve` etiquette gate). Turn contract: `reviewer/models/thread_resolution.py` (`ThreadResolution`,
+> `fixed` requires the real commit SHA) + `prompts/thread_resolution/` (hard floors in the template; criteria
+> pulled via `skill-get` of `review-hog-resolution-criteria`, single-active per user, validator pattern
+> end-to-end: prefix loader, lazy-seed sync, canonical skill on disk under `skills/`). Persistence:
+> `thread_verdict` artefact (latest-wins per thread; `latest_comment_id` watermark; `reply_posted`/`resolved`
+> delivery flags — written before AND after side effects so a crash redoes only writes, never LLM turns), plus the
+> first writers for `task_run` / `commit` / `note`. Entry points: `POST /api/review_hog/resolve` (standalone) and
+> the chained `ReviewPRWorkflow` fire-and-forget ABANDON child dispatch (gating below), `run_resolution` command.
+> Model pin: `RESOLUTION_*` constants (validator's Claude tier); cap: `MAX_THREADS_PER_RUN = 20`, overflow named
+> in the run-summary `note`. **Not yet done:** live e2e on a real PR (verify the installation token can
+> `resolveReviewThread` — the interactive prototype hit token-capability failures there; the qualification run is
+> planned end-to-end in `eval/experiments/2026-07-resolution-e2e/PLAN.md` — the resolver fixes its own PR #72074),
+> the label Action client, and self-driving calling the endpoint after implementation PRs gather comments.
+>
+> **Superseded same day — reviewing includes resolving (maintainer decision, 2026-07-17).** The first cut gated
+> chaining on a per-run caller flag (`resolve=true` on the label trigger, default-False `resolve_comments` input);
+> that opt-in posture is gone. Whether a published review chains into the resolution stage is the **acting user's
+> `ReviewUserSettings.resolve_comments` setting (default on)** — surfaced beside the trigger opt-outs — snapshotted
+> into `ResolveActingUserResult` at acting-user resolution (new field defaulting **False**, the replay skip value:
+> pre-field histories never reach the dispatch command; the model default is True, and the default-user fallback
+> forces it on — a borrowed user's opt-out never governs someone else's PR).
+> `ReviewPRWorkflowInputs.resolve_comments` became a tri-state per-run override: `None` (every trigger's default) =
+> follow the setting on publishing runs — an unpublished eval/CLI review never writes to the PR; `False`/`True` =
+> pin, used only by the Code review scene. UI (same day): the "Resolve comments on your PRs" toggle, a
+> single-active resolution-criteria config block (`api/resolution.py`, route `review_hog/resolution`, validator
+> pattern end-to-end; the authoring companion gained the resolution path), a "Resolve" phase on the pipeline
+> diagram, and the Review button grew split-button side actions — "Review without resolving comments"
+> (`run_mode=review_only`) and "Only resolve existing comments" (`run_mode=resolve_only`, which keeps the trigger's
+> synchronous PR gates but skips the already-reviewed early-return and starts `ResolvePRWorkflow` directly;
+> feedback is a toast, since resolution runs don't produce the report-row activity the review watch polls).
+
+**The goal.** After a review — anyone's, not just ReviewHog's — the PR should end up _as close to ready-to-merge as
+possible_, not merely "reviewed". The resolution stage loads the PR's unresolved review threads and settles each one:
+implement what is worth doing and safe to do unattended, answer what isn't, and escalate what needs a human.
+
+**The shape (all settled; rationale in CONTEXT.md).**
+
+1. **Scope** — any non-fork PR the acting team's GitHub App installation can access, person- or bot-authored.
+   Installation-relative on purpose: the stage must work on any customer's project, so prompts, criteria, and scope
+   rules never assume our own repos or internal docs; the session discovers the target repo's own convention docs
+   (CLAUDE.md / AGENTS.md / CONTRIBUTING) when present. Forks are hard-refused — this stage writes.
+2. **A ReviewHog stage, standalone-capable.** Chained after a review turn — reviewing includes resolving by
+   default, gated by the acting user's `resolve_comments` setting (see the supersession note above; the original
+   design said "per-run gated, off by default") — _and_ independently triggerable — many PRs never get a review
+   turn. The work-list is always the comments posted on the PR, never in-memory findings, so chained and
+   standalone runs are identical in shape.
+3. **Work-list** — unresolved review threads only; the thread (not the comment) is the unit; outdated unresolved
+   threads included ("already addressed → reply" is a cheap win). Conversation comments and review bodies load as
+   context, never as work items — the stage acts only on surfaces it can both answer and resolve.
+4. **Topology** — one warm writable sandbox session per PR (the shared working tree is load-bearing: later turns see
+   earlier fixes; one pusher, no races), one thread per turn in priority order (humans → ReviewHog → other bots),
+   assess-and-fix in the same turn (they share the same repo investigation). GitHub side effects are verdict-driven:
+   the driver posts replies / resolves server-side from each turn's structured verdict; the schema is fixed in code.
+5. **Triage** — three layers: hard floors in code (never touch CI workflows / CODEOWNERS / auth-secrets-crypto
+   surfaces / dependencies on comment say-so; nothing beyond the PR's intent; prompt-injection → decline + callout),
+   a "worth" bar (real, not already addressed, concrete; source rank is _ordering and trust weighting_ — an unknown
+   bot's ask is never implemented on its say-so alone), and a "safe" bar (contained + provable in-session by
+   lint/tests vs needs-e2e → escalate; proportionality: a fix needing new infrastructure is a decision, not a
+   mechanical fix). Worth/safe ship as a team-owned DB-synced skill (`review-hog-resolution-criteria`, seeded from
+   the interactive triage skill); the floors stay in code — the skill may tighten, never loosen. Standing human
+   verdicts left as thread replies (SAFE TO FIX / E2E REQUIRED) are honored: the human override channel.
+6. **Outcomes & etiquette** — every thread ends FIXED / WON'T FIX / ALREADY FIXED / OBSOLETE / ESCALATE. Triage and
+   fixing are author-blind; only _resolve_ is author-gated: human threads get the bot's reply (fix + commit link, or
+   the reasoning) but are **never resolved** — the human keeps the final word; bot threads are resolved on terminal
+   outcomes; ESCALATE never resolves.
+7. **Entry points** — a trigger-style endpoint is the durable interface (mirroring the review trigger: shared-secret
+   bearer, server-side identity), with a thin label Action and API callers (e.g. self-driving) as clients; a
+   `run_resolution` management command mirrors `run_review` for dev. Deterministic skip gates before any sandbox
+   (closed/merged, fork, empty work-list); one run per PR via a deterministic workflow id.
+8. **Writing mechanics** — one signed commit per FIXED thread (signed commits are remote by construction, so commit
+   cadence is push cadence), that thread's reply/resolve posted once its commit is visible. Mid-run race (author
+   pushed): sync onto the new head once, re-verify, retry; if it moves again, yield — done threads keep their
+   outcomes. **CI is out of scope**: the Tasks CI follow-up owns checks; this stage owns threads.
+9. **Persistence & budget** — home is the living `ReviewReport`; runs append `thread_verdict` (net-new content
+   schema, latest-wins per thread) plus `commit` / `task_run` / `note` artefacts (their first writers). Idempotency
+   is per-thread: unchanged state skips deterministically, any new reply re-opens that thread's triage (pushback on
+   a WON'T FIX gets a fresh assessment). Cap: **20 threads per run** — the binding constraint is the warm session's
+   context window, not cost; overflow is always named in the run summary and the next run continues. Model/effort
+   pinned by `RESOLUTION_*` constants (validator's Claude default to start).
+
+**Supersessions (deliberate, recorded so nobody "fixes" the new behavior back).**
+
+- **Stage 4 action plane (C → A) is superseded for comment-shaped fixes.** No suggestion blocks, no companion PR:
+  the stage commits directly to the PR head branch. The "never push the author's branch" principle is replaced by
+  the scoped consent model above (non-fork, installation-accessible PRs; forks hard-refused). The Tasks engine
+  choice survives — the stage runs on `MultiTurnSession` exactly as the validator does.
+- **The Tasks CI follow-up's "do not resolve or dismiss review threads" rule is narrowed, not repealed.** Resolving
+  _bot_ threads is now the resolution stage's job; human threads remain human-resolved. Known seam to close on the
+  Tasks side when the stage goes live there: `_should_run_ci_follow_up` also fires on new unresolved threads and
+  `DEFAULT_CI_MESSAGE` mandates comment-addressing — narrow that to checks-only where the resolution stage is
+  active, so two bots never fix the same comment.
+
+**Net-new build list (feasibility verified against master, 2026-07-17).**
+
+- **Thread-shaped fetch** — today's `PRComment` is REST, flat, inline-comments-only (no thread ids, no
+  `isResolved`/`isOutdated`, no `author_association`). Thread state is GraphQL-only: `pullRequest.reviewThreads`
+  via the gated egress transport (the limiter already classifies `/graphql` into the core budget).
+- **Write helpers** — `addPullRequestReviewThreadReply` + `resolveReviewThread` (GraphQL; verify the installation
+  token can resolve — the interactive prototype hit token-capability failures here).
+- **The workflow + session driver** — validator-pattern warm session with priority-ordered turns and skip-resume;
+  the per-turn verdict schema (code-owned); `thread_verdict` persistence; endpoint + command + chained dispatch;
+  `RESOLUTION_*` constants; the criteria skill.
+- **Already exists, verified** — commit-to-PR-branch via the signed-commit harness (the protected-base carve-out in
+  `start_agent_server._resolve_protected_base_branch` exists precisely for updating a PR-heading branch),
+  `MultiTurnSession` start/continue/end, the living `ReviewReport` + artefact substrate, the fork guard, and the
+  trigger-endpoint pattern to mirror.
 
 ---
 

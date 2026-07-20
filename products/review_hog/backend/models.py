@@ -10,6 +10,7 @@ from products.review_hog.backend.reviewer.artefact_content import (
     ReviewLogArtefactContent,
     ReviewWorkingStateContent,
     TaskRunArtefact,
+    ThreadVerdictArtefact,
     ValidationVerdict,
     artefact_type_for,
 )
@@ -108,6 +109,8 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
     class ArtefactType(models.TextChoices):
         ISSUE_FINDING = "issue_finding"
         VALIDATION_VERDICT = "validation_verdict"
+        # The resolution stage's per-thread ruling (latest row per thread_id wins).
+        THREAD_VERDICT = "thread_verdict"
         TASK_RUN = "task_run"
         COMMIT = "commit"
         CODE_REFERENCE = "code_reference"
@@ -207,6 +210,13 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
         return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
 
     @classmethod
+    def append_thread_verdict(
+        cls, *, team_id: int, report_id: str, content: ThreadVerdictArtefact, attribution: ArtefactAttribution
+    ) -> "ReviewReportArtefact":
+        """Append a `thread_verdict` (latest row per `thread_id` wins at read time)."""
+        return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
+
+    @classmethod
     def add_log(
         cls, *, team_id: int, report_id: str, content: ReviewLogArtefactContent, attribution: ArtefactAttribution
     ) -> "ReviewReportArtefact":
@@ -274,6 +284,8 @@ class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
     to a run at acting-user resolution, so mid-run edits don't flip gates between body and publish.
     `review_inbox_prs` is the inbox trigger's opt-in (default off — the budget gate for 100%-coverage
     cost): checked cheaply at the TaskRun-completion receiver and re-checked off the resolve snapshot.
+    `resolve_comments` is the resolution stage's opt-out (default on — reviewing includes resolving):
+    when on, every published review of the user's PRs chains into the resolution stage.
     """
 
     class UrgencyThreshold(models.TextChoices):
@@ -288,6 +300,7 @@ class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     review_inbox_prs = models.BooleanField(default=False, db_default=False)
     review_labeled_prs = models.BooleanField(default=True, db_default=True)
+    resolve_comments = models.BooleanField(default=True, db_default=True)
     urgency_threshold = models.CharField(
         max_length=20,
         choices=UrgencyThreshold.choices,
