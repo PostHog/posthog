@@ -159,6 +159,13 @@
                         "bytecode_error": {
                             "type": "string"
                         },
+                        "cohort_ids": {
+                            "description": "Cohort ids referenced by these filters. Compiled server-side alongside bytecode so the runtime can pre-fetch cohort membership. Do not set.",
+                            "items": {
+                                "type": "number"
+                            },
+                            "type": "array"
+                        },
                         "data_warehouse": {
                             "items": {
                                 "additionalProperties": {},
@@ -360,6 +367,13 @@
                                             "bytecode": {},
                                             "bytecode_error": {
                                                 "type": "string"
+                                            },
+                                            "cohort_ids": {
+                                                "description": "Cohort ids referenced by these filters. Compiled server-side alongside bytecode so the runtime can pre-fetch cohort membership. Do not set.",
+                                                "items": {
+                                                    "type": "number"
+                                                },
+                                                "type": "array"
                                             },
                                             "data_warehouse": {
                                                 "items": {
