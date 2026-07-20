@@ -310,6 +310,7 @@ export interface dashboardLogicValues {
     pageVisibility: boolean
     pendingInsertion: PendingInsertion | null
     placement: DashboardPlacement
+    postHogAIButtonLabelVariant: boolean | string | undefined
     projectTreeRef: ProjectTreeRef
     refreshMetrics: {
         completed: number
@@ -1008,6 +1009,7 @@ export interface dashboardLogicMeta {
             placement: DashboardPlacement
         ) => boolean
         inlineTileInsertionEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        postHogAIButtonLabelVariant: (featureFlags: FeatureFlagsSet) => boolean | string | undefined
         insightTiles: (
             tiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]
         ) => DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]
@@ -2565,6 +2567,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (s) => [s.featureFlags],
             (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean =>
                 !!featureFlags[FEATURE_FLAGS.DASHBOARD_INLINE_TILE_INSERTION],
+        ],
+        postHogAIButtonLabelVariant: [
+            (s) => [s.featureFlags],
+            // Read through kea so Storybook's `featureFlags` parameter can pin the experiment arm;
+            // the @posthog/react hook reads posthog-js, which stories can't seed.
+            (featureFlags: FeatureFlagsSet): string | boolean | undefined =>
+                featureFlags[FEATURE_FLAGS.DASHBOARD_POSTHOG_AI_BUTTON_LABEL],
         ],
         insightTiles: [
             (s) => [s.tiles],

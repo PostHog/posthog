@@ -36,13 +36,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import {
-    AssigneeDisplay,
-    AssigneeIconDisplay,
-    AssigneeLabelDisplay,
-    AssigneeResolver,
-    AssigneeSelect,
-} from '../../components/Assignee'
+import { AssigneeDisplay, AssigneeMultiSelect, AssigneeResolver } from '../../components/Assignee'
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { ComposeTicketButton } from '../../components/ComposeTicket'
 import { ConversationsDisabledBanner } from '../../components/ConversationsDisabledBanner'
@@ -440,7 +434,7 @@ export function SupportTicketsTableFilters(): JSX.Element {
         channelFilter,
         slaFilter,
         aiTriageResultFilter,
-        assigneeFilter,
+        assigneeFilterEntries,
         tagsFilter,
         tagsMatch,
         tagsExcludeFilter,
@@ -711,28 +705,7 @@ export function SupportTicketsTableFilters(): JSX.Element {
                         tooltip="Clear tag filter"
                     />
                 )}
-                <AssigneeSelect
-                    assignee={assigneeFilter === 'all' || assigneeFilter === 'unassigned' ? null : assigneeFilter}
-                    onChange={(assignee) => setAssigneeFilter(assignee ?? 'all')}
-                >
-                    {(resolvedAssignee, isOpen) => (
-                        <LemonButton size="small" type="secondary" active={isOpen} sideIcon={<IconChevronDown />}>
-                            <span className="flex items-center gap-1">
-                                <AssigneeIconDisplay assignee={resolvedAssignee} size="small" />
-                                <AssigneeLabelDisplay
-                                    assignee={resolvedAssignee}
-                                    size="small"
-                                    placeholder="All assignees"
-                                />
-                            </span>
-                        </LemonButton>
-                    )}
-                </AssigneeSelect>
-                <LemonCheckbox
-                    checked={assigneeFilter === 'unassigned'}
-                    onChange={(checked) => setAssigneeFilter(checked ? 'unassigned' : 'all')}
-                    label="Unassigned only"
-                />
+                <AssigneeMultiSelect value={assigneeFilterEntries} onChange={setAssigneeFilter} />
             </div>
             <div className="flex items-center gap-2">
                 <SupportTicketsBulkActions />

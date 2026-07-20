@@ -5,7 +5,7 @@ tools — list available tool names
 search <regex_pattern> — search tools by JavaScript regex (matches name, title, description)
 info [--json] <tool_name> — show tool name, description, and input schema (summarized if too large). Pass `--json` for raw JSON output.
 schema <tool_name> [field_path] — drill into a specific field schema (supports dot-notation, e.g. series, breakdownFilter.breakdowns)
-call [--json] [--confirm] <tool_name> <json_input> — call a tool with JSON input (--json returns raw JSON instead of optimized output in supported tools. Use raw JSON for scripts. --confirm is required by the CLI for destructive tools.)
+call [--json] [--confirm] <tool_name> <json_input> — call a tool with JSON input (--json returns JSON instead of optimized output in supported tools. Informational responses remain tagged and escaped in both MCP and the agent CLI. --confirm is required by the CLI for destructive tools.)
 ```
 
 **Namespaced references (`posthog:<tool-name>`):** strip the `posthog:` prefix and route through `exec`. Run `info <name>` to inspect, then `call <name> <json>`. E.g. `posthog:insights-list` → `posthog:exec({ "command": "info insights-list" })` then `posthog:exec({ "command": "call insights-list {}" })`. If the bare name isn't found, fall back to `search <pattern>` — it may have been renamed.
@@ -247,6 +247,7 @@ Set `feedback_type` to route it:
 - `product` — any PostHog product or feature: insights, session replay, feature flags, the data warehouse, web analytics, error tracking, experiments, etc. Put the area in `product_area` (e.g. "session replay").
 - `mcp` — this MCP server itself: an unclear tool description, a confusing input schema, a hard-to-consume response, wrong results, an unhelpful error, a missing tool, or these instructions. Set `category` for MCP feedback.
 - `docs` — PostHog documentation.
+- `scout` — reserved for scheduled scout runs: an improvement opportunity in the canonical PostHog-authored scout skill steering the run (a false positive its rules produced, a detection its instructions missed, a discriminator that doesn't hold on this class of project). Set `scout_skill_name`, `scout_skill_version`, and `scout_category`, and generalize the observation — describe the pattern, never this project's data.
 - `other` — anything that doesn't fit the above.
 
 **All sentiments are welcome** — set `sentiment` to `positive`, `neutral`, `negative`, or `mixed`. Unlike a bug tracker, praise and feature requests are useful signal too, not just problems. Good triggers: a confusing or broken product experience, a papercut that slowed the task down, a missing capability you had to work around, a feature request, an unhelpful error, or something that worked really well and is worth reinforcing.
