@@ -30,7 +30,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.devin_ai.s
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DevinAISourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.devinai import (
+    DevinAISourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

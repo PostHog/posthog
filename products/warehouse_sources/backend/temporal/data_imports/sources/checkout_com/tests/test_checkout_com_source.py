@@ -8,7 +8,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_c
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.source import CheckoutComSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CheckoutComSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.checkoutcom import (
+    CheckoutComSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

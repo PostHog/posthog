@@ -20,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import TrelloSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.trello import TrelloSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.trello.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,

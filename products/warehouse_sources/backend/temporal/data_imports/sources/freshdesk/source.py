@@ -28,7 +28,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.freshdesk.
     validate_credentials as validate_freshdesk_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshdesk.settings import FRESHDESK_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FreshdeskSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.freshdesk import (
+    FreshdeskSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # This first cut covers Freshdesk's top-level v2 endpoints only. Fan-out resources

@@ -34,7 +34,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RevenueCatSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.revenuecat import (
+    RevenueCatSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat import revenuecat as api_client
 from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.constants import (
     EVENT_RESOURCE_NAME,

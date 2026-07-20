@@ -4,7 +4,9 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PersonioSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.personio import (
+    PersonioSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.personio.personio import PersonioResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.personio.settings import (
     ENDPOINTS,

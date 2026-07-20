@@ -27,7 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.flowlu.flo
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.flowlu.settings import ENDPOINTS, FLOWLU_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FlowluSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flowlu import FlowluSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # Flowlu account subdomains are alphanumeric with optional internal hyphens (a valid DNS label:

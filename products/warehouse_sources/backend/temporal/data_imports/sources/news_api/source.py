@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import NewsApiSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.newsapi import (
+    NewsApiSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.news_api.news_api import (
     NewsApiResumeConfig,
     news_api_source,

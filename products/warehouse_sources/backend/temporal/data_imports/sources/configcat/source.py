@@ -27,7 +27,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.configcat.
     CONFIGCAT_ENDPOINTS,
     ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ConfigCatSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.configcat import (
+    ConfigCatSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

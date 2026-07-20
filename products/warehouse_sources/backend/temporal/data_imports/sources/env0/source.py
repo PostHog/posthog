@@ -26,7 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.env0.env0 
     validate_credentials as validate_env0_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.env0.settings import ENDPOINTS, INCREMENTAL_FIELDS
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import Env0SourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.env0 import Env0SourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

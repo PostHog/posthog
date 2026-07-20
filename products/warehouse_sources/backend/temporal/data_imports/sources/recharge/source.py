@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RechargeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.recharge import (
+    RechargeSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.recharge.recharge import (
     RechargeResumeConfig,
     recharge_source,

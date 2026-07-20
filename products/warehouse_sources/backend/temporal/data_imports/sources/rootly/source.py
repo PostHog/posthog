@@ -20,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RootlySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rootly import RootlySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.rootly.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )

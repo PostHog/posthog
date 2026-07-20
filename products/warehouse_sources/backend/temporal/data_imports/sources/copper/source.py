@@ -29,7 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.copper.set
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CopperSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.copper import CopperSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

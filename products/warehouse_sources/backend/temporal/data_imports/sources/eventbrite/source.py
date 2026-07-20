@@ -30,7 +30,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.eventbrite
     INCREMENTAL_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import EventbriteSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.eventbrite import (
+    EventbriteSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

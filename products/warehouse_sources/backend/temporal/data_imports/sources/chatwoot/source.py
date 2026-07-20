@@ -54,7 +54,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ChatwootSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.chatwoot import (
+    ChatwootSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # Webhook management calls run in the API request path where no job logger exists.

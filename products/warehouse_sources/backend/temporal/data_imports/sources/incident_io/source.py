@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import IncidentIoSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.incidentio import (
+    IncidentIoSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.incident_io.incident_io import (
     IncidentIoResumeConfig,
     incident_io_source,

@@ -29,7 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo
     validate_targets,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.settings import DATAFORSEO_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DataForSEOSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dataforseo import DataForSEOSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

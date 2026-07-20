@@ -3,7 +3,7 @@ from unittest import mock
 
 from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LangSmithSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.langsmith import LangSmithSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.langsmith import (
     REPEATED_CURSOR_ERROR,
     LangSmithResumeConfig,

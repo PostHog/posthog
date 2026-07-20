@@ -4,10 +4,7 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldSelectConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
-    JamfProAuthMethodConfig,
-    JamfProSourceConfig,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jamfpro import JamfProAuthMethodConfig, JamfProSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.jamf_pro.jamf_pro import JamfProResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.jamf_pro.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.jamf_pro.source import JamfProSource

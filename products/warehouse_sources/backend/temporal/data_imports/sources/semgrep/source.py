@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SemgrepSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.semgrep import (
+    SemgrepSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.semgrep.semgrep import (
     SemgrepResumeConfig,
     semgrep_source,

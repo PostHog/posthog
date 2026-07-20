@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import K6CloudSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.k6cloud import (
+    K6CloudSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.k6_cloud.k6_cloud import (
     K6CloudResumeConfig,
     k6_cloud_source,

@@ -30,7 +30,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fleetio.se
     FLEETIO_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FleetioSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fleetio import (
+    FleetioSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

@@ -29,7 +29,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.delighted.
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DelightedSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.delighted import (
+    DelightedSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

@@ -26,7 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.deel.deel 
     validate_credentials as validate_deel_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.deel.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DeelSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.deel import DeelSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

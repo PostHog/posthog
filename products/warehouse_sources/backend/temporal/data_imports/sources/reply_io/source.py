@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ReplyIoSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.replyio import (
+    ReplyIoSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.reply_io.reply_io import (
     ReplyIoResumeConfig,
     check_endpoint_permissions,

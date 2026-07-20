@@ -19,7 +19,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MyHoursSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.myhours import (
+    MyHoursSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.my_hours.my_hours import (
     check_access,
     my_hours_source,

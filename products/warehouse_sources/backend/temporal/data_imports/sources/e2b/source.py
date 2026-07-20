@@ -26,7 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.e2b.e2b im
     validate_credentials as validate_e2b_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.e2b.settings import ENDPOINTS, INCREMENTAL_FIELDS
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import E2BSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.e2b import E2BSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

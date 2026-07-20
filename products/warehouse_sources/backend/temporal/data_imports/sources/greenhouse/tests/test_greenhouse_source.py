@@ -3,7 +3,9 @@ from unittest import mock
 
 from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GreenhouseSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.greenhouse import (
+    GreenhouseSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.greenhouse import (
     GreenhouseResumeConfig,
 )

@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import NetlifySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.netlify import (
+    NetlifySourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.netlify.netlify import (
     NetlifyResumeConfig,
     netlify_source,

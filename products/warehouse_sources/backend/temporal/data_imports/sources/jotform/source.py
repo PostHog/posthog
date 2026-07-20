@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import JotformSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jotform import (
+    JotformSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.jotform.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )

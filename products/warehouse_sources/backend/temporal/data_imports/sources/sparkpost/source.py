@@ -22,7 +22,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SparkPostSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sparkpost import (
+    SparkPostSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.sparkpost.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,

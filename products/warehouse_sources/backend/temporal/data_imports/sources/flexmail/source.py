@@ -29,7 +29,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.flexmail.s
     ENDPOINTS,
     FLEXMAIL_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FlexmailSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flexmail import (
+    FlexmailSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

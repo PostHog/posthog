@@ -29,7 +29,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.e_conomic.
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import EConomicSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.economic import (
+    EConomicSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

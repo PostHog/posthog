@@ -31,7 +31,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fireworks_
     ENDPOINTS,
     FIREWORKS_AI_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FireworksAISourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fireworksai import (
+    FireworksAISourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

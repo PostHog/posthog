@@ -4,7 +4,9 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import KustomerSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kustomer import (
+    KustomerSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.kustomer.kustomer import KustomerResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.kustomer.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.kustomer.source import KustomerSource

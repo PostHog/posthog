@@ -5,10 +5,7 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldSelectConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
-    GrafanaAuthMethodConfig,
-    GrafanaSourceConfig,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.grafana import GrafanaAuthMethodConfig, GrafanaSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.grafana.grafana import (
     BASIC_AUTH,
     TOKEN_AUTH,
