@@ -2,6 +2,7 @@ import json
 import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from typing import Union
 
 import structlog
@@ -34,9 +35,15 @@ SIGNAL_DOCUMENT_PRODUCT = "signals"
 SIGNAL_DOCUMENT_TYPE = "signal"
 SIGNAL_DOCUMENT_RENDERING = "plain"
 
-# How often to run the ClickHouse confirmation query when the recently-seen store hasn't
-# confirmed the emission — the store is best-effort (writes never block ingestion, and the
-# in-memory backend is per-pod), so a negative answer can't gate ClickHouse polling forever.
+# For this long, ClickHouse is polled only when the recently-seen store confirms the
+# emission (or on the final attempt) — the wait is store-exclusive to keep ClickHouse
+# load off the polling path. After it, ClickHouse also polls on the fallback cadence
+# below, because the store is best-effort (writes never block ingestion, and the
+# in-memory backend is per-pod), so a negative answer can't gate ClickHouse forever.
+CH_CONFIRM_GRACE_PERIOD_SECONDS = 300
+
+# Fallback cadence once the grace period has elapsed without store confirmation: the
+# store keeps polling every attempt, ClickHouse only every Nth — 3x fewer CH queries.
 CH_CONFIRM_EVERY_N_ATTEMPTS = 3
 
 # Slack when comparing the store's emitted_at against the signal's expected timestamp, to
@@ -402,11 +409,34 @@ class WaitForClickHouseSignal:
     timestamp: datetime
 
 
+class WaitForClickHouseMode(StrEnum):
+    """How much the wait trusts the recently-seen store vs ClickHouse.
+
+    OPTIMISTIC: return as soon as the store confirms the emission, without querying
+    ClickHouse at all — cheapest and fastest, but blind to the Kafka-to-ClickHouse
+    insert gap, and effectively a no-op for soft-delete re-emissions (which reuse the
+    original timestamp, so the original emission's store record confirms them
+    instantly). ClickHouse still polls on the post-grace fallback cadence when the
+    store never confirms.
+
+    CH_CONFIRMED: a store confirmation triggers an immediate ClickHouse confirm, and
+    ClickHouse stays authoritative — the store only decides when to start querying.
+
+    CH_ONLY: ignore the store and poll ClickHouse every attempt, for callers that must
+    know the rows actually landed and can't wait for the fallback cadence.
+    """
+
+    OPTIMISTIC = "optimistic"
+    CH_CONFIRMED = "ch_confirmed"
+    CH_ONLY = "ch_only"
+
+
 @dataclass
 class WaitForClickHouseInput:
     team_id: int
     signals: list[WaitForClickHouseSignal]
     max_wait_time_seconds: int = 3600
+    mode: WaitForClickHouseMode = WaitForClickHouseMode.CH_CONFIRMED
 
 
 async def _all_signals_recently_seen(team_id: int, signals: list[WaitForClickHouseSignal]) -> bool:
@@ -418,10 +448,10 @@ async def _all_signals_recently_seen(team_id: int, signals: list[WaitForClickHou
     worker commits it, while a record left over from an older emission of the same
     document_id fails the comparison. False on any miss, stale record, or store error.
 
-    A True result is a hint, not proof of ClickHouse visibility: "seen" means committed
-    to the output Kafka topic, and a soft-delete re-emission reuses the original
-    timestamp so it is indistinguishable from the original emission here. Callers must
-    still confirm against ClickHouse.
+    A True result is not proof of ClickHouse visibility: "seen" means committed to the
+    output Kafka topic, and a soft-delete re-emission reuses the original timestamp so
+    it is indistinguishable from the original emission here. WaitForClickHouseMode
+    decides how much the caller trusts it.
     """
     documents = [
         DocumentKey(
@@ -453,13 +483,18 @@ async def _all_signals_recently_seen(team_id: int, signals: list[WaitForClickHou
 @scoped_temporal()
 @close_db_connections
 async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) -> None:
-    """Wait until all emitted signals land in ClickHouse, or give up after max_wait_time_seconds.
+    """Wait until all emitted signals are processed, or give up after max_wait_time_seconds.
 
-    Two-tier poll. Every attempt checks the embedding worker's recently-seen store (a
-    cheap key-value lookup); the ClickHouse confirmation query runs only once the store
-    confirms the emission, or on every CH_CONFIRM_EVERY_N_ATTEMPTS-th attempt as a
-    fallback for when the store is lossy. ClickHouse stays authoritative — the store
-    only tracks the worker's Kafka commit, which precedes the ClickHouse insert.
+    Two-tier poll, tuned by input.mode (see WaitForClickHouseMode). Unless the mode is
+    CH_ONLY, every attempt checks the embedding worker's recently-seen store (a cheap
+    key-value lookup): a store confirmation ends the wait outright in OPTIMISTIC mode,
+    or triggers the ClickHouse confirmation query in CH_CONFIRMED mode. For the first
+    CH_CONFIRM_GRACE_PERIOD_SECONDS the wait is otherwise store-exclusive; after that,
+    ClickHouse also polls on every CH_CONFIRM_EVERY_N_ATTEMPTS-th attempt (a third of
+    the store's rate) as a fallback for when the store is lossy, plus once on the
+    final attempt before giving up. The store only tracks the worker's Kafka commit,
+    which precedes the ClickHouse insert — modes trade that gap against ClickHouse
+    load.
 
     The ClickHouse query filters on inserted_at >= (now - 30 minutes) to avoid matching
     stale rows from a previous emission of the same document_id (e.g. deleted then
@@ -509,7 +544,7 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
     for attempt in range(max_attempts):
         temporalio.activity.heartbeat(attempt)
 
-        if not store_confirmed:
+        if input.mode != WaitForClickHouseMode.CH_ONLY and not store_confirmed:
             store_confirmed = await _all_signals_recently_seen(input.team_id, input.signals)
             if store_confirmed:
                 logger.debug(
@@ -517,10 +552,14 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
                     signal_ids=signal_ids,
                     team_id=input.team_id,
                 )
+                if input.mode == WaitForClickHouseMode.OPTIMISTIC:
+                    return
 
+        past_grace_period = attempt * WAIT_POLL_INTERVAL_SECONDS >= CH_CONFIRM_GRACE_PERIOD_SECONDS
         ch_confirm_due = (
-            store_confirmed
-            or attempt % CH_CONFIRM_EVERY_N_ATTEMPTS == CH_CONFIRM_EVERY_N_ATTEMPTS - 1
+            input.mode == WaitForClickHouseMode.CH_ONLY
+            or store_confirmed
+            or (past_grace_period and attempt % CH_CONFIRM_EVERY_N_ATTEMPTS == CH_CONFIRM_EVERY_N_ATTEMPTS - 1)
             or attempt == max_attempts - 1
         )
         if ch_confirm_due:
