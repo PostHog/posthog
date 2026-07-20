@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 28 enabled ops
+ * PostHog API - MCP 30 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -11403,6 +11403,28 @@ export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Freeze exposure on a running experiment while metrics keep flowing.
+ *
+ * Snapshots the already-exposed users into a static cohort and narrows the
+ * linked feature flag so only those users keep matching — new users can no
+ * longer enter the experiment. ``end_date`` is left null so long-term metrics
+ * (revenue/LTV/renewals/retention) keep accumulating. Enrolled users keep
+ * their assigned variant. The serialized status becomes 'exposure_frozen'.
+ *
+ * Returns 400 if the experiment is not running, exposure is already frozen,
+ * the experiment is group-aggregated (group flags cannot be frozen with a
+ * person cohort), or the exposed set is too large to snapshot synchronously.
+ */
+export const ExperimentsFreezeExposureCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this experiment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
  * Launch a draft experiment.
  *
  * Validates the experiment is in draft state, activates its linked feature flag,
@@ -11580,6 +11602,25 @@ export const ExperimentsTimeseriesResultsRetrieveQueryParams = /* @__PURE__ */ z
  * experiment is not currently archived.
  */
 export const ExperimentsUnarchiveCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this experiment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Reopen enrollment on an exposure-frozen experiment.
+ *
+ * Removes the snapshot-cohort condition and freeze markers from every release
+ * group, restoring the flag's original targeting: new users can enroll again
+ * and already-enrolled users keep their assigned variant. The snapshot cohort
+ * is soft-deleted. The serialized status returns to 'running'.
+ *
+ * Returns 400 if the experiment is not running or its exposure is not frozen.
+ */
+export const ExperimentsUnfreezeExposureCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
         .string()

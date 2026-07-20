@@ -26,6 +26,7 @@ import {
     ExperimentsDuplicateCreateParams,
     ExperimentsEndCreateBody,
     ExperimentsEndCreateParams,
+    ExperimentsFreezeExposureCreateParams,
     ExperimentsLaunchCreateParams,
     ExperimentsListQueryParams,
     ExperimentsPartialUpdateBody,
@@ -39,6 +40,7 @@ import {
     ExperimentsTimeseriesResultsRetrieveParams,
     ExperimentsTimeseriesResultsRetrieveQueryParams,
     ExperimentsUnarchiveCreateParams,
+    ExperimentsUnfreezeExposureCreateParams,
 } from '@/generated/experiments/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { SavedMetricsAttachSchema } from '@/schema/tool-inputs'
@@ -342,6 +344,27 @@ const experimentEnd = (): ToolBase<typeof ExperimentEndSchema, WithPostHogUrl<Sc
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/end/`,
                 body,
+            })
+            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+        },
+    })
+
+const ExperimentFreezeExposureSchema = ExperimentsFreezeExposureCreateParams.omit({ project_id: true }).extend({
+    id: z.preprocess(castStringToInt, ExperimentsFreezeExposureCreateParams.shape['id']),
+})
+
+const experimentFreezeExposure = (): ToolBase<
+    typeof ExperimentFreezeExposureSchema,
+    WithPostHogUrl<Schemas.Experiment>
+> =>
+    withUiApp('experiment', {
+        name: 'experiment-freeze-exposure',
+        schema: ExperimentFreezeExposureSchema,
+        handler: async (context: Context, params: z.infer<typeof ExperimentFreezeExposureSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.Experiment>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/freeze_exposure/`,
             })
             return await withPostHogUrl(context, result, `/experiments/${result.id}`)
         },
@@ -881,6 +904,27 @@ const experimentUnarchive = (): ToolBase<typeof ExperimentUnarchiveSchema, WithP
         },
     })
 
+const ExperimentUnfreezeExposureSchema = ExperimentsUnfreezeExposureCreateParams.omit({ project_id: true }).extend({
+    id: z.preprocess(castStringToInt, ExperimentsUnfreezeExposureCreateParams.shape['id']),
+})
+
+const experimentUnfreezeExposure = (): ToolBase<
+    typeof ExperimentUnfreezeExposureSchema,
+    WithPostHogUrl<Schemas.Experiment>
+> =>
+    withUiApp('experiment', {
+        name: 'experiment-unfreeze-exposure',
+        schema: ExperimentUnfreezeExposureSchema,
+        handler: async (context: Context, params: z.infer<typeof ExperimentUnfreezeExposureSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.Experiment>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/unfreeze_exposure/`,
+            })
+            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+        },
+    })
+
 const ExperimentUpdateSchema = ExperimentsPartialUpdateParams.omit({ project_id: true })
     .extend(
         ExperimentsPartialUpdateBody.omit({
@@ -1003,6 +1047,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-delete': experimentDelete,
     'experiment-duplicate': experimentDuplicate,
     'experiment-end': experimentEnd,
+    'experiment-freeze-exposure': experimentFreezeExposure,
     'experiment-get': experimentGet,
     'experiment-holdouts-create': experimentHoldoutsCreate,
     'experiment-holdouts-destroy': experimentHoldoutsDestroy,
@@ -1023,5 +1068,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-stats': experimentStats,
     'experiment-timeseries-results': experimentTimeseriesResults,
     'experiment-unarchive': experimentUnarchive,
+    'experiment-unfreeze-exposure': experimentUnfreezeExposure,
     'experiment-update': experimentUpdate,
 }

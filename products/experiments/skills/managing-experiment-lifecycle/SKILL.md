@@ -1,6 +1,6 @@
 ---
 name: managing-experiment-lifecycle
-description: "Guides experiment state transitions: launching, pausing, resuming, ending, shipping variants, archiving, resetting, duplicating, and copying to another project. Covers preconditions, implications for variant assignment and analysis, and the decision framework for when to use each action.\nTRIGGER when: user asks to launch, pause, resume, end, ship, archive, reset, duplicate, or copy an experiment to another project.\nDO NOT TRIGGER when: user is creating an experiment (use creating-experiments), configuring rollout (use configuring-experiment-rollout), or setting up metrics (use configuring-experiment-analytics)."
+description: "Guides experiment state transitions: launching, pausing, resuming, freezing/unfreezing exposure, ending, shipping variants, archiving, resetting, duplicating, and copying to another project. Covers preconditions, implications for variant assignment and analysis, and the decision framework for when to use each action.\nTRIGGER when: user asks to launch, pause, resume, end, ship, archive, reset, duplicate, or copy an experiment to another project, or to freeze/unfreeze exposure (stop enrolling new users while metrics keep flowing, or reopen enrollment).\nDO NOT TRIGGER when: user is creating an experiment (use creating-experiments), configuring rollout (use configuring-experiment-rollout), or setting up metrics (use configuring-experiment-analytics)."
 ---
 
 # Managing experiment lifecycle
@@ -11,11 +11,14 @@ This skill covers experiment state transitions — what each action does, when t
 
 ```text
 draft ──launch──▶ running ──end──▶ stopped ──archive──▶ archived
-                    │   ▲              │
-                  pause resume    ship_variant
-                    │   │         (also ends if running)
-                    ▼   │
-                  paused (flag inactive, still "running" status)
+                  │ │   ▲              │
+                  │ pause resume  ship_variant
+                  │ │   │         (also ends if running)
+                  │ ▼   │
+                  │ paused (flag inactive, still "running" status)
+                  │
+                  ├─freeze_exposure──▶ exposure_frozen ──unfreeze_exposure──▶ running
+                  │                    (enrollment closed, metrics keep flowing)
 
 Any non-draft state ──reset──▶ draft
 ```
@@ -58,6 +61,50 @@ Reactivates the feature flag after a pause. Users are re-bucketed deterministica
 
 No request body.
 
+### Freeze exposure (`experiment-freeze-exposure`)
+
+Stops enrolling **new** users while everything else keeps going: already-enrolled users keep their variant, metrics keep flowing, and `end_date` stays null.
+Snapshots the already-exposed users into a static cohort and narrows every release condition on the feature flag to that cohort.
+Status becomes `exposure_frozen`.
+
+Use for long-horizon metrics (revenue, LTV, retention, renewals) when the sample is big enough and you want to stop adding users without stopping measurement.
+Neither end nor pause fits that job: end stops measurement at `end_date`, and pause deactivates the flag for everyone.
+
+- **Preconditions**: must be running (not draft, stopped, paused, or already frozen), flag linked and not deleted, at least one release condition
+- **Variants**: enrolled users keep their variant (deterministic bucketing); new users no longer match the flag
+- **Analysis**: exposures stop growing (a flat exposure curve is expected), but metric data keeps accumulating for enrolled users
+
+**Timing**: the exposure scan and cohort snapshot run synchronously inside the API call, and duration scales with the number of exposed persons — an experiment with tens of thousands of exposed users can take on the order of tens of seconds.
+Set expectations with the user, wait for the response, and don't treat a slow call as a failure or retry it.
+
+**Not applicable (400) for**:
+
+- **Group-aggregated experiments** — the flag targets groups, not persons, and a person cohort can't freeze group-based matching
+- **Experiments in a holdout** — holdout assignment is evaluated before release conditions, so new users would keep entering the holdout
+- **Flags with early access conditions** — also evaluated before release conditions, so freezing can't stop new enrollment
+- **Mostly-anonymous exposure** (e.g. experiments on logged-out surfaces) — anonymous "personless" users can never match a person cohort and would silently lose their variant, so freezes with more than a small unresolved share are rejected
+- **Very large exposed sets** — the exposure scan is bounded by a person cap and a timeout; over either bound the API returns a clean 400 rather than freezing
+
+When a freeze is rejected, explain which limitation applies rather than retrying — these are structural, not transient.
+
+**Interactions with other actions**: ship-variant and reset strip the freeze (reset also deletes the snapshot cohort); end does NOT touch the flag, so ending a frozen experiment leaves the flag narrowed to the snapshot cohort.
+SDKs using local evaluation can't resolve static cohorts, so a frozen flag evaluates via the `/decide` endpoint (standard static-cohort behavior).
+Exposures ingested in the final moments before freezing may miss the snapshot (ingestion lag).
+
+No request body. Use `experiment-unfreeze-exposure` to reopen enrollment.
+
+### Unfreeze exposure (`experiment-unfreeze-exposure`)
+
+Reopens enrollment on an exposure-frozen experiment.
+Removes the snapshot-cohort condition and freeze markers from every release group, restoring the flag's original targeting, and deletes the snapshot cohort.
+Status returns to `running`.
+
+- **Preconditions**: exposure must be frozen (and the experiment not ended)
+- **Variants**: enrolled users keep their variant; new users can enroll again under the original release conditions
+- **Analysis**: exposures resume growing
+
+No request body.
+
 ### End (`experiment-end`)
 
 Sets `end_date` and transitions to stopped. The feature flag is **NOT modified**.
@@ -69,6 +116,7 @@ Sets `end_date` and transitions to stopped. The feature flag is **NOT modified**
 Optional body: `conclusion` ("won", "lost", "inconclusive", "stopped_early", "invalid") and `conclusion_comment`.
 
 Use this when you want to freeze results without changing what users see.
+If the experiment's exposure was frozen, ending does not strip the freeze — the flag stays narrowed to the snapshot cohort (unfreeze first, or ship a variant, if that's not desired).
 
 ### Ship variant (`experiment-ship-variant`)
 
@@ -138,17 +186,19 @@ isn't looking at. The returned experiment (and its id) belongs to the target pro
 
 ## Decision framework
 
-| Situation                                          | Action                   | Tool                         |
-| -------------------------------------------------- | ------------------------ | ---------------------------- |
-| Draft ready, flag implemented, metrics set         | Launch                   | `experiment-launch`          |
-| Clear winner, significant results                  | Ship the winning variant | `experiment-ship-variant`    |
-| No significant difference after sufficient time    | End as inconclusive      | `experiment-end`             |
-| Something wrong, need to stop exposure temporarily | Pause                    | `experiment-pause`           |
-| Resume after pause                                 | Resume                   | `experiment-resume`          |
-| Experiment ended, ready to clean up                | Archive                  | `experiment-archive`         |
-| Need to start over with same config                | Reset to draft           | `experiment-reset`           |
-| Want a similar experiment with a fresh start       | Duplicate                | `experiment-duplicate`       |
-| Want the same experiment in a different project    | Copy to another project  | `experiment-copy-to-project` |
+| Situation                                          | Action                   | Tool                           |
+| -------------------------------------------------- | ------------------------ | ------------------------------ |
+| Draft ready, flag implemented, metrics set         | Launch                   | `experiment-launch`            |
+| Clear winner, significant results                  | Ship the winning variant | `experiment-ship-variant`      |
+| No significant difference after sufficient time    | End as inconclusive      | `experiment-end`               |
+| Something wrong, need to stop exposure temporarily | Pause                    | `experiment-pause`             |
+| Resume after pause                                 | Resume                   | `experiment-resume`            |
+| Stop enrolling new users, keep measuring enrolled  | Freeze exposure          | `experiment-freeze-exposure`   |
+| Reopen enrollment after a freeze                   | Unfreeze exposure        | `experiment-unfreeze-exposure` |
+| Experiment ended, ready to clean up                | Archive                  | `experiment-archive`           |
+| Need to start over with same config                | Reset to draft           | `experiment-reset`             |
+| Want a similar experiment with a fresh start       | Duplicate                | `experiment-duplicate`         |
+| Want the same experiment in a different project    | Copy to another project  | `experiment-copy-to-project`   |
 
 ## Resolving experiments
 
@@ -158,14 +208,18 @@ All lifecycle actions require an experiment ID. If you don't have one, load the
 
 ## Error handling
 
-| Error message                           | Meaning                              |
-| --------------------------------------- | ------------------------------------ |
-| "Experiment has already been launched." | Can't launch a non-draft experiment  |
-| "Experiment has not been launched yet." | Can't end/pause/ship a draft         |
-| "Experiment has already ended."         | Can't end/pause a stopped experiment |
-| "Experiment is already paused."         | Use resume instead                   |
-| "Experiment is not paused."             | It's already active                  |
-| "Experiment is already in draft state." | Nothing to reset                     |
-| "Experiment is already archived."       | Already done                         |
+| Error message                                                     | Meaning                              |
+| ----------------------------------------------------------------- | ------------------------------------ |
+| "Experiment has already been launched."                           | Can't launch a non-draft experiment  |
+| "Experiment has not been launched yet."                           | Can't end/pause/ship a draft         |
+| "Experiment has already ended."                                   | Can't end/pause a stopped experiment |
+| "Experiment is already paused."                                   | Use resume instead                   |
+| "Experiment is not paused."                                       | It's already active                  |
+| "Experiment is already in draft state."                           | Nothing to reset                     |
+| "Experiment is already archived."                                 | Already done                         |
+| "Experiment exposure is already frozen."                          | Nothing to freeze                    |
+| "Experiment exposure is not frozen."                              | Nothing to unfreeze                  |
+| "Cannot freeze a paused experiment. Resume it first."             | Resume, then freeze                  |
+| "Group-aggregated experiments cannot have their exposure frozen." | Structural limitation — don't retry  |
 
 When you get a 400, explain the situation to the user rather than retrying.

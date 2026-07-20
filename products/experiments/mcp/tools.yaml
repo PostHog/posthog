@@ -325,6 +325,57 @@ tools:
             id:
                 cast: string-int
         ui_app: experiment
+    experiment-freeze-exposure:
+        operation: experiments_freeze_exposure_create
+        enabled: true
+        scopes:
+            - experiment:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Freeze experiment exposure
+        description: >
+            Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the
+            user's reference first. Load the managing-experiment-lifecycle skill for preconditions, limitations, and
+            side effects.
+
+
+            Freeze exposure on a running experiment: stop enrolling NEW users while already-enrolled users keep their
+            variant and metrics keep flowing (end_date stays null). Snapshots the already-exposed users into a static
+            cohort and narrows every release condition on the feature flag to that cohort. Use for long-horizon
+            metrics (revenue, LTV, retention, renewals) where enrollment should stop but measurement should continue —
+            unlike end (stops measurement at end_date) or pause (deactivates the flag for everyone). Status becomes
+            "exposure_frozen". Reversible via experiment-unfreeze-exposure.
+
+
+            SYNCHRONOUS AND POTENTIALLY SLOW: the exposure scan and cohort snapshot run inline in this call, and
+            duration scales with the number of exposed persons — experiments with tens of thousands of exposed users
+            can take tens of seconds. Wait for the response rather than assuming failure or retrying.
+
+
+            Not applicable (returns 400) for: experiments that aren't running ("Experiment has not been launched
+            yet.", "Experiment has already ended.", "Cannot freeze a paused experiment. Resume it first.", "Experiment
+            exposure is already frozen."), group-aggregated experiments (a person cohort cannot freeze group-based
+            matching), experiments in a holdout (holdout assignment is evaluated before release conditions), flags
+            with early access conditions (also evaluated before release conditions), flags that are deleted, missing,
+            or have no release conditions, exposed sets too large to snapshot synchronously (the scan is bounded by a
+            person cap and a timeout), and experiments where more than a small share of exposures are anonymous
+            ("personless") users — they can never match a person cohort, so experiments on logged-out surfaces are not
+            freezable. When a freeze is rejected, explain the limitation to the user instead of retrying.
+
+
+            Good to know: SDKs using local evaluation cannot resolve static cohorts, so a frozen flag evaluates via
+            the /decide endpoint; exposures ingested in the final moments before freezing may miss the snapshot;
+            ship-variant and reset strip the freeze, while end leaves the flag narrowed to the snapshot cohort.
+
+
+            No request body needed.
+        param_overrides:
+            id:
+                cast: string-int
+        ui_app: experiment
     experiment-get:
         operation: experiments_retrieve
         enabled: true
@@ -909,6 +960,37 @@ tools:
             id:
                 cast: string-int
         ui_app: experiment
+    experiment-unfreeze-exposure:
+        operation: experiments_unfreeze_exposure_create
+        enabled: true
+        scopes:
+            - experiment:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Unfreeze experiment exposure
+        description: >
+            Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the
+            user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.
+
+
+            Reopen enrollment on an exposure-frozen experiment. Removes the snapshot-cohort condition and freeze
+            markers from every release group, restoring the flag's original targeting: new users can enroll again and
+            already-enrolled users keep their variant (deterministic bucketing). The snapshot cohort is deleted.
+            Status returns to "running".
+
+
+            Returns 400 if the experiment is a draft ("Experiment has not been launched yet."), already ended
+            ("Experiment has already ended."), or its exposure is not frozen ("Experiment exposure is not frozen.").
+
+
+            No request body needed.
+        param_overrides:
+            id:
+                cast: string-int
+        ui_app: experiment
     experiment-update:
         operation: experiments_partial_update
         enabled: true
@@ -1039,9 +1121,6 @@ tools:
     experiments-flag-cleanup-task-retrieve:
         operation: experiments_flag_cleanup_task_retrieve
         enabled: false
-    experiments-freeze-exposure-create:
-        operation: experiments_freeze_exposure_create
-        enabled: false
     experiments-metrics-recalculation-create:
         operation: experiments_metrics_recalculation_create
         enabled: false
@@ -1059,9 +1138,6 @@ tools:
         enabled: false
     experiments-session-context-retrieve:
         operation: experiments_session_context_retrieve
-        enabled: false
-    experiments-unfreeze-exposure-create:
-        operation: experiments_unfreeze_exposure_create
         enabled: false
     experiments-update:
         operation: experiments_update
