@@ -441,12 +441,13 @@ export function EditAlertModalV2({
                                 </div>
 
                                 <div className="rounded border border-border p-3">
-                                    <AlertEditorSection title="Schedule">{scheduleNode}</AlertEditorSection>
+                                    <AlertEditorSection title="Schedule">
+                                        {scheduleNode}
+                                        {advancedNode}
+                                    </AlertEditorSection>
                                 </div>
 
                                 <div className="rounded border border-border p-3">{notifyNode}</div>
-
-                                <div className="rounded border border-border p-3">{advancedNode}</div>
 
                                 {alertId && alert ? (
                                     <div className="rounded border border-border p-3">
@@ -496,18 +497,18 @@ function buildWizardSteps(input: WizardStepInput): AlertWizardStep[] {
             key: 'schedule',
             title: 'Schedule',
             description: 'How often this alert runs.',
-            content: <div className="space-y-3">{input.scheduleNode}</div>,
+            content: (
+                <div className="space-y-3">
+                    {input.scheduleNode}
+                    {input.advancedNode}
+                </div>
+            ),
         },
         {
             key: 'notify',
             title: 'Notify',
             description: 'Who gets told when this alert fires.',
-            content: (
-                <div className="space-y-4">
-                    {input.notifyNode}
-                    {input.advancedNode}
-                </div>
-            ),
+            content: <div className="space-y-4">{input.notifyNode}</div>,
         },
         {
             key: 'review',
