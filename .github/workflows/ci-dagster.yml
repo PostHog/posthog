@@ -145,8 +145,8 @@ jobs:
                         # because facade.models re-exports flow through it. Mirrors the
                         # product's turbo.json backend:contract-check surface.
                         - 'products/warehouse_sources/backend/types.py'
-                        - 'products/warehouse_sources/backend/facade/**'
-                        - 'products/warehouse_sources/backend/models/**'
+                        - 'products/warehouse_sources/backend/facade/**/*.py'
+                        - 'products/warehouse_sources/backend/models/**/*.py'
                         - 'products/error_tracking/backend/**/*.py'
                         - 'products/event_definitions/backend/**/*.py'
                         - 'products/growth/backend/**/*.py'
