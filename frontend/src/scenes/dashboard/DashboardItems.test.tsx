@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { render } from '@testing-library/react'
+import { fireEvent, render } from '@testing-library/react'
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
@@ -146,6 +146,7 @@ jest.mock('@posthog/products-dashboards/frontend/components/DashboardWidgetItem/
 const mockedUseValues = useValues as jest.Mock
 const mockedUseActions = useActions as jest.Mock
 const mockedUseAsyncActions = useAsyncActions as jest.Mock
+const mockRemoveTile = jest.fn()
 
 describe('DashboardItems', () => {
     beforeEach(() => {
@@ -198,7 +199,7 @@ describe('DashboardItems', () => {
                     updateContainerWidth: jest.fn(),
                     updateTileColor: jest.fn(),
                     toggleTileDescription: jest.fn(),
-                    removeTile: jest.fn(),
+                    removeTile: mockRemoveTile,
                     duplicateTile: jest.fn(),
                     refreshDashboardItem: jest.fn(),
                     refreshDashboardWidgets: jest.fn(),
@@ -290,12 +291,13 @@ describe('DashboardItems', () => {
         expect(getByTestId('widget-card')).toBeInTheDocument()
     })
 
-    it('shows an error card when a streamed tile fails before its insight is serialized', () => {
+    it('shows an actionable error card when a streamed tile fails before its insight is serialized', async () => {
+        const errorTile = { id: 2, error: { type: 'ValidationError', message: 'Invalid filters' } }
         mockedUseValues.mockImplementation((logic) => {
             if (logic === dashboardLogic) {
                 return {
                     dashboard: { id: 5 },
-                    tiles: [{ id: 2, error: { type: 'ValidationError', message: 'Invalid filters' } }],
+                    tiles: [errorTile],
                     layouts: { sm: [{ i: '2', x: 0, y: 0, w: 6, h: 5 }] },
                     dashboardMode: null,
                     placement: DashboardPlacement.Dashboard,
@@ -323,9 +325,12 @@ describe('DashboardItems', () => {
             return {}
         })
 
-        const { getByText } = render(<DashboardItems />)
-        expect(
-            getByText("This dashboard tile couldn't be loaded. Refresh the dashboard to try again.")
-        ).toBeInTheDocument()
+        const { findByText, getByRole, getByText } = render(<DashboardItems />)
+        expect(getByText('Dashboard tile 2')).toBeInTheDocument()
+        expect(getByText("This tile couldn't be loaded. Refresh the dashboard to try again.")).toBeInTheDocument()
+
+        fireEvent.click(getByRole('button', { name: 'more' }))
+        fireEvent.click(await findByText('Remove from dashboard'))
+        expect(mockRemoveTile).toHaveBeenCalledWith(errorTile)
     })
 })

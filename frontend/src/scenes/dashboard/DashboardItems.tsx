@@ -22,7 +22,6 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { BREAKPOINTS, BREAKPOINT_COLUMN_COUNTS, isWidgetTileVisibleOnPlacement } from 'scenes/dashboard/dashboardUtils'
 import { continueDragGestureInEditMode, continueResizeGestureInEditMode } from 'scenes/dashboard/editLayoutGesture'
 import { InsertTileOverlay } from 'scenes/dashboard/InsertTileOverlay'
-import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { useSurveyLinkedInsights } from 'scenes/surveys/hooks/useSurveyLinkedInsights'
 import { getBestSurveyOpportunityFunnel } from 'scenes/surveys/utils/opportunityDetection'
 import { urls } from 'scenes/urls'
@@ -32,6 +31,7 @@ import { insightsModel } from '~/models/insightsModel'
 import { DashboardLayoutSize, DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 
 import { DashboardButtonTileItem } from './items/DashboardButtonTileItem'
+import { DashboardErrorTileItem } from './items/DashboardErrorTileItem'
 import { DashboardTextItem } from './items/DashboardTextItem'
 
 const DRAG_AUTO_SCROLL_THRESHOLD = 100
@@ -66,6 +66,7 @@ const MemoizedDashboardButtonTileItem = memo(
     DashboardButtonTileItem,
     gridTilePropsEqual
 ) as typeof DashboardButtonTileItem
+const MemoizedDashboardErrorTileItem = memo(DashboardErrorTileItem, gridTilePropsEqual) as typeof DashboardErrorTileItem
 const MemoizedDashboardWidgetItem = memo(DashboardWidgetItem, gridTilePropsEqual) as typeof DashboardWidgetItem
 
 export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsProps = {}): JSX.Element {
@@ -528,17 +529,16 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
 
                             if (tile.error && !insight) {
                                 return (
-                                    <div
+                                    <MemoizedDashboardErrorTileItem
                                         key={tile.id}
-                                        className="DashboardTileCard InsightCard border"
-                                        data-attr="dashboard-tile-error"
-                                    >
-                                        <InsightErrorState
-                                            title="This dashboard tile couldn't be loaded. Refresh the dashboard to try again."
-                                            excludeDetail
-                                            excludeActions
-                                        />
-                                    </div>
+                                        tile={tile}
+                                        onRemove={commonTileProps.removeFromDashboard}
+                                        showResizeHandles={showResizeHandles}
+                                        canEnterEditModeFromEdge={canEnterEditModeFromEdge}
+                                        onEnterEditModeFromEdge={onEnterEditModeFromEdge}
+                                        onDragHandleMouseDown={onDragHandleMouseDown}
+                                        showEditingControls={showEditingControls}
+                                    />
                                 )
                             }
 
