@@ -1,6 +1,5 @@
 import {
     type ChangeTypes,
-    type DiffLineAnnotation,
     type FileDiffMetadata,
     type FileDiffOptions,
     parsePatchFiles,
@@ -185,21 +184,11 @@ function FileDiffHeader({ file }: { file: FileDiffMetadata }): JSX.Element {
  * commenting. The worker pool is disabled so highlighting runs without a separately-served worker
  * bundle; diffs are size-bounded by the backend (see `truncated`), so main-thread is fine.
  */
-/** Whatever the caller anchors to a diff line — inline review threads and the one draft composer. */
-export interface DiffAnnotationData {
-    kind: 'thread' | 'draft'
-    /** Thread key (see `threadKey`) — the caller resolves it back to a thread or draft when rendering. */
-    key: string
-}
-
 export function PullRequestDiffView({
     diff,
     truncated,
     cacheKey,
     diffStyle = 'unified',
-    annotationsByFile,
-    renderAnnotation,
-    onLineNumberClick,
 }: {
     diff: string
     truncated: boolean
@@ -207,12 +196,6 @@ export function PullRequestDiffView({
     cacheKey?: string
     /** Unified (stacked) or split (side-by-side) layout, like GitHub's diff view toggle. */
     diffStyle?: 'unified' | 'split'
-    /** Inline annotations (review threads, draft composer) keyed by file path. */
-    annotationsByFile?: Record<string, DiffLineAnnotation<DiffAnnotationData>[]>
-    /** Renders one annotation's content below its diff line. */
-    renderAnnotation?: (annotation: DiffLineAnnotation<DiffAnnotationData>) => ReactNode
-    /** Line-number click, GitHub-style "comment on this line". Side: 'RIGHT' = additions, 'LEFT' = deletions. */
-    onLineNumberClick?: (file: string, line: number, side: 'LEFT' | 'RIGHT') => void
 }): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
 
@@ -229,10 +212,8 @@ export function PullRequestDiffView({
         }
     }, [diff, cacheKey])
 
-    // `optionsByFile` exists because Pierre's line events don't carry the file — each file's options
-    // close over its path. The base options are shared; per-file closures are cheap.
-    const optionsByFile = useMemo<Map<string, FileDiffOptions<DiffAnnotationData>>>(() => {
-        const map = new Map<string, FileDiffOptions<DiffAnnotationData>>()
+    const optionsByFile = useMemo<Map<string, FileDiffOptions>>(() => {
+        const map = new Map<string, FileDiffOptions>()
         for (const file of files) {
             map.set(file.name, {
                 theme: DIFF_THEME,
@@ -240,27 +221,10 @@ export function PullRequestDiffView({
                 diffStyle,
                 stickyHeader: true,
                 overflow: 'scroll',
-                ...(onLineNumberClick
-                    ? {
-                          lineHoverHighlight: 'number' as const,
-                          onLineNumberClick: ({
-                              lineNumber,
-                              annotationSide,
-                          }: {
-                              lineNumber: number
-                              annotationSide: 'additions' | 'deletions'
-                          }) =>
-                              onLineNumberClick(
-                                  file.name,
-                                  lineNumber,
-                                  annotationSide === 'deletions' ? 'LEFT' : 'RIGHT'
-                              ),
-                      }
-                    : {}),
             })
         }
         return map
-    }, [files, isDarkModeOn, diffStyle, onLineNumberClick])
+    }, [files, isDarkModeOn, diffStyle])
 
     if (parseFailed) {
         return <p className="m-0 text-sm text-danger">Couldn't parse this diff — it may be in an unexpected format.</p>
@@ -276,11 +240,9 @@ export function PullRequestDiffView({
                 // Card chrome (bordered, rounded surface) so the diff sits in PostHog's visual language;
                 // @pierre/diffs renders the syntax-highlighted body inside, with a skeleton until it does.
                 <DiffFileCard key={`${file.name}-${file.cacheKey ?? file.newObjectId ?? ''}`} file={file}>
-                    <FileDiff<DiffAnnotationData>
+                    <FileDiff
                         fileDiff={file}
                         options={optionsByFile.get(file.name)}
-                        lineAnnotations={annotationsByFile?.[file.name]}
-                        renderAnnotation={renderAnnotation}
                         renderCustomHeader={(fileDiff) => <FileDiffHeader file={fileDiff} />}
                         disableWorkerPool
                     />

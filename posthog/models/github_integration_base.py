@@ -66,7 +66,6 @@ class NormalizedPRComment(TypedDict):
     diff_hunk: str | None
     in_reply_to_id: str | None
     commit_id: str | None
-    reactions: list[dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -1078,8 +1077,7 @@ class GitHubIntegrationBase:
 
     @staticmethod
     def normalize_pr_comment(raw: object, comment_type: str) -> NormalizedPRComment | None:
-        """Shape a raw GitHub comment into the wire contract shared by the read path and the write
-        endpoints. ``reactions`` is left empty; the read path fills it for review comments that have any."""
+        """Shape a raw GitHub comment into the wire contract."""
         if not isinstance(raw, dict):
             return None
         user = raw.get("user") or {}
@@ -1102,7 +1100,6 @@ class GitHubIntegrationBase:
             "diff_hunk": raw.get("diff_hunk") if is_review else None,
             "in_reply_to_id": str(raw["in_reply_to_id"]) if is_review and raw.get("in_reply_to_id") else None,
             "commit_id": raw.get("commit_id") if is_review else None,
-            "reactions": [],
         }
 
     def get_pull_request_comments(self, repository: str, pr_number: int) -> dict[str, Any]:
@@ -1140,51 +1137,11 @@ class GitHubIntegrationBase:
                     normalized = self.normalize_pr_comment(raw, comment_type)
                     if normalized is None:
                         continue
-                    if comment_type == "review":
-                        reaction_summary = raw.get("reactions") or {}
-                        if isinstance(reaction_summary, dict) and reaction_summary.get("total_count"):
-                            normalized["reactions"] = self._get_review_comment_reactions(repo_path, str(raw["id"]))
                     comments.append(normalized)
 
         # Merge both streams into a single chronological thread; entries without a timestamp sort last.
         comments.sort(key=lambda c: c.get("created_at") or "")
         return {"success": True, "comments": comments}
-
-    def _get_review_comment_reactions(self, repo_path: str, comment_id: str) -> list[dict[str, Any]]:
-        """Fetch a review comment's reactions, each with its id, content, and reactor login.
-
-        Returned per-reactor (not just counts) so the frontend can group them, highlight the viewer's
-        own, and delete them by id. Best-effort: returns [] on any non-200 / parse failure.
-        """
-        try:
-            responses, _complete = self._installation_authenticated_get_pages(
-                f"https://api.github.com/repos/{repo_path}/pulls/comments/{comment_id}/reactions",
-                endpoint="/repos/{owner}/{repo}/pulls/comments/{comment_id}/reactions",
-                params={"per_page": 100},
-            )
-        except Exception:
-            logger.warning("GitHubIntegration: reactions fetch failed", repository=repo_path, comment_id=comment_id)
-            return []
-        out: list[dict[str, Any]] = []
-        for response in responses:
-            if response.status_code != 200:
-                continue
-            try:
-                body = response.json()
-            except Exception:
-                continue
-            if not isinstance(body, list):
-                continue
-            for reaction in body:
-                if isinstance(reaction, dict) and reaction.get("content") and reaction.get("id") is not None:
-                    out.append(
-                        {
-                            "id": str(reaction["id"]),
-                            "content": reaction["content"],
-                            "user_login": (reaction.get("user") or {}).get("login"),
-                        }
-                    )
-        return out
 
     def find_pull_request_urls_for_branch(self, repository: str, branch: str) -> list[str]:
         """Return the HTML URLs of open or closed PRs whose head is ``branch`` in ``repository``.
