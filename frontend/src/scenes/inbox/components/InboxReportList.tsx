@@ -3,7 +3,7 @@ import { ComponentType, JSX, useEffect, useRef } from 'react'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
-import { captureInboxViewed } from '../inboxAnalytics'
+import { captureInboxReportsImpressed, captureInboxViewed } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
 import { inboxFiltersLogic } from '../logics/inboxFiltersLogic'
 import { reportListLogic, ReportListLogicProps } from '../logics/reportListLogic'
@@ -60,14 +60,15 @@ function ActiveFiltersBanner(): JSX.Element | null {
 }
 
 function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps): JSX.Element {
-    const { reports, count, hasMore, reportsResponseLoading, isLoaded } = useValues(reportListLogic)
+    const { reports, count, totalCount, hasMore, reportsResponseLoading, isLoaded, loadedQueryKey, loadedContext } =
+        useValues(reportListLogic)
     const { ensureLoaded, loadMore, archiveReport, restoreReport, refresh } = useActions(reportListLogic)
     const { hasActiveFilters, sourceProductFilter, priorityFilter, scope } = useValues(inboxFiltersLogic)
     // The list stays mounted (hidden) while a report/scout detail is open, so gate the view event on
     // the list actually being the visible surface — otherwise a deep-link to a report fires a phantom
     // `Inbox viewed` and then suppresses the real one when the user navigates back to the list.
-    const { selectedReportId, selectedScoutSkillName, isScratchpadOpen } = useValues(inboxSceneLogic)
-    const listVisible = !selectedReportId && !selectedScoutSkillName && !isScratchpadOpen
+    const { selectedReportId, selectedScoutSkillName, isScratchpadOpen, isFindingsOpen } = useValues(inboxSceneLogic)
+    const listVisible = !selectedReportId && !selectedScoutSkillName && !isScratchpadOpen && !isFindingsOpen
     const sentinelRef = useRef<HTMLDivElement>(null)
 
     // Fire `Inbox viewed` once per tab mount, the first time its list settles while visible.
@@ -86,6 +87,45 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
             })
         }
     }, [listVisible, isLoaded, count, reports, tabKey, hasActiveFilters, sourceProductFilter, priorityFilter, scope])
+
+    // Impression log for ranking-model training: record each report the first time it appears in
+    // the visible list (initial page, pagination, refresh), with its rank at that moment. Deduped
+    // per tab mount so re-renders and detail-pane round-trips don't refire.
+    const impressedIdsRef = useRef(new Set<string>())
+    // Dedupe is per query: a sort/search/filter/scope change is a new ranking context, so a report
+    // re-shown under the new query must impress again (at its new rank) for its later open/action
+    // events to have a matching impression.
+    const impressionQueryKeyRef = useRef('')
+    useEffect(() => {
+        // totalCount, loadedQueryKey, and loadedContext come from the same response as `reports`
+        // (not the live filter state or the separately-loaded badge count), so impressions can't
+        // be stamped with a stale total or with scope/filter context the user switched to after
+        // the request went out, and rows from the previous query are never attributed to the new
+        // one while its refetch is still in flight.
+        if (!listVisible || !isLoaded || totalCount === null || loadedQueryKey === null || loadedContext === null) {
+            return
+        }
+        if (loadedQueryKey !== impressionQueryKeyRef.current) {
+            impressionQueryKeyRef.current = loadedQueryKey
+            impressedIdsRef.current = new Set<string>()
+        }
+        const fresh = reports
+            .map((report, index) => ({ report, rank: index + 1 }))
+            .filter(({ report }) => !impressedIdsRef.current.has(report.id))
+        if (fresh.length === 0) {
+            return
+        }
+        fresh.forEach(({ report }) => impressedIdsRef.current.add(report.id))
+        captureInboxReportsImpressed({
+            tab: tabKey,
+            reports: fresh.map(({ report }) => report),
+            ranks: fresh.map(({ rank }) => rank),
+            listSize: reports.length,
+            totalCount,
+            hasActiveFilters: loadedContext.hasActiveFilters,
+            scope: loadedContext.scope,
+        })
+    }, [listVisible, isLoaded, totalCount, reports, tabKey, loadedQueryKey, loadedContext])
 
     // Read fresh state at intersection time via refs so the observer is created once and not
     // rebuilt twice per page fetch (`hasMore`/`reportsResponseLoading` both flip during a load).

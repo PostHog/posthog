@@ -28,6 +28,7 @@ export const AGENT_USE_CASE_SCOPES = [
     'comment:read',
     'dashboard:read',
     'dashboard:write',
+    'dashboard_template:read',
     'early_access_feature:read',
     'early_access_feature:write',
     'endpoint:read',

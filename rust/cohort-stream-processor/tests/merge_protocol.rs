@@ -27,8 +27,8 @@ use cohort_stream_processor::stage1::{Stage1State, StateVariant, StatefulRecord}
 use cohort_stream_processor::stage2::Stage2State;
 use cohort_stream_processor::store::{
     BehavioralKey, CohortStore, LeafStateKey, MergeAppliedKey, MergeDrainKey, OffloadConfig,
-    OffloadMode, PendingTransferKey, PersonRecordKey, PersonRecords, Stage2Key, StoreConfig,
-    StoreHandle, TombstoneKey,
+    OffloadMode, PendingTransferKey, PersonRecordKey, PersonRecords, ReadLane, Stage2Key,
+    StoreConfig, StoreHandle, TombstoneKey,
 };
 use cohort_stream_processor::workers::{
     compose_stage2, handle_merge_gc, handle_stage2_orphan_gc, process_event, MergeGcCursor,
@@ -712,9 +712,10 @@ async fn apply_transitions_compose_into_stage2() {
         p_new_part,
         &handle(&store),
         &filters,
-        &transitions,
+        &cohort_stream_processor::workers::worker::affected_leaves(&transitions),
         MERGED_AT,
         &now_last_updated(),
+        ReadLane::Event,
     )
     .await
     .unwrap();
@@ -2305,9 +2306,10 @@ async fn each_offload_mode_yields_the_same_merge_result() {
             p_new_part,
             &handle,
             &filters,
-            &transitions,
+            &cohort_stream_processor::workers::worker::affected_leaves(&transitions),
             MERGED_AT,
             &last_updated,
+            ReadLane::Event,
         )
         .await
         .unwrap();

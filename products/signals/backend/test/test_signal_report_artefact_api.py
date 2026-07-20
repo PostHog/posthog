@@ -305,6 +305,7 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
                     "github_login": "alice",
                     "github_name": "Alice A.",
                     "relevant_commits": [{"sha": "abc123", "url": "u", "reason": "r"}],
+                    "reason": "Top recent author on the affected surface",
                 },
                 {
                     "github_login": "bob",
@@ -314,10 +315,12 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             ],
         )
 
-        # Keep alice (existing commits should survive), add a new reviewer dave (commits empty).
+        # Keep alice (existing commits + reason should survive), add dave (explicit reason honoured).
         response = self.client.put(
             self._detail_url(str(report.id), str(artefact.id)),
-            data=json.dumps({"content": [{"github_login": "alice"}, {"github_login": "dave"}]}),
+            data=json.dumps(
+                {"content": [{"github_login": "alice"}, {"github_login": "dave", "reason": "Owns this area"}]}
+            ),
             content_type="application/json",
         )
         assert response.status_code == status.HTTP_200_OK
@@ -325,7 +328,9 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         stored = {r["github_login"]: r for r in self._latest_reviewers(report)}
         assert stored["alice"]["relevant_commits"] == [{"sha": "abc123", "url": "u", "reason": "r"}]
         assert stored["alice"]["github_name"] == "Alice A."  # carried over from prior
+        assert stored["alice"]["reason"] == "Top recent author on the affected surface"  # carried over from prior
         assert stored["dave"]["relevant_commits"] == []
+        assert stored["dave"]["reason"] == "Owns this area"
         assert "bob" not in stored
 
     def test_put_resolves_user_uuid_to_github_login(self):
