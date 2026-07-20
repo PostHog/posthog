@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class OpenExchangeRatesSource(ResumableSource[OpenExchangeRatesSourceConfig, OpenExchangeRatesResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://docs.openexchangerates.org/reference/api-introduction"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -49,7 +50,6 @@ class OpenExchangeRatesSource(ResumableSource[OpenExchangeRatesSourceConfig, Ope
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Open Exchange Rates",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Open Exchange Rates App ID to pull foreign-exchange reference rates into the PostHog Data warehouse.
 
 Find your App ID in your [Open Exchange Rates dashboard](https://openexchangerates.org/account/app-ids).

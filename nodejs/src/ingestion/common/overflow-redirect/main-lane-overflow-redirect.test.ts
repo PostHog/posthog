@@ -32,7 +32,6 @@ describe('MainLaneOverflowRedirect', () => {
             localCacheTTLSeconds: 60,
             bucketCapacity: 10,
             replenishRate: 1,
-            statefulEnabled: true,
             overflowType: 'events',
             ...overrides,
         })

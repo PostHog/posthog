@@ -1,0 +1,79 @@
+<!--
+This is the user-facing source documentation. It belongs in the posthog.com repo at
+contents/docs/cdp/sources/pulumi-cloud.md (served at /docs/cdp/sources/pulumi-cloud). It is kept here
+only because a posthog.com checkout was not available when the source was implemented — copy it across
+and delete this file from this repo. Run `python manage.py audit_source_docs --docs-dir <posthog.com>/contents/docs/cdp/sources`
+once it lands.
+-->
+
+---
+
+title: Linking Pulumi as a source
+sidebar: Docs
+showTitle: true
+availability: { free: full, selfServe: full, enterprise: full }
+sourceId: PulumiCloud
+beta: true
+
+---
+
+import SourceSetupIntro from '../_snippets/source-setup-intro.mdx'
+import SyncModes from '../_snippets/sync-modes.mdx'
+import TroubleshootingLink from '../_snippets/dw-troubleshooting-link.mdx'
+import AlphaRelease from '../_snippets/alpha-release.mdx'
+
+<AlphaRelease />
+
+[Pulumi Cloud](https://www.pulumi.com/product/pulumi-cloud/) is the managed control plane for Pulumi
+infrastructure as code. This connector pulls your stacks, their full update history, Pulumi Deployments
+runs, the Insights resource index, and organization audit logs into the PostHog Data warehouse, so you
+can measure deployment frequency, change-failure rate, and lead time for infrastructure changes alongside
+your product data.
+
+## Prerequisites
+
+You need a Pulumi Cloud account and an access token for a member of the organization you want to sync.
+The **Audit logs** table additionally requires a Pulumi Cloud plan with audit logs enabled (Enterprise or
+Business Critical), and the **Deployments** table only has data if your organization uses Pulumi
+Deployments.
+
+## Adding a data source
+
+<SourceSetupIntro />
+
+Pulumi authenticates with an access token (it starts with `pul-`). Create a personal access token on your
+[access tokens page](https://app.pulumi.com/account/tokens), or an organization access token from your
+organization's settings, and paste it into the **Access token** field. The token inherits its owner's
+access, so no extra scopes are required.
+
+The **Organization** field takes your organization name as it appears in your Pulumi Cloud console URL
+(`app.pulumi.com/<organization>`).
+
+## Sync modes
+
+<SyncModes />
+
+**Audit logs** syncs incrementally using the API's server-side time filter, and **Stack updates** syncs
+incrementally by reading each stack's history newest-first and stopping at the last synced update. Both
+re-read a short trailing window each run so late-completing updates and boundary events are picked up.
+The other tables are current-state snapshots, so they sync as full refresh.
+
+## Configuration
+
+<SourceParameters />
+
+## Supported tables
+
+<SourceTables />
+
+## Troubleshooting
+
+- **401 Unauthorized** — the access token is invalid or has been revoked. Create a new access token in
+  Pulumi Cloud and reconnect.
+- **403 Forbidden** — the token is valid but does not have access to the requested data. Check that the
+  token's owner is a member of the organization, and for audit logs, that your plan has audit logs
+  enabled.
+- **Audit logs table is empty or fails** — audit logs are only available on Pulumi Cloud plans with audit
+  logs enabled. Deselect the table if your plan does not include them.
+
+<TroubleshootingLink />

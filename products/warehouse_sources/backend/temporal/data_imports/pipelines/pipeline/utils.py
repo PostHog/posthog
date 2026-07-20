@@ -293,12 +293,20 @@ def evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sche
                 try:
                     casted_column = incoming_column.cast(delta_field.type).combine_chunks()
                 except pa.ArrowInvalid as e:
-                    # A narrowing cast overflowed. The usual cause is the source column's type
+                    # A narrowing cast overflowed. The usual causes are the source column's type
                     # being widened upstream (e.g. Postgres `integer` → `bigint`) after the Delta
-                    # column was created with the narrower type. delta-rs cannot widen an existing
-                    # column in place, so retrying is futile — surface an actionable error telling
-                    # the user to reset and fully re-sync the table.
-                    if pa.types.is_integer(delta_field.type) and pa.types.is_integer(incoming_column.type):
+                    # column was created with the narrower type, or an integer-created column now
+                    # receiving fractional values — e.g. a price field whose first-synced rows were
+                    # all whole numbers, later failing with "ArrowInvalid: Float value 19.990000
+                    # was truncated converting to int64". delta-rs cannot widen an existing column
+                    # in place, so retrying is futile — surface an actionable error telling the
+                    # user to reset and fully re-sync the table. Whole-valued floats/decimals still
+                    # cast into an integer column losslessly, so this only fires on genuine data loss.
+                    if pa.types.is_integer(delta_field.type) and (
+                        pa.types.is_integer(incoming_column.type)
+                        or pa.types.is_floating(incoming_column.type)
+                        or pa.types.is_decimal(incoming_column.type)
+                    ):
                         raise SchemaColumnTypeChangedException(
                             f"Source column type changed: '{delta_field.name}' has values that no longer "
                             f"fit its stored type {delta_field.type} (incoming data is now "
@@ -351,7 +359,7 @@ def normalize_table_column_names(table: pa.Table) -> pa.Table:
             table = table.set_column(
                 table.schema.get_field_index(column_name),
                 temp_name,
-                table.column(column_name),  # type: ignore
+                table.column(column_name),
             )
             used_names.add(temp_name)
 
@@ -684,8 +692,12 @@ def append_partition_key_to_table(
                 elif isinstance(date, datetime.date):
                     partition_array.append(date.strftime(date_format))
                 elif isinstance(date, str) and date.strip():
-                    date = parser.parse(date)
-                    partition_array.append(date.strftime(date_format))
+                    try:
+                        date = parser.parse(date)
+                        partition_array.append(date.strftime(date_format))
+                    except (ValueError, OverflowError):
+                        # Non-date-like string (e.g. a UUID primary key) — treat as unknown date
+                        partition_array.append("1970-01")
                 elif isinstance(date, str):
                     # Empty string — treat as unknown date
                     partition_array.append("1970-01")
@@ -862,7 +874,54 @@ def _to_list_array(column_data: pa.Array | pa.ChunkedArray | np.ndarray[Any, np.
     return column_data.tolist()
 
 
+def _serialize_dict_columns(table_data: list[dict]) -> tuple[list[dict], set[str]]:
+    """JSON-serialize columns whose non-None values are all dicts, before any Arrow work.
+
+    Such a column ends up stored as a JSON string either way, but letting it reach `pa.array()`
+    first builds a unified struct type whose field count is the union of every row's key paths.
+    For heterogeneous nested documents (e.g. a MongoDB collection where each document's structure
+    varies) that union grows with the batch, making conversion superlinear in rows — batches of a
+    few hundred documents can take minutes and starve activity heartbeats. The struct round-trip
+    also injects the union's null-filled fields into every serialized row, bloating the stored
+    JSON with keys the original document never had. Serializing the source dicts up front keeps
+    conversion linear and preserves each document exactly.
+
+    The caller's rows are left untouched — rows needing serialization are shallow-copied — so
+    reusing or retrying with the same batch stays safe. Returns the (possibly new) row list and
+    the serialized column names so a provided schema can be coerced to string for them.
+    """
+    dict_columns: set[str] = set()
+    non_dict_columns: set[str] = set()
+    for row in table_data:
+        for key, value in row.items():
+            if value is None or key in non_dict_columns:
+                continue
+            if isinstance(value, dict):
+                dict_columns.add(key)
+            else:
+                non_dict_columns.add(key)
+                dict_columns.discard(key)
+
+    if not dict_columns:
+        return table_data, dict_columns
+
+    serialized_rows: list[dict] = []
+    for row in table_data:
+        replaced: Optional[dict] = None
+        for key in dict_columns:
+            value = row.get(key)
+            if value is not None:
+                if replaced is None:
+                    replaced = dict(row)
+                replaced[key] = _json_dumps(value)
+        serialized_rows.append(replaced if replaced is not None else row)
+
+    return serialized_rows, dict_columns
+
+
 def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -> pa.Table:
+    table_data, serialized_dict_columns = _serialize_dict_columns(table_data)
+
     # Support both given schemas and inferred schemas
     if schema is None or len(schema.names) == 0:
         try:
@@ -918,6 +977,16 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
 
             field = arrow_schema.field_by_name(str(field_name))
             field_index = arrow_schema.get_field_index(str(field_name))
+
+            # A serialized dict column holds JSON strings now; a provided schema may still declare
+            # the source's original non-string type for it, which from_pydict would fail to cast.
+            if (
+                field_name in serialized_dict_columns
+                and not pa.types.is_string(field.type)
+                and not pa.types.is_large_string(field.type)
+            ):
+                arrow_schema = arrow_schema.set(field_index, field.with_type(pa.string()))
+                field = arrow_schema.field_by_name(str(field_name))
 
             # cast double / float ndarrays to decimals if type mismatch, looks like decimals and floats are often mixed up in dialects
             if pa.types.is_decimal(field.type) and (float in unique_types_in_column or str in unique_types_in_column):
@@ -1121,14 +1190,20 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                         field_index, arrow_schema.field(field_index).with_type(overflow_arr.type)
                     )
 
-        # If one type is a list, then make everything into a list
+        # If one type is a list, wrap scalars into single-element lists and JSON-stringify the column.
+        # Element types can differ across rows (e.g. a WordPress field returned as a bool in one row
+        # and an object in another), which no single pyarrow list type can hold, so serialize directly
+        # rather than via an intermediate list array that would raise ArrowInvalid on the mismatch.
         if len(unique_types_in_column) > 1 and list in unique_types_in_column:
-            list_array = pa.array(
-                [s if isinstance(s, list) else [s] for s in _to_list_array(columnar_table_data[field_name])]
+            json_array = pa.array(
+                [
+                    None if s is None else _json_dumps(s if isinstance(s, list) else [s])
+                    for s in _to_list_array(columnar_table_data[field_name])
+                ]
             )
-            columnar_table_data[field_name] = list_array
-            py_type = list
-            unique_types_in_column = {list}
+            columnar_table_data[field_name] = json_array
+            py_type = str
+            unique_types_in_column = {str}
             if arrow_schema:
                 arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(pa.string()))
 

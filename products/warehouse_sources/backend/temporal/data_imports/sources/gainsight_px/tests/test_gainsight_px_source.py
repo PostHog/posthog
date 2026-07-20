@@ -32,7 +32,6 @@ class TestGainsightPxSource:
         assert config.name.value == "GainsightPx"
         assert config.label == "Gainsight PX"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.iconPath == "/static/services/gainsight_px.png"
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/gainsight-px"
         assert len(config.fields) == 2

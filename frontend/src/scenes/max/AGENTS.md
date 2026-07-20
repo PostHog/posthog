@@ -19,7 +19,7 @@ Per-concern mapping, `langgraph` (LEGACY, frozen) → `sandbox` (NEW, build here
 - **Thread renderer**: `Thread.tsx` (default path) → `Thread.tsx` binds the surface's `ThreadView`
 - **Context shape**: rich `MaxUIContext` (full objects) → flat `AttachedContext` (typed refs, agent fetches)
 - **Approvals**: `DangerousOperationApprovalCard.tsx` / `approvalOperationUtils.ts` → the surface's `PermissionInput` / `QuestionInput`
-- **Tool widgets**: `messages/` + `messages/adapters/` → the surface's `toolRegistry` (Max's product renderers register via `messages/adapters/registerMaxToolRenderers`)
+- **Tool widgets**: `messages/` (LangGraph presenters) → the surface's `toolRegistry`. The PostHog product renderers (insight/dashboard/recordings/error-tracking/notebook/query) now live in `products/posthog_ai/frontend/components/tool/widgets` and self-register there; Max is a consumer.
 
 ### Rule: do not extend the LangGraph path unless explicitly asked
 
@@ -30,7 +30,7 @@ New behavior — new tools, new context types, new UI affordances — goes on th
 - ❌ New fields on `MaxUIContext` for a sandbox feature — use `AttachedContext` instead.
 - ❌ No new MaxTools.
 
-If a task genuinely needs the LangGraph path extended, confirm that intent explicitly before touching `maxThreadLogic.tsx`, `LangGraphActivity.tsx`, `max-constants.tsx` (`EnhancedToolCall`), the `MaxUIContext` half of `maxContextLogic.ts`, or `messages/` + `messages/adapters/`.
+If a task genuinely needs the LangGraph path extended, confirm that intent explicitly before touching `maxThreadLogic.tsx`, `LangGraphActivity.tsx`, `max-constants.tsx` (`EnhancedToolCall`), the `MaxUIContext` half of `maxContextLogic.ts`, or `messages/`.
 
 ## 2. Sandbox architecture &amp; conventions live with the surface
 
@@ -56,10 +56,11 @@ directory's `README.md` for the tier decision table + recipes and its `AGENTS.md
 and the hard rule that it must never import `scenes/max`.
 
 What stays in `scenes/max`: conversation orchestration (`maxLogic`, `maxThreadLogic`, `maxGlobalLogic`), the
-Max Context subsystem, slash commands, `useMaxTool`/`MaxTool`, feedback/ratings, the frozen LangGraph path,
-and Max's **product-specific tool renderers** (`messages/adapters/*`), which register themselves into the
-shared `toolRegistry` via `messages/adapters/registerMaxToolRenderers` (imported once from
-`Thread.tsx`). Add a new product tool renderer there, not in `products/posthog_ai/frontend`.
+Max Context subsystem, slash commands, `useMaxTool`/`MaxTool`, feedback/ratings, and the frozen LangGraph
+path (including its `messages/*` presenters). The **PostHog product tool renderers** (insight, dashboard,
+recordings, error-tracking, notebook, query) now live in `products/posthog_ai/frontend/components/tool/widgets`
+and self-register there — add a new one in the surface, not here. Max's LangGraph path consumes the heavier
+ones (`VisualizationWidget` / `RecordingsWidget` / `ErrorTrackingFiltersWidget`) through `api/primitives`.
 
 ## 5. Where do I add X?
 
@@ -68,8 +69,9 @@ The first three now live in `products/posthog_ai/frontend` (the shared surface) 
 - **A new thread-item type** → `products/posthog_ai/frontend/types/streamTypes.ts` (the `ThreadItem` union), handle it in `foldLogToThread`, and add a memoized leaf renderer wired into `ThreadView`/`ThreadRow`.
 - **A new permission affordance / auto-approval rule** → `products/posthog_ai/frontend/policy/toolPolicy.ts`, then surface it through `PermissionInput`.
 - **New stream telemetry** → a guarded `posthog.capture` in the relevant `runStreamLogic` listener (fire-once, suppressed on replay).
-- **A new product tool renderer** (renders a PostHog entity) → `scenes/max/messages/adapters/*` + register it in `messages/adapters/registerMaxToolRenderers`.
-- **New context the agent should see** → extend `AttachedContext` (not `MaxUIContext`).
+- **A new product tool renderer** (renders a PostHog entity) → `products/posthog_ai/frontend/components/tool/widgets/*` + register it in `widgets/registerDataToolRenderers` (the surface self-registers; every consumer, including Max's sandbox path, picks it up).
+- **New context the agent should see** → register it from the owning product via the surface's context seam: `useAttachedContext` / `AttachedContextProvider` / `attachedContextLogic.registerContext` (see `products/posthog_ai/frontend/AGENTS.md` §3). Not `MaxUIContext`, and no new fields on the legacy stores. Scenes now register their on-screen context natively into that seam, and `maxThreadLogic`'s sandbox send merges the seam's items into `attached_context` — that bridge lives here and is deleted with `scenes/max`.
+- **UI that reacts to the agent calling a tool** (sandbox path) → subscribe via the surface's `useToolStreamListener` / `toolStreamEventsLogic` (resolved tool names, replay suppressed by default). The legacy `useMaxTool` `callback` fires on LangGraph only.
 
 ## 6. Don'ts
 

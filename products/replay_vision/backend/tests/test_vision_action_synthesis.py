@@ -1,9 +1,11 @@
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from uuid import uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.conf import settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -12,29 +14,36 @@ from products.replay_vision.backend.models import ReplayObservation, ReplayScann
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ObservationTrigger
 from products.replay_vision.backend.models.replay_scanner import ScannerModel, ScannerType
 from products.replay_vision.backend.models.vision_action import VisionActionRunStatus
-from products.replay_vision.backend.temporal.vision_actions.synthesis import _markdown_to_slack, _synthesize
+from products.replay_vision.backend.temporal.vision_actions.synthesis import (
+    SLACK_BLOCK_TEXT_LIMIT,
+    _markdown_to_slack,
+    _slack_blocks,
+    _split_long_line,
+    _synthesize,
+)
 from products.replay_vision.backend.temporal.vision_actions.types import SynthesisStatus, SynthesizeGroupSummaryInputs
 from products.replay_vision.backend.tests.helpers import snapshot_for
 
 _SYNTH_PATH = "products.replay_vision.backend.temporal.vision_actions.synthesis"
 
 
-def _mock_genai(content: str, captured: list[str] | None = None):
-    # genai.Client(...).models.generate_content(...) → object with .text
-    def _generate(**kwargs) -> SimpleNamespace:
-        if captured is not None:
-            captured.append(kwargs.get("contents", ""))
-        return SimpleNamespace(text=content)
+def _user_message(kwargs: dict) -> str:
+    return next((m["content"] for m in kwargs.get("messages", []) if m["role"] == "user"), "")
 
-    client = SimpleNamespace(models=SimpleNamespace(generate_content=_generate))
-    return SimpleNamespace(Client=lambda **_kwargs: client)
+
+def _mock_openai(content: str, captured: list[str] | None = None):
+    # OpenAI(...).chat.completions.create(...) → object with .choices[0].message.content
+    def _create(**kwargs) -> SimpleNamespace:
+        if captured is not None:
+            captured.append(_user_message(kwargs))
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=_create)))
+    return lambda **_kwargs: client
 
 
 def _no_llm_client(**_kwargs):
     raise AssertionError("LLM should not be called")
-
-
-_NO_LLM = SimpleNamespace(Client=_no_llm_client)
 
 
 class TestVisionActionSynthesis(BaseTest):
@@ -92,7 +101,7 @@ class TestVisionActionSynthesis(BaseTest):
     ):
         with (
             patch(f"{_SYNTH_PATH}.is_team_over_ai_credit_budget", return_value=False),
-            patch(f"{_SYNTH_PATH}.genai", _mock_genai(llm_content, captured_prompts)),
+            patch(f"{_SYNTH_PATH}.OpenAI", _mock_openai(llm_content, captured_prompts)),
         ):
             return _synthesize(SynthesizeGroupSummaryInputs(run_id=run.id, team_id=self.team.id))
 
@@ -112,6 +121,77 @@ class TestVisionActionSynthesis(BaseTest):
         # Slack conversion: heading + bold → *...* — stored under output["slack"]
         self.assertIn("*Summary*", run.output["slack"])
         self.assertIn("*Two*", run.output["slack"])
+        # Delivery renders the pre-split blocks; a short report is one section block of the same text.
+        self.assertEqual(
+            run.output["slack_blocks"], [{"type": "section", "text": {"type": "mrkdwn", "text": run.output["slack"]}}]
+        )
+
+    def test_labels_each_observation_line_for_citation(self) -> None:
+        # Every fed observation line is prefixed with a 1-based `[obs N]` label so the model can cite the
+        # observations behind a theme; the frontend resolves those labels back to observation links. A
+        # dropped or misaligned label would break that resolution.
+        self._observation("Users churned at checkout", title="Checkout")
+        self._observation("Onboarding looked smooth", title="Onboarding", session_id="s2")
+        action = self._action()
+        run = self._run_for(action)
+
+        prompts: list[str] = []
+        self._synthesize(action, run, captured_prompts=prompts)
+
+        self.assertIn("[obs 1] (", prompts[0])
+        self.assertIn("[obs 2] (", prompts[0])
+        self.assertNotIn("[obs 3]", prompts[0])
+
+    def test_slack_renders_citations_as_observation_links(self) -> None:
+        # The canonical report keeps the raw `[obs N]` markers for the in-app renderer; the Slack payload
+        # resolves them to `<url|[N]>` links so a Slack reader can open the recording behind a cited theme.
+        obs = self._observation("Users churned at checkout", title="Checkout")
+        action = self._action()
+        run = self._run_for(action)
+
+        self._synthesize(action, run, llm_content="Users hit friction at checkout [obs 1].")
+
+        run.refresh_from_db()
+        self.assertIn("[obs 1]", run.synthesized_markdown)
+        expected_link = f"<{settings.SITE_URL}/project/{self.team.id}/replay-vision/observations/{obs.id}|[1]>"
+        self.assertIn(expected_link, run.output["slack"])
+        self.assertNotIn("[obs 1]", run.output["slack"])
+
+    def test_slack_drops_unresolvable_citation(self) -> None:
+        # A citation the model invents past the observation count can't resolve to a link, so it's dropped
+        # rather than emitted as a dead label or a link to the wrong recording.
+        self._observation("Users churned at checkout", title="Checkout")
+        action = self._action()
+        run = self._run_for(action)
+
+        self._synthesize(action, run, llm_content="Friction everywhere [obs 9].")
+
+        run.refresh_from_db()
+        self.assertNotIn("[9]", run.output["slack"])
+        self.assertNotIn("[obs 9]", run.output["slack"])
+
+    @parameterized.expand(
+        [
+            ("space_separated", " "),
+            ("comma_separated", ", "),
+        ]
+    )
+    def test_caps_runaway_citation_lists(self, _label: str, separator: str) -> None:
+        # A theme the model backs with many recordings must not render a wall of citations: an adjacent run
+        # is trimmed to a representative handful, keeping the first few. Guards both the in-app markdown and
+        # (once it renders links) the Slack payload, since the cap runs on the stored report. The model
+        # separates citations with commas as often as spaces — both shapes must count as one run.
+        for i in range(10):
+            self._observation(f"obs {i}", session_id=f"s{i}")
+        action = self._action()
+        run = self._run_for(action)
+
+        citations = separator.join(f"[obs {i}]" for i in range(1, 10))  # 9 adjacent citations
+        self._synthesize(action, run, llm_content=f"Users hit friction across this flow {citations}.")
+
+        run.refresh_from_db()
+        self.assertEqual(run.synthesized_markdown.count("[obs "), 6)
+        self.assertIn("[obs 1] [obs 2] [obs 3] [obs 4] [obs 5] [obs 6]", run.synthesized_markdown)
 
     def test_summary_leads_with_scanner_window_and_count_header(self) -> None:
         # The report must always state which scanner it's for, how many recordings it covers, and the
@@ -249,10 +329,10 @@ class TestVisionActionSynthesis(BaseTest):
         run.observation_count = 5
         run.save()
 
-        # If the LLM were called, this would raise (genai client patched to blow up).
+        # If the LLM were called, this would raise (OpenAI client patched to blow up).
         with (
             patch(f"{_SYNTH_PATH}.is_team_over_ai_credit_budget", return_value=False),
-            patch(f"{_SYNTH_PATH}.genai", _NO_LLM),
+            patch(f"{_SYNTH_PATH}.OpenAI", _no_llm_client),
         ):
             result = _synthesize(SynthesizeGroupSummaryInputs(run_id=run.id, team_id=self.team.id))
 
@@ -286,7 +366,7 @@ class TestVisionActionSynthesis(BaseTest):
 
         with (
             patch(f"{_SYNTH_PATH}.is_team_over_ai_credit_budget", return_value=(gate == "over_budget")),
-            patch(f"{_SYNTH_PATH}.genai", _NO_LLM),
+            patch(f"{_SYNTH_PATH}.OpenAI", _no_llm_client),
         ):
             result = _synthesize(SynthesizeGroupSummaryInputs(run_id=run.id, team_id=self.team.id))
 
@@ -461,15 +541,15 @@ class TestVisionActionSynthesis(BaseTest):
         captured: dict = {}
 
         def _capturing_client(**_kwargs):
-            def generate_content(**kwargs):
-                captured["human"] = kwargs["contents"]
-                return SimpleNamespace(text="ok")
+            def create(**kwargs):
+                captured["human"] = _user_message(kwargs)
+                return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))])
 
-            return SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+            return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
 
         with (
             patch(f"{_SYNTH_PATH}.is_team_over_ai_credit_budget", return_value=False),
-            patch(f"{_SYNTH_PATH}.genai", SimpleNamespace(Client=_capturing_client)),
+            patch(f"{_SYNTH_PATH}.OpenAI", _capturing_client),
         ):
             _synthesize(SynthesizeGroupSummaryInputs(run_id=run.id, team_id=self.team.id))
 
@@ -478,6 +558,65 @@ class TestVisionActionSynthesis(BaseTest):
         # The guide is a trusted instruction and must lead, so the fenced untrusted observation
         # block stays the last thing the model reads.
         self.assertLess(human.index("focus on rage clicks"), human.index("<observations>"))
+
+    def _typed_observation(self, model_output: dict, session_id: str) -> ReplayObservation:
+        return ReplayObservation.objects.create(
+            scanner=self.scanner,
+            session_id=session_id,
+            scanner_snapshot=snapshot_for(self.scanner),
+            triggered_by=ObservationTrigger.SCHEDULE,
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+            scanner_result={"model_output": model_output},
+        )
+
+    def test_targeting_verdict_only_feeds_matching_observations(self) -> None:
+        matching = self._typed_observation(
+            {"scanner_type": "monitor", "verdict": "yes", "reasoning": "user rage clicked"}, session_id="s1"
+        )
+        self._typed_observation(
+            {"scanner_type": "monitor", "verdict": "no", "reasoning": "calm session"}, session_id="s2"
+        )
+        action = self._action(selection={"verdict": ["yes"]})
+        run = self._run_for(action)
+
+        result = self._synthesize(action, run)
+
+        self.assertEqual(result.observation_count, 1)
+        run.refresh_from_db()
+        self.assertEqual(run.observation_ids, [str(matching.id)])
+
+    def test_targeting_score_bounds_compare_numerically(self) -> None:
+        # score 10 must satisfy min_score 9 — catches the jsonb bound regressing to text
+        # comparison, where "10" < "9" lexicographically.
+        self._typed_observation({"scanner_type": "scorer", "score": 2, "reasoning": "meh"}, session_id="s1")
+        high = self._typed_observation({"scanner_type": "scorer", "score": 10, "reasoning": "great"}, session_id="s2")
+        action = self._action(selection={"min_score": 9})
+        run = self._run_for(action)
+
+        result = self._synthesize(action, run)
+
+        self.assertEqual(result.observation_count, 1)
+        run.refresh_from_db()
+        self.assertEqual(run.observation_ids, [str(high.id)])
+
+    def test_targeting_tags_match_fixed_or_freeform(self) -> None:
+        fixed = self._typed_observation(
+            {"scanner_type": "classifier", "tags": ["bug"], "reasoning": "hit a bug"}, session_id="s1"
+        )
+        freeform = self._typed_observation(
+            {"scanner_type": "classifier", "tags": [], "tags_freeform": ["slow"], "reasoning": "felt slow"},
+            session_id="s2",
+        )
+        self._typed_observation({"scanner_type": "classifier", "tags": ["ux"], "reasoning": "ux note"}, session_id="s3")
+        action = self._action(selection={"tags": ["bug", "slow"]})
+        run = self._run_for(action)
+
+        result = self._synthesize(action, run)
+
+        self.assertEqual(result.observation_count, 2)
+        run.refresh_from_db()
+        self.assertEqual(set(run.observation_ids), {str(fixed.id), str(freeform.id)})
 
 
 class TestMarkdownToSlack(BaseTest):
@@ -489,15 +628,32 @@ class TestMarkdownToSlack(BaseTest):
         ]
     )
     def test_markdown_converted_to_slack_mrkdwn(self, _label: str, markdown: str, expected: str) -> None:
-        out = _markdown_to_slack(markdown)
+        out = _markdown_to_slack(markdown, team_id=self.team.id, observation_ids=[])
         self.assertIn(expected, out)
         self.assertNotIn("#", out)
         self.assertNotIn("**", out)
 
-    def test_truncates_long_text(self) -> None:
-        out = _markdown_to_slack("x" * 50_000)
+    def test_truncates_only_past_the_api_cap(self) -> None:
+        # Truncation is a last resort against Slack's ~40k chat.postMessage rejection; display
+        # splitting is handled by `_slack_blocks`, so ordinary long reports must NOT be cut.
+        out = _markdown_to_slack("x" * 50_000, team_id=self.team.id, observation_ids=[])
         self.assertLessEqual(len(out), 39_000)
         self.assertIn("truncated", out)
+        untouched = _markdown_to_slack("line\n" * 1_500, team_id=self.team.id, observation_ids=[])
+        self.assertNotIn("truncated", untouched)
+
+    def test_truncation_does_not_split_a_citation_link(self) -> None:
+        # A citation link straddling the cut point must be dropped whole, not cut in half — a dangling
+        # `<https://…` renders as garbage in Slack. The cut backs up to the previous line break.
+        from products.replay_vision.backend.temporal.vision_actions.synthesis import SLACK_TEXT_MAX
+
+        obs_id = str(uuid4())
+        text = "a" * (SLACK_TEXT_MAX - 50) + "\n" + "More friction at checkout [obs 1] and beyond. " * 5
+        out = _markdown_to_slack(text, team_id=self.team.id, observation_ids=[obs_id])
+        self.assertLessEqual(len(out), SLACK_TEXT_MAX + 100)
+        self.assertIn("truncated", out)
+        self.assertEqual(out.count("<"), out.count(">"))
+        self.assertNotIn(obs_id[:8], out)  # the straddling link is gone entirely, not half-emitted
 
     def test_truncation_does_not_re_expose_defanged_url(self) -> None:
         # A non-PostHog URL straddling SLACK_TEXT_MAX must stay defanged after truncation.
@@ -506,7 +662,40 @@ class TestMarkdownToSlack(BaseTest):
 
         padding = "a" * (SLACK_TEXT_MAX - 5)
         evil = "https://evil.example.com/exfil"
-        out = _markdown_to_slack(padding + evil)
+        out = _markdown_to_slack(padding + evil, team_id=self.team.id, observation_ids=[])
         # The host must not appear as a live (unquoted) URL in the output.
         sanitized = out.replace("`https://evil.example.com/exfil`", "")
         self.assertNotIn("https://evil.example.com/exfil", sanitized)
+
+    def test_slack_blocks_split_at_line_boundaries_and_keep_links_whole(self) -> None:
+        # Slack auto-splits `text` over ~4k at arbitrary positions, cutting <url|[N]> links in half —
+        # the pre-split blocks are what delivery renders instead, so every block must fit Slack's
+        # 3,000-char section limit, split only at line breaks, and carry the whole report.
+        link = f"<https://us.posthog.com/project/1/replay-vision/observations/{uuid4()}|[1]>"
+        paragraph = f"Users hit friction at checkout and abandoned their carts repeatedly. {link}"
+        text = "\n".join(paragraph for _ in range(80))  # ~11k characters
+
+        blocks = _slack_blocks(text)
+
+        self.assertGreater(len(blocks), 1)
+        for block in blocks:
+            self.assertEqual(block["type"], "section")
+            self.assertLessEqual(len(block["text"]["text"]), SLACK_BLOCK_TEXT_LIMIT)
+            # No half links: every < has its closing > within the same block.
+            self.assertEqual(block["text"]["text"].count("<"), block["text"]["text"].count(">"))
+        # Nothing dropped: rejoining the blocks reproduces the full report.
+        self.assertEqual("\n".join(b["text"]["text"] for b in blocks), text)
+
+    @parameterized.expand(
+        [
+            ("leading_token", "<https://evil.example/" + "a" * (SLACK_BLOCK_TEXT_LIMIT * 2)),
+            ("whitespace_then_token", "   <" + "a" * (SLACK_BLOCK_TEXT_LIMIT * 2)),
+        ]
+    )
+    def test_split_long_line_consumes_unterminated_leading_token(self, _label: str, line: str) -> None:
+        # A line opening with an unterminated `<` token longer than the block limit used to make
+        # the back-up-before-the-token cut resolve to position 0 — zero forward progress, spinning
+        # the synthesis activity forever. The hard-cut guard must always consume input.
+        parts = _split_long_line(line)
+        self.assertTrue(all(len(p) <= SLACK_BLOCK_TEXT_LIMIT for p in parts))
+        self.assertEqual("".join(parts).replace(" ", ""), line.replace(" ", ""))

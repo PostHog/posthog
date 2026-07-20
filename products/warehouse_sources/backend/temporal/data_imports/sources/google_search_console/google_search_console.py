@@ -11,6 +11,7 @@ from django.db import OperationalError, close_old_connections
 
 import requests
 import structlog
+from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2.credentials import Credentials as OAuthCredentials
 
@@ -272,6 +273,24 @@ def _is_server_error(response: requests.Response) -> bool:
     return response.status_code >= 500
 
 
+def _is_transient_refresh_error(error: RefreshError) -> bool:
+    """Whether an OAuth token-refresh failure is a transient server-side blip worth retrying.
+
+    `AuthorizedSession` refreshes the access token before the Search Analytics request, so a
+    failing token endpoint raises `RefreshError` from `session.post` before any response object
+    exists — the 5xx handling on the response never sees it. google-auth flags 500/503/504/408/429
+    (and JSON `server_error`/`temporarily_unavailable`) as retryable, but omits 502 from its
+    retryable status codes, so a Bad Gateway from the token endpoint surfaces as a
+    `RefreshError(retryable=False)` carrying an HTML error page. Treat those as transient too.
+    Permanent failures (`invalid_grant`, `invalid_scope`) stay non-transient so they bubble up to
+    `get_non_retryable_errors`.
+    """
+    if getattr(error, "retryable", False):
+        return True
+    message = str(error)
+    return "502" in message and "Server Error" in message
+
+
 def _quota_backoff_seconds(response: requests.Response, attempt: int) -> float:
     """Seconds to wait before retrying a quota error: honor `Retry-After`, else exponential."""
     retry_after = response.headers.get("Retry-After")
@@ -317,6 +336,22 @@ def _query_search_analytics(
             wait = QUOTA_BACKOFF_BASE_SECONDS * (2**attempt)
             logger.warning(
                 "GSC request connection error, backing off",
+                site_url=site_url,
+                attempt=attempt,
+                wait_seconds=wait,
+            )
+            time.sleep(wait)
+            continue
+        except RefreshError as e:
+            # A transient 5xx from Google's OAuth token endpoint (notably a 502, which google-auth
+            # doesn't count as retryable) is raised here while AuthorizedSession refreshes the access
+            # token. It clears on its own, so retry inline like a 5xx; permanent failures
+            # (invalid_grant / invalid_scope) bubble up so get_non_retryable_errors can stop the sync.
+            if not _is_transient_refresh_error(e) or attempt == QUOTA_MAX_RETRIES:
+                raise
+            wait = QUOTA_BACKOFF_BASE_SECONDS * (2**attempt)
+            logger.warning(
+                "GSC token refresh transient error, backing off",
                 site_url=site_url,
                 attempt=attempt,
                 wait_seconds=wait,

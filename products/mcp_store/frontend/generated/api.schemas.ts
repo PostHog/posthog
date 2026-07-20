@@ -18,6 +18,18 @@ export const MCPAuthTypeEnumApi = {
     Oauth: 'oauth',
 } as const
 
+/**
+ * * `personal` - Personal
+ * * `shared` - Shared
+ */
+export type MCPServerInstallationScopeEnumApi =
+    (typeof MCPServerInstallationScopeEnumApi)[keyof typeof MCPServerInstallationScopeEnumApi]
+
+export const MCPServerInstallationScopeEnumApi = {
+    Personal: 'personal',
+    Shared: 'shared',
+} as const
+
 export interface MCPServerInstallationApi {
     readonly id: string
     /** @nullable */
@@ -32,6 +44,9 @@ export interface MCPServerInstallationApi {
     description?: string
     auth_type?: MCPAuthTypeEnumApi
     is_enabled?: boolean
+    readonly scope: MCPServerInstallationScopeEnumApi
+    /** True when the requesting user owns this installation. Lets clients gate owner-only controls instead of surfacing 403s. */
+    readonly is_owner: boolean
     readonly needs_reauth: boolean
     readonly pending_oauth: boolean
     readonly proxy_url: string
@@ -136,6 +151,17 @@ export const InstallSourceEnumApi = {
     PosthogCode: 'posthog-code',
 } as const
 
+/**
+ * * `personal` - personal
+ * * `shared` - shared
+ */
+export type MCPInstallationScopeEnumApi = (typeof MCPInstallationScopeEnumApi)[keyof typeof MCPInstallationScopeEnumApi]
+
+export const MCPInstallationScopeEnumApi = {
+    Personal: 'personal',
+    Shared: 'shared',
+} as const
+
 export interface InstallCustomApi {
     /** @maxLength 200 */
     name: string
@@ -148,6 +174,11 @@ export interface InstallCustomApi {
     client_secret?: string
     install_source?: InstallSourceEnumApi
     posthog_code_callback_url?: string
+    /** 'personal' is per-user; 'shared' is team-wide (visible to all project members and sandbox agents).
+     *
+     * * `personal` - personal
+     * * `shared` - shared */
+    scope?: MCPInstallationScopeEnumApi
 }
 
 export interface OAuthRedirectResponseApi {
@@ -159,6 +190,11 @@ export interface InstallTemplateApi {
     api_key?: string
     install_source?: InstallSourceEnumApi
     posthog_code_callback_url?: string
+    /** 'personal' is per-user; 'shared' is team-wide (visible to all project members and sandbox agents).
+     *
+     * * `personal` - personal
+     * * `shared` - shared */
+    scope?: MCPInstallationScopeEnumApi
 }
 
 /**

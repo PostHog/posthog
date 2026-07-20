@@ -1,6 +1,7 @@
 import './SavedInsights.scss'
 
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { ComponentType } from 'react'
 
 import {
@@ -36,7 +37,6 @@ import { LemonSelectOptions } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { Alerts } from 'lib/components/Alerts/views/Alerts'
 import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
@@ -552,6 +552,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconLive,
         inMenu: false,
     },
+    [NodeKind.MetricsQuery]: {
+        name: 'Metrics',
+        description: 'Chart a service metric over time',
+        icon: IconLive,
+        inMenu: false,
+    },
     [NodeKind.TraceSpansQuery]: {
         name: 'Trace Spans',
         icon: IconLive,
@@ -824,6 +830,7 @@ export function NewInsightButton(): JSX.Element {
 }
 
 export function SavedInsights(): JSX.Element {
+    const { push } = useActions(router)
     const {
         loadInsights,
         updateFavoritedInsight,
@@ -832,16 +839,8 @@ export function SavedInsights(): JSX.Element {
         setSavedInsightsFilters,
         bulkDeleteInsights,
     } = useActions(savedInsightsLogic)
-    const {
-        insights,
-        insightsLoading,
-        filters,
-        sorting,
-        pagination,
-        alertModalId,
-        usingFilters,
-        bulkDeleteResponseLoading,
-    } = useValues(savedInsightsLogic)
+    const { insights, insightsLoading, filters, sorting, pagination, usingFilters, bulkDeleteResponseLoading } =
+        useValues(savedInsightsLogic)
 
     const { currentProjectId } = useValues(projectLogic)
     const summarizeInsight = useSummarizeInsight()
@@ -1065,14 +1064,17 @@ export function SavedInsights(): JSX.Element {
             />
             <LemonTabs
                 activeKey={tab}
-                onChange={(tab) => setSavedInsightsFilters({ tab })}
+                onChange={(tab) => {
+                    if (tab === SavedInsightsTabs.Alerts) {
+                        push(urls.alerts())
+                        return
+                    }
+                    setSavedInsightsFilters({ tab })
+                }}
                 tabs={[
                     { key: SavedInsightsTabs.All, label: 'All insights' },
                     { key: SavedInsightsTabs.Yours, label: 'My insights' },
-                    {
-                        key: SavedInsightsTabs.Alerts,
-                        label: <div className="flex items-center gap-2">Alerts</div>,
-                    },
+                    { key: SavedInsightsTabs.Alerts, label: 'Alerts' },
                     { key: SavedInsightsTabs.History, label: 'History' },
                 ]}
                 sceneInset
@@ -1080,8 +1082,6 @@ export function SavedInsights(): JSX.Element {
 
             {tab === SavedInsightsTabs.History ? (
                 <ActivityLog scope={ActivityScope.INSIGHT} />
-            ) : tab === SavedInsightsTabs.Alerts ? (
-                <Alerts alertId={alertModalId} />
             ) : (
                 <>
                     <SavedInsightsFilters

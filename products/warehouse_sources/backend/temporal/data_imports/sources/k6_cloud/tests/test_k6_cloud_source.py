@@ -37,7 +37,6 @@ class TestK6CloudSource:
         assert config.name.value == "K6Cloud"
         assert config.label == "Grafana Cloud k6"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/k6-cloud"
         assert len(config.fields) == 2
 

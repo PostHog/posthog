@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any, cast
 from django.conf import settings
 
 from cachetools import TTLCache, cached
+from semantic_version import NpmSpec
 
 if TYPE_CHECKING:
     from products.tasks.backend.temporal.process_task.utils import McpServerConfig
@@ -64,7 +65,10 @@ from products.tasks.backend.logic.services.agentsh import (
     generate_env_wrapper,
     generate_policy_yaml,
 )
-from products.tasks.backend.logic.services.local_packages import get_local_posthog_code_packages
+from products.tasks.backend.logic.services.local_packages import (
+    get_local_package_runtime_dependencies,
+    get_local_posthog_code_packages,
+)
 from products.tasks.backend.logic.services.local_skills import (
     BUILT_SKILLS_RELATIVE_PATH as LOCAL_BUILT_SKILLS_PATH,
     LocalSkillsCache,
@@ -97,6 +101,14 @@ SANDBOX_NOTEBOOK_IMAGE = "ghcr.io/posthog/posthog-sandbox-notebook"
 SANDBOX_VM_IMAGE = "ghcr.io/posthog/posthog-sandbox-vm"
 SANDBOX_STREAMLIT_IMAGE = "ghcr.io/posthog/posthog-sandbox-streamlit"
 SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
+
+# SLIM_BASE has no registry image and no CD publish pipeline — it's built inline by Modal
+# (see _build_slim_template_image below) from debian_slim + apt packages, so there's nothing
+# to push or pin a digest for. Keep these two pins in sync with
+# Dockerfile.sandbox-slim's NODE_MAJOR / uv COPY --from pins (and with Dockerfile.sandbox-base,
+# which both mirror).
+SANDBOX_SLIM_NODE_MAJOR = 24
+SANDBOX_SLIM_UV_IMAGE = "ghcr.io/astral-sh/uv:0.11.15"
 AGENT_SERVER_PORT = 8080  # Modal connect tokens require port 8080
 AGENT_SERVER_HEALTH_MAX_ATTEMPTS = 240
 POST_RESTORE_PROBE_TIMEOUT_SECONDS = 45
@@ -271,19 +283,65 @@ def _get_sandbox_image_reference(image: str = SANDBOX_IMAGE) -> str:
 AGENT_SERVER_TEMPLATES = frozenset({SandboxTemplate.DEFAULT_BASE, SandboxTemplate.VM_BASE})
 
 
+def _merge_runtime_dependency_specs(name: str, existing: str, candidate: str) -> str:
+    if existing == candidate:
+        return existing
+
+    try:
+        NpmSpec(existing)
+        NpmSpec(candidate)
+    except ValueError as error:
+        raise ValueError(
+            f"Conflicting non-semver runtime dependency specs for {name}: {existing!r} and {candidate!r}"
+        ) from error
+
+    return f"{existing} {candidate}"
+
+
 def _attach_local_package_mounts(image: modal.Image, template: SandboxTemplate) -> modal.Image:
     """Overlay each local package's built `dist/` dir onto the installed package
     via add_local_dir(copy=False). No-op unless `template` bundles the agent-server
     and local packages are available.
 
-    Transitive deps are resolved from the baked /scripts/node_modules/ tree;
-    only compiled output is swapped live.
+    Install external runtime dependencies that are missing from the published image
+    before mounting the compiled output. The published package can lag behind a local
+    branch, but running npm inside it would also process unpublished workspace packages.
     """
     if template not in AGENT_SERVER_TEMPLATES:
         return image
     packages = get_local_posthog_code_packages()
     if not packages:
         return image
+
+    dependencies = get_local_package_runtime_dependencies(packages)
+    if dependencies:
+        if any("@openai/codex" in package_dependencies for package_dependencies in dependencies.values()):
+            image = image.apt_install("musl")
+
+        runtime_dependencies: dict[str, str] = {}
+        for package_dependencies in dependencies.values():
+            for name, version in package_dependencies.items():
+                if existing_version := runtime_dependencies.get(name):
+                    runtime_dependencies[name] = _merge_runtime_dependency_specs(name, existing_version, version)
+                    continue
+                runtime_dependencies[name] = version
+
+        dependency_json = json.dumps(runtime_dependencies, separators=(",", ":"), sort_keys=True)
+        merge_manifest_script = (
+            'const fs=require("fs");'
+            'const path="/scripts/package.json";'
+            'const manifest=JSON.parse(fs.readFileSync(path,"utf8"));'
+            "const dependencies=JSON.parse(process.argv[1]);"
+            "manifest.dependencies={...(manifest.dependencies||{}),...dependencies};"
+            "fs.writeFileSync(path,JSON.stringify(manifest));"
+        )
+        install_command = (
+            f"node -e {shlex.quote(merge_manifest_script)} {shlex.quote(dependency_json)} && "
+            "npm install --prefix /scripts --package-lock=false "
+            "--omit=dev --no-audit --no-fund"
+        )
+        image = image.run_commands(install_command)
+
     for package in packages:
         image = image.add_local_dir(
             str(package.build_output_path),
@@ -293,12 +351,41 @@ def _attach_local_package_mounts(image: modal.Image, template: SandboxTemplate) 
     return image
 
 
+def _build_slim_template_image() -> modal.Image:
+    """Inline image for SLIM_BASE: git + ca-certificates + node + uv, nothing else.
+
+    Built and cached by Modal itself from debian_slim — no registry image, no CD publish
+    pipeline, no digest pin to resolve. The first sandbox create after this definition
+    changes pays a one-time Modal-side build; every create after that reuses the cached
+    image layers.
+    """
+    return (
+        modal.Image.debian_slim()
+        # bash is required by the NodeSource setup script below; debian_slim doesn't guarantee it.
+        .apt_install("git", "ca-certificates", "curl", "bash")
+        .run_commands(
+            f"curl -fsSL https://deb.nodesource.com/setup_{SANDBOX_SLIM_NODE_MAJOR}.x | bash -",
+            "apt-get install -y --no-install-recommends nodejs",
+            "rm -rf /var/lib/apt/lists/*",
+        )
+        .dockerfile_commands(
+            [f"COPY --from={SANDBOX_SLIM_UV_IMAGE} /uv /uvx /usr/local/bin/"],
+        )
+    )
+
+
 _template_image_cache: TTLCache = TTLCache(maxsize=3, ttl=300)
 _template_image_lock = threading.Lock()
 
 
 @cached(cache=_template_image_cache, lock=_template_image_lock)
-def _get_template_image(template: SandboxTemplate) -> modal.Image:
+def get_template_base_image(template: SandboxTemplate) -> modal.Image:
+    """The template's base image without local dev mounts — safe to extend with further layers."""
+    if template == SandboxTemplate.SLIM_BASE:
+        # Built inline (see _build_slim_template_image), never from a registry or a local
+        # Dockerfile build context — same image in DEBUG and in production.
+        return _build_slim_template_image()
+
     registry_image = {
         SandboxTemplate.DEFAULT_BASE: SANDBOX_BASE_IMAGE,
         SandboxTemplate.NOTEBOOK_BASE: SANDBOX_NOTEBOOK_IMAGE,
@@ -310,11 +397,36 @@ def _get_template_image(template: SandboxTemplate) -> modal.Image:
 
     if settings.DEBUG:
         dockerfile_path, context_dir = _prepare_local_modal_build_context(template)
-        image = modal.Image.from_dockerfile(dockerfile_path, context_dir=context_dir, ignore=[])
-    else:
-        image = modal.Image.from_registry(_get_sandbox_image_reference(registry_image))
+        return modal.Image.from_dockerfile(dockerfile_path, context_dir=context_dir, ignore=[])
+    image_reference = resolve_template_base_image_reference(template)
+    if image_reference is None:
+        raise ValueError(f"Template does not use a registry image: {template}")
+    return modal.Image.from_registry(image_reference)
 
-    return _attach_local_package_mounts(image, template)
+
+def _get_template_image(template: SandboxTemplate) -> modal.Image:
+    return _attach_local_package_mounts(get_template_base_image(template), template)
+
+
+def resolve_template_base_image(template: SandboxTemplate) -> modal.Image:
+    # Undecorated import surface: the @cached wrapper on get_template_base_image trips
+    # mypy's cross-module attribute resolution intermittently, so external callers import this.
+    return get_template_base_image(template)
+
+
+def resolve_template_base_image_reference(template: SandboxTemplate) -> str | None:
+    if settings.DEBUG:
+        return None
+
+    registry_image = {
+        SandboxTemplate.DEFAULT_BASE: SANDBOX_BASE_IMAGE,
+        SandboxTemplate.NOTEBOOK_BASE: SANDBOX_NOTEBOOK_IMAGE,
+        SandboxTemplate.VM_BASE: SANDBOX_VM_IMAGE,
+        SandboxTemplate.STREAMLIT_BASE: SANDBOX_STREAMLIT_IMAGE,
+    }.get(template)
+    if registry_image is None:
+        raise ValueError(f"Template does not use a registry image: {template}")
+    return _get_sandbox_image_reference(registry_image)
 
 
 @lru_cache(maxsize=3)
@@ -409,6 +521,17 @@ class ModalSandbox(SandboxBase):
             app = cls._get_app_for_template(config.template)
             base_image = _get_template_image(config.template)
             image = base_image
+            custom_image: modal.Image | None = None
+            if config.custom_image_name:
+                try:
+                    custom_image = _attach_local_package_mounts(
+                        modal.Image.from_name(config.custom_image_name), config.template
+                    )
+                    image = custom_image
+                except Exception as e:
+                    logger.warning(f"Failed to load custom image {config.custom_image_name}: {e}")
+                    capture_exception(e)
+            used_custom_image = custom_image is not None
             config.snapshot_restored = False
             snapshot_external_id: str | None = None
             snapshot_kind = _normalize_snapshot_kind(config.snapshot_kind)
@@ -481,14 +604,30 @@ class ModalSandbox(SandboxBase):
                     sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
                     config.snapshot_restored = used_snapshot_image
             except Exception as e:
-                if not used_snapshot_image:
+                if not used_snapshot_image and not used_custom_image:
                     raise
-                logger.warning(f"Failed to create sandbox with snapshot image, falling back to base image: {e}")
+                fallback_image = custom_image if used_snapshot_image and custom_image is not None else base_image
+                logger.warning(
+                    f"Failed to create sandbox with {'snapshot' if used_snapshot_image else 'custom'} image, "
+                    f"falling back to {'custom' if fallback_image is custom_image else 'base'} image: {e}"
+                )
                 capture_exception(e)
-                create_kwargs["image"] = base_image
-                with capture_modal_output_if_debug() as modal_output:
-                    sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
-                    config.snapshot_restored = False
+                create_kwargs["image"] = fallback_image
+                try:
+                    with capture_modal_output_if_debug() as modal_output:
+                        sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
+                        config.snapshot_restored = False
+                except Exception as fallback_error:
+                    if fallback_image is base_image:
+                        raise
+                    logger.warning(
+                        f"Failed to create sandbox with custom image, falling back to base image: {fallback_error}"
+                    )
+                    capture_exception(fallback_error)
+                    create_kwargs["image"] = base_image
+                    with capture_modal_output_if_debug() as modal_output:
+                        sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
+                        config.snapshot_restored = False
 
             if snapshot_kind == SNAPSHOT_KIND_DIRECTORY and snapshot_image is not None:
                 # The mount REPLACES the target directory in the running sandbox — over a live
@@ -797,18 +936,22 @@ class ModalSandbox(SandboxBase):
         run_id: str,
         mode: str,
         create_pr: bool,
+        auto_publish: bool = False,
         interaction_origin: str | None = None,
         branch: str | None = None,
         runtime_adapter: str | None = None,
         provider: str | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        initial_permission_mode: str | None = None,
         mcp_servers_arg: str = "",
+        relay_mcp_servers_arg: str = "",
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
         event_ingest_url: str | None = None,
         event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
+        rtk_enabled: bool = True,
     ) -> str:
         env_prefix = build_agent_runtime_env_prefix(
             interaction_origin=interaction_origin,
@@ -816,11 +959,16 @@ class ModalSandbox(SandboxBase):
             provider=provider,
             model=model,
             reasoning_effort=reasoning_effort,
+            initial_permission_mode=initial_permission_mode,
             event_ingest_token=event_ingest_token,
             event_ingest_url=event_ingest_url,
             event_ingest_keep_stream_open=event_ingest_keep_stream_open,
+            rtk_enabled=rtk_enabled,
         )
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
+        # Only append when opted in: agent-server builds without the option reject unknown
+        # flags, so default runs (and resumes of old snapshots) must not see it.
+        auto_publish_flag = " --autoPublish true" if auto_publish else ""
         repo_flag = f" --repositoryPath {shlex.quote(repo_path)}" if repo_path else ""
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
         domains_flag = f" --allowedDomains {shlex.quote(','.join(allowed_domains))}" if allowed_domains else ""
@@ -834,8 +982,15 @@ class ModalSandbox(SandboxBase):
             f"env {unset_flags}BASH_ENV={shlex.quote(BASH_ENV_SCRIPT)} "
             f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
-            f"{create_pr_flag}{branch_flag}{mcp_servers_arg}{domains_flag}{repo_ready_flag}"
+            f"{create_pr_flag}{auto_publish_flag}{branch_flag}{mcp_servers_arg}{relay_mcp_servers_arg}"
+            f"{domains_flag}{repo_ready_flag}"
         )
+
+        if repo_ready_file:
+            # Keep the adapter process from inheriting a repository cwd that does not
+            # exist yet, even if an overlaid agent-server mishandles its readiness flag.
+            wait_for_repo = f"while [ ! -f {shlex.quote(repo_ready_file)} ]; do sleep 0.1; done; exec {server_cmd}"
+            server_cmd = f"bash -c {shlex.quote(wait_for_repo)}"
 
         inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
 
@@ -901,19 +1056,23 @@ class ModalSandbox(SandboxBase):
         run_id: str,
         mode: str = "background",
         create_pr: bool = True,
+        auto_publish: bool = False,
         interaction_origin: str | None = None,
         branch: str | None = None,
         runtime_adapter: str | None = None,
         provider: str | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        initial_permission_mode: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
+        relayed_mcp_servers: list[str] | None = None,
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
         event_ingest_url: str | None = None,
         event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
         wait_for_health: bool = True,
+        rtk_enabled: bool = True,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -944,24 +1103,36 @@ class ModalSandbox(SandboxBase):
             mcp_json = json.dumps([c.to_dict() for c in mcp_configs])
             mcp_servers_arg = f" --mcpServers {shlex.quote(mcp_json)}"
 
+        relay_mcp_servers_arg = ""
+        if relayed_mcp_servers:
+            relay_mcp_servers_arg = f" --relayMcpServers {shlex.quote(json.dumps(relayed_mcp_servers))}"
+
+        if auto_publish and not self.agent_server_supports_auto_publish():
+            logger.warning(f"Installed agent-server in sandbox {self.id} predates --autoPublish; starting review-first")
+            auto_publish = False
+
         command = self._build_agent_server_command(
             repo_path,
             task_id,
             run_id,
             mode,
             create_pr,
+            auto_publish,
             interaction_origin,
             branch,
             runtime_adapter,
             provider,
             model,
             reasoning_effort,
+            initial_permission_mode,
             mcp_servers_arg,
+            relay_mcp_servers_arg,
             allowed_domains=allowed_domains,
             event_ingest_token=event_ingest_token,
             event_ingest_url=event_ingest_url,
             event_ingest_keep_stream_open=event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
+            rtk_enabled=rtk_enabled,
         )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")

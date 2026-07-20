@@ -1,1 +1,1 @@
-0019_errortrackingbypassrule
+0021_remove_errortrackingsettings_autocapture_exceptions_opt_in

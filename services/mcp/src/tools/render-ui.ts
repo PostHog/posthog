@@ -11,10 +11,6 @@ export const RENDER_UI_TOOL_NAME = 'render-ui'
 export const RENDER_UI_TOOL_TITLE = 'Render a PostHog visualization'
 export const RENDER_UI_TOOL_DESCRIPTION = RENDER_UI_PROMPT.trim()
 
-// Feature flag gating the entire `render-ui` feature: tool registration/advertisement,
-// the rendering prompt section, and the single-exec switch for Claude web/desktop.
-export const RENDER_UI_FEATURE_FLAG = 'mcp-render-ui'
-
 // Reverse of URI_MAP so a tool's `_meta.ui.resourceUri` resolves back to its app key.
 const URI_TO_APP_KEY = new Map<string, UiAppKey>(
     Object.entries(URI_MAP).map(([appKey, uri]) => [uri, appKey as UiAppKey])
@@ -33,7 +29,7 @@ function toDispatchableAppKey(tool: Tool<ZodObjectAny>): UiAppKey | undefined {
 }
 
 /**
- * Names of the tools `render-ui` can render — those whose UI app has a generated view.
+ * Names of the tools `render-ui` can render — those whose UI app exposes a reusable view.
  * Restricted to read-only tools: `render-ui` is annotated read-only, so it must not be a
  * back door for dispatching state-changing tools (e.g. `survey-launch`, `workflows-create`).
  */

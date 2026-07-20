@@ -1,4 +1,3 @@
-import '../Nodes/NotebookNodeBacklink'
 import '../Nodes/NotebookNodeCohort'
 import '../Nodes/NotebookNodeCustomerJourney/NotebookNodeCustomerJourney'
 import '../Nodes/NotebookNodeSQLV2'
@@ -21,10 +20,10 @@ import '../Nodes/NotebookNodePersonFeed/NotebookNodePersonFeed'
 import '../Nodes/NotebookNodePersonProperties'
 import '../Nodes/NotebookNodePlaylist'
 import '../Nodes/NotebookNodePython'
+import '../Nodes/NotebookNodePythonV2'
 import '../Nodes/NotebookNodeQuery'
 import '../Nodes/NotebookNodeRecording'
 import '../Nodes/NotebookNodeRelatedGroups'
-import '../Nodes/NotebookNodeReplayTimestamp'
 import '../Nodes/NotebookNodeSupportTickets'
 import '../Nodes/NotebookNodeSurvey'
 import '../Nodes/NotebookNodeTaskCreate'
@@ -56,6 +55,7 @@ import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { uuid } from 'lib/utils/dom'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { NODE_ICONS } from '../nodeIcons'
@@ -110,6 +110,7 @@ const MARKDOWN_NODE_ATTRIBUTE_LABELS: Partial<Record<NotebookNodeType, Record<st
 export const MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE: Partial<Record<string, NotebookNodeType>> = {
     Query: NotebookNodeType.Query,
     Python: NotebookNodeType.Python,
+    PythonV2: NotebookNodeType.PythonV2,
     DuckSQL: NotebookNodeType.DuckSQL,
     HogQLSQL: NotebookNodeType.HogQLSQL,
     SQLV2: NotebookNodeType.SQLV2,
@@ -151,12 +152,36 @@ export const MARKDOWN_NODE_DEFINITIONS: {
     insertCommand?: NotebookComponentDefinition['insertCommand']
 }[] = [
     { tagName: 'Query', category: 'Insight' },
+    // Legacy in-browser-kernel Python cell: still renders where it exists, but new cells
+    // are always the revamped PythonV2 below, so it has no insertCommand.
     { tagName: 'Python', category: 'Code' },
+    // The revamped (sandbox-kernel) Python cell; insertion gated like SQLV2 in
+    // getMarkdownRegistryForFeatureFlags.
+    {
+        tagName: 'PythonV2',
+        category: 'Code',
+        label: 'Python',
+        insertCommand: {
+            aliases: ['python', 'py'],
+            defaultProps: () => ({ ...getDefaultPropsForNodeType(NotebookNodeType.PythonV2), nodeId: uuid() }),
+        },
+    },
     { tagName: 'DuckSQL', category: 'SQL', label: 'SQL (DuckDB)' },
     { tagName: 'HogQLSQL', category: 'SQL', label: 'SQL (HogQL)' },
     // insertCommand makes it show in the markdown insert menu; the feature-flag gate in
     // getMarkdownRegistryForFeatureFlags strips it when revamped-py-notebooks is off.
-    { tagName: 'SQLV2', category: 'SQL', label: 'SQL (v2)', insertCommand: { aliases: ['data', 'sql'] } },
+    {
+        tagName: 'SQLV2',
+        category: 'SQL',
+        label: 'SQL (v2)',
+        insertCommand: {
+            aliases: ['data', 'sql'],
+            // New cells get a durable nodeId up front: parsed markdown block ids are content
+            // fingerprints, so without a persisted id every prop change (running the cell
+            // writes runId/result) would orphan the cell's run history and cross-cell refs.
+            defaultProps: () => ({ ...getDefaultPropsForNodeType(NotebookNodeType.SQLV2), nodeId: uuid() }),
+        },
+    },
     { tagName: 'RecordingPlaylist', category: 'Data', label: 'Session recordings' },
     { tagName: 'Experiment', category: 'Experiment' },
     { tagName: 'Image', category: 'Media', EditComponent: ImageEdit },
@@ -239,7 +264,7 @@ export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkd
 export function getMarkdownRegistryForFeatureFlags(featureFlags: FeatureFlagsSet): NotebookComponentRegistry {
     const hiddenTags: string[] = []
     if (!featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]) {
-        hiddenTags.push('SQLV2')
+        hiddenTags.push('SQLV2', 'PythonV2')
     }
 
     if (hiddenTags.length === 0) {
@@ -288,6 +313,7 @@ export function getMarkdownNotebookNodeTitle(
     }
     if (
         nodeType === NotebookNodeType.Python ||
+        nodeType === NotebookNodeType.PythonV2 ||
         nodeType === NotebookNodeType.DuckSQL ||
         nodeType === NotebookNodeType.HogQLSQL
     ) {
@@ -797,7 +823,7 @@ export function getSerializableAttributeInputValue(
 
 export function getSerializableProps(attributes: Partial<NotebookNodeAttributes<any>>): NotebookComponentProps {
     return Object.entries(attributes).reduce<NotebookComponentProps>((props, [key, value]) => {
-        // Normalize before validating, mirroring the legacy notebook flow(via useSyncedAttributes).
+        // Normalize before validating, mirroring how the legacy notebook flow synced attributes.
         // Otherwise isNotebookPropValue rejects an object with a single nested `undefined` property and—
         // it gets ignored. e.g. a person-property filter's absent `label`/`group_type_index` inside
         // `query.source.properties` — fails isNotebookPropValue and the whole `query` prop is dropped

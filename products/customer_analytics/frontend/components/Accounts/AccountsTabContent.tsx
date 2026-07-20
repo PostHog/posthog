@@ -10,14 +10,14 @@ import { AccountsOverviewTiles } from './AccountsOverviewTiles'
 import { AccountsTabFilters } from './AccountsTabFilters'
 
 export function AccountsTabContent(): JSX.Element {
-    const { hogqlQuery, metricsQuery } = useValues(accountsLogic)
+    const { accountsQuerySource, metricsQuery } = useValues(accountsLogic)
 
     return (
         <BindLogic
             logic={dataNodeLogic}
             props={{
                 key: ACCOUNTS_HOGQL_DATA_NODE_KEY,
-                query: hogqlQuery.source,
+                query: accountsQuerySource,
             }}
         >
             <BindLogic

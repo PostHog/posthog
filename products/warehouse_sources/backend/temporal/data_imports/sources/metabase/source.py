@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.metabase.m
     API_KEY_AUTH,
     HOST_NOT_ALLOWED_ERROR,
     SESSION_AUTH,
+    SESSION_RESPONSE_NOT_JSON_ERROR,
     MetabaseAuth,
     metabase_source,
     validate_credentials as validate_metabase_credentials,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MetabaseSource(SimpleSource[MetabaseSourceConfig]):
+    api_docs_url = "https://www.metabase.com/docs/latest/api"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.METABASE
@@ -127,6 +130,7 @@ The API key (or user) needs read access to the data you want to sync.""",
             "401 Client Error": "Your Metabase credentials are invalid or expired. Update them and reconnect.",
             "403 Client Error": "Your Metabase credentials lack the permissions needed to sync this data. Grant read access and reconnect.",
             HOST_NOT_ALLOWED_ERROR: "The Metabase host is not allowed. Please use your instance's public URL.",
+            SESSION_RESPONSE_NOT_JSON_ERROR: "Metabase didn't return a valid session response. Check that the Instance URL points to your Metabase instance, then reconnect.",
         }
 
     def _build_auth(self, config: MetabaseSourceConfig) -> MetabaseAuth:

@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { HedgehogReporter } from '@posthog/brand/hoggies'
+import * as reporterPng from '@posthog/brand/hoggies/png/reporter'
 import { IconPencil } from '@posthog/icons'
 import { LemonSelect, Link } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
@@ -31,6 +32,8 @@ import { AnnotationScope, AnnotationType, InsightShortId } from '~/types'
 import { AnnotationModal } from './AnnotationModal'
 import { annotationModalLogic, annotationScopeToLevel, annotationScopeToName } from './annotationModalLogic'
 import { annotationScopesMenuOptions, annotationsLogic } from './annotationsLogic'
+
+const HedgehogReporter = pngHoggie(reporterPng)
 
 export const scene: SceneExport = {
     component: Annotations,

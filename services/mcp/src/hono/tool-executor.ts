@@ -108,7 +108,7 @@ export class ToolExecutor {
         }
 
         if (toolName === 'render-ui') {
-            // render-ui is only advertised when the flag is on; reject calls otherwise.
+            // render-ui is only advertised to MCP Apps hosts; reject calls from others.
             if (!state.renderUiEnabled) {
                 toolCallsTotal.inc({ tool: toolName, status: 'error' })
                 return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
@@ -392,8 +392,8 @@ export class ToolExecutor {
         const clientContext = getEffectiveMCPClientContext(state.requestContext, state.sessionContext)
 
         // CLI `info execute-sql` returns the tool's static description from the catalog.
-        // Override it with the same flag-aware prompt tools-mode advertises, so the
-        // information_schema steering (or its absence) matches across both modes.
+        // Override it with the same prompt tools-mode advertises, so the
+        // information_schema schema-discovery steering matches across both modes.
         const execTools = state.allTools.map((tool) =>
             tool.name === EXECUTE_SQL_TOOL_NAME
                 ? {
@@ -410,7 +410,11 @@ export class ToolExecutor {
             commandReference,
             clientContext.mcpConsumer,
             trackInnerCall,
-            state.scopeGatedTools
+            state.scopeGatedTools,
+            {
+                isInlineExecUiHost: state.clientProfile.isInlineExecUiHost(),
+                helpCatalog: this.instructionsBuilder.buildExecHelpCatalog(state),
+            }
         )
 
         return {
@@ -482,6 +486,10 @@ interface ToolErrorClassification {
     errorType: ToolErrorType
     /** Upstream HTTP status, when the failure came from a PostHog API error. */
     status?: number
+    /** Value-free descriptors of a schema rejection (offending field+code). */
+    validationFields?: string[]
+    /** Top-level keys the caller sent — surfaces unaccepted aliases on a union rejection. */
+    validationInputKeys?: string[]
 }
 
 /**
@@ -502,7 +510,11 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
         return { errorType: 'missing_context' }
     }
     if (error instanceof ToolInputValidationError) {
-        return { errorType: 'validation' }
+        return {
+            errorType: 'validation',
+            ...(error.fields.length ? { validationFields: error.fields } : {}),
+            ...(error.inputKeys.length ? { validationInputKeys: error.inputKeys } : {}),
+        }
     }
     if (findPostHogPermissionError(error)) {
         return { errorType: 'permission' }
@@ -537,5 +549,9 @@ function errorAnalyticsProperties(classification: ToolErrorClassification): Reco
     return {
         $mcp_error_type: classification.errorType,
         ...(classification.status !== undefined ? { $mcp_error_status: classification.status } : {}),
+        ...(classification.validationFields?.length ? { $mcp_validation_fields: classification.validationFields } : {}),
+        ...(classification.validationInputKeys?.length
+            ? { $mcp_validation_input_keys: classification.validationInputKeys }
+            : {}),
     }
 }

@@ -5,6 +5,7 @@ import { LemonBanner, LemonButton, LemonInput, LemonLabel } from '@posthog/lemon
 import { HeatmapAdvancedSettings } from 'scenes/heatmaps/components/HeatmapAdvancedSettings'
 import { HeatmapRecordingFallback } from 'scenes/heatmaps/components/HeatmapRecordingFallback'
 import { heatmapsBrowserLogic } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
+import { HeatmapsForbiddenURL } from 'scenes/heatmaps/components/HeatmapsForbiddenURL'
 import { HeatmapsInvalidURL } from 'scenes/heatmaps/components/HeatmapsInvalidURL'
 import { heatmapLogic } from 'scenes/heatmaps/scenes/heatmap/heatmapLogic'
 
@@ -19,7 +20,7 @@ export function HeatmapHeader(): JSX.Element {
         displayUrlIsPattern,
         type,
     } = useValues(heatmapLogic)
-    const { iframeBanner } = useValues(heatmapsBrowserLogic)
+    const { iframeBanner, dataUrl, isBrowserUrlAuthorized } = useValues(heatmapsBrowserLogic)
     const { setPageUrlDraft, applyPageUrlDraft, regenerateScreenshot } = useActions(heatmapLogic)
 
     const draftIsEmpty = pageUrlDraft.trim() === ''
@@ -65,6 +66,7 @@ export function HeatmapHeader(): JSX.Element {
                                 <HeatmapsInvalidURL />
                             )
                         ) : null}
+                        {dataUrl && !isBrowserUrlAuthorized ? <HeatmapsForbiddenURL /> : null}
                     </div>
                     {type === 'screenshot' && screenshotError && (
                         <div className="flex flex-col gap-2">

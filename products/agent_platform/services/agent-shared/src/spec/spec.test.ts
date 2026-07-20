@@ -914,6 +914,92 @@ describe('AgentSpecSchema', () => {
         })
     })
 
+    describe('principalsMatch — slack', () => {
+        type S = { kind: 'slack'; workspace_id: string; slack_user_id: string; canonical_agent_user_id?: string }
+        it.each<[string, S, S, boolean]>([
+            [
+                'same workspace + user with no canonical on either side matches (passthrough)',
+                { kind: 'slack', workspace_id: 'T', slack_user_id: 'U' },
+                { kind: 'slack', workspace_id: 'T', slack_user_id: 'U' },
+                true,
+            ],
+            [
+                'same workspace + user + same canonical matches',
+                { kind: 'slack', workspace_id: 'T', slack_user_id: 'U', canonical_agent_user_id: 'C1' },
+                { kind: 'slack', workspace_id: 'T', slack_user_id: 'U', canonical_agent_user_id: 'C1' },
+                true,
+            ],
+            [
+                'same workspace + user but different canonical does NOT match (rebound identity)',
+                { kind: 'slack', workspace_id: 'T', slack_user_id: 'U', canonical_agent_user_id: 'C1' },
+                { kind: 'slack', workspace_id: 'T', slack_user_id: 'U', canonical_agent_user_id: 'C2' },
+                false,
+            ],
+            [
+                'stored has canonical, incoming does not (admission model changed) does NOT match',
+                { kind: 'slack', workspace_id: 'T', slack_user_id: 'U', canonical_agent_user_id: 'C1' },
+                { kind: 'slack', workspace_id: 'T', slack_user_id: 'U' },
+                false,
+            ],
+            [
+                'incoming has canonical, stored does not (admission newly enabled) does NOT match',
+                { kind: 'slack', workspace_id: 'T', slack_user_id: 'U' },
+                { kind: 'slack', workspace_id: 'T', slack_user_id: 'U', canonical_agent_user_id: 'C1' },
+                false,
+            ],
+        ])('%s', (_label, stored, incoming, expected) => {
+            expect(principalsMatch(stored, incoming)).toBe(expected)
+        })
+    })
+
+    // The canonical-rebind guard is branch-tested above via slack; these rows
+    // prove it is WIRED for the HTTP principals chat admission stamps — without
+    // them, dropping the check from the posthog/jwt cases would pass silently.
+    describe('principalsMatch — canonical guard on HTTP principals (chat admission)', () => {
+        type P = { kind: 'posthog'; user_id: string; team_id: number; canonical_agent_user_id?: string }
+        type J = {
+            kind: 'jwt'
+            issuer_secret_ref: string
+            sub: string
+            claims: Record<string, unknown>
+            canonical_agent_user_id?: string
+        }
+        it.each<[string, P | J, P | J, boolean]>([
+            [
+                'posthog: same user + same canonical matches',
+                { kind: 'posthog', user_id: 'u1', team_id: 1, canonical_agent_user_id: 'C1' },
+                { kind: 'posthog', user_id: 'u1', team_id: 1, canonical_agent_user_id: 'C1' },
+                true,
+            ],
+            [
+                'posthog: same user but rebound canonical does NOT match',
+                { kind: 'posthog', user_id: 'u1', team_id: 1, canonical_agent_user_id: 'C1' },
+                { kind: 'posthog', user_id: 'u1', team_id: 1, canonical_agent_user_id: 'C2' },
+                false,
+            ],
+            [
+                'jwt: same sub + same canonical matches',
+                { kind: 'jwt', issuer_secret_ref: 'S', sub: 'a', claims: {}, canonical_agent_user_id: 'C1' },
+                { kind: 'jwt', issuer_secret_ref: 'S', sub: 'a', claims: {}, canonical_agent_user_id: 'C1' },
+                true,
+            ],
+            [
+                'jwt: same sub but rebound canonical does NOT match',
+                { kind: 'jwt', issuer_secret_ref: 'S', sub: 'a', claims: {}, canonical_agent_user_id: 'C1' },
+                { kind: 'jwt', issuer_secret_ref: 'S', sub: 'a', claims: {}, canonical_agent_user_id: 'C2' },
+                false,
+            ],
+            [
+                'jwt: same sub under a DIFFERENT issuer does NOT match (issuer-scoped trust domains)',
+                { kind: 'jwt', issuer_secret_ref: 'S', sub: 'a', claims: {} },
+                { kind: 'jwt', issuer_secret_ref: 'S2', sub: 'a', claims: {} },
+                false,
+            ],
+        ])('%s', (_label, stored, incoming, expected) => {
+            expect(principalsMatch(stored, incoming)).toBe(expected)
+        })
+    })
+
     describe('principalsMatch — shared_secret', () => {
         type SS = { kind: 'shared_secret'; team_id: number }
         it.each<[string, SS, SS, boolean]>([
@@ -1031,5 +1117,44 @@ describe('models.optimize_for', () => {
         expect(() =>
             AgentSpecSchema.parse({ models: { mode: 'auto', level: 'high', optimize_for: 'latency' } })
         ).toThrow()
+    })
+})
+
+describe('authoritative_provider trigger gating (fail-closed)', () => {
+    const DOGS_PROVIDER = {
+        kind: 'oauth2',
+        id: 'dogs',
+        authorize_url: 'https://idp.test/authorize',
+        token_url: 'https://idp.test/token',
+        userinfo_url: 'https://idp.test/userinfo',
+        client_id: 'c',
+    }
+    const AUTH = { modes: [{ type: 'jwt', issuer_secret_ref: 'S' }] }
+
+    it('accepts admission-wired triggers (slack + chat) alongside an authoritative provider', () => {
+        const spec = AgentSpecSchema.parse({
+            model: 'x',
+            triggers: [
+                { type: 'slack', config: { trusted_workspaces: '*' } },
+                { type: 'chat', config: {}, auth: AUTH },
+            ],
+            identity_providers: [DOGS_PROVIDER],
+            authoritative_provider: 'dogs',
+        })
+        expect(spec.authoritative_provider).toBe('dogs')
+    })
+
+    it.each([
+        ['webhook', { type: 'webhook', config: { path: '/webhook' }, auth: AUTH }],
+        ['mcp', { type: 'mcp', config: {}, auth: AUTH }],
+    ])('refuses an authoritative provider combined with the un-wired %s trigger', (_type, trigger) => {
+        expect(() =>
+            AgentSpecSchema.parse({
+                model: 'x',
+                triggers: [trigger],
+                identity_providers: [DOGS_PROVIDER],
+                authoritative_provider: 'dogs',
+            })
+        ).toThrow(/not yet enforced/)
     })
 })

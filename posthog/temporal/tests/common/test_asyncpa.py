@@ -44,7 +44,7 @@ def generate_record_batches(total_records: int = 1_000, total_batches: int = 10,
         iter(
             [
                 pa.RecordBatch.from_arrays(
-                    [  # type: ignore
+                    [
                         pa.array([2, 2, 4, 4, 5, 100]),
                         pa.array(["Flamingo", "Parrot", "Dog", "Horse", "Brittle stars", "Centipede"]),
                     ],

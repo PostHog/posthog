@@ -36,6 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class HellobatonSource(ResumableSource[HellobatonSourceConfig, HellobatonResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://hellobaton.com/integrations/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -53,7 +54,6 @@ class HellobatonSource(ResumableSource[HellobatonSourceConfig, HellobatonResumeC
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Baton",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Baton (Hellobaton) company instance and API key to pull your onboarding and implementation data into the PostHog Data warehouse.
 
 Your company instance is the subdomain of your Baton URL — for `yourcompany.hellobaton.com`, enter `yourcompany`.

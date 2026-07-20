@@ -2,9 +2,17 @@ import { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 import { useState } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
+import {
+    createInsightStory,
+    expandFirstPropertyFilter,
+    insightSceneMswDecorator,
+    insightSceneStoryParameters,
+    waitForFunnelToStabilize,
+} from 'scenes/insights/__mocks__/createInsightScene'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
+import funnelLeftToRightFixture from '~/mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'
+import funnelLeftToRightWithInlineEventsFixture from '~/mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightWithInlineEvents.json'
 import funnelTopToBottomFixture from '~/mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json'
 import funnelTopToBottomBreakdownFixture from '~/mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdown.json'
 import funnelTopToBottomBreakdownCompareFixture from '~/mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdownCompare.json'
@@ -75,7 +83,6 @@ export const Breakdown: Story = {
 // each capped at its period's entry level so a shorter period leaves a blank volume gap above its track.
 export const Compare: Story = {
     render: () => <StoryRender insightFixture={funnelTopToBottomCompareFixture} />,
-    parameters: { featureFlags: [FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE] },
 }
 
 // Breakdown + compare: each breakdown value shows its own conversion within its period, and the two
@@ -83,5 +90,37 @@ export const Compare: Story = {
 // larger period filling the column and the smaller one proportionally short, leaving a blank gap above.
 export const BreakdownAndCompare: Story = {
     render: () => <StoryRender insightFixture={funnelTopToBottomBreakdownCompareFixture} />,
-    parameters: { featureFlags: [FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE] },
 }
+
+// Full insight scene in edit mode — the steps funnel editor, and the funnels query kind's full data pipeline
+const sceneEditWaitForSelector = ['[data-attr=funnel-steps-bar-chart] canvas[role="img"]', '.PayGateMini']
+
+export const EditScene: Story = createInsightStory(funnelLeftToRightFixture as any, 'edit')
+EditScene.decorators = [insightSceneMswDecorator]
+EditScene.parameters = {
+    ...insightSceneStoryParameters,
+    testOptions: { ...insightSceneStoryParameters.testOptions, waitForSelector: sceneEditWaitForSelector },
+}
+
+export const EditSceneWithInlineEvents: Story = createInsightStory(
+    funnelLeftToRightWithInlineEventsFixture as any,
+    'edit'
+)
+EditSceneWithInlineEvents.decorators = [insightSceneMswDecorator]
+EditSceneWithInlineEvents.parameters = {
+    ...insightSceneStoryParameters,
+    testOptions: { ...insightSceneStoryParameters.testOptions, waitForSelector: sceneEditWaitForSelector },
+}
+EditSceneWithInlineEvents.play = expandFirstPropertyFilter
+
+export const EditSceneViewports: Story = createInsightStory(funnelLeftToRightFixture as any, 'edit')
+EditSceneViewports.decorators = [insightSceneMswDecorator]
+EditSceneViewports.parameters = {
+    ...insightSceneStoryParameters,
+    testOptions: {
+        ...insightSceneStoryParameters.testOptions,
+        waitForSelector: sceneEditWaitForSelector,
+        viewportWidths: ['medium', 'wide', 'superwide'],
+    },
+}
+EditSceneViewports.play = waitForFunnelToStabilize

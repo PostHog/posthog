@@ -1,11 +1,12 @@
-import { JSONContent } from '@tiptap/core'
 import { Image } from '@tiptap/extension-image'
-import { Link } from '@tiptap/extension-link'
-import { TaskItem, TaskList } from '@tiptap/extension-list'
-import { MarkdownManager } from '@tiptap/markdown'
-import StarterKit from '@tiptap/starter-kit'
 
-import { expandFlattenedMarkdownTables } from 'lib/utils/markdown'
+import {
+    MARKDOWN_BASE_EDITABLE_EXTENSIONS,
+    MARKDOWN_BASE_READONLY_EXTENSIONS,
+} from 'lib/components/MarkdownEditor/shared/markdownExtensions'
+import { createTiptapMarkdownConverter } from 'lib/utils/markdown'
+
+import { WordArtExtension } from './WordArt/WordArtExtension'
 
 function escapeHtmlAttribute(value: string): string {
     return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
@@ -36,29 +37,9 @@ const TextCardImageExtension = Image.extend({
     },
 })
 
-const TEXT_CARD_MARKDOWN_BASE_EXTENSIONS = [
-    StarterKit.configure({
-        heading: {
-            levels: [1, 2, 3],
-        },
-        link: false,
-    }),
-    TaskList,
-    TaskItem.configure({ nested: true }),
-]
-
-const TEXT_CARD_MARKDOWN_BASE_EDITABLE_EXTENSIONS = [
-    ...TEXT_CARD_MARKDOWN_BASE_EXTENSIONS,
-    Link.configure({ openOnClick: false }),
-]
-
-const TEXT_CARD_MARKDOWN_BASE_READONLY_EXTENSIONS = [
-    ...TEXT_CARD_MARKDOWN_BASE_EXTENSIONS,
-    Link.configure({ openOnClick: true }),
-]
-
 export const TEXT_CARD_MARKDOWN_EXTENSIONS = [
-    ...TEXT_CARD_MARKDOWN_BASE_EDITABLE_EXTENSIONS,
+    ...MARKDOWN_BASE_EDITABLE_EXTENSIONS,
+    WordArtExtension,
     TextCardImageExtension.configure({
         HTMLAttributes: {
             draggable: 'true',
@@ -74,7 +55,8 @@ export const TEXT_CARD_MARKDOWN_EXTENSIONS = [
 ]
 
 export const TEXT_CARD_MARKDOWN_READONLY_EXTENSIONS = [
-    ...TEXT_CARD_MARKDOWN_BASE_READONLY_EXTENSIONS,
+    ...MARKDOWN_BASE_READONLY_EXTENSIONS,
+    WordArtExtension,
     TextCardImageExtension.configure({
         HTMLAttributes: {
             draggable: 'false',
@@ -85,94 +67,4 @@ export const TEXT_CARD_MARKDOWN_READONLY_EXTENSIONS = [
     }),
 ]
 
-const markdownManager = new MarkdownManager({
-    extensions: TEXT_CARD_MARKDOWN_EXTENSIONS,
-})
-
-const EMPTY_DOC_CONTENT: JSONContent['content'] = [{ type: 'paragraph' }]
-
-export const EMPTY_TEXT_CARD_DOC: JSONContent = {
-    type: 'doc',
-    content: EMPTY_DOC_CONTENT,
-}
-
-function isEffectivelyEmptyTextCardDoc(doc: JSONContent): boolean {
-    if (doc.type !== 'doc') {
-        return false
-    }
-
-    if (!doc.content || doc.content.length === 0) {
-        return true
-    }
-
-    if (doc.content.length !== 1 || doc.content[0].type !== 'paragraph') {
-        return false
-    }
-
-    const paragraphContent = doc.content[0].content
-    if (!paragraphContent || paragraphContent.length === 0) {
-        return true
-    }
-
-    return paragraphContent.every((node) => node.type === 'text' && !node.text)
-}
-
-export function markdownToTextCardDoc(markdown: string | null | undefined): JSONContent {
-    if (!markdown) {
-        return EMPTY_TEXT_CARD_DOC
-    }
-
-    if (markdown.trim() === '') {
-        return EMPTY_TEXT_CARD_DOC
-    }
-
-    try {
-        const parsed = markdownManager.parse(expandFlattenedMarkdownTables(markdown)) as JSONContent
-        if (parsed.type === 'doc') {
-            return parsed
-        }
-    } catch {
-        // Fall through to plain paragraph fallback for malformed legacy markdown.
-    }
-
-    return {
-        type: 'doc',
-        content: [
-            {
-                type: 'paragraph',
-                content: [{ type: 'text', text: markdown }],
-            },
-        ],
-    }
-}
-
-export function textCardDocToMarkdown(doc: JSONContent): string {
-    try {
-        if (isEffectivelyEmptyTextCardDoc(doc)) {
-            return ''
-        }
-
-        const markdown = markdownManager.serialize(doc).trimEnd()
-        if (!markdown) {
-            return ''
-        }
-        return markdown
-    } catch {
-        return ''
-    }
-}
-
-export function isTextCardMarkdownRoundTripSafe(markdown: string | null | undefined): boolean {
-    if (!markdown || markdown.trim() === '') {
-        return true
-    }
-
-    try {
-        const expanded = expandFlattenedMarkdownTables(markdown)
-        const originalDoc = markdownManager.parse(expanded) as JSONContent
-        const roundTripDoc = markdownManager.parse(markdownManager.serialize(originalDoc).trimEnd()) as JSONContent
-        return JSON.stringify(originalDoc) === JSON.stringify(roundTripDoc)
-    } catch {
-        return false
-    }
-}
+export const textCardConverter = createTiptapMarkdownConverter(TEXT_CARD_MARKDOWN_EXTENSIONS)

@@ -119,11 +119,15 @@ fn load_event_carries_routing_relevant_state_with_sequence() {
         draining: false,
         sequence: 7,
         message: "ok".to_string(),
+        in_flight: 11,
+        max_in_flight: 64,
     };
 
     let decoded = LoadEvent::decode(event.encode_to_vec().as_slice()).unwrap();
 
     assert_eq!(decoded.service_instance_id, "resolver-a");
     assert_eq!(decoded.sequence, 7);
+    assert_eq!(decoded.in_flight, 11);
+    assert_eq!(decoded.max_in_flight, 64);
     assert!(!decoded.draining);
 }

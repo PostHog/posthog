@@ -44,7 +44,7 @@ function genEvent(teamId: number, overrides: Partial<AnalyticsEvent> = {}): Anal
         input_tokens: 10,
         output_tokens: 5,
         latency_ms: 1200,
-        cost_usd: 0.002,
+        cost: { source: 'gateway', usd: 0.002 },
         stop_reason: 'stop',
         ...overrides,
     } as AnalyticsEvent

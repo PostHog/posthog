@@ -20,6 +20,16 @@ pub const COHORT_CACHE_HIT_COUNTER: &str = "flags_cohort_cache_hit_total";
 pub const COHORT_CACHE_MISS_COUNTER: &str = "flags_cohort_cache_miss_total";
 pub const COHORT_CACHE_SIZE_BYTES_GAUGE: &str = "flags_cohort_cache_size_bytes";
 pub const COHORT_CACHE_ENTRIES_GAUGE: &str = "flags_cohort_cache_entries";
+// Realtime cohort membership cache (CachedCohortMembershipProvider, keyed on
+// (team_id, person_uuid)). hit = lookup fully served from cache; miss = a
+// behavioral cohorts DB query was issued (no cache entry, or the entry was
+// missing some of the requested cohort IDs).
+pub const COHORT_MEMBERSHIP_CACHE_HIT_COUNTER: &str = "flags_cohort_membership_cache_hit_total";
+pub const COHORT_MEMBERSHIP_CACHE_MISS_COUNTER: &str = "flags_cohort_membership_cache_miss_total";
+pub const COHORT_MEMBERSHIP_CACHE_ENTRIES_GAUGE: &str = "flags_cohort_membership_cache_entries";
+// Behavioral cohorts DB reads for realtime cohort membership (RealtimeCohortMembershipProvider)
+pub const DB_COHORT_MEMBERSHIP_READS_COUNTER: &str = "flags_db_cohort_membership_reads_total";
+pub const DB_COHORT_MEMBERSHIP_ERRORS_COUNTER: &str = "flags_db_cohort_membership_errors_total";
 // In-memory flag definitions cache (deserialized + regex-compiled).
 // Keyed on `(team_id, etag)` where `etag` is the version tag Django writes
 // alongside the hypercache payload (`enable_etag=True`). Cache hits avoid the
@@ -272,6 +282,11 @@ pub const FLAG_COHORT_PROCESSING_TIME: &str = "flags_cohort_processing_time";
 pub const FLAG_REALTIME_COHORT_QUERY_TIME: &str = "flags_realtime_cohort_query_time";
 pub const FLAG_REALTIME_COHORT_QUERY_ERROR_COUNTER: &str =
     "flags_realtime_cohort_query_error_total";
+// Behavioral cohorts DB query latency alone (inside RealtimeCohortMembershipProvider),
+// as opposed to FLAG_REALTIME_COHORT_QUERY_TIME above which wraps the whole provider
+// call at the evaluation site and so mixes cache hits with DB round trips.
+// Labels: outcome="success" | "error" | "timeout". Recorded with sub-ms precision.
+pub const FLAG_REALTIME_COHORT_DB_QUERY_TIME: &str = "flags_realtime_cohort_db_query_time";
 pub const FLAG_GROUP_QUERY_TIME: &str = "flags_group_query_time";
 pub const FLAG_GROUP_PROCESSING_TIME: &str = "flags_group_processing_time";
 pub const FLAG_DB_CONNECTION_TIME: &str = "flags_db_connection_time";

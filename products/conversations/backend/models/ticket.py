@@ -105,7 +105,8 @@ class Ticket(UUIDTModel):
     # Snooze — when set, ticket is "on hold" until this time, then auto-reopened by wake task
     snoozed_until = models.DateTimeField(null=True, blank=True)
 
-    # Customer's PostHog org group key, resolved once at creation (local org pk or cross-region analytics key).
+    # Customer's PostHog org group key, resolved once at creation or on a later message
+    # (local org pk, cross-region analytics key, or the person's organization_id property).
     organization_id = models.CharField(max_length=400, null=True, blank=True)
 
     # Zendesk import dedup — set when a ticket is imported from Zendesk Support.
@@ -147,6 +148,12 @@ class Ticket(UUIDTModel):
                 fields=["snoozed_until"],
                 name="posthog_con_snooze_wake_idx",
                 condition=models.Q(snoozed_until__isnull=False),
+            ),
+            models.Index(fields=["organization_id"], name="posthog_org_id_idx"),
+            models.Index(
+                fields=["organization_id", "slack_channel_id"],
+                name="posthog_org_slack_ch_idx",
+                condition=models.Q(channel_source="slack"),
             ),
         ]
         constraints = [

@@ -1,8 +1,13 @@
+import pytest
+
+from django.core.management.base import CommandError
+
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.management.commands.run_warehouse_sources_load import (
     Command,
     build_consumer_config,
+    parse_sync_types,
 )
 
 
@@ -40,7 +45,36 @@ class TestBuildConsumerConfig:
 
         assert getattr(config, field) == expected
 
+    @parameterized.expand([(["--claim-path", "state"],), (["--claim-path", "legacy"],)])
+    def test_deprecated_claim_path_flag_is_still_accepted(self, argv: list[str]):
+        # Deployed pods still pass --claim-path; dropping the arg would crash
+        # the whole fleet at startup with "unrecognized arguments".
+        config = build_consumer_config(_parse_options(argv))
+
+        assert not hasattr(config, "claim_path")
+
     def test_lease_ttl_follows_recovery_grace_when_not_set(self):
         config = build_consumer_config(_parse_options(["--recovery-grace", "900"]))
 
         assert config.lease_ttl_seconds == 900
+
+
+class TestParseSyncTypes:
+    @parameterized.expand(
+        [
+            (None, None),
+            ("", None),
+            (" , ", None),
+            ("cdc", ["cdc"]),
+            ("cdc, append", ["cdc", "append"]),
+        ]
+    )
+    def test_parses_comma_separated_values(self, raw: str | None, expected: list[str] | None):
+        assert parse_sync_types(raw, "--claim-sync-types") == expected
+
+    def test_unknown_sync_type_fails_startup(self):
+        # A typo'd Helm value (e.g. 'CDC') must crash the pod at startup — accepted
+        # silently, it would build a filter matching nothing and the fleet would idle
+        # while its classes pile up in the queue.
+        with pytest.raises(CommandError, match="unknown sync type"):
+            parse_sync_types("CDC", "--claim-sync-types")

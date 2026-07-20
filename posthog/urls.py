@@ -45,14 +45,19 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
 from posthog.temporal.codec_server import decode_payloads
 
-from products.ai_observability.backend.api.personal_spend import personal_spend_eu_redirect
+from products.ai_observability.backend.api.personal_spend import PersonalSpendEUProxyViewSet
 from products.cdp.backend.api import hog_function_template
 from products.data_warehouse.backend.presentation.views.public_source_configs import PublicSourceConfigViewSet
 from products.demo.backend.facade.api import demo_route
 from products.early_access_features.backend.api import early_access_features
 from products.legal_documents.backend.presentation.webhook import legal_document_pandadoc_webhook
 from products.messaging.backend.api.customerio_webhook import CustomerIOWebhookView
-from products.notebooks.backend.facade.sql_v2 import notebook_sql_v2_callback, notebook_sql_v2_data_plane
+from products.messaging.backend.api.push_subscriptions import push_subscriptions
+from products.notebooks.backend.facade.sql_v2 import (
+    notebook_sql_v2_callback,
+    notebook_sql_v2_data_plane,
+    notebook_sql_v2_data_plane_status,
+)
 from products.product_tours.backend.api import product_tours
 from products.signals.backend import views as signals_views
 from products.signals.backend.views import SignalUserAutonomyConfigView as signals_user_autonomy_view
@@ -66,6 +71,8 @@ from products.slack_app.backend.views import (
     slack_user_link_authorize,
     slack_user_link_callback,
 )
+from products.stamphog.backend.facade.webhooks import stamphog_github_webhook
+from products.streamlit_apps.backend.presentation.bridge_views import StreamlitBridgeView
 from products.surveys.backend.api.survey import public_survey_page
 from products.tasks.backend.facade.agent_proxy import agent_proxy_callback
 from products.user_interviews.backend.presentation.webhooks import (
@@ -407,6 +414,11 @@ urlpatterns = [
         include("products.access_control.backend.presentation.urls"),
     ),
     opt_slash_path("api/support/ensure-zendesk-organization", csrf_exempt(ensure_zendesk_organization)),
+    path(
+        "api/streamlit_bridge/query/",
+        csrf_exempt(StreamlitBridgeView.as_view()),
+        name="streamlit_bridge_query",
+    ),
     path("api/", include(router.urls)),
     # Override the tf_urls QRGeneratorView to use the cache-aware version (handles session race conditions)
     path("account/two_factor/qrcode/", CacheAwareQRGeneratorView.as_view()),
@@ -421,6 +433,7 @@ urlpatterns = [
     opt_slash_path("api/user/redirect_to_website", user.redirect_to_website),
     opt_slash_path("api/early_access_features", early_access_features),
     opt_slash_path("api/web_experiments", web_experiments),
+    opt_slash_path("api/push_subscriptions", push_subscriptions),
     opt_slash_path("api/product_tours", product_tours),
     re_path(r"^external_surveys/(?P<survey_id>[^/]+)/?$", public_survey_page),
     opt_slash_path("api/signup/precheck", signup.SignupEmailPrecheckViewset.as_view()),
@@ -462,6 +475,10 @@ urlpatterns = [
     path(
         "internal/notebooks/data_plane/query/",
         csrf_exempt(notebook_sql_v2_data_plane),
+    ),
+    path(
+        "internal/notebooks/data_plane/query/<str:query_id>/",
+        csrf_exempt(notebook_sql_v2_data_plane_status),
     ),
     # Internal service-to-service endpoints (authenticated with POSTHOG_INTERNAL_SERVICE_TOKEN)
     path(
@@ -561,22 +578,24 @@ urlpatterns = [
     # GitHub App webhook — fans out to tasks (PRs) and conversations (issues)
     opt_slash_path("webhooks/github/pr", github_webhook),
     opt_slash_path("webhooks/github", github_webhook),
+    # Stamphog runs as its own GitHub App with a dedicated inbound endpoint (not the fan-out above)
+    opt_slash_path("webhooks/stamphog/github", stamphog_github_webhook),
     # Message preferences
     path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
     opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),
 ]
 
 # Personal LLM spend data only lives in PostHog Cloud US — EU forwards its product
-# LLM telemetry over, so EU callers get a 302 to the US-hosted endpoint instead of
-# a silent 404. Must be inserted *before* the `^api.+` catch-all above; otherwise
-# the catch-all matches first and the redirect is unreachable.
+# LLM telemetry over — so the EU view proxies the query to US server-side. Must be
+# inserted *before* the `^api.+` catch-all above; otherwise the catch-all matches
+# first and the view is unreachable.
 if settings.CLOUD_DEPLOYMENT == "EU":
     urlpatterns.insert(
         0,
         path(
             "api/llm_analytics/@me/spend/",
-            personal_spend_eu_redirect,
-            name="personal_spend_eu_redirect",
+            PersonalSpendEUProxyViewSet.as_view({"get": "list"}),
+            name="personal_spend_eu",
         ),
     )
 

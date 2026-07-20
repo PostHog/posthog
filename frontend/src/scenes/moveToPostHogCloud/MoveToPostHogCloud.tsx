@@ -1,4 +1,4 @@
-import { HedgehogExperiment } from '@posthog/brand/hoggies'
+import * as experimentPng from '@posthog/brand/hoggies/png/experiment'
 import {
     IconBolt,
     IconDatabase,
@@ -13,7 +13,10 @@ import {
 } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { SceneExport } from 'scenes/sceneTypes'
+
+const HedgehogExperiment = pngHoggie(experimentPng)
 
 export const scene: SceneExport = {
     component: MoveToPostHogCloud,

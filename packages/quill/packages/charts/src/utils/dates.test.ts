@@ -30,6 +30,12 @@ describe('createXAxisTickCallback', () => {
             expected: ['2025', 'February', 'March'],
         },
         {
+            scenario: 'inferred quarter interval from ~90 day gaps',
+            interval: undefined,
+            allDays: ['2025-04-01', '2025-07-01', '2025-10-01'],
+            expected: ['Q2', 'Q3', 'Q4'],
+        },
+        {
             scenario: 'inferred day interval from 1 day gaps',
             interval: undefined,
             allDays: ['2025-04-01', '2025-04-02', '2025-04-03'],
@@ -76,6 +82,18 @@ describe('createXAxisTickCallback', () => {
             interval: 'month' as const,
             allDays: ['2025-11-01', '2025-12-01', '2026-01-01', '2026-02-01'],
             expected: ['November', 'December', '2026', 'February'],
+        },
+        {
+            scenario: 'quarterly, cross year → year at Q1 boundary, [Q]Q otherwise',
+            interval: 'quarter' as const,
+            allDays: ['2025-07-01', '2025-10-01', '2026-01-01', '2026-04-01'],
+            expected: ['Q3', 'Q4', '2026', 'Q2'],
+        },
+        {
+            scenario: 'yearly → plain years',
+            interval: 'year' as const,
+            allDays: ['2024-01-01', '2025-01-01', '2026-01-01'],
+            expected: ['2024', '2025', '2026'],
         },
         {
             scenario: 'daily, short span → full month name on 1st, MMM D otherwise',

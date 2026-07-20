@@ -84,10 +84,12 @@ export const BlankEnumApi = {
  * * `log` - log
  * * `log_attribute` - log_attribute
  * * `log_resource_attribute` - log_resource_attribute
+ * * `metric_attribute` - metric_attribute
  * * `span` - span
  * * `span_attribute` - span_attribute
  * * `span_resource_attribute` - span_resource_attribute
  * * `revenue_analytics` - revenue_analytics
+ * * `account_custom_property` - account_custom_property
  * * `flag` - flag
  * * `workflow_variable` - workflow_variable
  */
@@ -116,10 +118,12 @@ export const PropertyFilterTypeEnumApi = {
     Log: 'log',
     LogAttribute: 'log_attribute',
     LogResourceAttribute: 'log_resource_attribute',
+    MetricAttribute: 'metric_attribute',
     Span: 'span',
     SpanAttribute: 'span_attribute',
     SpanResourceAttribute: 'span_resource_attribute',
     RevenueAnalytics: 'revenue_analytics',
+    AccountCustomProperty: 'account_custom_property',
     Flag: 'flag',
     WorkflowVariable: 'workflow_variable',
 } as const

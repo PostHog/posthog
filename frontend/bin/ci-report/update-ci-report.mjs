@@ -22,13 +22,18 @@ export const SECTIONS = [
     { id: 'storybook-snapshots', title: 'Storybook snapshots' },
     { id: 'playwright-snapshots', title: 'Playwright snapshots' },
     { id: 'backend-snapshots', title: 'Backend snapshots' },
+    { id: 'backend-coverage', title: 'Backend coverage' },
     { id: 'mcp-snapshots', title: 'MCP snapshots' },
     { id: 'ai-evals', title: 'AI evals' },
+    { id: 'django-migration-sql', title: 'Django migration SQL' },
+    { id: 'django-migration-risk', title: 'Django migration risk' },
     { id: 'ch-migration-sql', title: 'ClickHouse migration SQL' },
     { id: 'hogql-parser-py', title: 'hogql-parser version' },
     { id: 'hogql-parser-npm', title: '@posthog/hogql-parser version' },
     { id: 'hogql-parser-rs', title: 'hogql-parser-rs version' },
     { id: 'generated-docs', title: 'Generated docs' },
+    { id: 'docs-preview', title: 'Docs preview' },
+    { id: 'hobby-deploy', title: 'Hobby preview' },
     { id: 'survey-sdk', title: 'Survey SDK reminder' },
 ]
 
@@ -200,6 +205,26 @@ export function isReportComment(comment) {
     return comment.user?.login === 'github-actions[bot]' && comment.body?.startsWith(MARKER)
 }
 
+export async function deleteLegacyComments(prefixes, context = resolvePrContext('legacy comment cleanup')) {
+    if (!context || prefixes.length === 0) {
+        return
+    }
+    const { token, repo, prNumber } = context
+    try {
+        const stale = (await listPrComments(context)).filter(
+            (comment) =>
+                comment.user?.login === 'github-actions[bot]' &&
+                prefixes.some((prefix) => comment.body?.startsWith(prefix))
+        )
+        for (const comment of stale) {
+            await gh(token, `/repos/${repo}/issues/comments/${comment.id}`, { method: 'DELETE' })
+            console.info(`Deleted legacy CI comment ${comment.id} on PR #${prNumber}.`)
+        }
+    } catch (err) {
+        console.warn(`Could not clean up legacy CI comments (read-only token on fork PRs?): ${err.message}`)
+    }
+}
+
 // A concurrent healer racing us can delete the comment between our read and our write —
 // that surfaces as a 404 and is retryable. (A concurrent PATCH never 404s; the verify
 // pass catches it.) Anything else (403 on a fork's read-only token, 5xx) is not worth
@@ -211,11 +236,17 @@ function isWriteConflict(err) {
 // Mark a section resolved (status ok), but only when the report already carries it —
 // a check whose condition passes on every PR must not add a section saying so, while
 // a warning that was real on one push must not linger after a later push fixes it.
-export async function clearSectionIfPresent({ id, summary, body }) {
+/**
+ * @param {{ id: string, summary: string, body: string }} section
+ * @param {{ legacyPrefixes?: string[] }} options
+ */
+export async function clearSectionIfPresent({ id, summary, body }, options = {}) {
+    const { legacyPrefixes = [] } = options
     const context = resolvePrContext(`clearing "${id}"`)
     if (!context) {
         return
     }
+    await deleteLegacyComments(legacyPrefixes, context)
     let reportComment
     try {
         reportComment = (await listPrComments(context)).find(isReportComment)
@@ -241,7 +272,12 @@ export async function clearSectionIfPresent({ id, summary, body }) {
 // to CREATE the comment can leave duplicates — every attempt merges all report
 // comments' sections into the oldest and deletes the rest, writing the merged content
 // BEFORE deleting so a cancelled job never loses sections that lived only in a duplicate.
-export async function postSection({ id, status, summary, body }, { maxAttempts = 3, retryDelayMs = 1000 } = {}) {
+/**
+ * @param {{ id: string, status: string, summary: string, body: string }} section
+ * @param {{ maxAttempts?: number, retryDelayMs?: number, legacyPrefixes?: string[] }} options
+ */
+export async function postSection({ id, status, summary, body }, options = {}) {
+    const { maxAttempts = 3, retryDelayMs = 1000, legacyPrefixes = [] } = options
     const context = resolvePrContext('comment')
     if (!context) {
         return
@@ -319,6 +355,7 @@ export async function postSection({ id, status, summary, body }, { maxAttempts =
                     console.warn(`CI report still has ${after.length - 1} duplicate comment(s) on PR #${prNumber}.`)
                 }
                 console.info(`Wrote CI report section "${id}" on PR #${prNumber} (attempt ${attempt}).`)
+                await deleteLegacyComments(legacyPrefixes, context)
                 return
             }
         } catch (err) {

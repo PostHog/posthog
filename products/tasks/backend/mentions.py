@@ -22,6 +22,16 @@ def extract_mention_emails(content: str) -> set[str]:
     return {match.group(1).lower() for match in MENTION_TOKEN_PATTERN.finditer(content)}
 
 
+def format_mention_token(name: str, email: str) -> str:
+    """Serialize a user reference into the inline mention token.
+
+    Brackets and newlines would break token parsing; the email is the identity,
+    so the name falls back to its local part when unusable.
+    """
+    safe_name = re.sub(r"[\[\]\n]", " ", name).strip() or email.split("@")[0] or email
+    return f"@[{safe_name}]({email})"
+
+
 def resolve_mentioned_user_ids(user_model: Any, content: str, *, team_id: int, author_id: int | None) -> list[int]:
     """Ids of the team's org members mentioned in the content, excluding the author.
 
