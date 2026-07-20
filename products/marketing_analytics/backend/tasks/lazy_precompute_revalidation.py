@@ -6,9 +6,10 @@ expired-within-grace jobs, the read path enqueues this task (see
 next fetch is fresh instead of waiting on the hourly Dagster warmer — which only covers the teams on its
 allowlist, so for everyone else this task is the *only* refresh mechanism.
 
-Re-running the whole query, rather than each `ensure_precomputed` by hand, is deliberate: it drives
-exactly the ensures the read drives (touchpoints, conversions, costs), so the two cannot drift apart, and
-it refreshes the HogQL result cache on the way out.
+Building the query via `to_query()`, rather than driving each `ensure_precomputed` by hand, is
+deliberate: it fires exactly the ensures the read fires (touchpoints, conversions, costs), so the two
+cannot drift apart. We build but do NOT execute the query — see the warehouse-access note on the
+`to_query()` call for why executing would be a data-access leak.
 
 Duplicate tasks are tolerated rather than deduped: the framework's PENDING-job unique index collapses
 concurrent recomputes to one insert, and once the first task has refreshed the windows the rest are cheap
@@ -24,8 +25,7 @@ from prometheus_client import Counter
 from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.event_usage import EventSource
-from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
+from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
@@ -85,12 +85,14 @@ def revalidate_marketing_analytics_precompute(team_id: int, query: dict) -> None
             product=Product.MARKETING_ANALYTICS,
         )
         runner = get_query_runner(query=query, team=team, limit_context=LimitContext.QUERY_ASYNC)
-        # Force-refresh: rebuilds the expired precompute windows and replaces the HogQL result cache
-        # entry, so the next user fetch is fresh on both layers.
-        runner.run(
-            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-            analytics_props={"source": EventSource.CACHE_WARMING},
-        )
+        # Build the query only — do NOT execute it. to_query() drives every read-path ensure (touchpoints,
+        # conversions, costs), rebuilding the expired precompute windows, which is the whole job. We stop
+        # short of executing because this runner is userless with warehouse access control bypassed (so it
+        # can materialize every source's costs): a full run would write that all-sources aggregated
+        # response into the per-team result cache, which a user without access to some of those warehouse
+        # sources could then read. Leaving the result cache alone, the next user read recomputes the
+        # response under its own access — now over hot precomputes — and caches it correctly.
+        runner.to_query()
     except Exception:
         logger.exception("marketing_analytics_swr_revalidation_failed", team_id=team_id, query_kind=query_kind)
         REVALIDATION_RUN.labels(outcome="failed", query_kind=query_kind).inc()

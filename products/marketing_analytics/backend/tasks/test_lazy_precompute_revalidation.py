@@ -4,7 +4,6 @@ from unittest import mock
 from posthog.schema import DateRange, MarketingAnalyticsTableQuery
 
 from posthog.clickhouse.query_tagging import Feature, get_query_tag_value, reset_query_tags
-from posthog.hogql_queries.query_runner import ExecutionMode
 
 from products.marketing_analytics.backend.hogql_queries.marketing_lazy_precompute import REVALIDATION_TRIGGER
 from products.marketing_analytics.backend.tasks.lazy_precompute_revalidation import (
@@ -27,10 +26,13 @@ class TestMarketingLazyPrecomputeRevalidation(BaseTest):
         super().tearDown()
 
     @mock.patch(f"{_MODULE}.get_query_runner")
-    def test_runs_as_a_refresher_and_force_refreshes_both_layers(self, get_runner):
+    def test_materializes_precomputes_as_a_refresher_without_executing(self, get_runner):
         # The tags must already be set while the runner is built, since its construction-time ensures read
         # them. Classified as a refresher it gets no serve-stale grace — served its own stale rows it would
         # never recompute and marketing data would stop refreshing.
+        # It must build (to_query) but NOT execute (run): a full run of this userless, access-control-
+        # bypassed runner would write an all-sources response into the shared per-team result cache, which
+        # a warehouse-restricted user could then read.
         tags_at_build = {}
         runner = mock.MagicMock()
 
@@ -44,7 +46,8 @@ class TestMarketingLazyPrecomputeRevalidation(BaseTest):
         revalidate_marketing_analytics_precompute(team_id=self.team.pk, query=self.query)
 
         assert tags_at_build == {"feature": Feature.CACHE_WARMUP, "trigger": REVALIDATION_TRIGGER}
-        assert runner.run.call_args.kwargs["execution_mode"] == ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+        runner.to_query.assert_called_once_with()
+        runner.run.assert_not_called()
 
     @mock.patch(f"{_MODULE}.get_query_runner")
     def test_deleted_team_does_not_raise_into_the_worker(self, get_runner):
