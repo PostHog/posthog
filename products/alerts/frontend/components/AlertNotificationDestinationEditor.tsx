@@ -67,6 +67,7 @@ interface AlertNotificationDestinationEditorProps<NotificationType extends strin
     slack: {
         notificationType: NotificationType
         integration?: IntegrationType
+        workspaceSelector?: ReactNode
         channelValue: string | null
         onChannelValueChange: (value: string | null) => void
     }
@@ -211,11 +212,14 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
     if (notificationType.value === slack.notificationType) {
         if (slack.integration) {
             slackDestinationInput = (
-                <SlackChannelPicker
-                    value={slack.channelValue ?? undefined}
-                    onChange={slack.onChannelValueChange}
-                    integration={slack.integration}
-                />
+                <div className="space-y-3">
+                    {slack.workspaceSelector}
+                    <SlackChannelPicker
+                        value={slack.channelValue ?? undefined}
+                        onChange={slack.onChannelValueChange}
+                        integration={slack.integration}
+                    />
+                </div>
             )
         } else {
             slackDestinationInput = <SlackNotConfiguredBanner />

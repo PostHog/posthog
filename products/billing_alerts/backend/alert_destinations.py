@@ -24,7 +24,7 @@ _BASE_DATA = {
     "relative_delta_percentage": "{event.properties.relative_delta_percentage}",
     "evaluation_date": "{event.properties.evaluation_date}",
     "reason": "{event.properties.reason}",
-    "alert_url": "{project.url}/organization/billing",
+    "alert_url": "{project.url}/organization/billing/alerts",
 }
 
 
@@ -39,7 +39,7 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
             ("Baseline", "{event.properties.baseline_value}"),
             ("Reason", "{event.properties.reason}"),
         ),
-        primary_action_url="{project.url}/organization/billing",
+        primary_action_url="{project.url}/organization/billing/alerts",
         primary_action_label="View billing alert",
         webhook_body={
             "id": "{event.uuid}",
@@ -59,7 +59,7 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
             ("Baseline", "{event.properties.baseline_value}"),
             ("Reason", "{event.properties.reason}"),
         ),
-        primary_action_url="{project.url}/organization/billing",
+        primary_action_url="{project.url}/organization/billing/alerts",
         primary_action_label="View billing alert",
         webhook_body={
             "id": "{event.uuid}",
@@ -77,7 +77,7 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
             ("Error", "{event.properties.error_message}"),
             ("Failure count", "{event.properties.consecutive_failures}"),
         ),
-        primary_action_url="{project.url}/organization/billing",
+        primary_action_url="{project.url}/organization/billing/alerts",
         primary_action_label="View billing alert",
         webhook_body={
             "id": "{event.uuid}",
@@ -99,7 +99,7 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
             ("Reason", "{event.properties.consecutive_failures} consecutive check failures."),
             ("Last error", "{event.properties.error_message}"),
         ),
-        primary_action_url="{project.url}/organization/billing",
+        primary_action_url="{project.url}/organization/billing/alerts",
         primary_action_label="View billing alert",
         webhook_body={
             "id": "{event.uuid}",
