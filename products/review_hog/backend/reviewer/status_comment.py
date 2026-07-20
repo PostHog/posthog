@@ -211,6 +211,36 @@ def _patch_comment(
     )
 
 
+def _clear_clean_reaction(owner: str, repo: str, pr_number: int, *, token: str, installation_id: str | None) -> None:
+    reactions = github_api_get_paginated(
+        f"/repos/{owner}/{repo}/issues/{pr_number}/reactions",
+        token=token,
+        installation_id=installation_id,
+        endpoint="/repos/{owner}/{repo}/issues/{issue_number}/reactions",
+    )
+    for reaction in reactions:
+        if reaction.get("content") != "+1" or (reaction.get("user") or {}).get("login") != "posthog[bot]":
+            continue
+        github_api_request(
+            "DELETE",
+            f"/repos/{owner}/{repo}/reactions/{reaction['id']}",
+            token=token,
+            installation_id=installation_id,
+            endpoint="/repos/{owner}/{repo}/reactions/{reaction_id}",
+        )
+
+
+def _add_clean_reaction(owner: str, repo: str, pr_number: int, *, token: str, installation_id: str | None) -> None:
+    github_api_request(
+        "POST",
+        f"/repos/{owner}/{repo}/issues/{pr_number}/reactions",
+        token=token,
+        installation_id=installation_id,
+        endpoint="/repos/{owner}/{repo}/issues/{issue_number}/reactions",
+        json={"content": "+1"},
+    )
+
+
 def _split_repository(repository: str) -> tuple[str, str]:
     owner, _, repo = repository.partition("/")
     return owner, repo
@@ -254,6 +284,10 @@ def ensure_status_comment(team_id: int, report_id: str) -> None:
         report.status_comment_id = comment_id
         report.status_comment_edited_at = timezone.now()
         report.save(update_fields=["status_comment_id", "status_comment_edited_at", "updated_at"])
+        try:
+            _clear_clean_reaction(owner, repo, report.pr_number, token=token, installation_id=installation_id)
+        except Exception:
+            logger.exception("Could not clear the previous ReviewHog clean reaction")
     except Exception:
         logger.exception("Could not post the ReviewHog status comment; the review continues without it")
 
@@ -335,6 +369,12 @@ def finalize_status_comment(
             review_url=review_url,
         )
         _edit_and_stamp(team_id, report, body)
+        if sum(counts.values()) == 0:
+            auth = _auth(team_id, report.repository)
+            if auth is not None:
+                token, installation_id = auth
+                owner, repo = _split_repository(report.repository)
+                _add_clean_reaction(owner, repo, report.pr_number, token=token, installation_id=installation_id)
     except Exception:
         logger.exception("Could not finalize the ReviewHog status comment; the review is unaffected")
 

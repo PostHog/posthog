@@ -14,6 +14,8 @@ from products.review_hog.backend.reviewer.models.issue_validation import IssueVa
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.persistence import persist_findings, persist_verdict, upsert_review_report
 from products.review_hog.backend.reviewer.status_comment import (
+    _add_clean_reaction,
+    _clear_clean_reaction,
     ensure_status_comment,
     fail_status_comment,
     finalize_status_comment,
@@ -125,6 +127,30 @@ class TestRenderFinalBody:
         assert status_marker("rid") in body
 
 
+@patch(_PAGINATED)
+@patch(_REQUEST)
+class TestCleanReaction:
+    def test_adds_a_thumbs_up(self, mock_request: MagicMock, mock_paginated: MagicMock) -> None:
+        _add_clean_reaction("o", "r", 123, token="tok", installation_id="inst")
+
+        assert _posts(mock_request) == ["/repos/o/r/issues/123/reactions"]
+        assert mock_request.call_args.kwargs["json"] == {"content": "+1"}
+        mock_paginated.assert_not_called()
+
+    def test_clears_only_the_posthog_bot_thumbs_up(self, mock_request: MagicMock, mock_paginated: MagicMock) -> None:
+        mock_paginated.return_value = iter(
+            [
+                {"id": 1, "content": "+1", "user": {"login": "posthog[bot]"}},
+                {"id": 2, "content": "eyes", "user": {"login": "posthog[bot]"}},
+                {"id": 3, "content": "+1", "user": {"login": "greptile-apps[bot]"}},
+            ]
+        )
+
+        _clear_clean_reaction("o", "r", 123, token="tok", installation_id="inst")
+
+        assert _deletes(mock_request) == ["/repos/o/r/reactions/1"]
+
+
 def _pr_metadata(pr_number: int = 123) -> PRMetadata:
     return PRMetadata(
         number=pr_number,
@@ -159,6 +185,10 @@ def _posts(mock_request: MagicMock) -> list[str]:
     return [c.args[1] for c in mock_request.call_args_list if c.args[0] == "POST"]
 
 
+def _deletes(mock_request: MagicMock) -> list[str]:
+    return [c.args[1] for c in mock_request.call_args_list if c.args[0] == "DELETE"]
+
+
 @patch(_INTEGRATION)
 @patch(_PAGINATED)
 @patch(_REQUEST)
@@ -182,7 +212,7 @@ class TestEnsureStatusComment(BaseTest):
         assert report.status_comment_id == 777
         assert report.status_comment_edited_at is not None
 
-    def test_reuses_the_stored_comment_without_posting_or_scanning(
+    def test_reuses_the_stored_comment_without_posting(
         self, mock_request: MagicMock, mock_paginated: MagicMock, mock_integration: MagicMock
     ) -> None:
         # A re-review must edit the same comment, not stack a new one (new comments notify everyone).
@@ -195,7 +225,19 @@ class TestEnsureStatusComment(BaseTest):
 
         assert _patches(mock_request) == ["/repos/o/r/issues/comments/555"]
         assert _posts(mock_request) == []
-        mock_paginated.assert_not_called()
+
+    def test_clears_the_previous_clean_reaction_at_kickoff(
+        self, mock_request: MagicMock, mock_paginated: MagicMock, mock_integration: MagicMock
+    ) -> None:
+        _wire_auth(mock_integration)
+        report = self._report()
+        report.status_comment_id = 555
+        report.save(update_fields=["status_comment_id"])
+        mock_paginated.return_value = iter([{"id": 42, "content": "+1", "user": {"login": "posthog[bot]"}}])
+
+        ensure_status_comment(self.team.id, str(report.id))
+
+        assert _deletes(mock_request) == ["/repos/o/r/reactions/42"]
 
     def test_adopts_a_marker_comment_left_by_a_crashed_prior_run(
         self, mock_request: MagicMock, mock_paginated: MagicMock, mock_integration: MagicMock
@@ -317,6 +359,25 @@ class TestFinalizeStatusComment(BaseTest):
         assert "Found **1 must fix**, **0 should fix**, **2 consider**" in body
         assert "Published 1 finding ([view the review](https://g/review))" in body
         assert '2 findings stayed below the author\'s "Should fix" urgency threshold' in body
+
+    def test_clean_review_adds_a_thumbs_up_reaction(self, mock_request: MagicMock, mock_integration: MagicMock) -> None:
+        _wire_auth(mock_integration)
+        report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
+        report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
+        report.status_comment_id = 555
+        report.save(update_fields=["status_comment_id"])
+
+        finalize_status_comment(
+            self.team.id,
+            report_id,
+            run_index=1,
+            urgency_threshold=IssuePriority.SHOULD_FIX.value,
+            review_url=None,
+        )
+
+        reaction_call = next(call for call in mock_request.call_args_list if call.args[0] == "POST")
+        assert reaction_call.args[1] == "/repos/o/r/issues/123/reactions"
+        assert reaction_call.kwargs["json"] == {"content": "+1"}
 
     def test_failed_edit_rewrites_the_comment_as_failed(
         self, mock_request: MagicMock, mock_integration: MagicMock
