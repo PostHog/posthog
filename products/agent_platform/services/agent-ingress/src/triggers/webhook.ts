@@ -45,7 +45,6 @@ async function webhookHandler(ctx: AuthedRouteCtx<z.infer<typeof WebhookBodySche
     }
     const externalKeyHeader = req.headers['x-external-key']
     const externalKey = typeof externalKeyHeader === 'string' ? externalKeyHeader : null
-    const trigger = resolved.revision.spec.triggers.find((t) => t.type === 'webhook')
     const idempotencyKey = extractIdempotencyKey(req, body, trigger)
     const sessionPrincipal = ctx.principal
     const outcome = await enqueueOrResume(
