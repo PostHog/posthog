@@ -111,7 +111,7 @@ export function AlertEditorFormDetails({
     nameDataAttr = 'alertForm-name',
 }: AlertEditorFormDetailsProps): JSX.Element {
     return (
-        <div className="space-y-4">
+        <div className="space-y-2">
             <div className="flex gap-4 items-center">
                 <LemonField className="flex-auto" name="name">
                     <LemonInput placeholder="Alert name" data-attr={nameDataAttr} />

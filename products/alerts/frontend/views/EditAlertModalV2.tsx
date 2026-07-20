@@ -400,7 +400,7 @@ export function EditAlertModalV2({
                             onSubmitAttempted={setAlertFormSubmitAttempted}
                             leadingActions={leadingActions}
                         >
-                            <div className="space-y-3">
+                            <div className="space-y-2.5">
                                 <AlertEditorFormDetails
                                     activity={
                                         alert?.created_by ? (
