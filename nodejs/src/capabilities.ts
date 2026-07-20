@@ -185,9 +185,13 @@ export function getPluginServerCapabilities(
         case PluginServerMode.cdp_cyclotron_v2_janitor:
             return {
                 cdpCyclotronV2Janitor: true,
-            }
-        case PluginServerMode.cdp_cyclotron_v2_poison_pill_autodrain:
-            return {
+                // Co-located singleton: the poison-pill autodrain lives in the same
+                // domain (the janitor records poison pills, the autodrain recovers
+                // them) and is the same periodic-poll pattern, so it rides in the
+                // janitor deployment rather than warranting its own. Same precedent as
+                // appManagementSingleton in cdp_api. Only actually starts when
+                // CYCLOTRON_POISON_PILL_AUTODRAIN_ENABLED is set — server.ts gates on
+                // the flag, so this capability alone does not enable it.
                 cdpCyclotronV2PoisonPillAutodrain: true,
             }
         case PluginServerMode.cdp_rerun_worker:

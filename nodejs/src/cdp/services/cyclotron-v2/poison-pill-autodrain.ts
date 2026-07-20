@@ -84,8 +84,15 @@ export class CyclotronPoisonPillAutodrain {
             })
         }, this.config.intervalMs)
 
-        // Run immediately on start rather than waiting a full interval.
-        await this.runOnce()
+        // Run immediately on start rather than waiting a full interval, but never
+        // let a failed first tick reject start(): this service is co-located in the
+        // janitor process, and a rejected start() would fail the shared pod's boot
+        // (serviceLoaders are awaited together). A ClickHouse blip at startup must
+        // not crash the janitor — the interval is already scheduled, so the next
+        // tick retries.
+        await this.runOnce().catch((err) => {
+            logger.error('CyclotronPoisonPillAutodrain initial run error', { error: String(err) })
+        })
     }
 
     async runOnce(): Promise<AutodrainRunResult> {

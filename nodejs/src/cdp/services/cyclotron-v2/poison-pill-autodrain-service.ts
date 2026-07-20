@@ -3,13 +3,7 @@ import https from 'https'
 
 import { logger } from '~/common/utils/logger'
 
-import {
-    HealthCheckResult,
-    HealthCheckResultError,
-    HealthCheckResultOk,
-    PluginServerService,
-    PluginsServerConfig,
-} from '../../../types'
+import { HealthCheckResult, HealthCheckResultOk, PluginServerService, PluginsServerConfig } from '../../../types'
 import { RerunJobManager } from '../../rerun/rerun-job.manager'
 import { CyclotronPoisonPillAutodrain } from './poison-pill-autodrain'
 
@@ -18,8 +12,10 @@ import { CyclotronPoisonPillAutodrain } from './poison-pill-autodrain'
  * client (for discovery) and the `RerunJobManager` (for the re-enqueue) so the
  * inner worker stays a plain, unit-testable class.
  *
- * Runs on a timer interval as its own service
- * (`PLUGIN_SERVER_MODE=cdp-cyclotron-v2-poison-pill-autodrain`).
+ * Runs on a timer interval inside the cyclotron-v2 janitor deployment (the
+ * capability rides along on the janitor mode), gated by
+ * `CYCLOTRON_POISON_PILL_AUTODRAIN_ENABLED` — no separate deployment. Same
+ * co-located-singleton pattern as `appManagementSingleton` in `cdp_api`.
  */
 export class CyclotronPoisonPillAutodrainService {
     private worker: CyclotronPoisonPillAutodrain
@@ -80,8 +76,16 @@ export class CyclotronPoisonPillAutodrainService {
     }
 
     isHealthy(): HealthCheckResult {
+        // Best-effort — always OK. This service is co-located in the janitor pod,
+        // and the pod's /_health fails (503 → restart) if ANY registered service's
+        // healthcheck errors. The autodrain is a non-critical background poller
+        // recovering already-durable poison-pill rows; a stalled interval must not
+        // restart the critical janitor sharing this process. Liveness is observed
+        // via its metrics/logs (cdp_cyclotron_v2_autodrain_*), not the pod probe.
         if (!this.worker.isRunning()) {
-            return new HealthCheckResultError('CyclotronPoisonPillAutodrain interval is not running', {})
+            logger.warn(
+                'CyclotronPoisonPillAutodrain interval is not running (health stays OK — co-located with janitor)'
+            )
         }
         return new HealthCheckResultOk()
     }

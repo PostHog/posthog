@@ -295,9 +295,12 @@ export class PluginServer implements NodeServer {
             })
         }
 
-        // Autonomous drain of recorded poison pills. Gated on both the capability
-        // and the opt-in enabled flag — this loop re-enqueues janitor give-ups on
-        // its own, so it stays off until explicitly enabled per environment.
+        // Autonomous drain of recorded poison pills. Co-located in the janitor
+        // deployment (the capability rides along on the janitor mode), but gated on
+        // the opt-in enabled flag — this loop re-enqueues janitor give-ups on its
+        // own, so it stays off until explicitly enabled per environment. The service
+        // wraps every tick in a catch and reports health best-effort, so a failing
+        // drain never crashes or restarts the janitor sharing its process.
         if (capabilities.cdpCyclotronV2PoisonPillAutodrain && this.config.CYCLOTRON_POISON_PILL_AUTODRAIN_ENABLED) {
             if (!this.config.CYCLOTRON_NODE_DATABASE_URL) {
                 throw new Error(

@@ -47,10 +47,12 @@ Responsibilities:
   life.
 - **Queue depth metrics** — Prometheus gauges per queue
 
-### Poison-pill autodrain (standalone service)
+### Poison-pill autodrain
 
-Runs on a timer interval as its own service
-(`PLUGIN_SERVER_MODE=cdp-cyclotron-v2-poison-pill-autodrain`).
+Runs on a timer interval **inside the cyclotron-v2 janitor deployment**, gated by `CYCLOTRON_POISON_PILL_AUTODRAIN_ENABLED` (off by default) — no separate deployment.
+A 60s poll-and-enqueue loop doesn't warrant its own Kubernetes app, and its natural home is the janitor: same domain (the janitor records poison pills, the autodrain recovers them) and the same singleton periodic pattern.
+Same co-located-singleton precedent as `appManagementSingleton` in the `cdp_api` mode.
+The interval catches every tick and the service reports health best-effort, so a failing drain never crashes or restarts the janitor sharing its process.
 The janitor _records_ poison-pill give-ups as replayable `failed` rows; recovering them was a manual operator rerun.
 This service automates that recovery.
 

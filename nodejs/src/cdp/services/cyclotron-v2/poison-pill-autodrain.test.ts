@@ -105,4 +105,17 @@ describe('CyclotronPoisonPillAutodrain', () => {
             window_end: '2026-07-16 12:00:00.000',
         })
     })
+
+    // The autodrain is co-located in the janitor process, and serviceLoaders are
+    // awaited together — a rejected start() would fail the shared pod's boot. A
+    // ClickHouse failure on the immediate first tick must therefore not reject
+    // start(); the interval is already scheduled so the next tick retries.
+    it('start() does not reject when the first tick fails, so it cannot crash the janitor pod', async () => {
+        queryMock.mockRejectedValue(new Error('clickhouse down at boot'))
+
+        await expect(worker.start()).resolves.toBeUndefined()
+        expect(worker.isRunning()).toBe(true)
+
+        worker.stop()
+    })
 })
