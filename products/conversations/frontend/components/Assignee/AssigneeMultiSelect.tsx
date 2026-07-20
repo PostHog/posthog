@@ -71,7 +71,7 @@ export function AssigneeMultiSelect({
                             >
                                 <span className="flex items-center gap-1">
                                     <AssigneeIconDisplay assignee={null} size="small" />
-                                    No assignee
+                                    Unassigned
                                 </span>
                             </LemonButton>
                         </li>
@@ -128,7 +128,7 @@ function TriggerLabel({ value }: { value: AssigneeFilterEntry[] }): JSX.Element 
         return (
             <span className="flex items-center gap-1">
                 <AssigneeIconDisplay assignee={null} size="small" />
-                <AssigneeLabelDisplay assignee={null} size="small" placeholder="No assignee" />
+                <AssigneeLabelDisplay assignee={null} size="small" />
             </span>
         )
     }

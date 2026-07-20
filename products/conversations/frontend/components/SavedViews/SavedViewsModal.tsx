@@ -44,7 +44,7 @@ function FiltersSummary({ filters }: { filters: TicketViewFilters }): JSX.Elemen
                 <span key={entry === 'unassigned' ? 'unassigned' : `${entry.type}:${entry.id}`}>
                     {index > 0 ? ', ' : ''}
                     {entry === 'unassigned' ? (
-                        'No assignee'
+                        'Unassigned'
                     ) : (
                         <AssigneeResolver assignee={entry}>
                             {({ assignee }) => (
