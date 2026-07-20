@@ -112,6 +112,40 @@ async def test_retryable_setup_error_is_reraised():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "transient_markers,expect_warning",
+    [
+        (["500 Server Error"], True),
+        ([], False),
+    ],
+)
+async def test_expected_transient_error_logs_warning_and_reraises(transient_markers, expect_warning):
+    # A persistent upstream 5xx is expected flakiness: it must still be re-raised so Temporal retries
+    # the activity, but logged at warning level rather than as an unhandled exception so it doesn't
+    # open a fresh error-tracking issue on every retry.
+    error = Exception("500 Server Error: Internal Server Error for url: https://api.pinterest.com/v5/ad_groups")
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_expected_transient_errors.return_value = transient_markers
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with pytest.raises(Exception, match="500 Server Error"):
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    if expect_warning:
+        logger.awarning.assert_awaited_once()
+        logger.aexception.assert_not_awaited()
+    else:
+        logger.aexception.assert_awaited_once()
+        logger.awarning.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_unparseable_config_routes_through_handler():
     # A corrupt / double-encoded stored config makes parse_config raise deterministically before
     # source setup. It must be treated as non-retryable instead of crash-looping on every attempt.
