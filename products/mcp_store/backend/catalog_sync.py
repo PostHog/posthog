@@ -17,9 +17,11 @@ Semantics, chosen so the sync can run unattended at every app startup:
 - **Activation gate**: a newly created entry is probed live (``probe.probe_mcp_server``)
   and born active only when the probe passes for the auth model the catalog declares —
   DCR OAuth servers must complete a real client registration and serve an authorization
-  page; API-key/open servers must speak the MCP handshake. Servers needing shared OAuth
-  credentials are always born inactive: an operator provisions credentials in admin and
-  activates. Probes run only on creation — a DCR probe mints a real client on the
+  page; API-key servers must complete the MCP handshake without credentials. An API-key
+  server that auth-walls the handshake (the common case) yields no MCP evidence, so it
+  is born inactive for an operator to vet and activate in admin. Servers needing shared
+  OAuth credentials are always born inactive: an operator provisions credentials in
+  admin and activates. Probes run only on creation — a DCR probe mints a real client on the
   provider, so re-probing every sync cycle would leak registrations.
 
   The probe is a liveness and protocol check, not a security control: it catches a dead
@@ -59,7 +61,10 @@ def _activation_allowed(entry: CatalogEntry, probe: ProbeResult) -> bool:
     if not probe.passed_activation_gate:
         return False
     if entry.auth_type == "api_key":
-        return probe.auth_flavor in ("open", "api_key_or_unknown")
+        # A reachable but auth-walled endpoint ("api_key_or_unknown") never passes the
+        # gate — a bare 401/403 proves nothing about MCP — so agreement here means the
+        # handshake completed without credentials.
+        return probe.auth_flavor == "open"
     return probe.auth_flavor == "oauth_dcr"
 
 
