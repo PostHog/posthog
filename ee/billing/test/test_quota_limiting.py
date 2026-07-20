@@ -4,7 +4,7 @@ from uuid import uuid4
 
 from freezegun import freeze_time
 from posthog.test.base import BaseTest, FuzzyInt, _create_event, flush_persons_and_events
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.apps import apps
 from django.test import override_settings
@@ -29,6 +29,7 @@ from ee.billing.quota_limiting import (
     _patch_todays_usage,
     add_limited_team_tokens,
     get_team_attribute_by_quota_resource,
+    is_team_limited,
     list_limited_team_attributes,
     org_quota_limited_until,
     replace_limited_team_tokens,
@@ -72,6 +73,37 @@ class TestQuotaLimiting(BaseTest):
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/cdp_trigger_events")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/ai_credits")
         materialize("events", "$exception_values")
+
+    @patch("ee.billing.quota_limiting.list_limited_team_attributes")
+    def test_is_team_limited_confirms_stale_positive_against_live_redis(self, mock_list: MagicMock) -> None:
+        # The 30s per-process cache serves a stale "limited" value on the request that triggers
+        # its background refresh, so a just-upgraded team keeps getting blocked. When the cached
+        # list says limited, is_team_limited must re-read live Redis (uncached) before limiting.
+        token = self.team.api_token
+        mock_list.side_effect = [[token], []]  # cached: stale positive, live: cleared
+
+        limited = is_team_limited(token, QuotaResource.AI_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+
+        assert limited is False
+        assert mock_list.call_count == 2
+        assert mock_list.call_args_list[1].kwargs.get("use_cache") is False
+
+    @patch("ee.billing.quota_limiting.list_limited_team_attributes")
+    def test_is_team_limited_when_genuinely_limited(self, mock_list: MagicMock) -> None:
+        # A genuinely limited team is still limited: live Redis confirms the cached positive.
+        token = self.team.api_token
+        mock_list.side_effect = [[token], [token]]
+
+        assert is_team_limited(token, QuotaResource.AI_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY) is True
+
+    @patch("ee.billing.quota_limiting.list_limited_team_attributes")
+    def test_is_team_limited_skips_live_read_when_not_cached_limited(self, mock_list: MagicMock) -> None:
+        # The common not-limited path stays on the cheap cached read — no extra Redis round trip.
+        token = self.team.api_token
+        mock_list.side_effect = [[]]
+
+        assert is_team_limited(token, QuotaResource.AI_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY) is False
+        assert mock_list.call_count == 1
 
     @patch("posthoganalytics.capture")
     @patch("posthoganalytics.feature_enabled", return_value=True)
