@@ -387,10 +387,17 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
     content = content[:MAX_EMAIL_BODY_LENGTH]
     subject = request.POST.get("subject", "")[:500]
 
-    # 7b. Detect team member sender — only trust From when DKIM passes
-    # AND the envelope-sender domain aligns with the From domain.
+    # 7b. Detect team member sender — a teammate replying on a thread. We only treat a
+    # sender as internal when the message threads onto an existing ticket, the From is
+    # authenticated (SPF pass + envelope/From domain alignment), and it resolves to an org
+    # member. A brand-new inbound email is always a customer request, even when the sender
+    # happens to match an org member (shared mailboxes like onboarding@, or a customer on
+    # the same domain as a teammate) — classifying it as internal would create the ticket
+    # with unread_team_count=0 and silently hide it from the inbox.
     sender_authenticated = _sender_authenticated(request, sender_email)
-    posthog_user = _resolve_team_member(sender_email, team) if sender_authenticated else None
+    posthog_user = (
+        _resolve_team_member(sender_email, team) if sender_authenticated and existing_ticket is not None else None
+    )
     is_team_member = posthog_user is not None
 
     # 8. Create ticket/comment/mapping in a transaction
