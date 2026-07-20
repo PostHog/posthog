@@ -338,10 +338,11 @@ async fn test_analytics_force_overflow_restriction() {
 
 #[tokio::test]
 async fn test_analytics_force_overflow_restriction_applies_to_diverted_ai_event() {
-    // NOTE: during the transitional period, $ai_* events on the analytics
-    // endpoints are still governed by analytics restrictions, which is why AI
-    // events show up in this file. Once AI gets its own restriction pipeline,
-    // this coverage should move out with it.
+    // NOTE: during the transitional period, $ai_* events arriving on the
+    // analytics endpoints are governed by Pipeline::Analytics restrictions,
+    // which is why AI events show up in this file. Pipeline::Ai restrictions
+    // exist but only apply to the dedicated AI endpoints (/i/v0/ai, OTel); if
+    // diverted AI events later switch to them, this coverage moves out too.
     //
     // A ForceOverflow restriction must follow a $ai_* event onto the AI lane:
     // with secondary routing and the overflow valve armed, the event keeps
