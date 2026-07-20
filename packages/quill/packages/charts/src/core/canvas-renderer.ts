@@ -1393,7 +1393,8 @@ export function drawSelectionRect(
     ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.width - 1, rect.height - 1)
 }
 
-// The selection always spans the full plot height — this is x-axis range selection only.
+// x-only drags (`onDateRangeZoom`) span the full plot height; a 2D drag (`onAreaSelect`)
+// carries `y0`/`y1` on the rect and the band clamps to that vertical range too.
 export function composeDrawHoverWithSelection(baseDrawHover: DrawHoverFn): DrawHoverFn {
     return (args) => {
         const result = baseDrawHover(args)
@@ -1403,14 +1404,20 @@ export function composeDrawHoverWithSelection(baseDrawHover: DrawHoverFn): DrawH
         }
         const x0 = Math.max(args.dimensions.plotLeft, Math.min(dragRect.x0, dragRect.x1))
         const x1 = Math.min(args.dimensions.plotLeft + args.dimensions.plotWidth, Math.max(dragRect.x0, dragRect.x1))
-        if (x1 <= x0) {
+        const plotBottom = args.dimensions.plotTop + args.dimensions.plotHeight
+        const hasY = dragRect.y0 != null && dragRect.y1 != null
+        const y0 = hasY
+            ? Math.max(args.dimensions.plotTop, Math.min(dragRect.y0 ?? 0, dragRect.y1 ?? 0))
+            : args.dimensions.plotTop
+        const y1 = hasY ? Math.min(plotBottom, Math.max(dragRect.y0 ?? 0, dragRect.y1 ?? 0)) : plotBottom
+        if (x1 <= x0 || y1 <= y0) {
             return result
         }
         drawSelectionRect(args.ctx, {
             x: x0,
-            y: args.dimensions.plotTop,
+            y: y0,
             width: x1 - x0,
-            height: args.dimensions.plotHeight,
+            height: y1 - y0,
         })
         return result
     }

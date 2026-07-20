@@ -10,6 +10,7 @@ import {
 } from '../interaction'
 import { defaultResolveValue } from '../types'
 import type {
+    AreaSelectData,
     ChartDimensions,
     ChartScales,
     DateRangeZoomData,
@@ -43,6 +44,9 @@ interface UseChartInteractionOptions<Meta> {
     resolveClickToNearestSeries?: boolean
     onPointClick?: (data: PointClickData<Meta>) => void
     onDateRangeZoom?: (data: DateRangeZoomData) => void
+    /** 2D brush — see `ChartProps.onAreaSelect`. Receives the committed `scales` so chart-type
+     *  adapters can map the y pixel range onto their own bands. */
+    onAreaSelect?: (data: AreaSelectData, scales: ChartScales) => void
     resolveValue?: ResolveValueFn
     /** Value used to *anchor* the tooltip per series. Defaults to `resolveValue`. Stacked
      *  charts pass the stacked-top resolver so the anchor lands at the visual top of each
@@ -118,6 +122,7 @@ export function useChartInteraction<Meta = unknown>({
     resolveClickToNearestSeries = false,
     onPointClick,
     onDateRangeZoom,
+    onAreaSelect,
     resolveValue = defaultResolveValue,
     resolvePositionValue,
     resolveBottomValue,
@@ -196,6 +201,14 @@ export function useChartInteraction<Meta = unknown>({
         [labels, scales, labelToCoord]
     )
 
+    // Bind the committed scales into the 2D-brush callback so chart-type adapters can map the
+    // y pixel range onto their own bands (the core has no y-band concept).
+    const onAreaSelectWithScales = useMemo(
+        () =>
+            onAreaSelect && scales ? (data: AreaSelectData): void => onAreaSelect(data, scales) : undefined,
+        [onAreaSelect, scales]
+    )
+
     const {
         dragRect,
         onMouseDown,
@@ -203,6 +216,7 @@ export function useChartInteraction<Meta = unknown>({
         shouldSwallowClick,
     } = useDragToZoom({
         onDateRangeZoom,
+        onAreaSelect: onAreaSelectWithScales,
         scales,
         dimensions,
         labels,
