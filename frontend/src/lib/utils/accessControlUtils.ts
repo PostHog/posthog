@@ -132,6 +132,8 @@ export const resourceTypeToString = (resourceType: AccessControlResourceType): s
         return 'tracing resource'
     } else if (resourceType === AccessControlResourceType.Workflow) {
         return 'workflow'
+    } else if (resourceType === AccessControlResourceType.McpAnalytics) {
+        return 'MCP analytic'
     }
 
     return resourceType.replace(/_/g, ' ')

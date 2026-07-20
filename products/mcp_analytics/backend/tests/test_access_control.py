@@ -69,6 +69,22 @@ class TestMCPAnalyticsAccessControl(_MCPAnalyticsTeamScopedTestMixin, APIBaseTes
     @parameterized.expand(
         [
             ("none", status.HTTP_403_FORBIDDEN),
+            ("viewer", status.HTTP_200_OK),
+            ("editor", status.HTTP_200_OK),
+        ]
+    )
+    def test_intent_digest_by_access_level(self, access_level: str, expected_status: int) -> None:
+        # intent_digest is a POST that only reads/computes a cached summary (no state a viewer
+        # controls), and is polled by viewers on page load - it must not require editor access.
+        self._login_with_access_level(access_level)
+
+        response = self.client.post(f"/api/environments/{self.team.id}/mcp_analytics/sessions/intent_digest/")
+
+        assert response.status_code == expected_status
+
+    @parameterized.expand(
+        [
+            ("none", status.HTTP_403_FORBIDDEN),
             ("viewer", status.HTTP_403_FORBIDDEN),
             ("editor", status.HTTP_201_CREATED),
         ]
