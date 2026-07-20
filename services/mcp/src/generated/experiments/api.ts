@@ -774,8 +774,8 @@ export const experimentsCreateBodyExposureCriteriaOneExposureConfigOneProperties
 export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnesevenTypeDefault = `error_tracking_issue`
 export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnenineTypeDefault = `metric_attribute`
 export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault = `revenue_analytics`
-export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemAccountCustomPropertyTypeDefault = `account_custom_property`
-export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault = `workflow_variable`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault = `account_custom_property`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwothreeTypeDefault = `workflow_variable`
 export const experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
@@ -2204,7 +2204,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 type: zod
                                                     .literal('account_custom_property')
                                                     .default(
-                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemAccountCustomPropertyTypeDefault
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault
                                                     )
                                                     .describe(
                                                         'Customer analytics account custom property — the key is the property definition id'
@@ -2263,7 +2263,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 type: zod
                                                     .literal('workflow_variable')
                                                     .default(
-                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwothreeTypeDefault
                                                     ),
                                                 value: zod
                                                     .union([
@@ -4390,8 +4390,8 @@ export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePro
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnesevenTypeDefault = `error_tracking_issue`
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnenineTypeDefault = `metric_attribute`
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault = `revenue_analytics`
-export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemAccountCustomPropertyTypeDefault = `account_custom_property`
-export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault = `workflow_variable`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault = `account_custom_property`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwothreeTypeDefault = `workflow_variable`
 export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
@@ -5817,7 +5817,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 type: zod
                                                     .literal('account_custom_property')
                                                     .default(
-                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemAccountCustomPropertyTypeDefault
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault
                                                     )
                                                     .describe(
                                                         'Customer analytics account custom property — the key is the property definition id'
@@ -5876,7 +5876,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 type: zod
                                                     .literal('workflow_variable')
                                                     .default(
-                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwothreeTypeDefault
                                                     ),
                                                 value: zod
                                                     .union([
@@ -8055,8 +8055,8 @@ export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOneP
 export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnesevenTypeDefault = `error_tracking_issue`
 export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnenineTypeDefault = `metric_attribute`
 export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault = `revenue_analytics`
-export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemAccountCustomPropertyTypeDefault = `account_custom_property`
-export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault = `workflow_variable`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault = `account_custom_property`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwothreeTypeDefault = `workflow_variable`
 export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
@@ -9381,7 +9381,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 type: zod
                                                     .literal('account_custom_property')
                                                     .default(
-                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemAccountCustomPropertyTypeDefault
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault
                                                     )
                                                     .describe(
                                                         'Customer analytics account custom property — the key is the property definition id'
@@ -9440,7 +9440,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 type: zod
                                                     .literal('workflow_variable')
                                                     .default(
-                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwothreeTypeDefault
                                                     ),
                                                 value: zod
                                                     .union([
