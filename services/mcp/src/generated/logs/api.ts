@@ -17,6 +17,7 @@ export const LogsAlertsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const LogsAlertsListQueryParams = /* @__PURE__ */ zod.object({
+    created_by: zod.string().optional().describe('Only return log alerts created by the user with this UUID.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
