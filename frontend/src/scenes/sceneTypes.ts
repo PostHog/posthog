@@ -1,5 +1,7 @@
 import { LogicWrapper } from 'kea'
 
+import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/types'
+
 import type { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlResourceType, ActivityScope } from '~/types'
 
@@ -231,6 +233,12 @@ export interface SceneExport<T = SceneProps> {
     logic?: LogicWrapper
     /** product key associated with this scene - used for Quick Start setup tracking */
     productKey?: ProductKey
+    /**
+     * Declare this to have the app shell gate the scene behind the product's
+     * setup empty state until the product has received data (skippable, driven
+     * by real data detection). See lib/components/ProductEmptyState.
+     */
+    emptyState?: SceneProductEmptyState
     /** convert URL parameters from scenes.ts into logic props */
     paramsToProps?: (params: SceneParams) => T
     /** when was the scene last touched, unix timestamp for sortability */
