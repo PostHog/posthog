@@ -1,16 +1,25 @@
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import urlencode
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
-
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+    rest_api_resources,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    PageNumberPaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    AuthConfig,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.twelve_labs.settings import (
     TWELVE_LABS_ENDPOINTS,
     TwelveLabsEndpointConfig,
@@ -21,25 +30,44 @@ TWELVE_LABS_BASE_URL = "https://api.twelvelabs.io/v1.3"
 # Max page size the API allows; larger values are rejected.
 PAGE_LIMIT = 50
 
-REQUEST_TIMEOUT_SECONDS = 60
+# The internal parent resource that drives the videos fan-out. include_from_parent lands the parent
+# index id under `_{name}__id` (the `_id` field starts with an underscore), which the child data_map
+# renames to the composite `index_id` primary-key column.
+_INDEXES_PARENT_NAME = "indexes_list"
+_PARENT_INDEX_ID_KEY = f"_{_INDEXES_PARENT_NAME}__id"
 
-
-class TwelveLabsRetryableError(Exception):
-    pass
+# Twelve Labs list endpoints paginate with page/page_limit and report the page count as
+# page_info.total_page, so termination stops after the last page instead of paying an extra request.
+_TOTAL_PAGE_PATH = "page_info.total_page"
 
 
 @dataclasses.dataclass
 class TwelveLabsResumeConfig:
-    # Next page number to request (1-based). None means "start at page 1".
+    # Next page number to request (1-based). None means "start at page 1". Used by the top-level
+    # (non-fan-out) endpoints.
     next_page: int | None = None
-    # The index currently being processed by the videos fan-out. A stable index-id bookmark (not a
-    # positional slice) so indexes added/removed between a crash and the retry can't resume us into
-    # the wrong index. None for the standard (non-fan-out) endpoints.
+    # Legacy fan-out bookmark (id of the index being processed). Kept only so previously saved state
+    # still parses (`ResumableSourceManager._load_json` does `dataclass(**saved)`); the framework
+    # fan-out now checkpoints into `fanout_state`, and an old-shape bookmark restarts the fan-out
+    # from scratch (merge dedupes the re-pulled rows on the [index_id, _id] key).
     index_id: str | None = None
+    # Framework fan-out checkpoint: {"completed": [child_path, ...], "current": child_path | None,
+    # "child_state": {"page": N} | None}.
+    fanout_state: dict | None = None
+
+
+def _auth_config(api_key: str) -> AuthConfig:
+    # Framework auth (not a hand-built header) so the key is redacted from logs/captured samples and
+    # scrubbed out of any raised error message.
+    return {"type": "api_key", "api_key": api_key, "name": "x-api-key", "location": "header"}
 
 
 def _get_headers(api_key: str) -> dict[str, str]:
     return {"x-api-key": api_key, "Accept": "application/json"}
+
+
+def _build_url(path: str, params: dict[str, Any]) -> str:
+    return f"{TWELVE_LABS_BASE_URL}{path}?{urlencode(params)}"
 
 
 def _format_incremental_value(value: Any) -> str:
@@ -54,18 +82,17 @@ def _format_incremental_value(value: Any) -> str:
 
 def _build_params(
     config: TwelveLabsEndpointConfig,
-    page: int,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
     incremental_field: str | None,
 ) -> dict[str, Any]:
-    """Build query params for a single page request.
+    """Build the static query params for a list request (page is injected by the paginator).
 
     Page-number pagination means the `created_at` / `updated_at` filter can be applied on every
     page (unlike cursor APIs that only window the first page), so incremental syncs stay bounded
     without any client-side watermark termination.
     """
-    params: dict[str, Any] = {"page": page, "page_limit": PAGE_LIMIT}
+    params: dict[str, Any] = {"page_limit": PAGE_LIMIT}
 
     # `sort_by` defaults to the endpoint's advertised cursor field but always honors the user's
     # selection. Ascending sort makes the pipeline watermark advance correctly (sort_mode="asc").
@@ -87,36 +114,8 @@ def _build_params(
     return params
 
 
-def _build_url(path: str, params: dict[str, Any]) -> str:
-    return f"{TWELVE_LABS_BASE_URL}{path}?{urlencode(params)}"
-
-
-@retry(
-    retry=retry_if_exception_type(
-        (
-            TwelveLabsRetryableError,
-            requests.ReadTimeout,
-            requests.ConnectionError,
-            requests.exceptions.ChunkedEncodingError,
-        )
-    ),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> dict:
-    response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
-
-    # 429 (per-category rate limit) and transient 5xx are retryable; the API exposes X-RateLimit-*
-    # headers but exponential jitter backoff is enough to stay under the window.
-    if response.status_code == 429 or response.status_code >= 500:
-        raise TwelveLabsRetryableError(f"Twelve Labs API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        logger.error(f"Twelve Labs API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
-
-    return response.json()
+def _paginator() -> PageNumberPaginator:
+    return PageNumberPaginator(base_page=1, page_param="page", total_path=_TOTAL_PAGE_PATH)
 
 
 def validate_credentials(api_key: str) -> tuple[bool, int | None]:
@@ -126,143 +125,153 @@ def validate_credentials(api_key: str) -> tuple[bool, int | None]:
     can tell a rejected key (401/403) apart from a transient outage (429/5xx/network) and avoid
     reporting a valid key as invalid during a rate-limit or downtime window.
     """
-    url = _build_url("/indexes", {"page": 1, "page_limit": 1})
-    try:
-        # Redact the key from tracked telemetry and refuse redirects so a 30x can never replay the
-        # `x-api-key` header to another origin.
-        session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
-        response = session.get(url, headers=_get_headers(api_key), timeout=10)
-    except Exception:
-        return False, None
-    return response.status_code == 200, response.status_code
+    # Redact the key from tracked telemetry and refuse redirects so a 30x can never replay the
+    # `x-api-key` header to another origin.
+    return validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,), allow_redirects=False),
+        _build_url("/indexes", {"page": 1, "page_limit": 1}),
+        headers=_get_headers(api_key),
+    )
 
 
-def _iter_index_ids(session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger) -> Iterator[str]:
-    """Page through /indexes and yield each index id, for the videos fan-out."""
-    page = 1
-    while True:
-        data = _fetch_page(session, _build_url("/indexes", {"page": page, "page_limit": PAGE_LIMIT}), headers, logger)
-        for item in data.get("data", []):
-            yield item["_id"]
-
-        page_info = data.get("page_info", {})
-        total_page = page_info.get("total_page", page)
-        if page >= total_page:
-            break
-        page += 1
-
-
-def _iter_pages(
-    session: requests.Session,
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-    path: str,
-    base_params: dict[str, Any],
-    start_page: int,
-) -> Iterator[tuple[list[dict[str, Any]], int | None]]:
-    """Yield ``(rows, next_page)`` for each page, following page_info.total_page.
-
-    ``next_page`` is None on the final page so the caller knows not to persist resume state past
-    the end of the list.
-    """
-    page = start_page
-    while True:
-        params = {**base_params, "page": page}
-        data = _fetch_page(session, _build_url(path, params), headers, logger)
-
-        rows = data.get("data", [])
-        page_info = data.get("page_info", {})
-        total_page = page_info.get("total_page", page)
-        next_page = page + 1 if page < total_page else None
-
-        yield rows, next_page
-
-        if next_page is None:
-            break
-        page = next_page
-
-
-def _get_fan_out_rows(
-    session: requests.Session,
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[TwelveLabsResumeConfig],
+def _top_level_resource(
     config: TwelveLabsEndpointConfig,
-    base_params: dict[str, Any],
-) -> Iterator[list[dict[str, Any]]]:
+    api_key: str,
+    team_id: int,
+    job_id: str,
+    manager: ResumableSourceManager[TwelveLabsResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Optional[Any],
+    incremental_field: str | None,
+) -> Resource:
+    params = _build_params(config, should_use_incremental_field, db_incremental_field_last_value, incremental_field)
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": TWELVE_LABS_BASE_URL,
+            "headers": {"Accept": "application/json"},
+            "auth": _auth_config(api_key),
+            "paginator": _paginator(),
+            # Refuse redirects so a 30x can't replay the `x-api-key` header to another origin.
+            "allow_redirects": False,
+        },
+        "resources": [
+            {
+                "name": config.name,
+                "endpoint": {
+                    "path": config.path,
+                    "params": params,
+                    "data_selector": "data",
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if manager.can_resume():
+        resume = manager.load_state()
+        # Only a top-level checkpoint (no fan-out state) seeds the paginator.
+        if resume is not None and resume.next_page and resume.fanout_state is None:
+            initial_paginator_state = {"page": resume.next_page}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; the hook fires AFTER a page is yielded, so a crash
+        # re-fetches the last checkpointed page (merge dedupes) rather than skipping rows.
+        if state and state.get("page") is not None:
+            manager.save_state(TwelveLabsResumeConfig(next_page=int(state["page"])))
+
+    return rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
+
+def _fan_out_resource(
+    config: TwelveLabsEndpointConfig,
+    api_key: str,
+    team_id: int,
+    job_id: str,
+    manager: ResumableSourceManager[TwelveLabsResumeConfig],
+) -> Resource:
     """Fan out over every index, yielding that index's videos with the parent ``index_id`` injected.
 
     The [index_id, _id] primary key keeps rows unique table-wide, so videos from different indexes
     never collide and merge dedupes cleanly.
     """
-    index_ids = list(_iter_index_ids(session, headers, logger))
+    child_params = _build_params(config, False, None, None)
 
-    # Resolve the saved index-id bookmark to the slice still to process. If the bookmarked index no
-    # longer exists (deleted between runs), start over from the first index — full refresh replaces
-    # on the primary key anyway.
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    remaining = index_ids
-    resume_page = 1
-    if resume is not None and resume.index_id is not None and resume.index_id in index_ids:
-        remaining = index_ids[index_ids.index(resume.index_id) :]
-        resume_page = resume.next_page or 1
-        logger.debug(f"Twelve Labs: resuming videos from index_id={resume.index_id}, page={resume_page}")
+    def _inject_index_id(row: dict[str, Any]) -> dict[str, Any]:
+        # include_from_parent lands the parent index id under the mangled key; expose it under the
+        # plain `index_id` column exactly as the hand-rolled source produced (`{**row, "index_id": ...}`).
+        row["index_id"] = row.pop(_PARENT_INDEX_ID_KEY)
+        return row
 
-    for position, index_id in enumerate(remaining):
-        path = config.path.format(index_id=index_id)
-        start_page = resume_page if position == 0 else 1
+    parent_resource: EndpointResource = {
+        "name": _INDEXES_PARENT_NAME,
+        "endpoint": {
+            "path": "/indexes",
+            "params": {"page_limit": PAGE_LIMIT},
+            "paginator": _paginator(),
+            "data_selector": "data",
+        },
+    }
+    child_resource: EndpointResource = {
+        "name": config.name,
+        "include_from_parent": ["_id"],
+        "data_map": _inject_index_id,
+        "endpoint": {
+            "path": config.path,
+            "params": {
+                "index_id": {"type": "resolve", "resource": _INDEXES_PARENT_NAME, "field": "_id"},
+                **child_params,
+            },
+            "paginator": _paginator(),
+            "data_selector": "data",
+        },
+    }
 
-        for rows, next_page in _iter_pages(session, headers, logger, path, base_params, start_page):
-            yield [{**row, "index_id": index_id} for row in rows]
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": TWELVE_LABS_BASE_URL,
+            "headers": {"Accept": "application/json"},
+            "auth": _auth_config(api_key),
+            "allow_redirects": False,
+        },
+        "resources": [parent_resource, child_resource],
+    }
 
-            # Save AFTER yielding so a crash re-yields the last page rather than skipping it.
-            if next_page is not None:
-                resumable_source_manager.save_state(TwelveLabsResumeConfig(next_page=next_page, index_id=index_id))
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if manager.can_resume():
+        resume = manager.load_state()
+        # An old-shape bookmark (`index_id`) can't seed the framework fan-out — start that part
+        # fresh and let merge dedupe the re-pulled rows.
+        if resume is not None and resume.fanout_state is not None:
+            initial_paginator_state = resume.fanout_state
 
-        # Advance the bookmark to the next index so a crash between indexes resumes correctly.
-        if position + 1 < len(remaining):
-            resumable_source_manager.save_state(TwelveLabsResumeConfig(next_page=1, index_id=remaining[position + 1]))
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state is not None:
+            manager.save_state(TwelveLabsResumeConfig(fanout_state=state))
 
-
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[TwelveLabsResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-    incremental_field: str | None = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = TWELVE_LABS_ENDPOINTS[endpoint]
-    headers = _get_headers(api_key)
-    # One session reused across every page (and, for fan-out, every index) so urllib3 keeps the
-    # connection alive instead of re-handshaking per request. The key is redacted from tracked
-    # telemetry and redirects are refused so a 30x can't replay `x-api-key` to another origin.
-    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
-
-    base_params = _build_params(
-        config, 1, should_use_incremental_field, db_incremental_field_last_value, incremental_field
+    resources = rest_api_resources(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
     )
-    base_params.pop("page", None)
-
-    if config.fan_out_over_indexes:
-        yield from _get_fan_out_rows(session, headers, logger, resumable_source_manager, config, base_params)
-        return
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    start_page = resume.next_page if resume is not None and resume.next_page else 1
-
-    for rows, next_page in _iter_pages(session, headers, logger, config.path, base_params, start_page):
-        yield rows
-
-        if next_page is not None:
-            resumable_source_manager.save_state(TwelveLabsResumeConfig(next_page=next_page))
+    return next(resource for resource in resources if resource.name == config.name)
 
 
 def twelve_labs_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[TwelveLabsResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
@@ -270,17 +279,23 @@ def twelve_labs_source(
 ) -> SourceResponse:
     config = TWELVE_LABS_ENDPOINTS[endpoint]
 
+    if config.fan_out_over_indexes:
+        resource = _fan_out_resource(config, api_key, team_id, job_id, resumable_source_manager)
+    else:
+        resource = _top_level_resource(
+            config,
+            api_key,
+            team_id,
+            job_id,
+            resumable_source_manager,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+            incremental_field,
+        )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-            incremental_field=incremental_field,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         # Every list endpoint is requested with sort_option=asc, so rows arrive oldest-first and the
         # pipeline can checkpoint the incremental watermark after each batch.
@@ -290,4 +305,5 @@ def twelve_labs_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="week" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
+        column_hints=resource.column_hints,
     )
