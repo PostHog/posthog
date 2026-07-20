@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconExpand45, IconPencil } from '@posthog/icons'
+import { IconExpand45, IconPencil, IconRevert } from '@posthog/icons'
 import {
     LemonButton,
     LemonCard,
@@ -11,9 +11,11 @@ import {
     LemonTag,
     LemonTagType,
     LemonTextArea,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
+import { objectsEqual } from 'lib/utils/objects'
 
 import { BooleanTag } from '../../components/BooleanTag'
 import { CardHeader } from '../../components/CardHeader'
@@ -425,12 +427,29 @@ export function ConfigChangeCards({
         return field === 'prompt' && scanner?.scanner_type === 'summarizer' ? 'Additional context' : label
     }
 
+    // Restores the AI's suggestion after the user has overwritten it. Absolutely positioned so it stays out
+    // of the layout: rows keep their height and the columns stay aligned whether it shows or not.
+    const revertButton = (field: string): JSX.Element | null =>
+        objectsEqual(fieldValues[field], suggested[field]) ? null : (
+            <Tooltip title="Revert to the suggested value">
+                <button
+                    type="button"
+                    aria-label="Revert to the suggested value"
+                    data-attr="vision-quality-revert-field"
+                    onClick={() => setFieldValue(suggestion.id, field, suggested[field])}
+                    className="absolute top-0 right-0 flex text-muted hover:text-default"
+                >
+                    <IconRevert />
+                </button>
+            </Tooltip>
+        )
+
     return (
         <LemonCard className="p-4" hoverEffect={false}>
             <CardHeader icon={<IconPencil />} title="Behavior" />
             <div className="flex flex-col gap-4">
                 {fieldNames.includes('prompt') && (
-                    <div>
+                    <div className="relative">
                         <div className="text-xs text-muted mb-1">{fieldLabelText('prompt')}</div>
                         <FieldValueEditor
                             kind="prompt"
@@ -440,6 +459,7 @@ export function ConfigChangeCards({
                             isDarkModeOn={isDarkModeOn}
                         />
                         <FieldRationales fieldChanges={changes.filter((change) => change.field === 'prompt')} />
+                        {revertButton('prompt')}
                     </div>
                 )}
                 {structuredFields.length > 0 && (
@@ -462,7 +482,7 @@ export function ConfigChangeCards({
                                         <div className="text-xs text-muted mb-1">{label}</div>
                                         <FieldCurrentValue kind={kind} value={base[field]} />
                                     </div>
-                                    <div>
+                                    <div className="relative">
                                         <div className="text-xs text-muted mb-1">{label}</div>
                                         <FieldValueEditor
                                             kind={kind}
@@ -475,6 +495,7 @@ export function ConfigChangeCards({
                                         <FieldRationales
                                             fieldChanges={changes.filter((change) => change.field === field)}
                                         />
+                                        {revertButton(field)}
                                     </div>
                                 </div>
                             )
