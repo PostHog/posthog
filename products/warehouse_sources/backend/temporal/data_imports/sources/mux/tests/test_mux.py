@@ -1,5 +1,6 @@
 import json
-from typing import Any
+from collections.abc import Iterable
+from typing import Any, cast
 
 import pytest
 from unittest import mock
@@ -67,7 +68,7 @@ def _run(endpoint: str, manager: mock.MagicMock) -> list[dict[str, Any]]:
         job_id="j",
         resumable_source_manager=manager,
     )
-    return [row for page in response.items() for row in page]
+    return [row for page in cast("Iterable[Any]", response.items()) for row in page]
 
 
 class TestNormalizeRow:

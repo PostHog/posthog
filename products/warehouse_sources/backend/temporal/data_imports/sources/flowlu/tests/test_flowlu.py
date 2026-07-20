@@ -1,5 +1,5 @@
 import json
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest import mock
@@ -44,7 +44,7 @@ def _response(
     else:
         resp._content = b"{}"
     resp.url = url or "https://acme.flowlu.com/api/v1/module/crm/account/list?api_key=fl-key&page=1"
-    resp.reason = _REASONS.get(status)
+    resp.reason = cast("str", _REASONS.get(status))
     return resp
 
 

@@ -1,9 +1,10 @@
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    EndpointResource,
     RESTAPIConfig,
     rest_api_resource,
 )
@@ -96,10 +97,13 @@ def shortcut_source(
         },
         "resource_defaults": {},
         "resources": [
-            {
-                "name": endpoint,
-                "endpoint": endpoint_config,
-            }
+            cast(
+                "EndpointResource",
+                {
+                    "name": endpoint,
+                    "endpoint": endpoint_config,
+                },
+            )
         ],
     }
 

@@ -1,5 +1,6 @@
 import json
-from typing import Any
+from collections.abc import Iterable
+from typing import Any, cast
 
 import pytest
 from unittest import mock
@@ -74,7 +75,7 @@ def _rows(endpoint: str, manager: mock.MagicMock) -> list[dict[str, Any]]:
         job_id="j",
         resumable_source_manager=manager,
     )
-    return [row for page in source_response.items() for row in page]
+    return [row for page in cast("Iterable[Any]", source_response.items()) for row in page]
 
 
 class TestListEndpointPagination:
@@ -335,7 +336,7 @@ class TestResumeStateCompatibility:
         # ResumableSourceManager._load_json does `dataclass(**saved)` — state saved before the
         # framework migration must still construct.
         assert CoassembleResumeConfig(
-            **{"next_page": 3, "completed_course_ids": [11], "current_course_id": 22}
+            **cast("dict[str, Any]", {"next_page": 3, "completed_course_ids": [11], "current_course_id": 22})
         ) == CoassembleResumeConfig(next_page=3, completed_course_ids=[11], current_course_id=22)
 
 

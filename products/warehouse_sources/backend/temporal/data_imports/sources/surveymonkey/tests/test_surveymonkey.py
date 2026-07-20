@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest import mock
@@ -450,7 +450,9 @@ class TestValidateCredentials:
 class TestResumeConfigCompatibility:
     def test_legacy_saved_state_still_parses(self) -> None:
         # A checkpoint written by the pre-framework code must still deserialize via dataclass(**saved).
-        cfg = SurveyMonkeyResumeConfig(**{"next_url": f"{BASE_URL}/surveys?page=2", "remaining_survey_ids": ["10"]})
+        cfg = SurveyMonkeyResumeConfig(
+            **cast("dict[str, Any]", {"next_url": f"{BASE_URL}/surveys?page=2", "remaining_survey_ids": ["10"]})
+        )
         assert cfg.next_url == f"{BASE_URL}/surveys?page=2"
         assert cfg.remaining_survey_ids == ["10"]
         assert cfg.paginator_state is None

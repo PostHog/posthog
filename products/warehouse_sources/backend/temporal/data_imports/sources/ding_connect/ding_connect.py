@@ -6,6 +6,8 @@ from requests import Request, Response
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    Endpoint,
+    EndpointResource,
     RESTAPIConfig,
     rest_api_resource,
 )
@@ -110,9 +112,9 @@ class DingConnectResumeConfig:
     skip: int = 0
 
 
-def _build_resource(endpoint: str, config: DingConnectEndpointConfig) -> dict[str, Any]:
-    endpoint_config: dict[str, Any] = {"path": config.path, "method": config.method}
-    resource: dict[str, Any] = {"name": endpoint, "endpoint": endpoint_config}
+def _build_resource(endpoint: str, config: DingConnectEndpointConfig) -> EndpointResource:
+    endpoint_config: Endpoint = {"path": config.path, "method": config.method}
+    resource: EndpointResource = {"name": endpoint, "endpoint": endpoint_config}
 
     if config.paginated:
         # TransferRecords: paged POST; the paginator injects Skip/Take into the JSON body.

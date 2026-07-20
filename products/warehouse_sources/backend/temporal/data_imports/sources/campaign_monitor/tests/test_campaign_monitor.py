@@ -1,5 +1,6 @@
 import json
-from typing import Any
+from collections.abc import Iterable
+from typing import Any, cast
 
 import pytest
 from unittest import mock
@@ -73,7 +74,7 @@ def _source(endpoint: str, manager: mock.MagicMock | None = None) -> SourceRespo
 
 
 def _rows(source_response: SourceResponse) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+    return [row for page in cast("Iterable[Any]", source_response.items()) for row in page]
 
 
 class TestValidateCredentials:
@@ -412,7 +413,7 @@ class TestResumeConfigCompatibility:
     def test_old_saved_state_still_parses(self) -> None:
         # ResumableSourceManager._load_json does dataclass(**saved) — state saved by the
         # pre-framework implementation must keep loading after the migration.
-        state = CampaignMonitorResumeConfig(**{"list_id": "l1", "campaign_id": None, "page": 3})
+        state = CampaignMonitorResumeConfig(**cast("dict[str, Any]", {"list_id": "l1", "campaign_id": None, "page": 3}))
         assert state.list_id == "l1"
         assert state.campaign_id is None
         assert state.page == 3

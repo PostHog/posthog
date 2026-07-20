@@ -1,5 +1,6 @@
 import json
-from typing import Any
+from collections.abc import Iterable
+from typing import Any, cast
 from urllib.parse import urlencode
 
 import pytest
@@ -70,7 +71,7 @@ def _wire(session: mock.MagicMock, responses: dict[str, dict[str, Any]]) -> list
 
 def _batches(api_key: str, region: str | None, endpoint: str, manager: mock.MagicMock) -> list[list[dict[str, Any]]]:
     response = assemblyai_source(api_key, region, endpoint, team_id=1, job_id="j", resumable_source_manager=manager)
-    return list(response.items())
+    return list(cast("Iterable[list[dict[str, Any]]]", response.items()))
 
 
 class TestBaseUrlForRegion:

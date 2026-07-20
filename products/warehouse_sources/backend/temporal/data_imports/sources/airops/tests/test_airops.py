@@ -1,5 +1,6 @@
 import json
-from typing import Any
+from collections.abc import Iterable
+from typing import Any, cast
 
 import pytest
 from unittest import mock
@@ -30,7 +31,7 @@ def _response(body: Any, status: int = 200, reason: str | None = None, url: str 
     resp = Response()
     resp.status_code = status
     resp._content = json.dumps(body).encode()
-    resp.reason = reason
+    resp.reason = cast("str", reason)
     resp.url = url
     resp.headers["Content-Type"] = "application/json"
     return resp
@@ -67,7 +68,7 @@ def _source(endpoint: str) -> SourceResponse:
 
 
 def _batches(source_response: SourceResponse) -> list[list[dict[str, Any]]]:
-    return [list(page) for page in source_response.items()]
+    return [list(page) for page in cast("Iterable[Any]", source_response.items())]
 
 
 class TestMakeSession:

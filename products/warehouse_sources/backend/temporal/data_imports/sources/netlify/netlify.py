@@ -28,6 +28,8 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    Endpoint,
+    EndpointResource,
     RESTAPIConfig,
     rest_api_resource,
     rest_api_resources,
@@ -174,13 +176,13 @@ def _build_top_level_resource(
     resumable_source_manager: ResumableSourceManager[NetlifyResumeConfig],
     db_incremental_field_last_value: Optional[Any],
 ) -> Resource:
-    endpoint: dict[str, Any] = {
+    endpoint: Endpoint = {
         "path": config.path,
         "params": _params_with_page_size(config.page_size),
         "paginator": NetlifyHeaderLinkPaginator(),
     }
     if config.redact_keys:
-        endpoint_resource: dict[str, Any] = {"name": config.name, "endpoint": endpoint}
+        endpoint_resource: EndpointResource = {"name": config.name, "endpoint": endpoint}
         endpoint_resource["data_map"] = _make_redactor(config.redact_keys)
     else:
         endpoint_resource = {"name": config.name, "endpoint": endpoint}
@@ -230,7 +232,7 @@ def _build_fan_out_resource(
     include_from_parent = list((config.fan_out_include_parent_fields or {}).keys())
     renames = dict(config.fan_out_include_parent_fields or {})
 
-    parent_resource: dict[str, Any] = {
+    parent_resource: EndpointResource = {
         "name": parent_config.name,
         "endpoint": {
             "path": parent_config.path,
@@ -238,7 +240,7 @@ def _build_fan_out_resource(
             "paginator": NetlifyHeaderLinkPaginator(),
         },
     }
-    child_endpoint: dict[str, Any] = {
+    child_endpoint: Endpoint = {
         "path": config.path,
         "params": _params_with_page_size(
             config.page_size,
@@ -252,7 +254,7 @@ def _build_fan_out_resource(
         ),
         "paginator": NetlifyCappedHeaderLinkPaginator(config.max_pages_per_parent, context={"table": config.name}),
     }
-    child_resource: dict[str, Any] = {
+    child_resource: EndpointResource = {
         "name": config.name,
         "endpoint": child_endpoint,
         "include_from_parent": include_from_parent,

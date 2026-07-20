@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest import mock
@@ -471,11 +471,16 @@ class TestWorkspaceMembersFanOut:
     def test_saved_state_shapes_still_parse(self) -> None:
         # ResumableSourceManager._load_json does dataclass(**saved) — every historical shape must
         # keep parsing after the migration.
-        assert AnthropicResumeConfig(**{"cursor": "PAGE2", "workspace_id": None}) == AnthropicResumeConfig(
-            cursor="PAGE2"
+        assert AnthropicResumeConfig(
+            **cast("dict[str, Any]", {"cursor": "PAGE2", "workspace_id": None})
+        ) == AnthropicResumeConfig(cursor="PAGE2")
+        assert (
+            AnthropicResumeConfig(**cast("dict[str, Any]", {"cursor": "u1", "workspace_id": "wrkspc_2"})).workspace_id
+            == "wrkspc_2"
         )
-        assert AnthropicResumeConfig(**{"cursor": "u1", "workspace_id": "wrkspc_2"}).workspace_id == "wrkspc_2"
-        assert AnthropicResumeConfig(**{"fanout_state": {"completed": []}}).fanout_state == {"completed": []}
+        assert AnthropicResumeConfig(**cast("dict[str, Any]", {"fanout_state": {"completed": []}})).fanout_state == {
+            "completed": []
+        }
 
 
 class TestRetries:

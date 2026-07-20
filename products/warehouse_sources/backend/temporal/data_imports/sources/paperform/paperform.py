@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
     Endpoint,
     EndpointResource,
 )
@@ -136,7 +137,7 @@ def _data_selector(config: PaperformEndpointConfig) -> str:
     return f"results.'{config.results_key}'"
 
 
-def _client_config(api_key: str) -> dict[str, Any]:
+def _client_config(api_key: str) -> ClientConfig:
     return {
         "base_url": PAPERFORM_BASE_URL,
         "headers": NON_SECRET_HEADERS,

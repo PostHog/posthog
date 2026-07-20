@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     OffsetPaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.insightly.settings import INSIGHTLY_ENDPOINTS
@@ -82,7 +83,7 @@ def insightly_source(
 ) -> SourceResponse:
     config = INSIGHTLY_ENDPOINTS[endpoint]
 
-    endpoint_config: dict[str, Any] = {
+    endpoint_config: Endpoint = {
         "path": config.path,
         # Offset pagination with Insightly's `top`/`skip`; a short (< top) page is the last one.
         "paginator": OffsetPaginator(

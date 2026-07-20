@@ -5,6 +5,7 @@ from typing import Any, Optional
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    Endpoint,
     RESTAPIConfig,
     rest_api_resource,
 )
@@ -72,7 +73,7 @@ def guardian_source(
     # raised error message (and logged URL) automatically — no hand-rolled URL redaction needed.
     params: dict[str, Any] = {"page-size": PAGE_SIZE, "format": "json", **config.extra_params}
 
-    endpoint_config: dict[str, Any] = {
+    endpoint_config: Endpoint = {
         "path": config.path,
         "params": params,
         "data_selector": "response.results",

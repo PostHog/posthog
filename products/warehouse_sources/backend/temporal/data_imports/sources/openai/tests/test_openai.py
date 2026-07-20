@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest import mock
@@ -554,9 +554,16 @@ class TestProjectFanOut:
     def test_saved_state_shapes_still_parse(self) -> None:
         # ResumableSourceManager._load_json does dataclass(**saved) — every historical shape must
         # keep parsing after the migration.
-        assert OpenAIResumeConfig(**{"cursor": "PAGE2", "project_id": None}) == OpenAIResumeConfig(cursor="PAGE2")
-        assert OpenAIResumeConfig(**{"cursor": "u1", "project_id": "proj_2"}).project_id == "proj_2"
-        assert OpenAIResumeConfig(**{"fanout_state": {"completed": []}}).fanout_state == {"completed": []}
+        assert OpenAIResumeConfig(
+            **cast("dict[str, Any]", {"cursor": "PAGE2", "project_id": None})
+        ) == OpenAIResumeConfig(cursor="PAGE2")
+        assert (
+            OpenAIResumeConfig(**cast("dict[str, Any]", {"cursor": "u1", "project_id": "proj_2"})).project_id
+            == "proj_2"
+        )
+        assert OpenAIResumeConfig(**cast("dict[str, Any]", {"fanout_state": {"completed": []}})).fanout_state == {
+            "completed": []
+        }
 
 
 class TestRetries:

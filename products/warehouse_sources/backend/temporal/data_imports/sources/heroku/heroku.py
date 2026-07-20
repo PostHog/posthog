@@ -7,6 +7,9 @@ from requests import Request, Response
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    ClientConfig,
+    Endpoint,
+    EndpointResource,
     RESTAPIConfig,
     rest_api_resource,
     rest_api_resources,
@@ -115,7 +118,7 @@ def _make_redactor(paths: list[str]) -> Callable[[dict[str, Any]], dict[str, Any
     return _redact
 
 
-def _client_config(api_key: str) -> dict[str, Any]:
+def _client_config(api_key: str) -> ClientConfig:
     # Capture is disabled because several endpoints return capability URLs carrying secrets
     # (builds' `source_blob.url`, dynos' `attach_url`) that the name-based sample scrubbers can't
     # recognise; `_make_redactor` only scrubs the yielded rows, not the raw captured response.
@@ -138,14 +141,14 @@ def _flat_source(
     job_id: str,
     resumable_source_manager: ResumableSourceManager[HerokuResumeConfig],
 ) -> Any:
-    endpoint: dict[str, Any] = {
+    endpoint: Endpoint = {
         "path": config.path,
         "paginator": _paginator(config),
         # A non-list 200 body means the response shape changed — fail loud instead of wrapping the
         # stray object as a single row.
         "data_selector_required": True,
     }
-    resource: dict[str, Any] = {"name": config.name, "endpoint": endpoint}
+    resource: EndpointResource = {"name": config.name, "endpoint": endpoint}
     if config.sensitive_fields:
         resource["data_map"] = _make_redactor(config.sensitive_fields)
 
@@ -185,7 +188,7 @@ def _fanout_source(
 ) -> Any:
     apps_config = HEROKU_ENDPOINTS["apps"]
 
-    child_endpoint: dict[str, Any] = {
+    child_endpoint: Endpoint = {
         "path": config.path,
         "params": {"app_id": {"type": "resolve", "resource": "apps", "field": "id"}},
         "paginator": _paginator(config),
@@ -195,7 +198,7 @@ def _fanout_source(
         # falls through to raise_for_status.
         "response_actions": [{"status_code": 404, "action": "ignore"}],
     }
-    child_resource: dict[str, Any] = {
+    child_resource: EndpointResource = {
         "name": config.name,
         "endpoint": child_endpoint,
         "include_from_parent": [],

@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     JSONResponseCursorPaginator,
     SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.incident_io.settings import (
@@ -90,7 +91,7 @@ def _build_params(
     return params
 
 
-def _client_config(api_key: str) -> dict[str, Any]:
+def _client_config(api_key: str) -> ClientConfig:
     # Bearer token goes through the framework auth config so it's redacted from logs and raised
     # errors; only the non-secret Accept header rides in the client headers.
     return {

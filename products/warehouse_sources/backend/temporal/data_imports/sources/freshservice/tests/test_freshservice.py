@@ -1,6 +1,7 @@
 import json
+from collections.abc import Iterable
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import pytest
 from unittest import mock
@@ -77,7 +78,7 @@ def _run(
         should_use_incremental_field=should_use_incremental_field,
         db_incremental_field_last_value=db_incremental_field_last_value,
     )
-    return [row for page in source_response.items() for row in page]
+    return [row for page in cast("Iterable[Any]", source_response.items()) for row in page]
 
 
 class TestNormalizeDomain:

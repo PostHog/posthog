@@ -1,5 +1,6 @@
 import json
-from typing import Any
+from collections.abc import Iterable
+from typing import Any, cast
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -56,7 +57,7 @@ def _wire(session: MagicMock, responses_by_path: dict[str, requests.Response]) -
 
 def _rows(endpoint: str) -> list[dict[str, Any]]:
     response = aiven_source("tok", endpoint, team_id=1, job_id="j")
-    return [row for page in response.items() for row in page]
+    return [row for page in cast("Iterable[Any]", response.items()) for row in page]
 
 
 class TestAuthHeader:

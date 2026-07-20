@@ -6,6 +6,7 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    ClientConfig,
     RESTAPIConfig,
     rest_api_resource,
     rest_api_resources,
@@ -83,7 +84,7 @@ class LaunchDarklyLinkPaginator(BaseNextUrlPaginator):
         return "LaunchDarklyLinkPaginator()"
 
 
-def _client_config(access_token: str) -> dict[str, Any]:
+def _client_config(access_token: str) -> ClientConfig:
     return {
         "base_url": BASE_URL,
         # Only the non-secret Accept header goes here; the access token rides on the framework auth

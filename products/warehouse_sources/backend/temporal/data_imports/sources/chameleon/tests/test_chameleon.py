@@ -1,5 +1,6 @@
 import json
-from typing import Any
+from collections.abc import Iterable
+from typing import Any, cast
 
 import pytest
 from unittest import mock
@@ -63,7 +64,7 @@ def _rows(endpoint: str, manager: mock.MagicMock) -> list[dict[str, Any]]:
         job_id="j",
         resumable_source_manager=manager,
     )
-    return [row for page in source_response.items() for row in page]
+    return [row for page in cast("Iterable[Any]", source_response.items()) for row in page]
 
 
 class TestValidateCredentials:
@@ -355,8 +356,8 @@ class TestResumeStateCompatibility:
     def test_pre_migration_saved_state_still_parses(self) -> None:
         # ResumableSourceManager._load_json does `dataclass(**saved)` — state saved before the
         # framework migration must still construct.
-        assert ChameleonResumeConfig(**{"before": "S2", "survey_id": "SV1"}) == ChameleonResumeConfig(
-            before="S2", survey_id="SV1"
+        assert ChameleonResumeConfig(**cast("dict[str, Any]", {"before": "S2", "survey_id": "SV1"})) == (
+            ChameleonResumeConfig(before="S2", survey_id="SV1")
         )
 
 

@@ -16,6 +16,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
     EndpointResource,
     IncrementalConfig,
 )
@@ -119,7 +121,7 @@ def _explode_questions(page: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
-def _client_config(access_token: str, base_url: str) -> dict[str, Any]:
+def _client_config(access_token: str, base_url: str) -> ClientConfig:
     return {
         "base_url": base_url,
         # Auth (the Bearer token) is supplied via the framework auth config so its value is redacted
@@ -133,7 +135,7 @@ def _client_config(access_token: str, base_url: str) -> dict[str, Any]:
 
 def _surveys_resource(incremental: IncrementalConfig | None) -> EndpointResource:
     config = SURVEYMONKEY_ENDPOINTS["surveys"]
-    endpoint: dict[str, Any] = {
+    endpoint: Endpoint = {
         "path": config.path,
         "params": {
             "per_page": config.page_size,
@@ -165,7 +167,7 @@ def _parent_surveys_resource() -> EndpointResource:
 
 def _fanout_child_resource(endpoint: str, incremental: IncrementalConfig | None) -> EndpointResource:
     config = SURVEYMONKEY_ENDPOINTS[endpoint]
-    child_endpoint: dict[str, Any] = {
+    child_endpoint: Endpoint = {
         "path": config.path,
         "params": {
             "survey_id": {"type": "resolve", "resource": "surveys", "field": "id"},

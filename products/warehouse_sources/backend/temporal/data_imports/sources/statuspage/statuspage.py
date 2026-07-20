@@ -8,6 +8,7 @@ from requests import PreparedRequest
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    ClientConfig,
     RESTAPIConfig,
     rest_api_resource,
     rest_api_resources,
@@ -78,7 +79,7 @@ def _promote_page_id(row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
-def _client_config(api_key: str) -> dict[str, Any]:
+def _client_config(api_key: str) -> ClientConfig:
     return {
         "base_url": STATUSPAGE_BASE_URL,
         # Auth (the OAuth-prefixed key) is supplied via the framework auth so its value is redacted from

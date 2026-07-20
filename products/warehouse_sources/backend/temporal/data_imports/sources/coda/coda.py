@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.coda.settings import CODA_ENDPOINTS
@@ -117,7 +117,7 @@ def coda_source(
             "auth": {"type": "bearer", "token": api_token},
         },
         "resource_defaults": {},
-        "resources": resource_chain,
+        "resources": cast("list[str | EndpointResource]", resource_chain),
     }
 
     resources = rest_api_resources(rest_config, team_id, job_id, None)

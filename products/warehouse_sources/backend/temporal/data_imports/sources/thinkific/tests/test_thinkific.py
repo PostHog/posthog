@@ -1,6 +1,7 @@
 import json
+from collections.abc import Iterable
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import pytest
 from unittest import mock
@@ -94,7 +95,7 @@ def _run(
         resp = thinkific_source(
             "key", "sub", endpoint, team_id=1, job_id="j", resumable_source_manager=manager, **kwargs
         )
-        pages = list(resp.items())
+        pages = list(cast("Iterable[Any]", resp.items()))
     return session, params, pages
 
 

@@ -7,6 +7,8 @@ from requests.auth import HTTPBasicAuth
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    Endpoint,
+    EndpointResource,
     RESTAPIConfig,
     rest_api_resource,
 )
@@ -49,8 +51,8 @@ def _build_params(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
     incremental_field: str | None,
-) -> dict[str, str]:
-    params = dict(config.extra_params)
+) -> dict[str, Any]:
+    params: dict[str, Any] = dict(config.extra_params)
 
     if not config.incremental_fields:
         return params
@@ -105,15 +107,16 @@ def guru_source(
 
     params = _build_params(config, should_use_incremental_field, db_incremental_field_last_value, incremental_field)
 
-    resource_config: dict[str, Any] = {
+    endpoint_config: Endpoint = {
+        "path": config.path,
+        "params": params,
+        # Guru returns a bare JSON array; a non-list 200 body means the response shape
+        # changed — fail loud instead of wrapping the stray object as a single row.
+        "data_selector_required": True,
+    }
+    resource_config: EndpointResource = {
         "name": endpoint,
-        "endpoint": {
-            "path": config.path,
-            "params": params,
-            # Guru returns a bare JSON array; a non-list 200 body means the response shape
-            # changed — fail loud instead of wrapping the stray object as a single row.
-            "data_selector_required": True,
-        },
+        "endpoint": endpoint_config,
     }
     if endpoint == "members":
         resource_config["data_map"] = _normalize_member

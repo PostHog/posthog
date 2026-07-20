@@ -1,5 +1,6 @@
 import json
-from typing import Any, Optional
+from collections.abc import Iterable
+from typing import Any, Optional, cast
 
 from unittest import mock
 
@@ -68,7 +69,7 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[str]:
 
 def _run(manager: mock.MagicMock, endpoint: str = "tables") -> list[dict[str, Any]]:
     source_response = secoda_source("sk-key", endpoint, team_id=1, job_id="j", resumable_source_manager=manager)
-    return [row for page in source_response.items() for row in page]
+    return [row for page in cast("Iterable[Any]", source_response.items()) for row in page]
 
 
 class TestPagination:

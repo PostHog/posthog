@@ -6,6 +6,7 @@ from typing import Any, Optional
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    EndpointResource,
     RESTAPIConfig,
     rest_api_resource,
 )
@@ -96,7 +97,7 @@ def savvycal_source(
     # resumed run keeps the cursor and its query in lockstep.
     saved_from_date = params.get("from")
 
-    endpoint_resource: dict[str, Any] = {
+    endpoint_resource: EndpointResource = {
         "name": endpoint,
         "endpoint": {
             "path": config.path,

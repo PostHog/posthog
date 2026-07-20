@@ -1,12 +1,13 @@
 import json
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest import mock
 
 from parameterized import parameterized
 from requests import HTTPError, PreparedRequest, Response
+from requests.structures import CaseInsensitiveDict
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
@@ -250,7 +251,7 @@ class TestAuth:
         )
 
         prepared = PreparedRequest()
-        prepared.headers = {}
+        prepared.headers = cast("CaseInsensitiveDict[str]", {})
         snaps[0]["auth"](prepared)
         assert prepared.headers["Authorization"] == "my-secret-key"
         assert "Bearer" not in prepared.headers["Authorization"]

@@ -1,5 +1,6 @@
 import json
-from typing import Any
+from collections.abc import Iterable
+from typing import Any, cast
 from urllib.parse import urlparse
 
 import pytest
@@ -46,7 +47,7 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
 
 def _rows(endpoint: str) -> list[dict[str, Any]]:
     response = coda_source("token", endpoint, team_id=1, job_id="j")
-    return [row for page in response.items() for row in page]
+    return [row for page in cast("Iterable[Any]", response.items()) for row in page]
 
 
 class TestValidateCredentials:

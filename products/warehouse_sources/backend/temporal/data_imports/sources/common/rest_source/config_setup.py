@@ -212,7 +212,7 @@ def make_parent_key_name(resource_name: str, field_name: str) -> str:
 def build_resource_dependency_graph(
     resource_defaults: EndpointResourceBase,
     resource_list: list[str | EndpointResource],
-) -> tuple[Any, dict[str, EndpointResource], dict[str, Optional[ResolvedParam]]]:
+) -> tuple[Any, dict[str, EndpointResource], dict[str, Optional[list[ResolvedParam]]]]:
     dependency_graph: graphlib.TopologicalSorter[str] = graphlib.TopologicalSorter()
     endpoint_resource_map: dict[str, EndpointResource] = {}
     resolved_param_map: dict[str, Optional[list[ResolvedParam]]] = {}

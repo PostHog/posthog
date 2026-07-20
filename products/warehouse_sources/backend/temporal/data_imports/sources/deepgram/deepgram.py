@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    Endpoint,
     EndpointResource,
     IncrementalConfig,
 )
@@ -206,7 +207,7 @@ def _child_resource(
     params: dict[str, Any] = {
         _PARENT_ID_FIELD: {"type": "resolve", "resource": _PARENT_RESOURCE, "field": _PARENT_ID_FIELD},
     }
-    endpoint_config: dict[str, Any] = {
+    endpoint_config: Endpoint = {
         "path": f"/projects/{{{_PARENT_ID_FIELD}}}{config.path}",
         "params": params,
         "data_selector": config.data_key,
@@ -226,7 +227,7 @@ def _child_resource(
     }
 
 
-def _resources_for(endpoint: str, incremental: IncrementalConfig | None) -> list[EndpointResource]:
+def _resources_for(endpoint: str, incremental: IncrementalConfig | None) -> list[str | EndpointResource]:
     config = DEEPGRAM_ENDPOINTS[endpoint]
     if config.is_project_list:
         return [_projects_resource()]

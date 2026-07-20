@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     find_values,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
     PageNumberPaginator,
     SinglePagePaginator,
 )
@@ -181,6 +182,7 @@ def onepagecrm_source(
             modified_since_anchor(db_incremental_field_last_value) if should_use_incremental_field else None
         )
 
+    paginator: BasePaginator
     if config.paginated:
         paginator = OnepagecrmPaginator(page_size=PAGE_SIZE)
         data_selector = f"data.{config.data_key}"

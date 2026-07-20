@@ -11,6 +11,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     OffsetPaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.koyeb.settings import KOYEB_ENDPOINTS
@@ -126,7 +131,7 @@ def koyeb_source(
         params["starting_time"] = USAGE_WINDOW_START
         params["ending_time"] = _format_time_value(datetime.now(UTC))
 
-    endpoint_config: dict[str, Any] = {
+    endpoint_config: Endpoint = {
         "path": config.path,
         "params": params,
         # A missing data key yields an empty page and stops the paginator, matching the old
@@ -147,7 +152,7 @@ def koyeb_source(
             "convert": _format_time_value,
         }
 
-    client: dict[str, Any] = {
+    client: ClientConfig = {
         "base_url": KOYEB_BASE_URL,
         # Auth (Bearer) is supplied via the framework auth config so its value is redacted from logs
         # and raised errors; only the non-secret Accept header is set here.
@@ -167,7 +172,7 @@ def koyeb_source(
         # content — so secret-scrubbed endpoints opt their session out of capture entirely.
         client["session"] = make_tracked_session(capture=False, redact_values=(api_token,))
 
-    resource_config: dict[str, Any] = {"name": endpoint, "endpoint": endpoint_config}
+    resource_config: EndpointResource = {"name": endpoint, "endpoint": endpoint_config}
     if config.scrub_definition_secrets:
         # Redact plaintext secrets embedded in deployment definitions before they are persisted.
         resource_config["data_map"] = _scrub_definition_secrets

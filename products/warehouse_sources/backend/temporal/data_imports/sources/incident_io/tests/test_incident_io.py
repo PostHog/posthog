@@ -1,6 +1,7 @@
 import json
+from collections.abc import Iterable
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest import mock
@@ -70,7 +71,7 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
 def _source(session: mock.MagicMock, responses: list[Response], endpoint: str, manager: mock.MagicMock, **kwargs):
     params = _wire(session, responses)
     response = incident_io_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=manager, **kwargs)
-    rows = [row for page in response.items() for row in page]
+    rows = [row for page in cast("Iterable[Any]", response.items()) for row in page]
     return rows, params
 
 
@@ -367,7 +368,7 @@ class TestGetRows:
             "key", "incidents", team_id=1, job_id="j", resumable_source_manager=_make_manager()
         )
         with pytest.raises(Exception):
-            [row for page in response.items() for row in page]
+            [row for page in cast("Iterable[Any]", response.items()) for row in page]
 
 
 class TestIncidentIoSourceResponse:

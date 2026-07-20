@@ -102,6 +102,7 @@ def _rows(source_response: Any) -> list[dict[str, Any]]:
 
 
 def _page_qs(prepared: requests.PreparedRequest) -> list[str]:
+    assert prepared.url is not None
     return parse_qs(urlparse(prepared.url).query)["page"]
 
 
@@ -268,7 +269,9 @@ class TestPagination:
         assert _page_qs(prepared[0]) == ["1"]
         assert _page_qs(prepared[1]) == ["2"]
         # per_page rides alongside the page param on every request.
-        assert parse_qs(urlparse(prepared[0].url).query)["per_page"] == ["100"]
+        first_url = prepared[0].url
+        assert first_url is not None
+        assert parse_qs(urlparse(first_url).query)["per_page"] == ["100"]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_saves_next_page_after_yielding(self, MockSession):

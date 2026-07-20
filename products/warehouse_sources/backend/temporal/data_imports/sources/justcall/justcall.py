@@ -13,7 +13,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     PageNumberPaginator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import IncrementalConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    Endpoint,
+    EndpointResource,
+    IncrementalConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.justcall.settings import JUSTCALL_ENDPOINTS
@@ -111,16 +115,18 @@ def justcall_source(
         db_incremental_field_last_value if (should_use_incremental_field and config.incremental_cursor) else None
     )
 
-    endpoint_config: dict[str, Any] = {
-        "name": endpoint,
-        "endpoint": {
-            "path": config.path,
-            "params": params,
-            "data_selector": "data",
-        },
+    endpoint_def: Endpoint = {
+        "path": config.path,
+        "params": params,
+        "data_selector": "data",
     }
     if incremental is not None:
-        endpoint_config["endpoint"]["incremental"] = incremental
+        endpoint_def["incremental"] = incremental
+
+    endpoint_config: EndpointResource = {
+        "name": endpoint,
+        "endpoint": endpoint_def,
+    }
 
     rest_config: RESTAPIConfig = {
         "client": {

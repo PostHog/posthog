@@ -1,12 +1,13 @@
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.callrail.settings import CALLRAIL_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    Endpoint,
     RESTAPIConfig,
     rest_api_resource,
 )
@@ -144,7 +145,7 @@ def get_rows(
         params["sort"] = config.sort_field
         params["order"] = "asc"
 
-    endpoint_config: dict[str, Any] = {
+    endpoint_config: Endpoint = {
         "path": f"/a/{resolved_account_id}{config.path}",
         "params": params,
         # Key the list lives under in the JSON envelope; a missing key reads as an empty page and
@@ -162,7 +163,7 @@ def get_rows(
     if config.supports_incremental and should_use_incremental_field:
         endpoint_config["incremental"] = {
             "start_param": "start_date",
-            "cursor_path": config.sort_field,
+            "cursor_path": cast("str", config.sort_field),
             "convert": _format_start_date,
         }
 

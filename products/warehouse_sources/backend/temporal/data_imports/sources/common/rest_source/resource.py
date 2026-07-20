@@ -32,7 +32,7 @@ class Resource:
     ) -> None:
         self.name = name
         self._hints = hints
-        self._maps: list[Callable[[dict[str, Any]], dict[str, Any]]] = []
+        self._maps: list[Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]] = []
         self._filters: list[Callable[[dict[str, Any]], bool]] = []
         self._generator_fn = generator_fn
         self._args = args

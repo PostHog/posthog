@@ -1,5 +1,5 @@
 import json
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest import mock
@@ -86,7 +86,7 @@ class TestCannyBodyAuth:
             auth=CannyBodyAuth("secret"),
         )
         prepared = requests.Session().prepare_request(request)
-        assert json.loads(prepared.body) == {"skip": 0, "limit": PAGE_SIZE, "apiKey": "secret"}
+        assert json.loads(cast("str | bytes", prepared.body)) == {"skip": 0, "limit": PAGE_SIZE, "apiKey": "secret"}
 
     def test_creates_body_when_absent(self) -> None:
         # boards/list sends no pagination params, so the body is just the key.
@@ -94,7 +94,7 @@ class TestCannyBodyAuth:
             method="POST", url="https://canny.io/api/v1/boards/list", auth=CannyBodyAuth("secret")
         )
         prepared = requests.Session().prepare_request(request)
-        assert json.loads(prepared.body) == {"apiKey": "secret"}
+        assert json.loads(cast("str | bytes", prepared.body)) == {"apiKey": "secret"}
 
     def test_declares_api_key_as_secret_for_redaction(self) -> None:
         assert CannyBodyAuth("secret").secret_values() == ("secret",)

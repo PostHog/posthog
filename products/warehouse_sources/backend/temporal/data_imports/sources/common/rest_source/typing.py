@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Literal, Optional, TypedDict
+from typing import Any, Literal, NotRequired, Optional, TypedDict
 
 from requests import Session
 
@@ -288,5 +288,5 @@ class EndpointResource(EndpointResourceBase, total=False):
 
 class RESTAPIConfig(TypedDict):
     client: ClientConfig
-    resource_defaults: Optional[EndpointResourceBase]
+    resource_defaults: NotRequired[Optional[EndpointResourceBase]]
     resources: list[str | EndpointResource]

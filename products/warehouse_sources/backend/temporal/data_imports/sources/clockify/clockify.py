@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    Endpoint,
     EndpointResource,
     IncrementalConfig,
 )
@@ -200,7 +201,7 @@ def _tasks_resource() -> EndpointResource:
 
 def _time_entries_resource(incremental: IncrementalConfig | None) -> EndpointResource:
     config = CLOCKIFY_ENDPOINTS["time_entries"]
-    endpoint: dict[str, Any] = {
+    endpoint: Endpoint = {
         "path": config.path,
         "params": {
             "workspace_id": {"type": "resolve", "resource": "users", "field": "workspace_id"},
@@ -220,7 +221,7 @@ def _time_entries_resource(incremental: IncrementalConfig | None) -> EndpointRes
     }
 
 
-def _resources_for(endpoint: str, incremental: IncrementalConfig | None) -> list[EndpointResource]:
+def _resources_for(endpoint: str, incremental: IncrementalConfig | None) -> list[str | EndpointResource]:
     if endpoint == "workspaces":
         return [_workspaces_resource()]
     if endpoint in _WORKSPACE_CHILD_ENDPOINTS:

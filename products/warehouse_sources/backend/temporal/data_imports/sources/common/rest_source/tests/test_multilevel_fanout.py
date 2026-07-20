@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest.mock import patch
@@ -8,6 +8,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     build_resource_dependency_graph,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import RESTAPIConfig
 
 
 def _paginate_stub(pages_by_path: dict[str, list[dict[str, Any]]]):
@@ -53,8 +54,10 @@ class TestMultiParamResolution:
             "/tables": [{"id": "t1", "doc_id": "d1"}],
             "/docs/d1/tables/t1/rows": [{"row": 1}],
         }
-        with patch.object(RESTClient, "paginate", _paginate_stub(pages)):
-            resources = rest_api_resources(config, team_id=1, job_id="j", db_incremental_field_last_value=None)
+        with patch.object(RESTClient, "paginate", _paginate_stub(cast("dict[str, list[dict[str, Any]]]", pages))):
+            resources = rest_api_resources(
+                cast(RESTAPIConfig, config), team_id=1, job_id="j", db_incremental_field_last_value=None
+            )
             rows_resource = next(r for r in resources if r.name == "rows")
             rows = [row for page in rows_resource for row in page]
         assert rows == [{"row": 1}]
@@ -81,7 +84,7 @@ class TestMultiParamResolution:
 
 
 class TestChainedFanout:
-    def _three_level_config(self) -> dict[str, Any]:
+    def _three_level_config(self) -> RESTAPIConfig:
         return {
             "client": {"base_url": "https://api.example.com"},
             "resources": [
@@ -111,7 +114,7 @@ class TestChainedFanout:
             "/projects/p1/errors": [{"e": "p1-a"}],
             "/projects/p2/errors": [{"e": "p2-a"}],
         }
-        with patch.object(RESTClient, "paginate", _paginate_stub(pages)):
+        with patch.object(RESTClient, "paginate", _paginate_stub(cast("dict[str, list[dict[str, Any]]]", pages))):
             resources = rest_api_resources(
                 self._three_level_config(), team_id=1, job_id="j", db_incremental_field_last_value=None
             )
@@ -128,7 +131,7 @@ class TestChainedFanout:
             "/projects/p1/errors": [{"e": 1}],
         }
         checkpoints: list[Any] = []
-        with patch.object(RESTClient, "paginate", _paginate_stub(pages)):
+        with patch.object(RESTClient, "paginate", _paginate_stub(cast("dict[str, list[dict[str, Any]]]", pages))):
             resources = rest_api_resources(
                 self._three_level_config(),
                 team_id=1,

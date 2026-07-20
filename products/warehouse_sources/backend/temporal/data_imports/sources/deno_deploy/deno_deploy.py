@@ -172,7 +172,7 @@ def _resource_chain(
     endpoint: str,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
-) -> list[EndpointResource]:
+) -> list[str | EndpointResource]:
     config = DENO_DEPLOY_ENDPOINTS[endpoint]
 
     if not config.fan_out_over_apps:

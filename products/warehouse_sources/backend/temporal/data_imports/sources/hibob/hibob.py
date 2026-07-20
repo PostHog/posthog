@@ -1,8 +1,7 @@
-from typing import Any
-
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    Endpoint,
     RESTAPIConfig,
     rest_api_resource,
 )
@@ -45,7 +44,7 @@ def hibob_source(
     # Basic auth carries the token; supplying it via the framework auth config redacts the
     # token from any raised error. Repeated 401/403s trip HiBob's WAF, so auth errors must
     # fail loud (raise_for_status) rather than retry — the client only retries 429/5xx.
-    api_endpoint: dict[str, Any] = {
+    api_endpoint: Endpoint = {
         "path": config.path,
         "method": config.method,
         # A missing data key is a legit "no rows" answer (not a shape error), so the selector

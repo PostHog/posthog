@@ -4,6 +4,8 @@ from typing import Any, Optional
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    ClientConfig,
+    EndpointResource,
     RESTAPIConfig,
     rest_api_resource,
     rest_api_resources,
@@ -50,7 +52,7 @@ def _make_session(personal_access_token: str) -> Any:
     return make_tracked_session(redact_values=(personal_access_token,), capture=False)
 
 
-def _client_config(personal_access_token: str) -> dict[str, Any]:
+def _client_config(personal_access_token: str) -> ClientConfig:
     return {
         "base_url": RAYGUN_BASE_URL,
         # Auth (Bearer) goes through the framework auth config so its value is redacted from raised
@@ -86,7 +88,7 @@ def _top_level_source(
 ):
     config = RAYGUN_ENDPOINTS[endpoint]
 
-    resource_config: dict[str, Any] = {
+    resource_config: EndpointResource = {
         "name": endpoint,
         "endpoint": {
             "path": config.path,

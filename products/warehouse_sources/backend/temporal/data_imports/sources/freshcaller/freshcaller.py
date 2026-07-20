@@ -1,6 +1,6 @@
 import dataclasses
 from datetime import UTC, date, datetime, time
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from requests import Request, Response
 
@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshcaller.settings import (
@@ -168,7 +169,7 @@ def freshcaller_source(
             "headers": {"Accept": "application/json"},
             "auth": {"type": "api_key", "api_key": api_key, "name": "X-Api-Auth", "location": "header"},
         },
-        "resources": [{"name": endpoint, "endpoint": endpoint_config}],
+        "resources": [cast(EndpointResource, {"name": endpoint, "endpoint": endpoint_config})],
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None

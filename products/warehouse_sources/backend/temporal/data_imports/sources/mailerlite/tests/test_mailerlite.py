@@ -1,5 +1,6 @@
 import json
-from typing import Any
+from collections.abc import Iterable
+from typing import Any, cast
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -78,7 +79,7 @@ def _run(endpoint: str, manager: MagicMock, responses: Any) -> tuple[list[list[d
         source = mailerlite_source(
             api_key="test-key", endpoint=endpoint, team_id=1, job_id="j", resumable_source_manager=manager
         )
-        batches = list(source.items())
+        batches = list(cast("Iterable[Any]", source.items()))
     return batches, sent_urls, session
 
 
@@ -187,7 +188,7 @@ class TestRetry:
             source = mailerlite_source(
                 api_key="test-key", endpoint="subscribers", team_id=1, job_id="j", resumable_source_manager=manager
             )
-            batches = list(source.items())
+            batches = list(cast("Iterable[Any]", source.items()))
 
         assert batches == [[{"id": "1"}]]
         assert session.send.call_count == 2
@@ -202,7 +203,7 @@ class TestRetry:
                 api_key="test-key", endpoint="subscribers", team_id=1, job_id="j", resumable_source_manager=manager
             )
             with pytest.raises(RESTClientRetryableError):
-                list(source.items())
+                list(cast("Iterable[Any]", source.items()))
 
         assert session.send.call_count == 5
 

@@ -1,5 +1,6 @@
 import json
-from typing import Any
+from collections.abc import Iterable
+from typing import Any, cast
 
 import pytest
 from unittest import mock
@@ -52,7 +53,7 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
 
 def _rows(access_key: str, endpoint: str) -> list[dict[str, Any]]:
     response = goldcast_source(access_key=access_key, endpoint=endpoint, team_id=1, job_id="j")
-    return [row for page in response.items() for row in page]
+    return [row for page in cast("Iterable[Any]", response.items()) for row in page]
 
 
 class TestTopLevelEndpoints:

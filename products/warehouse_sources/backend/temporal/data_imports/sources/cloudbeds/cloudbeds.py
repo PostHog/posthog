@@ -1,6 +1,6 @@
 import dataclasses
 from collections.abc import Callable
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from requests import Response
 
@@ -72,7 +72,7 @@ def _flatten_map(config: CloudbedsEndpointConfig) -> Callable[[dict[str, Any]], 
     parent_fields = config.flatten_parent_fields
 
     def flatten(parent: dict[str, Any]) -> list[dict[str, Any]]:
-        nested = parent.get(flatten_field)
+        nested = parent.get(cast("str", flatten_field))
         if not isinstance(nested, list):
             return []
         # Direct access so a missing required parent field (e.g. propertyID) fails fast instead of

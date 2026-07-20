@@ -1,6 +1,7 @@
 import json
+from collections.abc import Iterable
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest import mock
@@ -376,7 +377,7 @@ class TestGetRows:
             resumable_source_manager=_make_manager(),
         )
         with pytest.raises(BrazeHostNotAllowedError):
-            list(response.items())
+            list(cast("Iterable[Any]", response.items()))
 
         # No request is made once the host is rejected.
         MockSession.return_value.send.assert_not_called()

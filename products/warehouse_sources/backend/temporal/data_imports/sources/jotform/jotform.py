@@ -7,6 +7,7 @@ from typing import Any, Optional
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    ClientConfig,
     RESTAPIConfig,
     rest_api_resource,
     rest_api_resources,
@@ -117,7 +118,7 @@ def _filter_convert(field_name: str) -> Callable[[Any], Optional[str]]:
     return convert
 
 
-def _client_config(api_key: str, base_url: str) -> dict[str, Any]:
+def _client_config(api_key: str, base_url: str) -> ClientConfig:
     # The key rides in the `APIKEY` header via framework auth so it is redacted from every raised
     # error message; only the non-secret Accept header is set on the client. `enterprise_domain` is
     # user-supplied, so pin redirects off (defense-in-depth on top of the Smokescreen egress proxy)

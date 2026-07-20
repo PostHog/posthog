@@ -1,6 +1,7 @@
 import json
+from collections.abc import Iterable
 from types import SimpleNamespace
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import pytest
 from unittest import mock
@@ -104,7 +105,7 @@ def _drive(
             job_id="job-1",
             resumable_source_manager=manager,  # type: ignore[arg-type]
         )
-        rows = [row for page in response.items() for row in page]
+        rows = [row for page in cast("Iterable[Any]", response.items()) for row in page]
     return rows, snapshots
 
 
@@ -165,7 +166,7 @@ class TestFanOut:
     ORGS = _u("/orgs")
 
     def test_org_fanout_injects_parent_id_into_rows(self) -> None:
-        pages = {
+        pages: dict[PageKey, Response] = {
             (self.ORGS, None): _response([{"id": "org1"}, {"id": "org2"}]),
             (_u("/orgs/org1/members"), None): _response([{"id": "user1"}]),
             (_u("/orgs/org2/members"), None): _response([{"id": "user1"}, {"id": "user2"}]),
@@ -179,7 +180,7 @@ class TestFanOut:
         ]
 
     def test_spaces_rows_keep_api_shape_without_injection(self) -> None:
-        pages = {
+        pages: dict[PageKey, Response] = {
             (self.ORGS, None): _response([{"id": "org1"}]),
             (_u("/orgs/org1/spaces"), None): _response([{"id": "sp1", "organization": "org1"}]),
         }
@@ -187,7 +188,7 @@ class TestFanOut:
         assert rows == [{"id": "sp1", "organization": "org1"}]
 
     def test_comments_fan_out_through_orgs_then_spaces(self) -> None:
-        pages = {
+        pages: dict[PageKey, Response] = {
             (self.ORGS, None): _response([{"id": "org1"}]),
             (_u("/orgs/org1/spaces"), None): _response([{"id": "sp1"}, {"id": "sp2"}]),
             (_u("/spaces/sp1/comments"), None): _response([{"id": "c1"}]),
@@ -209,7 +210,9 @@ class TestFanOut:
         # A mid-parent checkpoint pins org1's next child page before org1 is marked complete.
         assert {"completed": [], "current": "/orgs/org1/teams", "child_state": {"cursor": "tok2"}} in states
         # Once every parent is walked, all child paths are recorded complete.
-        assert states[-1]["completed"] == ["/orgs/org1/teams", "/orgs/org2/teams"]
+        final_state = states[-1]
+        assert final_state is not None
+        assert final_state["completed"] == ["/orgs/org1/teams", "/orgs/org2/teams"]
 
     def test_resume_skips_completed_parents_and_resumes_current_at_token(self) -> None:
         manager = _FakeManager(

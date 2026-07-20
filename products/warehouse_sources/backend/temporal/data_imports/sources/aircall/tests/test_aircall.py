@@ -6,7 +6,6 @@ import pytest
 from unittest import mock
 
 from requests import Response
-from requests.auth import AuthBase
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aircall.aircall import (
     AircallResumeConfig,
@@ -20,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aircall.se
     AIRCALL_ENDPOINTS,
     ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import HttpBasicAuth
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -182,7 +182,7 @@ class TestPagination:
         _rows(_source("teams", _make_manager()))
 
         auth = requests_seen[0]["auth"]
-        assert isinstance(auth, AuthBase)
+        assert isinstance(auth, HttpBasicAuth)
         assert auth.username == "id"
         assert auth.password == "token"
 

@@ -35,7 +35,7 @@ def _response(body: Any, status: int = 200, reason: str | None = None, url: str 
     resp = Response()
     resp.status_code = status
     resp._content = json.dumps(body).encode()
-    resp.reason = reason
+    resp.reason = reason  # type: ignore[assignment]
     resp.url = url  # type: ignore[assignment]
     return resp
 

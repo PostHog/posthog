@@ -1,5 +1,6 @@
 import json
-from typing import Any
+from collections.abc import Iterable
+from typing import Any, cast
 
 import pytest
 from unittest import mock
@@ -73,7 +74,7 @@ def _source(endpoint: str, manager: mock.MagicMock | None = None) -> SourceRespo
 
 
 def _rows(source_response: SourceResponse) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+    return [row for page in cast("Iterable[Any]", source_response.items()) for row in page]
 
 
 class TestTopLevelPagination:
@@ -262,7 +263,7 @@ class TestResumeConfigCompatibility:
     def test_old_saved_state_still_parses(self) -> None:
         # ResumableSourceManager._load_json does dataclass(**saved) — state saved by the
         # pre-framework implementation must keep loading after the migration.
-        state = BigMailerResumeConfig(**{"cursor": "C2==", "brand_id": "b1"})
+        state = BigMailerResumeConfig(**cast("dict[str, Any]", {"cursor": "C2==", "brand_id": "b1"}))
         assert state.cursor == "C2=="
         assert state.brand_id == "b1"
         assert state.fanout_state is None

@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest import mock
@@ -334,7 +334,7 @@ class TestFanOut:
     def test_old_shape_saved_state_still_parses(self) -> None:
         # ResumableSourceManager._load_json does dataclass(**saved) — state saved before the
         # migration must still construct.
-        state = TwelveLabsResumeConfig(**{"next_page": 2, "index_id": "idx2"})
+        state = TwelveLabsResumeConfig(**cast("dict[str, Any]", {"next_page": 2, "index_id": "idx2"}))
         assert state.next_page == 2
         assert state.index_id == "idx2"
         assert state.fanout_state is None

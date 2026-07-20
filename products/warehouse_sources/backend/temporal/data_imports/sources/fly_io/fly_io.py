@@ -4,6 +4,9 @@ from urllib.parse import quote
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    ClientConfig,
+    Endpoint,
+    EndpointResource,
     RESTAPIConfig,
     rest_api_resource,
 )
@@ -163,7 +166,7 @@ def fly_io_source(
         else SinglePagePaginator()
     )
 
-    client_config: dict[str, Any] = {
+    client_config: ClientConfig = {
         "base_url": FLY_IO_BASE_URL,
         # Auth (Bearer) is supplied via the framework auth config so its value is redacted from
         # logs and raised errors; only the non-secret Accept header is set here.
@@ -176,7 +179,7 @@ def fly_io_source(
         # still masked in whatever remains logged.
         client_config["session"] = make_tracked_session(capture=False, redact_values=(api_token,))
 
-    endpoint_config: dict[str, Any] = {
+    endpoint_config: Endpoint = {
         "path": _endpoint_path(config, org_slug),
         "params": _endpoint_params(config, org_slug),
         "paginator": paginator,
@@ -187,7 +190,7 @@ def fly_io_source(
         "data_selector_required": True,
     }
 
-    resource_config: dict[str, Any] = {"name": endpoint, "endpoint": endpoint_config}
+    resource_config: EndpointResource = {"name": endpoint, "endpoint": endpoint_config}
     if config.redact_secrets:
         resource_config["data_map"] = _sanitize_machine
 

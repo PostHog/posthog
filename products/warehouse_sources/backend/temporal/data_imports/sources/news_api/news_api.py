@@ -7,6 +7,7 @@ from requests import Request, Response
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    Endpoint,
     RESTAPIConfig,
     rest_api_resource,
 )
@@ -14,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     BasePaginator,
     SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ResponseAction
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.news_api.settings import NEWS_API_ENDPOINTS
@@ -139,7 +141,7 @@ def news_api_source(
     config = NEWS_API_ENDPOINTS[endpoint]
 
     params: dict[str, Any] = {}
-    response_actions: Optional[list[dict[str, Any]]] = None
+    response_actions: Optional[list[ResponseAction]] = None
     paginator: BasePaginator
 
     if config.name == "sources":
@@ -181,7 +183,7 @@ def news_api_source(
         if state and state.get("page") is not None:
             resumable_source_manager.save_state(NewsApiResumeConfig(next_page=int(state["page"])))
 
-    endpoint_config: dict[str, Any] = {
+    endpoint_config: Endpoint = {
         "path": config.path,
         "params": params,
         "data_selector": config.data_key,

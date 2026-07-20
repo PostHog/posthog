@@ -1,7 +1,7 @@
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import pytest
 from unittest import mock
@@ -110,7 +110,7 @@ def _run(
         resumable_source_manager=manager,  # type: ignore[arg-type]
         **kwargs,
     )
-    rows = [row for page in source.items() for row in page]
+    rows = [row for page in cast("Iterable[Any]", source.items()) for row in page]
     return rows, calls
 
 

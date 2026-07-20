@@ -13,6 +13,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponsePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    Endpoint,
+    IncrementalConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.workable.settings import (
@@ -100,13 +104,13 @@ def workable_source(
     # Only inject the server-side time filter when the endpoint exposes one and we have a cursor to
     # filter on. `updated_after` / `created_after` are the documented filters; default to `updated_at`
     # so edits to existing rows are picked up. The value is formatted ISO 8601 with a `Z` suffix.
-    incremental: Optional[dict[str, Any]] = None
+    incremental: Optional[IncrementalConfig] = None
     if config.supports_incremental and should_use_incremental_field and db_incremental_field_last_value is not None:
         field_name = incremental_field or "updated_at"
         filter_param = _TIME_FILTER_PARAM.get(field_name, "updated_after")
         incremental = {"start_param": filter_param, "cursor_path": field_name, "convert": _format_datetime}
 
-    endpoint_config: dict[str, Any] = {
+    endpoint_config: Endpoint = {
         "path": config.path,
         "params": params,
         # Rows are nested under the endpoint's data key (e.g. `{"jobs": [...]}`). A missing key

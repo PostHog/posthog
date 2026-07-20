@@ -1,6 +1,7 @@
 import json
+from collections.abc import Iterable
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest import mock
@@ -76,7 +77,7 @@ def _rows(endpoint: str, manager: mock.MagicMock, **overrides: Any) -> list[dict
     }
     kwargs.update(overrides)
     response = sparkpost_source(**kwargs)
-    return [row for page in response.items() for row in page]
+    return [row for page in cast("Iterable[Any]", response.items()) for row in page]
 
 
 class TestBaseUrl:

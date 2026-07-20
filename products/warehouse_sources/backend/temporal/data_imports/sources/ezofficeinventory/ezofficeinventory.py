@@ -8,6 +8,8 @@ from urllib3.util.retry import Retry
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    Endpoint,
+    EndpointResource,
     RESTAPIConfig,
     rest_api_resource,
 )
@@ -50,7 +52,7 @@ def _make_unwrap_map(unwrap_key: str) -> Callable[[dict[str, Any]], dict[str, An
 
 
 def _rest_config(subdomain: str, api_key: str, config: EZOfficeInventoryEndpointConfig) -> RESTAPIConfig:
-    endpoint: dict[str, Any] = {
+    endpoint: Endpoint = {
         "path": config.path,
         "params": dict(config.extra_params),
         "data_selector": config.data_selector,
@@ -58,7 +60,7 @@ def _rest_config(subdomain: str, api_key: str, config: EZOfficeInventoryEndpoint
         # omits it, an empty page terminates instead (stop_after_empty_page).
         "paginator": PageNumberPaginator(base_page=1, page=1, page_param="page", total_path="total_pages"),
     }
-    resource: dict[str, Any] = {"name": config.name, "endpoint": endpoint}
+    resource: EndpointResource = {"name": config.name, "endpoint": endpoint}
     if config.unwrap_key:
         resource["data_map"] = _make_unwrap_map(config.unwrap_key)
 

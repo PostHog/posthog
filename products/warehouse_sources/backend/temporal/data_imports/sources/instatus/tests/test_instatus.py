@@ -71,7 +71,9 @@ class TestClientConfig:
         config = _client_config("abc123")
         assert config["auth"] == {"type": "bearer", "token": "abc123"}
         # Instatus requires the JSON content type on every request, including GETs.
-        assert config["headers"]["Content-Type"] == "application/json"
+        headers = config["headers"]
+        assert headers is not None
+        assert headers["Content-Type"] == "application/json"
         # A credentialed request stays pinned to the validated host — a 3xx can't replay it elsewhere.
         assert config["allow_redirects"] is False
 

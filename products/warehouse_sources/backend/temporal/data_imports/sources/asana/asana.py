@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponsePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 
@@ -43,7 +44,7 @@ def _paginator() -> JSONResponsePaginator:
     return JSONResponsePaginator(next_url_path=NEXT_URL_PATH)
 
 
-def _resource(name: str, path: str, params: dict[str, Any]) -> dict[str, Any]:
+def _resource(name: str, path: str, params: dict[str, Any]) -> EndpointResource:
     return {
         "name": name,
         "endpoint": {
@@ -55,7 +56,7 @@ def _resource(name: str, path: str, params: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _workspaces_parent(*, filter_organizations: bool) -> dict[str, Any]:
+def _workspaces_parent(*, filter_organizations: bool) -> EndpointResource:
     """Workspaces list used only to resolve child gids. `is_organization` is opted in so the
     organization-only fan-out (teams) can drop non-organization workspaces."""
     resource = _resource("workspaces", "/workspaces", {"limit": PAGE_SIZE, "opt_fields": "is_organization"})
@@ -66,7 +67,7 @@ def _workspaces_parent(*, filter_organizations: bool) -> dict[str, Any]:
     return resource
 
 
-def _projects_parent() -> dict[str, Any]:
+def _projects_parent() -> EndpointResource:
     """Projects list (one request per workspace) used only to resolve project gids for the
     project-level fan-out (tasks, sections)."""
     return _resource(
@@ -76,7 +77,7 @@ def _projects_parent() -> dict[str, Any]:
     )
 
 
-def _build_resources(config: AsanaEndpointConfig) -> list[dict[str, Any]]:
+def _build_resources(config: AsanaEndpointConfig) -> list[str | EndpointResource]:
     """Build the rest_source resource chain for an endpoint, fanning out over parents as needed.
     Only the last (target) resource's rows are surfaced; parents exist solely to resolve gids."""
     target_params: dict[str, Any] = {"limit": PAGE_SIZE}

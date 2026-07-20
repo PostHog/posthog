@@ -6,6 +6,8 @@ from requests import Request, Response
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    Endpoint,
+    EndpointResource,
     RESTAPIConfig,
     rest_api_resource,
 )
@@ -13,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     BasePaginator,
     SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ResponseAction
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.less_annoying_crm.settings import (
     LESS_ANNOYING_CRM_ENDPOINTS,
@@ -34,7 +37,7 @@ REQUEST_TIMEOUT_SECONDS = 60
 # — as an HTTP 400 body for bad requests, and defensively matched on any status. The 400 + "Invalid
 # credentials" case surfaces a message the source's non-retryable map matches to disable the sync with
 # actionable copy; any other error envelope fails loud rather than silently syncing 0 rows.
-LESS_ANNOYING_CRM_RESPONSE_ACTIONS = [
+LESS_ANNOYING_CRM_RESPONSE_ACTIONS: list[ResponseAction] = [
     {
         "status_code": 400,
         "content": "Invalid credentials",
@@ -166,6 +169,19 @@ def less_annoying_crm_source(
         LessAnnoyingCRMPaginator(page_size=PAGE_SIZE) if config.paginated else SinglePagePaginator()
     )
 
+    endpoint_def: Endpoint = {
+        "path": "",
+        "method": "POST",
+        "json": {"Function": config.function, "Parameters": _build_parameters(config)},
+        "data_selector": config.data_selector,
+        "paginator": paginator,
+        "response_actions": LESS_ANNOYING_CRM_RESPONSE_ACTIONS,
+    }
+    resource_def: EndpointResource = {
+        "name": endpoint,
+        "endpoint": endpoint_def,
+    }
+
     rest_config: RESTAPIConfig = {
         "client": {
             "base_url": LESS_ANNOYING_CRM_BASE_URL,
@@ -174,19 +190,7 @@ def less_annoying_crm_source(
             "headers": {"Content-Type": "application/json"},
             "auth": {"type": "api_key", "api_key": api_key, "name": "Authorization", "location": "header"},
         },
-        "resources": [
-            {
-                "name": endpoint,
-                "endpoint": {
-                    "path": "",
-                    "method": "POST",
-                    "json": {"Function": config.function, "Parameters": _build_parameters(config)},
-                    "data_selector": config.data_selector,
-                    "paginator": paginator,
-                    "response_actions": LESS_ANNOYING_CRM_RESPONSE_ACTIONS,
-                },
-            }
-        ],
+        "resources": [resource_def],
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None

@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     find_values,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.drata.settings import (
@@ -136,7 +137,7 @@ class DrataCursorPaginator(BasePaginator):
             self._has_next_page = True
 
 
-def _client_config(api_key: str, region: str) -> dict[str, Any]:
+def _client_config(api_key: str, region: str) -> ClientConfig:
     # Framework Bearer auth so the key is redacted from logs and raised error messages; only the
     # non-secret Accept header is set here. A shared cursor paginator applies to every resource
     # (it is deep-copied per pagination run inside the client).

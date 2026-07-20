@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest import mock
@@ -390,7 +390,7 @@ class TestFanOut:
     def test_old_shape_saved_state_still_parses(self) -> None:
         # ResumableSourceManager._load_json does dataclass(**saved) — state saved before the
         # migration must still construct.
-        state = BeamerResumeConfig(**{"page": 3, "parent_id": "P2"})
+        state = BeamerResumeConfig(**cast("dict[str, Any]", {"page": 3, "parent_id": "P2"}))
         assert state.page == 3
         assert state.parent_id == "P2"
         assert state.fanout_state is None

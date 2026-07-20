@@ -5,6 +5,7 @@ from typing import Any, Optional
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    Endpoint,
     RESTAPIConfig,
     rest_api_resource,
 )
@@ -67,7 +68,7 @@ def tremendous_source(
 ) -> SourceResponse:
     config = TREMENDOUS_ENDPOINTS[endpoint]
 
-    endpoint_config: dict[str, Any] = {
+    endpoint_config: Endpoint = {
         "path": config.path,
         # List responses wrap records under the plural resource name, e.g. {"orders": [...]}.
         "data_selector": config.data_key,

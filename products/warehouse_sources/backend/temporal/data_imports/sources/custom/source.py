@@ -257,7 +257,7 @@ def validate_manifest_structure(manifest: Any) -> None:
         raise ManifestValidationError(_format_validation_errors(exc)) from exc
 
 
-def _validate_resource_graph(manifest: dict[str, Any]) -> dict[str, Optional[ResolvedParam]]:
+def _validate_resource_graph(manifest: dict[str, Any]) -> dict[str, Optional[list[ResolvedParam]]]:
     """Surface parent/child fan-out errors at create-time instead of first sync.
 
     Reuses the REST engine's own :func:`build_resource_dependency_graph` so the
@@ -1934,7 +1934,7 @@ def _strip_engine_unsupported_incremental_keys(resource: dict[str, Any]) -> dict
 
 def _build_resource_graph(
     manifest: dict[str, Any],
-) -> tuple[Any, dict[str, EndpointResource], dict[str, Optional[ResolvedParam]]]:
+) -> tuple[Any, dict[str, EndpointResource], dict[str, Optional[list[ResolvedParam]]]]:
     """Run the REST engine's dependency-graph builder on a deep copy of the
     manifest. The builder binds path params in place, so it must never see the
     stored manifest's resources — hence the copy.

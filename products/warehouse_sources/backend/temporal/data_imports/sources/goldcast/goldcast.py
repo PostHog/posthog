@@ -13,7 +13,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ApiKeyAuthConfig,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.goldcast.settings import (
     GOLDCAST_ENDPOINTS,
@@ -33,7 +36,7 @@ def _headers() -> dict[str, str]:
     return {"Accept": "application/json"}
 
 
-def _auth(access_key: str) -> dict[str, str]:
+def _auth(access_key: str) -> ApiKeyAuthConfig:
     # Goldcast uses a static personal access token with the non-standard `Token` scheme (not
     # `Bearer`), created by an org admin in Studio Settings > Tokens. The whole `Token <key>` value
     # is the credential the framework redacts wherever it surfaces.
@@ -94,7 +97,7 @@ def _fan_out_resource(config: GoldcastEndpointConfig) -> EndpointResource:
     }
 
 
-def _resources_for(endpoint: str) -> list[EndpointResource]:
+def _resources_for(endpoint: str) -> list[str | EndpointResource]:
     config = GOLDCAST_ENDPOINTS[endpoint]
     if config.fan_out_over_events:
         return [_events_parent_resource(), _fan_out_resource(config)]

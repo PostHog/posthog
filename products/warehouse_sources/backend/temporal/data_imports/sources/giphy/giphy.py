@@ -11,6 +11,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     OffsetPaginator,
     SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    Endpoint,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.giphy.settings import (
@@ -40,7 +44,7 @@ def _explode_search_terms(body: dict[str, Any]) -> list[dict[str, Any]]:
     return [{"search_term": term} for term in terms]
 
 
-def _build_endpoint_config(config: GiphyEndpointConfig, search_query: str | None) -> dict[str, Any]:
+def _build_endpoint_config(config: GiphyEndpointConfig, search_query: str | None) -> Endpoint:
     if config.is_term_list:
         # No pagination and no offset/limit params; explode the string list into search_term rows.
         return {
@@ -48,7 +52,7 @@ def _build_endpoint_config(config: GiphyEndpointConfig, search_query: str | None
             "paginator": SinglePagePaginator(),
         }
 
-    endpoint: dict[str, Any] = {
+    endpoint: Endpoint = {
         "path": config.path,
         # GIPHY caps the offset it serves (trending 499, search 4999); requesting beyond it 400s, so
         # stop at the cap rather than fail the sync. `total_count`/short/empty page also terminate.
@@ -81,7 +85,7 @@ def giphy_source(
             f"GIPHY endpoint '{endpoint}' requires a search query. Set the search query on the source and reconnect."
         )
 
-    resource_config: dict[str, Any] = {
+    resource_config: EndpointResource = {
         "name": endpoint,
         "endpoint": _build_endpoint_config(config, search_query),
     }

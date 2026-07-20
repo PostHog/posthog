@@ -7,6 +7,7 @@ from unittest import mock
 
 from parameterized import parameterized
 from requests import PreparedRequest, Response
+from requests.structures import CaseInsensitiveDict
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.fleetio.fleetio import (
     FLEETIO_API_VERSION,
@@ -96,7 +97,7 @@ class TestFormatIncrementalValue:
 class TestFleetioAuth:
     def test_sets_both_credential_headers(self) -> None:
         request = PreparedRequest()
-        request.headers = {}
+        request.headers = CaseInsensitiveDict()
         FleetioAuth("key123", "acct456")(request)
         assert request.headers["Authorization"] == "Token key123"
         assert request.headers["Account-Token"] == "acct456"

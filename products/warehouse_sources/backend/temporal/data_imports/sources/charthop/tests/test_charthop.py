@@ -1,6 +1,7 @@
 import json
+from collections.abc import Iterable
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import pytest
 from unittest import mock
@@ -127,9 +128,12 @@ class TestPagination:
         _params, urls = _wire(session, [_response([])])
 
         list(
-            charthop_source(
-                "key", "org/../evil?x=1", "jobs", team_id=1, job_id="j", resumable_source_manager=_make_manager()
-            ).items()
+            cast(
+                "Iterable[Any]",
+                charthop_source(
+                    "key", "org/../evil?x=1", "jobs", team_id=1, job_id="j", resumable_source_manager=_make_manager()
+                ).items(),
+            )
         )
 
         assert urls[0] == f"{CHARTHOP_BASE_URL}/v2/org/org%2F..%2Fevil%3Fx%3D1/job"

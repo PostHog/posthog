@@ -132,15 +132,15 @@ def check_access(api_key: str, org_id: Optional[str], schema_name: Optional[str]
     config = CHARTHOP_ENDPOINTS[schema_name]
     path = _endpoint_path(config, resolved_org_id)
     query = urlencode({"limit": 1, **config.extra_params})
-    _ok, status = validate_via_probe(
+    _ok, probe_status = validate_via_probe(
         lambda: make_tracked_session(redact_values=(api_key,)),
         f"{CHARTHOP_BASE_URL}{path}?{query}",
         headers=_get_headers(api_key),
         timeout=15,
     )
-    if status is None:
+    if probe_status is None:
         return 0, "Could not connect to ChartHop"
-    return status, None
+    return probe_status, None
 
 
 def charthop_source(

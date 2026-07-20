@@ -1,5 +1,5 @@
 import json
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest import mock
@@ -287,7 +287,7 @@ class TestSourceResponse:
 class TestResumeConfigCompatibility:
     def test_legacy_saved_state_still_parses(self):
         # A checkpoint written by the pre-framework code must still deserialize via dataclass(**saved).
-        cfg = StatuspageResumeConfig(**{"page": 3, "parent_page_id": "p2"})
+        cfg = StatuspageResumeConfig(**cast("dict[str, Any]", {"page": 3, "parent_page_id": "p2"}))
         assert cfg.page == 3
         assert cfg.parent_page_id == "p2"
         assert cfg.paginator_state is None
