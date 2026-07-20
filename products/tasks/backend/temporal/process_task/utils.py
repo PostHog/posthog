@@ -655,6 +655,24 @@ READONLY_SANDBOX_GITHUB_PERMISSIONS: dict[str, str] = {
 }
 
 
+def can_mint_readonly_github_token(team_id: int) -> bool:
+    """Whether `get_readonly_github_token` has a team-level integration to mint from.
+
+    Cheap preflight for callers that condition user-visible behavior (e.g. prompt guidance naming
+    `gh`) on the token actually being obtainable — the flag alone can't tell a team that never
+    connected GitHub from one that did. Same team-level-only rule as the mint itself; never raises.
+    """
+    # Deferred to break a circular import — repo_selection.agent transitively imports the
+    # process-task workflow, which imports this module.
+    from products.tasks.backend.logic.repo_selection.agent import resolve_team_github_integration  # noqa: PLC0415
+
+    try:
+        return isinstance(resolve_team_github_integration(team_id), GitHubIntegration)
+    except Exception:
+        logger.warning("Failed to resolve GitHub integration for team %d", team_id, exc_info=True)
+        return False
+
+
 def get_readonly_github_token(team_id: int) -> Optional[str]:
     """Mint an ephemeral read-only GitHub token for a repo-less sandbox, or None.
 
@@ -668,7 +686,7 @@ def get_readonly_github_token(team_id: int) -> Optional[str]:
     no usable team-level integration or the mint fails: read access is an evidence-gathering
     nicety, and its absence must not fail the run.
     """
-    # noqa: deferred to break a circular import — repo_selection.agent transitively imports the
+    # Deferred to break a circular import — repo_selection.agent transitively imports the
     # process-task workflow, which imports this module.
     from products.tasks.backend.logic.repo_selection.agent import resolve_team_github_integration  # noqa: PLC0415
 

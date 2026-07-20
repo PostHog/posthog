@@ -385,11 +385,23 @@ async def _spawn_and_run(
         tasks_facade.SandboxNetworkAccessLevel.TRUSTED,
     )
     report_channel = skill_uses_report_channel(skill.allowed_tools)
-    # Read-only GitHub evidence access (reviewer routing) — report-channel scouts only, gated
-    # per-team via the `signals-scout` flag payload (`github_read_access` in the config blobs).
-    github_read_access = report_channel and await database_sync_to_async(
+    # Scout sandboxes never get the write-capable installation token: task creation attaches the
+    # team's GitHub integration to every task, so without this request a repo-less scout run on a
+    # GitHub-connected team is silently provisioned with the FULL token. Requesting read access on
+    # every scout run downscopes that to a read-only mint (or nothing when the mint fails) —
+    # a strict privilege reduction, independent of the prompt-guidance flag below.
+    #
+    # The `gh` guidance in the prompt is gated separately: report-channel scouts only, per-team
+    # `github_read_access` in the `signals-scout` flag payload, AND a mint preflight — the prompt
+    # must not name `gh` when the team has no usable installation to mint from (the scout would
+    # burn budget on 401s before falling back).
+    github_prompt_guidance = report_channel and await database_sync_to_async(
         github_read_access_for_team, thread_sensitive=False
     )(team.id)
+    if github_prompt_guidance:
+        github_prompt_guidance = await database_sync_to_async(
+            tasks_facade.can_mint_readonly_github_token, thread_sensitive=False
+        )(team.id)
     # `repository` is None on the cadence path — v1 doesn't clone a repo into the
     # sandbox. The kwarg stays wired so the management command can still pass
     # `--repository` for ad-hoc local investigations; productionised repo access
@@ -414,7 +426,7 @@ async def _spawn_and_run(
         # emit_report/edit_report tools. Every other scout gets plain `signals_scout` and never
         # sees them.
         posthog_mcp_scopes=("signals_scout_reports" if report_channel else "signals_scout"),
-        github_read_access=github_read_access,
+        github_read_access=True,
         # `None` keeps the agent-server default; an override pins the whole run on one model
         # (the `scouts-model-selection` gate routes it here). The model the gateway actually serves
         # is tagged on each $ai_generation, so per-run model is queryable in LLM analytics.
@@ -424,7 +436,7 @@ async def _spawn_and_run(
         reasoning_effort=reasoning_effort,
     )
     prompt = build_run_prompt(
-        skill, run_id=str(run_id), team_id=team.id, started_at=started_at, github_read_access=github_read_access
+        skill, run_id=str(run_id), team_id=team.id, started_at=started_at, github_read_access=github_prompt_guidance
     )
     logger.info(
         "signals_scout: spawning sandbox",

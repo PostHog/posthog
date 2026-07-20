@@ -1,6 +1,7 @@
 import shlex
 import logging
 from dataclasses import dataclass
+from typing import Any
 
 from django.conf import settings
 
@@ -168,6 +169,60 @@ def _to_modal_domain_allowlist(allowed_domains: list[str]) -> list[str]:
         seen.add(domain)
         result.append(domain)
     return result
+
+
+def _resolve_sandbox_github_token(
+    ctx: TaskProcessingContext,
+    *,
+    task: Task,
+    actor_user: Any,
+    repository: str | None,
+    has_repo: bool,
+) -> str:
+    """Decide which GitHub credential (if any) a fresh sandbox gets.
+
+    A repo-less run that requested read-only access is resolved FIRST: _build_task attaches the
+    team's GitHub integration to every task, so has_github_credentials is true whenever the team
+    has GitHub connected at all — resolved the other way around, the write-capable installation
+    token would reach a run that asked for read-only. The read-only mint is best-effort (empty
+    string on failure, never the full token); the full credential path keeps its raise-on-failure
+    contract for repo-backed runs that can't work without credentials.
+    """
+    if ctx.github_read_access and not has_repo:
+        github_token = get_readonly_github_token(ctx.team_id) or ""
+        emit_agent_log(
+            ctx.run_id,
+            "debug",
+            "Read-only GitHub token minted for evidence gathering"
+            if github_token
+            else "Read-only GitHub token unavailable, continuing without GitHub access",
+        )
+        return github_token
+
+    should_inject_github_token = ctx.has_github_credentials and (
+        has_repo or ctx.github_user_integration_id is not None or ctx.github_integration_id is not None
+    )
+    if not should_inject_github_token:
+        return ""
+    try:
+        return (
+            get_sandbox_github_token(
+                ctx.github_integration_id,
+                run_id=ctx.run_id,
+                state=ctx.state,
+                task=task,
+                actor_user=actor_user,
+                github_user_integration_id=ctx.github_user_integration_id,
+                repository=repository,
+            )
+            or ""
+        )
+    except Exception as e:
+        raise GitHubAuthenticationError(
+            f"Failed to get GitHub token for integration {ctx.github_integration_id}",
+            {"github_integration_id": ctx.github_integration_id, "task_id": ctx.task_id, "error": str(e)},
+            cause=e,
+        )
 
 
 def _load_task(ctx: TaskProcessingContext) -> Task:
@@ -365,42 +420,9 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         shallow_clone = task.origin_product != Task.OriginProduct.SIGNAL_REPORT
 
         actor_user = get_task_run_credential_user(task, ctx.state)
-        github_token = ""
-        should_inject_github_token = ctx.has_github_credentials and (
-            has_repo or ctx.github_user_integration_id is not None or ctx.github_integration_id is not None
+        github_token = _resolve_sandbox_github_token(
+            ctx, task=task, actor_user=actor_user, repository=repository, has_repo=has_repo
         )
-        if should_inject_github_token:
-            try:
-                github_token = (
-                    get_sandbox_github_token(
-                        ctx.github_integration_id,
-                        run_id=ctx.run_id,
-                        state=ctx.state,
-                        task=task,
-                        actor_user=actor_user,
-                        github_user_integration_id=ctx.github_user_integration_id,
-                        repository=repository,
-                    )
-                    or ""
-                )
-            except Exception as e:
-                raise GitHubAuthenticationError(
-                    f"Failed to get GitHub token for integration {ctx.github_integration_id}",
-                    {"github_integration_id": ctx.github_integration_id, "task_id": ctx.task_id, "error": str(e)},
-                    cause=e,
-                )
-        elif ctx.github_read_access:
-            # Repo-less run that asked for read-only GitHub evidence access (e.g. a Signals scout
-            # resolving suggested reviewers from commit history). Best-effort by design — the helper
-            # returns None instead of raising, and the run proceeds without a token.
-            github_token = get_readonly_github_token(ctx.team_id) or ""
-            emit_agent_log(
-                ctx.run_id,
-                "debug",
-                "Read-only GitHub token minted for evidence gathering"
-                if github_token
-                else "Read-only GitHub token unavailable, continuing without GitHub access",
-            )
 
         try:
             access_token = create_oauth_access_token_for_run(task, ctx.state)

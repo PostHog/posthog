@@ -120,6 +120,7 @@ __all__ = [
     "append_task_run_log",
     "beacon_task_presence",
     "bootstrap_task_run",
+    "can_mint_readonly_github_token",
     "check_task_run_startable",
     "collect_task_run_state_metrics",
     "compute_repository_readiness",
@@ -3832,6 +3833,20 @@ def resolve_team_github_integration_id(team_id: int, github_integration_id: int)
     """
     exists = Integration.objects.filter(id=github_integration_id, team_id=team_id, kind="github").exists()
     return github_integration_id if exists else None
+
+
+def can_mint_readonly_github_token(team_id: int) -> bool:
+    """Whether a repo-less sandbox requesting `github_read_access` would actually get a token.
+
+    Preflight for callers that condition user-visible behavior (e.g. prompt guidance naming `gh`)
+    on the read-only token being obtainable — true only when the team has a usable team-level
+    GitHub installation. Never raises.
+    """
+    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keeps the temporal stack off the facade import path
+        can_mint_readonly_github_token as _can_mint,
+    )
+
+    return _can_mint(team_id)
 
 
 def _find_idling_warm_run(
