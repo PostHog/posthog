@@ -401,9 +401,8 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                         : dateFilterToText(
                               dateFrom,
                               dateTo,
-                              isFixedDateMode
-                                  ? (placeholder ?? SELECT_FIXED_VALUE_PLACEHOLDER)
-                                  : NO_OVERRIDE_RANGE_PLACEHOLDER,
+                              placeholder ??
+                                  (isFixedDateMode ? SELECT_FIXED_VALUE_PLACEHOLDER : NO_OVERRIDE_RANGE_PLACEHOLDER),
                               dateOptions,
                               false
                           )

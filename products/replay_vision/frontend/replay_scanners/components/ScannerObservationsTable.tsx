@@ -4,6 +4,7 @@ import { IconEye, IconPlay, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
@@ -94,6 +95,8 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         observationVerdictFilter,
         observationTagFilter,
         observationSubjectFilter,
+        observationDateFrom,
+        observationDateTo,
         hasActiveObservationFilters,
         observationDetailLinkParams,
         availableTags,
@@ -112,6 +115,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         setObservationVerdictFilter,
         setObservationTagFilter,
         setObservationSubjectFilter,
+        setObservationDateRange,
         clearObservationFilters,
     } = useActions(logic)
     const scannerType = scanner?.scanner_type
@@ -250,6 +254,13 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                     value={observationSubjectFilter}
                                     onChange={setObservationSubjectFilter}
                                     className="w-56"
+                                />
+                                <DateFilter
+                                    size="small"
+                                    dateFrom={observationDateFrom}
+                                    dateTo={observationDateTo}
+                                    placeholder="All time"
+                                    onChange={(dateFrom, dateTo) => setObservationDateRange(dateFrom, dateTo)}
                                 />
                                 <FilterPill<ObservationStatusValue>
                                     label="Status"
