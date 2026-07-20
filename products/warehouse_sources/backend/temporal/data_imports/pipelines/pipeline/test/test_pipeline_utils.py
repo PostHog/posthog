@@ -1258,21 +1258,27 @@ def test_source_uses_delta_write_column_selection(source_type, expected):
 
 
 @pytest.mark.parametrize(
-    "value,expected",
+    "partition_format,value,expected",
     [
-        # Parseable date strings bucket by their actual date.
-        ("2024-03-15", "2024-03"),
-        ("2024-06-01T12:00:00", "2024-06"),
-        # Non-date-like strings (e.g. a UUIDv7 primary key) must not crash the repartition —
-        # they fall back to the unknown-date sentinel.
-        ("0198d26d-134b-713a-84f7-24d78a416d9c", "1970-01"),
-        ("not a date at all", "1970-01"),
-        # Empty / whitespace-only strings also fall back to the sentinel.
-        ("", "1970-01"),
-        ("   ", "1970-01"),
+        # Parseable date strings bucket by their actual date in the active format.
+        ("month", "2024-03-15", "2024-03"),
+        ("month", "2024-06-01T12:00:00", "2024-06"),
+        ("day", "2024-03-15", "2024-03-15"),
+        # Non-date-like strings (e.g. a UUIDv7 primary key) and empty / whitespace-only strings
+        # must not crash the repartition — they fall back to the unknown-date sentinel. The
+        # sentinel is the epoch formatted with the active date_format, so it stays type-consistent
+        # with real values: a day-partitioned column gets "1970-01-01" (a valid DATE), not the
+        # month-shaped "1970-01" that would fail the DATE cast on the duckgres batch load.
+        ("month", "0198d26d-134b-713a-84f7-24d78a416d9c", "1970-01"),
+        ("month", "not a date at all", "1970-01"),
+        ("month", "", "1970-01"),
+        ("month", "   ", "1970-01"),
+        ("day", "0198d26d-134b-713a-84f7-24d78a416d9c", "1970-01-01"),
+        ("day", "", "1970-01-01"),
+        ("hour", "not a date at all", "1970-01-01T00"),
     ],
 )
-def test_append_partition_key_datetime_string_column(value, expected):
+def test_append_partition_key_datetime_string_column(partition_format, value, expected):
     table = pa.table({"id": pa.array([value], type=pa.string())})
 
     result = append_partition_key_to_table(
@@ -1281,7 +1287,7 @@ def test_append_partition_key_datetime_string_column(value, expected):
         partition_size=None,
         partition_keys=["id"],
         partition_mode="datetime",
-        partition_format="month",
+        partition_format=partition_format,
         logger=cast(FilteringBoundLogger, structlog.get_logger()),
     )
 

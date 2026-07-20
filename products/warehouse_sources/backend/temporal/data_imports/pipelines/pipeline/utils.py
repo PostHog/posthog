@@ -684,6 +684,11 @@ def append_partition_key_to_table(
                 elif partition_format == "month":
                     date_format = "%Y-%m"
 
+                # Bucket unknown dates into the epoch formatted with the active date_format, so the
+                # sentinel stays type-consistent with real values (e.g. "1970-01-01" for day) — a
+                # hardcoded "1970-01" only matches month format and fails the DATE cast on load.
+                unknown_date_sentinel = datetime.datetime(1970, 1, 1).strftime(date_format)
+
                 if isinstance(date, int):
                     date = datetime.datetime.fromtimestamp(date)
                     partition_array.append(date.strftime(date_format))
@@ -697,12 +702,12 @@ def append_partition_key_to_table(
                         partition_array.append(date.strftime(date_format))
                     except (ValueError, OverflowError):
                         # Non-date-like string (e.g. a UUID primary key) — treat as unknown date
-                        partition_array.append("1970-01")
+                        partition_array.append(unknown_date_sentinel)
                 elif isinstance(date, str):
                     # Empty string — treat as unknown date
-                    partition_array.append("1970-01")
+                    partition_array.append(unknown_date_sentinel)
                 else:
-                    partition_array.append("1970-01")
+                    partition_array.append(unknown_date_sentinel)
             else:
                 raise ValueError(f"Partition mode '{mode}' not supported")
 
