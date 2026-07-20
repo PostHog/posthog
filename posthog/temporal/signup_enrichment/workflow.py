@@ -74,7 +74,11 @@ async def enrich_signup_organization_activity(
     """
     from asgiref.sync import sync_to_async  # noqa: PLC0415 — heavy import kept off the workflow module path
 
-    close_old_connections()
+    # Django connections are thread-local and every ORM call below runs on asgiref's shared
+    # sync-executor thread, so cleanup must run on that thread too. Called directly it inspects
+    # the event-loop thread's (empty) connection list, and a dead connection in the executor
+    # thread then fails every activity on this worker until the pod is replaced.
+    await sync_to_async(close_old_connections)()
     logger = LOGGER.bind(organization_id=inputs.organization_id, is_recheck=is_recheck)
 
     if is_recheck:

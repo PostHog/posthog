@@ -78,6 +78,15 @@ def start_signup_enrichment_workflow(*, organization_id: str, distinct_id: str |
     transaction.on_commit(lambda: _submit_dispatch(inputs))
 
 
+def dispatch_signup_enrichment(inputs: SignupEnrichmentInputs) -> None:
+    """Synchronous dispatch for operational re-runs (management commands).
+
+    Skips the signup-path guards on purpose: the operator has already selected the orgs,
+    so the kill switch, region gate, and bounded pool don't apply.
+    """
+    _dispatch(inputs)
+
+
 def _submit_dispatch(inputs: SignupEnrichmentInputs) -> None:
     if not _dispatch_slots.acquire(blocking=False):
         logger.warning(
