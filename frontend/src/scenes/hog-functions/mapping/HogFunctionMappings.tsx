@@ -336,7 +336,9 @@ export function HogFunctionMappings(): JSX.Element | null {
                                                         dropdown: {
                                                             overlay: (
                                                                 <div className="deprecated-space-y-px">
-                                                                    <LemonButton onClick={() => toggleDisabled(mapping)}>
+                                                                    <LemonButton
+                                                                        onClick={() => toggleDisabled(mapping)}
+                                                                    >
                                                                         {mapping.disabled ? 'Enable' : 'Disable'}
                                                                     </LemonButton>
                                                                     <LemonButton onClick={() => renameMapping(mapping)}>
