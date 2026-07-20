@@ -401,6 +401,14 @@ class SearchMemoryQuerySerializer(serializers.Serializer):
         allow_blank=True,
         help_text="ILIKE substring match against `content`. Omit to return the most recent entries.",
     )
+    key = serializers.CharField(
+        required=False,
+        help_text=(
+            "Exact key match — returns the single entry with this key, or nothing. Use this to "
+            "re-read a known entry; `text` searches key *and* content, so it can push the row you "
+            "asked for past the limit."
+        ),
+    )
     date_from = serializers.DateTimeField(
         required=False,
         help_text="ISO-8601 inclusive lower bound on `updated_at`. Omit to skip the lower bound.",

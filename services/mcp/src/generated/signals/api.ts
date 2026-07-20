@@ -993,7 +993,7 @@ export const SignalsScoutRunsRecentEmissionsQueryParams = /* @__PURE__ */ zod.ob
 })
 
 /**
- * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Results capped at 1000.
+ * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`; pass `key` instead for an exact single-entry lookup. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Results capped at 1000.
  * @summary Search the scout scratchpad
  */
 export const SignalsScoutScratchpadSearchParams = /* @__PURE__ */ zod.object({
@@ -1025,6 +1025,13 @@ export const SignalsScoutScratchpadSearchQueryParams = /* @__PURE__ */ zod.objec
         .optional()
         .describe(
             'ISO-8601 exclusive upper bound on `updated_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `updated_at` of the oldest entry from the prior page).'
+        ),
+    key: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Exact key match — returns the single entry with this key, or nothing. Use this to re-read a known entry; `text` searches key *and* content, so it can push the row you asked for past the limit.'
         ),
     keys_only: zod
         .boolean()

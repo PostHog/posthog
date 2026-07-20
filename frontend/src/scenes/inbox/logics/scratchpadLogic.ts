@@ -25,9 +25,6 @@ const SCRATCHPAD_FETCH_LIMIT = 1000
 // Pull previews for the list and fetch the one body you expand. Sized well past two lines so
 // the overwhelming majority of notes arrive complete and never need the second read.
 export const SCRATCHPAD_PREVIEW_CHARS = 1200
-// The expand-time lookup re-runs the search against one key. `text` also matches content, so ask
-// for a few rows and pick the exact key out rather than assuming it sorts first.
-const SCRATCHPAD_KEY_LOOKUP_LIMIT = 5
 
 /** One namespace cluster in the "By topic" view: the raw prefix, a friendly label, and its entries. */
 export interface ScratchpadNamespaceGroup {
@@ -204,36 +201,33 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
             }
         },
 
-        loadFullContent: async ({ key }, breakpoint) => {
+        // Deliberately no `breakpoint()`: kea's is per-action, not per-key, so opening a second
+        // note would unwind the first request mid-flight and strand its key in
+        // `loadingContentKeys` — a card stuck on a skeleton that `toggleEntry` then refuses to
+        // retry. Every result is keyed, so a late response is written to its own entry and a
+        // superseded one is harmless.
+        loadFullContent: async ({ key }) => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
                 actions.loadFullContentFailure(key)
                 return
             }
-            let results: ScratchpadEntryApi[]
             try {
-                // No retrieve-by-key route exists, so re-run the search scoped to this key. `text`
-                // is an ILIKE across key *and* content, so match the key exactly rather than
-                // trusting the first row back.
-                results = await signalsScoutScratchpadSearch(String(teamId), {
-                    text: key,
-                    limit: SCRATCHPAD_KEY_LOOKUP_LIMIT,
-                })
+                // `key` is an exact match on the unique (team, key) pair. `text` would be an ILIKE
+                // across key *and* content, which can bury the row we asked for under newer
+                // entries that merely mention it.
+                const results = await signalsScoutScratchpadSearch(String(teamId), { key })
+                const match = results.find((entry) => entry.key === key)
+                if (match) {
+                    actions.loadFullContentSuccess(key, match.content ?? '')
+                    return
+                }
+                actions.loadFullContentFailure(key)
             } catch {
                 // The preview stays on screen, so a failure costs the reader the tail of one note
                 // rather than the whole card.
                 actions.loadFullContentFailure(key)
-                return
             }
-            // Outside the catch: a stale-response breakpoint throws to unwind, and swallowing it
-            // here would mark a superseded request as failed.
-            breakpoint()
-            const match = results.find((entry) => entry.key === key)
-            if (match) {
-                actions.loadFullContentSuccess(key, match.content ?? '')
-                return
-            }
-            actions.loadFullContentFailure(key)
         },
     })),
 

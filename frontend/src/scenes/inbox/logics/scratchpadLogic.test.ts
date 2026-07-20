@@ -21,8 +21,9 @@ const entry = (key: string, content: string): ScratchpadEntryApi =>
 // A body that fills the preview window exactly is what a truncated note looks like on the wire —
 // the API slices without leaving a marker.
 const TRUNCATED = entry('pattern:long', 'x'.repeat(SCRATCHPAD_PREVIEW_CHARS))
+const ALSO_TRUNCATED = entry('pattern:also-long', 'y'.repeat(SCRATCHPAD_PREVIEW_CHARS))
 const WHOLE = entry('pattern:short', 'a short note')
-const FULL_BODY = 'x'.repeat(SCRATCHPAD_PREVIEW_CHARS) + ' and the tail that got cut off'
+const fullBodyFor = (key: string): string => `${key} full body, tail included`
 
 describe('scratchpadLogic', () => {
     let logic: ReturnType<typeof scratchpadLogic.build>
@@ -35,11 +36,12 @@ describe('scratchpadLogic', () => {
                 [SCRATCHPAD_URL]: ({ request }) => {
                     const params = new URL(request.url).searchParams
                     searchRequests.push(params)
-                    // The expand-time lookup scopes to one key; everything else is the list read.
-                    if (params.get('text') === TRUNCATED.key) {
-                        return [200, [entry(TRUNCATED.key, FULL_BODY)]]
+                    // The expand-time lookup is an exact `key` match; everything else is the list read.
+                    const key = params.get('key')
+                    if (key) {
+                        return [200, [entry(key, fullBodyFor(key))]]
                     }
-                    return [200, [TRUNCATED, WHOLE]]
+                    return [200, [TRUNCATED, ALSO_TRUNCATED, WHOLE]]
                 },
             },
         })
@@ -63,11 +65,30 @@ describe('scratchpadLogic', () => {
         expect(searchRequests[0].get('content_max_chars')).toEqual(String(SCRATCHPAD_PREVIEW_CHARS))
     })
 
-    it('fetches the full body when a truncated entry is expanded', async () => {
+    it('fetches the full body by exact key when a truncated entry is expanded', async () => {
         logic.actions.toggleEntry(TRUNCATED.key)
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.fullContentByKey[TRUNCATED.key]).toEqual(FULL_BODY)
+        expect(logic.values.fullContentByKey[TRUNCATED.key]).toEqual(fullBodyFor(TRUNCATED.key))
+        expect(logic.values.loadingContentKeys).toEqual([])
+        // Not `text`: that is an ILIKE over key and content, so entries merely quoting this key
+        // can crowd the row we asked for out of the window.
+        expect(searchRequests[0].get('key')).toEqual(TRUNCATED.key)
+        expect(searchRequests[0].get('text')).toBeNull()
+    })
+
+    // A shared per-action breakpoint would unwind the first request when the second starts,
+    // leaving the first key stuck in `loadingContentKeys` behind a skeleton forever — and
+    // `toggleEntry` skips keys already loading, so it could never recover.
+    it('resolves both bodies when two notes are expanded back to back', async () => {
+        logic.actions.toggleEntry(TRUNCATED.key)
+        logic.actions.toggleEntry(ALSO_TRUNCATED.key)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.fullContentByKey).toEqual({
+            [TRUNCATED.key]: fullBodyFor(TRUNCATED.key),
+            [ALSO_TRUNCATED.key]: fullBodyFor(ALSO_TRUNCATED.key),
+        })
         expect(logic.values.loadingContentKeys).toEqual([])
     })
 

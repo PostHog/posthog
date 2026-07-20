@@ -985,7 +985,8 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="Search the scout scratchpad",
         description=(
             "Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` "
-            "and `key`. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, "
+            "and `key`; pass `key` instead for an exact single-entry lookup. "
+            "`date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, "
             "`< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls "
             "to walk past the cap. Pass `keys_only=true` to scan keys without pulling entry bodies, or "
             "`content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan "
@@ -1004,6 +1005,7 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         rows = search_scratchpad(
             team_id=_canonical_team_id(self),
             text=text,
+            key=validated.get("key") or None,
             date_from=date_from,
             date_to=date_to,
             limit=limit,

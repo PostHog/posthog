@@ -515,6 +515,25 @@ class TestSearchScratchpad(BaseTest):
 
         assert results[0].content == "abcdefghij"
 
+    @parameterized.expand([(0,), (-5,)])
+    def test_non_positive_content_max_chars_blanks_the_body(self, content_max_chars: int) -> None:
+        remember(team_id=self.team.id, key="k1", content="abcdefghij")
+
+        results = search_scratchpad(team_id=self.team.id, content_max_chars=content_max_chars)
+
+        assert results[0].content == ""
+
+    def test_key_lookup_survives_newer_entries_quoting_that_key(self) -> None:
+        remember(team_id=self.team.id, key="pattern:target", content="the body we want back")
+        # `text` would match all of these on content and, being newer, they'd crowd out the row.
+        for i in range(5):
+            remember(team_id=self.team.id, key=f"noise:{i}", content="see pattern:target for context")
+
+        results = search_scratchpad(team_id=self.team.id, key="pattern:target", limit=1)
+
+        assert [e.key for e in results] == ["pattern:target"]
+        assert results[0].content == "the body we want back"
+
 
 # --- emit adapter tests ---
 
