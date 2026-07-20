@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 
+import { wrapError } from '@/lib/errors'
 import { buildActiveEnvironmentContextPrompt } from '@/lib/instructions'
 import { ProjectSetActiveSchema } from '@/schema/tool-inputs'
 import type { CachedOrg, CachedProject, CachedUser, Context, ToolBase } from '@/tools/types'
@@ -17,7 +18,12 @@ export const setActiveHandler: ToolBase<typeof schema, Result>['handler'] = asyn
     const { projectId } = params
     const projectIdStr = projectId.toString()
 
-    const activeOrgId = (await context.cache.get('orgId')) ?? 'unknown'
+    // Resolve the active org the same way every other org-scoped tool does
+    // (`getOrgID` falls back to the API-key default and the cached project),
+    // rather than reading the raw `orgId` cache key which is often unset on the
+    // first call and would make the org comparison below always look like a switch.
+    const activeOrgId = await context.stateManager.getOrgID().catch(() => undefined)
+    const activeOrgLabel = activeOrgId ?? 'unknown'
 
     // Validate before committing the session: only switch to a project the user
     // can actually access. Previously the projectId was cached before the fetch,
@@ -25,10 +31,14 @@ export const setActiveHandler: ToolBase<typeof schema, Result>['handler'] = asyn
     // every later call failed with an opaque error instead.
     const projectResult = await context.api.projects().get({ projectId: projectIdStr })
     if (!projectResult.success) {
-        throw new Error(
-            `Could not switch to project ${projectIdStr}: it was not found or you don't have access to it from the active organization (${activeOrgId}). ` +
+        // Preserve the typed API error as `cause`: a not-found / no-access 404-403
+        // is a recoverable agent mistake that `handleToolError` should keep out of
+        // exception tracking, while a genuine 5xx still gets captured.
+        throw wrapError(
+            `Could not switch to project ${projectIdStr}: it was not found or you don't have access to it from the active organization (${activeOrgLabel}). ` +
                 'If the project belongs to a different organization, call `organizations-get` to list your organizations, then `switch-organization` to the one that owns it, and retry. ' +
-                'Use `projects-get` to see the projects available in the active organization.'
+                'Use `projects-get` to see the projects available in the active organization.',
+            projectResult.error
         )
     }
 
@@ -47,19 +57,20 @@ export const setActiveHandler: ToolBase<typeof schema, Result>['handler'] = asyn
     if (projectOrgId && projectOrgId !== activeOrgId) {
         await context.cache.set('orgId', projectOrgId)
         orgId = projectOrgId
-        switchedOrg = true
-        const orgResult = await context.api.organizations().get({ orgId: projectOrgId })
-        if (orgResult.success) {
-            org = orgResult.data
-            await context.cache.set(`cachedOrg:${projectOrgId}` as const, org)
-            await context.cache.set(`cachedOrgFetchedAt:${projectOrgId}` as const, Date.now())
-        }
+        // Only a genuine switch if a different org was already active; when no org
+        // was resolved yet we're just establishing context, not switching away.
+        switchedOrg = activeOrgId !== undefined
+        // Fetch the org through the shared resolver so the scoped-token guard
+        // (which skips the non-project-nested `/api/organizations/{id}/` call the
+        // backend rejects for project-scoped keys) and org caching stay in one
+        // place instead of being duplicated here and drifting.
+        org = await context.stateManager.getCachedOrFetchOrg()
     }
 
     // Read cached user (and org, when we didn't just fetch it) for the metadata block
     const distinctId = (await context.cache.get('distinctId')) ?? 'unknown'
     const user = (await context.cache.get(`cachedUser:${distinctId}` as const)) as CachedUser | undefined
-    if (!org) {
+    if (!org && orgId) {
         org = (await context.cache.get(`cachedOrg:${orgId}` as const)) as CachedOrg | undefined
     }
 

@@ -14,7 +14,7 @@
         {
             "properties": {
                 "id": {
-                    "description": "Alias for `orgId`. Accepts the `id` returned by `organizations-get`.",
+                    "description": "Alias for `orgId`. Accepts the `id` returned by `organizations-list` / `organization-get`.",
                     "type": "string"
                 }
             },
