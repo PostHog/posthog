@@ -419,6 +419,10 @@ export const dataTableLogic = kea<dataTableLogicType>([
             (s) => [s.response],
             (response: AnyDataNode['response']): string[] | null =>
                 response && 'columns' in response && Array.isArray(response.columns) ? response?.columns : null,
+            // `response` gets a new object identity on every reload/poll even when its columns
+            // are unchanged; without this, getExpandedRowKey (and DataTable's expandableConfig
+            // useMemo, which depends on it) would rebuild every poll tick.
+            { resultEqualityCheck: objectsEqual },
         ],
         dataTableRows: [
             (s) => [
