@@ -95,7 +95,12 @@ export interface billingProductLogicValues {
     timeRemainingInSeconds: number // billingLogic
     timeTotalInSeconds: number // billingLogic
     unsubscribeError: UnsubscribeError | null // billingLogic
+    unusedPlatformAddonAmount: number // billingLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
+    amountDueBeforeCredits: number
+    amountDueToday: number
+    appliedCreditBalance: number
+    availableCreditBalance: number
     billingGaugeItems: BillingGaugeItemType[]
     billingLimitAsUsage: number
     billingLimitConfig: BillingLimitConfig
@@ -121,6 +126,7 @@ export interface billingProductLogicValues {
     combinedMonetaryGaugeItems: BillingGaugeItemType[]
     comparisonModalHighlightedFeatureKey: string | null
     confirmDowngradeModalOpen: boolean
+    confirmPurchaseModalOpen: boolean
     confirmUpgradeModalOpen: boolean
     currentAmountTotalActual: string
     currentAndUpgradePlans: {
@@ -222,6 +228,9 @@ export interface billingProductLogicActions {
     confirmProductDowngrade: () => {
         value: true
     }
+    confirmProductPurchase: () => {
+        value: true
+    }
     confirmProductUpgrade: () => {
         value: true
     }
@@ -233,6 +242,9 @@ export interface billingProductLogicActions {
         redirectPath: string | undefined
     }
     hideConfirmDowngradeModal: () => {
+        value: true
+    }
+    hideConfirmPurchaseModal: () => {
         value: true
     }
     hideConfirmUpgradeModal: () => {
@@ -323,6 +335,9 @@ export interface billingProductLogicActions {
     showConfirmDowngradeModal: () => {
         value: true
     }
+    showConfirmPurchaseModal: () => {
+        value: true
+    }
     showConfirmUpgradeModal: () => {
         value: true
     }
@@ -391,6 +406,14 @@ export interface billingProductLogicMeta {
             billing: BillingType | null,
             product: BillingProductV2AddonType | BillingProductV2Type
         ) => boolean
+        availableCreditBalance: (billing: BillingType | null) => number
+        amountDueBeforeCredits: (
+            proratedAmount: number,
+            unusedPlatformAddonAmount: number,
+            isSubscribedToAnotherAddon: boolean
+        ) => number
+        appliedCreditBalance: (amountDueBeforeCredits: number, availableCreditBalance: number) => number
+        amountDueToday: (amountDueBeforeCredits: number, appliedCreditBalance: number) => number
         customLimitUsd: (
             billing: BillingType | null,
             product: BillingProductV2AddonType | BillingProductV2Type
@@ -792,23 +815,24 @@ export const billingProductLogic = kea<billingProductLogicType>([
         // additionally itemize the credit balance and show amountDueToday (what hits the card).
         availableCreditBalance: [
             (s) => [s.billing],
-            (billing): number => (billing?.discount_amount_usd ? parseFloat(billing.discount_amount_usd) : 0),
+            (billing: BillingType | null): number =>
+                billing?.discount_amount_usd ? parseFloat(billing.discount_amount_usd) : 0,
         ],
         amountDueBeforeCredits: [
             (s) => [s.proratedAmount, s.unusedPlatformAddonAmount, s.isSubscribedToAnotherAddon],
-            (proratedAmount, unusedPlatformAddonAmount, isSubscribedToAnotherAddon): number =>
+            (proratedAmount: number, unusedPlatformAddonAmount: number, isSubscribedToAnotherAddon: boolean): number =>
                 // Unused time on the current platform add-on only offsets a switch to another
                 // one; a fresh purchase has nothing to trade in.
                 Math.max(0, proratedAmount - (isSubscribedToAnotherAddon ? unusedPlatformAddonAmount : 0)),
         ],
         appliedCreditBalance: [
             (s) => [s.amountDueBeforeCredits, s.availableCreditBalance],
-            (amountDueBeforeCredits, availableCreditBalance): number =>
+            (amountDueBeforeCredits: number, availableCreditBalance: number): number =>
                 Math.min(amountDueBeforeCredits, availableCreditBalance),
         ],
         amountDueToday: [
             (s) => [s.amountDueBeforeCredits, s.appliedCreditBalance],
-            (amountDueBeforeCredits, appliedCreditBalance): number =>
+            (amountDueBeforeCredits: number, appliedCreditBalance: number): number =>
                 Math.max(0, amountDueBeforeCredits - appliedCreditBalance),
         ],
         customLimitUsd: [
