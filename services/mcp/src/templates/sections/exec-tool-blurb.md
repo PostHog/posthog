@@ -2,11 +2,11 @@
 
 PostHog: dashboards, insights, funnels, SQL, experiments, surveys, replay, error tracking, flags.
 
-Pass CLI-style commands in the `command` parameter for all PostHog interactions.
+All PostHog capabilities use CLI-style commands through `exec`. Before claiming one is unavailable or using browser automation, run `search <term>`. Browser login cannot change MCP permissions.
 
 **Requirements**
 
-1. Find unknown tools with `search` or `tools`.
+1. Find unknown tools with `search` or `tools`. If search reports missing scopes, reconnect or reauthorize the MCP connection. Do not use browser automation as a workaround.
 2. Run `info <tool_name>` once if its schema is not in context. Reuse it unless the tool changes or a schema error occurs.
 
 Never guess a schema or run `info` before every call.
@@ -14,17 +14,9 @@ Never guess a schema or run `info` before every call.
 **Commands (in order):**
 
 ```text
-# 1. Find unknown tools
 posthog:exec({ "command": "search <regex>" })
-posthog:exec({ "command": "tools" })            # fallback: list all
-
-# 2. Inspect once if the schema is missing
 posthog:exec({ "command": "info <tool_name>" })
-
-# 3. Drill into complex fields — REQUIRED for any field with a `hint`
 posthog:exec({ "command": "schema <tool_name> <field_path>" })
-
-# 4. Call; reuse the schema
 posthog:exec({ "command": "call <tool_name> <json_input>" })
 posthog:exec({ "command": "call --json <tool_name> <json_input>" })
 ```

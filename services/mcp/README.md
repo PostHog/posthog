@@ -287,6 +287,8 @@ x-posthog-mcp-mode: tools
 | `tools` | Force tools mode (one MCP tool per PostHog tool).       |
 | `cli`   | Force cli mode (single `posthog` tool wraps all tools). |
 
+In cli mode, capabilities that are not visible as top-level MCP tools are still available through the wrapper. Agents should run `search <term>`, inspect the result with `info <tool_name>`, then invoke it with `call <tool_name> <json_input>`. If search reports that a matching tool is hidden by missing scopes, reconnect or reauthorize the MCP connection. Signing in through a browser does not update the MCP token or its scopes.
+
 The header wins when both the header and the query parameter are set.
 An explicit value always wins over the client auto-detection; any other value is ignored and the auto-detection takes over.
 
