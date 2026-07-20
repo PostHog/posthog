@@ -1,9 +1,4 @@
-import {
-    type ChangeTypes,
-    type FileDiffMetadata,
-    type FileDiffOptions,
-    parsePatchFiles,
-} from '@pierre/diffs'
+import { type ChangeTypes, type FileDiffMetadata, type FileDiffOptions, parsePatchFiles } from '@pierre/diffs'
 import { FileDiff } from '@pierre/diffs/react'
 import { useValues } from 'kea'
 import { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
@@ -212,8 +207,8 @@ export function PullRequestDiffView({
         }
     }, [diff, cacheKey])
 
-    const optionsByFile = useMemo<Map<string, FileDiffOptions>>(() => {
-        const map = new Map<string, FileDiffOptions>()
+    const optionsByFile = useMemo<Map<string, FileDiffOptions<never>>>(() => {
+        const map = new Map<string, FileDiffOptions<never>>()
         for (const file of files) {
             map.set(file.name, {
                 theme: DIFF_THEME,
