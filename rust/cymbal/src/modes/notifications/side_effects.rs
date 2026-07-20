@@ -163,7 +163,7 @@ pub async fn send_issue_spiking_internal_event<I: NotificationIssue>(
     internal_events_topic: &str,
     notification_id: Uuid,
     issue: &I,
-    fingerprint: &str,
+    processed_properties: &ProcessedExceptionProperties,
     detected_at: DateTime<Utc>,
     computed_baseline: f64,
     current_bucket_value: f64,
@@ -188,13 +188,14 @@ pub async fn send_issue_spiking_internal_event<I: NotificationIssue>(
         .insert_prop("current_bucket_value", current_bucket_value)
         .expect("insert_prop for current_bucket_value should never fail");
     event
-        .insert_prop("fingerprint", fingerprint)
+        .insert_prop("fingerprint", processed_properties.fingerprint())
         .expect("insert_prop for fingerprint should never fail");
     // Spikes are detected on live traffic, so detection time is a good anchor for finding
     // example events.
     event
         .insert_prop("exception_timestamp", detected_at)
         .expect("insert_prop for exception_timestamp should never fail");
+    event.insert_prop("exception_props", processed_properties)?;
 
     let iter = [InternalEvent {
         team_id: issue.team_id(),

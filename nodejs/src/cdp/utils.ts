@@ -245,7 +245,11 @@ export function isNativeHogFunction(hogFunction: Pick<HogFunctionType, 'template
 }
 
 export function isInternalErrorTrackingEvent(event: CdpInternalEvent['event']): boolean {
-    return ['$error_tracking_issue_created', '$error_tracking_issue_reopened'].includes(event.event)
+    return [
+        '$error_tracking_issue_created',
+        '$error_tracking_issue_reopened',
+        '$error_tracking_issue_spiking',
+    ].includes(event.event)
 }
 
 export function filterExists<T>(value: T): value is NonNullable<T> {
