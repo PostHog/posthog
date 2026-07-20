@@ -621,6 +621,12 @@ class VisionActionRunListSerializer(serializers.ModelSerializer):
     error_reason = serializers.SerializerMethodField(
         help_text="Short human-readable reason a run skipped or failed; null on success.",
     )
+    is_recovery = serializers.SerializerMethodField(
+        help_text=(
+            "True for the run recording an alert's condition clearing after a breach (the recovery "
+            "bookend in run history). False for alert firings and summaries."
+        ),
+    )
 
     class Meta:
         model = VisionActionRun
@@ -630,6 +636,7 @@ class VisionActionRunListSerializer(serializers.ModelSerializer):
             "scheduled_at",
             "observation_count",
             "error_reason",
+            "is_recovery",
             "created_at",
             "updated_at",
         ]
@@ -648,6 +655,13 @@ class VisionActionRunListSerializer(serializers.ModelSerializer):
         if run.status == VisionActionRunStatus.FAILED:
             return "This run failed while generating the summary."
         return None
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_recovery(self, run: VisionActionRun) -> bool:
+        # The engine stamps recovery runs with output.recovered (alerts._persist_recovered) — the
+        # marker that distinguishes the bookend from a firing, since both persist a message.
+        output = run.output if isinstance(run.output, dict) else {}
+        return bool(output.get("recovered"))
 
 
 class VisionActionRunSerializer(VisionActionRunListSerializer):

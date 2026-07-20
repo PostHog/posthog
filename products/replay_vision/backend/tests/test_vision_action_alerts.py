@@ -90,7 +90,7 @@ class TestVisionActionAlerts(BaseTest):
         self.assertEqual(result.metric_value, 2.0)
         run.refresh_from_db()
         run_url = f"{settings.SITE_URL}/project/{self.team.id}/replay-vision/actions/{action.id}/runs/{run.pk}"
-        self.assertIn(f"Alert: [watcher]({run_url})", run.synthesized_markdown)
+        self.assertIn(f"Alert: [alert-watcher]({run_url})** for scanner watcher", run.synthesized_markdown)
         self.assertIn("over the last 24 hours", run.synthesized_markdown)
         self.assertIn("at or above the threshold of 2", run.synthesized_markdown)
         self.assertIn("2 observations matched", run.synthesized_markdown)
@@ -99,7 +99,7 @@ class TestVisionActionAlerts(BaseTest):
         self.assertEqual(run.observation_ids, [str(newest.id), str(older.id)])
         self.assertIn("[obs 1]", run.synthesized_markdown)
         self.assertIn("[obs 2]", run.synthesized_markdown)
-        self.assertIn(f"<{run_url}|watcher>", run.output["slack"])
+        self.assertIn(f"<{run_url}|alert-watcher>", run.output["slack"])
         self.assertIn(f"/observations/{newest.id}|[1]>", run.output["slack"])
         self.assertIn(f"/observations/{older.id}|[2]>", run.output["slack"])
         # Every match is already listed, so there's no "see all" overflow link to add noise.
@@ -142,6 +142,55 @@ class TestVisionActionAlerts(BaseTest):
         if expected == AlertStatus.NOT_BREACHED:
             run.refresh_from_db()
             self.assertEqual(run.synthesized_markdown, "")
+
+    def test_recovery_bookends_the_breach_and_rearms_the_alert(self) -> None:
+        # fire → recover → fire again. The recovery run must be persisted as a visible message AND
+        # must read as "cleared" in state resolution — misread as a breach, it would suppress the
+        # next firing forever (a fired run also has a persisted message).
+        scanner = self._scanner()
+        obs = self._observation(scanner, {"verdict": "yes"})
+        action = self._alert(scanner, {"metric": "count", "threshold": 1})
+
+        fired, fired_run = self._evaluate(action)
+        self.assertEqual(fired.status, AlertStatus.FIRED)
+        self._record(fired_run, VisionActionRunStatus.COMPLETED)
+
+        # The observation ages out of the rolling window: count drops to a measurable 0.
+        aged = timezone.now() - timedelta(days=2)
+        ReplayObservation.objects.filter(pk=obs.pk).update(completed_at=aged, created_at=aged)
+        recovered, recovery_run = self._evaluate(action, key="k2")
+
+        self.assertEqual(recovered.status, AlertStatus.RECOVERED)
+        recovery_run.refresh_from_db()
+        self.assertIn("Recovered: [alert-watcher](", recovery_run.synthesized_markdown)
+        self.assertIn("below the threshold of 1", recovery_run.synthesized_markdown)
+        self.assertIn("had been firing since", recovery_run.synthesized_markdown)
+        self.assertTrue(recovery_run.output["recovered"])
+        self._record(recovery_run, VisionActionRunStatus.COMPLETED)
+
+        # A fresh match after recovery is a new incident — it must fire, not report still_breached.
+        self._observation(scanner, {"verdict": "yes"}, session_id="s-new")
+        refired, _ = self._evaluate(action, key="k3")
+        self.assertEqual(refired.status, AlertStatus.FIRED)
+
+    def test_unmeasurable_window_after_breach_rearms_without_recovery_row(self) -> None:
+        # An avg over an empty window has no measurement, so it can't claim "back at X" — the alert
+        # re-arms via a quiet not_breached skip instead of a recovery bookend.
+        scanner = self._scanner(scanner_type=ScannerType.SCORER, name="fading-scorer")
+        obs = self._observation(scanner, {"score": 5})
+        action = self._alert(scanner, {"metric": "avg_score", "threshold": 4})
+
+        fired, fired_run = self._evaluate(action)
+        self.assertEqual(fired.status, AlertStatus.FIRED)
+        self._record(fired_run, VisionActionRunStatus.COMPLETED)
+
+        aged = timezone.now() - timedelta(days=2)
+        ReplayObservation.objects.filter(pk=obs.pk).update(completed_at=aged, created_at=aged)
+        result, run = self._evaluate(action, key="k2")
+
+        self.assertEqual(result.status, AlertStatus.NOT_BREACHED)
+        run.refresh_from_db()
+        self.assertEqual(run.synthesized_markdown, "")
 
     def test_below_direction_message_says_at_or_below(self) -> None:
         scanner = self._scanner(scanner_type=ScannerType.SCORER, name="floor-scorer")

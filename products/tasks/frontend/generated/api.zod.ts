@@ -472,6 +472,13 @@ export const TasksCreateBody = /* @__PURE__ */ zod
                 "When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead."
             ),
         channel: zod.uuid().nullish().describe('Channel this task is owned by (the channel it was kicked off in).'),
+        runtime: zod
+            .enum(['acp', 'pi'])
+            .describe('\* `acp` - ACP\n\* `pi` - Pi')
+            .optional()
+            .describe(
+                "Agent protocol and harness used for this task's runs. Defaults to ACP when omitted.\n\n\* `acp` - ACP\n\* `pi` - Pi"
+            ),
     })
     .describe(
         'Request body for creating or updating a task.\n\nField required\/default semantics match the ``Task`` model. The view passes\n``validated_data`` (integration\/report PK fields already resolved to instances) to the\nfacade ``create_task`` \/ ``update_task`` functions.'
@@ -1874,6 +1881,8 @@ export const TasksRunsCommandCreateBody = /* @__PURE__ */ zod
  */
 export const tasksRunsRelayMessageCreateBodyTextMax = 10000
 
+export const tasksRunsRelayMessageCreateBodyMessageIdMax = 128
+
 export const tasksRunsRelayMessageCreateBodyTextPartsItemMax = 10000
 
 export const TasksRunsRelayMessageCreateBody = /* @__PURE__ */ zod.object({
@@ -1881,6 +1890,11 @@ export const TasksRunsRelayMessageCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(tasksRunsRelayMessageCreateBodyTextMax)
         .describe('Joined message body. Used when text_parts is absent.'),
+    message_id: zod
+        .string()
+        .max(tasksRunsRelayMessageCreateBodyMessageIdMax)
+        .nullish()
+        .describe('Id of the user message this turn answers, when the agent-server echoes it.'),
     text_parts: zod
         .array(zod.string().max(tasksRunsRelayMessageCreateBodyTextPartsItemMax))
         .optional()

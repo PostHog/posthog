@@ -186,6 +186,13 @@ pub struct Config {
     #[envconfig(from = "INGESTION_WORKER_CONCURRENT_BATCHES", default = "1")]
     pub ingestion_worker_concurrent_batches: usize,
 
+    /// Gzip-compress /ingest request bodies (`Content-Encoding: gzip`). Batch
+    /// bodies are JSON wrapping JSON-text Kafka messages, so they compress
+    /// several-fold; the worker's Express body parser inflates transparently.
+    /// Kill switch in case compression CPU cost is ever implicated.
+    #[envconfig(from = "INGESTION_TRANSPORT_COMPRESSION_ENABLED", default = "true")]
+    pub transport_compression_enabled: bool,
+
     /// Shared secret for authenticating with Node.js workers (X-Internal-Api-Secret header)
     #[envconfig(default = "")]
     pub internal_api_secret: String,
@@ -224,6 +231,29 @@ pub struct Config {
     /// (power-of-two-choices — herd-resistant for a shared worker pool).
     #[envconfig(from = "INGESTION_ROUTING_STRATEGY", default = "binpack")]
     pub routing_strategy: RoutingStrategy,
+
+    /// Minimum aperture width for `INGESTION_ROUTING_STRATEGY=aperture`: how
+    /// many workers this dispatcher's ring slice spans. The effective width
+    /// is floored at `ceil(pool / dispatchers)` so the fleet's slices always
+    /// cover the whole pool, no matter the pool/dispatcher ratio. Small
+    /// values maximize sub-batch consolidation; the width becomes
+    /// feedback-driven in a later stage.
+    #[envconfig(from = "INGESTION_MIN_APERTURE", default = "3")]
+    pub min_aperture: usize,
+
+    // ---- Peer awareness ----
+    /// Kubernetes Service whose EndpointSlices list this consumer's own peer
+    /// pods. Enables coordination-free peer awareness (each pod's stable index
+    /// among its replicas), the basis for deterministic aperture routing.
+    /// Empty (default) disables it. The Service is looked up in the pod's own
+    /// namespace (`POD_NAMESPACE`).
+    #[envconfig(from = "PEER_SERVICE_NAME", default = "")]
+    pub peer_service_name: String,
+
+    /// This pod's IP from the downward API, used to locate self in the peer
+    /// Service's EndpointSlices. Required when PEER_SERVICE_NAME is set.
+    #[envconfig(from = "POD_IP")]
+    pub pod_ip: Option<String>,
 
     // ---- Worker health / registry ----
     /// How often to probe each worker's /_ready endpoint (milliseconds).

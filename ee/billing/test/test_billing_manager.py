@@ -74,6 +74,25 @@ class TestBillingManager(BaseTest):
             "https://billing.posthog.com/api/products-v2", params={"plan": "standard"}, headers={}
         )
 
+    @parameterized.expand(
+        [
+            ("with_ip", "203.0.113.7", True),
+            ("without_ip", None, False),
+        ]
+    )
+    def test_get_auth_headers_forwards_actor_ip(self, _name, ip_address, expect_header):
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+        headers = BillingManager(license, self.user, ip_address=ip_address).get_auth_headers(self.organization)
+
+        assert headers["Authorization"].startswith("Bearer ")
+        assert ("X-PostHog-Actor-IP" in headers) is expect_header
+        if expect_header:
+            assert headers["X-PostHog-Actor-IP"] == ip_address
+
     @patch(
         "ee.billing.billing_manager.requests.patch",
         return_value=MagicMock(status_code=200, json=MagicMock(return_value={"text": "ok"})),
@@ -249,6 +268,7 @@ class TestBillingManager(BaseTest):
             "replay_vision_credits": {},
             "posthog_code_credits": {},
             "workflow_emails": {"usage": 100, "limit": 10000, "todays_usage": 10},
+            "workflow_push": {},
             "workflow_destinations_dispatched": {"usage": 50, "limit": 10000, "todays_usage": 5},
             "logs_mb_ingested": {"usage": 5500, "limit": 50000, "todays_usage": 500},
             "period": ["2024-01-01T00:00:00Z", "2024-01-31T23:59:59Z"],

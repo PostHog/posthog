@@ -492,7 +492,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                 {observation.session_id}
                             </Link>
                         </LabeledRow>
-                        <LabeledRow label="Recording subject">
+                        <LabeledRow label="Person">
                             {observation.distinct_id ? (
                                 <Link to={urls.personByDistinctId(observation.distinct_id)}>
                                     {observation.recording_subject_email ?? observation.distinct_id}

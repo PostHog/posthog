@@ -94,6 +94,18 @@ export const AuthModeSchema = z.discriminatedUnion('type', [
         type: z.literal('shared_secret'),
         header: z.string().min(1),
         secret_ref: z.string().min(1),
+        /** How the header proves possession of the secret:
+         *    - omitted / `plain`: the header carries the secret verbatim.
+         *    - `hmac_sha256`: the header carries hex `HMAC-SHA256(raw request
+         *      body, secret)` — for signers that never send the secret itself
+         *      (GitHub's `X-Hub-Signature-256`, and most webhook providers).
+         *  Same trust model either way: possession of the one secret == the
+         *  one principal. */
+        scheme: z.enum(['plain', 'hmac_sha256']).optional(),
+        /** `hmac_sha256` only: prefix expected before the hex digest in the
+         *  header value. Defaults to GitHub's `sha256=`; set `''` for signers
+         *  that send the bare digest. */
+        signature_prefix: z.string().optional(),
     }),
     /** PostHog-internal server-to-server token (for Django ↔ ingress). */
     z.object({ type: z.literal('posthog_internal') }),
@@ -1080,7 +1092,7 @@ export const AgentSpecObjectSchema = z.object({
  * otherwise a spec with `authoritative_provider` set would silently admit the
  * transport claim as the identity, defeating the gate.
  */
-const ADMISSION_WIRED_TRIGGER_TYPES: readonly Trigger['type'][] = ['slack']
+const ADMISSION_WIRED_TRIGGER_TYPES: readonly Trigger['type'][] = ['slack', 'chat']
 
 export const AgentSpecSchema = AgentSpecObjectSchema.superRefine((spec, ctx) => {
     // authoritative_provider must reference an identity_providers[] entry that can
@@ -1206,6 +1218,24 @@ export function secretHostMatches(pattern: string, host: string): boolean {
 }
 
 /**
+ * If either side went through authoritative admission, both must resolve to
+ * the SAME canonical identity. A rebound canonical (unlink + re-link as a
+ * different subject; or an admission trust model that flipped on/off between
+ * the stored session and this request) is a new principal, not a resume of
+ * the old thread — otherwise the new identity would drive a session that
+ * still references the previous identity's stored credentials.
+ */
+function canonicalIdentityMatches(
+    stored: { canonical_agent_user_id?: string },
+    incoming: { canonical_agent_user_id?: string }
+): boolean {
+    if (stored.canonical_agent_user_id || incoming.canonical_agent_user_id) {
+        return stored.canonical_agent_user_id === incoming.canonical_agent_user_id
+    }
+    return true
+}
+
+/**
  * Strict principal match: same kind + same identifying key. Used at the
  * trigger edge (`/send`, Slack-thread resumes) to keep one user's session
  * scoped to that user, and by the runner's per-asker approval shortcut to
@@ -1227,13 +1257,26 @@ export function principalsMatch(stored: SessionPrincipal | null, incoming: Sessi
         case 'anonymous':
             return true
         case 'posthog':
-            return (
-                incoming.kind === 'posthog' &&
-                stored.user_id === incoming.user_id &&
-                stored.team_id === incoming.team_id
-            )
+            if (
+                incoming.kind !== 'posthog' ||
+                stored.user_id !== incoming.user_id ||
+                stored.team_id !== incoming.team_id
+            ) {
+                return false
+            }
+            return canonicalIdentityMatches(stored, incoming)
         case 'jwt':
-            return incoming.kind === 'jwt' && stored.sub === incoming.sub
+            if (
+                incoming.kind !== 'jwt' ||
+                stored.sub !== incoming.sub ||
+                // Issuer-scoped: `sub` is only meaningful within one issuer's
+                // trust domain — the same sub under a different configured
+                // jwt mode is a different caller, not a resume.
+                stored.issuer_secret_ref !== incoming.issuer_secret_ref
+            ) {
+                return false
+            }
+            return canonicalIdentityMatches(stored, incoming)
         case 'slack':
             if (
                 incoming.kind !== 'slack' ||
@@ -1242,17 +1285,7 @@ export function principalsMatch(stored: SessionPrincipal | null, incoming: Sessi
             ) {
                 return false
             }
-            // If either side went through authoritative admission, both must
-            // resolve to the SAME canonical identity. A rebound canonical
-            // (unlink + re-link as a different subject; or an admission trust
-            // model that flipped on/off between the stored session and this
-            // request) is a new principal, not a resume of the old thread —
-            // otherwise the new identity would drive a session that still
-            // references the previous identity's stored credentials.
-            if (stored.canonical_agent_user_id || incoming.canonical_agent_user_id) {
-                return stored.canonical_agent_user_id === incoming.canonical_agent_user_id
-            }
-            return true
+            return canonicalIdentityMatches(stored, incoming)
         case 'posthog_internal':
             return incoming.kind === 'posthog_internal' && stored.team_id === incoming.team_id
         case 'shared_secret':
@@ -1337,6 +1370,9 @@ export type SessionPrincipal =
           team_id: number
           email?: string
           scopes?: string[]
+          /** Canonical identity (authoritative provider) set by edge admission;
+           *  keys secondary links when present. Absent on passthrough. */
+          canonical_agent_user_id?: string
       }
     /** JWT signed with the agent's configured secret. `sub` + `claims`
      *  are author-defined; the platform treats them as opaque. */
@@ -1345,6 +1381,9 @@ export type SessionPrincipal =
           issuer_secret_ref: string
           sub: string
           claims: Record<string, unknown>
+          /** Canonical identity (authoritative provider) set by edge admission;
+           *  keys secondary links when present. Absent on passthrough. */
+          canonical_agent_user_id?: string
       }
     /**
      * Slack user resolved through the slack integration. Pure Slack

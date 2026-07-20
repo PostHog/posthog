@@ -126,6 +126,42 @@ BIGQUERY_INVALID_IDENTIFIER_ERROR = (
     "Please check the Project ID and Dataset ID in your source configuration."
 )
 
+# Google's token endpoint rejected the service account grant (rotated/revoked private key or a
+# deleted service account). Shared between onboarding credential validation and the sync-path
+# classifier in `BigQuerySource.get_non_retryable_errors`, so the two stay in lockstep. The wording
+# reads the same in both contexts ("upload a new key file"), so keep it free of context-specific
+# phrasing like "re-enable the sync".
+BIGQUERY_CREDENTIALS_REJECTED_ERROR = (
+    "Your BigQuery service account credentials were rejected by Google. The key may have been "
+    "rotated or revoked, or the service account deleted. Please upload a new Google Cloud JSON key file."
+)
+
+# The private key in the uploaded JSON key file couldn't be parsed (truncated/corrupted PEM body).
+# Shared with the sync-path classifier for lockstep; wording is context-neutral.
+BIGQUERY_INVALID_KEY_FILE_ERROR = (
+    "We couldn't read the private key in your Google Cloud JSON key file — it appears truncated or "
+    "corrupted. Please download a fresh service account key from Google Cloud and re-upload the JSON file."
+)
+
+# Onboarding-time messages. Unlike the sync-path classifier these are only reached during credential
+# validation, where the fix is to correct the input and try again rather than re-enable a sync.
+BIGQUERY_MISSING_KEY_FILE_FIELDS_ERROR = (
+    "Your Google Cloud JSON key file is missing required fields. Upload the full service account key "
+    "downloaded from Google Cloud. It must include project_id, private_key, private_key_id, "
+    "client_email, and token_uri."
+)
+
+BIGQUERY_VALIDATION_PERMISSION_DENIED_ERROR = (
+    "BigQuery denied access to the configured dataset or tables. Make sure your service account has "
+    "read access (for example the BigQuery Data Viewer role) on the dataset and the tables you want "
+    "to sync, then try again."
+)
+
+BIGQUERY_VALIDATION_GENERIC_ERROR = (
+    "Could not validate your BigQuery credentials. Please check your JSON key file, Project ID, "
+    "Dataset ID, and dataset region, then try again."
+)
+
 # BigQuery occasionally fails a query job with a transient `jobInternalError`, surfaced from the
 # `jobs.getQueryResults` REST call as a 400 BadRequest whose message ends "The job encountered an
 # error during execution. Retrying the job may solve the problem.". The client's default job-retry
@@ -153,16 +189,41 @@ def _is_transient_rate_quota_exceeded(exc: Exception) -> bool:
     return "per second" in message and "Custom quota exceeded" not in message
 
 
-def _query_job_should_retry(exc: Exception) -> bool:
+def _is_transient_queued_jobs_quota_exceeded(exc: Exception) -> bool:
+    """True for BigQuery's "maximum number of queued jobs" quota, which is transient.
+
+    When a project already has the maximum number of query jobs queued, BigQuery rejects a fresh
+    `jobs.insert` with a `Forbidden` (403, reason `quotaExceeded`, location `max_queued_jobs`) whose
+    message reads "Quota exceeded: ... exceeded quota for max number of jobs that can be queued per
+    project.". The queue drains as running jobs finish, so resubmitting a moment later succeeds — but
+    the library's own retry predicates only cover `rateLimitExceeded` / `backendError` /
+    `internalError`, not `quotaExceeded`, so the insert isn't retried and the whole sync crashes.
+    Unlike the per-second rate quota this is rejected at job creation rather than
+    `jobs.getQueryResults`, so the `retry` on `client.query()` — not just its `job_retry` — has to
+    cover it. Distinct from the administrator-set "Custom quota exceeded" daily cost cap (kept
+    non-retryable in `get_non_retryable_errors`). Matched on the stable queue-quota wording rather
+    than the volatile project/job id.
+    """
+    return "max number of jobs that can be queued" in str(exc)
+
+
+def _query_should_retry(exc: Exception) -> bool:
     # Defer to the library's own default predicate for the reasons it already covers; importing it
     # directly (rather than reading the private `Retry._predicate`) means a library rename fails
     # loudly at import instead of silently dropping that default coverage.
     return (
-        _BIGQUERY_JOB_RETRY_RECOMMENDED in str(exc) or _is_transient_rate_quota_exceeded(exc) or _job_should_retry(exc)
+        _BIGQUERY_JOB_RETRY_RECOMMENDED in str(exc)
+        or _is_transient_rate_quota_exceeded(exc)
+        or _is_transient_queued_jobs_quota_exceeded(exc)
+        or _job_should_retry(exc)
     )
 
 
-BIGQUERY_QUERY_JOB_RETRY = DEFAULT_JOB_RETRY.with_predicate(_query_job_should_retry)
+# `job_retry` recovers a failed query *job* (a retryable reason surfaced from `jobs.getQueryResults`);
+# `retry` recovers the job-*creation* API call (`jobs.insert`). BigQuery's transient queued-jobs quota
+# is rejected at insert, which `job_retry` never wraps, so the create path needs its own retry.
+BIGQUERY_QUERY_JOB_RETRY = DEFAULT_JOB_RETRY.with_predicate(_query_should_retry)
+BIGQUERY_QUERY_CREATE_RETRY = bigquery.DEFAULT_RETRY.with_predicate(_query_should_retry)
 
 
 # The Storage Read API can drop a ReadRows stream mid-flight with a transient gRPC INTERNAL error
@@ -490,7 +551,15 @@ def filter_bigquery_incremental_fields(
 
 def validate_bigquery_credentials(
     dataset_id: str, key_file: dict[str, str], dataset_project_id: str | None, location: str | None
-) -> bool:
+) -> tuple[bool, str | None]:
+    """Validate BigQuery credentials at onboarding time.
+
+    Returns ``(True, None)`` when the service account can list the configured dataset, or
+    ``(False, message)`` with an actionable reason. The common failure modes here (bad/rejected
+    key, missing dataset, wrong region, missing IAM read access) are expected user/config errors,
+    so they're mapped to a clear message instead of surfacing a bare "invalid credentials" and are
+    not reported to error tracking — only genuinely unexpected failures are captured.
+    """
     project_id = key_file.get("project_id")
     private_key = key_file.get("private_key")
     private_key_id = key_file.get("private_key_id")
@@ -498,7 +567,7 @@ def validate_bigquery_credentials(
     token_uri = key_file.get("token_uri")
 
     if not project_id or not private_key or not private_key_id or not client_email or not token_uri:
-        return False
+        return False, BIGQUERY_MISSING_KEY_FILE_FIELDS_ERROR
 
     # Trim copy-paste whitespace from the identifiers before they reach BigQuery,
     # which otherwise rejects them with an opaque `Invalid project ID`/`Invalid dataset ID`.
@@ -507,16 +576,32 @@ def validate_bigquery_credentials(
     dataset_project_id = _normalize_identifier(dataset_project_id) if dataset_project_id else dataset_project_id
     location = _normalize_identifier(location) if location else location
 
-    with bigquery_client(project_id, location, private_key, private_key_id, client_email, token_uri) as bq:
-        try:
+    try:
+        with bigquery_client(project_id, location, private_key, private_key_id, client_email, token_uri) as bq:
             bq.list_tables(
                 bq.dataset(dataset_id, project=dataset_project_id or project_id),
                 retry=bigquery.DEFAULT_RETRY.with_timeout(5),
             )
-            return True
-        except Exception as e:
-            capture_exception(e)
-            return False
+        return True, None
+    except Exception as e:
+        # Mirror the stable substrings the sync-path classifier keys off, so the wizard names the
+        # same root causes. Ordering matches `get_non_retryable_errors`: identifier/dataset before
+        # the generic access-denied so the more specific message wins.
+        message = str(e)
+        if "Unable to load PEM file" in message:
+            return False, BIGQUERY_INVALID_KEY_FILE_ERROR
+        if "invalid_grant" in message:
+            return False, BIGQUERY_CREDENTIALS_REJECTED_ERROR
+        if "Invalid project ID" in message or "Invalid dataset ID" in message:
+            return False, BIGQUERY_INVALID_IDENTIFIER_ERROR
+        if "was not found in location" in message or "Not found: Dataset" in message:
+            return False, BIGQUERY_DATASET_NOT_FOUND_ERROR
+        if "Access Denied" in message or "PermissionDenied" in message or "permission denied" in message:
+            return False, BIGQUERY_VALIDATION_PERMISSION_DENIED_ERROR
+        # Genuinely unexpected — keep the signal, and fall back to a generic message so no raw
+        # exception text (which can embed ids or tokens) reaches the user.
+        capture_exception(e)
+        return False, BIGQUERY_VALIDATION_GENERIC_ERROR
 
 
 def _get_partition_settings(
@@ -564,7 +649,7 @@ def _get_primary_keys_for_table(table: bigquery.Table, client: bigquery.Client) 
     """
 
     job_config = QueryJobConfig()
-    job = client.query(query, job_config=job_config, project=table.project)
+    job = client.query(query, job_config=job_config, project=table.project, retry=BIGQUERY_QUERY_CREATE_RETRY)
 
     primary_keys = []
     for row in job.result(job_retry=BIGQUERY_QUERY_JOB_RETRY):
@@ -937,7 +1022,7 @@ def _run_destination_query_with_job_retry(
     )
 
     def _run() -> None:
-        job = client.query(query, job_config=job_config, project=project)
+        job = client.query(query, job_config=job_config, project=project, retry=BIGQUERY_QUERY_CREATE_RETRY)
         job.result(job_retry=BIGQUERY_QUERY_JOB_RETRY)
 
     _with_job_not_found_retry(_run)
@@ -960,7 +1045,7 @@ def _query_result_with_job_retry(
     """
 
     def _run() -> RowIterator:
-        job = client.query(query, job_config=job_config, project=project)
+        job = client.query(query, job_config=job_config, project=project, retry=BIGQUERY_QUERY_CREATE_RETRY)
         return job.result(page_size=page_size, job_retry=BIGQUERY_QUERY_JOB_RETRY)
 
     return _with_job_not_found_retry(_run)

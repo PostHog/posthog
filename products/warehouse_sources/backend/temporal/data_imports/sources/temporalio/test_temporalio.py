@@ -111,6 +111,9 @@ class TestTransientRPCRetry:
         [
             ("namespace rate limit exceeded", RPCStatusCode.RESOURCE_EXHAUSTED),
             ("downstream duration timeout", RPCStatusCode.DEADLINE_EXCEEDED),
+            # A mid-stream HTTP/2 transport interruption surfaces as UNKNOWN, not one of the
+            # transient statuses above — it must still be ridden out in-process.
+            ("h2 protocol error: error reading a body from connection", RPCStatusCode.UNKNOWN),
         ],
     )
     @patch(
@@ -154,13 +157,21 @@ class TestTransientRPCRetry:
         # Bounded attempts leave Temporal to retry; backs off between attempts but not after the last.
         assert sleep.await_args_list == [call(2), call(4), call(6)]
 
+    @pytest.mark.parametrize(
+        "message,status",
+        [
+            ("workflow execution not found for", RPCStatusCode.NOT_FOUND),
+            # UNKNOWN alone must not be retried — only UNKNOWN carrying a transport signature is.
+            ("internal server error", RPCStatusCode.UNKNOWN),
+        ],
+    )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.temporalio.temporalio.asyncio.sleep",
         new_callable=AsyncMock,
     )
-    async def test_non_transient_rpc_error_is_not_retried(self, sleep):
+    async def test_non_transient_rpc_error_is_not_retried(self, sleep, message, status):
         async def operation():
-            raise _rpc_error("workflow execution not found for", RPCStatusCode.NOT_FOUND)
+            raise _rpc_error(message, status)
 
         with pytest.raises(RPCError):
             await _with_transient_rpc_retry(operation, MagicMock())

@@ -46,6 +46,7 @@ import type {
     TaskAutomationsListParams,
     TaskChannelsFeedListParams,
     TaskChannelsListParams,
+    TaskCreateApi,
     TaskDetailDTOApi,
     TaskMentionsListParams,
     TaskPresenceBeaconRequestApi,
@@ -711,14 +712,14 @@ export const getTasksCreateUrl = (projectId: string) => {
  */
 export const tasksCreate = async (
     projectId: string,
-    taskWriteApi?: TaskWriteApi,
+    taskCreateApi?: TaskCreateApi,
     options?: RequestInit
 ): Promise<TaskDetailDTOApi> => {
     return apiMutator<TaskDetailDTOApi>(getTasksCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(taskWriteApi),
+        body: JSON.stringify(taskCreateApi),
     })
 }
 

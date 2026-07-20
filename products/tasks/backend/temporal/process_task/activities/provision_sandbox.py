@@ -590,11 +590,15 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
         emit_agent_log(ctx.run_id, "debug", f"Cloning {input.repository} into sandbox")
         sandbox = Sandbox.get_by_id(input.sandbox_id)
 
+        state = ctx.state or {}
+        is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
+
         with StepTimer("repository_clone", used_snapshot=False) as clone_timer:
             clone_result = sandbox.clone_repository(
                 input.repository,
                 github_token=input.github_token,
                 shallow=input.shallow_clone,
+                branch=ctx.branch if is_resume else None,
             )
 
         if clone_result.exit_code != 0:

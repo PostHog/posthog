@@ -82,6 +82,30 @@ _SPREADSHEET_NOT_FOUND_MESSAGE = (
 T = TypeVar("T")
 
 
+def _assert_unique_normalized_column_names(headers: list[str]) -> None:
+    """Fail early when two header cells collapse to the same column name.
+
+    Sheet headers become table column names via `NamingConvention`, which is case-insensitive and
+    collapses spaces/punctuation — so headers that look distinct ("Task ID" vs "task_id") map to the
+    same column. gspread only rejects *exact* duplicate headers, so these near-duplicates slip past it
+    and fail much later with an opaque "duplicate column name" deep in table creation, after the sync
+    has already started. Detect the collision up front and raise an actionable message naming the
+    offending headers instead. Exact duplicates are left to gspread's own check."""
+    seen: dict[str, str] = {}
+    for header in headers:
+        if not header or not header.strip():
+            continue
+        normalized = NamingConvention.normalize_identifier(header)
+        previous = seen.get(normalized)
+        if previous is not None and previous != header:
+            raise Exception(
+                f'Column headers "{previous}" and "{header}" collapse to the same column name '
+                f'"{normalized}" when synced. Column headers must stay unique after PostHog normalizes '
+                f"them (it ignores case, spaces, and punctuation). Rename one of them and resync."
+            )
+        seen[normalized] = header
+
+
 def _is_retryable_api_error(e: gspread.exceptions.APIError) -> bool:
     """Decide whether a gspread APIError is a transient error worth retrying.
 
@@ -240,6 +264,8 @@ def google_sheets_source(
     worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id)
 
     headers = _retry_on_transient_api_error(lambda: worksheet.get_all_values("1:1"))  # Get the first row
+    if len(headers) > 0:
+        _assert_unique_normalized_column_names(headers[0])
     primary_keys = None
     if len(headers) > 0 and "id" in headers[0]:
         primary_keys = ["id"]

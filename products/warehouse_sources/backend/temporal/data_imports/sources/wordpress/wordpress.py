@@ -247,8 +247,20 @@ def validate_credentials(
             timeout=10,
             allow_redirects=False,
         )
-    except requests.exceptions.RequestException as e:
-        return False, str(e)
+    except requests.exceptions.SSLError:
+        return False, (
+            "Couldn't establish a secure connection to the WordPress site — its TLS certificate failed "
+            "verification. Install a publicly trusted certificate (not a self-signed one) on the site and try again."
+        )
+    except requests.exceptions.ConnectionError:
+        return False, "Couldn't connect to the WordPress site. Check the site URL is correct and the site is reachable."
+    except requests.exceptions.Timeout:
+        return False, "The WordPress site took too long to respond. Check that it's reachable and try again."
+    except requests.exceptions.RequestException:
+        return (
+            False,
+            "Couldn't reach the WordPress site. Check the site URL and that the site is online, then try again.",
+        )
 
     if response.is_redirect or response.is_permanent_redirect:
         return False, HOST_NOT_ALLOWED_ERROR

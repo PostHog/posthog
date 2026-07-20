@@ -21,7 +21,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssq
     retry_on_deadlock,
     retry_on_transient_connection_error,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.source import MSSQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.source import (
+    _FIREWALL_BLOCKED_ERROR,
+    MSSQLSource,
+)
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
@@ -590,6 +593,23 @@ class TestMSSQLSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Azure SQL error 40615 — the server firewall rejected the client IP. Redacted shape;
+            # the server name / client IP are volatile, the matched phrase is not.
+            "Cannot open server 'example' requested by the login. Client with IP address "
+            "'203.0.113.10' is not allowed to access the server.",
+        ],
+    )
+    def test_firewall_block_is_non_retryable(self, error_msg):
+        non_retryable = MSSQLSource().get_non_retryable_errors()
+        matches = [msg for pattern, msg in non_retryable.items() if pattern in error_msg]
+        assert matches, error_msg
+        # The actionable firewall guidance must win over the generic catch-all, so the first match
+        # can't be the message-less entry.
+        assert matches[0] is not None
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # Real pymssql MSSQLDatabaseException for SQL Server error 229 on a table.
             "SQL Server message 229, severity 14, state 5, procedure b'', line 1:\n"
             "b\"The SELECT permission was denied on the object 'ExistenciasProductoMagiQ', "
@@ -660,6 +680,30 @@ class TestMSSQLSourceNonRetryableErrors:
 
         non_retryable = MSSQLSource().get_non_retryable_errors()
         assert any(pattern in str(exc_info.value) for pattern in non_retryable.keys())
+
+
+class TestMSSQLSourceValidateCredentials:
+    @pytest.fixture
+    def source(self):
+        return MSSQLSource()
+
+    def test_firewall_block_returns_actionable_message_without_capturing(self, source, mocker):
+        capture = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mssql.source.capture_exception"
+        )
+        mocker.patch.object(source, "is_database_host_valid", return_value=(True, None))
+        # Redacted Azure SQL error 40615 — real server name and client IP are volatile.
+        firewall_error = pymssql.OperationalError(
+            "Cannot open server 'example' requested by the login. Client with IP address "
+            "'203.0.113.10' is not allowed to access the server."
+        )
+        mocker.patch.object(source, "get_schemas", side_effect=firewall_error)
+
+        valid, error = source.validate_credentials(_make_config(), team_id=1)
+
+        assert valid is False
+        assert error == _FIREWALL_BLOCKED_ERROR
+        capture.assert_not_called()
 
 
 class TestIsTransientConnectionError:
