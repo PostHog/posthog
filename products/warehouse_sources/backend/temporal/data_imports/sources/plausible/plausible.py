@@ -135,8 +135,15 @@ def _query(
         raise PlausibleRetryableError(f"Plausible API error (retryable): status={response.status_code}")
 
     if not response.ok:
-        logger.error(f"Plausible API error: status={response.status_code}, body={response.text[:500]}")
-        response.raise_for_status()
+        body_preview = response.text[:500]
+        logger.error(f"Plausible API error: status={response.status_code}, body={body_preview}")
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as err:
+            # Attach the response body to the raised error so the error tracking issue shows what
+            # Plausible actually rejected, not just the URL. The "<status> Client Error" prefix is
+            # preserved so get_non_retryable_errors() can still classify it.
+            raise requests.HTTPError(f"{err}. Plausible response: {body_preview}", response=response) from err
 
     return response.json()
 
