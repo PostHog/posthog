@@ -25,6 +25,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
+from posthog.week_start_day import WeekStartDay
 
 from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupBy
 from products.metrics.backend.facade.enums import FilterOp, MetricType
@@ -252,7 +253,10 @@ def _static_database(timezone: str | None, week_start_day: int | None) -> Databa
     queries in this module only ever read the database — nothing on their
     execution path registers warehouse/external tables or otherwise mutates
     it — which is what makes sharing safe."""
-    return Database(timezone=timezone, week_start_day=week_start_day)
+    return Database(
+        timezone=timezone,
+        week_start_day=WeekStartDay(week_start_day) if week_start_day is not None else None,
+    )
 
 
 def _static_schema_context(team: Team) -> HogQLContext:
