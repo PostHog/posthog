@@ -9,6 +9,8 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models.file_system.constants import DESKTOP_SURFACE
+from posthog.models.file_system.file_system import FileSystem
 
 from products.tasks.backend.models import Channel, ChannelFeedMessage, Task, TaskRun, TaskThreadMessage
 
@@ -66,6 +68,69 @@ class ChannelsAPITestCase(TestCase):
         self.assertEqual(first.json()["name"], "growth-ideas")
         second = self.client.post(self._channels_url(), {"name": "growth ideas"})
         self.assertEqual(second.json()["id"], first.json()["id"])
+
+    def _desktop_folder(self, path: str, team: Team | None = None) -> FileSystem:
+        return FileSystem.objects.create(
+            team=team or self.team, path=path, depth=1, type="folder", surface=DESKTOP_SURFACE
+        )
+
+    def test_resolve_links_desktop_folder_first_claim_wins(self):
+        folder = self._desktop_folder("growth")
+        first = self.client.post(self._channels_url(), {"name": "growth", "folder_id": str(folder.id)})
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        self.assertEqual(first.json()["folder_id"], str(folder.id))
+
+        other = self._desktop_folder("growth-2")
+        second = self.client.post(self._channels_url(), {"name": "growth", "folder_id": str(other.id)})
+        self.assertEqual(second.json()["folder_id"], str(folder.id))
+
+    def test_folder_claim_is_exclusive_across_channels(self):
+        folder = self._desktop_folder("shared")
+        claimed = self.client.post(self._channels_url(), {"name": "one", "folder_id": str(folder.id)})
+        self.assertEqual(claimed.json()["folder_id"], str(folder.id))
+        thief = self.client.post(self._channels_url(), {"name": "two", "folder_id": str(folder.id)})
+        self.assertEqual(thief.status_code, status.HTTP_200_OK)
+        self.assertIsNone(thief.json()["folder_id"])
+
+    def test_patch_links_folder_on_personal_channel(self):
+        self.client.get(self._channels_url())
+        personal = Channel.objects.unscoped().get(team=self.team, channel_type=Channel.ChannelType.PERSONAL)
+        folder = self._desktop_folder("me")
+        response = self.client.patch(f"{self._channels_url()}{personal.id}/", {"folder_id": str(folder.id)})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["folder_id"], str(folder.id))
+
+    def test_link_ignores_foreign_and_non_desktop_folders(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        foreign = self._desktop_folder("foreign", team=other_team)
+        web_row = FileSystem.objects.create(team=self.team, path="webby", depth=1, type="folder")
+        non_folder = FileSystem.objects.create(
+            team=self.team, path="board/canvas", depth=2, type="dashboard", surface=DESKTOP_SURFACE
+        )
+        for bad in (foreign, web_row, non_folder):
+            response = self.client.post(self._channels_url(), {"name": "strict", "folder_id": str(bad.id)})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertIsNone(response.json()["folder_id"])
+
+    def test_relink_allowed_when_claimed_folder_row_is_gone(self):
+        folder = self._desktop_folder("ephemeral")
+        created = self.client.post(self._channels_url(), {"name": "moves", "folder_id": str(folder.id)}).json()
+        folder.delete()
+        replacement = self._desktop_folder("ephemeral-new")
+        response = self.client.patch(f"{self._channels_url()}{created['id']}/", {"folder_id": str(replacement.id)})
+        self.assertEqual(response.json()["folder_id"], str(replacement.id))
+
+    def test_rename_keeps_folder_link(self):
+        folder = self._desktop_folder("old-name")
+        created = self.client.post(self._channels_url(), {"name": "old name", "folder_id": str(folder.id)}).json()
+        renamed = self.client.patch(f"{self._channels_url()}{created['id']}/", {"name": "new name"})
+        self.assertEqual(renamed.status_code, status.HTTP_200_OK)
+        self.assertEqual(renamed.json()["folder_id"], str(folder.id))
+
+    def test_patch_with_no_fields_is_a_400(self):
+        created = self.client.post(self._channels_url(), {"name": "plain"}).json()
+        response = self.client.patch(f"{self._channels_url()}{created['id']}/", {})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_personal_channel_cannot_be_renamed_or_deleted(self):
         self.client.get(self._channels_url())

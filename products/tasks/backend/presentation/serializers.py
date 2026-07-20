@@ -1339,14 +1339,22 @@ class ChannelSerializer(DataclassSerializer):
 
     class Meta:
         dataclass = ChannelDTO
-        fields = ["id", "name", "channel_type", "created_at", "created_by"]
+        fields = ["id", "name", "channel_type", "created_at", "created_by", "folder_id"]
 
 
 class ChannelWriteSerializer(serializers.Serializer):
-    """Request body for creating (resolve-or-create) or renaming a public channel."""
+    """Request body for creating (resolve-or-create), renaming, or folder-linking a
+    channel. ``name`` is required on create; updates take either or both fields."""
 
     name = serializers.CharField(
-        max_length=128, help_text="Channel name, rendered as #<name>. Normalized to lowercase-dashed."
+        max_length=128,
+        required=False,
+        help_text="Channel name, rendered as #<name>. Normalized to lowercase-dashed.",
+    )
+    folder_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="Desktop file-system folder that renders this channel; links the two by id.",
     )
 
 

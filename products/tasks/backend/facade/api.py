@@ -33,6 +33,8 @@ import posthoganalytics
 
 from posthog.event_usage import groups
 from posthog.models import Team, User
+from posthog.models.file_system.constants import DESKTOP_SURFACE, surface_q
+from posthog.models.file_system.file_system import FileSystem
 from posthog.models.integration import Integration
 
 from products.tasks.backend.constants import (
@@ -4980,7 +4982,41 @@ def _channel_to_dto(channel: Channel) -> contracts.ChannelDTO:
         channel_type=channel.channel_type,
         created_at=channel.created_at,
         created_by=_user_basic_info(channel.created_by if channel.created_by_id else None),
+        folder_id=channel.folder_id,
     )
+
+
+def _link_channel_folder(channel: Channel, *, folder_id: UUID) -> None:
+    """Record the desktop-fs folder that renders this channel. First claim wins:
+    an already-linked channel keeps its folder unless that row is gone (repair),
+    and a folder already claimed by another live channel stays theirs (the partial
+    unique constraint rejects the steal; we swallow it and leave this one unlinked).
+    The folder must be a desktop-surface folder row on the same team."""
+    if channel.folder_id == folder_id:
+        return
+    folder_exists = FileSystem.objects.filter(
+        surface_q(DESKTOP_SURFACE), id=folder_id, team_id=channel.team_id, type="folder"
+    ).exists()
+    if not folder_exists:
+        return
+    if channel.folder_id is not None and FileSystem.objects.filter(id=channel.folder_id).exists():
+        return
+    channel.folder_id = folder_id
+    try:
+        with transaction.atomic():
+            channel.save(update_fields=["folder", "updated_at"])
+    except IntegrityError:
+        channel.folder_id = None
+
+
+def link_channel_folder(channel_id: str | UUID, team_id: int, *, folder_id: UUID) -> contracts.ChannelDTO | str:
+    """Attach the desktop-fs folder that renders a channel (personal channels
+    included). Returns the DTO — unchanged if the claim was ignored — or ``not_found``."""
+    channel = Channel.objects.select_related("created_by").filter(id=channel_id, team_id=team_id, deleted=False).first()
+    if channel is None:
+        return "not_found"
+    _link_channel_folder(channel, folder_id=folder_id)
+    return _channel_to_dto(channel)
 
 
 def _ensure_personal_channel(team_id: int, user_id: int) -> Channel:
@@ -5038,9 +5074,13 @@ def _emit_channel_created(channel: Channel, user_id: int | None) -> None:
         logger.exception("Failed to emit channel_created feed message", extra={"channel_id": str(channel.id)})
 
 
-def resolve_channel(team_id: int, user_id: int | None, *, name: str) -> contracts.ChannelDTO | None:
+def resolve_channel(
+    team_id: int, user_id: int | None, *, name: str, folder_id: UUID | None = None
+) -> contracts.ChannelDTO | None:
     """Resolve-or-create a public channel by (normalized) name. ``None`` for empty names.
-    Emits a ``channel_created`` feed message the first time a channel is created."""
+    Emits a ``channel_created`` feed message the first time a channel is created. When the
+    caller passes the desktop-fs ``folder_id`` it renders the channel from, the folder is
+    linked (see ``_link_channel_folder``) so consumers can join the two by id, not name."""
     normalized = normalize_channel_name(name)
     if not normalized:
         return None
@@ -5059,6 +5099,8 @@ def resolve_channel(team_id: int, user_id: int | None, *, name: str) -> contract
         )
     if created:
         _emit_channel_created(channel, user_id)
+    if folder_id is not None:
+        _link_channel_folder(channel, folder_id=folder_id)
     return _channel_to_dto(channel)
 
 

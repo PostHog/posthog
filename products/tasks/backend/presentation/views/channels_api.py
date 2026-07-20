@@ -58,12 +58,23 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request=ChannelWriteSerializer,
         responses={200: ChannelSerializer},
         summary="Resolve or create a public channel",
-        description="Returns the existing public channel with the (normalized) name, creating it if needed.",
+        description=(
+            "Returns the existing public channel with the (normalized) name, creating it if needed. "
+            "Pass folder_id to link the desktop file-system folder that renders the channel."
+        ),
     )
     def create(self, request, **kwargs):
         serializer = ChannelWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        channel = tasks_facade.resolve_channel(self.team_id, self._user_id(), name=serializer.validated_data["name"])
+        name = serializer.validated_data.get("name")
+        if not name:
+            return Response({"detail": "Channel name is required"}, status=status.HTTP_400_BAD_REQUEST)
+        channel = tasks_facade.resolve_channel(
+            self.team_id,
+            self._user_id(),
+            name=name,
+            folder_id=serializer.validated_data.get("folder_id"),
+        )
         if channel is None:
             return Response({"detail": "Invalid channel name"}, status=status.HTTP_400_BAD_REQUEST)
         return Response(ChannelSerializer(channel).data)
@@ -71,21 +82,37 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(
         request=ChannelWriteSerializer,
         responses={200: ChannelSerializer},
-        summary="Rename a public channel",
+        summary="Rename or folder-link a channel",
+        description=(
+            "Pass name to rename (public channels only), folder_id to link the desktop "
+            "file-system folder that renders the channel (personal channels included), or both."
+        ),
     )
     def partial_update(self, request, pk=None, **kwargs):
         serializer = ChannelWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        result = tasks_facade.rename_channel(pk, self.team_id, name=serializer.validated_data["name"])
-        if result == "not_found":
+        name = serializer.validated_data.get("name")
+        folder_id = serializer.validated_data.get("folder_id")
+        if name is None and folder_id is None:
+            return Response({"detail": "Nothing to update"}, status=status.HTTP_400_BAD_REQUEST)
+        if name is not None:
+            result = tasks_facade.rename_channel(pk, self.team_id, name=name)
+            if result == "not_found":
+                raise NotFound()
+            if result == "personal":
+                raise PermissionDenied("Personal channels cannot be renamed")
+            if result == "invalid_name":
+                return Response({"detail": "Invalid channel name"}, status=status.HTTP_400_BAD_REQUEST)
+            if result == "name_taken":
+                return Response(
+                    {"detail": "A channel with this name already exists"}, status=status.HTTP_400_BAD_REQUEST
+                )
+            if folder_id is None:
+                return Response(ChannelSerializer(result).data)
+        linked = tasks_facade.link_channel_folder(pk, self.team_id, folder_id=folder_id)
+        if linked == "not_found":
             raise NotFound()
-        if result == "personal":
-            raise PermissionDenied("Personal channels cannot be renamed")
-        if result == "invalid_name":
-            return Response({"detail": "Invalid channel name"}, status=status.HTTP_400_BAD_REQUEST)
-        if result == "name_taken":
-            return Response({"detail": "A channel with this name already exists"}, status=status.HTTP_400_BAD_REQUEST)
-        return Response(ChannelSerializer(result).data)
+        return Response(ChannelSerializer(linked).data)
 
     @extend_schema(responses={204: None}, summary="Delete a public channel")
     def destroy(self, request, pk=None, **kwargs):

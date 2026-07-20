@@ -161,6 +161,8 @@ class ChannelDTO:
     channel_type: str
     created_at: datetime
     created_by: "TaskUserBasicInfo | None" = None
+    # Desktop-fs folder that renders this channel; None until a client links it.
+    folder_id: UUID | None = None
 
 
 @dataclass(frozen=True)

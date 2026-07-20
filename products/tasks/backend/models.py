@@ -80,6 +80,15 @@ class Channel(TeamScopedRootMixin):
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
     )
+    # The desktop-surface FileSystem folder that renders this channel (canvases and
+    # task filings nest under its path). This is the id join between the two —
+    # without it the only folder↔channel link is name matching. Written by the
+    # client that owns folder creation; SET_NULL keeps the channel alive if the
+    # folder row goes away. db_constraint=False for the same deploy-lock reason as
+    # the FKs above (posthog_filesystem is rewritten constantly).
+    folder = models.ForeignKey(
+        "posthog.FileSystem", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
     deleted = models.BooleanField(default=False)
     created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
@@ -96,6 +105,11 @@ class Channel(TeamScopedRootMixin):
                 fields=["team", "created_by"],
                 condition=models.Q(channel_type="personal", deleted=False),
                 name="task_channel_team_user_personal_unique",
+            ),
+            models.UniqueConstraint(
+                fields=["folder"],
+                condition=models.Q(deleted=False, folder__isnull=False),
+                name="task_channel_folder_unique",
             ),
         ]
 
