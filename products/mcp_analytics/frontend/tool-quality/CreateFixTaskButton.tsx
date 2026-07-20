@@ -47,6 +47,12 @@ export function CreateFixTaskButton({
 function openCreateFixTaskForm(context: MCPErrorContext, githubIntegrations: IntegrationType[]): void {
     const bucket = context.errorStatus ? `${context.errorType} (HTTP ${context.errorStatus})` : context.errorType
     const defaultIntegration = githubIntegrations[0]
+    // The button is disabled without an integration, but guard anyway: this function
+    // dereferences the integration unconditionally and must not crash if reached.
+    if (!defaultIntegration) {
+        lemonToast.error('Connect the GitHub integration (Settings → Integrations) before creating a fix task')
+        return
+    }
 
     LemonDialog.openForm({
         title: 'Create fix task',
