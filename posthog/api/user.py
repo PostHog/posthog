@@ -1033,7 +1033,7 @@ class UserViewSet(
     @action(
         methods=["GET"],
         detail=True,
-        required_scopes=["user:read"],
+        permission_classes=[IsAuthenticated],
         url_path="effective_authorization",
     )
     def effective_authorization(self, request, **kwargs):

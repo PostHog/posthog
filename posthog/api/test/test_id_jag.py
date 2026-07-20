@@ -634,7 +634,7 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         # parsing the unverified JWT body. Must surface the server-verified scopes and pin
         # scoped_organizations to the token's single org_id (org-wide, no team restriction).
         assertion = _make_id_jag(
-            scope="user:read insight:read",
+            scope="insight:read",
             extra_claims={"email": "user@example.com", "email_verified": True},
         )
         issue_resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
@@ -647,7 +647,7 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         self.assertEqual(api_resp.status_code, status.HTTP_200_OK, api_resp.content)
         body = api_resp.json()
         self.assertEqual(body["credential_type"], "id_jag")
-        self.assertEqual(set(body["scopes"]), {"user:read", "insight:read"})
+        self.assertEqual(set(body["scopes"]), {"insight:read"})
         self.assertEqual(body["scoped_organizations"], [str(self.organization.id)])
         self.assertIsNone(body["scoped_teams"])
 
