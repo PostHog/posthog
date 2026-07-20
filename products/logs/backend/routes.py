@@ -9,6 +9,9 @@ def register_routes(routers: RouterRegistry) -> None:
     routers.register_legacy_dual_route(
         r"logs/sampling_rules", logs.LogsSamplingRuleViewSet, "environment_logs_sampling_rules", ["team_id"]
     )
+    routers.projects.register(
+        r"logs/metric_rules", logs.LogsMetricRuleViewSet, "project_logs_metric_rules", ["team_id"]
+    )
     routers.register_legacy_dual_route(r"logs/views", logs.LogsViewViewSet, "project_logs_views", ["team_id"])
     routers.register_legacy_dual_route(
         r"logs/explainLogWithAI", logs.LogExplainViewSet, "project_logs_explain_with_ai", ["team_id"]

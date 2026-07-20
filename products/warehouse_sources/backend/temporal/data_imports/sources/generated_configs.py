@@ -931,7 +931,8 @@ class ClickUpSourceConfig(config.Config):
 
 @config.config
 class ClickhouseCloudSourceConfig(config.Config):
-    pass
+    key_id: str
+    key_secret: str
 
 
 @config.config
@@ -1611,7 +1612,8 @@ class FireworksAISourceConfig(config.Config):
 
 @config.config
 class FlagsmithSourceConfig(config.Config):
-    pass
+    api_key: str
+    base_url: str | None = None
 
 
 @config.config
@@ -1775,7 +1777,8 @@ class GiteaSourceConfig(config.Config):
 
 @config.config
 class GitguardianSourceConfig(config.Config):
-    pass
+    api_key: str
+    base_url: str | None = None
 
 
 @config.config
@@ -2251,7 +2254,9 @@ class JellyfishSourceConfig(config.Config):
 
 @config.config
 class JenkinsSourceConfig(config.Config):
-    pass
+    host: str
+    username: str
+    api_token: str
 
 
 @config.config
@@ -2436,7 +2441,8 @@ class LambdaLabsSourceConfig(config.Config):
 
 @config.config
 class LangSmithSourceConfig(config.Config):
-    pass
+    api_key: str
+    host: str | None = None
 
 
 @config.config
@@ -4099,7 +4105,8 @@ class SonatypeNexusSourceConfig(config.Config):
 
 @config.config
 class SourcegraphSourceConfig(config.Config):
-    pass
+    host: str
+    access_token: str
 
 
 @config.config

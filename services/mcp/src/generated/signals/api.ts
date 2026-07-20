@@ -236,7 +236,7 @@ export const SignalsReportArtefactsCreateBody = /* @__PURE__ */ zod
         artefact_type: zod
             .string()
             .describe(
-                "The artefact type. One of: actionability_judgment, code_reference, commit, dismissal, note, priority_judgment, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status."
+                "The artefact type. One of: actionability_judgment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status."
             ),
         content: zod
             .unknown()
@@ -645,6 +645,8 @@ export const signalsScoutEditReportBodyTitleMax = 300
 
 export const signalsScoutEditReportBodySuggestedReviewersItemGithubLoginMax = 200
 
+export const signalsScoutEditReportBodySuggestedReviewersItemReasonMax = 500
+
 export const signalsScoutEditReportBodySuggestedReviewersMax = 10
 
 export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
@@ -683,6 +685,13 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
                             .optional()
                             .describe(
                                 "PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here."
+                            ),
+                        reason: zod
+                            .string()
+                            .max(signalsScoutEditReportBodySuggestedReviewersItemReasonMax)
+                            .nullish()
+                            .describe(
+                                "One sentence of evidence for WHY this person: what ties them to the affected surface (e.g. 'authored 4 of the last 10 commits touching products/tracing/mcp/', 'human correction routed the prior tracing report to them'). Persisted on the report so the routing is auditable — always set it when you can name the evidence; 'precedent' alone is weak, prefer code-derived ownership."
                             ),
                     })
                     .describe(
@@ -744,6 +753,8 @@ export const signalsScoutEmitReportBodyEvidenceItemWeightMin = 0
 
 export const signalsScoutEmitReportBodyAlreadyAddressedDefault = false
 export const signalsScoutEmitReportBodySuggestedReviewersItemGithubLoginMax = 200
+
+export const signalsScoutEmitReportBodySuggestedReviewersItemReasonMax = 500
 
 export const signalsScoutEmitReportBodySuggestedReviewersMax = 10
 
@@ -836,6 +847,13 @@ export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
                             .optional()
                             .describe(
                                 "PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here."
+                            ),
+                        reason: zod
+                            .string()
+                            .max(signalsScoutEmitReportBodySuggestedReviewersItemReasonMax)
+                            .nullish()
+                            .describe(
+                                "One sentence of evidence for WHY this person: what ties them to the affected surface (e.g. 'authored 4 of the last 10 commits touching products/tracing/mcp/', 'human correction routed the prior tracing report to them'). Persisted on the report so the routing is auditable — always set it when you can name the evidence; 'precedent' alone is weak, prefer code-derived ownership."
                             ),
                     })
                     .describe(
