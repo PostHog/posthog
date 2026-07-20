@@ -1,6 +1,10 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from '@posthog/lemon-ui'
+
+import { teamLogic } from 'scenes/teamLogic'
 
 import { initKeaTests } from '~/test/init'
 
@@ -33,6 +37,48 @@ describe('logsAlertingLogic', () => {
         initKeaTests()
         jest.clearAllMocks()
         mockList.mockResolvedValue({ results: [] } as any)
+    })
+
+    describe('createdByFilter', () => {
+        it('reloads alerts with the selected creator UUID', async () => {
+            const logic = logsAlertingLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            mockList.mockClear()
+
+            await expectLogic(logic, () => {
+                logic.actions.setCreatedByFilter('019abcde-1234-7000-8000-000000000001')
+            }).toFinishAllListeners()
+
+            expect(mockList).toHaveBeenCalledWith(expect.any(String), {
+                limit: 500,
+                created_by: '019abcde-1234-7000-8000-000000000001',
+            })
+
+            logic.unmount()
+        })
+
+        it('clears the selected creator when the project changes', async () => {
+            const logic = logsAlertingLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setCreatedByFilter('019abcde-1234-7000-8000-000000000001')
+            }).toFinishAllListeners()
+            mockList.mockClear()
+
+            const nextTeamId = MOCK_DEFAULT_TEAM.id + 1
+            await expectLogic(logic, () => {
+                teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, id: nextTeamId })
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ createdByFilter: null })
+
+            expect(mockList).toHaveBeenCalledWith(String(nextTeamId), { limit: 500 })
+
+            logic.unmount()
+        })
     })
 
     describe('resetAlert', () => {

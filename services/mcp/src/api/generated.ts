@@ -68953,6 +68953,10 @@ export namespace Schemas {
 
     export type EnvironmentsLogsAlertsListParams = {
     /**
+     * Only return log alerts created by the user with this UUID.
+     */
+    created_by?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -76778,6 +76782,10 @@ export namespace Schemas {
     };
 
     export type LogsAlertsListParams = {
+    /**
+     * Only return log alerts created by the user with this UUID.
+     */
+    created_by?: string;
     /**
      * Number of results to return per page.
      */

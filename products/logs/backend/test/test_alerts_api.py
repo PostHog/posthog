@@ -16,6 +16,7 @@ from posthog.cdp.templates.microsoft_teams.template_microsoft_teams import templ
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.clickhouse.client import sync_execute
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -96,6 +97,27 @@ class TestLogsAlertAPI(APIBaseTest):
         assert len(results) == 2
         assert results[0]["name"] == "Alert 2"
         assert results[1]["name"] == "Alert 1"
+
+    def test_list_filters_by_created_by(self):
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", None)
+        self._create_via_api(name="My alert")
+        other_alert = LogsAlertConfiguration.objects.create(
+            team=self.team,
+            name="Other user's alert",
+            threshold_count=5,
+            created_by=other_user,
+            filters={"severityLevels": ["error"]},
+        )
+
+        response = self.client.get(self.base_url, {"created_by": str(other_user.uuid)})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [result["id"] for result in response.json()["results"]] == [str(other_alert.id)]
+
+    def test_list_rejects_invalid_created_by(self):
+        response = self.client.get(self.base_url, {"created_by": "not-a-uuid"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_retrieve(self):
         created = self._create_via_api()
