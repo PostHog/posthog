@@ -37,6 +37,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class ClockodoSource(ResumableSource[ClockodoSourceConfig, ClockodoResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://docs.clockodo.com/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -117,7 +120,6 @@ class ClockodoSource(ResumableSource[ClockodoSourceConfig, ClockodoResumeConfig]
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Clockodo",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Clockodo email and API key to pull your Clockodo time-tracking data into the PostHog Data warehouse.
 
 You can find your personal API key under **Personal data** in your Clockodo account. Credentials are scoped to that co-worker's permissions, so connect a user that can see the data you want to sync.""",

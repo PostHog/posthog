@@ -12,8 +12,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.pipedrive.settings import (
-    PIPEDRIVE_ENDPOINTS,
     PipedriveEndpointConfig,
+    endpoints_for_version,
 )
 
 # Pipedrive caps list pages at 500 items (default 100).
@@ -120,10 +120,11 @@ def get_rows(
     company_domain: str,
     api_token: str,
     endpoint: str,
+    api_version: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[PipedriveResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
-    config = PIPEDRIVE_ENDPOINTS[endpoint]
+    config = endpoints_for_version(api_version)[endpoint]
     # `redact_values` masks the token (sent via the custom `x-api-token` header, which the
     # name-based denylist can't catch) in logged URLs and captured HTTP samples.
     session = make_tracked_session(headers=_get_headers(api_token), redact_values=(api_token,))
@@ -179,10 +180,11 @@ def pipedrive_source(
     company_domain: str,
     api_token: str,
     endpoint: str,
+    api_version: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[PipedriveResumeConfig],
 ) -> SourceResponse:
-    config = PIPEDRIVE_ENDPOINTS[endpoint]
+    config = endpoints_for_version(api_version)[endpoint]
 
     return SourceResponse(
         name=endpoint,
@@ -190,6 +192,7 @@ def pipedrive_source(
             company_domain=company_domain,
             api_token=api_token,
             endpoint=endpoint,
+            api_version=api_version,
             logger=logger,
             resumable_source_manager=resumable_source_manager,
         ),

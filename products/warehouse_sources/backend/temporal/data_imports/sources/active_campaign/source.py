@@ -36,6 +36,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class ActiveCampaignSource(ResumableSource[ActiveCampaignSourceConfig, ActiveCampaignResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
+    supported_versions = ("v3",)
+    default_version = "v3"
+    api_docs_url = "https://developers.activecampaign.com/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.ACTIVECAMPAIGN
@@ -85,6 +89,11 @@ You can find both in your ActiveCampaign account under **Settings > Developer**.
             "401 Client Error": "Invalid ActiveCampaign credentials. Please check your API URL and key and reconnect.",
             "403 Client Error": "Access forbidden. Please check that your ActiveCampaign API key is valid and reconnect.",
             "Unauthorized for url": "Invalid ActiveCampaign credentials. Please check your API URL and key and reconnect.",
+            # `active_campaign_source` raises this when the configured api_url fails our URL
+            # validation — an unresolvable host (wrong account name), a private/internal host,
+            # or a bad scheme. All are user-config problems retrying can't fix. Match the stable
+            # prefix, not the appended reason (which can embed a resolved IP).
+            "ActiveCampaign API URL is not allowed": "PostHog couldn't reach the ActiveCampaign API URL you entered. Check that it's correct — it should look like https://youraccount.api-us1.com — and reconnect.",
         }
 
     def get_schemas(

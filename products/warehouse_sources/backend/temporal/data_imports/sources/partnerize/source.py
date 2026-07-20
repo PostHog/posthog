@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class PartnerizeSource(ResumableSource[PartnerizeSourceConfig, PartnerizeResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://api-docs.partnerize.com/partner/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -87,7 +88,6 @@ You can find your **user application key** and **user API key** under **Account 
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

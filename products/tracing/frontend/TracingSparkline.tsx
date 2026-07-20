@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
-import { LemonButton, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { AnyScaleOptions, Sparkline } from 'lib/components/Sparkline'
 import { dayjs } from 'lib/dayjs'
@@ -10,9 +10,35 @@ import { shortTimeZone } from 'lib/utils/timezones'
 
 import { DateRange } from '~/queries/schema/schema-general'
 
-import { type TracingDurationHistogramData, type VisibleDurationRange, snapDurationToBucket } from './durationBuckets'
+import {
+    type TracingDurationHistogramData,
+    type TracingLatencyHeatmapData,
+    type VisibleDurationRange,
+    snapDurationToBucket,
+} from './durationBuckets'
 import { SparklineCompareOverlay } from './SparklineCompareOverlay'
 import type { TracingSparklineData, VisibleSpanTimeRange } from './tracingDataLogic'
+import type { TracingChartType } from './tracingFiltersLogic'
+import { TracingLatencyHeatmap } from './TracingLatencyHeatmap'
+
+// Duration buckets are categorical (1ms, 2ms, 5ms, ...) — the 1-2-5 series is already
+// log-spaced, so a plain category axis renders it evenly. Shared with OperationHistogram
+// so the two duration histograms render identically.
+export function categoryDurationXScale(scale: AnyScaleOptions): AnyScaleOptions {
+    return {
+        ...scale,
+        type: 'category',
+        ticks: {
+            display: true,
+            maxRotation: 0,
+            maxTicksLimit: 8,
+            font: {
+                size: 10,
+                lineHeight: 1,
+            },
+        },
+    } as AnyScaleOptions
+}
 
 interface CompareConfig {
     fullStartMs: number
@@ -32,6 +58,16 @@ interface TracingSparklineProps {
     /** When set, render a duration histogram instead of the time series (list sorted by duration). */
     durationHistogram?: TracingDurationHistogramData | null
     visibleRowDurationRange?: VisibleDurationRange | null
+    /** Which chart fills the slot. Omitted (or 'activity') keeps today's behavior; the chart-type
+     *  toggle only renders when `onChartTypeChange` is provided. */
+    chartType?: TracingChartType
+    onChartTypeChange?: (chartType: TracingChartType) => void
+    /** When set, render the latency heatmap instead of the sparkline/histogram. The caller passes
+     *  it only when the heatmap should actually show (chartType 'heatmap' and no comparison). */
+    latencyHeatmap?: TracingLatencyHeatmapData | null
+    latencyHeatmapLoading?: boolean
+    /** Disables the heatmap option with an explanation (e.g. while a comparison is active). */
+    heatmapDisabledReason?: string | null
 }
 
 export function TracingSparkline({
@@ -43,9 +79,15 @@ export function TracingSparkline({
     visibleRowDateRange,
     durationHistogram,
     visibleRowDurationRange,
+    chartType = 'activity',
+    onChartTypeChange,
+    latencyHeatmap,
+    latencyHeatmapLoading = false,
+    heatmapDisabledReason,
 }: TracingSparklineProps): JSX.Element | null {
     const [collapsed, setCollapsed] = useState(false)
-    const durationMode = durationHistogram != null
+    const heatmapMode = latencyHeatmap != null
+    const durationMode = !heatmapMode && durationHistogram != null
 
     const { timeUnit, tickFormat } = useMemo(() => {
         if (!sparklineData.dates.length) {
@@ -68,21 +110,7 @@ export function TracingSparkline({
     const withXScale = useCallback(
         (scale: AnyScaleOptions): AnyScaleOptions => {
             if (durationMode) {
-                // Duration buckets are categorical (1ms, 2ms, 5ms, ...) — the 1-2-5 series is
-                // already log-spaced, so a plain category axis renders it evenly.
-                return {
-                    ...scale,
-                    type: 'category',
-                    ticks: {
-                        display: true,
-                        maxRotation: 0,
-                        maxTicksLimit: 8,
-                        font: {
-                            size: 10,
-                            lineHeight: 1,
-                        },
-                    },
-                } as AnyScaleOptions
+                return categoryDurationXScale(scale)
             }
             return {
                 ...scale,
@@ -207,11 +235,35 @@ export function TracingSparkline({
                     aria-controls="tracing-sparkline-content"
                 >
                     <span className="text-xs text-muted">
-                        {durationMode ? 'Duration distribution' : 'Volume over time'}
+                        {heatmapMode ? 'Latency heatmap' : durationMode ? 'Duration distribution' : 'Volume over time'}
                     </span>
                 </LemonButton>
+                {onChartTypeChange && (
+                    <LemonSegmentedButton
+                        size="xsmall"
+                        value={chartType}
+                        onChange={(value) => onChartTypeChange(value as TracingChartType)}
+                        options={[
+                            { value: 'activity', label: 'Activity' },
+                            {
+                                value: 'heatmap',
+                                label: 'Heatmap',
+                                disabledReason: heatmapDisabledReason ?? undefined,
+                            },
+                        ]}
+                    />
+                )}
             </div>
-            {!collapsed && (
+            {!collapsed && latencyHeatmap != null && (
+                <div id="tracing-sparkline-content" className="relative h-32">
+                    <TracingLatencyHeatmap
+                        data={latencyHeatmap}
+                        loading={latencyHeatmapLoading}
+                        displayTimezone={displayTimezone}
+                    />
+                </div>
+            )}
+            {!collapsed && !heatmapMode && (
                 <div id="tracing-sparkline-content" className="relative h-32">
                     {(durationHistogram ? durationHistogram.data : sparklineData.data).length > 0 ? (
                         <Sparkline

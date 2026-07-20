@@ -125,7 +125,13 @@ class TestValidateArtefactContent(SimpleTestCase):
             ("note", {"note": "hello"}),
             (
                 "commit",
-                {"repository": "PostHog/posthog", "branch": "b", "commit_sha": "abc123f", "message": "fix: x"},
+                {
+                    "repository": "PostHog/posthog",
+                    "branch": "b",
+                    "commit_sha": "abc123f",
+                    "message": "fix: x",
+                    "diff": "@@ -1 +1 @@\n-a\n+b",
+                },
             ),
             ("task_run", {"task_id": "t1", "run_id": None, "product": "signals", "type": "implementation"}),
             ("title_change", {"old_title": "before", "new_title": "after"}),

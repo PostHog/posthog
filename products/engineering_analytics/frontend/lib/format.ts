@@ -51,6 +51,17 @@ export function compactHoursLabel(seconds: number | null | undefined): string {
     return `${compactHours(seconds)}${seconds / 3600 < HOURS_BEFORE_DAYS ? 'h' : 'd'}`
 }
 
+/** Elapsed-time label with minute granularity under an hour: "20m", "27h", "3.2d". */
+export function compactAgeLabel(seconds: number | null | undefined): string {
+    if (seconds == null) {
+        return '—'
+    }
+    if (seconds < 3600) {
+        return `${Math.max(1, Math.round(seconds / 60))}m`
+    }
+    return compactHoursLabel(seconds)
+}
+
 export function compactMinutes(minutes: number | null | undefined): string {
     if (minutes == null) {
         return '—'

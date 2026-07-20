@@ -41,6 +41,7 @@ class EZOfficeInventorySource(ResumableSource[EZOfficeInventorySourceConfig, EZO
     # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to
     # render in public docs without credentials.
     lists_tables_without_credentials = True
+    api_docs_url = "https://ezo.io/ezofficeinventory/developers/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -138,7 +139,6 @@ class EZOfficeInventorySource(ResumableSource[EZOfficeInventorySourceConfig, EZO
             docsUrl="https://posthog.com/docs/cdp/sources/ezofficeinventory",
             iconPath="/static/services/ezofficeinventory.svg",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

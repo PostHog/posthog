@@ -37,6 +37,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class CircleCISource(ResumableSource[CircleCISourceConfig, CircleCIResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://circleci.com/docs/api/v2/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CIRCLECI

@@ -9,7 +9,7 @@ import {
 } from 'lib/utils/operators'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
-import { propertyDefinitionsModelType } from '~/models/propertyDefinitionsModelType'
+import type { propertyDefinitionsModelType } from '~/models/propertyDefinitionsModel'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
@@ -521,6 +521,11 @@ export function taxonomicFilterTypeToPropertyFilterType(
 
     if (filterType === TaxonomicFilterGroupType.EventFeatureFlags) {
         // Feature flags are just subgroup of event properties
+        return PropertyFilterType.Event
+    }
+
+    if (filterType === TaxonomicFilterGroupType.MCPProperties) {
+        // The curated $mcp_* schema is a subgroup of event properties
         return PropertyFilterType.Event
     }
 

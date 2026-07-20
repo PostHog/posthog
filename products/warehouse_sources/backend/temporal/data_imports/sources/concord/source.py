@@ -39,6 +39,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class ConcordSource(ResumableSource[ConcordSourceConfig, ConcordResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://help.concord.app/concord-api"
 
     @property
     def connection_host_fields(self) -> list[str]:
@@ -59,7 +60,6 @@ class ConcordSource(ResumableSource[ConcordSourceConfig, ConcordResumeConfig]):
             category=DataWarehouseSourceCategory.SALES,
             label="Concord",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Concord API key to pull your contract lifecycle data into the PostHog Data warehouse.
 
 You can generate an API key in your Concord account settings (API key generation requires a paid plan). Concord sends it as an `X-API-KEY` header.

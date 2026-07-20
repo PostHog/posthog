@@ -37,6 +37,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class NewYorkTimesSource(ResumableSource[NewYorkTimesSourceConfig, NewYorkTimesResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://developer.nytimes.com/apis"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -49,7 +52,6 @@ class NewYorkTimesSource(ResumableSource[NewYorkTimesSourceConfig, NewYorkTimesR
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="New York Times",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption=(
                 "Enter your New York Times API key to pull New York Times content into the PostHog Data warehouse.\n\n"
                 "Create a free developer account and register an app at the "

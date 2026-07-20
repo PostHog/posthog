@@ -1,7 +1,7 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import SourceFieldOauthAccountSelectConfig, SourceFieldOauthConfig
+from posthog.schema import ReleaseStatus, SourceFieldOauthAccountSelectConfig, SourceFieldOauthConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.source import BingAdsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.utils import BingAdsResumeConfig
@@ -32,7 +32,7 @@ class TestBingAdsSource:
 
         assert config.name.value == "BingAds"
         assert config.label == "Bing Ads"
-        assert config.releaseStatus == "beta"
+        assert config.releaseStatus == ReleaseStatus.GA
         assert config.iconPath == "/static/services/bing-ads.svg"
         assert len(config.fields) == 2
 
@@ -271,6 +271,12 @@ class TestBingAdsSource:
                 "Failed to fetch customer ID: OAuthTokenRequestException: invalid_client AADSTS650052: "
                 "The app is trying to access a service that your organization lacks a service principal for.",
             ),
+            # PostHog's own app secret is invalid/expired — internal config, not customer-actionable.
+            (
+                "AADSTS7000215",
+                "Failed to fetch customer ID: OAuthTokenRequestException: error_code: invalid_client, "
+                "error_description: AADSTS7000215: Invalid client secret provided.",
+            ),
             # Bing rejects the request as invalid after auth succeeds (e.g. wrong/inaccessible Account ID).
             # The SDK raises suds.WebFault whose str() embeds a volatile TrackingId — match the stable phrase.
             (
@@ -342,6 +348,25 @@ class TestBingAdsSource:
         assert friendly_errors[0] is not None
         assert "AADSTS650052" in friendly_errors[0]
         assert "service principal" in friendly_errors[0]
+
+    def test_aadsts7000215_is_internal_config_not_customer_actionable(self):
+        # AADSTS7000215 means PostHog's own app secret is invalid/expired. The message also contains
+        # "OAuthTokenRequestException" and "invalid_client", both of which map to the customer-facing
+        # "reconnect your integration" toast — so AADSTS7000215 must precede them and resolve to None,
+        # keeping the misleading toast off an error only a PostHog config change can fix.
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        keys = list(non_retryable_errors.keys())
+
+        aadsts_index = keys.index("AADSTS7000215")
+        assert aadsts_index < keys.index("OAuthTokenRequestException")
+        assert aadsts_index < keys.index("invalid_client")
+
+        error_message = (
+            "Failed to fetch customer ID: OAuthTokenRequestException: error_code: invalid_client, "
+            "error_description: AADSTS7000215: Invalid client secret provided."
+        )
+        friendly_errors = [msg for pattern, msg in non_retryable_errors.items() if pattern in error_message]
+        assert friendly_errors[0] is None
 
     def test_invalid_client_data_maps_to_account_guidance(self):
         # The dominant cause is a wrong/inaccessible Account ID (auth has already succeeded by this point),

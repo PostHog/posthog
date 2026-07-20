@@ -2,6 +2,7 @@ import { combineUrl } from 'kea-router'
 
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { tryDecodeURIComponent } from 'lib/utils/url'
 import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
 import { Params, Scene, SceneConfig, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -297,7 +298,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.LiveDebugger]: { projectBased: true, name: 'Live debugger' },
     [Scene.Login2FA]: { onlyUnauthenticated: true, name: 'Login 2FA', layout: 'plain' },
-    [Scene.EmailMFAVerify]: { onlyUnauthenticated: true, layout: 'plain' },
     [Scene.Login]: { onlyUnauthenticated: true, layout: 'plain' },
     [Scene.Max]: { projectBased: true, name: 'Max', layout: 'app-raw-no-header', hideProjectNotice: true },
     [Scene.Models]: {
@@ -383,6 +383,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Homepage',
         layout: 'app-raw-no-header',
+    },
+    [Scene.Quickstart]: {
+        projectBased: true,
+        name: 'Quickstart',
+        layout: 'app-container',
     },
     [Scene.PropertyDefinitionEdit]: {
         projectBased: true,
@@ -697,9 +702,12 @@ export const redirects: Record<
 
     '/events/actions': urls.actions(),
     '/events/properties': urls.propertyDefinitions(),
-    '/events/properties/:id': ({ id }) => urls.propertyDefinition(id),
+    '/events/properties/:id': ({ id }) => urls.propertyDefinition(tryDecodeURIComponent(id)),
     '/events/stats': urls.eventDefinitions(),
     '/events/stats/:id': ({ id }) => urls.eventDefinition(id),
+    // The scene lives at /feature_flags (underscore); catch the hyphenated variant so it doesn't 404
+    '/feature-flags': urls.featureFlags(),
+    '/feature-flags/:id': ({ id }) => urls.featureFlag(id),
     '/i/:shortId': ({ shortId }) => urls.insightView(shortId),
     '/instance': urls.instanceStatus(),
     '/me/settings': urls.settings('user'),
@@ -852,6 +860,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.variables()]: [Scene.DataManagement, 'variables'],
     [urls.variableEdit(':id')]: [Scene.SqlVariableEdit, 'sqlVariableEdit'],
     [urls.projectHomepage()]: [Scene.ProjectHomepage, 'projectHomepage'],
+    [urls.quickstart()]: [Scene.Quickstart, 'quickstart'],
     [urls.aiHistory()]: [Scene.Max, 'maxHistory'],
     [urls.ai()]: [Scene.Max, 'max'],
     [urls.projectCreateFirst()]: [Scene.ProjectCreateFirst, 'projectCreateFirst'],
@@ -888,7 +897,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.credentialReview()]: [Scene.CredentialReview, 'credentialReview'],
     [urls.cliAuthorize()]: [Scene.CLIAuthorize, 'cliAuthorize'],
     [urls.cliLive()]: [Scene.CLILive, 'cliLive'],
-    [urls.emailMFAVerify()]: [Scene.EmailMFAVerify, 'emailMFAVerify'],
     [urls.preflight()]: [Scene.PreflightCheck, 'preflight'],
     [urls.signup()]: [Scene.Signup, 'signup'],
     [urls.inviteSignup(':id')]: [Scene.InviteSignup, 'inviteSignup'],

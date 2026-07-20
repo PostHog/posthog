@@ -21,6 +21,7 @@ class SignalSourceProduct(StrEnum):
     LLM_ANALYTICS = "llm_analytics"
     GITHUB = "github"
     LINEAR = "linear"
+    JIRA = "jira"
     ZENDESK = "zendesk"
     CONVERSATIONS = "conversations"
     ERROR_TRACKING = "error_tracking"
@@ -30,6 +31,7 @@ class SignalSourceProduct(StrEnum):
     LOGS = "logs"
     HEALTH_CHECKS = "health_checks"
     REPLAY_VISION = "replay_vision"
+    ANALYTICS = "analytics"
 
 
 class SignalSourceType(StrEnum):
@@ -48,6 +50,7 @@ class SignalSourceType(StrEnum):
     ALERT_STATE_CHANGE = "alert_state_change"
     HEALTH_ISSUE = "health_issue"
     SCANNER_FINDING = "scanner_finding"
+    ANOMALY_INVESTIGATION = "anomaly_investigation"
 
 
 # Plain value lists for ENUM_NAME_OVERRIDES in web.py — drf-spectacular hashes ChoiceField
@@ -62,6 +65,7 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.LLM_ANALYTICS: "LLM analytics",
     SignalSourceProduct.GITHUB: "GitHub",
     SignalSourceProduct.LINEAR: "Linear",
+    SignalSourceProduct.JIRA: "Jira",
     SignalSourceProduct.ZENDESK: "Zendesk",
     SignalSourceProduct.CONVERSATIONS: "Conversations",
     SignalSourceProduct.ERROR_TRACKING: "Error tracking",
@@ -71,6 +75,7 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.HEALTH_CHECKS: "Health checks",
     SignalSourceProduct.ENDPOINTS: "Endpoints",
     SignalSourceProduct.REPLAY_VISION: "Replay Vision",
+    SignalSourceProduct.ANALYTICS: "Product analytics",
 }
 
 # The Django model's `source_product` choices, frozen-equivalent to the prior nested TextChoices so

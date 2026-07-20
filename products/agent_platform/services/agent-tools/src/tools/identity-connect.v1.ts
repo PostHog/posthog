@@ -15,6 +15,7 @@ import { defineNativeTool, Type } from '@posthog/agent-shared'
 
 export const identityConnectV1 = defineNativeTool({
     id: '@posthog/identity-connect',
+    approval: 'approve',
     description:
         'Generate a connect or reconnect link for an identity provider so the user can authorize ' +
         '(or re-authorize) their account. Call this whenever the user asks to connect, reconnect, ' +

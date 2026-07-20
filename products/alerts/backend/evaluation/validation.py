@@ -14,6 +14,8 @@ from posthog.schema import (
     InsightThreshold,
     InsightThresholdType,
     IntervalType,
+    MetricsAlertConfig,
+    MetricsQuery,
     NodeKind,
     TrendsAlertConfig,
     TrendsQuery,
@@ -113,6 +115,9 @@ def _validate_trends_alert_config(ctx: _AlertConfigValidationContext) -> None:
     except Exception as e:
         raise ValueError(f"Alert's insight has an invalid TrendsQuery: {e}")
 
+    if ctx.detector_config is not None and is_non_time_series_trend(trends_query):
+        raise ValueError("Anomaly detection isn't supported for non time series trends")
+
     if ctx.parsed_condition.type in (
         AlertConditionType.RELATIVE_INCREASE,
         AlertConditionType.RELATIVE_DECREASE,
@@ -169,12 +174,41 @@ def _validate_funnels_alert_config(ctx: _AlertConfigValidationContext) -> None:
         validate_threshold_bounds_required(ctx.threshold_config)
 
 
+def _validate_metrics_alert_config(ctx: _AlertConfigValidationContext) -> None:
+    if ctx.query_kind != NodeKind.METRICS_QUERY:
+        raise ValueError(f"Metrics alert config requires a MetricsQuery insight, got '{ctx.query_kind}'")
+    try:
+        parsed = MetricsAlertConfig.model_validate(ctx.config)
+    except Exception:
+        raise ValueError(f"Alert has invalid MetricsAlertConfig: {ctx.config}")
+    try:
+        MetricsQuery.model_validate(ctx.query)
+    except Exception as e:
+        raise ValueError(f"Alert's insight has an invalid MetricsQuery: {e}")
+    threshold = _validate_condition_threshold_compatibility(ctx.parsed_condition, ctx.threshold_config)
+    # An ongoing (still accumulating) bucket only under-counts, so a lower bound would false-fire
+    # on every partial bucket — same guard as trends.
+    if (
+        threshold is not None
+        and parsed.check_ongoing_interval
+        and ctx.parsed_condition.type in (AlertConditionType.ABSOLUTE_VALUE, AlertConditionType.RELATIVE_INCREASE)
+        and (not threshold.bounds or threshold.bounds.upper is None)
+    ):
+        raise ValueError(
+            f"check_ongoing_interval is only supported for alert condition {ctx.parsed_condition.type} "
+            "when upper threshold is specified"
+        )
+    if ctx.require_threshold_bounds and ctx.detector_config is None:
+        validate_threshold_bounds_required(ctx.threshold_config)
+
+
 # Per-config-type validators, mirroring the extractor registry in dispatcher.py: one entry per
 # config type the threshold path supports. Adding a kind = adding an entry here and an extractor.
 _ALERT_CONFIG_VALIDATORS: dict[str, Callable[[_AlertConfigValidationContext], None]] = {
     "HogQLAlertConfig": _validate_hogql_alert_config,
     "TrendsAlertConfig": _validate_trends_alert_config,
     "FunnelsAlertConfig": _validate_funnels_alert_config,
+    "MetricsAlertConfig": _validate_metrics_alert_config,
 }
 
 

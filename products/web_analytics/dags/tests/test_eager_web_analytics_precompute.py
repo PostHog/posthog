@@ -67,7 +67,7 @@ class TestResolveEagerAudience:
         team_ids, reason, diag = _resolve_eager_audience()
         assert team_ids == [2, 7]
         assert reason == "ok"
-        assert diag == {"teams_configured": 2}
+        assert diag == {"teams_configured": 2, "active_teams_pct": 0, "active_teams": 0}
 
     def test_returns_empty_on_self_hosted(self, _is_cloud):
         _is_cloud.return_value = False
@@ -98,7 +98,30 @@ class TestResolveEagerAudience:
             team_ids, reason, diag = _resolve_eager_audience()
         assert team_ids == expected
         assert reason == "ok"
-        assert diag == {"teams_configured": len(expected)}
+        assert diag == {"teams_configured": len(expected), "active_teams_pct": 0, "active_teams": 0}
+
+    @parameterized.expand(
+        [
+            # pct of the 4 fetched actives: 50% -> top 2, 100% -> all 4; static
+            # lists stay first and overlaps dedupe.
+            ("half", 50, [2, 7, 31], 2),
+            ("all", 100, [2, 7, 31, 42, 55], 4),
+        ]
+    )
+    def test_active_audience_pct_appends_after_static_lists(self, _is_cloud, _name, pct, expected, expected_active):
+        with (
+            override_settings(
+                WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[2, 7], WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[]
+            ),
+            patch(
+                f"{_EAGER_MODULE}._fetch_active_wa_team_ids",
+                return_value=[7, 31, 42, 55],
+            ),
+        ):
+            team_ids, reason, diag = _resolve_eager_audience(active_teams_pct=pct)
+        assert team_ids == expected
+        assert reason == "ok"
+        assert diag == {"teams_configured": len(expected), "active_teams_pct": pct, "active_teams": expected_active}
 
 
 @patch("products.web_analytics.dags.eager_web_analytics_precompute.is_cloud", return_value=True)
@@ -300,9 +323,14 @@ class TestWarmBaselineForTeam(APIBaseTest):
                 assert q["includeBounceRate"] is True
             else:
                 assert "includeBounceRate" not in q
-            # EXIT_PAGE (simple precompute) bakes path cleaning into the stored value,
-            # so the warmer must match the dashboard's cleaned End-paths request.
-            if q["breakdownBy"] == WebStatsBreakdown.EXIT_PAGE.value:
+            # Every path breakdown bakes cleaned-or-raw into the job hash, and the
+            # dashboard sends doPathCleaning=true for teams with cleaning rules,
+            # so the warmer must warm the variant those dashboards actually read.
+            if q["breakdownBy"] in (
+                WebStatsBreakdown.PAGE.value,
+                WebStatsBreakdown.INITIAL_PAGE.value,
+                WebStatsBreakdown.EXIT_PAGE.value,
+            ):
                 assert q["doPathCleaning"] is True
             else:
                 assert "doPathCleaning" not in q

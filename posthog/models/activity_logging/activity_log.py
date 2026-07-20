@@ -57,6 +57,7 @@ ActivityScope = Literal[
     "LegalDocument",
     "Organization",
     "OrganizationDomain",
+    "IdentityProviderConfig",
     "OrganizationMembership",
     "Role",
     "UserGroup",
@@ -79,6 +80,7 @@ ActivityScope = Literal[
     "ExternalDataSource",
     "ExternalDataSchema",
     "Evaluation",
+    "LLMPromptLabel",
     "LLMTrace",
     "AIGatewayCredit",
     "WebAnalyticsFilterPreset",
@@ -93,6 +95,9 @@ ActivityScope = Literal[
     "SignalReport",
     "SignalScoutConfig",
     "StreamlitApp",
+    "Metric",
+    "TableCertification",
+    "Billing",
 ]
 ChangeAction = Literal[
     "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out", "copied"
@@ -195,6 +200,19 @@ class ActivityLog(UUIDTModel):
                 name="idx_alog_team_scp_act_crtd",
                 condition=models.Q(was_impersonated=False) & models.Q(is_system=False),
             ),
+            # Advanced activity logs default list ordering. The org- and team-scoped list
+            # endpoints order by -created_at with no scope filter, so the scope-led indexes
+            # above can't serve the sort, and the org indexes above are partial on a detail
+            # predicate the list query never carries. These full indexes let the LIMITed
+            # ordered scan walk created_at directly instead of sorting the whole partition.
+            models.Index(
+                fields=["organization_id", "-created_at"],
+                name="idx_alog_org_created_at",
+            ),
+            models.Index(
+                fields=["team_id", "-created_at"],
+                name="idx_alog_team_created_at",
+            ),
         ]
 
     team_id = models.PositiveIntegerField(null=True)
@@ -254,10 +272,19 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
     "ExternalDataSource": [
         "job_inputs",
     ],
+    "HogFlow": [
+        # Full content snapshot including action inputs (auth headers, API keys) — record that a
+        # draft was staged/published/discarded, never its contents.
+        "draft",
+    ],
     "OrganizationDomain": [
         "_scim_bearer_token",
         "verification_challenge",
         "_saml_x509_cert",
+    ],
+    "IdentityProviderConfig": [
+        "scim_bearer_token",
+        "saml_x509_cert",
     ],
     "User": [
         "email",
@@ -305,6 +332,11 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "_saml_x509_cert": "SAML X.509 certificate",
         "_scim_enabled": "SCIM provisioning",
         "verified_at": "domain verification",
+    },
+    "IdentityProviderConfig": {
+        "saml_entity_id": "SAML entity ID",
+        "saml_acs_url": "SAML ACS URL",
+        "saml_x509_cert": "SAML X.509 certificate",
     },
 }
 
@@ -396,11 +428,22 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
 ]
 
 field_exclusions: dict[AuditableScope, list[str]] = {
+    "Metric": [
+        # Derived/throttled fields, not user-meaningful change diffs.
+        "last_run_at",
+        "source_insight_query_hash",
+        "referenced_table_names",
+    ],
     "OrganizationDomain": [
         "organization",
         "scim_provisioned_users",
         # Internal link to the IdP config mirror; the mirrored fields themselves are already logged
         "identity_provider_config",
+    ],
+    "IdentityProviderConfig": [
+        "organization",
+        # Reverse relation from `OrganizationDomain.identity_provider_config`; not a plain field diff.
+        "domains",
     ],
     "Subscription": [
         # Scheduler-derived field; keep it out of user-facing change diffs even when another
@@ -486,7 +529,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "short_id",
         "insightviewed",
         "dashboardtile",
-        "caching_states",
     ],
     "EventDefinition": [
         "eventdefinition_ptr_id",

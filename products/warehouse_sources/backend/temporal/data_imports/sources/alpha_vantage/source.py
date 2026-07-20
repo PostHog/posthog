@@ -34,6 +34,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class AlphaVantageSource(SimpleSource[AlphaVantageSourceConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://www.alphavantage.co/documentation/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -115,7 +116,6 @@ class AlphaVantageSource(SimpleSource[AlphaVantageSourceConfig]):
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Alpha Vantage",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             keywords=["stocks", "market data", "financial", "equities", "fundamentals"],
             caption="""Enter your Alpha Vantage API key and the stock symbols you want to track to pull market data and company fundamentals into the PostHog Data warehouse.
 

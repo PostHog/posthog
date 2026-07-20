@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { OAUTH_SCOPES_SUPPORTED } from '@/lib/constants'
+import { OAUTH_SCOPES_HIDDEN, OAUTH_SCOPES_SUPPORTED } from '@/lib/constants'
 import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
@@ -140,16 +140,14 @@ describe('Tool Filtering - Tools Allowlist', () => {
             expect(withEmptyTools).toEqual(allTools)
         })
 
-        it('should return only specified tools (plus always_available tools when enabled)', () => {
+        it('should return only specified tools (plus always_available tools)', () => {
             const tools = getToolsForFeatures({
                 tools: ['dashboard-get', 'dashboard-create'],
-                featureFlags: { 'mcp-feedback-tool': true },
             })
             expect(tools).toContain('dashboard-get')
             expect(tools).toContain('dashboard-create')
 
-            // always_available tools are included alongside the allowlist regardless of order
-            // (when their gating feature flag is enabled).
+            // always_available tools are included alongside the allowlist regardless of order.
             const alwaysAvailableTools = collectAlwaysAvailableToolNames()
             expect(tools).toContain('agent-feedback')
 
@@ -163,7 +161,6 @@ describe('Tool Filtering - Tools Allowlist', () => {
         it('should return only always_available tools for nonexistent tool names', () => {
             const tools = getToolsForFeatures({
                 tools: ['nonexistent-tool'],
-                featureFlags: { 'mcp-feedback-tool': true },
             })
             const alwaysAvailableTools = collectAlwaysAvailableToolNames()
 
@@ -175,19 +172,15 @@ describe('Tool Filtering - Tools Allowlist', () => {
         it('should always include agent-feedback even when feature filter matches no tools', () => {
             const tools = getToolsForFeatures({
                 features: ['nonexistent-feature'],
-                featureFlags: { 'mcp-feedback-tool': true },
             })
             expect(tools).toContain('agent-feedback')
         })
 
-        it('should hide agent-feedback when its gating feature flag is off', () => {
-            // Flag explicitly off — tool is hidden even though it's always_available.
-            const toolsWithFlagOff = getToolsForFeatures({ featureFlags: { 'mcp-feedback-tool': false } })
-            expect(toolsWithFlagOff).not.toContain('agent-feedback')
-
-            // No flags evaluated at all — also hidden (default behavior is `enable`).
-            const toolsWithoutFlags = getToolsForFeatures({})
-            expect(toolsWithoutFlags).not.toContain('agent-feedback')
+        it('should include agent-feedback regardless of feature flags', () => {
+            // agent-feedback is always_available and no longer flag-gated — it is
+            // present whether or not any feature flags are evaluated.
+            expect(getToolsForFeatures({})).toContain('agent-feedback')
+            expect(getToolsForFeatures({ featureFlags: {} })).toContain('agent-feedback')
         })
 
         it('should union with features (OR) when both are provided', () => {
@@ -242,7 +235,11 @@ describe('Tool Filtering - Tools Allowlist', () => {
     })
 })
 
-const createMockContext = (scopes: string[]): Context => ({
+const createMockContext = (
+    scopes: string[],
+    getUser?: () => Promise<{ is_staff?: boolean }>,
+    apiKeyExtra?: { scoped_teams?: number[]; scoped_organizations?: string[] }
+): Context => ({
     api: {} as any,
     cache: {} as any,
     env: {
@@ -255,8 +252,13 @@ const createMockContext = (scopes: string[]): Context => ({
         POSTHOG_UI_APPS_TOKEN: undefined,
     },
     stateManager: {
-        getApiKey: async () => ({ scopes }),
+        getApiKey: async () => ({ scopes, ...apiKeyExtra }),
         getAiConsentGiven: async () => undefined,
+        getUser:
+            getUser ??
+            (async () => {
+                throw new Error('users/@me not available')
+            }),
     } as any,
     sessionManager: new SessionManager({} as any),
     getDistinctId: async () => 'test-distinct-id',
@@ -327,7 +329,7 @@ describe('Tool Filtering - API Scopes', () => {
 
     it('should return only tools with no required scopes when user has no matching scopes', async () => {
         const context = createMockContext(['some:unknown'])
-        const tools = await getToolsFromContext(context, { featureFlags: { 'mcp-feedback-tool': true } })
+        const tools = await getToolsFromContext(context)
         const toolNames = tools.map((t) => t.name)
 
         // Only tools with no required scopes (or that bypass scope checks) should be available.
@@ -338,12 +340,65 @@ describe('Tool Filtering - API Scopes', () => {
 
     it('should return only tools with no required scopes when user has empty scopes', async () => {
         const context = createMockContext([])
-        const tools = await getToolsFromContext(context, { featureFlags: { 'mcp-feedback-tool': true } })
+        const tools = await getToolsFromContext(context)
         const toolNames = tools.map((t) => t.name)
 
         expect(toolNames).toContain('debug-mcp-ui-apps')
         expect(toolNames).toContain('agent-feedback')
         expectAllToolsHaveNoRequiredScopes(toolNames)
+    })
+})
+
+describe('Tool Filtering - Staff-only (OAuth-hidden scope) tools', () => {
+    const STAFF_TOOLS = ['managed-migrations-support-list', 'managed-migrations-support-get']
+
+    it.each([
+        {
+            description: 'hidden from a full-access `*` key even for a staff user',
+            scopes: ['*'],
+            getUser: async () => ({ is_staff: true }),
+            visible: false,
+        },
+        {
+            description: 'visible for a staff user whose key explicitly carries the hidden scope',
+            scopes: ['batch_import_support:read', 'user:read'],
+            getUser: async () => ({ is_staff: true }),
+            visible: true,
+        },
+        {
+            description: 'hidden from a non-staff user even when the key carries the hidden scope',
+            scopes: ['batch_import_support:read', 'user:read'],
+            getUser: async () => ({ is_staff: false }),
+            visible: false,
+        },
+        {
+            // Default mock getUser rejects, like a key minted without `user:read`.
+            description: 'hidden (fail closed) when staffness cannot be determined',
+            scopes: ['batch_import_support:read'],
+            getUser: undefined,
+            visible: false,
+        },
+        {
+            // The staff endpoints reject tenant-scoped keys, so discovery must not
+            // advertise tools whose every call would 403.
+            description: 'hidden for a tenant-scoped key even with staff + explicit scope',
+            scopes: ['batch_import_support:read', 'user:read'],
+            getUser: async () => ({ is_staff: true }),
+            apiKeyExtra: { scoped_organizations: ['0195b1a0-0000-0000-0000-000000000000'] },
+            visible: false,
+        },
+    ])('$description', async ({ scopes, getUser, visible, apiKeyExtra }) => {
+        const context = createMockContext(scopes, getUser, apiKeyExtra)
+        const tools = await getToolsFromContext(context)
+        const toolNames = tools.map((t) => t.name)
+
+        for (const tool of STAFF_TOOLS) {
+            if (visible) {
+                expect(toolNames).toContain(tool)
+            } else {
+                expect(toolNames).not.toContain(tool)
+            }
+        }
     })
 })
 
@@ -376,6 +431,11 @@ describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
         'signal_scout_report:write',
     ])
 
+    // OAuth-hidden scopes (generated from OAUTH_HIDDEN_SCOPE_OBJECTS in posthog/scopes.py)
+    // are PAT-grantable but never OAuth-advertised: tools requiring one (e.g. the staff-only
+    // managed-migrations support tools) only surface for personal API keys carrying it.
+    const oauthHiddenScopes = new Set<string>(OAUTH_SCOPES_HIDDEN)
+
     it('should include every scope referenced in tool definitions', () => {
         const supportedScopes = new Set<string>(OAUTH_SCOPES_SUPPORTED)
 
@@ -389,7 +449,7 @@ describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
         }
 
         const missing = [...scopesFromTools]
-            .filter((s) => !supportedScopes.has(s) && !SERVER_MINT_ONLY_SCOPES.has(s))
+            .filter((s) => !supportedScopes.has(s) && !SERVER_MINT_ONLY_SCOPES.has(s) && !oauthHiddenScopes.has(s))
             .sort()
 
         expect(
@@ -734,7 +794,6 @@ describe('Tool Filtering - Feature Flags', () => {
 
     it('getRequiredFeatureFlags should return flags used by current definitions', () => {
         const flags = getRequiredFeatureFlags()
-        // Includes the gating flag for agent-feedback alongside the other gated tools.
         expect(flags).toEqual(
             expect.arrayContaining([
                 'agent-platform',
@@ -743,7 +802,6 @@ describe('Tool Filtering - Feature Flags', () => {
                 'replay-video-based-summarization',
                 'tracing',
                 'visual-review',
-                'mcp-feedback-tool',
                 'user-interviews',
                 'customer-analytics-csp',
                 'notebooks-collaboration',
@@ -758,6 +816,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'metrics',
                 'endpoints-ai-materialization-fix',
                 'engineering-analytics',
+                'stamphog',
             ])
         )
         expect(flags).toHaveLength(21)

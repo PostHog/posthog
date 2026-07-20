@@ -15,12 +15,8 @@ from posthog.models.user import User
 from posthog.storage import object_storage
 
 from products.streamlit_apps.backend.facade import contracts
-from products.streamlit_apps.backend.logic.app_runtime import (
-    AppRuntimeConcurrencyError,
-    AppRuntimeError,
-    AppRuntimeService,
-    sync_sandbox_status,
-)
+from products.streamlit_apps.backend.facade.contracts import AppRuntimeConcurrencyError, AppRuntimeError
+from products.streamlit_apps.backend.logic.app_runtime import AppRuntimeService, sync_sandbox_status
 from products.streamlit_apps.backend.logic.bridge import execute_bridge_query
 from products.streamlit_apps.backend.logic.oauth import (
     create_streamlit_access_token,

@@ -8,7 +8,7 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
-import { Metric } from 'scenes/insights/views/Metric/Metric'
+import { MetricCard } from 'scenes/insights/views/Metric/Metric'
 
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
@@ -87,7 +87,9 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
     const commonProps = {
         showPersonsModal,
         context,
-        inCardView: embedded && !inSharedMode,
+        // Fill the card in every embedded surface (dashboard tiles and shared/exported insights alike) so the
+        // Metric sparkline stretches and hugs the bottom instead of collapsing to a fixed height mid-card.
+        inCardView: embedded,
         inSharedMode,
     }
 
@@ -116,7 +118,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
             return <BoldNumber {...commonProps} />
         }
         if (display === ChartDisplayType.Metric) {
-            return <Metric {...commonProps} />
+            return <MetricCard {...commonProps} />
         }
         if (display === ChartDisplayType.ActionsTable) {
             return (
@@ -163,7 +165,13 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
     return (
         <>
             {series && (
-                <div className={embedded ? 'InsightCard__viz' : `TrendsInsight TrendsInsight--${display}`}>
+                <div
+                    className={
+                        embedded
+                            ? `InsightCard__viz InsightCard__viz--${display}`
+                            : `TrendsInsight TrendsInsight--${display}`
+                    }
+                >
                     <Suspense
                         fallback={
                             <WrappingLoadingSkeleton fullWidth>

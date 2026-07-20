@@ -282,7 +282,7 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
             )
             .optional()
             .describe(
-                "Non-empty list of release-condition groups defining the held-out population, using the same shape as feature-flag release conditions. Each element's `rollout_percentage` (0–100, may be fractional) is the **exclusion** percentage — the share of users held back from all experiments that reference this holdout. `properties` optionally narrows the group by person/group properties. Do not set `variant`: the server normalizes it to `holdout-{id}`. Note that only the first element's `rollout_percentage` is embedded into each linked experiment's feature flag, and this population is shared across every experiment using the holdout."
+                "Non-empty list of release-condition groups defining the held-out population, using the same shape as feature-flag release conditions. Each element's `rollout_percentage` (0–100, may be fractional) is the *\*exclusion*\* percentage — the share of users held back from all experiments that reference this holdout. `properties` optionally narrows the group by person/group properties. Do not set `variant`: the server normalizes it to `holdout-{id}`. Note that only the first element's `rollout_percentage` is embedded into each linked experiment's feature flag, and this population is shared across every experiment using the holdout."
             ),
     })
     .describe('A holdout group — a stable slice of users excluded from experiment exposure.')
@@ -559,7 +559,7 @@ export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
             )
             .optional()
             .describe(
-                "Non-empty list of release-condition groups defining the held-out population, using the same shape as feature-flag release conditions. Each element's `rollout_percentage` (0–100, may be fractional) is the **exclusion** percentage — the share of users held back from all experiments that reference this holdout. `properties` optionally narrows the group by person/group properties. Do not set `variant`: the server normalizes it to `holdout-{id}`. Note that only the first element's `rollout_percentage` is embedded into each linked experiment's feature flag, and this population is shared across every experiment using the holdout."
+                "Non-empty list of release-condition groups defining the held-out population, using the same shape as feature-flag release conditions. Each element's `rollout_percentage` (0–100, may be fractional) is the *\*exclusion*\* percentage — the share of users held back from all experiments that reference this holdout. `properties` optionally narrows the group by person/group properties. Do not set `variant`: the server normalizes it to `holdout-{id}`. Note that only the first element's `rollout_percentage` is embedded into each linked experiment's feature flag, and this population is shared across every experiment using the holdout."
             ),
     })
     .describe('A holdout group — a stable slice of users excluded from experiment exposure.')
@@ -902,7 +902,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                         key: zod
                                                             .string()
                                                             .describe(
-                                                                "Unique variant key. Exactly one variant must use the key 'control' (the baseline)."
+                                                                "Unique variant key. The baseline defaults to the variant keyed 'control' when present, else the first variant."
                                                             ),
                                                         name: zod
                                                             .string()
@@ -925,7 +925,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     )
                                             )
                                             .describe(
-                                                "Variant definitions. Exactly one variant key must be the literal string 'control'."
+                                                "Variant definitions (2 to 20). The baseline defaults to the variant keyed 'control' when present, else the first variant."
                                             ),
                                     })
                                     .describe("Multivariate config for the experiment's feature flag."),
@@ -947,7 +947,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                     )
                     .optional()
                     .describe(
-                        "Flag config to apply: `multivariate.variants` (exactly one variant key must be the literal string 'control'), `groups` (a single group with `rollout_percentage` only; release conditions are not supported here, edit the feature flag directly), `aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). On update, config this object omits is preserved from the linked flag's current state."
+                        "Flag config to apply: `multivariate.variants` (2 to 20 variants; the baseline defaults to the variant keyed 'control' when present, else the first variant), `groups` (a single group with `rollout_percentage` only; release conditions are not supported here, edit the feature flag directly), `aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). On update, config this object omits is preserved from the linked flag's current state."
                     ),
                 ensure_experience_continuity: zod
                     .boolean()
@@ -1716,7 +1716,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     .default(
                                                         experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneoneTypeDefault
                                                     )
-                                                    .describe('Event property with "$feature/" prepended'),
+                                                    .describe('Event property with "$feature/\" prepended'),
                                                 value: zod
                                                     .union([
                                                         zod.array(
@@ -4458,7 +4458,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                         key: zod
                                                             .string()
                                                             .describe(
-                                                                "Unique variant key. Exactly one variant must use the key 'control' (the baseline)."
+                                                                "Unique variant key. The baseline defaults to the variant keyed 'control' when present, else the first variant."
                                                             ),
                                                         name: zod
                                                             .string()
@@ -4481,7 +4481,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     )
                                             )
                                             .describe(
-                                                "Variant definitions. Exactly one variant key must be the literal string 'control'."
+                                                "Variant definitions (2 to 20). The baseline defaults to the variant keyed 'control' when present, else the first variant."
                                             ),
                                     })
                                     .describe("Multivariate config for the experiment's feature flag."),
@@ -4503,7 +4503,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                     )
                     .optional()
                     .describe(
-                        "Flag config to apply: `multivariate.variants` (exactly one variant key must be the literal string 'control'), `groups` (a single group with `rollout_percentage` only; release conditions are not supported here, edit the feature flag directly), `aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). On update, config this object omits is preserved from the linked flag's current state."
+                        "Flag config to apply: `multivariate.variants` (2 to 20 variants; the baseline defaults to the variant keyed 'control' when present, else the first variant), `groups` (a single group with `rollout_percentage` only; release conditions are not supported here, edit the feature flag directly), `aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). On update, config this object omits is preserved from the linked flag's current state."
                     ),
                 ensure_experience_continuity: zod
                     .boolean()
@@ -5269,7 +5269,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     .default(
                                                         experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneoneTypeDefault
                                                     )
-                                                    .describe('Event property with "$feature/" prepended'),
+                                                    .describe('Event property with "$feature/\" prepended'),
                                                 value: zod
                                                     .union([
                                                         zod.array(
@@ -8773,7 +8773,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     .default(
                                                         experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneoneTypeDefault
                                                     )
-                                                    .describe('Event property with "$feature/" prepended'),
+                                                    .describe('Event property with "$feature/\" prepended'),
                                                 value: zod
                                                     .union([
                                                         zod.array(
@@ -11408,7 +11408,7 @@ export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
  * Validates the experiment is in draft state, activates its linked feature flag,
  * sets start_date to the current server time, and transitions the experiment to running.
  * Returns 400 if the experiment has already been launched or if the feature flag
- * configuration is invalid (e.g. missing "control" variant or fewer than 2 variants).
+ * configuration is invalid (e.g. fewer than 2 variants).
  */
 export const ExperimentsLaunchCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),

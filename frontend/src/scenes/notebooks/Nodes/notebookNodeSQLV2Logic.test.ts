@@ -41,32 +41,58 @@ describe('notebookNodeSQLV2Logic', () => {
             attrs: { nodeId, returnVariable },
         })
 
+        const pythonNode = (nodeId: string, returnVariable?: string): JSONContent => ({
+            type: NotebookNodeType.PythonV2,
+            attrs: { nodeId, returnVariable },
+        })
+
         const doc = (...children: JSONContent[]): JSONContent => ({
             type: 'doc',
             content: children,
         })
 
+        const hogql = (node_id: string): { node_id: string; kind: 'hogql' } => ({ node_id, kind: 'hogql' })
+        const local = (node_id: string): { node_id: string; kind: 'local' } => ({ node_id, kind: 'local' })
+
         it('maps each named sibling to its node id, excluding the running node itself', () => {
             // Including self would inline the node as a CTE of its own name — a cycle the backend rejects.
             const document = doc(sqlNode('a', 'df1'), sqlNode('self', 'df2'), sqlNode('c', 'df3'))
-            expect(collectSqlV2Refs(document, 'self')).toEqual({ df1: 'a', df3: 'c' })
+            expect(collectSqlV2Refs(document, 'self')).toEqual({ df1: hogql('a'), df3: hogql('c') })
         })
 
         it('disambiguates duplicate names the way the dependency graph does', () => {
             // Raw attributes would let node b shadow node a under the shared name —
             // the join would silently run against the wrong node's data.
             const document = doc(sqlNode('a', 'sql_df'), sqlNode('b', 'sql_df'), sqlNode('self', 'sql_df'))
-            expect(collectSqlV2Refs(document, 'self')).toEqual({ sql_df: 'a', sql_df_2: 'b' })
+            expect(collectSqlV2Refs(document, 'self')).toEqual({ sql_df: hogql('a'), sql_df_2: hogql('b') })
         })
 
         it('resolves blank names to the default the dependency graph shows', () => {
             const document = doc(sqlNode('a', ''), sqlNode('b', '  '))
-            expect(collectSqlV2Refs(document, 'self')).toEqual({ sql_df: 'a', sql_df_2: 'b' })
+            expect(collectSqlV2Refs(document, 'self')).toEqual({ sql_df: hogql('a'), sql_df_2: hogql('b') })
         })
 
         it('finds SQLV2 nodes nested inside other content', () => {
             const document = doc({ type: 'column', content: [sqlNode('a', 'df1')] })
-            expect(collectSqlV2Refs(document, 'self')).toEqual({ df1: 'a' })
+            expect(collectSqlV2Refs(document, 'self')).toEqual({ df1: hogql('a') })
+        })
+
+        it('collects python cells as local refs under their kernel variable name', () => {
+            // Journey 5: a SQL node referencing new_events must reroute to DuckDB, which only
+            // happens if the python cell's returnVariable reaches the backend as a local ref.
+            const document = doc(sqlNode('a', 'df1'), pythonNode('py', 'new_events'), pythonNode('py2'))
+            expect(collectSqlV2Refs(document, 'self')).toEqual({
+                df1: hogql('a'),
+                new_events: local('py'),
+                df: local('py2'), // returnVariable defaults to 'df', matching the python cell UI
+            })
+        })
+
+        it('a sql ref wins a name collision with a python cell', () => {
+            // SQL names are disambiguated in the UI; kernel variables are not — renaming the
+            // local ref would break its correspondence with the kernel namespace, so it drops.
+            const document = doc(sqlNode('a', 'df1'), pythonNode('py', 'df1'))
+            expect(collectSqlV2Refs(document, 'self')).toEqual({ df1: hogql('a') })
         })
 
         it('collects refs from markdown notebook cells, preferring their persisted nodeId', () => {
@@ -78,12 +104,18 @@ describe('notebookNodeSQLV2Logic', () => {
                 serializeMarkdownNotebookComponent('SQLV2', { nodeId: 'a', returnVariable: 'df1', code: 'select 1' }),
                 serializeMarkdownNotebookComponent('SQLV2', { nodeId: 'self', returnVariable: 'df2', code: '' }),
                 serializeMarkdownNotebookComponent('SQLV2', { returnVariable: 'df3', code: 'select 3' }),
+                serializeMarkdownNotebookComponent('PythonV2', {
+                    nodeId: 'py',
+                    returnVariable: 'new_events',
+                    code: 'x = 1',
+                }),
             ].join('\n\n')
             const refs = collectSqlV2Refs(buildMarkdownNotebookContent(markdown), 'self')
-            expect(refs.df1).toEqual('a')
+            expect(refs.df1).toEqual(hogql('a'))
             expect(refs.df2).toBeUndefined()
             // Without a persisted nodeId the cell falls back to its parsed fingerprint id.
-            expect(refs.df3).toMatch(/^mdn-/)
+            expect(refs.df3?.node_id).toMatch(/^mdn-/)
+            expect(refs.new_events).toEqual(local('py'))
         })
     })
 
@@ -92,7 +124,7 @@ describe('notebookNodeSQLV2Logic', () => {
         logic.actions.runQuery('   ')
         await expectLogic(logic)
             .toFinishAllListeners()
-            .toMatchValues({ runError: 'Query is empty — type some HogQL first.', isRunning: false })
+            .toMatchValues({ runError: 'Nothing to run — type some code first.', isRunning: false })
         expect(runSpy).not.toHaveBeenCalled()
     })
 
@@ -106,6 +138,23 @@ describe('notebookNodeSQLV2Logic', () => {
         expect(updateAttributes).toHaveBeenCalledWith({ nodeId: 'n1', runId: 'r1', result: null })
     })
 
+    it('dispatches a python run with its node type and output name', async () => {
+        mount()
+        logic.actions.runQuery(
+            'df.head()',
+            { sql_df: { node_id: 'other', kind: 'hogql' } },
+            { nodeType: 'python', outputName: 'df' }
+        )
+        await expectLogic(logic).toDispatchActions(['runQuery', 'startPolling'])
+        expect(runSpy).toHaveBeenCalledWith('nb1', {
+            node_id: 'n1',
+            code: 'df.head()',
+            refs: { sql_df: { node_id: 'other', kind: 'hogql' } },
+            node_type: 'python',
+            output_name: 'df',
+        })
+    })
+
     it('maps a done envelope into the node result and stops the spinner', async () => {
         resultSpy.mockResolvedValue({
             status: 'done',
@@ -115,7 +164,16 @@ describe('notebookNodeSQLV2Logic', () => {
         mount({ runId: 'r1', hasResult: false })
         await expectLogic(logic).toFinishAllListeners()
         expect(updateAttributes).toHaveBeenCalledWith({
-            result: { columns: ['a'], types: [], row_count: 1, first_page: [[1]], has_more: false },
+            result: {
+                columns: ['a'],
+                types: [],
+                row_count: 1,
+                first_page: [[1]],
+                has_more: false,
+                stdout: '',
+                stderr: '',
+                media: [],
+            },
         })
         expect(logic.values.isRunning).toBe(false)
     })
@@ -126,6 +184,58 @@ describe('notebookNodeSQLV2Logic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.runError).toBe('no such table')
         expect(logic.values.isRunning).toBe(false)
+    })
+
+    it('surfaces an interrupted run with its partial output', async () => {
+        // Journey 9: a stopped cell must still show what it printed before the interrupt,
+        // with a notice instead of polling forever or rendering a bare failure.
+        resultSpy.mockResolvedValue({
+            status: 'interrupted',
+            result: { columns: [], first_page: [], row_count: 0, stdout: 'partial output' },
+            error: 'Run interrupted.',
+        })
+        mount({ runId: 'r1', hasResult: false })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(updateAttributes).toHaveBeenCalledWith({
+            result: expect.objectContaining({ stdout: 'partial output' }),
+        })
+        expect(logic.values.runError).toBe('Run interrupted.')
+        expect(logic.values.isRunning).toBe(false)
+        expect(logic.values.isInterrupting).toBe(false)
+    })
+
+    it('interruptRun posts the active run to the interrupt endpoint and stays pending', async () => {
+        const interruptSpy = jest.spyOn(api.notebooks, 'sqlV2RunInterrupt').mockResolvedValue({ status: 'running' })
+        mount({ runId: 'r1', hasResult: false })
+        await expectLogic(logic).toDispatchActions(['startPolling'])
+        logic.actions.interruptRun()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(interruptSpy).toHaveBeenCalledWith('nb1', 'r1')
+        // The terminal state arrives via the poll; until then the Cancel button stays pending.
+        expect(logic.values.isInterrupting).toBe(true)
+    })
+
+    it('an interrupt that stopped nothing resets the cancel button for a retry', async () => {
+        jest.spyOn(api.notebooks, 'sqlV2RunInterrupt').mockResolvedValue({
+            status: 'running',
+            detail: 'The run has not reached the kernel yet. Try again in a moment.',
+        })
+        mount({ runId: 'r1', hasResult: false })
+        await expectLogic(logic).toDispatchActions(['startPolling'])
+        logic.actions.interruptRun()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.isInterrupting).toBe(false)
+        expect(logic.values.isRunning).toBe(true)
+    })
+
+    it('a failed interrupt request resets the cancel button', async () => {
+        jest.spyOn(api.notebooks, 'sqlV2RunInterrupt').mockRejectedValue(new Error('network down'))
+        mount({ runId: 'r1', hasResult: false })
+        await expectLogic(logic).toDispatchActions(['startPolling'])
+        logic.actions.interruptRun()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.isInterrupting).toBe(false)
+        expect(logic.values.isRunning).toBe(true)
     })
 
     it('surfaces a run dispatch failure as an error', async () => {

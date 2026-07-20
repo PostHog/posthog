@@ -1,0 +1,433 @@
+/*
+ * PROTOTYPE — Lemon skin for quill: restyles quill primitives to LemonUI's visual
+ * language so quill components drop into Lemon scenes with no visible change.
+ * Opt in per surface with `data-quill data-lemon-skin` on a wrapper. Quill's own
+ * rules live in `@layer components`, so these unlayered overrides win the cascade.
+ * Portaled content (menus, flyouts, dropdowns) escapes the wrapper — pass
+ * `data-lemon-skin` to the quill *Content component so it lands on the portal.
+ */
+
+/* quill-bridge.scss rebinds several Lemon var names to quill tokens inside
+   [data-quill], so these aliases restore the Lemon values under skin-local names. */
+[data-lemon-skin] {
+    --lemon-skin-accent: hsl(
+        var(--color-brand-primary-hue),
+        var(--color-brand-primary-saturation),
+        var(--color-brand-primary-lightness)
+    );
+    --lemon-skin-accent-hover: hsl(
+        var(--color-brand-primary-hue),
+        var(--color-brand-primary-saturation),
+        calc(var(--color-brand-primary-lightness) + 10%)
+    );
+    --lemon-skin-border: var(--color-posthog-3000-200);
+    --lemon-skin-border-hover: var(--color-posthog-3000-400);
+    --lemon-skin-surface: var(--color-white);
+    --lemon-skin-bg-page: var(--color-posthog-3000-50);
+    --lemon-skin-text-secondary: var(--color-neutral-750);
+    --lemon-skin-radius: 0.375rem;
+    --lemon-skin-radius-lg: 0.625rem;
+}
+
+[theme='dark'] [data-lemon-skin] {
+    --lemon-skin-border: var(--color-neutral-cool-800);
+    --lemon-skin-border-hover: var(--color-neutral-cool-600);
+    --lemon-skin-surface: var(--color-neutral-cool-850);
+    --lemon-skin-bg-page: var(--color-neutral-cool-950);
+    --lemon-skin-text-secondary: var(--color-neutral-350);
+}
+
+/* Core quill tokens → Lemon values: recolors primitive CSS and bespoke Tailwind in one
+   place. tokens.scoped.css sets values directly on every [data-quill] element, so the
+   extra selectors are needed to out-specificity it. */
+[data-lemon-skin],
+[data-lemon-skin][data-quill],
+[data-lemon-skin] [data-quill] {
+    --foreground: var(--text-3000);
+    --muted-foreground: var(--lemon-skin-text-secondary);
+    --border: var(--lemon-skin-border);
+    --input: var(--lemon-skin-border);
+    --card: var(--color-bg-surface-popover);
+    --background: var(--lemon-skin-surface);
+    --primary: var(--lemon-skin-accent);
+    --primary-foreground: var(--lemon-skin-surface);
+    --fill-hover: var(--color-bg-fill-button-tertiary-hover);
+    --fill-selected: var(--color-bg-fill-button-tertiary-active);
+    --fill-expanded: var(--color-bg-fill-button-tertiary-active);
+    --radius-xs: 0.25rem;
+    --radius-sm: 0.375rem;
+    --radius-md: 0.375rem;
+    --radius-lg: 0.625rem;
+
+    /* Quill's base 12px text → Lemon's 14px, wherever quill CSS reads the var */
+    --text-xs: 0.875rem;
+    --shadow-md: var(--shadow-elevation-3000);
+}
+
+/* ═══ Button → LemonButton ═════════════════════════════════════════════ */
+
+/* The attribute matches an ancestor (wrapped surfaces, portaled content) or the
+   element itself, so an opted-in inline button is skinned without a wrapper. */
+
+[data-lemon-skin] .quill-button,
+.quill-button[data-lemon-skin] {
+    font-family: var(--font-button);
+    font-size: 0.875rem;
+    font-weight: 500;
+    line-height: 1.5rem;
+    color: var(--text-3000);
+    border-radius: var(--lemon-skin-radius);
+}
+
+/* primary → Lemon primary. LemonButton draws its 3D frame on a pseudo-element inset
+   -1px with `0 3px 0 -1px`; on the button itself 0 spread gives the same net edge. */
+
+[data-lemon-skin] .quill-button--variant-primary,
+.quill-button--variant-primary[data-lemon-skin] {
+    color: var(--text-3000-light);
+    background-color: var(--primary-3000-button-bg);
+    border: 1px solid var(--primary-3000-button-border);
+    box-shadow: 0 0.1875rem 0 0 var(--primary-3000-frame-bg);
+    translate: none;
+}
+
+[data-lemon-skin] .quill-button--variant-primary:not(:disabled, [aria-disabled='true']):hover,
+.quill-button--variant-primary[data-lemon-skin]:not(:disabled, [aria-disabled='true']):hover {
+    background-color: var(--primary-3000-button-bg);
+    border-color: var(--primary-3000-button-border-hover);
+}
+
+[data-lemon-skin] .quill-button--variant-primary:not(:disabled, [aria-disabled='true']):active,
+.quill-button--variant-primary[data-lemon-skin]:not(:disabled, [aria-disabled='true']):active {
+    box-shadow: none;
+    translate: 0 0.1875rem;
+}
+
+/* outline → Lemon secondary */
+
+[data-lemon-skin] .quill-button--variant-outline,
+.quill-button--variant-outline[data-lemon-skin] {
+    background-color: transparent;
+    border: 1px solid var(--secondary-3000-button-border);
+    box-shadow: 0 0.1875rem 0 0 var(--secondary-3000-frame-bg);
+}
+
+[data-lemon-skin] .quill-button--variant-outline:not(:disabled, [aria-disabled='true']):hover,
+.quill-button--variant-outline[data-lemon-skin]:not(:disabled, [aria-disabled='true']):hover {
+    color: var(--text-3000);
+    background-color: transparent;
+    border-color: var(--secondary-3000-button-border-hover);
+}
+
+[data-lemon-skin] .quill-button--variant-outline:not(:disabled, [aria-disabled='true']):active,
+.quill-button--variant-outline[data-lemon-skin]:not(:disabled, [aria-disabled='true']):active {
+    box-shadow: none;
+    translate: 0 0.1875rem;
+}
+
+/* default (ghost) → Lemon tertiary */
+
+[data-lemon-skin] .quill-button--variant-default,
+.quill-button--variant-default[data-lemon-skin] {
+    background-color: transparent;
+    border: none;
+    box-shadow: none;
+}
+
+[data-lemon-skin] .quill-button--variant-default:not(:disabled, [aria-disabled='true']):hover,
+.quill-button--variant-default[data-lemon-skin]:not(:disabled, [aria-disabled='true']):hover {
+    color: var(--text-3000);
+    background-color: var(--color-bg-fill-button-tertiary-hover);
+}
+
+[data-lemon-skin] .quill-button--variant-default:not(:disabled, [aria-disabled='true']):active,
+.quill-button--variant-default[data-lemon-skin]:not(:disabled, [aria-disabled='true']):active {
+    background-color: var(--color-bg-fill-button-tertiary-active);
+}
+
+/* link / link-muted → Lemon Link (accent text, no underline) */
+
+[data-lemon-skin] .quill-button--variant-link,
+[data-lemon-skin] .quill-button--variant-link-muted,
+.quill-button--variant-link[data-lemon-skin],
+.quill-button--variant-link-muted[data-lemon-skin] {
+    height: auto;
+    padding: 0;
+    color: var(--lemon-skin-accent);
+    text-decoration-line: none;
+    background: none;
+    border: none;
+    box-shadow: none;
+}
+
+[data-lemon-skin] .quill-button--variant-link-muted,
+.quill-button--variant-link-muted[data-lemon-skin] {
+    color: var(--text-3000);
+}
+
+[data-lemon-skin]
+    :is(.quill-button--variant-link, .quill-button--variant-link-muted):not(:disabled, [aria-disabled='true']):hover,
+:is(.quill-button--variant-link, .quill-button--variant-link-muted)[data-lemon-skin]:not(
+    :disabled,
+    [aria-disabled='true']
+):hover {
+    color: var(--lemon-skin-accent-hover);
+    text-decoration-line: none;
+    background: none;
+}
+
+/* Sizes → Lemon's scale by closest geometry: xs→xxsmall, sm→xsmall,
+   default→small, lg→medium */
+
+[data-lemon-skin] .quill-button--size-default,
+.quill-button--size-default[data-lemon-skin] {
+    gap: 0.5rem;
+    height: 2.0625rem;
+    padding-inline: 0.5rem;
+    font-size: 0.875rem;
+}
+
+[data-lemon-skin] .quill-button--size-default svg:not([class*='size-']),
+.quill-button--size-default[data-lemon-skin] svg:not([class*='size-']) {
+    width: 1.25rem;
+    height: 1.25rem;
+}
+
+[data-lemon-skin] .quill-button--size-xs,
+.quill-button--size-xs[data-lemon-skin] {
+    gap: 0.1875rem;
+    height: 1.25rem;
+    padding-inline: 0.25rem;
+    font-size: 0.6875rem;
+    border-radius: var(--lemon-skin-radius);
+}
+
+[data-lemon-skin] .quill-button--size-sm,
+.quill-button--size-sm[data-lemon-skin] {
+    gap: 0.25rem;
+    height: 1.625rem;
+    padding-inline: 0.375rem;
+    font-size: 0.75rem;
+}
+
+[data-lemon-skin] .quill-button--size-sm svg:not([class*='size-']),
+.quill-button--size-sm[data-lemon-skin] svg:not([class*='size-']) {
+    width: 0.875rem;
+    height: 0.875rem;
+}
+
+/* ═══ InputGroup (input with addons) — recolor only, keep 2rem metrics ═ */
+
+[data-lemon-skin] .quill-input-group {
+    /* Undo the global --text-xs bump inside the stepper: at 14px a 3-digit count truncates.
+       The text-xs utility reads the var (and is !important), so re-scope the var. */
+    --text-xs: 0.75rem;
+
+    font-family: var(--font-sans);
+    background-color: var(--color-bg-fill-input);
+    border-color: var(--lemon-skin-border);
+    border-radius: var(--lemon-skin-radius);
+}
+
+[data-lemon-skin] .quill-input-group:has([data-slot='input-group-control']:focus-visible) {
+    border-color: var(--lemon-skin-border-hover);
+    box-shadow: none;
+}
+
+/* Buttons inside the group keep quill's compact metrics — the Lemon button remap
+   (2.0625rem, full radius) overflows the 2rem group on hover. */
+[data-lemon-skin] .quill-input-group .quill-button {
+    border-radius: calc(var(--lemon-skin-radius) - 2px);
+}
+
+[data-lemon-skin] .quill-input-group .quill-input-group__button--size-icon-xs {
+    width: 1.5rem;
+    height: 1.5rem;
+    padding: 0;
+}
+
+/* ═══ Switch → LemonSwitch ═════════════════════════════════════════════ */
+
+[data-lemon-skin] .quill-switch {
+    border: none;
+    outline: 1px solid var(--lemon-skin-border);
+}
+
+[data-lemon-skin] .quill-switch[data-unchecked] {
+    background-color: var(--color-bg-fill-switch);
+}
+
+[data-lemon-skin] .quill-switch[data-checked] {
+    background-color: var(--lemon-skin-accent);
+}
+
+[data-lemon-skin] .quill-switch__thumb {
+    /* Lemon hardcodes a white handle in the off state */
+    background-color: #fff;
+}
+
+[data-lemon-skin] .quill-switch[data-checked] .quill-switch__thumb {
+    background-color: var(--lemon-skin-surface);
+    transform: translateX(100%);
+}
+
+/* ═══ Separator → LemonDivider ═════════════════════════════════════════ */
+
+[data-lemon-skin] .quill-separator {
+    background-color: var(--lemon-skin-border);
+}
+
+/* ═══ Label → LemonLabel ═══════════════════════════════════════════════ */
+
+[data-lemon-skin] .quill-label {
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1.5rem;
+}
+
+/* ═══ Popover / menu / select surfaces → Lemon Popover box ═════════════ */
+
+[data-lemon-skin] :is(.quill-popover__content, .quill-select__content),
+:is(.quill-popover__content, .quill-select__content)[data-lemon-skin] {
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+    background-color: var(--color-bg-surface-popover);
+    border: 1px solid var(--secondary-3000-button-border);
+    border-radius: var(--lemon-skin-radius-lg);
+    box-shadow: var(--shadow-elevation-3000);
+}
+
+/* SelectTrigger sizes itself via data-size, not Button's size prop: sm → xsmall */
+[data-lemon-skin] .quill-select__trigger[data-size='sm'] {
+    gap: 0.25rem;
+    height: 1.625rem;
+    padding-inline: 0.375rem;
+    font-size: 0.75rem;
+}
+
+/* Select rows sized like the small LemonButtons LemonMenu renders */
+
+[data-lemon-skin] .quill-select__item {
+    height: auto;
+    min-height: 2.0625rem;
+    padding-block: 0.25rem;
+    padding-inline: 0.5rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    border-radius: var(--lemon-skin-radius);
+}
+
+[data-lemon-skin] .quill-select__item:focus {
+    background-color: var(--color-bg-fill-button-tertiary-hover);
+}
+
+[data-lemon-skin] .quill-select__item:not(:hover)[aria-selected='true'] {
+    background-color: var(--color-bg-fill-button-tertiary-active);
+}
+
+/* ═══ ToggleGroup → Lemon day chips ════════════════════════════════════ */
+
+/* Items carry quill's toggle classes, whose grey pressed styling leaks through —
+   give each a pressable face with an accent bottom edge, sinking when pressed. */
+
+[data-lemon-skin] .quill-toggle-group__item {
+    font-size: 0.75rem;
+    color: var(--text-3000);
+    background-color: var(--lemon-skin-surface);
+    border: 1px solid var(--lemon-skin-border);
+    border-radius: var(--lemon-skin-radius);
+    box-shadow: 0 0.1875rem 0 0 var(--lemon-skin-accent);
+    translate: none;
+}
+
+[data-lemon-skin] .quill-toggle-group__item:not(:disabled, [aria-disabled='true']):hover {
+    color: var(--text-3000);
+    background-color: var(--lemon-skin-surface);
+    border-color: var(--lemon-skin-border-hover);
+}
+
+/* Selected → pressed: sink onto the accent edge and tint the face */
+
+[data-lemon-skin] .quill-toggle-group__item:is([aria-pressed='true'], [data-pressed], [data-state='on']) {
+    color: var(--lemon-skin-accent);
+    background-color: color-mix(in oklab, var(--lemon-skin-accent) 12%, var(--lemon-skin-surface));
+    border-color: var(--lemon-skin-accent);
+    box-shadow: none;
+    translate: 0 0.1875rem;
+}
+
+/* ═══ DateTimePicker actions footer → small Lemon buttons ══════════════ */
+
+/* Cancel/Apply are quill size=sm; bump them to small Lemon metrics. */
+
+[data-lemon-skin]
+    .quill-button:is([data-attr='date-time-picker-cancel'], [data-attr='date-time-picker-apply-date-range']) {
+    height: 2.0625rem;
+    padding-inline: 0.75rem;
+    font-size: 0.8125rem;
+}
+
+/* ═══ Chip-based date filter surface → Lemon popover chrome ═════════════ */
+
+/* Surface: Lemon popover chrome instead of quill's card ring. */
+[data-lemon-skin] [data-attr='quill-date-filter'] {
+    background: var(--lemon-skin-surface);
+    border: 1px solid var(--lemon-skin-border);
+    border-radius: var(--lemon-skin-radius);
+    box-shadow: var(--shadow-elevation-3000);
+}
+
+/* Chips → LemonTag metrics: flat neutral border, tag-scale type — 16 of Lemon's
+   raised secondary buttons in one grid read as noise. */
+[data-lemon-skin] .quill-button:is([data-attr^='date-presets-chip-']) {
+    height: 1.5rem;
+    padding: 0.125rem 0.375rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1rem;
+    color: var(--text-3000);
+    background: var(--lemon-skin-surface);
+    border: 1px solid var(--lemon-skin-border);
+    border-radius: 0.25rem;
+    box-shadow: none;
+    translate: none;
+}
+
+[data-lemon-skin] .quill-button:is([data-attr^='date-presets-chip-']):not([aria-selected='true']):hover {
+    background: var(--lemon-skin-surface);
+    border-color: var(--lemon-skin-border-hover);
+    box-shadow: none;
+    translate: none;
+}
+
+/* Selected chip → LemonTag highlight: accent text + border, no fill. */
+[data-lemon-skin] .quill-button:is([data-attr^='date-presets-chip-'])[aria-selected='true'] {
+    color: var(--lemon-skin-accent);
+    background: var(--lemon-skin-surface);
+    border-color: var(--lemon-skin-accent);
+}
+
+/* Footer rows (Custom range… / Exclude) → Lemon menu-row metrics.
+   `height`, not `min-height`: the size-sm variant sets an explicit height that would win. */
+[data-lemon-skin] .quill-button:is([data-attr='date-presets-custom-range'], [data-attr='date-filter-exclusions']) {
+    height: 2.0625rem;
+    padding-inline: 0.5rem;
+    font-size: 0.8125rem;
+}
+
+/* Picker footer band → flat Lemon surface. bg-muted/30 is an !important utility the
+   skin can't outrank, so neutralize the token it mixes from instead. */
+[data-lemon-skin] div:has(> [data-attr='date-time-picker-cancel']) {
+    --muted-3000: transparent;
+
+    background: var(--lemon-skin-surface);
+    border-top: 1px solid var(--lemon-skin-border);
+}
+
+/* Footer switch-row labels → same metrics as the footer button rows (the generic
+   Label→LemonLabel mapping above is 600/14px, too heavy for a menu row). */
+[data-lemon-skin] label:is([for='date-filter-exact-time'], [for='date-filter-include-time']) {
+    font-size: 0.8125rem;
+    font-weight: 500;
+}

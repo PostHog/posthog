@@ -55,7 +55,7 @@ export const EventSchema = z.object({
 
 // Ready-to-write JSONL lines plus per-event metadata from the native anonymizer.
 
-// Per-event flag bits, mirroring `rust/replay-anonymizer-node/src/snapshot.rs` (EVENT_FLAG_*).
+// Per-event flag bits, mirroring `rust/replay-anonymizer/src/snapshot.rs` (EVENT_FLAG_*).
 export const PRE_SERIALIZED_FLAG_ACTIVE = 1
 export const PRE_SERIALIZED_FLAG_CLICK = 2
 export const PRE_SERIALIZED_FLAG_KEYPRESS = 4

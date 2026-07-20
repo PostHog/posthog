@@ -36,6 +36,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class OncehubSource(ResumableSource[OncehubSourceConfig, OncehubResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://developers.oncehub.com/reference/booking-calendars"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -68,7 +71,6 @@ You can generate an API key in [OnceHub](https://app.oncehub.com) under **Settin
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

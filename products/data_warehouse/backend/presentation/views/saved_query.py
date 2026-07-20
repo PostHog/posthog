@@ -440,7 +440,7 @@ class DataWarehouseSavedQuerySerializer(
                 # The columns will be inferred from the query
                 client_types = self.context["request"].data.get("types", [])
                 if len(client_types) == 0:
-                    view.columns = view.get_columns()
+                    view.set_columns(view.get_columns())
                 else:
                     columns = {
                         str(item[0]): {
@@ -450,7 +450,7 @@ class DataWarehouseSavedQuerySerializer(
                         }
                         for item in client_types
                     }
-                    view.columns = columns
+                    view.set_columns(columns)
 
                 view.external_tables = view.s3_tables
             except Exception as e:
@@ -581,7 +581,7 @@ class DataWarehouseSavedQuerySerializer(
                     # The columns will be inferred from the query
                     client_types = self.context["request"].data.get("types", [])
                     if len(client_types) == 0:
-                        view.columns = view.get_columns()
+                        view.set_columns(view.get_columns())
                     else:
                         columns = {
                             str(item[0]): {
@@ -591,7 +591,7 @@ class DataWarehouseSavedQuerySerializer(
                             }
                             for item in client_types
                         }
-                        view.columns = columns
+                        view.set_columns(columns)
 
                     view.external_tables = view.s3_tables
                 except RecursionError:

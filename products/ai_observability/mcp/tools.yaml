@@ -211,11 +211,11 @@ tools:
             idempotent: false
         title: Create evaluation
         description: >
-            Create an evaluation. 'llm_judge': set evaluation_config.prompt and model_configuration (provider + model +
-            provider_key_id from llma-provider-key-list, preferring a provider the team already has a key for). 'hog':
-            evaluation_config.source (Hog returning a boolean). 'sentiment': output_type='sentiment', omit
-            model_configuration, optional evaluation_config.source='user_messages'. When enabled, runs on new
-            $ai_generation events; results are '$ai_evaluation' events.
+            Create an evaluation. 'llm_judge': set evaluation_config.prompt and model_configuration with provider and
+            model; provider_key_id may be null when no key is pinned. 'hog': evaluation_config.source (Hog returning a
+            boolean). 'sentiment': output_type='sentiment', omit model_configuration, optional
+            evaluation_config.source='user_messages'. When enabled, runs on new $ai_generation events; results are
+            '$ai_evaluation' events.
     llma-evaluation-delete:
         operation: evaluations_destroy
         enabled: true
@@ -447,9 +447,12 @@ tools:
             idempotent: true
         title: Update evaluation
         description: >
-            Update an existing AI observability evaluation (partial update). Toggle enabled/disabled, update the
-            evaluation config (prompt, Hog source, or sentiment source), or change the model configuration for llm_judge
-            evaluations.
+            Partially update an AI observability evaluation. Toggle enabled, change its type or evaluation config, or
+            change the model for an llm_judge. When switching to llm_judge, include model_configuration with provider
+            and model. When an llm_judge remains an llm_judge, omit model_configuration to keep its current model or
+            provide both fields to replace it; null is rejected for configured judges. When switching an llm_judge to
+            hog or sentiment, set model_configuration to null. Legacy llm_judge evaluations without a model remain
+            editable. provider_key_id may be null when no key is pinned.
     llma-evaluation-update-full:
         operation: evaluations_update
         enabled: false
@@ -515,9 +518,40 @@ tools:
         title: Get prompt
         description: |
             Get a specific LLM prompt by name. Uses the cached endpoint for fast retrieval.
+            Pass `label` (e.g. 'production') to fetch the version that label currently points to, or `version` for an
+            exact version number — not both. With neither, the latest version is returned.
             The response always includes `outline`, a flat list of markdown headings parsed from the prompt — useful
             as a lightweight table of contents. Pass `content=none` to get the outline without the prompt payload,
             or `content=preview` for a short `prompt_preview` snippet instead of the full prompt.
+    llma-prompt-label-delete:
+        operation: llm_prompts_name_labels_destroy
+        enabled: true
+        scopes:
+            - llm_prompt:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete prompt label
+        description: >
+            Remove a label from an LLM prompt. The label stops pointing at any version; recreate it with the set-label
+            tool if needed. Confirm nothing depends on the label before removing it.
+    llma-prompt-label-set:
+        operation: llm_prompts_name_labels_update
+        enabled: true
+        scopes:
+            - llm_prompt:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Set prompt label
+        description: >
+            Point a label (for example 'production') at a specific version of an LLM prompt. A label is a movable
+            pointer to exactly one version: if the label already exists on another version of this prompt, it is moved
+            there. Use labels to mark a version as released ('production', 'staging') or roll back by pointing the label
+            at an earlier version. Label names use lowercase letters, numbers, dots, hyphens and underscores; 'latest'
+            is reserved and numbers-only names are not allowed. Each prompt can have at most 50 labels.
     llma-prompt-list:
         operation: llm_prompts_list
         enabled: true

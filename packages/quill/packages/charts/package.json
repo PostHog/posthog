@@ -52,10 +52,10 @@
         "@types/jest": "catalog:",
         "@types/react": "^18.3.27",
         "@types/react-dom": "^18.3.7",
-        "@vitejs/plugin-react": "^5.1.1",
+        "@vitejs/plugin-react": "catalog:",
         "jest": "^29.7.0",
         "typescript": "catalog:",
-        "vite": "^6.3.5",
+        "vite": "catalog:",
         "vite-plugin-dts": "^4.5.4"
     },
     "peerDependencies": {

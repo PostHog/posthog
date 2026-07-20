@@ -162,6 +162,26 @@ class LinearIssueSignalInput(SignalInputBase):
     extra: LinearIssueSignalExtra
 
 
+# ── Jira ────────────────────────────────────────────────────────────────────────
+
+
+class JiraIssueSignalExtra(SignalExtraBase):
+    key: str
+    url: str | None
+    status: str | None
+    priority: str | None
+    assignee: str | None
+    labels: list[str]
+    created: str | None
+    updated: str | None
+
+
+class JiraIssueSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.JIRA]
+    extra: JiraIssueSignalExtra
+
+
 # ── Conversations ───────────────────────────────────────────────────────────────
 
 
@@ -339,6 +359,29 @@ class ReplayVisionScannerFindingSignalInput(SignalInputBase):
     extra: ReplayVisionScannerFindingSignalExtra
 
 
+# ── Product analytics ───────────────────────────────────────────────────────────
+
+
+class AnalyticsAnomalyInvestigationSignalExtra(SignalExtraBase):
+    alert_id: str
+    alert_name: str
+    alert_check_id: str
+    insight_id: str
+    detector_type: str
+    verdict: Literal["true_positive", "false_positive", "inconclusive"]
+    url: str
+    insight_name: str | None = None
+    insight_short_id: str | None = None
+    triggered_dates: list[str] | None = None
+    notebook_short_id: str | None = None
+
+
+class AnalyticsAnomalyInvestigationSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ANOMALY_INVESTIGATION]
+    source_product: Literal[SignalSourceProduct.ANALYTICS]
+    extra: AnalyticsAnomalyInvestigationSignalExtra
+
+
 # ── Health checks ───────────────────────────────────────────────────────────────
 
 HealthCheckSeverity = Literal["critical", "warning", "info"]
@@ -383,6 +426,7 @@ class EnrichedReviewer(ContractModel):
     github_name: str | None
     relevant_commits: list[RelevantCommit]
     user: SignalReviewerUserInfo | None
+    reason: str | None = None
 
 
 # ── Union over all signal variants ──────────────────────────────────────────────
@@ -398,6 +442,7 @@ SignalInput = Annotated[
     | ZendeskTicketSignalInput
     | GithubIssueSignalInput
     | LinearIssueSignalInput
+    | JiraIssueSignalInput
     | ConversationsTicketSignalInput
     | ErrorTrackingSignalInput
     | EndpointExecutionFailedSignalInput
@@ -405,6 +450,7 @@ SignalInput = Annotated[
     | PgAnalyzeIssueSignalInput
     | SignalsScoutSignalInput
     | LogsAlertStateChangeSignalInput
+    | AnalyticsAnomalyInvestigationSignalInput
     | HealthCheckSignalInput
     | ReplayVisionScannerFindingSignalInput,
     Field(union_mode="left_to_right"),
@@ -417,6 +463,7 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     ZendeskTicketSignalInput,
     GithubIssueSignalInput,
     LinearIssueSignalInput,
+    JiraIssueSignalInput,
     ConversationsTicketSignalInput,
     ErrorTrackingSignalInput,
     EndpointExecutionFailedSignalInput,
@@ -424,6 +471,7 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     PgAnalyzeIssueSignalInput,
     SignalsScoutSignalInput,
     LogsAlertStateChangeSignalInput,
+    AnalyticsAnomalyInvestigationSignalInput,
     HealthCheckSignalInput,
     ReplayVisionScannerFindingSignalInput,
 )

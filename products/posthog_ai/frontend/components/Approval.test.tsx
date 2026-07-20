@@ -58,11 +58,13 @@ function makeRequest(overrides: Partial<PermissionRequestRecord> = {}): Permissi
 
 describe('Sandbox approval input area', () => {
     const respondToPermission = jest.fn()
+    const cancelRun = jest.fn()
 
     beforeEach(() => {
         jest.clearAllMocks()
-        ;(useActions as jest.Mock).mockReturnValue({ respondToPermission })
-        ;(useValues as jest.Mock).mockReturnValue({ respondingToPermission: false, currentMode: null })
+        window.localStorage.removeItem('posthog-ai.lastPlanApprovalMode')
+        ;(useActions as jest.Mock).mockReturnValue({ respondToPermission, cancelRun })
+        ;(useValues as jest.Mock).mockReturnValue({ respondingToPermission: false })
     })
 
     afterEach(() => {
@@ -167,24 +169,167 @@ describe('Sandbox approval input area', () => {
             })
         })
 
-        it.each([
-            [
-                'the agent is in plan mode',
-                (): void => {
-                    ;(useValues as jest.Mock).mockReturnValue({ respondingToPermission: false, currentMode: 'plan' })
+        // Plan approval keeps only the product's Auto and Accept edits continuation modes. Plan and the
+        // agent server's raw default mode are deliberately ignored even if the wire offers them.
+        const planWireOptions = [
+            { optionId: 'bypassPermissions', name: 'Yes, and bypass permissions', kind: 'allow_always' },
+            { optionId: 'acceptEdits', name: 'Yes, and auto-accept edits', kind: 'allow_always' },
+            { optionId: 'plan', name: 'Stay in plan mode', kind: 'allow_always' },
+            { optionId: 'default', name: 'Yes, and manually approve edits', kind: 'allow_once' },
+            {
+                optionId: 'reject_with_feedback',
+                name: 'No, and tell the agent what to do differently',
+                kind: 'reject_once',
+                customInput: true,
+            },
+        ]
+
+        function makePlanRequest(overrides: Partial<PermissionRequestRecord> = {}): PermissionRequestRecord {
+            return makeRequest({
+                toolName: '',
+                title: 'Ready to code?',
+                description: undefined,
+                options: planWireOptions,
+                rawToolCall: {
+                    ...rawToolCall,
+                    kind: 'switch_mode',
+                    title: 'Ready to code?',
+                    input: { plan: '# The plan', planFilePath: '/tmp/plan.md', toolName: 'ExitPlanMode' },
                 },
-                makeRequest(),
-            ],
-            [
-                'the tool call is tagged as a plan',
-                (): void => {},
-                makeRequest({ rawToolCall: { ...rawToolCall, kind: 'plan' } }),
-            ],
-        ])('shows plan copy when %s', (_case, arrange, request) => {
-            arrange()
+                ...overrides,
+            })
+        }
+
+        it.each([
+            ['the request is for ExitPlanMode', makePlanRequest({ toolName: 'ExitPlanMode', rawToolCall })],
+            ['the tool call is tagged as a plan', makePlanRequest({ rawToolCall: { ...rawToolCall, kind: 'plan' } })],
+            // The real agent-server wire shape: no top-level tool name, `kind: 'switch_mode'`, and the
+            // tool name embedded in the input payload alongside the plan.
+            ['the tool input carries the ExitPlanMode tool name', makePlanRequest()],
+        ])('shows the plan-approval selector when %s', (_case, request) => {
             render(<PermissionInput streamKey="conv-1" request={request} />)
 
-            expect(screen.getByText('Approve this plan?')).toBeInTheDocument()
+            expect(screen.getByText('Implementation Plan')).toBeInTheDocument()
+            expect(screen.getByText('Approve this plan to proceed?')).toBeInTheDocument()
+        })
+
+        it('keeps the supported plan modes and approves with Auto as bypassPermissions', () => {
+            render(<PermissionInput streamKey="conv-1" request={makePlanRequest()} />)
+
+            // Auto is the user-facing label for the bypassPermissions wire option.
+            expect(screen.getByText('Auto')).toBeInTheDocument()
+            fireEvent.click(screen.getByText('Approve and proceed'))
+
+            expect(respondToPermission).toHaveBeenCalledWith({
+                requestId: 'req-1',
+                optionId: 'bypassPermissions',
+            })
+        })
+
+        it('pre-selects the remembered last-approved mode over Auto', () => {
+            window.localStorage.setItem('posthog-ai.lastPlanApprovalMode', 'acceptEdits')
+            render(<PermissionInput streamKey="conv-1" request={makePlanRequest()} />)
+
+            fireEvent.click(screen.getByText('Approve and proceed'))
+
+            expect(respondToPermission).toHaveBeenCalledWith({ requestId: 'req-1', optionId: 'acceptEdits' })
+        })
+
+        it('opens the mode picker with only Auto and Accept edits', () => {
+            render(<PermissionInput streamKey="conv-1" request={makePlanRequest()} />)
+
+            fireEvent.click(screen.getByLabelText('Mode'))
+
+            expect(screen.getByText('Accept edits')).toBeInTheDocument()
+            expect(screen.queryByText('Default')).not.toBeInTheDocument()
+            expect(screen.queryByText('Plan')).not.toBeInTheDocument()
+            expect(screen.queryByText('Bypass permissions')).not.toBeInTheDocument()
+        })
+
+        it('sends plan rejection feedback through the reject row, ignoring an empty submit', () => {
+            render(<PermissionInput streamKey="conv-1" request={makePlanRequest()} />)
+
+            // Select the reject row, then submit with Enter — empty feedback is a no-op.
+            fireEvent.click(screen.getByText('2.'))
+            const input = screen.getByPlaceholderText('Type here to tell the agent what to do differently')
+            fireEvent.keyDown(input, { key: 'Enter' })
+            expect(respondToPermission).not.toHaveBeenCalled()
+
+            fireEvent.change(input, { target: { value: 'Use a different approach' } })
+            fireEvent.keyDown(input, { key: 'Enter' })
+
+            expect(respondToPermission).toHaveBeenCalledWith({
+                requestId: 'req-1',
+                optionId: 'reject_with_feedback',
+                customInput: 'Use a different approach',
+            })
+        })
+
+        it('handles the digit and Escape shortcuts without the selector being focused', () => {
+            render(<PermissionInput streamKey="conv-1" request={makePlanRequest()} />)
+
+            // Shortcuts are window-level — fired on the page body, not on the selector.
+            fireEvent.keyDown(document.body, { key: 'Escape' })
+            expect(cancelRun).toHaveBeenCalled()
+            expect(respondToPermission).not.toHaveBeenCalled()
+
+            fireEvent.keyDown(document.body, { key: '1' })
+            expect(respondToPermission).toHaveBeenCalledWith({
+                requestId: 'req-1',
+                optionId: 'bypassPermissions',
+            })
+        })
+
+        it('leaves keys alone when focus sits on an element outside the card', () => {
+            render(<PermissionInput streamKey="conv-1" request={makePlanRequest()} />)
+
+            // Focus parked on unrelated page chrome (a nav button) — Enter must keep activating that
+            // element and Tab must keep moving focus, never approve the plan or cycle its mode.
+            const outsideButton = document.createElement('button')
+            document.body.appendChild(outsideButton)
+            outsideButton.focus()
+
+            const tabNotPrevented = fireEvent.keyDown(outsideButton, { key: 'Tab' })
+            fireEvent.keyDown(outsideButton, { key: 'Enter' })
+            fireEvent.keyDown(outsideButton, { key: '1' })
+            outsideButton.remove()
+
+            // Tab was not prevented — the browser's native focus traversal still happens.
+            expect(tabNotPrevented).toBe(true)
+            expect(respondToPermission).not.toHaveBeenCalled()
+            expect(cancelRun).not.toHaveBeenCalled()
+        })
+
+        it('blocks plan approval while the response POST is in flight', () => {
+            ;(useValues as jest.Mock).mockReturnValue({ respondingToPermission: true })
+            render(<PermissionInput streamKey="conv-1" request={makePlanRequest()} />)
+
+            fireEvent.click(screen.getByText('Approve and proceed'))
+
+            expect(respondToPermission).not.toHaveBeenCalled()
+        })
+
+        it('keeps the approve options on the fallback card when no plan mode id is recognized', () => {
+            // Version-skew shape: a plan request whose approve ids all predate/postdate the known mode
+            // enum. The fallback card must keep the `allow_always` approve options, not go decline-only.
+            render(
+                <PermissionInput
+                    streamKey="conv-1"
+                    request={makePlanRequest({
+                        options: [
+                            { optionId: 'future-mode', name: 'Yes, use future mode', kind: 'allow_always' },
+                            {
+                                optionId: 'reject_with_feedback',
+                                name: 'No, tell the agent what to do differently',
+                                kind: 'reject_once',
+                            },
+                        ],
+                    })}
+                />
+            )
+
+            expect(screen.getByText('Yes, use future mode')).toBeInTheDocument()
+            expect(screen.getByText('No, tell the agent what to do differently')).toBeInTheDocument()
         })
 
         it('does not show plan copy just because the title mentions a plan', () => {

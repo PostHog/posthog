@@ -21,10 +21,13 @@ import type {
     _SymbolStatsResponseApi,
     _TracingAggregationRequestApi,
     _TracingAttributeBreakdownRequestApi,
+    _TracingAttributeBreakdownResponseApi,
     _TracingAttributesResponseApi,
     _TracingCountRequestApi,
     _TracingCountResponseApi,
     _TracingDurationHistogramRequestApi,
+    _TracingLatencyHeatmapRequestApi,
+    _TracingLatencyHeatmapResponseApi,
     _TracingQueryRequestApi,
     _TracingSparklineRequestApi,
     _TracingTraceRequestApi,
@@ -73,8 +76,8 @@ export const tracingSpansAttributeBreakdownCreate = async (
     projectId: string,
     _tracingAttributeBreakdownRequestApi: _TracingAttributeBreakdownRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getTracingSpansAttributeBreakdownCreateUrl(projectId), {
+): Promise<_TracingAttributeBreakdownResponseApi> => {
+    return apiMutator<_TracingAttributeBreakdownResponseApi>(getTracingSpansAttributeBreakdownCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -157,6 +160,23 @@ export const tracingSpansHasSpansRetrieve = async (
     return apiMutator<_HasSpansResponseApi>(getTracingSpansHasSpansRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getTracingSpansLatencyHeatmapCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tracing/spans/latency-heatmap/`
+}
+
+export const tracingSpansLatencyHeatmapCreate = async (
+    projectId: string,
+    _tracingLatencyHeatmapRequestApi: _TracingLatencyHeatmapRequestApi,
+    options?: RequestInit
+): Promise<_TracingLatencyHeatmapResponseApi> => {
+    return apiMutator<_TracingLatencyHeatmapResponseApi>(getTracingSpansLatencyHeatmapCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_tracingLatencyHeatmapRequestApi),
     })
 }
 

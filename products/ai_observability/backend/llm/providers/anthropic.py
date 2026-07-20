@@ -16,9 +16,11 @@ from pydantic import BaseModel
 
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
+    ContextWindowExceededError,
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
+    is_context_window_error_message,
 )
 from products.ai_observability.backend.llm.types import (
     AnalyticsContext,
@@ -187,6 +189,8 @@ class AnthropicAdapter:
         except anthropic.BadRequestError as e:
             if _is_quota_or_billing_error(e):
                 raise QuotaExceededError(str(e)) from e
+            if is_context_window_error_message(str(e)):
+                raise ContextWindowExceededError(str(e)) from e
             raise
         except anthropic.RateLimitError as e:
             if _is_quota_or_billing_error(e):

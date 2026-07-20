@@ -299,12 +299,12 @@ Defined in `backend/temporal/agentic/scout_coordinator.py`.
 
 **Flow:**
 
-1. Activity `fetch_enabled_signals_scout_runs_activity` bounds candidates to the teams enrolled via the `signals-scout` feature flag's JSON payload allowlist — `guaranteed_team_ids` minus `skip_team_ids`, with a hardcoded fail-safe default (`_participating_teams` → `_enrolled_team_ids`, modeled on `posthog/temporal/ai_observability/team_discovery.py`). Enrollment is flag-driven: editing the payload in the flag UI enrolls or drains a team next tick with no manual seed. For each enrolled team it calls `sync_canonical_skills(team, prune=True)` to mirror the on-disk `signals-scout-*` skills onto the team's `LLMSkill` rows, then auto-registers a `SignalScoutConfig` for any scout skill missing one (`scout_harness/config_registry.register_missing_configs`; the `signals-scout-config-create` endpoint is the explicit upsert counterpart, so a freshly authored scout is configurable without waiting for a tick). Failures here are logged and the tick continues — a stale skill is preferable to a dead tick.
+1. Activity `fetch_enabled_signals_scout_runs_activity` bounds candidates to the teams enrolled via the `signals-scout` feature flag's JSON payload allowlist — `guaranteed_team_ids` minus `skip_team_ids`, with a hardcoded fail-safe default (`_participating_teams` → `_enrolled_team_ids`, modeled on `posthog/temporal/ai_observability/team_discovery.py`). Enrollment is flag-driven: editing the payload in the flag UI enrolls or drains a team next tick with no manual seed. For each enrolled team it calls `sync_canonical_skills(team, prune=True)` to mirror the on-disk `signals-scout-*` skills onto the team's `LLMSkill` rows, then auto-registers a `SignalScoutConfig` for any scout skill missing one (`scout_harness/config_registry.register_missing_configs`; the `scout-config-create` endpoint is the explicit upsert counterpart, so a freshly authored scout is configurable without waiting for a tick). Failures here are logged and the tick continues — a stale skill is preferable to a dead tick.
 2. For each enabled config, the coordinator computes how overdue the scout is: due when `last_run_at is None`, or `now - last_run_at >= run_interval_minutes`. There is no sampling — every due scout is planned.
 3. Due runs are sorted most-overdue-first and truncated at `MAX_RUNS_PER_TICK` (50 per tick; the cost bound — overflow catches up next tick). `last_run_at` is advanced via `.update()` for everything dispatched (bypasses `save()`, so the per-tick write never hits the activity log). Planned runs are re-sorted by `(team_id, skill_name)` for stable child IDs.
 4. Each `PlannedRun` becomes a child `RunSignalsScoutWorkflow` started with `ParentClosePolicy.ABANDON` and a deterministic workflow ID per `(team_id, skill_name, tick_id)` so retried coordinators can't double-launch within a tick.
 
-The coordinator's lifetime is seconds regardless of fan-out width; throttling happens at the Temporal task queue + worker concurrency layer. Pausing a scout is `enabled=False` on its config; slowing it is a larger `run_interval_minutes` — both tunable via the `signals-scout-config-update` MCP tool.
+The coordinator's lifetime is seconds regardless of fan-out width; throttling happens at the Temporal task queue + worker concurrency layer. Pausing a scout is `enabled=False` on its config; slowing it is a larger `run_interval_minutes` — both tunable via the `scout-config-update` MCP tool.
 
 **Per-scout holdback (`withheld_skills`).** The same flag payload carries a hard denylist for keeping an unreleased scout off the fleet while dogfooding it on a single project. A `withheld_skills` list (a `default_team_config` fleet-wide default, overridable per team via `team_configs[<id>].withheld_skills` with replace-not-merge semantics — set `[]` to release the full fleet to one team) names scouts that, for a held-back team, are never seeded into its `LLMSkill` rows (`sync_canonical_skills` skips them), never get a `SignalScoutConfig` (`register_missing_configs` drops them from its return), and are never dispatched. Resolved by `_resolve_withheld_skills`, most-specific-layer-first like the run caps. Unlike the soft `enabled_skills` seed allowlist (a default a user can still toggle on), this is a hard gate at the seed + dispatch layer — e.g. `default_team_config.withheld_skills = ["signals-scout-error-tracking"]` with `team_configs["2"].withheld_skills = []` dogfoods error tracking on project 2 only.
 
@@ -535,7 +535,7 @@ Thin bridge from a Tasks `TaskRun` to the scout skill that ran inside it: one sc
 
 **Status, timing, and chat log live on the linked `TaskRun`.** The bridge row carries no `status` / `started_at` / `completed_at` / `findings` / `run_metrics` / `metadata` of its own — those moved to `tasks.TaskRun` so the LLM-analytics token / cost roll-up, the Tasks UI, and the harness all see one canonical record. `MultiTurnSession` owns the `TaskRun` lifecycle; the `on_task_run_created` hook attaches the `TaskRun` to the bridge row before the agent's first turn.
 
-**Tasks UI cross-link.** Run serializers expose a computed `task_url` field on `signals-scout-runs-list` and `signals-scout-runs-retrieve` MCP responses — `/project/{team_id}/tasks/{task_run.task_id}?runId={task_run_id}`. `task_url` is `null` for rows whose `task_run` link is missing (rows aborted before `MultiTurnSession.start()` returned).
+**Tasks UI cross-link.** Run serializers expose a computed `task_url` field on `scout-runs-list` and `scout-runs-retrieve` MCP responses — `/project/{team_id}/tasks/{task_run.task_id}?runId={task_run_id}`. `task_url` is `null` for rows whose `task_run` link is missing (rows aborted before `MultiTurnSession.start()` returned).
 
 **Indexes:** `(team, skill_name)`.
 
@@ -801,23 +801,23 @@ View + control API for the v2 grouping pipeline. Uses scope object `INTERNAL`.
 
 #### Signals Agent endpoints (`backend/scout_harness/views.py`)
 
-The harness exposes three viewsets routed under `environment_signals_scout_*` basenames in `posthog/api/__init__.py`. They are surfaced to MCP callers as `signals-scout-*` tools via `products/signals/mcp/tools.yaml`. Reads are scoped to the team; writes (scratchpad remember / forget, signal emit) require the matching MCP scope.
+The harness exposes three viewsets routed under `environment_signals_scout_*` basenames in `posthog/api/__init__.py`. They are surfaced to MCP callers as `scout-*` tools via `products/signals/mcp/tools.yaml`. Reads are scoped to the team; writes (scratchpad remember / forget, signal emit) require the matching MCP scope.
 
 - **`SignalScoutRunViewSet`** — list / retrieve scout run rows; nested action `runs/{id}/emit-signal/` for the harness to push findings during a run.
-- **`SignalScratchpadViewSet`** — search / remember / forget `SignalScratchpad` rows for the team. The `signals-scout-scratchpad-search` tool is the agent's primary "what do I already know" read at prompt-assembly time.
+- **`SignalScratchpadViewSet`** — search / remember / forget `SignalScratchpad` rows for the team. The `scout-scratchpad-search` tool is the agent's primary "what do I already know" read at prompt-assembly time.
 - **`SignalProjectProfileViewSet`** — `GET .../current/` returns the freshest non-expired `SignalProjectProfile` row for the team (recomputes if the cache is stale).
 
 Generated MCP tool names:
 
-| Tool                                | Purpose                                                                        |
-| ----------------------------------- | ------------------------------------------------------------------------------ |
-| `signals-scout-runs-list`           | List scout runs (filterable by skill / status / time)                          |
-| `signals-scout-runs-retrieve`       | Fetch a single run row including the full findings payload                     |
-| `signals-scout-emit-signal`         | Push a finding from inside a run (used by the harness's `emit_signal_*` tools) |
-| `signals-scout-scratchpad-search`   | Search durable scratchpad entries for the team                                 |
-| `signals-scout-scratchpad-remember` | Create or update a scratchpad entry                                            |
-| `signals-scout-scratchpad-forget`   | Remove a scratchpad entry                                                      |
-| `signals-scout-project-profile-get` | Read the current `SignalProjectProfile` snapshot                               |
+| Tool                        | Purpose                                                                        |
+| --------------------------- | ------------------------------------------------------------------------------ |
+| `scout-runs-list`           | List scout runs (filterable by skill / status / time)                          |
+| `scout-runs-retrieve`       | Fetch a single run row including the full findings payload                     |
+| `scout-emit-signal`         | Push a finding from inside a run (used by the harness's `emit_signal_*` tools) |
+| `scout-scratchpad-search`   | Search durable scratchpad entries for the team                                 |
+| `scout-scratchpad-remember` | Create or update a scratchpad entry                                            |
+| `scout-scratchpad-forget`   | Remove a scratchpad entry                                                      |
+| `scout-project-profile-get` | Read the current `SignalProjectProfile` snapshot                               |
 
 ### Serializers (`backend/serializers.py`)
 
@@ -1104,6 +1104,25 @@ Signal {index}:
 | `MAX_RUNS_PER_TICK`                      | `50`                          | Hard cap on planned runs per coordinator tick (most-overdue-first, truncated after sort)                                     |
 | `SignalScoutConfig.run_interval_minutes` | `1440`                        | Per-scout default schedule in minutes (daily); due-check, no sampling (`10`–`43200`)                                         |
 | `SignalScoutConfig.emit`                 | `True`                        | Per-scout emit gate — defaults emit-on; flip to `False` for dry-run (scout runs and logs, but `emit_finding` writes nothing) |
+
+---
+
+## Testing refunds locally
+
+How to exercise the PR refund flow (`backend/billing.py`, the `refund` action, the credited-path billing sync) against a fully local two-service setup:
+
+1. **Billing service**: follow "Developing locally" in the billing repo's README (boots on `http://localhost:8100`).
+   The dispute endpoint (`POST /api/signals/dispute-pr`) must exist on the billing checkout.
+   Dev mode auto-creates the `License` and `Customer` rows on first authenticated call — nothing to seed there.
+2. **Posthog**: start the stack with `BILLING_SERVICE_URL=http://localhost:8100` visible to **both** the web backend and the celery worker (put it in `.env.local`, which wins over `.env.development`).
+   The dev license auto-creates as `…::license-so-secret`, matching billing's default `LICENSE_SECRET_KEY`; a stale `ee_license` row with a different secret is the classic JWT-auth failure — check `SELECT key FROM ee_license;`.
+3. **Feature flag**: `signals-pr-refunds` must exist, active at 100%, in the local self-capture project (create via UI or shell; `sync_feature_flags` also works but flips every flag).
+   Without it the refund endpoints return **404**. Backend picks it up within the ~90s SDK poll (or restart); the frontend needs a page reload.
+4. **Data**: `python manage.py seed_refund_test_data --team-id 1` seeds the full matrix — excluded-path (PR today), credited-path (PR yesterday), billing-exempt, and a no-PR exemption-command target.
+5. **Expectations**: with an unseeded billing side the credited path legitimately returns `credit_amount_usd = "0.00"` — that IS the success path (free plan → nothing to credit). Non-$0 outcomes (`"15.00"` with paid-tier usage) require seeding a paid inbox state on the billing side; the recipe, a posthog-free curl smoke test, and how to verify the Stripe balance transaction live in the billing repo (internal): `notes/testing-signals-disputes-locally.md`.
+   Inspecting the paid state via the posthog billing page (`/organization/billing`) additionally requires **organization owner** — local dev users are typically only `administrator`, so bump `OrganizationMembership.level` to `OWNER` (15) first.
+   Verify `billing_synced_at`/`credit_amount_usd` on `signals_signalreportrefund` (posthog) and, for non-$0 outcomes, the `Credit` row keyed `signals_pr_dispute:{billing_customer_id}:{refund_id}` (billing). $0 outcomes persist nothing billing-side (`credit_id: null` in the response) — the refund row is the whole record.
+   Celery-side analytics events (`signals_pr_refund_credit_issued`/`_failed`) are dropped locally (`ph_scoped_capture` is cloud-gated); the sync itself is unaffected.
 
 ---
 
