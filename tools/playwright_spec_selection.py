@@ -67,7 +67,7 @@ def _dir_prefix(path: str) -> str:
     """The file's directory, capped to the first few segments, as a low-cardinality label."""
     parts = path.split("/")[:-1]
     if not parts:
-        return path
+        return "./"
     return "/".join(parts[:_DETAIL_PREFIX_SEGMENTS]) + "/"
 
 
