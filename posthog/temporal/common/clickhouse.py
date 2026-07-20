@@ -361,10 +361,15 @@ class ClickHouseClient:
         has_format_placeholders = re.search(r"(?<!{){[^{}]*}(?!})|{{[^{}]*}}", query)
 
         format_parameters = {k: encode_clickhouse_data(v).decode("utf-8") for k, v in query_parameters.items()}
-        query = query % format_parameters
 
         if has_format_placeholders:
+            # Escape any curly brackets `{` or `}` in the format parameters so they are not parsed
+            # as format placeholders
+            escaped_parameters = {k: v.replace("{", "{{").replace("}", "}}") for k, v in format_parameters.items()}
+            query = query % escaped_parameters
             query = KeywordOnlyFormatter().format(query, **format_parameters)
+        else:
+            query = query % format_parameters
 
         return query
 
