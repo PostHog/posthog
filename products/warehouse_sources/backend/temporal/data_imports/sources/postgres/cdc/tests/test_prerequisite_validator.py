@@ -1,16 +1,21 @@
 from unittest.mock import MagicMock
 
+import psycopg
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.prerequisite_validator import (
     validate_cdc_prerequisites,
 )
 
 
-def _mock_conn(query_results: list[tuple[str, list[tuple]]]):
+def _mock_conn(query_results: list[tuple[str, list[tuple]]], raise_on: dict[str, Exception] | None = None):
     """Create a mock connection whose cursor returns results matched by query pattern.
 
     query_results: ordered list of (pattern, rows) tuples. Each time execute() is
     called, the FIRST matching pattern is used and its rows become the fetchone() results.
     Patterns are matched as substrings of the SQL query string.
+
+    raise_on: optional {pattern: exception}. When a query matches, that exception is
+    raised from execute() (mimicking a server-side error mid-validation).
     """
     conn = MagicMock()
     cursor = MagicMock()
@@ -21,6 +26,9 @@ def _mock_conn(query_results: list[tuple[str, list[tuple]]]):
 
     def mock_execute(query, *args, **kwargs):
         query_str = str(query)
+        for pattern, exc in (raise_on or {}).items():
+            if pattern in query_str:
+                raise exc
         for pattern, rows in query_results:
             if pattern in query_str:
                 cursor._current_results = list(rows)
@@ -87,6 +95,18 @@ class TestValidateCDCPrerequisites:
         conn = _mock_conn([_PG_15, _WAL_REPLICA, _HAS_PK, _HAS_REPL_ROLE, _MAX_SLOTS_10, _SLOT_COUNT_2])
         errors = validate_cdc_prerequisites(conn=conn, management_mode="posthog", tables=["users"])
         assert any("wal_level" in e for e in errors)
+
+    def test_wal_level_unrecognized_parameter(self):
+        # Poolers (e.g. PgBouncer in transaction mode) and some wire-compatible databases
+        # reject `SHOW wal_level` with UndefinedObject. That must surface as a graceful
+        # prerequisite error, not crash the whole validation.
+        conn = _mock_conn(
+            [_PG_15, _HAS_PK, _HAS_REPL_ROLE, _MAX_SLOTS_10, _SLOT_COUNT_2],
+            raise_on={"wal_level": psycopg.errors.UndefinedObject('unrecognized configuration parameter "wal_level"')},
+        )
+        errors = validate_cdc_prerequisites(conn=conn, management_mode="posthog", tables=["users"])
+        assert any("logical replication CDC" in e for e in errors)
+        conn.rollback.assert_called()
 
     def test_table_missing_primary_key(self):
         conn = _mock_conn([_PG_15, _WAL_LOGICAL, _NO_PK, _HAS_REPL_ROLE, _MAX_SLOTS_10, _SLOT_COUNT_2])
