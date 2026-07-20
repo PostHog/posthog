@@ -831,7 +831,8 @@ export interface TaskCreateApi {
      * * `support_reply` - Support Reply
      * * `hogdesk` - HogDesk
      * * `review_hog` - ReviewHog
-     * * `image_builder` - Image Builder */
+     * * `image_builder` - Image Builder
+     * * `mcp_analytics` - MCP Analytics */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).

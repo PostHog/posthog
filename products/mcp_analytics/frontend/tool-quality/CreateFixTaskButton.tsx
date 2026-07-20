@@ -24,13 +24,20 @@ export function CreateFixTaskButton({
     size?: 'xsmall' | 'small' | 'medium'
 }): JSX.Element {
     const { getIntegrationsByKind } = useValues(integrationsLogic)
+    const githubIntegrations = getIntegrationsByKind(['github'])
 
     return (
         <LemonButton
             size={size}
             icon={<IconWrench />}
             tooltip="Create a task and start a fix agent on it"
-            onClick={() => openCreateFixTaskForm(context, getIntegrationsByKind(['github']))}
+            // Without a repository the agent has no codebase to fix, so a task must not start.
+            disabledReason={
+                githubIntegrations.length === 0
+                    ? 'Connect the GitHub integration (Settings → Integrations) to give the fix agent a repository'
+                    : undefined
+            }
+            onClick={() => openCreateFixTaskForm(context, githubIntegrations)}
         >
             Create fix task
         </LemonButton>
@@ -52,7 +59,7 @@ function openCreateFixTaskForm(context: MCPErrorContext, githubIntegrations: Int
         },
         content: (
             <div className="flex flex-col gap-y-4">
-                {githubIntegrations.length > 0 && <GitHubRepositorySelectField integrationId={defaultIntegration.id} />}
+                <GitHubRepositorySelectField integrationId={defaultIntegration.id} />
                 <LemonField name="title" label="Title">
                     <LemonInput data-attr="mcp-fix-task-title" placeholder="Task title" size="small" />
                 </LemonField>
@@ -64,9 +71,7 @@ function openCreateFixTaskForm(context: MCPErrorContext, githubIntegrations: Int
         errors: {
             title: (title) => (!title ? 'You must enter a title' : undefined),
             repositories: (repositories) =>
-                githubIntegrations.length > 0 && (!repositories || repositories.length === 0)
-                    ? 'You must choose a repository'
-                    : undefined,
+                !repositories || repositories.length === 0 ? 'You must choose a repository' : undefined,
         },
         onSubmit: async ({ title, description, repositories }) => {
             const taskData: TaskUpsertProps = {
@@ -76,16 +81,19 @@ function openCreateFixTaskForm(context: MCPErrorContext, githubIntegrations: Int
             }
 
             const repoName = repositories?.[0]
-            if (defaultIntegration && repoName && typeof repoName === 'string') {
-                taskData.github_integration = defaultIntegration.id
-                taskData.repository = repoName.includes('/')
-                    ? repoName
-                    : `${
-                          defaultIntegration.config?.account?.name ||
-                          defaultIntegration.config?.account?.login ||
-                          'GitHub'
-                      }/${repoName}`
+            if (!repoName || typeof repoName !== 'string') {
+                lemonToast.error('You must choose a repository')
+                throw new Error('No repository selected')
             }
+            const owner = defaultIntegration.config?.account?.name || defaultIntegration.config?.account?.login
+            if (!repoName.includes('/') && !owner) {
+                // Never guess the owner half of "owner/repo" — a made-up full name sends
+                // the agent to a repository that doesn't exist.
+                lemonToast.error('Could not determine the repository owner from the GitHub integration')
+                throw new Error('Unknown repository owner')
+            }
+            taskData.github_integration = defaultIntegration.id
+            taskData.repository = repoName.includes('/') ? repoName : `${owner}/${repoName}`
 
             let task
             try {
