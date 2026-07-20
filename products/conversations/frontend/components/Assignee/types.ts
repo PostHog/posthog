@@ -5,6 +5,8 @@ export type TicketAssignee = {
     id: string | number
 } | null
 
+export type AssigneeFilterEntry = 'unassigned' | NonNullable<TicketAssignee>
+
 export type UserAssignee = {
     id: number
     type: 'user'
