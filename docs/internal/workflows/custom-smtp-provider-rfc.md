@@ -132,12 +132,11 @@ One decision to make explicitly during implementation: whether a **terminally fa
 
 ## Rollout
 
-1. **Phase 1 (backend + runtime, flagged):** `SMTPProvider`, serializer/model branches, `sendEmailWithSMTP`, egress guards, error mapping. Gated by a `messaging-custom-smtp` feature flag. Testable end to end via the API without UI.
-2. **Phase 2 (UI + docs):** setup modal, connection test UX, channels-list rendering, docs page under workflows "configure channels" covering the delivery-metrics caveat and provider-specific setup notes (e.g. providers that require the username `apikey`).
-3. **Beta:** enable for the requesters on the community thread; watch `email_failed` rates, worker health (a slow customer relay must not starve the shared email queue — pooled transports with per-integration caps address this), and support volume.
-4. **GA:** flag removal; changelog + response on the community question.
+1. **Phase 1 — dogfood (flagged, team 2):** everything needed to use the feature end to end ships together — backend (`SMTPProvider`, serializer/model branches), runtime (`sendEmailWithSMTP`, egress guards, error mapping), the setup UI (provider choice, connection test, channels-list rendering), and the docs page under workflows "configure channels" (delivery-metrics caveat, provider-specific setup notes such as providers requiring username `apikey`). Gated by `messaging-custom-smtp` and enabled for PostHog's own project (team 2), so we dogfood the real setup → send → track loop internally. The prototype branch already contains all three parts.
+2. **Beta:** after the two pre-beta fixes (4xx retry cap, runtime `integration.errors` badging), enable for the requesters on the community thread; watch `email_failed` rates, worker health (a slow customer relay must not starve the shared email queue — pooled transports with per-integration caps address this), and support volume.
+3. **GA:** flag removal; changelog + response on the community question.
 
-Fast-follows, explicitly out of v1 scope: per-integration token-bucket rate limits, a generic inbound bounce webhook, HTTP-API providers (Resend/SendGrid/Mailgun/Postmark), the advisory SPF/DMARC lookup on verify, and the self-hosted env override for the port allowlist — the same `provider` seam accommodates all of these later.
+Fast-follows, explicitly out of v1 scope: per-integration token-bucket rate limits, first-class ESP providers that add delivery/bounce webhooks on top of the same SMTP send (Postmark first — see open question 8), Return-Path/DSN bounce ingestion for bare relays (question 1), the advisory SPF/DMARC lookup on verify, and the self-hosted env override for the port allowlist — the same `provider` seam accommodates all of these later.
 
 ## Alternatives considered
 
@@ -157,3 +156,27 @@ Fast-follows, explicitly out of v1 scope: per-integration token-bucket rate limi
 6. **Shared SMTP connection vs per-sender credentials** — is prefill-from-same-domain good enough for v1, or do we restructure to a connection object referenced by multiple senders before GA? (See "Details v1 must get right".)
 7. **Scope of surfaces** — anything that sends through the `template-email` function and an email integration (workflow steps, broadcasts, editor test sends) inherits the provider automatically since dispatch happens on `integration.config.provider`. Confirm no email surface bypasses `EmailService` before promising "all email features work with SMTP".
 8. **"Delivered" status for custom SMTP.** SMTP only confirms the relay accepted the message (a 250 at the transaction), never inbox delivery, and providers like Postmark can accept-then-async-reject: an unverified From surfaced this in QA, where Postmark logged an SMTP API Error while the workflow run reported success. With no delivery webhook, PostHog cannot tell. Recommendation: do not claim "Delivered" for SMTP. Relabel the outcome "Sent / accepted by relay" (the Node worker already emits only `email_sent`, so this is a metrics-surface change, not a send-path one), and show real Delivered/Bounced only where a feedback channel exists. **The relabel plus the "send a test email to yourself" verify step (Details section) resolves the GA risk on their own** — the relabel removes the false claim, the setup-time test send catches the identity-misconfiguration case that produced the QA false positive before any workflow depends on the sender. The webhook plan below restores real Delivered/Bounced and can land post-GA, one provider at a time. Suggested plan: generalize question 1 into a single ingest endpoint plus a per-provider adapter registry (detect provider, verify its webhook signature, normalize to `$workflows_email_delivered` / `$workflows_email_bounced`), routed by a signed integration token in the URL. One correction to earlier drafts of this plan: provider webhooks do **not** echo arbitrary SMTP headers back, so correlation cannot ride the existing `X-PostHog-Tracking-Code` header — each adapter needs the send path to also mint the tracking code into that provider's own metadata carrier (Postmark `X-PM-Metadata-*`, SendGrid `X-SMTPAPI` unique args, …), meaning the adapter work touches the send path, unlike the relabel. Adding a provider is still one adapter, reusing the existing SES/SNS pattern — and Anymail's [status tracking webhooks](https://anymail.dev/en/stable/sending/tracking/) (not its separate inbound-email feature — see question 1) are prior art worth mining for the receiving half: its per-ESP webhook views already implement each provider's signature verification and normalize delivery/bounce/complaint payloads, and those webhooks arrive on the Django side where reusing (or cribbing from) a Django library is actually viable, unlike the Node send path. One coverage caveat from Anymail's own docs: bounce/complaint events are near-universal across ESPs, but few implement a true `delivered` event (Postmark and SendGrid do; many don't) — so the metrics surface should treat "Delivered" as a per-provider capability even after adapters land, not a given. Broader caveat: this only works for providers that expose webhooks; a bare BYO relay with no callback stays unsolvable by webhooks (the Return-Path parsing in question 1 is the only option there).
+
+   **Decision — MVP vs fast-follows, and provider shape.** Rather than a "detect the provider" registry, make the ESPs we support **first-class `provider` values** the customer picks at setup, so the integration _declares_ its provider (no detection). Send stays uniform SMTP for all of them — each accepts its correlation carrier as an SMTP header — so there is no second (HTTP-API) send path.
+
+   - **MVP (this doc, already built):** the generic `smtp` provider, send only, labeled "Sent / accepted by relay", plus the setup test-send. No webhooks, no correlation stamping — shippable and honest on its own.
+   - **Fast-follows (independent, demand-driven, one provider at a time — Postmark first, since it's already the QA provider):** each adds delivery/bounce feedback on top of the same SMTP send. Self-contained: stamp the correlation code into that provider's SMTP metadata header on send, add its Django webhook adapter (Anymail-backed — see Alternatives), and flip that provider's Delivered/Bounced from "not supported" to live.
+
+   First-class set for now (exactly Anymail's tracking-webhook coverage), with the send-side correlation carrier each needs:
+
+   | Provider | SMTP metadata header (correlation carrier) |
+   | -------- | ------------------------------------------ |
+   | Postmark | `X-PM-Metadata-<key>`                      |
+   | SendGrid | `X-SMTPAPI` (`unique_args`)                |
+   | Mailgun  | `X-Mailgun-Variables` / `v:<key>`          |
+   | Mailjet  | `X-MJ-CustomID` / `X-MJ-Vars`              |
+   | Mandrill | `X-MC-Metadata`                            |
+   | Brevo    | `X-Mailin-custom`                          |
+
+   Everything else stays generic `smtp` (send only). A **generic BYO-webhook endpoint** (customer posts their own normalized events) is deliberately not planned: for it to be useful the customer must transform their provider's payload into our shape — more work than just making that provider first-class — so we add providers on demand instead.
+
+   Three things the MVP must keep clean so the fast-follows drop in without rework:
+
+   1. `provider` is a **growable enum** — adding `postmark`, `sendgrid`, … later needs no schema migration.
+   2. The metrics UI shows Delivered/Bounced as **"not supported by this provider", not zero** — enabling a provider is a capability flip, not a UI change.
+   3. **No single shared correlation carrier baked into the send path** — correlation is per-provider (each ESP's own metadata header) and arrives _with_ each provider's webhook, not before.
