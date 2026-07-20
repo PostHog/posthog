@@ -27,6 +27,11 @@ class DAG(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
         blank=True, default="", help_text="Directory path in the source control repository for synced DAGs"
     )
     sync_frequency_interval = models.DurationField(default=timedelta(days=1), null=True, blank=True)
+    # Optional anchor for the daily/weekly/monthly run time, interpreted in the team's timezone.
+    # When null, the run time is hash-bucketed across the interval window to spread load; when set,
+    # every schedule for this DAG fires at the chosen hour:minute with no load-spreading jitter.
+    schedule_anchor_hour = models.PositiveSmallIntegerField(null=True, blank=True)
+    schedule_anchor_minute = models.PositiveSmallIntegerField(null=True, blank=True)
 
     @classmethod
     def get_or_create_default(cls, team: Team) -> DAG:

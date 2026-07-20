@@ -21,6 +21,24 @@ class DAGSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="Sync frequency string (e.g. '24hour', '7day')",
     )
+    schedule_anchor_hour = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        max_value=23,
+        help_text=(
+            "Hour of day (0-23), in the team's timezone, to pin the daily/weekly/monthly run time. "
+            "When null, the run time is spread across the interval to balance load. Ignored for "
+            "sub-daily cadences (15min-12hour)."
+        ),
+    )
+    schedule_anchor_minute = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        max_value=59,
+        help_text="Minute of the hour (0-59) paired with schedule_anchor_hour. Ignored unless the hour is set.",
+    )
 
     class Meta:
         model = DAG
@@ -29,6 +47,8 @@ class DAGSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "sync_frequency",
+            "schedule_anchor_hour",
+            "schedule_anchor_minute",
             "node_count",
             "created_at",
             "updated_at",
