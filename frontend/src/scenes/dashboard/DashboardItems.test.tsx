@@ -78,11 +78,24 @@ jest.mock('scenes/urls', () => ({
 }))
 
 jest.mock('lib/components/Cards/InsightCard', () => ({
-    InsightCard: ({ tile, showResizeHandles }: { tile: { id: number }; showResizeHandles: boolean }) => (
+    InsightCard: ({
+        tile,
+        showResizeHandles,
+        apiErrored,
+        apiError,
+    }: {
+        tile: { id: number }
+        showResizeHandles: boolean
+        apiErrored?: boolean
+        apiError?: Error & { status?: number; detail?: string | null }
+    }) => (
         <div
             data-attr="insight-card"
             data-tile-id={String(tile.id)}
             data-show-resize-handles={String(showResizeHandles)}
+            data-api-errored={apiErrored ? 'true' : undefined}
+            data-api-error-status={apiError?.status}
+            data-api-error-detail={apiError?.detail ?? undefined}
         />
     ),
 }))
@@ -332,5 +345,57 @@ describe('DashboardItems', () => {
         fireEvent.click(getByRole('button', { name: 'more' }))
         fireEvent.click(await findByText('Remove from dashboard'))
         expect(mockRemoveTile).toHaveBeenCalledWith(errorTile)
+    })
+
+    it('treats a streamed tile error with insight metadata as a server failure', () => {
+        const errorTile = {
+            id: 2,
+            insight: { id: 101, short_id: 'abc123', query: { kind: 'InsightVizNode' } },
+            error: {
+                type: 'DashboardTileError',
+                message: "This tile couldn't be loaded. Refresh the dashboard to try again.",
+            },
+        }
+        mockedUseValues.mockImplementation((logic) => {
+            if (logic === dashboardLogic) {
+                return {
+                    dashboard: { id: 5 },
+                    tiles: [errorTile],
+                    layouts: { sm: [{ i: '2', x: 0, y: 0, w: 6, h: 5 }] },
+                    dashboardMode: null,
+                    placement: DashboardPlacement.Dashboard,
+                    isRefreshingQueued: () => false,
+                    isRefreshing: () => false,
+                    highlightedInsightId: null,
+                    refreshStatus: {},
+                    dashboardStreaming: false,
+                    effectiveEditBarFilters: {},
+                    effectiveDashboardVariableOverrides: {},
+                    temporaryBreakdownColors: [],
+                    dataColorThemeId: null,
+                    canEditDashboard: true,
+                    layoutZoom: 1,
+                    dashboardWidgetsEnabled: true,
+                    widgetResultsByTileId: {},
+                    widgetRefreshStatus: {},
+                }
+            }
+
+            if (logic === dashboardsModel) {
+                return { nameSortedDashboards: [] }
+            }
+
+            return {}
+        })
+
+        const { container } = render(<DashboardItems />)
+        const insightCard = container.querySelector('[data-attr="insight-card"]')
+
+        expect(insightCard).toHaveAttribute('data-api-errored', 'true')
+        expect(insightCard).toHaveAttribute('data-api-error-status', '500')
+        expect(insightCard).toHaveAttribute(
+            'data-api-error-detail',
+            "This tile couldn't be loaded. Refresh the dashboard to try again."
+        )
     })
 })

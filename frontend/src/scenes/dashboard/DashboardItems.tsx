@@ -10,6 +10,7 @@ import { GridBackground } from 'react-grid-layout/extras'
 import { DashboardWidgetItem } from '@posthog/products-dashboards/frontend/components/DashboardWidgetItem/DashboardWidgetItem'
 import { getDashboardWidgetFetchDisplayError } from '@posthog/products-dashboards/frontend/widgets/constants'
 
+import { ApiError } from 'lib/api'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { EditModeEdge } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -547,7 +548,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                 const isErrorTile = !!tile.error
                                 const apiErrored = isErrorTile || refreshStatus[insight.short_id]?.errored || false
                                 const apiError = isErrorTile
-                                    ? ({ status: 400, detail: tile.error!.message } as any)
+                                    ? new ApiError(undefined, 500, undefined, { detail: tile.error!.message })
                                     : refreshStatus[insight.short_id]?.error
                                 const loadingQueued = isErrorTile ? false : isRefreshingQueued(insight.short_id)
                                 const loading = isErrorTile ? false : isRefreshing(insight.short_id)
