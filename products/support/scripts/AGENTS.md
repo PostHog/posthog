@@ -10,20 +10,18 @@ A new script should read like a third sibling of those two. Copy their shape.
 
 ## Use the shared lib, don't re-roll it
 
-Import from `lib` (it resolves because a script's own directory is on `sys.path` when run directly):
+Import each name straight from its defining module (`lib` resolves because a script's own directory is on `sys.path` when run directly).
+Don't re-export through `lib/__init__.py` - a `from .` re-export there trips the `no-init-reexports` semgrep rule.
 
 ```python
-from lib import (
-    PostHogScriptError,    # the one error type; raise for any expected, operator-facing failure
-    confirm,               # typed-keyword prompt; turns EOF into a clear "pass --yes" error
-    format_status_counts,  # render a status-code histogram for a mutation report
-    log,                   # write all human output to stderr
-    printable,             # escape terminal control sequences in untrusted text
-    request_with_retries,  # every HTTP call goes through this
-    resolve_host,          # region shorthand ('us'/'eu') or full URL -> host
-    setup_session_auth,    # browser-session (impersonation) auth
-)
+from lib.errors import PostHogScriptError            # the one error type; raise for any expected, operator-facing failure
+from lib.console import confirm, format_status_counts, log, printable
+from lib.posthog_api import request_with_retries, resolve_host, setup_session_auth
 ```
+
+- `lib.errors` - `PostHogScriptError`.
+- `lib.console` - `log` (stderr output), `printable` (escape untrusted text), `confirm` (typed-keyword prompt, EOF-safe), `format_status_counts` (status histogram).
+- `lib.posthog_api` - `resolve_host`, `request_with_retries` (every HTTP call), `setup_session_auth` (browser-session/impersonation auth), plus `MAX_RETRIES`.
 
 Never re-implement retries, host resolution, auth, output, or the error type inside a script.
 If a second script needs a new shared helper, add it to `lib/` (`errors` / `console` / `posthog_api`) instead of copying it.

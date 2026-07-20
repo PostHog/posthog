@@ -46,17 +46,9 @@ from typing import Any, Optional
 from urllib.parse import urlencode
 
 import requests
-from lib import (
-    MAX_RETRIES,
-    PostHogScriptError,
-    confirm,
-    format_status_counts,
-    log,
-    printable,
-    request_with_retries,
-    resolve_host,
-    setup_session_auth,
-)
+from lib.console import confirm, format_status_counts, log, printable
+from lib.errors import PostHogScriptError
+from lib.posthog_api import MAX_RETRIES, request_with_retries, resolve_host, setup_session_auth
 
 # api mode has no bulk endpoint, so it deletes one (person, property) pair per request;
 # report a status-code histogram every this many so a long run shows steady progress.

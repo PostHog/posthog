@@ -46,16 +46,9 @@ from typing import Any, Optional
 from urllib.parse import urlencode
 
 import requests
-from lib import (
-    PostHogScriptError,
-    confirm,
-    format_status_counts,
-    log,
-    printable,
-    request_with_retries,
-    resolve_host,
-    setup_session_auth,
-)
+from lib.console import confirm, format_status_counts, log, printable
+from lib.errors import PostHogScriptError
+from lib.posthog_api import request_with_retries, resolve_host, setup_session_auth
 
 
 def iter_property_definitions(
