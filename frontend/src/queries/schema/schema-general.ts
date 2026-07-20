@@ -7569,6 +7569,7 @@ export const externalDataSources = [
     'Pinecone',
     'PlatformSh',
     'PromptingCompany',
+    'PromptWatch',
     'Qdrant',
     'Render',
     'Replicate',
@@ -7698,6 +7699,8 @@ export const externalDataSources = [
     'Shopware',
     'Dubsado',
     'Campfire',
+    'Crisp',
+    'Kommo',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -8242,6 +8245,7 @@ export enum ProductKey {
     PLATFORM_AND_SUPPORT = 'platform_and_support',
     PRODUCT_ANALYTICS = 'product_analytics',
     PRODUCT_TOURS = 'product_tours',
+    PULSE = 'pulse',
     REVENUE_ANALYTICS = 'revenue_analytics',
     REVIEW_HOG = 'review_hog',
     SESSION_REPLAY = 'session_replay',
@@ -8276,6 +8280,7 @@ export enum ProductIntentContext {
     // Experiments
     EXPERIMENT_CREATED = 'experiment created',
     EXPERIMENT_ANALYZED = 'experiment analyzed',
+    EXPERIMENT_VIEW_RECORDINGS = 'experiment view recordings',
 
     // Feature Flags
     FEATURE_FLAG_CREATED = 'feature flag created',

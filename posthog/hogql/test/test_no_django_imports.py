@@ -11,6 +11,10 @@ DJANGO_FREE_MODULES = [
     "posthog.uuidt",
     "posthog.exchange_rate_constants",
     "posthog.raw_sessions_v3_ad_ids",
+    "posthog.clickhouse.events_json",
+    "posthog.property_columns",
+    "posthog.week_start_day",
+    "products.event_definitions.backend.property_type",
     "posthog.hogql.ast",
     "posthog.hogql.base",
     "posthog.hogql.visitor",
@@ -27,6 +31,7 @@ DJANGO_FREE_MODULES = [
     # providers land (it transitively imports the property transforms).
     "posthog.hogql.database.database",
     "posthog.hogql.resolver",
+    "posthog.hogql.property_metadata",
 ]
 
 _CHILD = f"""

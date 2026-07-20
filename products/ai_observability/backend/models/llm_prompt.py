@@ -8,6 +8,7 @@ from django.dispatch import receiver
 from django.utils import timezone
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import UUIDModel
 
 from products.ai_observability.backend.markdown_outline import get_markdown_outline
@@ -74,7 +75,7 @@ class LLMPrompt(UUIDModel):
     deleted = models.BooleanField(default=False)
 
 
-class LLMPromptLabel(UUIDModel):
+class LLMPromptLabel(ModelActivityMixin, UUIDModel):
     """A movable pointer from a name (e.g. "production") to exactly one version of a prompt.
 
     Version rows are immutable; releasing a version means pointing a label at it and
@@ -95,6 +96,8 @@ class LLMPromptLabel(UUIDModel):
             ),
         ]
         db_table = "posthog_llmpromptlabel"
+
+    activity_logging_on_delete = True
 
     name = models.CharField(max_length=128)
     # Prompts have no parent entity — version rows are grouped by name, so the label
@@ -156,6 +159,28 @@ def invalidate_llm_prompt_cache(sender: type[LLMPrompt], instance: LLMPrompt, **
         try:
             invalidate_prompt_latest_cache(team_id, instance.name)
             invalidate_prompt_version_cache(team_id, instance.name, instance.version)
+        except Exception as err:
+            capture_exception(err)
+
+    transaction.on_commit(clear_cache)
+
+
+@receiver(post_save, sender=LLMPromptLabel)
+@receiver(post_delete, sender=LLMPromptLabel)
+def invalidate_llm_prompt_label_cache(sender: type[LLMPromptLabel], instance: LLMPromptLabel, **kwargs) -> None:
+    # Label pointer changes never touch LLMPrompt rows, so the receiver above can't cover
+    # them — without this, a moved label would keep serving the old version from cache.
+    # post_save covers create (clears a cached 404 miss) and move; post_delete covers
+    # removal, including archive's queryset delete.
+    team_id = instance.team_id
+    prompt_name = instance.prompt_name
+    label_name = instance.name
+
+    def clear_cache() -> None:
+        from posthog.storage.llm_prompt_cache import invalidate_prompt_label_cache
+
+        try:
+            invalidate_prompt_label_cache(team_id, prompt_name, label_name)
         except Exception as err:
             capture_exception(err)
 

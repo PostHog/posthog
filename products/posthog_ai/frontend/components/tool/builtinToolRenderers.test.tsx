@@ -7,6 +7,10 @@ import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTyp
 import { BuiltinToolRenderer } from './builtinToolRenderers'
 import { GenericMcpToolRenderer } from './GenericMcpToolRenderer'
 
+jest.mock('../../messages/MarkdownMessage', () => ({
+    MarkdownMessage: ({ content }: { content: string }) => <div data-attr="markdown">{content}</div>,
+}))
+
 function textBlock(text: string): unknown {
     return { type: 'content', content: { type: 'text', text } }
 }
@@ -170,6 +174,63 @@ describe('builtin tool renderers', () => {
         )
         expect(screen.getByText('Search tools')).toBeInTheDocument()
         expect(screen.getByText('funnel')).toBeInTheDocument()
+    })
+
+    it('renders a pending plan as the document card with the plan visible', () => {
+        render(
+            <BuiltinToolRenderer
+                isLastInGroup
+                message={makeMessage({
+                    claudeToolName: 'ExitPlanMode',
+                    resolvedKey: 'ExitPlanMode',
+                    status: 'pending',
+                    rawInput: { plan: '# The plan' },
+                })}
+            />
+        )
+
+        // The plan markdown shows immediately under the card's header — no accordion to expand
+        // while approval is pending.
+        expect(screen.getByText('Final plan')).toBeInTheDocument()
+        expect(screen.getByText('# The plan')).toBeInTheDocument()
+        expect(screen.queryByText('Ready to code?')).not.toBeInTheDocument()
+    })
+
+    it('collapses an approved plan to the status row, revealing the plan on "show plan"', () => {
+        render(
+            <BuiltinToolRenderer
+                isLastInGroup
+                message={makeMessage({
+                    claudeToolName: 'ExitPlanMode',
+                    resolvedKey: 'ExitPlanMode',
+                    status: 'completed',
+                    rawInput: { plan: '# The plan' },
+                })}
+            />
+        )
+
+        expect(screen.getByText('Plan approved — proceeding with implementation')).toBeInTheDocument()
+        expect(screen.queryByText('# The plan')).not.toBeInTheDocument()
+
+        fireEvent.click(screen.getByText('· show plan'))
+        expect(screen.getByText('# The plan')).toBeInTheDocument()
+    })
+
+    it('marks a failed plan approval as rejected', () => {
+        render(
+            <BuiltinToolRenderer
+                isLastInGroup
+                message={makeMessage({
+                    claudeToolName: 'ExitPlanMode',
+                    resolvedKey: 'ExitPlanMode',
+                    status: 'failed',
+                    rawInput: { plan: '# The plan' },
+                })}
+            />
+        )
+
+        expect(screen.getByText('(Plan rejected)')).toBeInTheDocument()
+        expect(screen.queryByText('# The plan')).not.toBeInTheDocument()
     })
 
     it('renders an unmapped MCP tool with a Call server – tool (MCP) header', () => {

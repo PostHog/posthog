@@ -1,8 +1,7 @@
 import re
 import uuid
 import textwrap
-from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any
 
 from django.db import models
 
@@ -80,25 +79,6 @@ def _canvas_file_delivery_available(integration: Integration) -> bool:
 # channel that mostly ignored the bot); we surface the most recent slice so the
 # update stays bounded and the agent doesn't drown in scrollback.
 _THREAD_UPDATE_MAX_MESSAGES = 50
-# Sandbox session permission mode the run launches with (a subset of the tasks
-# product's ClaudePermissionMode values — see products/tasks/backend/constants.py).
-_InitialPermissionMode = Literal["default", "plan"]
-
-
-@dataclass(frozen=True)
-class SlackPermissionPolicy:
-    mode: str
-    initial_permission_mode: _InitialPermissionMode
-    is_ext_shared_channel: bool
-    customer_facing_approval_required: bool
-
-
-def _slack_permission_state_updates(policy: SlackPermissionPolicy) -> dict[str, Any]:
-    return {
-        "slack_permission_mode": policy.mode,
-        "slack_is_ext_shared_channel": policy.is_ext_shared_channel,
-        "slack_customer_facing_approval_required": policy.customer_facing_approval_required,
-    }
 
 
 def _slack_actor_state_updates(*, user_id: int, slack_user_id: str) -> dict[str, Any]:
@@ -106,54 +86,6 @@ def _slack_actor_state_updates(*, user_id: int, slack_user_id: str) -> dict[str,
         "slack_actor_user_id": user_id,
         "slack_actor_slack_user_id": slack_user_id,
     }
-
-
-def _slack_posthog_mcp_scopes(policy: SlackPermissionPolicy) -> Literal["read_only", "full"]:
-    if policy.mode == "read_only":
-        return "read_only"
-    return "full"
-
-
-def _resolve_slack_permission_policy(
-    *,
-    integration_id: int,
-    slack_workspace_id: str,
-    slack_user_id: str,
-    is_ext_shared_channel: bool,
-) -> SlackPermissionPolicy:
-    from products.slack_app.backend.models import SlackPermissionMode, SlackSettings
-
-    # Modes are stored per integration (project): the workspace can route to multiple
-    # projects, and a "full_auto" grant made in one must not apply to runs in another.
-    # A user row wins over the workspace-wide (slack_user_id IS NULL) row. Runs default
-    # to full auto; externally shared channels still force human approval regardless.
-    mode: str = SlackPermissionMode.FULL_AUTO
-    settings = list(
-        SlackSettings.objects.filter(slack_workspace_id=slack_workspace_id)
-        .filter(models.Q(slack_user_id=slack_user_id) | models.Q(slack_user_id__isnull=True))
-        .only("slack_user_id", "permission_modes")
-    )
-    settings.sort(key=lambda setting: setting.slack_user_id is None)
-    for setting in settings:
-        candidate = setting.permission_mode_for_integration(integration_id)
-        if candidate:
-            mode = candidate
-            break
-
-    initial_permission_mode: _InitialPermissionMode
-    if mode == SlackPermissionMode.READ_ONLY:
-        initial_permission_mode = "plan"
-    else:
-        initial_permission_mode = "default"
-
-    customer_facing_approval_required = is_ext_shared_channel
-
-    return SlackPermissionPolicy(
-        mode=mode,
-        initial_permission_mode=initial_permission_mode,
-        is_ext_shared_channel=is_ext_shared_channel,
-        customer_facing_approval_required=customer_facing_approval_required,
-    )
 
 
 def _strip_context_tag(text: str) -> str:
@@ -696,15 +628,7 @@ def create_posthog_code_task_for_repo_activity(
 
     # Slack tasks can intentionally start without an attached repository. Keep
     # PR tooling enabled so an explicit follow-up can clone a repo and publish.
-    # The Slack permission mode controls PostHog MCP scope.
     allow_pr_creation = True
-    permission_policy = _resolve_slack_permission_policy(
-        integration_id=integration.id,
-        slack_workspace_id=inputs.slack_team_id,
-        slack_user_id=slack_user_id,
-        is_ext_shared_channel=inputs.is_ext_shared_channel,
-    )
-    posthog_mcp_scopes = _slack_posthog_mcp_scopes(permission_policy)
 
     from products.slack_app.backend.facade.slack_settings import resolve_ai_preferences
 
@@ -724,8 +648,8 @@ def create_posthog_code_task_for_repo_activity(
             slack_thread_context=slack_thread_context,
             slack_thread_url=slack_thread_url,
             start_workflow=False,
-            posthog_mcp_scopes=posthog_mcp_scopes,
-            initial_permission_mode=permission_policy.initial_permission_mode,
+            posthog_mcp_scopes="full",
+            initial_permission_mode="bypassPermissions",
             runtime_adapter=ai_prefs.runtime_adapter,
             model=ai_prefs.model,
             reasoning_effort=ai_prefs.reasoning_effort,
@@ -801,7 +725,6 @@ def create_posthog_code_task_for_repo_activity(
         # Track the workflow to link Temporal jobs to Slack threads
         state_updates: dict[str, Any] = {
             "slack_mention_workflow_id": derive_mention_workflow_id(inputs),
-            **_slack_permission_state_updates(permission_policy),
             **_slack_actor_state_updates(user_id=user_id, slack_user_id=slack_user_id),
         }
         if repo_research_task_id and repo_research_run_id:
@@ -835,7 +758,7 @@ def create_posthog_code_task_for_repo_activity(
             user_id=user_id,
             create_pr=allow_pr_creation,
             slack_thread_context=slack_thread_context,
-            posthog_mcp_scopes=posthog_mcp_scopes,
+            posthog_mcp_scopes="full",
         )
 
 
@@ -1025,13 +948,6 @@ def forward_posthog_code_followup_activity(
     if user_message_ts:
         safe_react(slack.client, channel, user_message_ts, "eyes")
 
-    auth_token = None
-    if actor_user and actor_user.id:
-        distinct_id = actor_user.distinct_id or f"user_{actor_user.id}"
-        auth_token = tasks_facade.create_sandbox_connection_token(
-            task_run.id, user_id=actor_user.id, distinct_id=distinct_id
-        )
-
     uploaded_attachments, attachment_skips = _upload_prepared_slack_attachments(
         tasks_facade,
         task_run_id=task_run.id,
@@ -1050,42 +966,24 @@ def forward_posthog_code_followup_activity(
         or user_text
     )
 
-    send_kwargs: dict[str, Any] = {
-        "auth_token": auth_token,
-        "timeout": 90,
-        # Deterministic across activity retries: a retry after a partial failure
-        # (or the in-line resend below) redelivers with the same id, and the
-        # agent-server drops the duplicate instead of applying the message twice.
-        "message_id": _slack_followup_message_id(channel, user_message_ts, thread_ts),
-    }
-    if uploaded_attachments:
-        send_kwargs["artifacts"] = uploaded_attachments
-
-    result = tasks_facade.send_user_message(task_run.id, user_text, **send_kwargs)
-    if not result.success and result.retryable and result.status_code != 504:
-        result = tasks_facade.send_user_message(task_run.id, user_text, **send_kwargs)
-
-    if not result.success:
+    # Queue on the workflow so delivery is ordered with the web path. The
+    # deterministic message id keeps redelivery idempotent.
+    signal_result = tasks_facade.signal_task_run_user_message(
+        task_run.id,
+        mapping.task_id,
+        task_run.team_id,
+        content=user_text,
+        artifact_ids=_uploaded_attachment_ids(uploaded_attachments),
+        message_id=_slack_followup_message_id(channel, user_message_ts, thread_ts),
+    )
+    if signal_result is not True:
         logger.warning(
-            "posthog_code_followup_forwarding_failed",
+            "slack_app_followup_signal_failed",
             channel=channel,
             thread_ts=thread_ts,
-            error=result.error,
-            status_code=result.status_code,
+            task_run_id=str(task_run.id),
+            signal_result=signal_result,
         )
-        if result.retryable and result.status_code == 504:
-            # Agent is still processing — leave the :eyes: reaction up so the thread
-            # reads as in-progress. relayAgentResponse fires when it finishes,
-            # delivering the correct response to Slack.
-            _delete_followup_progress(
-                integration_id=inputs.integration_id,
-                channel=channel,
-                thread_ts=thread_ts,
-                user_message_ts=user_message_ts,
-                mentioning_slack_user_id=mapping.mentioning_slack_user_id,
-            )
-            return True
-
         _set_followup_done_reaction(slack, channel, user_message_ts, "x")
         slack.client.chat_postMessage(
             channel=channel,
@@ -1094,7 +992,7 @@ def forward_posthog_code_followup_activity(
         )
         return True
 
-    # Message delivered; the agent is now working on it, so leave the :eyes: reaction
+    # Message queued; the agent picks it up next, so leave the :eyes: reaction
     # up. relayAgentResponse posts the agent's response once it finishes.
     _delete_followup_progress(
         integration_id=inputs.integration_id,
@@ -1241,18 +1139,11 @@ def _resume_task_with_new_run(
         return True
 
     create_pr = True
-    permission_policy = _resolve_slack_permission_policy(
-        integration_id=integration.id,
-        slack_workspace_id=inputs.slack_team_id,
-        slack_user_id=slack_user_id,
-        is_ext_shared_channel=inputs.is_ext_shared_channel,
-    )
-    posthog_mcp_scopes = _slack_posthog_mcp_scopes(permission_policy)
 
     extra_state: dict[str, Any] = {
         "interaction_origin": "slack",
-        "initial_permission_mode": permission_policy.initial_permission_mode,
-        **_slack_permission_state_updates(permission_policy),
+        # PostHog sub-tool gate stays open so the agent doesn't make a permission roundtrip.
+        "initial_permission_mode": "bypassPermissions",
         **_slack_actor_state_updates(user_id=run_actor.id, slack_user_id=slack_user_id),
     }
 
@@ -1346,7 +1237,7 @@ def _resume_task_with_new_run(
             user_id=run_actor.id,
             create_pr=create_pr,
             slack_thread_context=slack_thread_context,
-            posthog_mcp_scopes=posthog_mcp_scopes,
+            posthog_mcp_scopes="full",
         )
     except Exception:
         logger.exception(

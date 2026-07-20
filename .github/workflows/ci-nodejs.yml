@@ -61,6 +61,7 @@ jobs:
                         - 'nodejs/**'
                         # The Jest shared-fixtures suite pins the native replay anonymizer against
                         # its Rust tests; a rust-side change (incl. the shared fixtures) must run it.
+                        - 'rust/replay-anonymizer/**'
                         - 'rust/replay-anonymizer-node/**'
                         - 'posthog/clickhouse/**'
                         - 'ee/migrations/**'

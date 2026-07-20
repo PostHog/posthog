@@ -285,6 +285,8 @@ export class PluginServer implements NodeServer {
                         maxTouchCount: this.config.CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT,
                         cleanupGraceMs: this.config.CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS,
                         poisonRecoveryEnabled: this.config.CYCLOTRON_NODE_POISON_PILL_RECOVERY_ENABLED,
+                        stallBackoffBaseMs: this.config.CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_BASE_MS,
+                        stallBackoffMaxMs: this.config.CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_MAX_MS,
                     },
                     invocationResults
                 )
