@@ -1432,6 +1432,33 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_aperture_honors_pin_outside_ring_slice() {
+        // Peer 1 of 2 over a 6-worker ring with width 2 owns ring positions
+        // 3 and 4. A key pinned to worker 0 — outside the slice — must keep
+        // routing there: the slice narrows candidates for *fresh* keys only,
+        // and rerouting a pinned key would break per-key ordering.
+        let mut dispatcher =
+            Dispatcher::with_strategy(healthy_registry(6), RoutingStrategy::Aperture);
+        dispatcher.set_aperture(peer_tracker("10.0.0.2", &["10.0.0.1", "10.0.0.2"]), 2);
+        dispatcher.pin_table.lock().unwrap().pins.insert(
+            "t:pinned".to_string(),
+            Pin {
+                worker: wid(0),
+                ref_count: 1,
+            },
+        );
+
+        let sub_batches = dispatcher.assign("b", make_msgs(&[("t", "pinned")]));
+
+        assert_eq!(sub_batches.len(), 1);
+        assert_eq!(
+            sub_batches[0].worker,
+            wid(0),
+            "pinned key must stay on its out-of-slice worker"
+        );
+    }
+
     // ---- graceful drain ----
 
     #[test]

@@ -95,6 +95,24 @@ mod tests {
     }
 
     #[test]
+    fn test_slices_leave_gaps_when_width_undershoots_ring() {
+        // 2 peers x width 3 over 8 workers: slice starts are spaced 4 apart,
+        // so ring positions 3 and 7 receive no unpinned traffic. Full-pool
+        // coverage requires `width x peer_count >= ring len` — an undersized
+        // static width idles the uncovered workers.
+        let ring = ring(8);
+        let mut seen = HashSet::new();
+        for index in 0..2 {
+            seen.extend(ring_slice(&ring, &ring, Some(index), 2, 3).unwrap());
+        }
+        assert_eq!(seen.len(), 6, "only width x peers positions are covered");
+        assert!(
+            !seen.contains(&ring[3]) && !seen.contains(&ring[7]),
+            "positions between slice starts are never routed to"
+        );
+    }
+
+    #[test]
     fn test_slice_wraps_around_the_ring() {
         // Last peer's slice starts near the ring end and wraps to the front.
         let ring = ring(5);
