@@ -3814,6 +3814,7 @@ dependencies = [
  "common-kafka",
  "common-metrics",
  "envconfig",
+ "hdrhistogram",
  "lifecycle",
  "metrics",
  "metrics-exporter-prometheus",
