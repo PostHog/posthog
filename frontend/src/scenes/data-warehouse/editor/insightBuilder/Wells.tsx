@@ -69,6 +69,7 @@ function DimensionPill({
 
     const field = baseFields.find((candidate) => candidate.name === dimension.column)
     const isDate = field?.isDate || !!dimension.dateGrain
+    const isMissing = baseFields.length > 0 && !field
 
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
         id: pillId(well, index),
@@ -81,7 +82,12 @@ function DimensionPill({
             {...attributes}
             {...listeners}
             onClose={() => removeField(well, index)}
-            className={cn('w-full cursor-grab justify-between', isDragging && 'opacity-50')}
+            className={cn(
+                'w-full cursor-grab justify-between',
+                isDragging && 'opacity-50',
+                isMissing && 'border border-danger'
+            )}
+            title={isMissing ? `"${dimension.column}" is not in the base query results anymore` : undefined}
             style={{ transform: CSS.Transform.toString(transform), transition }}
             data-attr="sql-builder-well-pill"
         >
@@ -116,6 +122,7 @@ function MeasurePill({
 
     const field = baseFields.find((candidate) => candidate.name === measure.column)
     const isCountOfRows = measure.column === COUNT_STAR_COLUMN
+    const isMissing = baseFields.length > 0 && !isCountOfRows && !field
     const aggregations: InsightBuilderAggregation[] =
         field && !field.isNumerical ? NON_NUMERIC_AGGREGATIONS : NUMERIC_AGGREGATIONS
 
@@ -130,7 +137,12 @@ function MeasurePill({
             {...attributes}
             {...listeners}
             onClose={() => removeField('values', index)}
-            className={cn('w-full cursor-grab justify-between', isDragging && 'opacity-50')}
+            className={cn(
+                'w-full cursor-grab justify-between',
+                isDragging && 'opacity-50',
+                isMissing && 'border border-danger'
+            )}
+            title={isMissing ? `"${measure.column}" is not in the base query results anymore` : undefined}
             style={{ transform: CSS.Transform.toString(transform), transition }}
             data-attr="sql-builder-well-pill"
         >

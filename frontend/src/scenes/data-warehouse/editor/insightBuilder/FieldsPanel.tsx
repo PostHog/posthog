@@ -2,6 +2,7 @@ import { useDraggable } from '@dnd-kit/core'
 import { useActions, useValues } from 'kea'
 
 import { IconCalendar } from '@posthog/icons'
+import { LemonBanner } from '@posthog/lemon-ui'
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -140,8 +141,8 @@ function FieldRow({ tabId, field }: { tabId: string; field: BuilderField }): JSX
 }
 
 export function FieldsPanel({ tabId }: { tabId: string }): JSX.Element {
-    const { baseFields, baseFieldsLoading } = useValues(insightBuilderLogic({ tabId }))
-    const { loadBaseColumns } = useActions(insightBuilderLogic({ tabId }))
+    const { baseFields, baseFieldsLoading, baseOutOfSync } = useValues(insightBuilderLogic({ tabId }))
+    const { loadBaseColumns, refreshBase } = useActions(insightBuilderLogic({ tabId }))
     const { setEditorMode } = useActions(insightBuilderLogic({ tabId }))
 
     const dimensions = baseFields.filter((field) => !field.isNumerical)
@@ -149,6 +150,15 @@ export function FieldsPanel({ tabId }: { tabId: string }): JSX.Element {
 
     return (
         <div className="flex h-full w-60 shrink-0 flex-col overflow-y-auto border-r bg-surface-primary p-2">
+            {baseOutOfSync ? (
+                <LemonBanner
+                    type="warning"
+                    className="mb-2 text-xs"
+                    action={{ children: 'Refresh fields', onClick: () => refreshBase() }}
+                >
+                    The base query changed in the Data tab.
+                </LemonBanner>
+            ) : null}
             {baseFieldsLoading ? (
                 <div className="flex flex-col gap-2 p-2">
                     {Array.from({ length: 6 }, (_, index) => (

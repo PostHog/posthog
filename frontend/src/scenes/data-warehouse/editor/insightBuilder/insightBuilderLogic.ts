@@ -66,6 +66,7 @@ export interface insightBuilderLogicValues {
     sourceQuery: DataVisualizationNode // sqlEditorLogic
     baseFields: BuilderField[]
     baseFieldsLoading: boolean
+    baseOutOfSync: boolean
     baseQuery: string
     baseViewName: string | null
     buildModeDisabledReason: string | null
@@ -164,6 +165,9 @@ export interface insightBuilderLogicActions {
         toIndex: number
         well: BuilderWell
     }
+    refreshBase: () => {
+        value: true
+    }
     removeField: (
         well: BuilderWell,
         index: number
@@ -217,6 +221,7 @@ export interface insightBuilderLogicMeta {
             queryInput: string | null,
             sourceQuery: DataVisualizationNode
         ) => string | null
+        baseOutOfSync: (editorMode: EditorMode, queryInput: string | null, baseQuery: string) => boolean
     }
 }
 
@@ -281,6 +286,7 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
         setBaseSnapshot: (baseQuery: string, baseViewName: string | null) => ({ baseQuery, baseViewName }),
         applyWells: true,
         loadBaseColumns: true,
+        refreshBase: true,
     }),
     loaders(({ values }) => ({
         baseFields: [
@@ -447,6 +453,14 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
                 return null
             },
         ],
+        baseOutOfSync: [
+            (s) => [s.editorMode, s.queryInput, s.baseQuery],
+            (editorMode: EditorMode, queryInput: string | null, baseQuery: string): boolean =>
+                editorMode === EditorMode.Build &&
+                baseQuery !== '' &&
+                (queryInput ?? '').trim() !== '' &&
+                (queryInput ?? '') !== baseQuery,
+        ],
     }),
     listeners(({ actions, values }) => ({
         addField: ({ well }) => {
@@ -518,6 +532,24 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
                 actions.loadBaseColumns()
             }
         },
+        // Snapshot the Data tab as the builder's base. When the tab is an unmodified saved view,
+        // compile against the view by name so the insight tracks future view updates.
+        refreshBase: () => {
+            const currentBase = values.queryInput ?? ''
+            if (!currentBase.trim()) {
+                return
+            }
+            const editingView = values.editingView
+            const viewName =
+                editingView && currentBase.trim() === (editingView.query?.query ?? '').trim()
+                    ? (editingView.name ?? null)
+                    : null
+            actions.setBaseSnapshot(currentBase, viewName)
+            actions.loadBaseColumns()
+            if (values.hasAnyField) {
+                actions.applyWells()
+            }
+        },
         setEditorMode: ({ mode }) => {
             if (mode !== EditorMode.Build) {
                 return
@@ -529,21 +561,8 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
                 actions.hydrateFromNode(node.builder, node.display)
             }
 
-            // Snapshot the Data tab as the builder's base. When the tab is an unmodified saved view,
-            // compile against the view by name so the insight tracks future view updates.
-            const currentBase = values.queryInput ?? ''
-            const editingView = values.editingView
-            const viewName =
-                editingView && currentBase.trim() === (editingView.query?.query ?? '').trim()
-                    ? (editingView.name ?? null)
-                    : null
-            const baseChanged = values.baseQuery !== currentBase && currentBase.trim() !== ''
-            if (baseChanged || (values.baseQuery === '' && currentBase !== '')) {
-                actions.setBaseSnapshot(currentBase, viewName)
-                actions.loadBaseColumns()
-                if (values.hasAnyField) {
-                    actions.applyWells()
-                }
+            if (values.baseQuery !== (values.queryInput ?? '') && (values.queryInput ?? '').trim() !== '') {
+                actions.refreshBase()
             } else if (values.baseFields.length === 0 && !values.baseFieldsLoading) {
                 actions.loadBaseColumns()
             }
