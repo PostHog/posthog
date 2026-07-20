@@ -18,6 +18,7 @@ from posthog.tasks.calculate_cohort import (
     MAX_STUCK_COHORTS_TO_RESET,
     calculate_cohort_from_list,
     enqueue_cohorts_to_calculate,
+    get_cohort_calculation_candidates_queryset,
     increment_version_and_enqueue_calculate_cohort,
     insert_cohort_from_filters,
     reset_stuck_cohorts,
@@ -1053,6 +1054,38 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
 
 
 class TestCohortCalculationTasks(APIBaseTest):
+    @patch("posthog.tasks.calculate_cohort.increment_version_and_enqueue_calculate_cohort")
+    def test_persistently_failing_cohorts_keep_retrying_on_a_capped_backoff(self, mock_enqueue: MagicMock) -> None:
+        # A cohort that has failed far more than MAX_ERRORS_CALCULATING times must not
+        # vanish from the recalculation queue forever, and its retry backoff must stay
+        # bounded instead of ballooning to days (uncapped it would be 30min * 2^25).
+        stale = timezone.now() - relativedelta(minutes=MAX_AGE_MINUTES + 1)
+        past_cap = Cohort.objects.create(
+            team_id=self.team.pk,
+            name="failing_past_cap",
+            last_calculation=stale,
+            errors_calculating=MAX_ERRORS_CALCULATING + 5,
+            last_error_at=timezone.now() - relativedelta(hours=9),  # older than the 8h cap → retry
+        )
+        within_cap = Cohort.objects.create(
+            team_id=self.team.pk,
+            name="failing_within_cap",
+            last_calculation=stale,
+            errors_calculating=MAX_ERRORS_CALCULATING + 5,
+            last_error_at=timezone.now() - relativedelta(hours=1),  # inside the 8h cap → still backing off
+        )
+
+        # Still a candidate despite being far past MAX_ERRORS_CALCULATING.
+        candidate_ids = set(get_cohort_calculation_candidates_queryset().values_list("pk", flat=True))
+        self.assertIn(past_cap.pk, candidate_ids)
+        self.assertIn(within_cap.pk, candidate_ids)
+
+        enqueue_cohorts_to_calculate(5)
+
+        enqueued_ids = {call.args[0].pk for call in mock_enqueue.call_args_list}
+        self.assertIn(past_cap.pk, enqueued_ids)
+        self.assertNotIn(within_cap.pk, enqueued_ids)
+
     def test_safe_save_cohort_state_handles_errors(self) -> None:
         cohort = Cohort.objects.create(
             team_id=self.team.pk,
