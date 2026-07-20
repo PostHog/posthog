@@ -150,21 +150,33 @@ fn is_bundleable_go_source(path: &str) -> bool {
 ///
 /// GOROOT gives no fixed marker to filter on — it lands wherever the
 /// toolchain was installed (/usr/local/go, homebrew Cellar, nix store). Every
-/// Go binary compiles in the runtime scheduler though, so a path ending in
-/// `src/runtime/proc.go` pins down a GOROOT src root; everything under it is
-/// stdlib. Anchoring on that exact file (not just a `src/runtime/` directory)
-/// keeps a project that happens to live under a `src/runtime/` path from
-/// wiping out its own sources. Matching happens on /-normalized copies so
-/// ELFs built on Windows (backslash-separated DWARF paths) hit the same
-/// filters.
+/// Go binary unconditionally compiles in the runtime package though, so a
+/// directory whose `src/runtime/` holds several of its always-present files
+/// is a GOROOT src root; everything under it is stdlib. Requiring multiple
+/// witness files keeps a project that merely contains a `src/runtime/`
+/// directory (or a single spoofed `//line` entry) from marking its own tree
+/// as stdlib — misdetection would only suppress source context, never leak
+/// anything. Matching happens on /-normalized copies so ELFs built on
+/// Windows (backslash-separated DWARF paths) hit the same filters.
 fn filter_go_toolchain_sources(paths: Vec<String>) -> Vec<String> {
+    const GOROOT_WITNESSES: &[&str] = &[
+        "runtime/proc.go",
+        "runtime/malloc.go",
+        "runtime/mgc.go",
+        "runtime/runtime2.go",
+    ];
     let normalize = |p: &str| p.replace('\\', "/");
-    let goroot_src_roots: Vec<String> = paths
+    let normalized_set: HashSet<String> = paths.iter().map(|p| normalize(p)).collect();
+    let goroot_src_roots: Vec<String> = normalized_set
         .iter()
-        .map(|p| normalize(p))
         .filter_map(|p| {
             p.find("/src/runtime/proc.go")
                 .map(|i| p[..i + "/src/".len()].to_string())
+        })
+        .filter(|root| {
+            GOROOT_WITNESSES
+                .iter()
+                .all(|w| normalized_set.contains(&format!("{root}{w}")))
         })
         .collect();
 
@@ -499,8 +511,10 @@ pub fn collect_source_files(dwarf_paths: &[&str]) -> Result<SourceFiles> {
 
     // DWARF-named paths are only expected to be source files; a hostile or
     // corrupt entry can point anywhere, so refuse non-regular files (devices,
-    // FIFOs) and anything implausibly large for source before reading.
-    const MAX_SOURCE_FILE_BYTES: u64 = 4 * 1024 * 1024;
+    // FIFOs) before reading, and bound memory with a per-file cap generous
+    // enough that even large generated sources (protobuf output, amalgamated
+    // C) are never clipped.
+    const MAX_SOURCE_FILE_BYTES: u64 = 64 * 1024 * 1024;
 
     for (dwarf_path, zip_rel_path) in dwarf_paths.iter().zip(zip_paths.iter()) {
         let path = Path::new(dwarf_path);
@@ -680,21 +694,33 @@ mod tests {
         assert!(!is_bundleable_go_source("/home/u/.ssh/id_rsa"));
     }
 
+    fn goroot_witnesses(root: &str, sep: char) -> Vec<String> {
+        ["proc.go", "malloc.go", "mgc.go", "runtime2.go"]
+            .iter()
+            .map(|f| format!("{root}{sep}src{sep}runtime{sep}{f}"))
+            .collect()
+    }
+
     #[test]
     fn go_toolchain_sources_are_filtered_out() {
-        let paths: Vec<String> = [
-            "/home/u/app/main.go",
-            // GOROOT is found via src/runtime/proc.go, wherever installed.
-            "/nix/store/abc-go-1.25.5/share/go/src/runtime/proc.go",
-            "/nix/store/abc-go-1.25.5/share/go/src/fmt/print.go",
-            "/opt/homebrew/Cellar/go/1.25.5/libexec/src/runtime/proc.go",
-            "/opt/homebrew/Cellar/go/1.25.5/libexec/src/net/http/server.go",
-            // Module cache holds dependency sources, not project code.
-            "/home/u/go/pkg/mod/github.com/posthog/posthog-go@v1.20.0/error_tracking.go",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
+        // GOROOT is recognized by its always-compiled runtime files,
+        // wherever installed.
+        let mut paths = goroot_witnesses("/nix/store/abc-go-1.25.5/share/go", '/');
+        paths.extend(goroot_witnesses(
+            "/opt/homebrew/Cellar/go/1.25.5/libexec",
+            '/',
+        ));
+        paths.extend(
+            [
+                "/home/u/app/main.go",
+                "/nix/store/abc-go-1.25.5/share/go/src/fmt/print.go",
+                "/opt/homebrew/Cellar/go/1.25.5/libexec/src/net/http/server.go",
+                // Module cache holds dependency sources, not project code.
+                "/home/u/go/pkg/mod/github.com/posthog/posthog-go@v1.20.0/error_tracking.go",
+            ]
+            .into_iter()
+            .map(String::from),
+        );
 
         assert_eq!(
             filter_go_toolchain_sources(paths),
@@ -704,15 +730,16 @@ mod tests {
 
     #[test]
     fn windows_built_binaries_hit_the_same_go_filters() {
-        let paths: Vec<String> = [
-            r"C:\workspace\app\main.go",
-            r"C:\go\src\runtime\proc.go",
-            r"C:\go\src\fmt\print.go",
-            r"C:\Users\u\go\pkg\mod\github.com\dep@v1.0.0\dep.go",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
+        let mut paths = goroot_witnesses(r"C:\go", '\\');
+        paths.extend(
+            [
+                r"C:\workspace\app\main.go",
+                r"C:\go\src\fmt\print.go",
+                r"C:\Users\u\go\pkg\mod\github.com\dep@v1.0.0\dep.go",
+            ]
+            .into_iter()
+            .map(String::from),
+        );
 
         assert_eq!(
             filter_go_toolchain_sources(paths),
@@ -722,16 +749,18 @@ mod tests {
 
     #[test]
     fn projects_under_a_src_runtime_path_keep_their_sources() {
-        // Only the exact stdlib layout (src/runtime/proc.go) marks a GOROOT;
-        // a project directory that merely contains src/runtime/ does not.
-        let paths: Vec<String> = ["/home/u/src/runtime/app/main.go"]
-            .into_iter()
-            .map(String::from)
-            .collect();
+        // A lone src/runtime/proc.go (project layout collision, or a spoofed
+        // //line entry) is not enough evidence of a GOROOT — all runtime
+        // witness files must be present.
+        let paths: Vec<String> = [
+            "/work/src/runtime/proc.go",
+            "/work/src/runtime/app/main.go",
+            "/work/src/api/server.go",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
 
-        assert_eq!(
-            filter_go_toolchain_sources(paths),
-            vec!["/home/u/src/runtime/app/main.go"]
-        );
+        assert_eq!(filter_go_toolchain_sources(paths.clone()), paths);
     }
 }

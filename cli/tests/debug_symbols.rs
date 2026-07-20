@@ -306,6 +306,14 @@ fn go_dwarf_source_extraction_uses_line_table_paths() {
         paths.iter().all(|p| p.starts_with('/')),
         "only on-disk (absolute) paths can be bundled"
     );
+    assert!(
+        paths.iter().all(|p| !p.contains("/src/runtime/")),
+        "GOROOT stdlib sources must be filtered out: {paths:?}"
+    );
+    assert!(
+        paths.iter().all(|p| p.ends_with(".go") || p.ends_with(".s")),
+        "only Go source files can be bundled: {paths:?}"
+    );
 }
 
 /// -trimpath strips every absolute path from Go DWARF, so there is nothing
