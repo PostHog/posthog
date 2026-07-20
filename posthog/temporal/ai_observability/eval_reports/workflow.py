@@ -28,6 +28,7 @@ from posthog.temporal.ai_observability.eval_reports.constants import (
     CHECK_COUNT_TRIGGERED_REPORTS_WORKFLOW_NAME,
     COUNT_TRIGGER_CHECK_ACTIVITY_TIMEOUT,
     COUNT_TRIGGER_CHECK_BATCH_SIZE,
+    COUNT_TRIGGER_CHECK_RETRY_POLICY,
     DELIVER_ACTIVITY_TIMEOUT,
     DELIVER_HEARTBEAT_TIMEOUT,
     DELIVER_RETRY_POLICY,
@@ -157,7 +158,7 @@ async def _check_count_triggered_eval_report_candidates(report_ids: list[str]) -
                 check_count_triggered_eval_report_activity,
                 CheckCountTriggeredEvalReportInput(report_id=report_id),
                 start_to_close_timeout=COUNT_TRIGGER_CHECK_ACTIVITY_TIMEOUT,
-                retry_policy=FETCH_RETRY_POLICY,
+                retry_policy=COUNT_TRIGGER_CHECK_RETRY_POLICY,
             )
             for report_id in batch
         ]
