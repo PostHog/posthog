@@ -74,10 +74,18 @@ class TestSyncMCPCatalog(TestCase):
                 False,
             ),
             (
-                "api_key_pass",
+                "api_key_open_handshake_pass",
                 _entry(auth_type="api_key"),
-                ProbeResult(reachable=True, speaks_mcp=True, auth_flavor="api_key_or_unknown"),
+                ProbeResult(reachable=True, speaks_mcp=True, auth_flavor="open"),
                 True,
+            ),
+            # A reachable but auth-walled endpoint proves nothing about MCP, so the entry
+            # must stay inactive for an operator to vet and activate in admin.
+            (
+                "api_key_auth_walled_stays_inactive",
+                _entry(auth_type="api_key"),
+                ProbeResult(reachable=True, speaks_mcp=False, auth_flavor="api_key_or_unknown"),
+                False,
             ),
             ("unreachable", _entry(), ProbeResult(reachable=False), False),
             # The probe saying "this is a DCR OAuth server" for a catalog entry declared api_key
