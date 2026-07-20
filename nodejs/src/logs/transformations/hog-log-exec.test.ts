@@ -266,6 +266,26 @@ describe('hog-log-exec', () => {
             expect(record.body).toContain('***REDACTED***')
         })
 
+        it('contains a cyclic returned record instead of throwing out of the executor', async () => {
+            // A transformation can build a cycle; the redaction traversal must not
+            // recurse forever — an uncaught throw here escapes the per-function
+            // failure accounting in the caller.
+            const record = createRecord()
+            const outcome = await run(
+                `
+                let rec := record
+                rec.attributes.self := rec.attributes
+                return rec
+                `,
+                record,
+                {},
+                { sensitiveValues: ['some-secret'] }
+            )
+
+            expect(outcome.status).toBe('failed')
+            expect(outcome.durationMs).toBeGreaterThanOrEqual(0)
+        })
+
         it('captures print output up to the cap and redacts sensitive values', async () => {
             const record = createRecord()
             const outcome = await run(

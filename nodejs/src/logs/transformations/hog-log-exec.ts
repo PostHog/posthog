@@ -144,7 +144,17 @@ function coerceStringMap(value: unknown): Record<string, string> | null {
         if (entry === null || entry === undefined) {
             continue
         }
-        result[key] = typeof entry === 'string' ? entry : JSON.stringify(entry)
+        if (typeof entry === 'string') {
+            result[key] = entry
+            continue
+        }
+        try {
+            result[key] = JSON.stringify(entry)
+        } catch {
+            // Cyclic values can't be encoded; treat the whole result as invalid so
+            // the failure stays inside the executor's normal accounting.
+            return null
+        }
     }
     return result
 }
@@ -160,7 +170,13 @@ function coerceStringMap(value: unknown): Record<string, string> | null {
  * Returns 'invalid' (record untouched) when the result is not record-shaped — the
  * caller treats that as a failure and fails open.
  */
-function redactSensitiveStrings(value: unknown, sensitiveValues: string[] | undefined): unknown {
+function redactSensitiveStrings(
+    value: unknown,
+    sensitiveValues: string[] | undefined,
+    // Memo doubles as cycle guard: a transformation can return a cyclic record, and
+    // an unbounded recursion here would throw past the caller's failure accounting.
+    seen: WeakMap<object, unknown> = new WeakMap()
+): unknown {
     if (!sensitiveValues?.length) {
         return value
     }
@@ -172,12 +188,28 @@ function redactSensitiveStrings(value: unknown, sensitiveValues: string[] | unde
         return out
     }
     if (Array.isArray(value)) {
-        return value.map((item) => redactSensitiveStrings(item, sensitiveValues))
+        const existing = seen.get(value)
+        if (existing) {
+            return existing
+        }
+        const out: unknown[] = []
+        seen.set(value, out)
+        for (const item of value) {
+            out.push(redactSensitiveStrings(item, sensitiveValues, seen))
+        }
+        return out
     }
     if (value && typeof value === 'object') {
-        return Object.fromEntries(
-            Object.entries(value).map(([key, item]) => [key, redactSensitiveStrings(item, sensitiveValues)])
-        )
+        const existing = seen.get(value)
+        if (existing) {
+            return existing
+        }
+        const out: Record<string, unknown> = {}
+        seen.set(value, out)
+        for (const [key, item] of Object.entries(value)) {
+            out[key] = redactSensitiveStrings(item, sensitiveValues, seen)
+        }
+        return out
     }
     return value
 }

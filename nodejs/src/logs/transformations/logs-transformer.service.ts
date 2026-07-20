@@ -20,25 +20,25 @@ import {
     resolveLogTransformationInputs,
 } from './hog-log-exec'
 
-const MAX_SENSITIVE_VALUE_DEPTH = 6
-
-function collectStringLeaves(value: unknown, out: string[], depth = 0): void {
-    if (depth > MAX_SENSITIVE_VALUE_DEPTH) {
-        return
-    }
-    if (typeof value === 'string' && value.length > 0) {
-        out.push(value)
-        return
-    }
-    if (Array.isArray(value)) {
-        for (const item of value) {
-            collectStringLeaves(item, out, depth + 1)
+// Iterative with a visited set: no depth cap (a secret below any cap would escape
+// redaction entirely) and safe against cyclic values.
+function collectStringLeaves(root: unknown, out: string[]): void {
+    const stack: unknown[] = [root]
+    const seen = new WeakSet<object>()
+    while (stack.length > 0) {
+        const value = stack.pop()
+        if (typeof value === 'string') {
+            if (value.length > 0) {
+                out.push(value)
+            }
+            continue
         }
-        return
-    }
-    if (value && typeof value === 'object') {
-        for (const item of Object.values(value)) {
-            collectStringLeaves(item, out, depth + 1)
+        if (value && typeof value === 'object') {
+            if (seen.has(value)) {
+                continue
+            }
+            seen.add(value)
+            stack.push(...(Array.isArray(value) ? value : Object.values(value)))
         }
     }
 }
