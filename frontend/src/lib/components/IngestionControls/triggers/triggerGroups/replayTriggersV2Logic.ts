@@ -82,8 +82,8 @@ export interface replayTriggersV2LogicActions {
         }
     }
     deleteTriggerGroup: (id: string) => {
-        id: string
         fallbackSampleRate: number
+        id: string
     }
     hideCreateFromLegacyModal: () => {
         value: true
