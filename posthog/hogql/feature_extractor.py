@@ -43,27 +43,33 @@ class HogQLFeatureExtractor(TraversingVisitor):
         super().visit_compare_operation(node)
 
 
-def _looks_like_event_field(expr: ast.Expr) -> bool:
-    """``True`` iff ``expr`` references the events table's ``event`` column.
-    Mirrors ``is_events_only_field`` from the session where-clause extractor."""
-    if not isinstance(expr, ast.Field) or not expr.chain:
-        return False
-
+def resolves_to_events_column(expr: ast.Field, column: str) -> bool | None:
+    """Whether ``expr`` resolves, via type info, to the events table's ``column``. Returns ``None``
+    when the AST is unresolved (no type info) so the caller can fall back to chain matching. Shared
+    with the unbounded-events-query detector so the two type checks can't drift."""
     type_ = expr.type
     if isinstance(type_, ast.PropertyType):
         type_ = type_.field_type
     if isinstance(type_, ast.FieldAliasType):
         type_ = type_.type
-    if isinstance(type_, ast.FieldType):
-        if type_.name != "event":
-            return False
-        table_type = type_.table_type
-        while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
-            table_type = table_type.table_type
-        return isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable)
+    if not isinstance(type_, ast.FieldType):
+        return None
+    if type_.name != column:
+        return False
+    table_type = type_.table_type
+    while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
+        table_type = table_type.table_type
+    return isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable)
 
+
+def _looks_like_event_field(expr: ast.Expr) -> bool:
+    """``True`` iff ``expr`` references the events table's ``event`` column.
+    Mirrors ``is_events_only_field`` from the session where-clause extractor."""
+    if not isinstance(expr, ast.Field) or not expr.chain:
+        return False
+    resolved = resolves_to_events_column(expr, "event")
     # No type info — fall back to last-identifier chain match (covers ``event``, ``e.event``, ``events.event``).
-    return expr.chain[-1] == "event"
+    return resolved if resolved is not None else expr.chain[-1] == "event"
 
 
 def _iter_string_constants(expr: ast.Expr):

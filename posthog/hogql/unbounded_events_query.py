@@ -26,6 +26,7 @@ from collections.abc import Iterator
 
 from posthog.hogql import ast
 from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.feature_extractor import resolves_to_events_column
 from posthog.hogql.functions.aggregations import HOGQL_AGGREGATIONS
 from posthog.hogql.visitor import TraversingVisitor
 
@@ -190,18 +191,9 @@ def _field_is_events_timestamp(expr: ast.Field, events_ids: set[str]) -> bool:
     if not expr.chain:
         return False
 
-    type_ = expr.type
-    if isinstance(type_, ast.PropertyType):
-        type_ = type_.field_type
-    if isinstance(type_, ast.FieldAliasType):
-        type_ = type_.type
-    if isinstance(type_, ast.FieldType):
-        if type_.name != "timestamp":
-            return False
-        table_type = type_.table_type
-        while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
-            table_type = table_type.table_type
-        return isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable)
+    resolved = resolves_to_events_column(expr, "timestamp")
+    if resolved is not None:
+        return resolved
 
     # No type info — fall back to the chain. Bare ``timestamp`` counts; a qualified ``x.timestamp``
     # counts only when ``x`` is an events-table identifier in this SELECT.
