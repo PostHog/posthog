@@ -1023,7 +1023,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 }
                 if (statusAfterSend) {
                     actions.setStatus(statusAfterSend)
-                    if (!values.assignee && values.user) {
+                    // Pick up the ticket for the sender unless a specific user is already assigned.
+                    if (values.assignee?.type !== 'user' && values.user) {
                         actions.setAssignee({ type: 'user', id: values.user.id })
                     }
                     actions.updateTicket()

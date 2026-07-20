@@ -294,10 +294,16 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
     })
 
     // "Send and set status" must persist through the same PATCH as the "Save changes" button,
-    // and only auto-assign the current user when the ticket has no assignee.
+    // and auto-assign the current user unless a specific user is already assigned.
     test.each<[string, TicketAssignee, TicketStatus, TicketAssignee]>([
         ['auto-assigns the current user when unassigned', null, 'resolved', { type: 'user', id: MOCK_DEFAULT_USER.id }],
-        ['keeps an existing assignee', { type: 'role', id: 'role-1' }, 'on_hold', { type: 'role', id: 'role-1' }],
+        [
+            'replaces a role assignee with the current user',
+            { type: 'role', id: 'role-1' },
+            'on_hold',
+            { type: 'user', id: MOCK_DEFAULT_USER.id },
+        ],
+        ['keeps an existing user assignee', { type: 'user', id: 999 }, 'pending', { type: 'user', id: 999 }],
     ])('%s', async (_name, presetAssignee, statusAfterSend, expectedAssignee) => {
         if (presetAssignee) {
             logic.actions.setAssignee(presetAssignee)
