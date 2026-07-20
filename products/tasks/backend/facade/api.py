@@ -201,6 +201,7 @@ __all__ = [
     "select_repository_for_message",
     "set_task_run_output",
     "set_task_title",
+    "slack_actor_state_updates",
     "signal_report_queryset",
     "signal_task_run_user_message",
     "signal_workflow_completion",
@@ -927,6 +928,19 @@ def update_task_run_state(
 ) -> dict:
     """Atomically merge state updates into a run's ``state`` and return the new state."""
     return TaskRun.update_state_atomic(run_id, updates=updates, remove_keys=remove_keys)
+
+
+def slack_actor_state_updates(*, user_id: int, slack_user_id: str | None = None) -> dict[str, Any]:
+    """Run-state updates recording the Slack user currently steering a run.
+
+    Credential resolution and reply tagging read the keys this builds, so every
+    writer must go through here rather than assembling the dict inline.
+    """
+    from products.tasks.backend.logic.services.run_actor import (  # noqa: PLC0415 — keep tasks internals off the api import path
+        slack_actor_state_updates as _slack_actor_state_updates,
+    )
+
+    return _slack_actor_state_updates(user_id=user_id, slack_user_id=slack_user_id)
 
 
 def set_task_run_created_at_for_seeding(

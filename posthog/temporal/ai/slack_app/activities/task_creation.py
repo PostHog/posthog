@@ -82,11 +82,11 @@ _THREAD_UPDATE_MAX_MESSAGES = 50
 
 
 def _slack_actor_state_updates(*, user_id: int, slack_user_id: str) -> dict[str, Any]:
-    from products.tasks.backend.logic.services.run_actor import (  # noqa: PLC0415 — keep tasks deps off the slack_app import path
-        slack_actor_state_updates,
+    from products.tasks.backend.facade import (
+        api as tasks_facade,  # noqa: PLC0415 — keep tasks deps off the slack_app import path
     )
 
-    return slack_actor_state_updates(user_id=user_id, slack_user_id=slack_user_id)
+    return tasks_facade.slack_actor_state_updates(user_id=user_id, slack_user_id=slack_user_id)
 
 
 def _strip_context_tag(text: str) -> str:
