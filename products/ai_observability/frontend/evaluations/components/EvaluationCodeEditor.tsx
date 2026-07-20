@@ -308,42 +308,7 @@ export function EvaluationCodeEditor(): JSX.Element {
                         <code>target</code>
                     </dt>
                     <dd className="m-0">The generation or trace ID, total cost, and total latency.</dd>
-                    {evaluation.target === 'generation' ? (
-                        <>
-                            <dt>
-                                <code>input</code>
-                            </dt>
-                            <dd className="m-0">The captured generation input.</dd>
-                            <dt>
-                                <code>output</code>
-                            </dt>
-                            <dd className="m-0">The captured generation output.</dd>
-                            <dt>
-                                <code>properties</code>
-                            </dt>
-                            <dd className="m-0">The captured generation properties.</dd>
-                            <dt>
-                                <code>event</code>
-                            </dt>
-                            <dd className="m-0">The generation event metadata.</dd>
-                        </>
-                    ) : (
-                        <>
-                            <dt>
-                                <code>events</code>
-                            </dt>
-                            <dd className="m-0">The trace events in their original format.</dd>
-                            <dt>
-                                <code>trace</code>
-                            </dt>
-                            <dd className="m-0">The trace ID and event count.</dd>
-                        </>
-                    )}
                 </dl>
-                <p className="text-sm text-muted mt-2 mb-0">
-                    Use <code>evaluation_events</code> and <code>target</code> for code that works with either target.{' '}
-                    The other globals are kept for saved code.
-                </p>
                 <h4 className="text-sm font-semibold mt-3 mb-2">Tips</h4>
                 <ul className="text-sm text-muted space-y-1 list-disc list-inside">
                     <li>
