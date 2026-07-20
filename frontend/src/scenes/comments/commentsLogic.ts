@@ -301,7 +301,10 @@ export interface commentsLogicMeta {
         commentsWithReplies: (sortedComments: CommentType[]) => CommentWithRepliesType[]
         emojiReactionsByComment: (sortedComments: CommentType[]) => Record<string, Record<string, CommentType[]>>
         expandedThreadIds: (threadExpansion: Record<string, boolean>, replyingCommentId: string | null) => Set<string>
-        currentComposerDraft: (composerDrafts: any, replyingCommentId: string | null) => JSONContent | null
+        currentComposerDraft: (
+            composerDrafts: Record<string, JSONContent | null>,
+            replyingCommentId: string | null
+        ) => JSONContent | null
         isMyComment: (user: UserType | null) => (comment: CommentType) => boolean
         disabledReasonFor: (user: UserType | null) => (comment: CommentType) => string | null
     }
