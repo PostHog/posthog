@@ -75,7 +75,7 @@ async def test_started_and_ready_fire_expected_captures(ateam):
     "error,failure_reason,error_type",
     [
         ("Failed safety review: contains PII", "safety_judge_rejected", None),
-        ("Sandbox agent timed out", "agentic_activity_error", "TimeoutError"),
+        ("Sandbox agent leaked sk-secret-abc123", "agentic_activity_error", "TimeoutError"),
     ],
 )
 async def test_failed_fires_completed_with_error_detail(ateam, error, failure_reason, error_type):
@@ -108,10 +108,13 @@ async def test_failed_fires_completed_with_error_detail(ateam, error, failure_re
     assert props["failure_reason"] == failure_reason
     assert props["signal_count"] == 3
     assert props["source_products"] == ["zendesk"]
-    # team_id and the error detail are what make a failure spike triageable from event data alone.
+    # team_id + the exception class make a failure spike triageable from event data alone.
     assert props["team_id"] == ateam.id
-    assert props["error_message"] == error
     assert props.get("error_type") == error_type
+    # The raw error string can carry signal content or secrets; it must never reach telemetry
+    # under the internal analytics key — only the exception class name is safe to emit.
+    assert "error_message" not in props
+    assert not any(error in str(v) for v in props.values())
 
 
 @pytest.mark.asyncio

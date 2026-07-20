@@ -67,7 +67,6 @@ def _capture_report_event(
     result: str | None = None,
     failure_reason: str | None = None,
     error_type: str | None = None,
-    error_message: str | None = None,
 ) -> None:
     properties: dict = {
         # team_id is emitted as a property (not just as distinct_id/groups) so failures can be
@@ -82,10 +81,12 @@ def _capture_report_event(
         properties["result"] = result
     if failure_reason is not None:
         properties["failure_reason"] = failure_reason
+    # Only the exception class name is emitted — never the raw error string. Failure messages
+    # (safety-judge explanations over signal content, sandbox agent output) can carry customer
+    # data or secrets, and this capture runs under the internal analytics key, outside the
+    # report's team-scoped data boundary. The full message stays on the SignalReport row.
     if error_type is not None:
         properties["error_type"] = error_type
-    if error_message is not None:
-        properties["error_message"] = error_message
 
     if event == "signal_report_completed" and result is not None:
         metrics.increment_report_completed(result)
@@ -598,7 +599,6 @@ async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
         result="failed",
         failure_reason=input.failure_reason,
         error_type=input.error_type,
-        error_message=input.error,
     )
     logger.debug(
         f"Marked report {input.report_id} as failed",
