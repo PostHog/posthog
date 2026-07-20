@@ -1,3 +1,6 @@
+import time
+from itertools import count
+
 from unittest.mock import patch
 
 from django.core.cache import cache
@@ -9,6 +12,11 @@ from requests.structures import CaseInsensitiveDict
 from rest_framework.exceptions import NotFound
 
 from posthog.cdp.services.icons import CDPIconsService
+from posthog.egress.limiter.outbound import get_outbound_rate_limiter
+
+# Fresh team id per test (and per run) so consuming the real per-team budget never accumulates
+# into a denial across tests or repeated local runs against a persistent Redis.
+_TEAM_IDS = count(time.time_ns() % 1_000_000_000)
 
 
 def _response(
@@ -36,6 +44,7 @@ class TestCDPIconsService(SimpleTestCase):
         super().setUp()
         cache.clear()
         self.service = CDPIconsService()
+        self.team_id = next(_TEAM_IDS)
 
     def test_icon_bytes_are_never_stored_and_browser_caching_is_directed(self) -> None:
         # Storing logo bytes server-side needs a logo.dev data-caching license our plan lacks —
@@ -51,8 +60,8 @@ class TestCDPIconsService(SimpleTestCase):
                 ],
             ) as upstream,
         ):
-            first = self.service.get_icon_http_response("linear.app")
-            second = self.service.get_icon_http_response("linear.app")
+            first = self.service.get_icon_http_response("linear.app", team_id=self.team_id)
+            second = self.service.get_icon_http_response("linear.app", team_id=self.team_id)
 
         assert upstream.call_count == 2
         assert first.content == b"png-bytes"
@@ -78,13 +87,13 @@ class TestCDPIconsService(SimpleTestCase):
             ),
         ):
             with self.assertRaises(NotFound):
-                self.service.get_icon_http_response("linear.app")
+                self.service.get_icon_http_response("linear.app", team_id=self.team_id)
 
         with (
             patch("posthog.egress.logodev.transport.consume_logodev_sync", return_value=True),
             patch("requests.request", return_value=_response(content=b"png-bytes")),
         ):
-            recovered = self.service.get_icon_http_response("linear.app")
+            recovered = self.service.get_icon_http_response("linear.app", team_id=self.team_id)
 
         assert recovered.content == b"png-bytes"
 
@@ -106,7 +115,7 @@ class TestCDPIconsService(SimpleTestCase):
             patch("requests.request") as upstream,
         ):
             with self.assertRaises(NotFound):
-                self.service.get_icon_http_response(icon_id)
+                self.service.get_icon_http_response(icon_id, team_id=self.team_id)
 
         upstream.assert_not_called()
 
@@ -119,7 +128,7 @@ class TestCDPIconsService(SimpleTestCase):
         ):
             for icon_id in ("Unknown.Example", "unknown.example"):
                 with self.assertRaises(NotFound):
-                    self.service.get_icon_http_response(icon_id, fallback="404")
+                    self.service.get_icon_http_response(icon_id, fallback="404", team_id=self.team_id)
 
         assert upstream.call_count == 1
 
@@ -132,7 +141,7 @@ class TestCDPIconsService(SimpleTestCase):
             patch("requests.request", return_value=_response()),
         ):
             with self.assertRaises(ValueError):
-                self.service.get_icon_http_response("linear.app", **kwargs)
+                self.service.get_icon_http_response("linear.app", team_id=self.team_id, **kwargs)
 
     def test_response_shaping_params_are_forwarded_upstream(self) -> None:
         # format/retina/theme/fallback shape logo.dev's bytes — dropping any of them regresses the
@@ -141,7 +150,9 @@ class TestCDPIconsService(SimpleTestCase):
             patch("posthog.egress.logodev.transport.consume_logodev_sync", return_value=True),
             patch("requests.request", return_value=_response(content=b"dark-png")) as upstream,
         ):
-            response = self.service.get_icon_http_response("linear.app", theme="dark", fallback="404")
+            response = self.service.get_icon_http_response(
+                "linear.app", theme="dark", fallback="404", team_id=self.team_id
+            )
 
         assert response.content == b"dark-png"
         params = upstream.call_args.kwargs["params"]
@@ -168,7 +179,7 @@ class TestCDPIconsService(SimpleTestCase):
         ):
             for _ in range(2):
                 with self.assertRaises(NotFound):
-                    self.service.get_icon_http_response("unknown.example", fallback=fallback)
+                    self.service.get_icon_http_response("unknown.example", fallback=fallback, team_id=self.team_id)
 
         assert upstream.call_count == expected_calls
 
@@ -183,8 +194,8 @@ class TestCDPIconsService(SimpleTestCase):
             ) as upstream,
         ):
             with self.assertRaises(NotFound):
-                self.service.get_icon_http_response("unknown.example", fallback="404")
-            monogram = self.service.get_icon_http_response("unknown.example", fallback="monogram")
+                self.service.get_icon_http_response("unknown.example", fallback="404", team_id=self.team_id)
+            monogram = self.service.get_icon_http_response("unknown.example", fallback="monogram", team_id=self.team_id)
 
         assert upstream.call_count == 2
         assert monogram.content == b"monogram-png"
@@ -198,7 +209,7 @@ class TestCDPIconsService(SimpleTestCase):
             patch("requests.request") as upstream,
         ):
             with self.assertRaises(NotFound):
-                self.service.get_icon_http_response("linear.app")
+                self.service.get_icon_http_response("linear.app", team_id=self.team_id)
 
         upstream.assert_not_called()
 
@@ -206,7 +217,7 @@ class TestCDPIconsService(SimpleTestCase):
             patch("posthog.egress.logodev.transport.consume_logodev_sync", return_value=True),
             patch("requests.request", return_value=_response(content=b"png-bytes")) as upstream,
         ):
-            recovered = self.service.get_icon_http_response("linear.app")
+            recovered = self.service.get_icon_http_response("linear.app", team_id=self.team_id)
 
         assert upstream.call_count == 1
         assert recovered.content == b"png-bytes"
@@ -218,6 +229,47 @@ class TestCDPIconsService(SimpleTestCase):
             patch("posthog.egress.logodev.transport.consume_logodev_sync", return_value=False),
             patch("requests.request") as upstream,
         ):
-            assert self.service.list_icons("linear", icon_url_base="/base?id=") == []
+            assert self.service.list_icons("linear", icon_url_base="/base?id=", team_id=self.team_id) == []
 
         upstream.assert_not_called()
+
+    def test_icon_fetch_degrades_to_not_found_when_team_budget_exhausted(self) -> None:
+        # The account budget is instance-wide, so the per-team gate is what stops one team's
+        # arbitrary-domain requests from blanking icons for every other team. Denial must be
+        # charged to the calling team's own key, stay uncached, and never reach upstream.
+        with (
+            patch("posthog.cdp.services.icons.get_outbound_rate_limiter") as limiter,
+            patch("requests.request") as upstream,
+        ):
+            limiter.return_value.consume_sync.return_value = False
+            with self.assertRaises(NotFound):
+                self.service.get_icon_http_response("linear.app", team_id=self.team_id)
+
+        upstream.assert_not_called()
+        assert limiter.return_value.consume_sync.call_args.args == (f"cdp_icons:team:{self.team_id}",)
+
+        with (
+            patch("posthog.egress.logodev.transport.consume_logodev_sync", return_value=True),
+            patch("requests.request", return_value=_response(content=b"png-bytes")) as upstream,
+        ):
+            recovered = self.service.get_icon_http_response("linear.app", team_id=self.team_id)
+
+        assert upstream.call_count == 1
+        assert recovered.content == b"png-bytes"
+
+    def test_search_degrades_to_empty_when_team_budget_exhausted(self) -> None:
+        # Search queries are free text — the same per-team gate must cover them or a team could
+        # drain the shared account budget through the search path instead.
+        with (
+            patch("posthog.cdp.services.icons.get_outbound_rate_limiter") as limiter,
+            patch("requests.request") as upstream,
+        ):
+            limiter.return_value.consume_sync.return_value = False
+            assert self.service.list_icons("linear", icon_url_base="/base?id=", team_id=self.team_id) == []
+
+        upstream.assert_not_called()
+
+    def test_team_budget_policy_is_registered(self) -> None:
+        # consume raises for a domain with no registered policy — this catches the registration
+        # side effect being lost (e.g. an import shuffle dropping the register_policy call).
+        assert get_outbound_rate_limiter().consume_sync(f"cdp_icons:team:{self.team_id}", source="test") is True

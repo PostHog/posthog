@@ -7,10 +7,42 @@ from django.http import HttpResponse
 
 from rest_framework.exceptions import NotFound
 
-from posthog.egress.limiter.policies import Priority
+from posthog.egress.limiter.outbound import get_outbound_rate_limiter
+from posthog.egress.limiter.policies import Priority, RatePolicy, register_policy
 from posthog.egress.logodev.transport import LogoDevEgressBudgetExhausted, logodev_request
 
 ICON_CACHE_SECONDS = 60 * 60 * 24
+
+# Per-team fairness gate in front of the instance-wide logo.dev account budget. Icon domains and
+# search queries are caller-supplied and only definitive misses are cached, so without a per-team
+# ceiling one team requesting endless unique domains could drain the shared account budget and
+# blank icons for every other team on the instance. The ceilings leave a cold catalog render (tens
+# of uncached icons) untouched while sitting well below the account budget, so a single team can't
+# sustain instance-wide exhaustion. This is a consumer-side concern: the logodev egress limiter
+# stays a pure account-budget mirror of what logo.dev actually meters.
+_TEAM_BUDGET_DOMAIN = "cdp_icons"
+_DEFAULT_TEAM_PER_MINUTE_BUDGET = 120
+_DEFAULT_TEAM_HOURLY_BUDGET = 1_000
+
+
+# Registered as a provider so the budgets are read at acquire time — a settings override applies
+# without a process restart, matching the egress domains.
+def _team_budget_policy(key: str) -> RatePolicy:
+    per_minute = int(getattr(settings, "CDP_ICONS_TEAM_PER_MINUTE_BUDGET", _DEFAULT_TEAM_PER_MINUTE_BUDGET))
+    hourly = int(getattr(settings, "CDP_ICONS_TEAM_HOURLY_BUDGET", _DEFAULT_TEAM_HOURLY_BUDGET))
+    return RatePolicy(limits=((per_minute, 60.0), (hourly, 3600.0)), in_memory_divider=4)
+
+
+register_policy(_TEAM_BUDGET_DOMAIN, _team_budget_policy)
+
+
+def _consume_team_icon_budget(team_id: int) -> bool:
+    """Reserve one upstream logo.dev call against ``team_id``'s icon budget. Returns False when the
+    team's budget is exhausted — degrade for that team only, before touching the account budget."""
+    return get_outbound_rate_limiter().consume_sync(
+        f"{_TEAM_BUDGET_DOMAIN}:team:{team_id}", priority=Priority.NORMAL, source="cdp_icons"
+    )
+
 
 # Dot-separated LDH labels, lowercase — the only shape logo.dev serves. Rejecting everything else
 # keeps caller-supplied ids from reaching logo.dev or minting cache entries.
@@ -26,7 +58,7 @@ class CDPIconsService:
     def supported(self) -> bool:
         return bool(settings.LOGO_DEV_TOKEN)
 
-    def list_icons(self, query: str, icon_url_base: str) -> list[dict[str, str]]:
+    def list_icons(self, query: str, icon_url_base: str, *, team_id: int) -> list[dict[str, str]]:
         if not self.supported:
             return []
 
@@ -34,6 +66,10 @@ class CDPIconsService:
         data = cache.get(cache_key)
 
         if data is None:
+            # Queries are free-text, so cached entries don't bound upstream volume — gate uncached
+            # searches on the caller's team budget before they reach the shared account budget.
+            if not _consume_team_icon_budget(team_id):
+                return []
             try:
                 # NORMAL: a typeahead search degrades to no results when the shared budget is tight.
                 res = logodev_request(
@@ -60,7 +96,9 @@ class CDPIconsService:
 
         return data
 
-    def get_icon_http_response(self, id: str, theme: str | None = None, fallback: str = "monogram") -> HttpResponse:
+    def get_icon_http_response(
+        self, id: str, theme: str | None = None, fallback: str = "monogram", *, team_id: int
+    ) -> HttpResponse:
         if not self.supported:
             raise NotFound()
         if theme not in _ALLOWED_THEMES:
@@ -82,6 +120,11 @@ class CDPIconsService:
         # ([a-z0-9.-]) is cache-key-safe raw.
         miss_cache_key = f"@cdp/icon_miss/1/{domain}/{theme or ''}/{fallback}"
         if cache.get(miss_cache_key):
+            raise NotFound()
+
+        # Unique domains bypass the miss cache by construction, so gate the uncached fetch on the
+        # caller's team budget. Transient and uncached, like account-budget exhaustion below.
+        if not _consume_team_icon_budget(team_id):
             raise NotFound()
 
         params = {
