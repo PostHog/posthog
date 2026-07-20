@@ -96,6 +96,12 @@ export function AlertWizard({
                         )
                     })}
                 </ol>
+                <div className="mt-2 h-1 w-full rounded-full bg-border overflow-hidden">
+                    <div
+                        className="h-full rounded-full bg-primary transition-all duration-300"
+                        style={{ width: `${((current + 1) / steps.length) * 100}%` }}
+                    />
+                </div>
             </header>
             <section className="p-4 min-h-0 flex-1 overflow-y-auto">
                 <div className="space-y-1 mb-3">
