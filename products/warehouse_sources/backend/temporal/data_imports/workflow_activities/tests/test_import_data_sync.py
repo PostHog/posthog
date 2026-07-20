@@ -181,6 +181,7 @@ async def test_rest_client_non_retryable_error_routes_through_handler_without_so
             await module._handle_import_error(mock.MagicMock(), logger, error)
 
     handle_mock.assert_awaited_once()
+    assert handle_mock.await_args is not None
     assert handle_mock.await_args.args[3] is error
     logger.aexception.assert_not_awaited()
 
