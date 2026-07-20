@@ -1937,6 +1937,36 @@ describe('generateToolCode with confirmed_action', () => {
         expect(result.code).toContain('boundScope: { projectId: String(__scopeProjectId) }')
         expect(result.code).toContain('expectedScope: { projectId: String(__scopeProjectId) }')
     })
+
+    it('reuses the scope-checked project id to build the execute path (no post-guard re-read)', () => {
+        // The path must be built from the same project id that was verified
+        // against expectedScope. Re-reading state after the guard would let a
+        // concurrent switch-project retarget the request at a different
+        // project than the confirmation was bound to.
+        const result = generateToolCode(
+            'metric-approve',
+            makeConfirmedConfig(),
+            makeResolved({
+                method: 'POST',
+                path: '/api/projects/{project_id}/metrics/{name}/approve/',
+                operation: {
+                    operationId: 'organizations_partial_update',
+                    parameters: [
+                        { in: 'path', name: 'project_id', required: true, schema: { type: 'string' } },
+                        { in: 'path', name: 'name', required: true, schema: { type: 'string' } },
+                    ],
+                },
+            }),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        expect(result.code).toContain('const projectId = __scopeProjectId')
+        expect(result.code).not.toContain(
+            'const params = __guard.verifiedArgs\n        const projectId = await context.stateManager.getProjectId()'
+        )
+    })
 })
 
 describe('optional param with state fallback', () => {

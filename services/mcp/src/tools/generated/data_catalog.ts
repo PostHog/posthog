@@ -79,7 +79,7 @@ const dataCatalogCertificationCertifyExecute = (): ToolBase<
             return __guard.result as never
         }
         const params = __guard.verifiedArgs
-        const projectId = await context.stateManager.getProjectId()
+        const projectId = __scopeProjectId
         const result = await context.api.request<Schemas.DataCatalogCertification>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/certifications/${encodeURIComponent(String(params.id))}/certify/`,
@@ -143,7 +143,7 @@ const dataCatalogCertificationDeprecateExecute = (): ToolBase<
             return __guard.result as never
         }
         const params = __guard.verifiedArgs
-        const projectId = await context.stateManager.getProjectId()
+        const projectId = __scopeProjectId
         const result = await context.api.request<Schemas.DataCatalogCertification>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/certifications/${encodeURIComponent(String(params.id))}/deprecate/`,
@@ -237,7 +237,7 @@ const dataCatalogMetricApproveExecute = (): ToolBase<
             return __guard.result as never
         }
         const params = __guard.verifiedArgs
-        const projectId = await context.stateManager.getProjectId()
+        const projectId = __scopeProjectId
         const result = await context.api.request<Schemas.DataCatalogMetric>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/${encodeURIComponent(String(params.name))}/approve/`,
@@ -427,7 +427,7 @@ const dataCatalogRelationshipAcceptExecute = (): ToolBase<
             return __guard.result as never
         }
         const params = __guard.verifiedArgs
-        const projectId = await context.stateManager.getProjectId()
+        const projectId = __scopeProjectId
         const result = await context.api.request<Schemas.DataCatalogRelationshipProposal>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/relationship_proposals/${encodeURIComponent(String(params.id))}/accept/`,
@@ -538,7 +538,7 @@ const dataCatalogRelationshipRejectExecute = (): ToolBase<
             return __guard.result as never
         }
         const params = __guard.verifiedArgs
-        const projectId = await context.stateManager.getProjectId()
+        const projectId = __scopeProjectId
         const body: Record<string, unknown> = {}
         if (params.rejection_reason !== undefined) {
             body['rejection_reason'] = params.rejection_reason

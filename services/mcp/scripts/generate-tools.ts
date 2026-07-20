@@ -1314,6 +1314,28 @@ function buildConfirmedActionFactories(args: {
     const prepareScopeField = hasScope ? `            boundScope: { ${scopeParts.join(', ')} },\n` : ''
     const executeScopeField = hasScope ? `            expectedScope: { ${scopeParts.join(', ')} },\n` : ''
 
+    // The original handler body re-reads project/org from state to build the
+    // API path. In the execute variant that would be a second, independent
+    // read after the scope check — MCP handles batched requests concurrently,
+    // so a `switch-project` racing between the scope check and the path build
+    // could retarget the request at a different project than the one the
+    // confirmation was bound to. Alias the path IDs to the scope values we
+    // captured once (and verified against `expectedScope`) so the check and
+    // the request always agree.
+    let executeHandlerBody = originalHandlerBody
+    if (needsOrgId) {
+        executeHandlerBody = executeHandlerBody.replace(
+            '        const orgId = await context.stateManager.getOrgID()\n',
+            '        const orgId = __scopeOrgId\n'
+        )
+    }
+    if (needsProjectId) {
+        executeHandlerBody = executeHandlerBody.replace(
+            '        const projectId = await context.stateManager.getProjectId()\n',
+            '        const projectId = __scopeProjectId\n'
+        )
+    }
+
     // Prepare handler: validate args via the base schema (already happens
     // before our handler runs) and call into the runtime. Args are signed
     // verbatim — bound to user identity + purpose (+ active scope).
@@ -1341,7 +1363,7 @@ ${executeScopeField}        })
             return __guard.result as never
         }
         const params = __guard.verifiedArgs
-${originalHandlerBody}`
+${executeHandlerBody}`
 
     const prepareBody = `{
     name: '${prepareName}',
