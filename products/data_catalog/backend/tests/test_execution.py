@@ -172,7 +172,7 @@ class TestMetricRunPreparation(APIBaseTest):
         with self.assertRaises(ValidationError) as ctx:
             prepare_execution_query(_HOGQL, **params)
         detail = cast(dict, ctx.exception.detail)
-        assert str(detail["field"]) == expected_field
+        assert expected_field in detail
 
 
 class TestMetricRunAttribution(APIBaseTest):

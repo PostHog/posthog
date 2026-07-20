@@ -16696,6 +16696,8 @@ export namespace Schemas {
       ai_model?: string;
       /**
          * AI author's confidence in the proposal, 0-1.
+         * @minimum 0
+         * @maximum 1
          * @nullable
          */
       confidence?: number | null;
@@ -43517,6 +43519,8 @@ export namespace Schemas {
       ai_model?: string;
       /**
          * AI author's confidence in the proposal, 0-1.
+         * @minimum 0
+         * @maximum 1
          * @nullable
          */
       confidence?: number | null;

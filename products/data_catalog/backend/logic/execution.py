@@ -91,9 +91,8 @@ def run_metric(
     except (ExposedHogQLError, ExposedCHQueryError) as e:
         raise ValidationError(
             {
-                "field": "definition",
-                "error": f"This metric could not run: {e}",
-                "hint": "A table or column it references may no longer exist. Check system.information_schema.tables.",
+                "definition": f"This metric could not run: {e} "
+                "A table or column it references may no longer exist. Check system.information_schema.tables."
             }
         )
     except ConcurrencyLimitExceeded:
@@ -111,9 +110,8 @@ def run_metric(
         # run that produced no results must not read as a success.
         raise ValidationError(
             {
-                "field": "definition",
-                "error": f"This metric could not run: {payload['error']}",
-                "hint": "The definition (or a date/interval override) does not form a valid query.",
+                "definition": f"This metric could not run: {payload['error']} "
+                "The definition (or a date/interval override) does not form a valid query."
             }
         )
 
@@ -146,9 +144,8 @@ def _apply_date_params(query: dict, date_from: Optional[str], date_to: Optional[
         field = "date_from" if date_from is not None else ("date_to" if date_to is not None else "interval")
         raise ValidationError(
             {
-                "field": field,
-                "error": "This metric's dates are fixed in its SQL and cannot be overridden at run time.",
-                "hint": "Report the definition's own window, or ask for a parameterized metric.",
+                field: "This metric's dates are fixed in its SQL and cannot be overridden at run time. "
+                "Report the definition's own window, or ask for a parameterized metric."
             }
         )
     date_range = dict(query.get("dateRange") or {})
