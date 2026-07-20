@@ -40,6 +40,7 @@ describe('HeatmapCanvas', () => {
 
         const { container } = render(<HeatmapCanvas context="in-app" />)
 
+        expect(mockConfigure).toHaveBeenCalled()
         expect(container.querySelector('[data-attr="heatmap-canvas"]')).toBeTruthy()
     })
 
@@ -52,6 +53,7 @@ describe('HeatmapCanvas', () => {
         const { container } = render(<HeatmapCanvas context="in-app" />)
         fireEvent.mouseMove(window, { clientX: 10, clientY: 10 })
 
+        expect(mockGetValueAt).toHaveBeenCalled()
         expect(container.querySelector('[data-attr="heatmap-canvas"]')).toBeTruthy()
     })
 })
