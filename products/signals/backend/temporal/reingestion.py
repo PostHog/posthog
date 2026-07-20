@@ -32,6 +32,7 @@ from products.signals.backend.temporal.signal_queries import (
     FetchSignalsForReportInput,
     FetchSignalsForReportOutput,
     WaitForClickHouseInput,
+    WaitForClickHouseMode,
     WaitForClickHouseSignal,
     _ensure_tz_aware,
     fetch_signals_for_report_activity,
@@ -254,6 +255,9 @@ async def process_team_signals_batch_activity(input: ProcessTeamSignalsBatchInpu
                 WaitForClickHouseSignal(signal_id=signal.signal_id, timestamp=signal.timestamp) for signal in signals
             ],
             max_wait_time_seconds=3600,
+            # Bulk reprocessing is non-interactive: let the store gate the polling, but
+            # confirm in ClickHouse before the next batch re-reads these rows.
+            mode=WaitForClickHouseMode.CH_CONFIRMED,
         )
     )
 
@@ -389,6 +393,10 @@ class SignalReportReingestionWorkflow:
                     for s in fetch_result.signals
                 ],
                 max_wait_time_seconds=3600,
+                # Interactive reingestion re-emits these signals right after this wait,
+                # and the store can't see soft-deletes (they reuse the original
+                # timestamp) — only ClickHouse can prove the stale rows were replaced.
+                mode=WaitForClickHouseMode.CH_ONLY,
             ),
             start_to_close_timeout=timedelta(hours=1, minutes=5),
             heartbeat_timeout=timedelta(minutes=5),
