@@ -369,6 +369,23 @@ def _is_transient_connect_drop(e: BaseException) -> bool:
     return False
 
 
+# pymysql error code 2006 (CR_SERVER_GONE_ERROR): the server closed the socket while pymysql was
+# writing to it — `_write_bytes` wraps the underlying `ConnectionResetError` / `BrokenPipeError`
+# as "MySQL server has gone away (<os error>)". Mid-handshake (sending the auth packet) this is the
+# write-side sibling of the 2013 read-side drop above: an overloaded server, a proxy/load-balancer
+# idle cull, or a failover reset the connection, all of which a fresh attempt recovers from. Unlike
+# 2013 there's no deterministic-config subcase to exclude, so match the bare code.
+_SERVER_GONE_AWAY_CODE = 2006
+
+
+def _is_transient_connect_gone_away(e: BaseException) -> bool:
+    """Return True if the server went away while establishing the connection — a transient blip."""
+    if not isinstance(e, pymysql.err.OperationalError):
+        return False
+    code = e.args[0] if e.args else None
+    return code == _SERVER_GONE_AWAY_CODE
+
+
 def _is_transient_connect_timeout(e: BaseException) -> bool:
     """Return True if the initial connect timed out — a transient blip.
 
@@ -490,6 +507,7 @@ def _connect_with_transient_retry(kwargs: dict[str, Any]) -> pymysql.Connection:
             attempt += 1
             if attempt >= _MAX_CONNECT_ATTEMPTS or not (
                 _is_transient_connect_drop(e)
+                or _is_transient_connect_gone_away(e)
                 or _is_transient_connect_timeout(e)
                 or _is_transient_connect_dns_failure(e)
                 or _is_transient_connect_reset(e)

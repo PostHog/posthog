@@ -14,7 +14,11 @@ from posthog.models.organization import Organization
 from posthog.settings.utils import get_from_env
 
 from products.replay_vision.backend.billing import observation_credits_for_model
-from products.replay_vision.backend.models.replay_observation import IN_FLIGHT_STATUSES, ReplayObservation
+from products.replay_vision.backend.models.replay_observation import (
+    IN_FLIGHT_STATUSES,
+    ObservationStatus,
+    ReplayObservation,
+)
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_quota_grant import ReplayQuotaGrant
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
@@ -69,6 +73,47 @@ def _as_utc(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=UTC)
 
 
+def _current_period_bounds(organization: Organization | None, now: datetime) -> tuple[datetime, datetime]:
+    """The org's active billing period when synced and current, else the calendar month containing `now`."""
+    billing_period = organization.current_billing_period if organization else None
+    if billing_period:
+        billing_period = (_as_utc(billing_period[0]), _as_utc(billing_period[1]))
+        if billing_period[0] <= now < billing_period[1]:
+            return billing_period
+    return _current_month_bounds(now)
+
+
+def current_period_bounds(organization_id: UUID) -> tuple[datetime, datetime]:
+    """The org's active billing period when synced and current, else the current calendar month."""
+    organization = Organization.objects.filter(pk=organization_id).only("usage").first()
+    return _current_period_bounds(organization, datetime.now(UTC))
+
+
+def credits_used_by_scanner(organization_id: UUID, scanner_ids: list[UUID]) -> dict[UUID, int]:
+    """Credits each scanner's succeeded observations consumed in the current billing period.
+
+    Priced at current rates from each observation's frozen snapshot model. Receipts freeze prices
+    at success time, so these totals can drift from the billed ledger after a mid-period price
+    change. Scanners with no spend are omitted.
+    """
+    if not scanner_ids:
+        return {}
+    period_start, period_end = current_period_bounds(organization_id)
+    pairs = Counter(
+        ReplayObservation.objects.filter(
+            scanner_id__in=scanner_ids,
+            team__organization_id=organization_id,
+            status=ObservationStatus.SUCCEEDED,
+            created_at__gte=period_start,
+            created_at__lt=period_end,
+        ).values_list("scanner_id", "scanner_snapshot__model")
+    )
+    totals: dict[UUID, int] = {}
+    for (scanner_id, model), count in pairs.items():
+        totals[scanner_id] = totals.get(scanner_id, 0) + observation_credits_for_model(model or "") * count
+    return totals
+
+
 def sum_enabled_scanner_estimated_credits(organization_id: UUID, exclude_scanner_id: UUID | None = None) -> int:
     """Projected monthly credit spend from the org's enabled scanners' cached estimates."""
     scanners = ReplayScanner.objects.filter(team__organization_id=organization_id, enabled=True)
@@ -107,13 +152,7 @@ def compute_quota_snapshot(organization_id: UUID) -> QuotaSnapshot:
     now = datetime.now(UTC)
     organization = Organization.objects.filter(pk=organization_id).only("usage").first()
     # Billing is the source of truth once synced, falling back to the env cap and calendar months otherwise.
-    billing_period = organization.current_billing_period if organization else None
-    if billing_period:
-        billing_period = (_as_utc(billing_period[0]), _as_utc(billing_period[1]))
-    if billing_period and billing_period[0] <= now < billing_period[1]:
-        period_start, period_end = billing_period
-    else:
-        period_start, period_end = _current_month_bounds(now)
+    period_start, period_end = _current_period_bounds(organization, now)
     # Permanently-spent (succeeded) from the immutable ledger; deletes can't refund it.
     consumed = ReplayObservationUsage.objects.filter(
         organization_id=organization_id,
