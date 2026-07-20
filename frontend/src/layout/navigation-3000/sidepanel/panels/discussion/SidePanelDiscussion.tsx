@@ -77,6 +77,7 @@ const DiscussionContent = ({
     children?: React.ReactNode
 }): JSX.Element => {
     const { selectedTabOptions } = useValues(sidePanelStateLogic)
+    const { replyingCommentId } = useValues(commentsLogic(logicProps))
     const { setSelectedComment } = useActions(commentsLogic(logicProps))
     const { setCommentsListRef } = useActions(sidePanelDiscussionLogic)
 
@@ -92,9 +93,11 @@ const DiscussionContent = ({
                 <CommentsList {...logicProps} />
             </div>
 
-            <div className="border-t px-3 pb-3">
-                <CommentComposer {...logicProps} />
-            </div>
+            {!replyingCommentId ? (
+                <div className="border-t px-3 pb-3">
+                    <CommentComposer {...logicProps} />
+                </div>
+            ) : null}
         </>
     )
 }

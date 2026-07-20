@@ -1,9 +1,8 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
-import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
+import { JSONContent, RichContentEditorType } from 'lib/components/RichContentEditor/types'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { isEmptyObject } from 'lib/utils/guards'
 import { membersLogic } from 'scenes/organization/membersLogic'
@@ -44,6 +43,7 @@ export interface commentsLogicValues {
     comments: CommentType[] | null
     commentsLoading: boolean
     commentsWithReplies: CommentWithRepliesType[]
+    composerDraft: JSONContent | null
     disabledReasonFor: (comment: CommentType) => string | null
     editingComment: CommentType | null
     editingCommentExistingMentions: number[] | null
@@ -113,9 +113,6 @@ export interface commentsLogicActions {
         payload?: {
             comment: CommentType
         }
-    }
-    focusComposer: () => {
-        value: true
     }
     loadComments: () => {
         value: true
@@ -240,6 +237,9 @@ export interface commentsLogicActions {
     setCommentContexts: (contexts: Record<string, string>) => {
         contexts: Record<string, string>
     }
+    setComposerDraft: (content: JSONContent | null) => {
+        content: JSONContent | null
+    }
     setEditingComment: (comment: CommentType | null) => {
         comment: CommentType | null
     }
@@ -301,7 +301,6 @@ export const commentsLogic = kea<commentsLogicType>([
 
     actions({
         loadComments: true,
-        focusComposer: true,
         clearItemContext: true,
         maybeLoadComments: true,
         sendComposedContent: (asTask: boolean = false) => ({ asTask }),
@@ -322,6 +321,7 @@ export const commentsLogic = kea<commentsLogicType>([
         }),
         setRichContentEditor: (editor: RichContentEditorType) => ({ editor }),
         setEditingCommentRichContentEditor: (editor: RichContentEditorType | null) => ({ editor }),
+        setComposerDraft: (content: JSONContent | null) => ({ content }),
     }),
     reducers({
         replyingCommentId: [
@@ -356,6 +356,14 @@ export const commentsLogic = kea<commentsLogicType>([
             null as RichContentEditorType | null,
             {
                 setRichContentEditor: (_, { editor }) => editor,
+            },
+        ],
+        composerDraft: [
+            null as JSONContent | null,
+            {
+                setComposerDraft: (_, { content }) => content,
+                // Cleared on send - otherwise the just-sent reply would reappear in the footer composer
+                sendComposedContentSuccess: () => null,
             },
         ],
         isEmpty: [
@@ -541,8 +549,11 @@ export const commentsLogic = kea<commentsLogicType>([
         ],
     })),
 
-    listeners(({ values, actions }) => ({
+    listeners(({ values, actions, selectors }) => ({
         setReplyingComment: ({ commentId }) => {
+            // Capture the draft before the composer remounts at its new position (footer <-> inline)
+            const editor = values.richContentEditor
+            actions.setComposerDraft(editor && !editor.isEmpty() ? editor.getJSON() : null)
             if (commentId) {
                 actions.clearItemContext()
             }
@@ -553,19 +564,30 @@ export const commentsLogic = kea<commentsLogicType>([
         },
         setItemContext: ({ context }) => {
             if (context) {
-                values.richContentEditor?.focus()
+                if (values.replyingCommentId) {
+                    // Anchored comments and replies are mutually exclusive
+                    actions.setReplyingComment(null)
+                } else {
+                    values.richContentEditor?.focus()
+                }
             }
         },
-        focusComposer: () => {
-            values.richContentEditor?.focus()
+        setRichContentEditor: ({ editor }) => {
+            // The composer just (re)mounted - focus it when the user is mid-flow
+            if (values.replyingCommentId || values.itemContext) {
+                editor.focus('end')
+            }
         },
         maybeLoadComments: () => {
             if (!values.comments && !values.commentsLoading) {
                 actions.loadComments()
             }
         },
-        sendComposedContentSuccess: () => {
-            actions.scrollToLastComment()
+        sendComposedContentSuccess: ({}, _, __, previousState) => {
+            // Replies land inline mid-list - only new root comments append at the bottom
+            if (!selectors.replyingCommentId(previousState)) {
+                actions.scrollToLastComment()
+            }
             actions.incrementCommentCount()
             values.richContentEditor?.clear()
         },
@@ -657,14 +679,6 @@ export const commentsLogic = kea<commentsLogicType>([
             },
         ],
     }),
-
-    subscriptions(({ actions }) => ({
-        replyingCommentId: (value: string): void => {
-            if (value) {
-                actions.focusComposer()
-            }
-        },
-    })),
 
     afterMount(({ actions }) => {
         actions.ensureAllMembersLoaded()

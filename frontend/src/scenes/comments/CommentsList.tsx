@@ -44,9 +44,9 @@ export const CommentsList = ({ noun = 'page', ...props }: CommentsListProps): JS
                     </div>
                 ) : null}
 
-                <div className="deprecated-space-y-2">
+                <div className="flex flex-col gap-4">
                     {commentsWithReplies?.map((x) => (
-                        <CommentWithReplies key={x.id} commentWithReplies={x} />
+                        <CommentWithReplies key={x.id} commentWithReplies={x} composerLogicProps={props} />
                     ))}
                 </div>
             </div>

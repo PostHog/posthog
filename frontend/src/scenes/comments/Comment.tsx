@@ -22,20 +22,20 @@ import { colonDelimitedDuration } from 'lib/utils/durations'
 
 import { CommentType } from '~/types'
 
-import { CommentWithRepliesType, commentsLogic } from './commentsLogic'
+import { CommentComposer } from './CommentComposer'
+import { CommentsLogicProps, CommentWithRepliesType, commentsLogic } from './commentsLogic'
 import { getRecordingLinkInfo, isViewingRecording } from './commentUtils'
 
 export type CommentProps = {
     commentWithReplies: CommentWithRepliesType
+    /** Provided only for top-level threads - enables the inline reply composer */
+    composerLogicProps?: CommentsLogicProps
 }
 
 const CommentBottomRow = ({ comment }: { comment: CommentType }): JSX.Element => {
-    const { editingComment, replyingCommentId, emojiReactionsByComment, isMyComment } = useValues(commentsLogic)
-    const { deleteComment, sendEmojiReaction } = useActions(commentsLogic)
+    const { emojiReactionsByComment, isMyComment } = useValues(commentsLogic)
+    const { deleteComment, sendEmojiReaction, setReplyingComment } = useActions(commentsLogic)
 
-    const ref = useRef<HTMLDivElement | null>(null)
-
-    const isHighlighted = replyingCommentId === comment.id || editingComment?.id === comment.id
     const reactions = emojiReactionsByComment[comment.id] || {}
     const recordingLinkInfo = getRecordingLinkInfo(comment)
 
@@ -49,12 +49,6 @@ const CommentBottomRow = ({ comment }: { comment: CommentType }): JSX.Element =>
             window.location.href = recordingLinkInfo.url
         }
     }
-
-    useEffect(() => {
-        if (isHighlighted) {
-            ref.current?.scrollIntoView()
-        }
-    }, [isHighlighted])
 
     let timeInRecordingLabel: string | null = null
     if (comment.item_context?.milliseconds_into_recording !== undefined) {
@@ -119,6 +113,14 @@ const CommentBottomRow = ({ comment }: { comment: CommentType }): JSX.Element =>
                         }}
                     />
                 </div>
+                <LemonButton
+                    icon={<IconShare />}
+                    size="small"
+                    onClick={() => setReplyingComment(comment.source_comment ?? comment.id)}
+                    tooltip="Reply"
+                    aria-label="Reply"
+                    data-attr="comment-reply-button"
+                />
             </div>
         </div>
     )
@@ -180,7 +182,7 @@ const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element 
 
 const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
     const { disabledReasonFor } = useValues(commentsLogic)
-    const { deleteComment, setEditingComment, setReplyingComment } = useActions(commentsLogic)
+    const { deleteComment, setEditingComment } = useActions(commentsLogic)
 
     const isCompleted = !!comment.completed_at
 
@@ -205,11 +207,6 @@ const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
 
                 <LemonMenu
                     items={[
-                        {
-                            icon: <IconShare />,
-                            label: 'Reply',
-                            onClick: () => setReplyingComment(comment.source_comment ?? comment.id),
-                        },
                         {
                             icon: <IconPencil />,
                             label: 'Edit',
@@ -244,7 +241,7 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
 
     useEffect(() => {
         if (isHighlighted) {
-            ref.current?.scrollIntoView()
+            ref.current?.scrollIntoView({ block: 'nearest' })
         }
     }, [isHighlighted])
 
@@ -309,13 +306,34 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
     )
 }
 
-export const CommentWithReplies = ({ commentWithReplies }: CommentProps): JSX.Element => {
+const InlineReplyComposer = ({ logicProps }: { logicProps: CommentsLogicProps }): JSX.Element => {
+    const ref = useRef<HTMLDivElement | null>(null)
+
+    useEffect(() => {
+        // In long threads the composer mounts below the fold at the thread's bottom
+        ref.current?.scrollIntoView({ block: 'nearest' })
+    }, [])
+
+    return (
+        <div ref={ref}>
+            <CommentComposer {...logicProps} variant="inline-reply" />
+        </div>
+    )
+}
+
+export const CommentWithReplies = ({ commentWithReplies, composerLogicProps }: CommentProps): JSX.Element => {
     const { comment, replies } = commentWithReplies
+    const { replyingCommentId, selectedCommentId } = useValues(commentsLogic)
+
+    // replyingCommentId always resolves to the thread root, so this only matches top-level threads
+    const isReplyTarget = !!composerLogicProps && replyingCommentId === commentWithReplies.id
+    const isActiveThread = selectedCommentId === commentWithReplies.id || replyingCommentId === commentWithReplies.id
+    const showRail = replies.length > 0 || isReplyTarget
 
     // TODO: Permissions
 
     return (
-        <div className="relative deprecated-space-y-2">
+        <div className="relative flex flex-col gap-2">
             {comment ? (
                 <Comment comment={comment} />
             ) : (
@@ -324,18 +342,28 @@ export const CommentWithReplies = ({ commentWithReplies }: CommentProps): JSX.El
                 </div>
             )}
 
-            <div className="pl-8 deprecated-space-y-2">
-                {replies?.map((x) => (
-                    <CommentWithReplies
-                        key={x.id}
-                        commentWithReplies={{
-                            id: x.id,
-                            comment: x,
-                            replies: [],
-                        }}
-                    />
-                ))}
-            </div>
+            {showRail ? (
+                <div
+                    className={clsx(
+                        'ml-4 flex flex-col gap-2 border-l-2 pl-3',
+                        isActiveThread ? 'border-accent' : 'border-border'
+                    )}
+                >
+                    {replies.map((x) => (
+                        <CommentWithReplies
+                            key={x.id}
+                            commentWithReplies={{
+                                id: x.id,
+                                comment: x,
+                                replies: [],
+                            }}
+                        />
+                    ))}
+                    {isReplyTarget && composerLogicProps ? (
+                        <InlineReplyComposer logicProps={composerLogicProps} />
+                    ) : null}
+                </div>
+            ) : null}
         </div>
     )
 }
