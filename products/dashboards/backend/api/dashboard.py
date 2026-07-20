@@ -34,7 +34,6 @@ from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 
 import structlog
-import pydantic_core
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
@@ -2090,8 +2089,11 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
                 try:
                     tile_data = reused_serializer.to_representation(tile)
-                except pydantic_core.ValidationError:
-                    # Fall back to the fresh-serializer path, which handles the error shape
+                except Exception:
+                    # Fall back to the fresh-serializer path, which handles the error shape.
+                    # Broadened from ValidationError to match serialize_tile_with_context, so a
+                    # non-validation failure (e.g. RuntimeError from InsightSerializer.get_result)
+                    # degrades to an error tile here too instead of 500-ing the whole dashboard.
                     order, tile_data = serialize_tile_with_context(tile, order, self.context)
                 serialized_tiles.append(cast(ReturnDict, tile_data))
 

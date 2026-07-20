@@ -37,6 +37,7 @@ from posthog.models.signals import mute_selected_signals
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+from posthog.user_permissions import UserPermissions
 
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from products.dashboards.backend.access import DashboardAccessMethod
@@ -3499,6 +3500,63 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertNotIn("name", insight_payload)
         self.assertNotIn("query", insight_payload)
         self.assertNotIn("filters", insight_payload)
+
+    def test_non_streamed_dashboard_degrades_to_error_tile_on_insight_failure(self):
+        # The non-streaming DashboardSerializer.get_tiles path must degrade a tile whose insight
+        # fails to serialize (non-ValidationError, e.g. RuntimeError from get_result) to an error
+        # tile, mirroring the streaming path, instead of 500-ing the whole dashboard response.
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="Test Dashboard",
+            created_by=self.user,
+            filters={},
+        )
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Browser usage",
+            filters={},
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                },
+            },
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        request = MagicMock()
+        request.user = self.user
+        request.query_params = {}
+        request.data = {}
+        user_permissions = UserPermissions(self.user, team=self.team)
+        mock_view = MagicMock()
+        mock_view.action = "retrieve"
+        mock_view.user_permissions = user_permissions
+        context = {
+            "request": request,
+            "view": mock_view,
+            "team_id": self.team.id,
+            "get_team": lambda: self.team,
+            "insight_variables": [],
+            "dashboard": dashboard,
+            "raw_results_supported": True,
+            "user_access_control": UserAccessControl(self.user, team=self.team),
+            "user_permissions": user_permissions,
+        }
+        with patch.object(InsightSerializer, "get_result", side_effect=RuntimeError("boom")):
+            dashboard_data = DashboardSerializer(dashboard, context=context).data
+
+        tiles = dashboard_data["tiles"]
+        self.assertEqual(len(tiles), 1)
+        failed_tile = tiles[0]
+        self.assertEqual(failed_tile["insight"]["id"], insight.id)
+        self.assertEqual(failed_tile["insight"]["name"], "Browser usage")
+        self.assertEqual(
+            failed_tile["error"],
+            {"type": "DashboardTileError", "message": "There is a problem loading this dashboard tile."},
+        )
+        self.assertNotIn("boom", json.dumps(dashboard_data))
 
     def test_create_unlisted_dashboard_creates_tags(self):
         """Test that unlisted dashboards get tags"""
