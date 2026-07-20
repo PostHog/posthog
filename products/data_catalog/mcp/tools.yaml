@@ -110,13 +110,11 @@ tools:
             queries. If you derived a number and no metric exists for it, offer to save the derivation as a proposed
             metric. There is no list tool: discover existing metrics with execute-sql over
             system.information_schema.metrics.
-        feature_flag: product-data-catalog
-        # MCP is always an agent path, so force AI provenance server-side and hide the
-        # field from the model so it can't claim a metric was human-authored.
         exclude_params:
             - created_source
         inject_body:
             created_source: ai_generated
+        feature_flag: product-data-catalog
     data-catalog-metric-run:
         operation: data_catalog_metrics_run_create
         enabled: true
@@ -148,13 +146,11 @@ tools:
         description: >
             Update a metric's fields. Editing the definition of an approved metric resets it to 'proposed' (it must be
             re-approved by a human).
-        feature_flag: product-data-catalog
-        # MCP is always an agent path, so force AI provenance server-side and hide the
-        # field from the model so it can't claim a metric was human-authored.
         exclude_params:
             - created_source
         inject_body:
             created_source: ai_generated
+        feature_flag: product-data-catalog
     data-catalog-metrics-destroy:
         operation: data_catalog_metrics_destroy
         enabled: false
