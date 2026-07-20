@@ -55,12 +55,12 @@ class TestCaptureStatusChangeAnalytics(BaseTest):
     @parameterized.expand(
         [
             ("dismissal_includes_fresh_reason", SignalReport.Status.SUPPRESSED, False, "wontfix_irrelevant"),
-            # The state API writes a dismissal artefact on resolve too (the reason records why the
-            # work was considered done), so the label has to carry it — otherwise feedback the API
-            # persisted is silently dropped from the training stream.
-            ("resolve_includes_fresh_reason", SignalReport.Status.RESOLVED, False, "wontfix_irrelevant"),
+            # A resolve that wrote no feedback of its own — the PR-merge webhook path — must not
+            # adopt an unrelated earlier reason just because it landed inside the freshness window.
+            # Resolve-with-feedback goes through the state API and is covered separately.
+            ("webhook_resolve_excludes_fresh_reason", SignalReport.Status.RESOLVED, False, None),
             # Dismissal artefacts are append-only, so an old reason must not leak onto a later
-            # transition — neither a resolve (dismiss → restore → resolve)...
+            # transition — neither a resolve...
             ("stale_reason_excluded_from_resolve", SignalReport.Status.RESOLVED, True, None),
             # ...nor a later feedback-less dismissal (the state API only writes a new dismissal
             # artefact when the user actually gave a reason or note).

@@ -20,7 +20,10 @@ from social_django.models import UserSocialAuth
 
 from posthog.models.team.team import Team
 
-from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
+from products.signals.backend.implementation_pr import (
+    fetch_implementation_pr_state_for_reports,
+    fetch_implementation_pr_urls_for_reports,
+)
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
 from products.signals.backend.signal_metadata import ReportSignalMeta
 from products.signals.backend.task_run_artefacts import append_task_run_artefact, record_implementation_task
@@ -636,6 +639,20 @@ class TestSignalReportListAPI(APIBaseTest):
         assert list_row["implementation_pr_merged"] is expected
         assert detail["implementation_pr_merged"] is expected
 
+    def test_implementation_pr_merged_describes_the_surfaced_pr_not_a_sibling_task(self):
+        # A retried report has several implementation tasks but surfaces one PR. The merge flag must
+        # come from that same task — otherwise a sibling task's merged PR vouches for the PR whose
+        # URL is on screen, and the badge shows "merged" over an open PR.
+        report = self._create_report()
+        self._create_implementation_task_with_run(report, output={"pr_url": "https://github.com/o/r/pull/1"})
+        self._create_implementation_task_with_run(
+            report, output={"pr_url": "https://github.com/o/r/pull/2", "pr_merged": True}
+        )
+
+        row = next(r for r in self.client.get(self._list_url()).json()["results"] if r["id"] == str(report.id))
+
+        assert row["implementation_pr_merged"] is (row["implementation_pr_url"] == "https://github.com/o/r/pull/2")
+
     def test_implementation_pr_url_null_when_no_implementation_task(self):
         report = self._create_report()
 
@@ -724,17 +741,18 @@ class TestSignalReportListAPI(APIBaseTest):
 
         single = seed(1)
         with CaptureQueriesContext(connection) as for_one:
-            fetch_implementation_pr_urls_for_reports(single)
+            fetch_implementation_pr_state_for_reports(single)
         baseline = len(for_one.captured_queries)
 
         page = single + seed(5)
         with CaptureQueriesContext(connection) as for_many:
-            result = fetch_implementation_pr_urls_for_reports(page)
+            result = fetch_implementation_pr_state_for_reports(page)
 
         assert len(result) == 6
-        # Constant in the page size, and a small fixed cost (artefacts + gate rows + PR lookup).
+        # Constant in the page size, and a small fixed cost (artefacts + gate rows + PR url lookup +
+        # merge-flag lookup).
         assert len(for_many.captured_queries) == baseline
-        assert baseline <= 3
+        assert baseline <= 4
 
     # --- has_implementation_pr filter ---
 
@@ -939,7 +957,7 @@ class TestSignalReportListAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("source_products", "fetch_source_products_for_reports"),
-            ("implementation_pr_urls", "fetch_implementation_pr_urls_for_reports"),
+            ("implementation_pr_urls", "fetch_implementation_pr_state_for_reports"),
         ]
     )
     def test_list_resilient_to_supplementary_fetch_failure(self, _name, fetch_fn):
@@ -1355,6 +1373,32 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         assert content["user_id"] == self.user.id
         assert content["user_uuid"] == str(self.user.uuid)
 
+    @parameterized.expand(
+        [
+            ("resolve_with_reason", {"state": "resolved", "dismissal_reason": "already_fixed"}, "already_fixed"),
+            # A resolve carrying no feedback must not pick a reason up from anywhere.
+            ("resolve_without_reason", {"state": "resolved"}, None),
+        ]
+    )
+    def test_resolve_feedback_reaches_the_status_change_label(self, _name, body, expected_reason):
+        # The state API writes the dismissal artefact, but the label stream is produced by a separate
+        # post_save receiver — feedback that never reaches the label is invisible to inbox ranking.
+        report = self._create_report()
+        with patch("products.signals.backend.receivers.posthoganalytics.capture") as mock_capture:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.post(
+                    self._state_url(str(report.id)), data=json.dumps(body), content_type="application/json"
+                )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        label = next(
+            call.kwargs
+            for call in mock_capture.call_args_list
+            if call.kwargs["event"] == "signal_report_status_changed"
+        )
+        assert label["properties"]["status"] == SignalReport.Status.RESOLVED
+        assert label["properties"]["dismissal_reason"] == expected_reason
+
     def test_state_transition_response_includes_source_products(self):
         report = self._create_report()
 
@@ -1521,6 +1565,22 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
                 None,
                 status.HTTP_409_CONFLICT,
                 SignalReport.Status.SUPPRESSED,
+            ),
+            # The model refuses failed -> resolved directly, so archiving must not launder a failed
+            # pipeline run into looking successfully resolved.
+            (
+                "suppressed_from_failed",
+                SignalReport.Status.SUPPRESSED,
+                SignalReport.Status.FAILED,
+                status.HTTP_409_CONFLICT,
+                SignalReport.Status.SUPPRESSED,
+            ),
+            (
+                "suppressed_from_pending_input",
+                SignalReport.Status.SUPPRESSED,
+                SignalReport.Status.PENDING_INPUT,
+                status.HTTP_200_OK,
+                SignalReport.Status.RESOLVED,
             ),
             ("candidate", SignalReport.Status.CANDIDATE, None, status.HTTP_409_CONFLICT, SignalReport.Status.CANDIDATE),
             (

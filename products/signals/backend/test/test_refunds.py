@@ -308,6 +308,32 @@ class TestSignalReportRefundAPI(APIBaseTest):
         assert mock_report.call_args.kwargs["properties"]["pr_merged"] is expected
 
     @freeze_time(_NOW)
+    def test_later_merged_pr_does_not_vouch_for_the_refunded_one(self, _flag):
+        # The refund reverses the charge for the first billable PR, and it's that PR which must be
+        # closed if it never merged. A different, later PR on the same report merging says nothing
+        # about it — treating the report as merged would leave the refunded PR open.
+        report = _make_report(self.team, status=SignalReport.Status.RESOLVED)
+        _make_pr_run(
+            self.team,
+            report,
+            created_at=datetime(2026, 6, 10, tzinfo=UTC),
+            output={"pr_url": "https://github.com/x/y/pull/1"},
+        )
+        _make_pr_run(
+            self.team,
+            report,
+            created_at=datetime(2026, 6, 12, tzinfo=UTC),
+            output={"pr_url": "https://github.com/x/y/pull/2", "pr_merged": True},
+        )
+
+        with patch("products.signals.backend.views.report_user_action") as mock_report:
+            assert self._refund(report).status_code == status.HTTP_200_OK
+
+        assert mock_report.call_args.kwargs["properties"]["pr_merged"] is False
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.SUPPRESSED
+
+    @freeze_time(_NOW)
     def test_merge_flag_on_non_github_run_does_not_attest_a_merge(self, _flag):
         # A billable GitHub run makes the report refundable, while a second implementation run
         # carries a merge flag on a URL the billing path never counts. That flag must not attest a

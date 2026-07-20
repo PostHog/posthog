@@ -1682,6 +1682,32 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
 
 _TERMINAL_TASK_RUN_STATUSES = (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED)
 
+# `output.pr_merged` is GitHub's word, recorded by the PR webhook (`_record_run_pr_merged`) — never
+# the caller's. Signals reads it to decide refund finality (billing.report_pr_is_merged): a report
+# whose PR merged keeps its resolved status through a refund instead of being suppressed and having
+# its PR closed. Any caller-writable path to this flag would let a `task:write` holder mark an open
+# PR merged, resolve the report, and refund it while keeping the work — so every output writer has to
+# go through `_merge_caller_output`, not merge caller output directly.
+_WEBHOOK_ATTESTED_RUN_OUTPUT_KEYS = frozenset({"pr_merged"})
+
+
+def _apply_caller_output(stored: object, incoming: dict, merged: dict) -> dict:
+    """Enforce the webhook-attested keys on a caller's output write.
+
+    `merged` is whatever the writer built from `incoming` (a wholesale replacement for
+    `set_task_run_output`, a merge over stored output for the PATCH path); this drops any attested
+    key the caller supplied and restores the stored one. The attestation is bound to the PR it was
+    made about, so when the caller points the run at a different `pr_url` the stored flag described
+    the old PR and is dropped rather than silently transferred onto the new one.
+    """
+    existing = stored if isinstance(stored, dict) else {}
+    same_pr = not incoming.get("pr_url") or incoming["pr_url"] == existing.get("pr_url")
+    for key in _WEBHOOK_ATTESTED_RUN_OUTPUT_KEYS:
+        merged.pop(key, None)
+        if same_pr and existing.get(key):
+            merged[key] = existing[key]
+    return merged
+
 
 def _task_run_queryset():
     return TaskRun.objects.select_related(
@@ -1933,7 +1959,9 @@ def update_task_run(
         for key, value in validated_data.items():
             if key == "output" and isinstance(value, dict):
                 existing_output = run.output if isinstance(run.output, dict) else {}
-                setattr(run, key, {**existing_output, **value})
+                # Same attested-key policy as set_task_run_output — this PATCH surface is
+                # caller-controlled too, so it can't be a back door to output.pr_merged.
+                setattr(run, key, _apply_caller_output(existing_output, value, {**existing_output, **value}))
                 update_fields.add(key)
                 continue
             if key == "state_remove_keys":
@@ -2043,14 +2071,7 @@ def set_task_run_output(
     merged = {**output}
     if not merged.get("pr_url") and existing.get("pr_url"):
         merged["pr_url"] = existing["pr_url"]
-    # `pr_merged` is webhook-attested, never caller-supplied: it is GitHub's word that the PR
-    # actually merged, and signals reads it to decide refund finality (billing.report_has_merged_pr).
-    # Callers can reach this write path with a plain task:write token, so an accepted merge flag here
-    # would let a caller forge the merge. Only _record_run_pr_merged (the GitHub webhook) sets it.
-    merged.pop("pr_merged", None)
-    if existing.get("pr_merged"):
-        merged["pr_merged"] = existing["pr_merged"]
-    run.output = merged
+    run.output = _apply_caller_output(existing, output, merged)
     run.save(update_fields=["output", "updated_at"])
     if task.json_schema:
         signal_workflow_completion(run.id, TaskRun.Status.COMPLETED, None)

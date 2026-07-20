@@ -207,18 +207,20 @@ def first_billable_pr_run_at(report_id: str | uuid.UUID) -> datetime | None:
     return run.created_at if run else None
 
 
-def report_has_merged_pr(report_id: str | uuid.UUID) -> bool:
-    """Whether an implementation run for this report has a merged GitHub PR.
+def report_pr_is_merged(report_id: str | uuid.UUID, pr_url: str) -> bool:
+    """Whether *this* PR of the report merged, per the tasks GitHub webhook.
 
-    Reads `output.pr_merged`, the flag the tasks GitHub webhook persists when a PR merges — the
-    factual record of a merge, independent of report status. A report can now reach RESOLVED without
-    a merged PR (a user or agent can resolve it directly), so status alone no longer attests a merge.
+    Reads `output.pr_merged`, the flag the webhook persists when a PR merges — the factual record of
+    a merge, independent of report status. A report can now reach RESOLVED without a merged PR (a
+    user or agent can resolve it directly), so status alone no longer attests a merge.
 
-    Same billable-run definition as `_bridges_with_pr_run`, and for the same fail-closed reason: the
-    GitHub PR URL prefix, the merge flag, and the four team checks all sit in one `filter()` so they
-    resolve against the same `TaskRun` row. Without the URL condition a run carrying a merge flag but
-    no billable GitHub PR would attest a merge that the billing path doesn't recognise, and the refund
-    would leave such a report resolved (and its PR unclosed) on the strength of it.
+    Scoped to one `pr_url` rather than the whole report, because the caller is deciding about a
+    specific PR: the refund reverses the charge for the billable run's PR, and it's that PR which
+    must be closed if it never merged. A report-level check would let an unrelated later PR that did
+    merge vouch for the refunded one, leaving the refunded PR open.
+
+    Fail closed like `_bridges_with_pr_run`: the PR URL, the merge flag, and the four team checks all
+    sit in one `filter()` so they resolve against the same `TaskRun` row.
     """
     return SignalReportTask.objects.filter(
         relationship=_IMPLEMENTATION,
@@ -226,7 +228,7 @@ def report_has_merged_pr(report_id: str | uuid.UUID) -> bool:
         task__team_id=F("team_id"),
         report__team_id=F("team_id"),
         task__runs__team_id=F("team_id"),
-        task__runs__output__pr_url__startswith=_GITHUB_PR_URL_PREFIX,
+        task__runs__output__pr_url=pr_url,
         task__runs__output__pr_merged=True,
     ).exists()
 
