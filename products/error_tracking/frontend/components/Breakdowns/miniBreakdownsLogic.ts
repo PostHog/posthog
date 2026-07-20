@@ -87,12 +87,16 @@ export const miniBreakdownsLogic = kea<miniBreakdownsLogicType>([
             {
                 loadResponse: async () => {
                     const startTime = Date.now()
+                    // Read connected values up front: the logic (and its connected breakdownFiltersLogic)
+                    // may unmount while the query is in flight, and accessing values afterwards would throw.
+                    const { dateRange, filterTestAccounts } = values
+                    const breakdownProperties = BREAKDOWN_PRESETS.map((preset) => preset.property)
                     const result = await api.query(
                         errorTrackingBreakdownsQuery({
                             issueId: props.issueId,
-                            dateRange: values.dateRange,
-                            filterTestAccounts: values.filterTestAccounts,
-                            breakdownProperties: BREAKDOWN_PRESETS.map((preset) => preset.property),
+                            dateRange,
+                            filterTestAccounts,
+                            breakdownProperties,
                             maxValuesPerProperty: LIMIT_ITEMS,
                         }),
                         { refresh: 'blocking' }
@@ -100,9 +104,9 @@ export const miniBreakdownsLogic = kea<miniBreakdownsLogicType>([
 
                     posthog.capture(BreakdownsEvents.MiniBreakdownsLoaded, {
                         issueId: props.issueId,
-                        dateRange: values.dateRange,
-                        filterTestAccounts: values.filterTestAccounts,
-                        breakdownProperties: BREAKDOWN_PRESETS.map((preset) => preset.property),
+                        dateRange,
+                        filterTestAccounts,
+                        breakdownProperties,
                         duration: Date.now() - startTime,
                         cached: (result as CachedErrorTrackingBreakdownsQueryResponse).is_cached ?? false,
                     })
