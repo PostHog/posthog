@@ -272,9 +272,6 @@ const dataCatalogMetricCreate = (): ToolBase<typeof DataCatalogMetricCreateSchem
         if (params.source_insight_short_id !== undefined) {
             body['source_insight_short_id'] = params.source_insight_short_id
         }
-        if (params.created_source !== undefined) {
-            body['created_source'] = params.created_source
-        }
         if (params.ai_model !== undefined) {
             body['ai_model'] = params.ai_model
         }
@@ -284,6 +281,7 @@ const dataCatalogMetricCreate = (): ToolBase<typeof DataCatalogMetricCreateSchem
         if (params.reasoning !== undefined) {
             body['reasoning'] = params.reasoning
         }
+        body['created_source'] = 'ai_generated'
         const result = await context.api.request<Schemas.DataCatalogMetric>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/`,
@@ -355,9 +353,6 @@ const dataCatalogMetricUpdate = (): ToolBase<typeof DataCatalogMetricUpdateSchem
         if (params.source_insight_short_id !== undefined) {
             body['source_insight_short_id'] = params.source_insight_short_id
         }
-        if (params.created_source !== undefined) {
-            body['created_source'] = params.created_source
-        }
         if (params.ai_model !== undefined) {
             body['ai_model'] = params.ai_model
         }
@@ -367,6 +362,7 @@ const dataCatalogMetricUpdate = (): ToolBase<typeof DataCatalogMetricUpdateSchem
         if (params.reasoning !== undefined) {
             body['reasoning'] = params.reasoning
         }
+        body['created_source'] = 'ai_generated'
         const result = await context.api.request<Schemas.DataCatalogMetric>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/${encodeURIComponent(String(params.name))}/`,

@@ -106,13 +106,6 @@ export const DataCatalogMetricsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Create the metric from this insight's query (snapshotted server-side). Set to null to unlink. Mutually exclusive with definition."
         ),
-    created_source: zod
-        .enum(['user', 'ai_generated'])
-        .describe('* `user` - user\n* `ai_generated` - ai_generated')
-        .optional()
-        .describe(
-            "Whether a human ('user') or an agent ('ai_generated') authored this metric.\n\n* `user` - user\n* `ai_generated` - ai_generated"
-        ),
     ai_model: zod
         .string()
         .max(dataCatalogMetricsCreateBodyAiModelMax)
@@ -181,13 +174,6 @@ export const DataCatalogMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             "Create the metric from this insight's query (snapshotted server-side). Set to null to unlink. Mutually exclusive with definition."
-        ),
-    created_source: zod
-        .enum(['user', 'ai_generated'])
-        .describe('* `user` - user\n* `ai_generated` - ai_generated')
-        .optional()
-        .describe(
-            "Whether a human ('user') or an agent ('ai_generated') authored this metric.\n\n* `user` - user\n* `ai_generated` - ai_generated"
         ),
     ai_model: zod
         .string()
