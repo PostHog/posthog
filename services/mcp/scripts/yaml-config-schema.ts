@@ -250,6 +250,11 @@ export const ToolConfigSchema = z
                 'input_schema replaces the entire schema, so include_params, exclude_params, and param_overrides have no effect and should be removed',
         }
     )
+    .refine((data) => !(data.confirmed_action && data.input_schema), {
+        message:
+            '`confirmed_action` cannot be combined with `input_schema` yet because custom input schemas bypass the confirmed-action prepare/execute codegen path. Remove `input_schema` or extend custom-schema codegen to support confirmed actions.',
+        path: ['confirmed_action'],
+    })
     .refine((data) => !(data.description && data.description_file), {
         message: 'description and description_file are mutually exclusive',
     })
