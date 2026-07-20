@@ -3,7 +3,7 @@ import 'react-data-grid/lib/styles.css'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import DataGrid, { DataGridProps, RenderHeaderCellProps, SortColumn } from 'react-data-grid'
 
 import {
@@ -1108,6 +1108,12 @@ const Content = ({
     isEmbeddedMode,
 }: any): JSX.Element | null => {
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
+
+    // Clear any client-side header sort when a new query runs or the response changes, so a fresh
+    // SQL `ORDER BY` always wins until the user explicitly clicks a header again.
+    useEffect(() => {
+        setSortColumns([])
+    }, [queryId, response])
 
     const sortedRows = useMemo(() => {
         if (!sortColumns.length) {
