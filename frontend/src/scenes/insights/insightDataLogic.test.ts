@@ -9,6 +9,7 @@ import { expectLogic } from 'kea-test-utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 
@@ -287,6 +288,54 @@ describe('insightDataLogic', () => {
                 .toDispatchActions(['syncQueryFromProps'])
                 .toNotHaveDispatchedActions(['setQuery'])
                 .toMatchValues({ query: staleCachedQuery })
+        })
+
+        // Editing an insight opened from a dashboard reuses the tile's keyed logic instance. While
+        // the scene owns the query, the still-mounted tile keeps pushing `cachedInsight` props whose
+        // query has the dashboard's date override baked in. Re-syncing that would silently revert the
+        // user's edit and get persisted on save, so propsChanged must skip the sync for the scene.
+        it('does not overwrite the scene-edited query when a dashboard tile pushes an overridden cached query', async () => {
+            const localUpdatedQuery = buildLocalUpdatedQuery()
+            const dashboardOverriddenQuery: InsightVizNode = {
+                ...baseQuery,
+                source: {
+                    ...baseQuery.source,
+                    dateRange: { ...baseQuery.source.dateRange, date_from: '-30d' },
+                },
+            }
+
+            const props = {
+                dashboardItemId: Insight123,
+                dashboardId: 99,
+                cachedInsight: { short_id: Insight123, query: baseQuery } as any,
+            }
+            const logic = insightDataLogic(props)
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.setQuery(localUpdatedQuery)
+            }).toMatchValues({ query: localUpdatedQuery })
+
+            sceneLogic.mount()
+            sceneLogic.actions.setScene(Scene.Insight, undefined, {} as any)
+            const findMountedSpy = jest.spyOn(insightSceneLogic, 'findMounted').mockReturnValue({
+                values: { insightLogicRef: { logic: { key: keyForInsightLogicProps('new')(props) } } },
+            } as any)
+
+            try {
+                // Without the scene guard, propsChanged would sync the overridden query over the
+                // user's edit; the scene guard keeps the edited query in place.
+                await expectLogic(logic, () => {
+                    insightDataLogic({
+                        ...props,
+                        cachedInsight: { short_id: Insight123, query: dashboardOverriddenQuery } as any,
+                        loadPriority: 1,
+                    }).mount()
+                }).toMatchValues({ query: localUpdatedQuery })
+            } finally {
+                findMountedSpy.mockRestore()
+                sceneLogic.unmount()
+            }
         })
     })
 
