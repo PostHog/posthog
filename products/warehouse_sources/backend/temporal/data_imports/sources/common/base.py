@@ -36,7 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.con
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import get_config_for_source
-from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField
+from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField, IndexMechanism
 
 logger = structlog.get_logger(__name__)
 
@@ -157,6 +157,13 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # Versions from `supported_versions` the vendor has deprecated. Drives the generic
     # in-product deprecation warning; no per-source UI work.
     deprecated_versions: tuple[VersionDeprecation, ...] = ()
+
+    # Which fast-lookup structure this engine's `is_indexed` detection checks. Sources whose
+    # engine has no secondary indexes (sort keys, clustering, partitioning) override this so
+    # the sync-form warning for unindexed fields names a structure the user can create there.
+    # Any source that detects indexed columns must declare this explicitly rather than
+    # inherit it — test_index_mechanism.py enforces the pairing for SQL sources.
+    index_mechanism: IndexMechanism = IndexMechanism.INDEX
 
     @property
     @abstractmethod

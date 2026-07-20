@@ -6,7 +6,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 
-import { AvailableColumn, ExternalDataSourceSyncSchema } from '~/types'
+import { AvailableColumn, ExternalDataSourceSyncSchema, IndexMechanism } from '~/types'
 
 const LOOKBACK_UNIT_SECONDS = {
     minutes: 60,
@@ -20,6 +20,35 @@ type LookbackUnit = keyof typeof LOOKBACK_UNIT_SECONDS
 const LOOKBACK_ELIGIBLE_TYPES = new Set(['datetime', 'date', 'timestamp'])
 export const isLookbackEligibleType = (fieldType: string | null | undefined): boolean =>
     !!fieldType && LOOKBACK_ELIGIBLE_TYPES.has(fieldType)
+
+// Copy for the "unindexed field" warning, keyed by the fast-lookup structure the backend reports
+// for the engine. `mechanism` slots into "No {mechanism} detected on {field}"; `suggestion` is the
+// actionable advice for making the field fast to filter on.
+const INDEX_MECHANISM_COPY: Record<IndexMechanism, { mechanism: string; suggestion: string }> = {
+    index: { mechanism: 'index', suggestion: 'Consider adding an index' },
+    sort_key: {
+        mechanism: 'sort key',
+        suggestion: "Consider making this field the table's sort key (the leading column of a compound SORTKEY)",
+    },
+    clustering_key: {
+        mechanism: 'clustering key',
+        suggestion: "Consider setting the table's clustering key to this column",
+    },
+    partition_or_clustering: {
+        mechanism: 'partition or clustering column',
+        suggestion: 'Consider partitioning or clustering the table on this column',
+    },
+    sorting_key: {
+        mechanism: 'sorting key',
+        suggestion: "Consider using a field that leads the table's ORDER BY",
+    },
+}
+
+// Tolerates responses predating `index_mechanism` and mechanism values newer than this build.
+export const getIndexWarningCopy = (
+    indexMechanism: IndexMechanism | undefined
+): { mechanism: string; suggestion: string } =>
+    (indexMechanism && INDEX_MECHANISM_COPY[indexMechanism]) || INDEX_MECHANISM_COPY.index
 
 export const secondsToLookbackParts = (
     seconds: number | null | undefined
@@ -190,6 +219,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
     const incrementalSyncSupported = getIncrementalSyncSupported(schema)
     const appendSyncSupported = getAppendOnlySyncSupported(schema)
     const cdcSyncSupported = getCdcSyncSupported(schema)
+    const indexWarningCopy = getIndexWarningCopy(schema.index_mechanism)
 
     const columns = availableColumns ?? schema.available_columns ?? []
     const resolvedDetectedPks = detectedPrimaryKeys ?? schema.detected_primary_keys ?? null
@@ -373,6 +403,11 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                             You should pick a field that increments or updates each time the row is updated, such as a{' '}
                             <code>updated_at</code> timestamp.
                         </p>
+                        <p className="mb-2">
+                            Rows deleted in the source are not removed from PostHog. If you need deletions reflected —
+                            for example a rolling-retention table — use full table replication
+                            {schema.cdc_available ? ' or CDC' : ''} instead.
+                        </p>
                         {!incrementalSyncSupported.disabled && (
                             <>
                                 <LemonSelect
@@ -409,10 +444,10 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                                     schema.incremental_fields.find((n) => n.field === incrementalFieldValue)
                                         ?.is_indexed === false && (
                                         <LemonBanner type="warning" className="mt-2">
-                                            No index detected on <code>{incrementalFieldValue}</code>. Incremental syncs
-                                            query this column on every run; without an index the source database may
-                                            scan the full table on each sync. Consider adding an index, or pick a
-                                            different incremental field.
+                                            No {indexWarningCopy.mechanism} detected on{' '}
+                                            <code>{incrementalFieldValue}</code>. Incremental syncs query this column on
+                                            every run; without one, the source database may scan the full table on each
+                                            sync. {indexWarningCopy.suggestion}, or pick a different incremental field.
                                         </LemonBanner>
                                     )}
                                 {radioValue === 'incremental' &&
@@ -565,10 +600,10 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                                     schema.incremental_fields.find((n) => n.field === appendFieldValue)?.is_indexed ===
                                         false && (
                                         <LemonBanner type="warning" className="mt-2">
-                                            No index detected on <code>{appendFieldValue}</code>. Append only syncs
-                                            query this column on every run; without an index the source database may
-                                            scan the full table on each sync. Consider adding an index, or pick a
-                                            different field.
+                                            No {indexWarningCopy.mechanism} detected on <code>{appendFieldValue}</code>.
+                                            Append only syncs query this column on every run; without one, the source
+                                            database may scan the full table on each sync.{' '}
+                                            {`${indexWarningCopy.suggestion}, or pick a different field.`}
                                         </LemonBanner>
                                     )}
                             </>
@@ -585,7 +620,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                         </div>
                         <p className="m-0">
                             We'll replicate the whole table on every sync. This can take longer to sync and increase
-                            your monthly billing.
+                            your monthly billing. The synced table always mirrors the source, including deletions.
                         </p>
                     </div>
                 ),

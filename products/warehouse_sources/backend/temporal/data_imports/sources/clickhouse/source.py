@@ -41,7 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     reconcile_source_schema_metadata,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ClickHouseSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField
+from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField, IndexMechanism
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -71,6 +71,10 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
     supports_row_filters: bool = True
 
     api_docs_url = "https://clickhouse.com/docs"
+
+    # ClickHouse data-skipping indexes aren't what `is_indexed` checks; it reflects the
+    # leading column of the table's sorting key (ORDER BY).
+    index_mechanism = IndexMechanism.SORTING_KEY
 
     @property
     def source_type(self) -> ExternalDataSourceType:

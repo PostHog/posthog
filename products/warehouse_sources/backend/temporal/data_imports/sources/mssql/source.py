@@ -28,7 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssq
     MSSQLImplementation,
     retry_on_transient_connection_error,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import ExternalDataSourceType, IndexMechanism
 
 _FIREWALL_BLOCKED_ERROR = (
     "Your SQL Server's firewall is blocking PostHog. Add a firewall rule allowing PostHog's IP "
@@ -53,6 +53,10 @@ _MSSQL_IMPLEMENTATION = MSSQLImplementation()
 
 @SourceRegistry.register
 class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+    # Declared explicitly (not inherited) because this source detects indexed columns:
+    # test_index_mechanism.py requires detection and mechanism to be paired consciously.
+    index_mechanism = IndexMechanism.INDEX
+
     @property
     def get_implementation(self) -> MSSQLImplementation:
         return _MSSQL_IMPLEMENTATION

@@ -27,7 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.
     SnowflakeImplementation,
     get_connection_metadata as get_connection_metadata_snowflake,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import ExternalDataSourceType, IndexMechanism
 
 _SNOWFLAKE_IMPLEMENTATION = SnowflakeImplementation()
 
@@ -68,6 +68,9 @@ SnowflakeErrors = {
 
 @SourceRegistry.register
 class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
+    # Snowflake has no indexes on standard tables; `is_indexed` reflects the clustering key.
+    index_mechanism = IndexMechanism.CLUSTERING_KEY
+
     @property
     def get_implementation(self) -> SnowflakeImplementation:
         return _SNOWFLAKE_IMPLEMENTATION

@@ -6278,8 +6278,15 @@ export interface RowFilter {
     value: string | number | boolean
 }
 
+/** The fast-lookup structure the source engine's `is_indexed` detection checks — most databases
+ *  use secondary indexes, but columnar warehouses prune scans via sort/clustering/partition keys.
+ *  Keep in sync with IndexMechanism in products/warehouse_sources/backend/types.py — backend
+ *  values missing here render the generic "index" warning copy. */
+export type IndexMechanism = 'index' | 'sort_key' | 'clustering_key' | 'partition_or_clustering' | 'sorting_key'
+
 export type SchemaIncrementalFieldsResponse = {
     incremental_fields: IncrementalField[]
+    index_mechanism?: IndexMechanism
     incremental_available: boolean
     append_available: boolean
     full_refresh_available: boolean
@@ -6315,6 +6322,7 @@ export interface ExternalDataSourceSyncSchema {
     incremental_field_lookback_seconds?: number | null
     sync_type: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | 'xmin' | null
     incremental_fields: IncrementalField[]
+    index_mechanism?: IndexMechanism
     incremental_available: boolean
     append_available: boolean
     cdc_available?: boolean

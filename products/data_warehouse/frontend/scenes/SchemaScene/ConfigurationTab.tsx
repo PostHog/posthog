@@ -478,6 +478,7 @@ function SyncMethodSection({
                                 xmin_available: schemaIncrementalFields.xmin_available,
                                 cdc_table_mode: schema.cdc_table_mode,
                                 incremental_fields: schemaIncrementalFields.incremental_fields,
+                                index_mechanism: schemaIncrementalFields.index_mechanism,
                                 supports_webhooks: schemaIncrementalFields.supports_webhooks ?? false,
                                 primary_key_columns: schema.primary_key_columns ?? null,
                                 available_columns: [],

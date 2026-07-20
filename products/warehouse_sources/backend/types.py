@@ -26,7 +26,28 @@ class IncrementalField(typing.TypedDict, total=False):
     # structure for the engine: clustering key, sortkey, partition column, etc.).
     # Used to warn users picking an incremental field that would force a full scan
     # on every sync. Defaults to True when omitted so missing detection never warns.
+    # Sources that can emit False must declare `index_mechanism` on their source class
+    # so the warning names the structure the detection actually checked.
     is_indexed: bool
+
+
+class IndexMechanism(StrEnum):
+    """The fast-lookup structure `is_indexed` detection checks for an engine.
+
+    Most databases use secondary indexes, but columnar warehouses prune scans differently —
+    the sync-form warning shown for `is_indexed=False` fields is phrased per mechanism, so the
+    advice names a structure the user can actually create on their engine.
+
+    Keep in sync with `IndexMechanism` in frontend/src/types.ts: these values cross the API as
+    plain strings (no codegen), and the UI renders the generic "index" copy for any member it
+    doesn't know. Adding it to the frontend union forces the copy map update via typechecking.
+    """
+
+    INDEX = "index"
+    SORT_KEY = "sort_key"
+    CLUSTERING_KEY = "clustering_key"
+    PARTITION_OR_CLUSTERING = "partition_or_clustering"
+    SORTING_KEY = "sorting_key"
 
 
 class PartitionSettings(typing.NamedTuple):
