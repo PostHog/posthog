@@ -33,6 +33,7 @@ from products.feature_flags.backend.local_evaluation import (
     verify_team_flag_definitions,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.models.team_feature_flags_config import TeamFeatureFlagsConfig
 from products.surveys.backend.models import Survey
 
 
@@ -970,6 +971,37 @@ class TestLocalEvaluationBatch(BaseTest):
         assert "group_type_mapping" in results[team_without_flags.id]
         assert "cohorts" in results[team_without_flags.id]
 
+    def test_batch_includes_minimal_flag_called_events_gate(self):
+        # Local-eval SDKs never call /flags, so the blob is their only source of the slim
+        # $feature_flag_called gate. Catches the key being dropped from the payload, a gated
+        # team reading False, or an ungated/legacy team (no config row) reading anything but
+        # False — including on the no-flags fallback path.
+        gated_team = self._create_team_with_project("Gated")
+        gated_team_no_flags = self._create_team_with_project("Gated no flags")
+        ungated_team = self._create_team_with_project("Ungated")
+
+        TeamFeatureFlagsConfig.objects.update_or_create(team=gated_team, defaults={"minimal_flag_called_events": True})
+        TeamFeatureFlagsConfig.objects.update_or_create(
+            team=gated_team_no_flags, defaults={"minimal_flag_called_events": True}
+        )
+        TeamFeatureFlagsConfig.objects.filter(team=ungated_team).delete()
+
+        FeatureFlag.objects.create(
+            team=gated_team,
+            key="gated-flag",
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+
+        results = _get_flags_response_for_local_evaluation_batch([gated_team, gated_team_no_flags, ungated_team])
+
+        assert results[gated_team.id]["minimal_flag_called_events"] is True
+        # Gated team with no flags hits the no-flags fallback path, not the main response path.
+        # Without this case, a fallback that hardcodes False instead of threading the gate would
+        # pass unnoticed, since the ungated team's expected False is indistinguishable from that.
+        assert results[gated_team_no_flags.id]["flags"] == []
+        assert results[gated_team_no_flags.id]["minimal_flag_called_events"] is True
+        assert results[ungated_team.id]["minimal_flag_called_events"] is False
+
     def test_batch_team_with_no_flags_includes_group_type_mapping(self):
         team = self._create_team_with_project("GTM Team")
 
@@ -1258,10 +1290,11 @@ class TestLocalEvaluationBatch(BaseTest):
             filters={"groups": [{"rollout_percentage": 100}]},
         )
 
-        with self.assertNumQueries(2):
-            # Expected queries: survey flag IDs and flags (with evaluation
-            # tags via ArrayAgg). Group type mappings are read from
-            # personhog, not SQL. No cohort query should be issued.
+        with self.assertNumQueries(3):
+            # Expected queries: the minimal_flag_called_events gate, survey flag
+            # IDs, and flags (with evaluation tags via ArrayAgg). Group type
+            # mappings are read from personhog, not SQL. No cohort query should
+            # be issued.
             results = _get_flags_response_for_local_evaluation_batch([team])
 
         assert results[team.id]["cohorts"] == {}
@@ -1436,6 +1469,33 @@ class TestVerifyFlagDefinitions(BaseTest):
 
         assert result["status"] == "match"
         assert result["issue"] == ""
+
+    def test_verify_detects_stale_minimal_flag_called_events(self):
+        # A gated team whose blob was cached before the gate flipped must report drift
+        # so verify-and-fix rewrites it; otherwise local-eval SDKs keep the stale gate
+        # until TTL expiry if the staff endpoint's rebuild task was lost.
+        update_flag_definitions_cache(self.team)
+
+        TeamFeatureFlagsConfig.objects.update_or_create(team=self.team, defaults={"minimal_flag_called_events": True})
+
+        result = verify_team_flag_definitions(self.team)
+
+        assert result["status"] == "mismatch"
+        assert "minimal_flag_called_events mismatch" in result["details"]
+
+    def test_verify_treats_absent_gate_key_as_false(self):
+        # Pre-existing blobs written before the key existed must not report drift for
+        # ungated teams — absent and False both mean "full events" to SDKs. Guards
+        # against a fleet-wide rewrite storm on deploy.
+        update_flag_definitions_cache(self.team)
+        cached, _ = flag_definitions_hypercache.get_from_cache_with_source(self.team)
+        assert cached is not None
+        legacy_blob = {k: v for k, v in cached.items() if k != "minimal_flag_called_events"}
+        flag_definitions_hypercache.set_cache_value(self.team, legacy_blob)
+
+        result = verify_team_flag_definitions(self.team)
+
+        assert result["status"] == "match"
 
     def test_verify_returns_mismatch_when_flag_key_renamed(self):
         flag = FeatureFlag.objects.create(

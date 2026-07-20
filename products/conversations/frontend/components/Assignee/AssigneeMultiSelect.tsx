@@ -24,7 +24,8 @@ export function AssigneeMultiSelect({
     value: AssigneeFilterEntry[]
     onChange: (value: AssigneeFilterEntry[]) => void
 }): JSX.Element {
-    const { search, filteredRoles, filteredMembers, rolesLoading, membersLoading } = useValues(assigneeSelectLogic)
+    const { search, filteredRoles, otherFilteredMembers, currentUserMember, rolesLoading, membersLoading } =
+        useValues(assigneeSelectLogic)
     const { setSearch, ensureAssigneeTypesLoaded } = useActions(assigneeSelectLogic)
     const [showPopover, setShowPopover] = useState(false)
 
@@ -80,6 +81,21 @@ export function AssigneeMultiSelect({
                                 </span>
                             </LemonButton>
                         </li>
+                        {currentUserMember && (
+                            <li>
+                                <AssigneeFilterItem
+                                    item={{
+                                        id: currentUserMember.user.id,
+                                        type: 'user',
+                                        user: currentUserMember.user,
+                                    }}
+                                    isSelected={isSelected}
+                                    onToggle={toggleEntry}
+                                    selectionCapReason={selectionCapReason}
+                                    labelSuffix={<span className="text-secondary">(you)</span>}
+                                />
+                            </li>
+                        )}
                         <Section
                             title="Roles"
                             loading={rolesLoading}
@@ -99,19 +115,21 @@ export function AssigneeMultiSelect({
                                 </LemonButton>
                             }
                         />
-                        <Section
-                            title="Users"
-                            loading={membersLoading}
-                            search={!!search}
-                            items={filteredMembers.map((member) => ({
-                                id: member.user.id,
-                                type: 'user' as const,
-                                user: member.user,
-                            }))}
-                            isSelected={isSelected}
-                            onToggle={toggleEntry}
-                            selectionCapReason={selectionCapReason}
-                        />
+                        {(!!search || membersLoading || otherFilteredMembers.length > 0) && (
+                            <Section
+                                title="Users"
+                                loading={membersLoading}
+                                search={!!search}
+                                items={otherFilteredMembers.map((member) => ({
+                                    id: member.user.id,
+                                    type: 'user' as const,
+                                    user: member.user,
+                                }))}
+                                isSelected={isSelected}
+                                onToggle={toggleEntry}
+                                selectionCapReason={selectionCapReason}
+                            />
+                        )}
                     </ul>
                 </div>
             }
@@ -151,6 +169,37 @@ function TriggerLabel({ value }: { value: AssigneeFilterEntry[] }): JSX.Element 
     )
 }
 
+const AssigneeFilterItem = ({
+    item,
+    isSelected,
+    onToggle,
+    selectionCapReason,
+    labelSuffix,
+}: {
+    item: NonNullable<Assignee>
+    isSelected: (entry: AssigneeFilterEntry) => boolean
+    onToggle: (entry: AssigneeFilterEntry) => void
+    selectionCapReason?: string
+    labelSuffix?: JSX.Element
+}): JSX.Element => {
+    return (
+        <LemonButton
+            fullWidth
+            role="menuitem"
+            size="small"
+            icon={<LemonCheckbox checked={isSelected(item)} className="pointer-events-none" />}
+            disabledReason={isSelected(item) ? undefined : selectionCapReason}
+            onClick={() => onToggle({ type: item.type, id: item.id })}
+        >
+            <span className="flex items-center gap-1">
+                <AssigneeIconDisplay assignee={item} size="small" />
+                <AssigneeLabelDisplay assignee={item} />
+                {labelSuffix}
+            </span>
+        </LemonButton>
+    )
+}
+
 const Section = ({
     title,
     loading,
@@ -176,19 +225,12 @@ const Section = ({
                 <h5 className="mx-2 my-0.5">{title}</h5>
                 {items.map((item) => (
                     <li key={item.id}>
-                        <LemonButton
-                            fullWidth
-                            role="menuitem"
-                            size="small"
-                            icon={<LemonCheckbox checked={isSelected(item)} className="pointer-events-none" />}
-                            disabledReason={isSelected(item) ? undefined : selectionCapReason}
-                            onClick={() => onToggle({ type: item.type, id: item.id })}
-                        >
-                            <span className="flex items-center gap-1">
-                                <AssigneeIconDisplay assignee={item} size="small" />
-                                <AssigneeLabelDisplay assignee={item} />
-                            </span>
-                        </LemonButton>
+                        <AssigneeFilterItem
+                            item={item}
+                            isSelected={isSelected}
+                            onToggle={onToggle}
+                            selectionCapReason={selectionCapReason}
+                        />
                     </li>
                 ))}
 
