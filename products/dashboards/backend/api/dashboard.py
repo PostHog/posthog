@@ -157,7 +157,7 @@ from ee.hogai.utils.aio import async_to_sync
 logger = structlog.get_logger(__name__)
 
 DASHBOARD_TILE_ERROR_TYPE = "DashboardTileError"
-DASHBOARD_TILE_ERROR_MESSAGE = "There is a problem with this query."
+DASHBOARD_TILE_ERROR_MESSAGE = "There is a problem loading this dashboard tile."
 DASHBOARD_STREAM_ERROR_MESSAGE = "Dashboard tiles couldn't be loaded. Refresh the dashboard to try again."
 
 DASHBOARD_SHARED_FIELDS = [

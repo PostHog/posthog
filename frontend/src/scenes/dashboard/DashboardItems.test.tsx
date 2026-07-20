@@ -340,7 +340,7 @@ describe('DashboardItems', () => {
 
         const { findByText, getByRole, getByText } = render(<DashboardItems />)
         expect(getByText('Dashboard tile 2')).toBeInTheDocument()
-        expect(getByText('There is a problem with this tile.')).toBeInTheDocument()
+        expect(getByText('There is a problem loading this dashboard tile.')).toBeInTheDocument()
 
         fireEvent.click(getByRole('button', { name: 'more' }))
         fireEvent.click(await findByText('Remove from dashboard'))
@@ -353,7 +353,7 @@ describe('DashboardItems', () => {
             insight: { id: 101, short_id: 'abc123', query: { kind: 'InsightVizNode' } },
             error: {
                 type: 'DashboardTileError',
-                message: 'There is a problem with this query.',
+                message: 'There is a problem loading this dashboard tile.',
             },
         }
         mockedUseValues.mockImplementation((logic) => {
@@ -393,6 +393,6 @@ describe('DashboardItems', () => {
 
         expect(insightCard).toHaveAttribute('data-api-errored', 'true')
         expect(insightCard).toHaveAttribute('data-api-error-status', '500')
-        expect(insightCard).toHaveAttribute('data-api-error-detail', 'There is a problem with this query.')
+        expect(insightCard).toHaveAttribute('data-api-error-detail', 'There is a problem loading this dashboard tile.')
     })
 })
