@@ -75,9 +75,7 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
 
         with (
             patch(SCHEDULE_MATERIALIZATION),
-            patch(
-                "products.data_modeling.backend.models.datawarehouse_managed_viewset.maybe_reconcile_dag"
-            ) as reconcile,
+            patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag") as reconcile,
         ):
             managed_viewset.sync_views()
 
