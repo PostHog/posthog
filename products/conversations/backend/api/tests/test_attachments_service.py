@@ -40,10 +40,7 @@ class TestAttachmentsService(SimpleTestCase):
 
         assert rich_content is not None
         text = "".join(
-            c.get("text", "")
-            for n in rich_content["content"]
-            if n["type"] == "paragraph"
-            for c in n.get("content", [])
+            c.get("text", "") for n in rich_content["content"] if n["type"] == "paragraph" for c in n.get("content", [])
         )
         assert "please see the screenshot" in text
 
