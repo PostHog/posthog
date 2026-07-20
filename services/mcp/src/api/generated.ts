@@ -1991,6 +1991,37 @@ export namespace Schemas {
       Stale: 'STALE',
     } as const;
 
+    /**
+     * * `pending` - Pending
+     * * `in_progress` - In Progress
+     * * `completed` - Completed
+     * * `failed` - Failed
+     */
+    export type MetricsRecalculationStatusEnum = typeof MetricsRecalculationStatusEnum[keyof typeof MetricsRecalculationStatusEnum];
+
+
+    export const MetricsRecalculationStatusEnum = {
+      Pending: 'pending',
+      InProgress: 'in_progress',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * Pointer to a recalculation run that is still executing, surfaced alongside the latest terminal results.
+     */
+    export interface ActiveRecalculationRun {
+      /** Identifier of the run that is still executing */
+      readonly id: string;
+      /** Status of the executing run (pending or in_progress)
+       *
+       * * `pending` - Pending
+       * * `in_progress` - In Progress
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      readonly status: MetricsRecalculationStatusEnum;
+    }
+
     export type ActivityEventsListWidgetAddRequestOpenApiWidgetType = typeof ActivityEventsListWidgetAddRequestOpenApiWidgetType[keyof typeof ActivityEventsListWidgetAddRequestOpenApiWidgetType];
 
 
@@ -25410,22 +25441,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `pending` - Pending
-     * * `in_progress` - In Progress
-     * * `completed` - Completed
-     * * `failed` - Failed
-     */
-    export type ExperimentMetricsRecalculationStatusEnum = typeof ExperimentMetricsRecalculationStatusEnum[keyof typeof ExperimentMetricsRecalculationStatusEnum];
-
-
-    export const ExperimentMetricsRecalculationStatusEnum = {
-      Pending: 'pending',
-      InProgress: 'in_progress',
-      Completed: 'completed',
-      Failed: 'failed',
-    } as const;
-
-    /**
      * * `manual` - Manual
      * * `cold_run` - Cold Run
      * * `stale_refresh` - Stale Refresh
@@ -25510,7 +25525,7 @@ export namespace Schemas {
        * * `in_progress` - In Progress
        * * `completed` - Completed
        * * `failed` - Failed */
-      readonly status: ExperimentMetricsRecalculationStatusEnum;
+      readonly status: MetricsRecalculationStatusEnum;
       /** Total number of metrics to recalculate */
       readonly total_metrics: number;
       /** Number of metrics with a COMPLETED result row in this run (derived, not stored) */
@@ -25549,6 +25564,8 @@ export namespace Schemas {
       readonly query_to: string | null;
       /** True if returning an existing job rather than a newly created one */
       readonly is_existing: boolean;
+      /** Run currently executing for this experiment, if any; poll it by id for live progress */
+      readonly active_run: ActiveRecalculationRun | null;
       /** Where these results came from: 'recalculation' for a real metrics-recalculation run, 'timeseries_fallback' for a cold-start placeholder built from the latest daily timeseries data.
        *
        * * `recalculation` - recalculation
