@@ -23,9 +23,9 @@ import { randomUUID } from 'node:crypto'
 import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import type { RequestProperties } from '@/lib/request-properties'
 import {
-    ALL_SUPPORTED_PROTOCOL_VERSIONS,
     isSupportedProtocolVersion,
     META_SERVER_INFO,
+    MODERN_PROTOCOL_VERSIONS,
     parseRequestProtocolMeta,
     SERVER_DISCOVER_METHOD,
     STATELESS_PROTOCOL_VERSION,
@@ -95,7 +95,7 @@ type JsonRpcResultResponse = { jsonrpc: typeof JSONRPC_VERSION; id: number | str
 type JsonRpcErrorResponse = {
     jsonrpc: typeof JSONRPC_VERSION
     id: number | string
-    error: { code: number; message: string }
+    error: { code: number; message: string; data?: unknown }
 }
 type JsonRpcResponse = JsonRpcResultResponse | JsonRpcErrorResponse
 
@@ -103,8 +103,8 @@ function jsonRpcResult(id: number | string, result: unknown): JsonRpcResultRespo
     return { jsonrpc: JSONRPC_VERSION, id, result }
 }
 
-function jsonRpcMethodError(id: number | string, code: number, message: string): JsonRpcErrorResponse {
-    return { jsonrpc: JSONRPC_VERSION, id, error: { code, message } }
+function jsonRpcMethodError(id: number | string, code: number, message: string, data?: unknown): JsonRpcErrorResponse {
+    return { jsonrpc: JSONRPC_VERSION, id, error: { code, message, ...(data !== undefined ? { data } : {}) } }
 }
 
 function jsonRpcErrorResponse(id: unknown, code: number, message: string): Response {
@@ -196,12 +196,17 @@ class McpDispatcher {
     ): Promise<JsonRpcResponse> {
         const { id, method, params } = request
 
+        // Versions declared via `_meta` must be modern — legacy versions are
+        // only implemented behind the `initialize` handshake, so a legacy value
+        // here (or an unknown one) gets the spec's UnsupportedProtocolVersionError
+        // with the machine-readable `data.supported` list clients retry from.
         const protocolMeta = parseRequestProtocolMeta(params)
         if (protocolMeta.protocolVersion && !isSupportedProtocolVersion(protocolMeta.protocolVersion)) {
             return jsonRpcMethodError(
                 id,
                 UNSUPPORTED_PROTOCOL_VERSION_ERROR_CODE,
-                `Unsupported protocol version: ${protocolMeta.protocolVersion}. Supported versions: ${ALL_SUPPORTED_PROTOCOL_VERSIONS.join(', ')}`
+                `Unsupported protocol version: ${protocolMeta.protocolVersion}`,
+                { supported: [...MODERN_PROTOCOL_VERSIONS], requested: protocolMeta.protocolVersion }
             )
         }
         const stateless = protocolMeta.protocolVersion === STATELESS_PROTOCOL_VERSION
@@ -300,7 +305,11 @@ class McpDispatcher {
     private async handleDiscover(props: RequestProperties, state: ResolvedState): Promise<Record<string, unknown>> {
         const instructions = await this.recordDiscoveryRequest('discover', props, state)
         return {
-            supportedVersions: [...ALL_SUPPORTED_PROTOCOL_VERSIONS],
+            // Modern versions only: legacy support is reachable solely through
+            // the `initialize` fallback, and legacy clients never call discover.
+            // Advertising legacy versions here would invite modern clients to
+            // select one via `_meta`, which we reject.
+            supportedVersions: [...MODERN_PROTOCOL_VERSIONS],
             capabilities: SERVER_CAPABILITIES,
             ...(instructions ? { instructions } : {}),
         }

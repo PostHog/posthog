@@ -1709,7 +1709,7 @@ export function defineStatelessProtocolTests(
                 cacheScope?: string
                 _meta?: Record<string, unknown>
             }
-            error?: { code?: number; message?: string }
+            error?: { code?: number; message?: string; data?: { supported?: string[]; requested?: string } }
         }
 
         async function postSingle(
@@ -1745,9 +1745,11 @@ export function defineStatelessProtocolTests(
             expect(json.error).toBeUndefined()
 
             const result = json.result!
-            expect(result.supportedVersions).toContain(STATELESS_VERSION)
-            // Legacy versions stay advertised so old clients aren't orphaned.
-            expect((result.supportedVersions as string[]).length).toBeGreaterThan(1)
+            // Modern versions only — legacy versions are reachable solely via
+            // the `initialize` fallback and must not be advertised here, or a
+            // conforming modern client would select one via `_meta` and be
+            // served a dialect we can't speak statelessly.
+            expect(result.supportedVersions).toEqual([STATELESS_VERSION])
             expect(result.capabilities).toMatchObject({ tools: { listChanged: false } })
             expect(typeof result.instructions).toBe('string')
             expect((result.instructions as string).length).toBeGreaterThan(0)
@@ -1811,20 +1813,28 @@ export function defineStatelessProtocolTests(
             expect(result.cacheScope).toBe('private')
         })
 
-        it('rejects an unsupported protocol version with UnsupportedProtocolVersionError', async () => {
-            const harness = await getHarness()
-            const { response, json } = await postSingle(
-                harness,
-                'tools/list',
-                { _meta: { [META_VERSION_KEY]: '2099-01-01' } },
-                'bad-version'
-            )
+        // A legacy version in `_meta` is just as unsupported as an unknown one:
+        // legacy revisions don't define per-request metadata, so they're only
+        // implemented behind `initialize`. The `data` payload is spec-required —
+        // conforming clients auto-retry from `error.data.supported`.
+        it.each(['2099-01-01', '2025-03-26'])(
+            'rejects _meta protocol version %s with UnsupportedProtocolVersionError',
+            async (version) => {
+                const harness = await getHarness()
+                const { response, json } = await postSingle(
+                    harness,
+                    'tools/list',
+                    { _meta: { [META_VERSION_KEY]: version } },
+                    'bad-version'
+                )
 
-            expect(response.status).toBe(200)
-            expect(json.id).toBe('bad-version')
-            expect(json.error?.code).toBe(-32022)
-            expect(json.error?.message).toContain('2099-01-01')
-        })
+                expect(response.status).toBe(200)
+                expect(json.id).toBe('bad-version')
+                expect(json.error?.code).toBe(-32022)
+                expect(json.error?.data?.supported).toEqual([STATELESS_VERSION])
+                expect(json.error?.data?.requested).toBe(version)
+            }
+        )
 
         it('keeps the legacy wire shape for requests without protocol _meta', async () => {
             const harness = await getHarness()

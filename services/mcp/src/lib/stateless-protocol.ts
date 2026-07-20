@@ -6,15 +6,18 @@
 // both dialects are served side by side and a request's dialect is detected from
 // the presence of the reserved `_meta` protocol-version key.
 
-import { SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/sdk/types.js'
-
 export const STATELESS_PROTOCOL_VERSION = '2026-07-28'
 
-/** Newest first — `server/discover` advertises these, stateless first. */
-export const ALL_SUPPORTED_PROTOCOL_VERSIONS: readonly string[] = [
-    STATELESS_PROTOCOL_VERSION,
-    ...SUPPORTED_PROTOCOL_VERSIONS,
-]
+/**
+ * Versions selectable via per-request `_meta` — the modern era only (the spec
+ * scopes per-request metadata to "revision 2026-07-28 and later"). Legacy
+ * versions are deliberately absent: they are only reachable through the
+ * `initialize` handshake, and advertising them here (or accepting them in
+ * `_meta`) would steer a conforming modern client into retrying with a version
+ * we cannot serve statelessly. `server/discover` and the
+ * UnsupportedProtocolVersionError `data.supported` list both use this set.
+ */
+export const MODERN_PROTOCOL_VERSIONS: readonly string[] = [STATELESS_PROTOCOL_VERSION]
 
 export const SERVER_DISCOVER_METHOD = 'server/discover'
 
@@ -62,5 +65,5 @@ export function parseRequestProtocolMeta(params: unknown): RequestProtocolMeta {
 }
 
 export function isSupportedProtocolVersion(version: string): boolean {
-    return ALL_SUPPORTED_PROTOCOL_VERSIONS.includes(version)
+    return MODERN_PROTOCOL_VERSIONS.includes(version)
 }
