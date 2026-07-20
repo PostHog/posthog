@@ -1213,6 +1213,7 @@ class TaskRun(models.Model):
         state["handoff_resumed"] = True
         state["mode"] = "interactive"
         state.pop("pending_user_message", None)
+        state.pop("pending_user_message_id", None)
         state.pop("pending_user_message_ts", None)
         self.state = state
 
