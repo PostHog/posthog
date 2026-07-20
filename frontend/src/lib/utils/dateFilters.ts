@@ -6,7 +6,7 @@ import { UnexpectedNeverError } from 'lib/utils/guards'
 import { DateMappingOption, IntervalType } from '~/types'
 
 /** Returns the start of the current week, respecting the team's week start day (0=Sunday, 1=Monday). */
-function startOfWeek(date: dayjs.Dayjs, weekStartDay?: number | null): dayjs.Dayjs {
+export function startOfWeek(date: dayjs.Dayjs, weekStartDay?: number | null): dayjs.Dayjs {
     const start = weekStartDay === 1 ? 1 : 0
     return date.subtract((date.day() - start + 7) % 7, 'day').startOf('day')
 }

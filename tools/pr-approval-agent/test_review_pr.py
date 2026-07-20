@@ -436,3 +436,23 @@ def test_wait_refetch_reclassifies_before_review(monkeypatch: pytest.MonkeyPatch
 
     assert verdict == "REFUSED"
     assert pipeline.classification["deny_categories"] == ["infra_cicd"]
+
+
+def test_capture_review_completed_merges_server_extras_base_wins(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The hosted server stamps runtime/team context through STAMPHOG_EXTRA_PROPERTIES; the event's
+    # own props must win on collision so a stamped extra can never spoof e.g. the repo.
+    monkeypatch.setenv(
+        "STAMPHOG_EXTRA_PROPERTIES",
+        '{"stamphog_runtime":"hosted","stamphog_repo":"spoofed/repo"}',
+    )
+    fake_posthog = MagicMock()
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", True)
+    monkeypatch.setattr(review_pr, "posthoganalytics", fake_posthog, raising=False)
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pipeline.pr = _fake_pr(head_sha="abc123")
+    pipeline._capture_review_completed("PASSED", "APPROVE")
+
+    props = fake_posthog.capture.call_args.kwargs["properties"]
+    assert props["stamphog_runtime"] == "hosted"
+    assert props["stamphog_repo"] == "PostHog/posthog"

@@ -115,7 +115,9 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
         ),
     )
     logs_session_id_attribute_keys = serializers.ListField(
-        child=serializers.CharField(max_length=200, allow_blank=False),
+        # trim_whitespace is the DRF default, but the uniqueness validator below
+        # depends on it — spell it out so it can't drift silently.
+        child=serializers.CharField(max_length=200, allow_blank=False, trim_whitespace=True),
         allow_empty=False,
         max_length=10,
         help_text=(
@@ -132,12 +134,11 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
         fields = ["logs_distinct_id_attribute_key", "logs_session_id_attribute_keys"]
 
     def validate_logs_session_id_attribute_keys(self, value: list[str]) -> list[str]:
-        keys = [key.strip() for key in value]
-        if any(not key for key in keys):
-            raise serializers.ValidationError("Attribute keys cannot be blank.")
-        if len(set(keys)) != len(keys):
+        # The child CharField already trims whitespace and rejects blanks; only
+        # cross-item uniqueness needs checking here.
+        if len(set(value)) != len(value):
             raise serializers.ValidationError("Attribute keys must be unique.")
-        return keys
+        return value
 
 
 def handle_logs_config(request: request.Request, team: Team) -> response.Response:
@@ -753,6 +754,7 @@ def get_or_mint_live_events_token(team: Team, user_id: int | None) -> str:
 
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     instance: Team | None
+    _group_types_cache: list[dict[str, Any]] | None = None
 
     effective_membership_level = serializers.SerializerMethodField()
     has_group_types = serializers.SerializerMethodField()
@@ -849,11 +851,18 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     @tracer.start_as_current_span("team_serializer.has_group_types")
     def get_has_group_types(self, team: Team) -> bool:
-        return bool(cached_group_types_for_team(team))
+        return bool(self._get_group_types(team))
 
     @tracer.start_as_current_span("team_serializer.group_types")
     def get_group_types(self, team: Team) -> list[dict[str, Any]]:
-        return cached_group_types_for_team(team)
+        return self._get_group_types(team)
+
+    def _get_group_types(self, team: Team) -> list[dict[str, Any]]:
+        group_types = self._group_types_cache
+        if group_types is None:
+            group_types = cached_group_types_for_team(team)
+            self._group_types_cache = group_types
+        return group_types
 
     @extend_schema_field(serializers.BooleanField())
     @tracer.start_as_current_span("team_serializer.events_retention_enforced")

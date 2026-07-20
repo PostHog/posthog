@@ -30,6 +30,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType, Inc
 
 @SourceRegistry.register
 class ConvexSource(ResumableSource[ConvexSourceConfig, ConvexResumeConfig]):
+    api_docs_url = "https://docs.convex.dev/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CONVEX

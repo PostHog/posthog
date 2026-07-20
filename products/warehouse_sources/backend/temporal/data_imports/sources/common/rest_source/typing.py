@@ -55,6 +55,7 @@ class PageNumberPaginatorConfig(PaginatorTypeConfig, total=False):
     page_param: Optional[str]
     total_path: Optional[TJsonPath]
     maximum_page: Optional[int]
+    param_location: Optional[str]  # "query" (default) or "json" (POST-body pagination)
 
 
 class OffsetPaginatorConfig(PaginatorTypeConfig, total=False):
@@ -63,7 +64,9 @@ class OffsetPaginatorConfig(PaginatorTypeConfig, total=False):
     offset_param: Optional[str]
     limit_param: Optional[str]
     total_path: Optional[TJsonPath]
+    total_header: Optional[str]
     maximum_offset: Optional[int]
+    param_location: Optional[str]  # "query" (default) or "json" (POST-body pagination)
 
 
 class HeaderLinkPaginatorConfig(PaginatorTypeConfig, total=False):
@@ -77,6 +80,7 @@ class JSONResponsePaginatorConfig(PaginatorTypeConfig, total=False):
 class JSONResponseCursorPaginatorConfig(PaginatorTypeConfig, total=False):
     cursor_path: Optional[TJsonPath]
     cursor_param: Optional[str]
+    param_location: Optional[str]  # "query" (default) or "json" (POST-body pagination)
 
 
 PaginatorConfig = (
@@ -221,6 +225,10 @@ class Endpoint(TypedDict, total=False):
     json: Optional[dict[str, Any]]
     paginator: Optional[PaginatorConfig]
     data_selector: Optional[TJsonPath]
+    # When True, a response whose ``data_selector`` matches nothing (the key is absent) raises
+    # instead of yielding an empty page — fail-loud on an unexpected/changed API response shape,
+    # rather than silently syncing 0 rows. A present-but-empty list is still a valid 0-row page.
+    data_selector_required: Optional[bool]
     response_actions: Optional[list[ResponseAction]]
     incremental: Optional[IncrementalConfig]
 
@@ -242,6 +250,10 @@ class ResourceBase(TypedDict, total=False):
 class EndpointResourceBase(ResourceBase, total=False):
     endpoint: Optional[str | Endpoint]
     include_from_parent: Optional[list[str]]
+    # Per-item transform applied after ``data_selector`` and before type coercion, for reshaping
+    # a row the selector can't express (e.g. flattening JSON:API ``attributes`` into the row root).
+    # Wired through to ``Resource.add_map``; must be dict -> dict (1:1).
+    data_map: Optional[Callable[[dict[str, Any]], dict[str, Any]]]
 
 
 class EndpointResource(EndpointResourceBase, total=False):

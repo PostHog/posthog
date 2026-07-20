@@ -37,6 +37,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class BeamerSource(ResumableSource[BeamerSourceConfig, BeamerResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v0",)
+    default_version = "v0"
+    api_docs_url = "https://www.getbeamer.com/help/beamer-api-documentation"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

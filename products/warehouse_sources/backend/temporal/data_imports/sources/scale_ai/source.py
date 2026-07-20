@@ -36,6 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ScaleAISource(ResumableSource[ScaleAISourceConfig, ScaleAIResumeConfig]):
+    api_docs_url = "https://scale.com/docs/api-reference/introduction-to-scale-api"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -49,7 +50,6 @@ class ScaleAISource(ResumableSource[ScaleAISourceConfig, ScaleAIResumeConfig]):
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Scale AI",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Scale AI API key to sync your Scale data labeling data into the PostHog Data warehouse.
 
 You can find your API key in the [Scale dashboard](https://dashboard.scale.com/) under **Settings → API Keys**. Use a **live-mode** key — test-mode keys have fully isolated data. Only account Managers and Admins can access API keys.

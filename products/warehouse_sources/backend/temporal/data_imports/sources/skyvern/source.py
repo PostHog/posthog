@@ -37,6 +37,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class SkyvernSource(ResumableSource[SkyvernSourceConfig, SkyvernResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://docs.skyvern.com/api-reference"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -56,7 +59,6 @@ class SkyvernSource(ResumableSource[SkyvernSourceConfig, SkyvernResumeConfig]):
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Skyvern",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Skyvern API key to automatically pull your Skyvern browser-automation data into the PostHog Data warehouse.
 
 You can find your API key in your [Skyvern settings](https://app.skyvern.com/settings).

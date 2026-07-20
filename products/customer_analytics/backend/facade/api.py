@@ -37,15 +37,20 @@ from posthog.models.tagged_item import TaggedItem
 from products.customer_analytics.backend.account_urls import build_account_deeplink as build_account_deeplink
 from products.customer_analytics.backend.constants import ACCOUNT_ASSIGNMENT_ROLE_FIELDS
 from products.customer_analytics.backend.events import emit_account_tags_added
+from products.customer_analytics.backend.facade.contracts import (
+    InvalidCustomPropertyOptions as InvalidCustomPropertyOptions,
+)
 from products.customer_analytics.backend.logic import (
     custom_property_values as _custom_property_values_logic,
     relationships as _relationships_logic,
 )
 from products.customer_analytics.backend.logic.custom_property_definitions import (
-    InvalidCustomPropertyOptions as InvalidCustomPropertyOptions,
     apply_option_side_effects,
     coerce_is_big_number,
     normalize_options,
+)
+from products.customer_analytics.backend.logic.person_property_projection import (
+    person_properties_flag_enabled as person_properties_flag_enabled,
 )
 from products.customer_analytics.backend.logic.usage_spike_notifications import (
     notify_managers_of_usage_spike as notify_managers_of_usage_spike,

@@ -49,7 +49,6 @@ class TestBugsnagSource:
         config = self.source.get_source_config
         assert config.label == "Bugsnag"
         # Alpha + still unreleased while it ships full-refresh-only and awaits live-API verification.
-        assert config.unreleasedSource is True
         field_names = [f.name for f in config.fields]
         assert field_names == ["auth_token"]
         auth_field = config.fields[0]

@@ -186,6 +186,58 @@ describe('notebookNodeSQLV2Logic', () => {
         expect(logic.values.isRunning).toBe(false)
     })
 
+    it('surfaces an interrupted run with its partial output', async () => {
+        // Journey 9: a stopped cell must still show what it printed before the interrupt,
+        // with a notice instead of polling forever or rendering a bare failure.
+        resultSpy.mockResolvedValue({
+            status: 'interrupted',
+            result: { columns: [], first_page: [], row_count: 0, stdout: 'partial output' },
+            error: 'Run interrupted.',
+        })
+        mount({ runId: 'r1', hasResult: false })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(updateAttributes).toHaveBeenCalledWith({
+            result: expect.objectContaining({ stdout: 'partial output' }),
+        })
+        expect(logic.values.runError).toBe('Run interrupted.')
+        expect(logic.values.isRunning).toBe(false)
+        expect(logic.values.isInterrupting).toBe(false)
+    })
+
+    it('interruptRun posts the active run to the interrupt endpoint and stays pending', async () => {
+        const interruptSpy = jest.spyOn(api.notebooks, 'sqlV2RunInterrupt').mockResolvedValue({ status: 'running' })
+        mount({ runId: 'r1', hasResult: false })
+        await expectLogic(logic).toDispatchActions(['startPolling'])
+        logic.actions.interruptRun()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(interruptSpy).toHaveBeenCalledWith('nb1', 'r1')
+        // The terminal state arrives via the poll; until then the Cancel button stays pending.
+        expect(logic.values.isInterrupting).toBe(true)
+    })
+
+    it('an interrupt that stopped nothing resets the cancel button for a retry', async () => {
+        jest.spyOn(api.notebooks, 'sqlV2RunInterrupt').mockResolvedValue({
+            status: 'running',
+            detail: 'The run has not reached the kernel yet. Try again in a moment.',
+        })
+        mount({ runId: 'r1', hasResult: false })
+        await expectLogic(logic).toDispatchActions(['startPolling'])
+        logic.actions.interruptRun()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.isInterrupting).toBe(false)
+        expect(logic.values.isRunning).toBe(true)
+    })
+
+    it('a failed interrupt request resets the cancel button', async () => {
+        jest.spyOn(api.notebooks, 'sqlV2RunInterrupt').mockRejectedValue(new Error('network down'))
+        mount({ runId: 'r1', hasResult: false })
+        await expectLogic(logic).toDispatchActions(['startPolling'])
+        logic.actions.interruptRun()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.isInterrupting).toBe(false)
+        expect(logic.values.isRunning).toBe(true)
+    })
+
     it('surfaces a run dispatch failure as an error', async () => {
         runSpy.mockRejectedValue(new Error('network down'))
         mount()

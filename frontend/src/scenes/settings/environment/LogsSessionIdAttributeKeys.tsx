@@ -41,10 +41,10 @@ export function LogsSessionIdAttributeKeys(): JSX.Element {
                 mode="multiple"
                 allowCustomValues
                 value={value}
-                onChange={(values: string[]) => setValue(values || [])}
+                onChange={setValue}
                 placeholder={DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS.join(', ')}
                 loading={logsConfigLoading}
-                disabled={!!restrictedReason}
+                disabled={logsConfigLoading || !!restrictedReason}
                 data-attr="logs-session-id-attribute-keys-select"
                 className="max-w-md"
             />

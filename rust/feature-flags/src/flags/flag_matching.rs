@@ -38,7 +38,7 @@ use crate::rayon_dispatcher::RayonDispatcher;
 use crate::utils::graph_utils::PrecomputedDependencyGraph;
 use anyhow::Result;
 use chrono_tz::Tz;
-use common_metrics::{histogram, inc, timing_guard};
+use common_metrics::{histogram, inc, timing_guard, timing_guard_high_precision};
 use common_types::collections::HashMapExt;
 use common_types::{PersonId, TeamId};
 use rayon::prelude::*;
@@ -1329,7 +1329,7 @@ impl FeatureFlagMatcher {
             let person_properties = self.get_person_properties(person_property_overrides)?;
 
             if let Some(v) = person_properties.get(&enrollment_key) {
-                let is_match = v == "true" || v == &Value::Bool(true);
+                let is_match = FlagFilters::is_enrolled(v);
                 let payload = self.get_matching_payload(None, flag);
                 return Ok(FeatureFlagMatch {
                     matches: is_match,
@@ -2119,7 +2119,10 @@ impl FeatureFlagMatcher {
                 self.flag_evaluation_state.get_person_uuid()
             {
                 let query_labels = [("team_id".to_string(), self.team_id.to_string())];
-                let realtime_timer = timing_guard(FLAG_REALTIME_COHORT_QUERY_TIME, &query_labels);
+                // High precision: cache hits complete in microseconds, and plain
+                // timing_guard truncates to integer ms, collapsing them all to 0.
+                let realtime_timer =
+                    timing_guard_high_precision(FLAG_REALTIME_COHORT_QUERY_TIME, &query_labels);
                 let realtime_start = std::time::Instant::now();
 
                 let result = self

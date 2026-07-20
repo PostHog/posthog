@@ -36,6 +36,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class TicketTailorSource(ResumableSource[TicketTailorSourceConfig, TicketTailorResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://developers.tickettailor.com/docs/api/ticket-tailor-api/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -68,7 +71,6 @@ You can create an API key under **Settings → API** in your [Ticket Tailor](htt
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

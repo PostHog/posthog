@@ -135,18 +135,24 @@ describe('Toolbar flag loading', () => {
     it.each([
         {
             name: 'transient network failure (fetch rejects)',
-            // `fetch` rejects only on network-level failures — these should be logged, not captured.
             setupMock: () => mockFetch.mockRejectedValueOnce(new TypeError('Failed to fetch')),
-            expectCapture: false,
         },
         {
-            name: 'unexpected error while applying flags (TypeError thrown in processing)',
-            // A null body makes `data.featureFlags` throw a TypeError during processing —
-            // a genuine bug that must still reach error tracking.
+            name: 'unusable response body (null JSON)',
             setupMock: () => mockFetch.mockResolvedValueOnce({ json: async () => null }),
-            expectCapture: true,
         },
-    ])('reports only genuine errors as exceptions: $name', async ({ setupMock, expectCapture }) => {
+        {
+            name: 'non-JSON response body (proxy error page)',
+            setupMock: () =>
+                mockFetch.mockResolvedValueOnce({
+                    json: async () => {
+                        throw new SyntaxError('Unexpected token < in JSON')
+                    },
+                }),
+        },
+    ])('never reports preload failures to error tracking: $name', async ({ setupMock }) => {
+        // Every failure mode of the flags preload is request-shaped (network, proxy,
+        // malformed body) - it must be logged, never captured as an exception.
         const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
         const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation()
 
@@ -169,12 +175,8 @@ describe('Toolbar flag loading', () => {
 
         await (window as any).ph_load_toolbar(toolbarParams, mockPostHog)
 
-        if (expectCapture) {
-            expect(captureToolbarException).toHaveBeenCalledWith(expect.anything(), 'preloaded_flags_fetch')
-        } else {
-            expect(captureToolbarException).not.toHaveBeenCalled()
-            expect(consoleWarnSpy).toHaveBeenCalled()
-        }
+        expect(captureToolbarException).not.toHaveBeenCalled()
+        expect(consoleWarnSpy.mock.calls.length + consoleErrorSpy.mock.calls.length).toBeGreaterThan(0)
 
         consoleErrorSpy.mockRestore()
         consoleWarnSpy.mockRestore()

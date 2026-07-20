@@ -972,12 +972,19 @@ export class HogExecutorService {
             body = undefined
         }
 
+        // Keep the status 500 fallback so template guards like `if (res.status
+        // >= 400) throw` still fire on a client-side abort and prevent
+        // subsequent fetches in multi-step templates from running against
+        // broken assumptions. Populate body with the real client-side error
+        // name and message so the terminal log stops reading as "status 500"
+        // with an empty body and instead tells the customer what actually
+        // happened (connect timeout, socket abort, DNS failure, etc.).
         const hogVmResponse: {
             status: number
             body: unknown
         } = {
             status: fetchResponse?.status ?? 500,
-            body,
+            body: body ?? (fetchError ? `${fetchError.name}: ${fetchError.message}` : undefined),
         }
 
         // Finally we create the response object as the VM expects

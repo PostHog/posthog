@@ -35,9 +35,10 @@ import pathlib
 import tempfile
 import subprocess
 import urllib.request
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from hogland import AccessType, AuthenticationError, BoxSpec, ConflictError, Hogland, NotFoundError, ServerError
+from hogland._http import raise_for_status
 
 from . import timing
 from .backend import ExecResult, PreviewBackend
@@ -54,6 +55,27 @@ _WRITE_CHUNK = 48 * 1024 * 1024
 # 5xx only — never on a 4xx, which is a real client error that a retry won't fix.
 _CREATE_5XX_ATTEMPTS = 3
 _CREATE_5XX_BACKOFF_SECONDS = (5, 15)  # slept BEFORE attempts 2 and 3
+
+# A capacity 503 is NOT a "retry me" 5xx like the placement failures above: the
+# server already burned ~4 minutes internally (auction retry budget, see
+# hogplane's discovery.ErrNoCapacity / orchestrator.retryAuction) before giving
+# up, so 3 client-side retries would tie up the CI runner for 12+ minutes and
+# leave 3 failed boxes behind. The preview workflow's sticky comment already
+# tells the user it'll retry on the next push, so fail fast here instead.
+# Match on hogplane's stable error text (see discovery.ErrNoCapacity in the
+# hogland repo) rather than only the 503 status, since other transient 5xx
+# (placement EOF, etc.) also come back as 503-or-500 and must keep retrying.
+_NO_CAPACITY_MESSAGE_SUBSTRING = "no hogd has capacity"
+
+
+def _is_no_capacity_error(exc: ServerError) -> bool:
+    """True if `exc` is hogland's "no capacity right now" 503, not some other
+    transient 5xx. Defensive: any introspection failure here just falls back to
+    the existing retry-every-5xx behaviour."""
+    try:
+        return _NO_CAPACITY_MESSAGE_SUBSTRING in str(exc)
+    except Exception:
+        return False
 
 
 def _ephemeral_ssh_pubkey() -> str:
@@ -137,9 +159,8 @@ class HoglandBackend(PreviewBackend):
             timing.stage("box exec ready")
             return
         # Stable identity first, then a fresh box from the golden. Each box gets a
-        # per-attempt unique name (so a failed placement can't block a retry), and
-        # we reap the leftovers once the new box is exec-ready. The pen outlives
-        # the box across pushes.
+        # per-attempt unique name so a failed placement cannot block a retry. The
+        # pen outlives the box across pushes.
         timing.stage("pen resolve/create")
         self._ensure_pen()
         timing.stage("box restore start")
@@ -166,11 +187,6 @@ class HoglandBackend(PreviewBackend):
             on_idle="hibernate",
             wake="on-request",
         )
-        # Now that the pen points at the new box, sweep the leftovers: prior
-        # attempts of THIS run (each restore attempt uses a fresh unique name, and
-        # a failed one leaves a corpse holding it for up to an hour) plus corpses
-        # from failed runs of the old deterministic-name code. Best-effort.
-        self._reap_leftovers()
 
     def _box_name(self) -> str:
         # A per-attempt unique box name: `<pen-name>-<6hex>`. hogland's name
@@ -207,11 +223,24 @@ class HoglandBackend(PreviewBackend):
         immediately. Each attempt draws a fresh unique box name via
         _create_kwargs, so a 5xx-failed attempt — which leaves a failed box
         holding its name for up to an hour — can't make the retry 409 against its
-        own corpse."""
+        own corpse.
+
+        A "no capacity" 503 is the one 5xx that must NOT be retried here: the
+        server already spent ~4 minutes on an auction retry budget before
+        raising it, so retrying 3x would burn 12+ minutes of runner time and
+        leave 3 failed boxes for one doomed run. Fail immediately with a clear
+        message — the caller already tells the user this'll retry on the next
+        push."""
         for attempt in range(_CREATE_5XX_ATTEMPTS):
             try:
                 return self._client.create(**self._create_kwargs())
-            except ServerError:
+            except ServerError as exc:
+                if _is_no_capacity_error(exc):
+                    raise ServerError(
+                        "hogland has no capacity right now; will retry on the next push",
+                        status_code=exc.status_code,
+                        body=exc.body,
+                    ) from exc
                 if attempt == _CREATE_5XX_ATTEMPTS - 1:
                     raise  # out of retries — surface the 5xx
                 time.sleep(_CREATE_5XX_BACKOFF_SECONDS[attempt])
@@ -332,34 +361,62 @@ class HoglandBackend(PreviewBackend):
         return self._pen.id if (self._pen is not None and self._pen.id) else None
 
     def destroy(self) -> None:
-        # PR-close teardown: drop every box this preview left behind, then release
-        # the stable identity. delete_pen does NOT cascade, so the boxes must go
-        # first. Each step is best-effort — a half-torn-down preview shouldn't
-        # wedge cleanup.
-        #
-        # A box that was already TTL-reaped counts as "already gone": the pen can
-        # still point at a dead current_box_id (previews outlive their boxes — the
-        # box has a 24h idle TTL, the pen has none), so both resolving it and
-        # deleting it can raise NotFoundError — and a transient 5xx here is just
-        # as fatal to teardown. Swallow everything so we always reach delete_pen —
-        # otherwise the pen leaks forever, which is the exact thing this method
-        # exists to prevent. A box left behind is the smaller loss: its 24h TTL
-        # reaps it.
+        # An explicit box id is owned by this invocation. When its pen was
+        # already removed, still release that requested box rather than leaving
+        # it until its TTL.
+        if self._box_id:
+            try:
+                self._delete_pen_if_current_box(self._box_id)
+                return
+            except ConflictError:
+                self._delete_explicit_box()
+                return
+            except NotFoundError:
+                self._delete_explicit_box()
+                return
+
+        # Name-only cleanup is an authoritative teardown for a closed or
+        # opted-out preview, so it intentionally removes the pen's current box.
         try:
-            box = self._resolve_box()
-            if box is not None:
-                box.delete()
+            pen = self._client.get_pen(self.name)
+        except NotFoundError:
+            return
+        if not pen.current_box_id:
+            try:
+                self._delete_pen()
+            except NotFoundError:
+                pass
+            except Exception as e:
+                timing.stage(f"warn: couldn't delete empty pen during teardown: {e}")
+            return
+        try:
+            self._delete_pen_if_current_box(pen.current_box_id)
+        except ConflictError:
+            timing.stage("teardown skipped: preview was replaced by a newer run")
         except NotFoundError:
             pass
-        except Exception as e:  # noqa: BLE001 — TTL reaper is the backstop
-            timing.stage(f"warn: couldn't delete current box during teardown: {e}")
-        # Sweep any other name-matched boxes too (a push that failed after create
-        # but before repoint leaves a corpse the pen never pointed at).
-        self._reap_leftovers()
+
+    def _delete_pen_if_current_box(self, expected_box_id: str) -> None:
+        # The workflow currently installs an SDK version that predates the
+        # public expected_current_box_id argument. Keep the request explicit so
+        # the safety fence works before that dependency is bumped.
+        response = self._client._http.delete(
+            f"/v1/pens/{quote(self.name, safe='')}",
+            params={"expected_current_box_id": expected_box_id},
+        )
+        raise_for_status(response)
+
+    def _delete_pen(self) -> None:
+        response = self._client._http.delete(f"/v1/pens/{quote(self.name, safe='')}")
+        raise_for_status(response)
+
+    def _delete_explicit_box(self) -> None:
         try:
-            self._client.delete_pen(self.name)
+            self._client.get(self._box_id).delete()
         except NotFoundError:
             pass
+        except Exception as e:
+            timing.stage(f"warn: couldn't delete explicit box during teardown: {e}")
 
     # --- pen: the stable identity over the box lifecycle ---------------------
     def _ensure_pen(self) -> None:
@@ -488,30 +545,6 @@ class HoglandBackend(PreviewBackend):
         if box_name == self.name:
             return True
         return re.fullmatch(re.escape(self.name) + r"-[0-9a-f]{6}", box_name) is not None
-
-    def _reap_leftovers(self) -> None:
-        """Best-effort delete every OTHER box owned by this preview — corpses from
-        failed attempts of this run (each restore attempt uses a fresh unique
-        name) and from failed runs of the old deterministic-name code. Never
-        touches the just-created box (self._box_id). ALL errors are swallowed —
-        including the list call itself failing — because a reap hiccup must not
-        fail a working preview (provision calls this after the pen is repointed)
-        nor block pen deletion (destroy calls this before delete_pen). The box's
-        own 24h idle TTL is the backstop."""
-        try:
-            leftovers = [
-                v.id
-                for v in self._client.iter_boxes()
-                if v.id != self._box_id and self._name_matches(getattr(v.spec, "name", None))
-            ]
-        except Exception as e:  # noqa: BLE001 — TTL reaper is the backstop
-            timing.stage(f"warn: couldn't list boxes to reap leftovers: {e}")
-            return
-        for box_id in leftovers:
-            try:
-                self._client.get(box_id).delete()
-            except Exception as e:  # noqa: BLE001 — TTL reaper is the backstop
-                timing.stage(f"warn: couldn't reap leftover box {box_id}: {e}")
 
     def _resolve_box(self):
         """Find the box to act on: the live handle, an explicit id, the pen's

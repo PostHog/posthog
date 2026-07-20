@@ -37,6 +37,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class NetlifySource(ResumableSource[NetlifySourceConfig, NetlifyResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://open-api.netlify.com/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -49,7 +52,6 @@ class NetlifySource(ResumableSource[NetlifySourceConfig, NetlifyResumeConfig]):
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Netlify",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Netlify personal access token to sync your Netlify data into the PostHog Data warehouse.
 
 Create a personal access token under **User settings > Applications > Personal access tokens** in the [Netlify UI](https://app.netlify.com/user/applications). The token has full access to the resources your account can reach, so no extra scopes are needed.

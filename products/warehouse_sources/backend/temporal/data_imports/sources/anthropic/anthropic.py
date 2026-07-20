@@ -7,7 +7,7 @@ from urllib.parse import urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -30,7 +30,37 @@ DEFAULT_STARTING_AT = datetime(2023, 1, 1, tzinfo=UTC)
 
 
 class AnthropicRetryableError(Exception):
-    pass
+    def __init__(self, message: str, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        # Seconds the server asked us to wait (from a 429 `Retry-After`), or None to back off blindly.
+        self.retry_after = retry_after
+
+
+# The report endpoints (usage_report/cost_report) are strictly rate limited and return a `Retry-After`
+# on 429. Cap the honored value so a pathological header can't pin the worker; the pipeline retries the
+# activity above us if the window is genuinely longer.
+_MAX_RETRY_AFTER_SECONDS = 60
+_fallback_wait = wait_exponential_jitter(initial=1, max=30)
+
+
+def _parse_retry_after(value: str | None) -> float | None:
+    """Parse a `Retry-After` header expressed as delta-seconds (Anthropic's form). Returns None for a
+    missing, non-numeric, or negative value so the caller falls back to exponential backoff."""
+    if value is None:
+        return None
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        return None
+    return seconds if seconds >= 0 else None
+
+
+def _wait_anthropic(retry_state: RetryCallState) -> float:
+    """Honor the server's `Retry-After` on 429s (capped), else fall back to exponential jitter."""
+    exc = retry_state.outcome.exception() if retry_state.outcome else None
+    if isinstance(exc, AnthropicRetryableError) and exc.retry_after is not None:
+        return min(exc.retry_after, _MAX_RETRY_AFTER_SECONDS)
+    return _fallback_wait(retry_state)
 
 
 @dataclasses.dataclass
@@ -84,14 +114,18 @@ def _build_url(path: str, params: dict[str, Any], multi_params: dict[str, list[s
         )
     ),
     stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
+    wait=_wait_anthropic,
     reraise=True,
 )
 def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> dict:
     response = session.get(url, headers=headers, timeout=60)
 
     if response.status_code == 429 or response.status_code >= 500:
-        raise AnthropicRetryableError(f"Anthropic API error (retryable): status={response.status_code}, url={url}")
+        retry_after = _parse_retry_after(response.headers.get("retry-after")) if response.status_code == 429 else None
+        raise AnthropicRetryableError(
+            f"Anthropic API error (retryable): status={response.status_code}, url={url}",
+            retry_after=retry_after,
+        )
 
     if not response.ok:
         logger.error(f"Anthropic API error: status={response.status_code}, body={response.text}, url={url}")

@@ -244,4 +244,23 @@ describe('llmEvaluationsLogic', () => {
             })
         })
     })
+
+    describe('filteredEvaluations', () => {
+        const enabledEval = evaluationWithKey('eval-enabled', null)
+        const disabledEval = { ...evaluationWithKey('eval-disabled', null), enabled: false }
+
+        it('includes disabled evaluations by default and excludes them when hidden', async () => {
+            logic.actions.loadEvaluationsSuccess([enabledEval, disabledEval])
+
+            await expectLogic(logic).toMatchValues({
+                filteredEvaluations: [enabledEval, disabledEval],
+            })
+
+            logic.actions.setShowDisabledEvaluations(false)
+
+            await expectLogic(logic).toMatchValues({
+                filteredEvaluations: [enabledEval],
+            })
+        })
+    })
 })

@@ -87,7 +87,9 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
     const commonProps = {
         showPersonsModal,
         context,
-        inCardView: embedded && !inSharedMode,
+        // Fill the card in every embedded surface (dashboard tiles and shared/exported insights alike) so the
+        // Metric sparkline stretches and hugs the bottom instead of collapsing to a fixed height mid-card.
+        inCardView: embedded,
         inSharedMode,
     }
 
@@ -163,7 +165,13 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
     return (
         <>
             {series && (
-                <div className={embedded ? 'InsightCard__viz' : `TrendsInsight TrendsInsight--${display}`}>
+                <div
+                    className={
+                        embedded
+                            ? `InsightCard__viz InsightCard__viz--${display}`
+                            : `TrendsInsight TrendsInsight--${display}`
+                    }
+                >
                     <Suspense
                         fallback={
                             <WrappingLoadingSkeleton fullWidth>

@@ -26,21 +26,30 @@ import requests
 import structlog
 import posthoganalytics
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
-from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.exceptions import (
+    AuthenticationFailed,
+    ValidationError as DRFValidationError,
+)
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.authentication import password_reset_token_generator
 from posthog.api.email_verification import EmailVerifier
+from posthog.api.github_callback.team_services import link_github_installation_for_user
 from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
-from posthog.models.integration import GitHubIntegration, StripeIntegration
+from posthog.models.integration import (
+    GitHubInstallationAccessFetchError,
+    GitHubIntegration,
+    Integration,
+    StripeIntegration,
+)
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken, find_oauth_access_token
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
-from posthog.models.user import User
+from posthog.models.user import OnboardingSkippedReason, User
 from posthog.models.utils import (
     generate_random_oauth_access_token,
     generate_random_oauth_refresh_token,
@@ -52,10 +61,13 @@ from posthog.scopes import narrow_scopes_to_ceiling, scopes_within_ceiling
 from posthog.tasks.email import send_provisioning_welcome
 from posthog.utils import get_instance_region
 
+from products.tasks.backend.facade import api as tasks_facade
+
 from ee.settings import BILLING_SERVICE_URL
 
 from . import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX, github_grants
 from .authentication import ProvisioningAuthentication
+from .errors import error_response, typed_error_response
 from .region_proxy import region_proxy
 from .signature import SUPPORTED_VERSIONS, verify_api_version, verify_provisioning_signature
 
@@ -84,13 +96,24 @@ PARTNER_RATE_LIMIT_DEFAULTS: dict[str, int] = {
     "token_exchanges": 20,
     "resource_creates": 20,
     "github_grants": 10,
+    "wizard_runs": 20,
 }
 PARTNER_RATE_LIMIT_EVENT_NAMES: dict[str, str] = {
     "account_requests": "account_request",
     "token_exchanges": "token_exchange",
     "resource_creates": "resource_created",
     "github_grants": "github_grant",
+    "wizard_runs": "wizard_run",
 }
+
+# Per-user wizard-run budget, mirroring the session endpoint's DRF throttles
+# (SetupWizardCloudRunBurstRateThrottle 2/hour, SetupWizardCloudRunSustainedRateThrottle
+# 5/day) which can't run here — the partner path has no session user on the request.
+WIZARD_RUN_USER_RATE_LIMIT_PREFIX = "provisioning_wizard_run_user:"
+WIZARD_RUN_USER_RATE_LIMITS: list[tuple[str, int, int]] = [
+    ("burst", 2, 3600),
+    ("day", 5, 86400),
+]
 
 # Repo-picker polling budget per grant (the website polls while the visitor installs the
 # GitHub App in another tab). Keyed per grant, so one stuck visitor can't starve others.
@@ -311,10 +334,7 @@ def account_requests(request: Request) -> Response:
         if result:
             authenticated_user, partner = result
     except AuthenticationFailed:
-        return Response(
-            {"type": "error", "error": {"code": "unauthorized", "message": "Authentication failed"}},
-            status=401,
-        )
+        return typed_error_response("unauthorized", "Authentication failed", status=401)
 
     if partner is None and auth.cimd_registration_pending:
         return Response(
@@ -328,9 +348,7 @@ def account_requests(request: Request) -> Response:
     email = data.get("email")
     if not email:
         _capture_provisioning_event("account_request", "error", error_code="missing_email")
-        return Response(
-            {"type": "error", "error": {"code": "invalid_request", "message": "email is required"}}, status=400
-        )
+        return typed_error_response("invalid_request", "email is required")
 
     scopes = data.get("scopes", [])
     confirmation_secret = data.get("confirmation_secret", "")
@@ -344,10 +362,7 @@ def account_requests(request: Request) -> Response:
         expires_at = parse_datetime(expires_at_str)
         if expires_at and expires_at < timezone.now():
             _capture_provisioning_event("account_request", "error", error_code="expired")
-            return Response(
-                {"type": "error", "error": {"code": "expired", "message": "Account request has expired"}},
-                status=400,
-            )
+            return typed_error_response("expired", "Account request has expired")
 
     # Partner account ID: generic field, with Stripe backward compat
     orchestrator_type = orchestrator.get("type", "")
@@ -359,10 +374,7 @@ def account_requests(request: Request) -> Response:
 
     # If no partner identified, require Stripe Projects HMAC auth
     if not partner and not request.headers.get("stripe-signature"):
-        return Response(
-            {"type": "error", "error": {"code": "unauthorized", "message": "Authentication required"}},
-            status=401,
-        )
+        return typed_error_response("unauthorized", "Authentication required", status=401)
 
     if not partner:
         if error := _verify_hmac_if_present(request):
@@ -371,24 +383,12 @@ def account_requests(request: Request) -> Response:
     # Stripe Projects: require stripe account if no provisioning partner identified
     if not partner and not partner_account_id:
         _capture_provisioning_event("account_request", "error", error_code="missing_stripe_account")
-        return Response(
-            {
-                "type": "error",
-                "error": {"code": "invalid_request", "message": "orchestrator.stripe.account is required"},
-            },
-            status=400,
-        )
+        return typed_error_response("invalid_request", "orchestrator.stripe.account is required")
 
     # Check permission
     if partner and not partner.provisioning_can_create_accounts:
         _capture_provisioning_event("account_request", "error", error_code="account_creation_disabled")
-        return Response(
-            {
-                "type": "error",
-                "error": {"code": "forbidden", "message": "Account creation is not enabled for this partner"},
-            },
-            status=403,
-        )
+        return typed_error_response("forbidden", "Account creation is not enabled for this partner", status=403)
 
     if partner and (error := _enforce_partner_rate_limit(partner, "account_requests")):
         return error
@@ -397,25 +397,12 @@ def account_requests(request: Request) -> Response:
     code_challenge = data.get("code_challenge", "")
     code_challenge_method = data.get("code_challenge_method", "S256")
     if code_challenge and code_challenge_method != "S256":
-        return Response(
-            {
-                "type": "error",
-                "error": {"code": "invalid_request", "message": "Only S256 code_challenge_method is supported"},
-            },
-            status=400,
-        )
+        return typed_error_response("invalid_request", "Only S256 code_challenge_method is supported")
     if code_challenge and (
         len(code_challenge) < 43 or len(code_challenge) > 128 or not re.fullmatch(r"[A-Za-z0-9_\-]+", code_challenge)
     ):
-        return Response(
-            {
-                "type": "error",
-                "error": {
-                    "code": "invalid_request",
-                    "message": "code_challenge must be 43-128 characters using base64url charset",
-                },
-            },
-            status=400,
+        return typed_error_response(
+            "invalid_request", "code_challenge must be 43-128 characters using base64url charset"
         )
 
     region = (configuration.get("region") or "US").upper()
@@ -425,13 +412,8 @@ def account_requests(request: Request) -> Response:
         try:
             requested_team_id = int(requested_team_id)
         except (ValueError, TypeError):
-            return Response(
-                {
-                    "id": request_id,
-                    "type": "error",
-                    "error": {"code": "invalid_request", "message": "configuration.team_id must be an integer"},
-                },
-                status=400,
+            return typed_error_response(
+                "invalid_request", "configuration.team_id must be an integer", request_id=request_id
             )
 
     existing_user = User.objects.filter(email=email).first()
@@ -539,25 +521,14 @@ def _handle_existing_user(
 
     if partner and (not partner.provisioning_skip_existing_user_consent or silent_blocked):
         if not code_challenge:
-            return Response(
-                {
-                    "id": request_id,
-                    "type": "error",
-                    "error": {"code": "invalid_request", "message": "code_challenge is required for public clients"},
-                },
-                status=400,
+            return typed_error_response(
+                "invalid_request", "code_challenge is required for public clients", request_id=request_id
             )
         if not scopes_within_ceiling(scopes, partner.ceiling_scopes):
-            return Response(
-                {
-                    "id": request_id,
-                    "type": "error",
-                    "error": {
-                        "code": "invalid_scope",
-                        "message": "One or more requested scopes exceed the application's allowed scopes",
-                    },
-                },
-                status=400,
+            return typed_error_response(
+                "invalid_scope",
+                "One or more requested scopes exceed the application's allowed scopes",
+                request_id=request_id,
             )
         return _require_user_consent(
             request_id,
@@ -573,13 +544,8 @@ def _handle_existing_user(
     team = _resolve_team_for_existing_user(user, team_id)
     if team is None:
         _capture_provisioning_event("account_request", "error", error_code="team_resolution_failed")
-        return Response(
-            {
-                "id": request_id,
-                "type": "error",
-                "error": {"code": "team_resolution_failed", "message": "Could not resolve a project for this user"},
-            },
-            status=400,
+        return typed_error_response(
+            "team_resolution_failed", "Could not resolve a project for this user", request_id=request_id
         )
 
     code = secrets.token_urlsafe(32)
@@ -736,13 +702,8 @@ def _handle_new_user(
                 authenticated_user,
             )
         _capture_provisioning_event("account_request", "creation_failed", region=region)
-        return Response(
-            {
-                "id": request_id,
-                "type": "error",
-                "error": {"code": "account_creation_failed", "message": "Failed to create account"},
-            },
-            status=500,
+        return typed_error_response(
+            "account_creation_failed", "Failed to create account", request_id=request_id, status=500
         )
 
     _capture_provisioning_event(
@@ -766,9 +727,29 @@ def _handle_new_user(
         org_analytics_metadata=organization.get_analytics_metadata(),
     )
 
+    # Optional drop-flow wizard block: link the GitHub grant to the bootstrap team and
+    # enqueue a cloud wizard run in the same call. A wizard failure never fails the
+    # request — the account exists, so the partner gets the account plus a structured
+    # wizard.error and retries via the granular resource actions. Partners that don't
+    # send a wizard block are unaffected (no wizard key, unchanged email behavior).
+    # Grants are region-local, so this request must hit the region that minted the grant.
+    wizard_config = configuration.get("wizard")
+    wizard_payload: dict[str, Any] | None = None
+    if isinstance(wizard_config, dict) and partner is not None:
+        wizard_payload = _process_wizard_block(partner=partner, user=user, team=team, wizard_config=wizard_config)
+
+    # Queued after the wizard block so the "we're setting up your repo" email only
+    # sends once the run actually exists; the email still goes out (without the
+    # repository paragraph) when the wizard block failed, since the account is real.
     try:
         reset_token = password_reset_token_generator.make_token(user)
-        send_provisioning_welcome.delay(user.id, reset_token, partner_label)
+        wizard_repository: str | None = None
+        if wizard_payload is not None and "error" not in wizard_payload and isinstance(wizard_config, dict):
+            wizard_repository = str(wizard_config.get("repository"))
+        if wizard_repository:
+            send_provisioning_welcome.delay(user.id, reset_token, partner_label, repository=wizard_repository)
+        else:
+            send_provisioning_welcome.delay(user.id, reset_token, partner_label)
     except Exception:
         capture_exception(additional_properties={"user_id": user.id, "step": "provisioning_welcome_email"})
 
@@ -791,7 +772,59 @@ def _handle_new_user(
         timeout=AUTH_CODE_TTL_SECONDS,
     )
 
-    return Response({"id": request_id, "type": "oauth", "oauth": {"code": code}})
+    response_body: dict[str, Any] = {"id": request_id, "type": "oauth", "oauth": {"code": code}}
+    if wizard_payload is not None:
+        response_body["wizard"] = wizard_payload
+    return Response(response_body)
+
+
+def _process_wizard_block(*, partner: OAuthApplication, user: User, team: Team, wizard_config: dict) -> dict[str, Any]:
+    """Run the bundled drop flow for a freshly bootstrapped account: link the GitHub
+    grant to the team, then enqueue the cloud wizard run.
+
+    Never raises — returns either the run payload ({task_id, run_id, status}) or
+    {"error": {code, message}} for the partner to branch on and retry granularly.
+    """
+    try:
+        grant_id = wizard_config.get("grant_id")
+        installation_id = wizard_config.get("installation_id")
+        repository = wizard_config.get("repository")
+        if not grant_id or not installation_id or not repository:
+            return {
+                "error": {
+                    "code": "invalid_request",
+                    "message": "wizard requires grant_id, installation_id and repository",
+                }
+            }
+
+        error, _integration, _already_linked = _link_github_grant_to_team(
+            partner=partner,
+            user=user,
+            team=team,
+            grant_id=str(grant_id),
+            installation_id=str(installation_id),
+        )
+        if error is not None:
+            return {"error": error.data.get("error", {"code": "invalid_request", "message": "GitHub link failed"})}
+
+        error, run_payload = _create_wizard_run(
+            partner=partner,
+            user_id=user.id,
+            team=team,
+            repository=str(repository),
+            branch=str(wizard_config.get("branch") or "") or None,
+        )
+        if error is not None:
+            return {
+                "error": error.data.get(
+                    "error", {"code": "run_creation_failed", "message": "Failed to start the wizard run"}
+                )
+            }
+        assert run_payload is not None
+        return dict(run_payload)
+    except Exception:
+        capture_exception(additional_properties={"team_id": team.id, "step": "account_requests_wizard_block"})
+        return {"error": {"code": "run_creation_failed", "message": "Unexpected error starting the wizard run"}}
 
 
 def _build_authorize_url(confirmation_secret: str, scopes: list[str], region: str = "") -> str:
@@ -827,21 +860,12 @@ def _authenticate_provisioning_partner(request: Request) -> tuple[Response | Non
     partner = result[1] if result else None
     if partner is None:
         return (
-            Response(
-                {"type": "error", "error": {"code": "unauthorized", "message": "Authentication required"}},
-                status=401,
-            ),
+            typed_error_response("unauthorized", "Authentication required", status=401),
             None,
         )
     if partner.provisioning_auth_method not in ("hmac", "bearer"):
         return (
-            Response(
-                {
-                    "type": "error",
-                    "error": {"code": "forbidden", "message": "This endpoint requires a confidential partner"},
-                },
-                status=403,
-            ),
+            typed_error_response("forbidden", "This endpoint requires a confidential partner", status=403),
             None,
         )
     return None, partner
@@ -860,13 +884,7 @@ def github_grants_create(request: Request) -> Response:
 
     if not partner.provisioning_can_create_accounts:
         _capture_provisioning_event("github_grant", "error", partner=partner, error_code="account_creation_disabled")
-        return Response(
-            {
-                "type": "error",
-                "error": {"code": "forbidden", "message": "Account creation is not enabled for this partner"},
-            },
-            status=403,
-        )
+        return typed_error_response("forbidden", "Account creation is not enabled for this partner", status=403)
 
     if error := _enforce_partner_rate_limit(partner, "github_grants"):
         return error
@@ -875,9 +893,7 @@ def github_grants_create(request: Request) -> Response:
     redirect_uri = request.data.get("redirect_uri") or None
     if not code or not isinstance(code, str):
         _capture_provisioning_event("github_grant", "error", partner=partner, error_code="missing_code")
-        return Response(
-            {"type": "error", "error": {"code": "invalid_request", "message": "code is required"}}, status=400
-        )
+        return typed_error_response("invalid_request", "code is required")
 
     try:
         authorization = GitHubIntegration.github_user_from_code(code, redirect_uri=redirect_uri)
@@ -885,22 +901,10 @@ def github_grants_create(request: Request) -> Response:
         # Network failure or a non-JSON GitHub error body raising through .json() — retryable,
         # distinct from a clean "bad code" exchange failure (which returns None below).
         _capture_provisioning_event("github_grant", "error", partner=partner, error_code="github_unavailable")
-        return Response(
-            {"type": "error", "error": {"code": "github_unavailable", "message": "GitHub request failed"}},
-            status=502,
-        )
+        return typed_error_response("github_unavailable", "GitHub request failed", status=502)
     if authorization is None:
         _capture_provisioning_event("github_grant", "error", partner=partner, error_code="github_exchange_failed")
-        return Response(
-            {
-                "type": "error",
-                "error": {
-                    "code": "github_exchange_failed",
-                    "message": "Could not exchange the GitHub OAuth code",
-                },
-            },
-            status=502,
-        )
+        return typed_error_response("github_exchange_failed", "Could not exchange the GitHub OAuth code", status=502)
 
     # A user with no verified email gets a grant with email=null — the partner
     # collects an email inline instead. Only an access refusal (App permission
@@ -909,22 +913,10 @@ def github_grants_create(request: Request) -> Response:
         email = github_grants.fetch_primary_email(authorization.access_token)
     except github_grants.GitHubEmailAccessDenied:
         _capture_provisioning_event("github_grant", "error", partner=partner, error_code="email_unavailable")
-        return Response(
-            {
-                "type": "error",
-                "error": {
-                    "code": "email_unavailable",
-                    "message": "GitHub denied reading the user's email addresses",
-                },
-            },
-            status=502,
-        )
+        return typed_error_response("email_unavailable", "GitHub denied reading the user's email addresses", status=502)
     except requests.RequestException:
         _capture_provisioning_event("github_grant", "error", partner=partner, error_code="github_unavailable")
-        return Response(
-            {"type": "error", "error": {"code": "github_unavailable", "message": "GitHub request failed"}},
-            status=502,
-        )
+        return typed_error_response("github_unavailable", "GitHub request failed", status=502)
 
     grant = github_grants.create_grant(partner, authorization, email)
     _capture_provisioning_event("github_grant", "created", partner=partner, gh_login=grant.gh_login)
@@ -947,12 +939,8 @@ def _enforce_grant_poll_rate_limit(grant_id: str) -> Response | None:
     except (ValueError, ConnectionError, TimeoutError):
         count = 1
     if count > GITHUB_GRANT_POLL_RATE_LIMIT_MAX:
-        response = Response(
-            {
-                "type": "error",
-                "error": {"code": "rate_limited", "message": "Too many repository listing requests for this grant"},
-            },
-            status=429,
+        response = typed_error_response(
+            "rate_limited", "Too many repository listing requests for this grant", status=429
         )
         response["Retry-After"] = str(
             GITHUB_GRANT_POLL_RATE_LIMIT_WINDOW_SECONDS
@@ -975,10 +963,7 @@ def github_grant_repositories(request: Request, grant_id: str) -> Response:
 
     grant = github_grants.load_grant(grant_id, partner)
     if grant is None:
-        return Response(
-            {"type": "error", "error": {"code": "grant_not_found", "message": "Grant not found or expired"}},
-            status=404,
-        )
+        return typed_error_response("grant_not_found", "Grant not found or expired", status=404)
 
     if error := _enforce_grant_poll_rate_limit(grant_id):
         return error
@@ -987,10 +972,7 @@ def github_grant_repositories(request: Request, grant_id: str) -> Response:
         listing = github_grants.list_installations_and_repositories(grant.access_token)
     except requests.RequestException:
         _capture_provisioning_event("github_grant", "listing_failed", partner=partner)
-        return Response(
-            {"type": "error", "error": {"code": "github_unavailable", "message": "GitHub request failed"}},
-            status=502,
-        )
+        return typed_error_response("github_unavailable", "GitHub request failed", status=502)
 
     return Response({"gh_login": grant.gh_login, **listing})
 
@@ -1959,7 +1941,7 @@ def provisioning_resources_create(request: Request) -> Response:
         if error := _enforce_partner_rate_limit(app, "resource_creates"):
             # Resource endpoints use {"status": "error"} envelope, not {"type": "error"}
             retry_after = error["Retry-After"] if "Retry-After" in error else "3600"
-            response = _error_response(
+            response = error_response(
                 "rate_limited", "Rate limit exceeded for this partner. Try again later.", status=429
             )
             response["Retry-After"] = retry_after
@@ -1968,19 +1950,19 @@ def provisioning_resources_create(request: Request) -> Response:
     service_id = request.data.get("service_id", "")
     if service_id and service_id not in VALID_SERVICE_IDS:
         _capture_provisioning_event("resource_created", "error", partner=app, error_code="unknown_service")
-        return _error_response("unknown_service", f"Unknown service_id: {service_id}")
+        return error_response("unknown_service", f"Unknown service_id: {service_id}")
 
     try:
         label_prefix = _extract_label_prefix(request)
     except _InvalidLabelPrefixError as exc:
         _capture_provisioning_event("resource_created", "error", partner=app, error_code="invalid_label_prefix")
-        return _error_response("invalid_label_prefix", str(exc))
+        return error_response("invalid_label_prefix", str(exc))
 
     scoped_teams = access_token.scoped_teams or []
 
     if not scoped_teams:
         _capture_provisioning_event("resource_created", "error", partner=app, error_code="no_team")
-        return _error_response("no_team", "No team associated with this token")
+        return error_response("no_team", "No team associated with this token")
 
     project_id = request.data.get("project_id", "")
     configuration = request.data.get("configuration") or {}
@@ -1994,7 +1976,7 @@ def provisioning_resources_create(request: Request) -> Response:
             _capture_provisioning_event(
                 "resource_created", "error", partner=app, error_code="project_id_conflict", project_id=project_id
             )
-            return _error_response(
+            return error_response(
                 "project_id_conflict",
                 "Project ID already linked to another organization",
                 status=409,
@@ -2003,7 +1985,7 @@ def provisioning_resources_create(request: Request) -> Response:
             _capture_provisioning_event(
                 "resource_created", "error", partner=app, error_code="not_found", project_id=project_id
             )
-            return _error_response("not_found", "Resource not found", status=404)
+            return error_response("not_found", "Resource not found", status=404)
     else:
         team_id = scoped_teams[0]
         try:
@@ -2012,7 +1994,7 @@ def provisioning_resources_create(request: Request) -> Response:
             _capture_provisioning_event(
                 "resource_created", "error", partner=app, error_code="team_not_found", team_id=team_id
             )
-            return _error_response("team_not_found", "Team not found", resource_id=str(team_id), status=404)
+            return error_response("team_not_found", "Team not found", resource_id=str(team_id), status=404)
 
     resolved_service_id = service_id or ANALYTICS_SERVICE_ID
     _set_provisioning_service_id(team, resolved_service_id)
@@ -2050,7 +2032,7 @@ def provisioning_resources_create(request: Request) -> Response:
             service_id=resolved_service_id,
             team_id=team.id,
         )
-        return _error_response("requires_payment_credentials", "Payment credentials required for paid plan")
+        return error_response("requires_payment_credentials", "Payment credentials required for paid plan")
 
     region = get_instance_region() or "US"
     host = _region_to_host(region)
@@ -2122,24 +2104,24 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
         label_prefix = _extract_label_prefix(request)
     except _InvalidLabelPrefixError as exc:
         _capture_provisioning_event("credential_rotation", "error", error_code="invalid_label_prefix")
-        return _error_response("invalid_label_prefix", str(exc), resource_id=resource_id)
+        return error_response("invalid_label_prefix", str(exc), resource_id=resource_id)
 
     scoped_teams = access_token.scoped_teams or []
 
     try:
         team_id = int(resource_id)
     except (ValueError, TypeError):
-        return _error_response("invalid_resource_id", "Invalid resource ID", resource_id=resource_id)
+        return error_response("invalid_resource_id", "Invalid resource ID", resource_id=resource_id)
 
     if team_id not in scoped_teams:
-        return _error_response(
+        return error_response(
             "forbidden", "Resource not accessible with this token", resource_id=resource_id, status=403
         )
 
     try:
         team = Team.objects.get(id=team_id)
     except Team.DoesNotExist:
-        return _error_response("not_found", "Resource not found", resource_id=resource_id, status=404)
+        return error_response("not_found", "Resource not found", resource_id=resource_id, status=404)
 
     try:
         # Bearer flow resolves the token outside DRF, so read impersonation off the token directly.
@@ -2147,7 +2129,7 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
     except Exception:
         capture_exception(additional_properties={"team_id": team_id})
         _capture_provisioning_event("credential_rotation", "failed", team_id=team_id)
-        return _error_response(
+        return error_response(
             "credential_rotation_failed", "Failed to rotate credentials", resource_id=resource_id, status=500
         )
 
@@ -2179,6 +2161,341 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
 
 
 # ---------------------------------------------------------------------------
+# POST /provisioning/resources/:id/github_integration
+# POST /provisioning/resources/:id/wizard_runs
+# Drop-flow resource actions: link a GitHub installation to the team from a
+# stored grant, then kick off a cloud wizard run against a repository.
+# ---------------------------------------------------------------------------
+
+
+def _drf_validation_error_code(exc: DRFValidationError) -> str | None:
+    codes = exc.get_codes()
+    if isinstance(codes, list) and codes:
+        return str(codes[0])
+    if isinstance(codes, str):
+        return codes
+    return None
+
+
+def _apply_provisioned_onboarding_flags(user: User, team: Team) -> None:
+    """Keep the app from routing a partner-provisioned account into onboarding on first
+    login. Only applied to unclaimed accounts (never logged in, no password set) so an
+    existing user going through the consent path keeps their onboarding state."""
+    # Bootstrapped accounts store password="" (create_user skips set_password when the
+    # password is None), which Django counts as *usable* — treat it as no password.
+    has_password = bool(user.password) and user.has_usable_password()
+    if user.last_login is not None or has_password:
+        return
+    if user.onboarding_skipped_at is None:
+        user.onboarding_skipped_at = timezone.now()
+    user.onboarding_skipped_reason = OnboardingSkippedReason.PROVISIONED
+    user.onboarding_skipped_organization_id = team.organization_id
+    user.save(
+        update_fields=["onboarding_skipped_at", "onboarding_skipped_reason", "onboarding_skipped_organization_id"]
+    )
+    if not team.completed_snippet_onboarding:
+        team.completed_snippet_onboarding = True
+        team.save(update_fields=["completed_snippet_onboarding"])
+
+
+def _link_github_grant_to_team(
+    *, partner: OAuthApplication, user: User, team: Team, grant_id: str, installation_id: str
+) -> tuple[Response | None, Integration | None, bool]:
+    """Shared core of the github_integration action and the account_requests wizard
+    block: validate the grant, verify installation ownership, create both GitHub
+    records, consume the grant. Returns (error_response, integration, already_linked).
+    """
+    grant = github_grants.load_grant(grant_id, partner)
+    if grant is None:
+        # Idempotent retry: the grant is consumed on success, so a retry after a lost
+        # response must not fail if the installation is already linked to this team.
+        existing = Integration.objects.first_github_for_team_installation(team.id, str(installation_id))
+        if existing is not None:
+            # Re-apply onboarding flags idempotently: the grant is consumed as the last step,
+            # so a crash between consume and the flag write would otherwise leave them unset
+            # on a retry (this branch runs only once the grant is already gone).
+            _apply_provisioned_onboarding_flags(user, team)
+            return None, existing, True
+        _capture_provisioning_event("github_integration", "error", partner=partner, error_code="grant_not_found")
+        return (
+            error_response("grant_not_found", "Grant not found or expired", resource_id=str(team.id), status=404),
+            None,
+            False,
+        )
+
+    try:
+        integration = link_github_installation_for_user(
+            user=user, team_id=team.id, installation_id=str(installation_id), authorization=grant.to_authorization()
+        )
+    except DRFValidationError as exc:
+        code = _drf_validation_error_code(exc)
+        if code == "installation_access_denied":
+            _capture_provisioning_event("github_integration", "error", partner=partner, error_code=code)
+            return (
+                error_response(
+                    "installation_access_denied",
+                    "The GitHub user does not have access to this installation",
+                    resource_id=str(team.id),
+                    status=403,
+                ),
+                None,
+                False,
+            )
+        if code == "installation_verify_failed":
+            _capture_provisioning_event("github_integration", "error", partner=partner, error_code=code)
+            return (
+                error_response(
+                    "installation_verify_failed",
+                    "Could not verify installation access with GitHub",
+                    resource_id=str(team.id),
+                    status=502,
+                ),
+                None,
+                False,
+            )
+        _capture_provisioning_event("github_integration", "error", partner=partner, error_code="invalid_request")
+        return (
+            error_response("invalid_request", str(exc.detail), resource_id=str(team.id), status=400),
+            None,
+            False,
+        )
+    except GitHubInstallationAccessFetchError:
+        _capture_provisioning_event(
+            "github_integration", "error", partner=partner, error_code="integration_creation_failed"
+        )
+        return (
+            error_response(
+                "integration_creation_failed",
+                "Could not create the GitHub integration",
+                resource_id=str(team.id),
+                status=502,
+            ),
+            None,
+            False,
+        )
+
+    github_grants.consume_grant(grant_id)
+    _apply_provisioned_onboarding_flags(user, team)
+    _capture_provisioning_event("github_integration", "success", partner=partner, team_id=team.id)
+    return None, integration, False
+
+
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([])
+@region_proxy(strategy="bearer_lookup")
+def provisioning_github_integration(request: Request, resource_id: str) -> Response:
+    auth_error, user, access_token = _authenticate_bearer(request)
+    if auth_error:
+        return auth_error
+
+    if error := _verify_hmac_if_present(request):
+        return error
+    if error := verify_api_version(request):
+        return error
+
+    try:
+        team_id = int(resource_id)
+    except (ValueError, TypeError):
+        return error_response("invalid_resource_id", "Invalid resource ID", resource_id=resource_id)
+
+    if team_id not in (access_token.scoped_teams or []):
+        return error_response(
+            "forbidden", "Resource not accessible with this token", resource_id=resource_id, status=403
+        )
+
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist:
+        return error_response("not_found", "Resource not found", resource_id=resource_id, status=404)
+
+    grant_id = request.data.get("grant_id")
+    installation_id = request.data.get("installation_id")
+    if not grant_id or not installation_id:
+        return error_response("invalid_request", "grant_id and installation_id are required", resource_id=resource_id)
+
+    error, integration, already_linked = _link_github_grant_to_team(
+        partner=access_token.application,
+        user=user,
+        team=team,
+        grant_id=str(grant_id),
+        installation_id=str(installation_id),
+    )
+    if error:
+        return error
+    assert integration is not None
+
+    return Response(
+        {
+            "status": "complete",
+            "id": resource_id,
+            "github_integration": {
+                "integration_id": str(integration.id),
+                "gh_login": (integration.config or {}).get("connecting_user_github_login"),
+                "already_linked": already_linked,
+            },
+        }
+    )
+
+
+def _enforce_wizard_run_user_rate_limit(user_id: int) -> Response | None:
+    """Cache-counter equivalent of the session cloud_run endpoint's per-user throttles;
+    shared across the granular wizard_runs action and the bundled account_requests path
+    so retries can't double-spend the budget."""
+    for label, limit, window_seconds in WIZARD_RUN_USER_RATE_LIMITS:
+        window_index = int(time.time()) // window_seconds
+        key = f"{WIZARD_RUN_USER_RATE_LIMIT_PREFIX}{label}:{user_id}:{window_index}"
+        try:
+            cache.add(key, 0, timeout=window_seconds)
+            count = cache.incr(key)
+        except (ValueError, ConnectionError, TimeoutError):
+            count = 1
+        if count > limit:
+            response = Response(
+                {
+                    "status": "error",
+                    "error": {"code": "rate_limited", "message": "Too many wizard runs for this user. Try later."},
+                },
+                status=429,
+            )
+            response["Retry-After"] = str(window_seconds - (int(time.time()) % window_seconds))
+            return response
+    return None
+
+
+def _create_wizard_run(
+    *, partner: OAuthApplication, user_id: int, team: Team, repository: str, branch: str | None
+) -> tuple[Response | None, dict[str, str] | None]:
+    """Gate + throttle + create a cloud wizard run. Returns (error_response, run_payload)."""
+    if not bool(settings.WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID):
+        _capture_provisioning_event("wizard_run", "error", partner=partner, error_code="wizard_unavailable")
+        return (
+            error_response(
+                "wizard_unavailable",
+                "Running the setup wizard in the cloud is not available",
+                resource_id=str(team.id),
+                status=503,
+            ),
+            None,
+        )
+
+    repository = (repository or "").strip()
+    parts = repository.split("/")
+    if len(parts) != 2 or not all(parts):
+        return (
+            error_response("invalid_request", "repository must be in 'owner/repo' format", resource_id=str(team.id)),
+            None,
+        )
+
+    if error := _enforce_wizard_run_user_rate_limit(user_id):
+        return error, None
+    if error := _enforce_partner_rate_limit(partner, "wizard_runs"):
+        return error, None
+
+    # Verifying the grant user owns the installation doesn't prove the installation can
+    # reach the requested repo — a valid grant for one installation could otherwise report
+    # wizard success for an owner/repo it can't operate on. Fail fast instead (after the
+    # rate limits, so this GitHub call can't be used as an unthrottled probe).
+    if GitHubIntegration.first_for_team_repository(team.id, repository, source="integration") is None:
+        _capture_provisioning_event(
+            "wizard_run", "error", partner=partner, error_code="github_integration_required", team_id=team.id
+        )
+        return (
+            error_response(
+                "github_integration_required",
+                "The team does not have a GitHub integration that can access this repository",
+                resource_id=str(team.id),
+                status=400,
+            ),
+            None,
+        )
+
+    try:
+        created = tasks_facade.create_wizard_cloud_run(
+            team=team, user_id=user_id, repository=repository, branch=branch or None
+        )
+    except ValueError:
+        # The facade raises when the team has no usable GitHub integration.
+        _capture_provisioning_event(
+            "wizard_run", "error", partner=partner, error_code="github_integration_required", team_id=team.id
+        )
+        return (
+            error_response(
+                "github_integration_required",
+                "The team does not have a GitHub integration that can access this repository",
+                resource_id=str(team.id),
+                status=400,
+            ),
+            None,
+        )
+    except Exception:
+        capture_exception(additional_properties={"team_id": team.id, "step": "provisioning_wizard_run"})
+        _capture_provisioning_event(
+            "wizard_run", "error", partner=partner, error_code="run_creation_failed", team_id=team.id
+        )
+        return (
+            error_response(
+                "run_creation_failed", "Failed to start the wizard run", resource_id=str(team.id), status=500
+            ),
+            None,
+        )
+
+    run = created.latest_run
+    _capture_provisioning_event("wizard_run", "success", partner=partner, team_id=team.id, task_id=str(created.task_id))
+    return None, {
+        "task_id": str(created.task_id),
+        "run_id": str(run.id) if run else "",
+        "status": str(run.status) if run else "queued",
+    }
+
+
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([])
+@region_proxy(strategy="bearer_lookup")
+def provisioning_wizard_runs(request: Request, resource_id: str) -> Response:
+    auth_error, user, access_token = _authenticate_bearer(request)
+    if auth_error:
+        return auth_error
+
+    if error := _verify_hmac_if_present(request):
+        return error
+    if error := verify_api_version(request):
+        return error
+
+    try:
+        team_id = int(resource_id)
+    except (ValueError, TypeError):
+        return error_response("invalid_resource_id", "Invalid resource ID", resource_id=resource_id)
+
+    if team_id not in (access_token.scoped_teams or []):
+        return error_response(
+            "forbidden", "Resource not accessible with this token", resource_id=resource_id, status=403
+        )
+
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist:
+        return error_response("not_found", "Resource not found", resource_id=resource_id, status=404)
+
+    repository = request.data.get("repository")
+    if not repository:
+        return error_response("invalid_request", "repository is required", resource_id=resource_id)
+
+    error, run_payload = _create_wizard_run(
+        partner=access_token.application,
+        user_id=user.id,
+        team=team,
+        repository=str(repository),
+        branch=request.data.get("branch") or None,
+    )
+    if error:
+        return error
+
+    return Response({"status": "complete", "id": resource_id, "wizard_run": run_payload})
+
+
+# ---------------------------------------------------------------------------
 # POST /provisioning/resources/:id/update_service
 # ---------------------------------------------------------------------------
 
@@ -2203,17 +2520,17 @@ def provisioning_update_service(request: Request, resource_id: str) -> Response:
     try:
         team_id = int(resource_id)
     except (ValueError, TypeError):
-        return _error_response("invalid_resource_id", "Invalid resource ID", resource_id=resource_id)
+        return error_response("invalid_resource_id", "Invalid resource ID", resource_id=resource_id)
 
     if team_id not in scoped_teams:
-        return _error_response(
+        return error_response(
             "forbidden", "Resource not accessible with this token", resource_id=resource_id, status=403
         )
 
     try:
         team = Team.objects.get(id=team_id)
     except Team.DoesNotExist:
-        return _error_response("not_found", "Resource not found", resource_id=resource_id, status=404)
+        return error_response("not_found", "Resource not found", resource_id=resource_id, status=404)
 
     # A config with a non-null application belongs to the partner that provisioned
     # it; a null application is unclaimed (every team gets one by default) and is
@@ -2222,15 +2539,15 @@ def provisioning_update_service(request: Request, resource_id: str) -> Response:
         TeamProvisioningConfig.objects.filter(team_id=team_id).values_list("application_id", flat=True).first()
     )
     if owning_application_id is not None and owning_application_id != access_token.application_id:
-        return _error_response(
+        return error_response(
             "forbidden", "Resource owned by a different provisioning partner", resource_id=resource_id, status=403
         )
 
     service_id = request.data.get("service_id", "")
     if not service_id:
-        return _error_response("missing_service_id", "service_id is required", resource_id=resource_id)
+        return error_response("missing_service_id", "service_id is required", resource_id=resource_id)
     if service_id not in VALID_SERVICE_IDS:
-        return _error_response("unknown_service", f"Unknown service_id: {service_id}", resource_id=resource_id)
+        return error_response("unknown_service", f"Unknown service_id: {service_id}", resource_id=resource_id)
 
     billing_result = _try_activate_billing_with_spt(request, team, user)
     has_spt = billing_result is not None
@@ -2243,7 +2560,7 @@ def provisioning_update_service(request: Request, resource_id: str) -> Response:
             team_id=team_id,
             has_spt=has_spt,
         )
-        return _error_response(
+        return error_response(
             "billing_activation_failed",
             "Failed to activate billing with payment credentials",
             resource_id=resource_id,
@@ -2253,7 +2570,7 @@ def provisioning_update_service(request: Request, resource_id: str) -> Response:
         _capture_provisioning_event(
             "update_service", "error", error_code="requires_payment_credentials", service_id=service_id, team_id=team_id
         )
-        return _error_response(
+        return error_response(
             "requires_payment_credentials", "Payment credentials required for paid plan", resource_id=resource_id
         )
 
@@ -2496,7 +2813,7 @@ def deep_links(request: Request) -> Response:
     # is not sufficient to mint a full web session via the deep-link primitive.
     if access_token.application.provisioning_auth_method == "hmac":
         if not request.META.get("HTTP_STRIPE_SIGNATURE"):
-            return _error_response(
+            return error_response(
                 "hmac_signature_required",
                 "HMAC signature required for this partner",
                 status=401,
@@ -2511,7 +2828,7 @@ def deep_links(request: Request) -> Response:
 
     if not access_token.application.provisioning_can_issue_deep_links:
         _capture_provisioning_event("deep_link_created", "not_enabled", partner=access_token.application)
-        return _error_response(
+        return error_response(
             "deep_links_not_enabled",
             "Deep links are not enabled for this partner",
             status=403,
@@ -2525,7 +2842,7 @@ def deep_links(request: Request) -> Response:
         _capture_provisioning_event(
             "deep_link_created", "invalid_path", partner=access_token.application, purpose=purpose
         )
-        return _error_response(
+        return error_response(
             "invalid_path",
             "path must be a relative in-app path beginning with a single '/'",
             status=400,
@@ -2625,15 +2942,8 @@ def _enforce_partner_rate_limit(partner: OAuthApplication, endpoint: str) -> Res
         event_name = PARTNER_RATE_LIMIT_EVENT_NAMES.get(endpoint, endpoint)
         _capture_provisioning_event(event_name, "rate_limited", partner=partner, limit=limit, count=count)
         retry_after = PARTNER_RATE_LIMIT_WINDOW_SECONDS - (int(time.time()) % PARTNER_RATE_LIMIT_WINDOW_SECONDS)
-        response = Response(
-            {
-                "type": "error",
-                "error": {
-                    "code": "rate_limited",
-                    "message": f"Rate limit exceeded for this partner ({endpoint}). Try again later.",
-                },
-            },
-            status=429,
+        response = typed_error_response(
+            "rate_limited", f"Rate limit exceeded for this partner ({endpoint}). Try again later.", status=429
         )
         response["Retry-After"] = str(retry_after)
         return response
@@ -2654,15 +2964,8 @@ def _enforce_cimd_registration_throttle(request: Request) -> Response | None:
         throttle = throttle_cls()
         if not throttle.allow_request(request, view=None):  # type: ignore[arg-type]
             logger.warning("cimd_rate_limited", client_id=client_id, scope=throttle.scope, wait=throttle.wait())
-            return Response(
-                {
-                    "type": "error",
-                    "error": {
-                        "code": "rate_limited",
-                        "message": "Too many new client registrations. Try again later.",
-                    },
-                },
-                status=429,
+            return typed_error_response(
+                "rate_limited", "Too many new client registrations. Try again later.", status=429
             )
 
     if error := _enforce_cimd_domain_rate_limit(cast(str, client_id)):
@@ -2690,15 +2993,8 @@ def _enforce_cimd_domain_rate_limit(client_id: str) -> Response | None:
     if count > CIMD_DOMAIN_RATE_LIMIT_MAX:
         logger.warning("cimd_domain_rate_limited", client_id=client_id, domain=domain, count=count)
         _capture_provisioning_event("account_request", "cimd_domain_rate_limited", domain=domain, count=count)
-        return Response(
-            {
-                "type": "error",
-                "error": {
-                    "code": "rate_limited",
-                    "message": "Too many new client registrations from this domain. Try again later.",
-                },
-            },
-            status=429,
+        return typed_error_response(
+            "rate_limited", "Too many new client registrations from this domain. Try again later.", status=429
         )
     return None
 
@@ -2714,11 +3010,6 @@ def _verify_hmac_if_present(request: Request) -> Response | None:
     return None
 
 
-def _error_response(code: str, message: str, resource_id: str = "", status: int = 400) -> Response:
-    logger.warning("provisioning.error_response", code=code, message=message, resource_id=resource_id, status=status)
-    return Response({"status": "error", "id": resource_id, "error": {"code": code, "message": message}}, status=status)
-
-
 def _authenticate_bearer(request: Request) -> tuple[Response | None, Any, Any]:
     """Authenticate via Bearer token. Returns (error_response, user, access_token).
 
@@ -2728,27 +3019,27 @@ def _authenticate_bearer(request: Request) -> tuple[Response | None, Any, Any]:
 
     auth_header = request.headers.get("authorization", "")
     if not auth_header.startswith("Bearer "):
-        return (_error_response("unauthorized", "Missing bearer token", status=401), None, None)
+        return (error_response("unauthorized", "Missing bearer token", status=401), None, None)
 
     token_value = auth_header[len("Bearer ") :].strip()
     if not token_value:
-        return (_error_response("unauthorized", "Missing bearer token", status=401), None, None)
+        return (error_response("unauthorized", "Missing bearer token", status=401), None, None)
 
     access_token = find_oauth_access_token(token_value)
     if access_token is None:
-        return (_error_response("unauthorized", "Invalid access token", status=401), None, None)
+        return (error_response("unauthorized", "Invalid access token", status=401), None, None)
 
     if access_token.expires and access_token.expires < timezone.now():
-        return (_error_response("unauthorized", "Access token expired", status=401), None, None)
+        return (error_response("unauthorized", "Access token expired", status=401), None, None)
 
     # Check if token belongs to any active provisioning partner's app
     app = access_token.application
     if app and app.is_provisioning_partner:
         if not app.provisioning_active:
-            return (_error_response("unauthorized", "Partner is deactivated", status=401), None, None)
+            return (error_response("unauthorized", "Partner is deactivated", status=401), None, None)
         if not app.provisioning_can_provision_resources:
             return (
-                _error_response("forbidden", "Resource provisioning not enabled for this partner", status=403),
+                error_response("forbidden", "Resource provisioning not enabled for this partner", status=403),
                 None,
                 None,
             )
@@ -2758,7 +3049,7 @@ def _authenticate_bearer(request: Request) -> tuple[Response | None, Any, Any]:
     if app and app.client_id == settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID:
         return None, access_token.user, access_token
 
-    return (_error_response("unauthorized", "Authentication failed", status=401), None, None)
+    return (error_response("unauthorized", "Authentication failed", status=401), None, None)
 
 
 class LegacyStripeOAuthAppMissingError(Exception):

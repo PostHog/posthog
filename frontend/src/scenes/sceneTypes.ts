@@ -130,6 +130,7 @@ export enum Scene {
     PropertyDefinitions = 'PropertyDefinitions',
     PropertyDefinitionEdit = 'PropertyDefinitionEdit',
     QueryPerformance = 'QueryPerformance',
+    Quickstart = 'Quickstart',
     Replay = 'Replay',
     ReplayFilePlayback = 'ReplayFilePlayback',
     ReplayPlaylist = 'ReplayPlaylist',
@@ -345,6 +346,9 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
 
     // Marketing Analytics
     [Scene.MarketingAnalytics]: AccessControlResourceType.WebAnalytics,
+
+    // Metrics
+    [Scene.Metrics]: AccessControlResourceType.Metrics,
 
     // Surveys
     [Scene.Survey]: AccessControlResourceType.Survey,

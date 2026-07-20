@@ -9,15 +9,19 @@ from posthog.api.team import TeamLogsConfigSerializer
 from posthog.models import OrganizationMembership, Team
 from posthog.models.team.extensions import get_or_create_team_extension
 
-from products.logs.backend.models import TeamLogsConfig
+from products.logs.backend.models import (
+    DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY,
+    DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS,
+    TeamLogsConfig,
+)
 
 # Both routes resolve to the same handler — /api/projects/ is canonical, /api/environments/
 # remains as the back-compat alias. See `handle_logs_config` in posthog/api/team.py.
 URL_PREFIXES = [("projects", "api/projects"), ("environments", "api/environments")]
 
 DEFAULT_CONFIG = {
-    "logs_distinct_id_attribute_key": "posthogDistinctId",
-    "logs_session_id_attribute_keys": ["posthogSessionId"],
+    "logs_distinct_id_attribute_key": DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY,
+    "logs_session_id_attribute_keys": DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS,
 }
 
 

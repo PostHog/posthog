@@ -4,6 +4,7 @@ import datetime as dt
 from dataclasses import dataclass
 
 from django.conf import settings
+from django.contrib.postgres.aggregates import ArrayAgg
 from django.db.models import Case, Count, DateTimeField, Exists, Max, Min, OuterRef, Q, QuerySet, UUIDField, When
 from django.db.models.functions import Cast, Coalesce
 
@@ -169,16 +170,64 @@ def _fetch_slack_channel_aggregate_rows(org_ids: list[str]) -> list[dict[str, ob
         .values("organization_id", "slack_team_id", "slack_channel_id")
         .annotate(
             representative_team_id=Min("team_id"),
+            team_ids=ArrayAgg("team_id", distinct=True),
             slack_issue_count=Count("id"),
             last_slack_activity=Max("activity_at"),
         )
-        .order_by(
-            "organization_id",
-            "-last_slack_activity",
-            "-slack_issue_count",
-            "slack_channel_id",
-            "slack_team_id",
+    )
+
+
+def _fetch_trusted_slack_channel_activity_rows(
+    channel_rows: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    channel_filters = Q()
+    for row in channel_rows:
+        team_ids = row.get("team_ids")
+        slack_channel_id = row.get("slack_channel_id")
+        if (
+            not isinstance(team_ids, list)
+            or not team_ids
+            or not isinstance(slack_channel_id, str)
+            or not slack_channel_id
+        ):
+            continue
+
+        # Filter by the group's full team set (a channel group can span teams, and the
+        # team-led indexes anchor the query), and match slack_team_id by raw value
+        # (None compiles to IS NULL) so the filter stays aligned with the lookup keys
+        # built from these same rows.
+        channel_filters |= Q(
+            team_id__in=team_ids, slack_channel_id=slack_channel_id, slack_team_id=row.get("slack_team_id")
         )
+
+    if not channel_filters:
+        return []
+
+    return list(
+        Ticket.objects.filter(channel_filters, channel_source=Channel.SLACK, identity_verified=True)
+        .annotate(activity_at=_activity_at())
+        # Group by team as well as (workspace, channel): a team's Slack connection
+        # pins the workspace, so the key stays unambiguous even when slack_team_id
+        # is null — otherwise same-ID channels from unrelated orgs in the batch
+        # would merge into one group.
+        .values("team_id", "slack_team_id", "slack_channel_id")
+        .annotate(last_slack_activity=Max("activity_at"))
+    )
+
+
+def _trusted_channel_sort_key(row: dict[str, object]) -> tuple[str, float, int, str, bool, str]:
+    last_slack_activity = row.get("last_slack_activity")
+    activity_timestamp = last_slack_activity.timestamp() if isinstance(last_slack_activity, dt.datetime) else 0
+    slack_issue_count = row.get("slack_issue_count")
+
+    return (
+        str(row["organization_id"]),
+        -activity_timestamp,
+        -(slack_issue_count if isinstance(slack_issue_count, int) else 0),
+        str(row.get("slack_channel_id") or ""),
+        # Rows with a known workspace win ties over workspace-less rows.
+        row.get("slack_team_id") is None,
+        str(row.get("slack_team_id") or ""),
     )
 
 
@@ -203,11 +252,13 @@ def aggregate_conversations_slack_signals_for_orgs(
 ) -> dict[str, ConversationsSlackSignals]:
     """Aggregate Conversations Slack signals for organizations.
 
-    Only tickets with verified org attribution count (see
-    ``_tickets_with_verified_org``). If an organization has multiple Slack
-    channels, choose the most recently active workspace-scoped channel, then
-    tie-break by ticket count and channel ID. Salesforce exposes a single
-    Slack channel field, so the issue/user/activity stats are for that
+    Channels and issue counts come from tickets with verified org attribution
+    (see ``_tickets_with_verified_org``). Once a channel is trusted that way,
+    ``last_slack_activity`` reflects every identity-verified ticket in it, so
+    replies attributed to another org (e.g. PostHog employees) still count as
+    recency. If an organization has multiple Slack channels, choose the most
+    recently active one, then tie-break by ticket count and channel ID.
+    Salesforce exposes a single Slack channel field, so the stats are for that
     representative channel.
     """
     if not org_ids:
@@ -215,7 +266,37 @@ def aggregate_conversations_slack_signals_for_orgs(
 
     LOGGER.info("fetching_conversations_slack_signals", org_count=len(org_ids))
     rows = _fetch_slack_channel_aggregate_rows(org_ids)
+    channel_activity_rows = _fetch_trusted_slack_channel_activity_rows(rows)
     latest_ticket_rows = _fetch_latest_support_ticket_rows(org_ids)
+
+    channel_activity_by_key = {
+        (row.get("team_id"), row.get("slack_team_id"), row.get("slack_channel_id")): row.get("last_slack_activity")
+        for row in channel_activity_rows
+    }
+
+    for row in rows:
+        team_ids = row.get("team_ids")
+        if not isinstance(team_ids, list):
+            continue
+        # Take the trusted max over the row's own team set, so activity stays scoped
+        # to the channel group that established it even when slack_team_id is null.
+        trusted_channel_activity: dt.datetime | None = None
+        for team_id in team_ids:
+            activity = channel_activity_by_key.get((team_id, row.get("slack_team_id"), row.get("slack_channel_id")))
+            if isinstance(activity, dt.datetime) and (
+                trusted_channel_activity is None or activity > trusted_channel_activity
+            ):
+                trusted_channel_activity = activity
+        org_channel_activity = row.get("last_slack_activity")
+        # The trusted set should cover every ticket behind the row's own max, so this
+        # guard is insurance against the two queries drifting: never move activity
+        # backwards.
+        if trusted_channel_activity is not None and (
+            not isinstance(org_channel_activity, dt.datetime) or trusted_channel_activity > org_channel_activity
+        ):
+            row["last_slack_activity"] = trusted_channel_activity
+
+    rows.sort(key=_trusted_channel_sort_key)
 
     selected_rows: dict[str, dict[str, object]] = {}
     for row in rows:

@@ -33,7 +33,6 @@ class TestHubplannerSource:
         config = self.source.get_source_config
         assert config.label == "Hub Planner"
         assert config.category == DataWarehouseSourceCategory.PRODUCTIVITY
-        assert config.unreleasedSource is True
         assert config.releaseStatus == ReleaseStatus.ALPHA
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/hubplanner"
 

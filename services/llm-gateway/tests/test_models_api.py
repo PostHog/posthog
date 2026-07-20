@@ -241,3 +241,97 @@ class TestResponsesModeModels:
             assert response.status_code == 200
             model_ids = {m["id"] for m in response.json()["data"]}
             assert "gpt-5.3-codex" in model_ids
+
+
+def _wire_authenticated_user(mock_db_pool, distinct_id: str):
+    from unittest.mock import AsyncMock
+
+    conn = AsyncMock()
+    conn.fetchrow = AsyncMock(
+        return_value={
+            "id": "key_id",
+            "user_id": 1,
+            "scopes": ["llm_gateway:read"],
+            "current_team_id": 1,
+            "distinct_id": distinct_id,
+            "is_staff": False,
+        }
+    )
+    mock_db_pool.acquire = AsyncMock(return_value=conn)
+    mock_db_pool.release = AsyncMock()
+
+
+class TestFreeTierModelListing:
+    @pytest.fixture(autouse=True)
+    def gate_enabled(self, monkeypatch: pytest.MonkeyPatch):
+        from llm_gateway.config import get_settings
+
+        monkeypatch.setenv("LLM_GATEWAY_POSTHOG_CODE_MODEL_GATE_ENABLED", "true")
+        get_settings.cache_clear()
+        yield
+        get_settings.cache_clear()
+
+    def test_anonymous_caller_gets_full_unrestricted_list(self, client: TestClient):
+        # an unidentifiable caller may be a billed org; never mark for those
+        response = client.get("/posthog_code/v1/models")
+        assert response.status_code == 200
+        models = response.json()["data"]
+        assert "claude-opus-4-5" in {m["id"] for m in models}
+        assert all(m["allowed"] for m in models)
+
+    def test_unbilled_org_gets_full_list_with_premium_models_marked(self, app, mock_db_pool):
+        from unittest.mock import AsyncMock
+
+        from llm_gateway.services.quota_resolver import QuotaResourceStatus
+
+        _wire_authenticated_user(mock_db_pool, "unbilled-user")
+
+        with TestClient(app) as c:
+            c.app.state.quota_resolver.get_resource_status = AsyncMock(
+                return_value=QuotaResourceStatus(limited=False, code_usage_billing_active=False)
+            )
+            response = c.get("/posthog_code/v1/models", headers={"Authorization": "Bearer phx_unbilled_org_models"})
+
+        assert response.status_code == 200
+        body = response.json()
+        by_id = {m["id"]: m for m in body["data"]}
+        premium = by_id["claude-opus-4-5"]
+        assert premium["allowed"] is False
+        assert premium["restriction_reason"] == "paid_plan_required"
+        # exact, not subset: the default free model must survive the allowlist
+        # and the annotation, or free-tier callers have no usable model
+        assert {m["id"] for m in body["data"] if m["allowed"]} == {"@cf/zai-org/glm-5.2"}
+        # codex reads the `models` mirror; the marks must be there too
+        assert body["models"] == body["data"]
+
+    def test_billed_org_sees_full_list(self, app, mock_db_pool):
+        from unittest.mock import AsyncMock
+
+        from llm_gateway.services.quota_resolver import QuotaResourceStatus
+
+        _wire_authenticated_user(mock_db_pool, "billed-user")
+
+        with TestClient(app) as c:
+            c.app.state.quota_resolver.get_resource_status = AsyncMock(
+                return_value=QuotaResourceStatus(limited=False, code_usage_billing_active=True)
+            )
+            response = c.get("/posthog_code/v1/models", headers={"Authorization": "Bearer phx_billed_org_models"})
+
+        assert response.status_code == 200
+        models = response.json()["data"]
+        assert "claude-opus-4-5" in {m["id"] for m in models}
+        assert all(m["allowed"] for m in models)
+
+    def test_auth_resolution_failure_serves_full_unrestricted_list(self, app, mock_db_pool):
+        from unittest.mock import AsyncMock
+
+        # an auth outage must not mark a possibly-billed caller's models
+        mock_db_pool.acquire = AsyncMock(side_effect=RuntimeError("db down"))
+
+        with TestClient(app) as c:
+            response = c.get("/posthog_code/v1/models", headers={"Authorization": "Bearer phx_auth_outage_models"})
+
+        assert response.status_code == 200
+        models = response.json()["data"]
+        assert "claude-opus-4-5" in {m["id"] for m in models}
+        assert all(m["allowed"] for m in models)

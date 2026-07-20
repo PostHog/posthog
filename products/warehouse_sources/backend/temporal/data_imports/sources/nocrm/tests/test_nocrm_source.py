@@ -25,7 +25,6 @@ class TestNoCRMSource:
         config = self.source.get_source_config
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/nocrm"
         # Behind the release gate while in alpha.
-        assert config.unreleasedSource is True
         field_names = [f.name for f in config.fields]
         assert field_names == ["subdomain", "api_key"]
 

@@ -33,6 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LagoSource(ResumableSource[LagoSourceConfig, LagoResumeConfig]):
+    api_docs_url = "https://docs.getlago.com/api-reference"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.LAGO
@@ -108,7 +110,6 @@ class LagoSource(ResumableSource[LagoSourceConfig, LagoResumeConfig]):
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Lago",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Lago API key to pull your billing data into the PostHog Data warehouse.
 
 You can create an API key in the Lago dashboard under **Developers > API keys**.

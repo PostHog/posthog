@@ -30,7 +30,9 @@ permissions:
 jobs:
     digest:
         runs-on: ubuntu-latest
-        timeout-minutes: 5
+        # Covers the script's worst case: 3 endpoint attempts x 150s abort plus 2 x 30s
+        # backoffs (~8.5min; it retries transient 5xxs from a contended warehouse cluster), plus setup.
+        timeout-minutes: 12
         # Never run from forks (no secret access anyway), only the canonical repo.
         # Manual dispatch is master-only so branch-controlled code can't run with the secrets.
         if: >-

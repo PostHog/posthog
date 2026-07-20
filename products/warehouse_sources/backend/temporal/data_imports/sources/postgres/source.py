@@ -192,9 +192,24 @@ _FOREIGN_SERVER_UNREACHABLE_ERROR = (
     "persists, check that the foreign server is running and reachable from your source database."
 )
 
+# sshtunnel raises BaseSSHTunnelForwarderError("Could not establish session to SSH gateway") when it
+# can't open a session to the bastion — the SSH host/port is wrong or unreachable, the bastion is
+# down, or its firewall blocks PostHog's IPs. The raw message tells the user nothing actionable, so
+# replace it with concrete guidance on both the validate and sync paths.
+_SSH_GATEWAY_SESSION_ERROR = "Could not establish session to SSH gateway"
+_SSH_GATEWAY_UNREACHABLE_MESSAGE = (
+    "Could not connect to your SSH tunnel — PostHog couldn't open a session to the SSH gateway. "
+    "Check that the SSH host and port point to a reachable SSH server (not the database port), that "
+    "the bastion is running, and that PostHog's IP addresses are allowed through its firewall."
+)
+
 
 @SourceRegistry.register
 class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+    # xmin replication is Postgres-only; per-table availability is still decided by
+    # `SourceSchema.supports_xmin` at discovery.
+    supports_xmin = True
+
     def __init__(self, source_name: str = "Postgres"):
         super().__init__()
         self.source_name = source_name
@@ -372,6 +387,17 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "key for the table in its sync settings, or switch it to full table replication, then "
                 "re-enable the sync."
             ),
+            # The schema's sync type wants an incremental cursor (incremental/append) but no
+            # incremental field is stored in its config, so `_build_query`/`_build_count_query`
+            # raise this before emitting any SQL. The stored config is fixed until the customer
+            # changes it, so every retry re-hits the same wall — non-retryable, like the missing
+            # primary key above. Reset doesn't clear `incremental_field`, so this isn't a transient
+            # reset artifact.
+            "incremental_field and incremental_field_type can't be None": (
+                "This table is set to sync incrementally but has no incremental field configured, so "
+                "PostHog can't build its sync query. Choose an incremental field for the table in its "
+                "sync settings, or switch it to full table replication, then re-enable the sync."
+            ),
             "failed: timeout expired": None,
             # NOTE: "SSL connection has been closed unexpectedly" is intentionally NOT listed here.
             # It denotes an established SSL connection being dropped on connect or mid-stream (idle
@@ -479,7 +505,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             ),
             "SSLRequiredError": None,
             "SSL/TLS connection is required": None,
-            "Could not establish session to SSH gateway": None,
+            _SSH_GATEWAY_SESSION_ERROR: _SSH_GATEWAY_UNREACHABLE_MESSAGE,
             # paramiko raises a bare, message-less EOFError when the SSH gateway accepts the TCP
             # connection but drops it mid-handshake (a non-SSH service on the port, the bastion
             # refusing PostHog's IPs, a proxy resetting the stream). sshtunnel doesn't wrap it, so
@@ -926,9 +952,12 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             capture_exception(e)
             return False, f"Could not connect to {self.source_name}. Please check all connection details are valid."
         except BaseSSHTunnelForwarderError as e:
+            raw = e.value or ""
+            if _SSH_GATEWAY_SESSION_ERROR in raw:
+                return False, _SSH_GATEWAY_UNREACHABLE_MESSAGE
             return (
                 False,
-                e.value
+                raw
                 or f"Could not connect to {self.source_name} via the SSH tunnel. Please check all connection details are valid.",
             )
         except Exception as e:

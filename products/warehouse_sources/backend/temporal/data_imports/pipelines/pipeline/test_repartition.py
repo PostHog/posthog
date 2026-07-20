@@ -38,6 +38,9 @@ def _schema(**kwargs):
         "partition_format": None,
         "partitioning_keys": None,
         "primary_key_columns": None,
+        "incremental_field": None,
+        "incremental_field_type": None,
+        "schema_metadata": None,
     }
     defaults.update(kwargs)
     return SimpleNamespace(**defaults)
@@ -125,6 +128,77 @@ class TestSelectRepartitionTarget:
                 {"2024-01-01T00": 5000},
                 1000,
                 None,
+            ),
+            # A date-typed partition key (e.g. Google Ads segments.date) has no time-of-day, so an
+            # `hour` rewrite is a full-table no-op that then parks the controller at "finest tier"
+            # with the table still OOMing. Day is the ceiling for such keys.
+            (
+                "date_granular_cursor_key_caps_at_day",
+                {
+                    "partition_mode": "datetime",
+                    "partition_format": "day",
+                    "partitioning_keys": ["segments_date"],
+                    "incremental_field": "segments.date",
+                    "incremental_field_type": "date",
+                },
+                {"2024-01-01": 5000},
+                1000,
+                None,
+            ),
+            # Already no-op'd to hour before the ceiling existed (the four prod Google Ads tables):
+            # must skip, never select a coarsening rewrite back toward the ceiling.
+            (
+                "date_granular_key_already_at_hour_skips",
+                {
+                    "partition_mode": "datetime",
+                    "partition_format": "hour",
+                    "partitioning_keys": ["segments_date"],
+                    "incremental_field": "segments.date",
+                    "incremental_field_type": "date",
+                },
+                {"2024-01-01T00": 5000},
+                1000,
+                None,
+            ),
+            # Discovery metadata typing the key as a date caps it too, without an incremental cursor.
+            (
+                "date_typed_metadata_column_caps_at_day",
+                {
+                    "partition_mode": "datetime",
+                    "partition_format": "day",
+                    "partitioning_keys": ["report_date"],
+                    "schema_metadata": {"columns": [{"name": "report_date", "data_type": "date32[day]"}]},
+                },
+                {"2024-01-01": 5000},
+                1000,
+                None,
+            ),
+            # A timestamp-typed key must NOT be capped ("datetime64"/"timestamp" are not dates).
+            (
+                "timestamp_typed_metadata_column_still_offers_hour",
+                {
+                    "partition_mode": "datetime",
+                    "partition_format": "day",
+                    "partitioning_keys": ["created_at"],
+                    "schema_metadata": {"columns": [{"name": "created_at", "data_type": "timestamp[us]"}]},
+                },
+                {"2024-01-01": 5000},
+                1000,
+                {"partition_mode": "datetime", "partition_format": "hour"},
+            ),
+            # A date cursor that is NOT the partition key says nothing about the key's granularity.
+            (
+                "date_cursor_on_different_key_still_offers_hour",
+                {
+                    "partition_mode": "datetime",
+                    "partition_format": "day",
+                    "partitioning_keys": ["created_at"],
+                    "incremental_field": "report_date",
+                    "incremental_field_type": "date",
+                },
+                {"2024-01-01": 5000},
+                1000,
+                {"partition_mode": "datetime", "partition_format": "hour"},
             ),
             (
                 "unpartitioned_with_keys_enables_partitioning",
@@ -261,6 +335,37 @@ class TestRewriteIntoTemp:
         assert rows_written == len(rows)
         # created_at is a timestamp column named like a datetime key → auto-detects datetime mode.
         assert resolved.partition_mode == "datetime"
+
+    def test_resolved_keys_apply_to_batches_after_the_first(self, tmp_path):
+        # Auto-detect swaps the target's primary key (a UUID string) for the detected timestamp
+        # column. Batches after the first must use the resolved key — pairing the resolved
+        # datetime mode with the original UUID key raised ParserError mid-rewrite in production.
+        rows = 10
+        table = pa.table(
+            {
+                "id": pa.array([f"0198d931-1efe-73b9-aad5-feb84ed767{i:02d}" for i in range(rows)], type=pa.string()),
+                "created_at": pa.array(
+                    [datetime.datetime(2024, 1, (i % 27) + 1) for i in range(rows)], type=pa.timestamp("us")
+                ),
+            }
+        )
+        deltalake.write_deltalake(str(tmp_path / "src"), table)
+        old_delta = deltalake.DeltaTable(str(tmp_path / "src"))
+
+        rows_written, resolved = asyncio.run(
+            _rewrite_into_temp(
+                old_delta=old_delta,
+                temp_uri=str(tmp_path / "tmp"),
+                storage_options={},
+                target=RepartitionTarget(partition_keys=["id"], trigger_reason="test", partition_mode=None),
+                batch_size=3,  # force batches after the resolving first one
+                logger=logger,
+            )
+        )
+
+        assert rows_written == rows
+        assert resolved.partition_mode == "datetime"
+        assert resolved.partition_keys == ["created_at"]
 
 
 class _FakeS3CM:

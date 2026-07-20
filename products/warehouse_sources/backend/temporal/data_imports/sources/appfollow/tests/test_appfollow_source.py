@@ -33,7 +33,6 @@ class TestAppfollowSource:
         assert config.name.value == "Appfollow"
         assert config.category == DataWarehouseSourceCategory.ANALYTICS
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.iconPath == "/static/services/appfollow.png"
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/appfollow"
 

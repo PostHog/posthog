@@ -234,8 +234,23 @@ export const formatSesEventLogs = (rec: SesEventRecord): SesEventLogLine[] => {
 
 export class SesWebhookHandler {
     certCache: Record<string, Promise<string> | undefined> = {}
+    private allowedTopicArns: Set<string>
 
-    constructor(private trackingCodeSigner: EmailTrackingCodeSigner) {}
+    constructor(
+        private trackingCodeSigner: EmailTrackingCodeSigner,
+        // Empty set means no restriction (dev/test); prod is expected to configure the workflow SES
+        // topic ARN.
+        allowedTopicArns: string[] = []
+    ) {
+        this.allowedTopicArns = new Set(allowedTopicArns.map((arn) => arn.trim()).filter(Boolean))
+    }
+
+    private isTopicAllowed(topicArn: string | undefined): boolean {
+        if (this.allowedTopicArns.size === 0) {
+            return true
+        }
+        return typeof topicArn === 'string' && this.allowedTopicArns.has(topicArn)
+    }
 
     private async fetchText(url: string): Promise<string> {
         const response = await fetch(url)
@@ -411,6 +426,27 @@ export class SesWebhookHandler {
             teamId?: string
             emailAddresses: string[]
         }[]
+        // Soft (Transient) bounces — fed into the suppression list's consecutive-bounce counter.
+        transientBounceRecipients?: {
+            teamId?: string
+            emailAddresses: string[]
+            diagnostic?: string
+        }[]
+        // Hard (Permanent) bounces — mirrored into the suppression list alongside the existing
+        // opt-out write, during the dual-write window before the opt-out path is retired.
+        hardBounceRecipients?: {
+            teamId?: string
+            emailAddresses: string[]
+            diagnostic?: string
+        }[]
+        // Successful deliveries — reset the suppression counter so transient outages don't accumulate.
+        // Timestamp is threaded through so the reset ignores an out-of-order delivery from an older send
+        // arriving after a newer bounce.
+        deliveredRecipients?: {
+            teamId?: string
+            emailAddresses: string[]
+            timestamp?: string
+        }[]
     }> {
         logger.info('[SesWebhookHandler] handleWebhook', { body: opts.body, headers: opts.headers })
         const parsed = this.parseIncomingBody(opts.body)
@@ -429,6 +465,16 @@ export class SesWebhookHandler {
             if (!ok) {
                 return { status: 403, body: { error: 'Invalid SNS signature' } }
             }
+        }
+
+        // Restrict accepted SNS envelopes (Notification, SubscriptionConfirmation, UnsubscribeConfirmation)
+        // to the configured TopicArn allowlist. SNS signature verification proves the message came from
+        // AWS, but not from a specific topic — this narrows accepted sources to the workflow SES topic.
+        if ('envelope' in parsed && !this.isTopicAllowed(parsed.envelope.TopicArn)) {
+            logger.warn('[SesWebhookHandler] Rejecting event from disallowed TopicArn', {
+                topicArn: parsed.envelope.TopicArn,
+            })
+            return { status: 403, body: { error: 'SNS TopicArn not allowed' } }
         }
 
         // Handle confirmation flow
@@ -480,6 +526,21 @@ export class SesWebhookHandler {
         const optOutRecipients: {
             teamId?: string
             emailAddresses: string[]
+        }[] = []
+        const transientBounceRecipients: {
+            teamId?: string
+            emailAddresses: string[]
+            diagnostic?: string
+        }[] = []
+        const hardBounceRecipients: {
+            teamId?: string
+            emailAddresses: string[]
+            diagnostic?: string
+        }[] = []
+        const deliveredRecipients: {
+            teamId?: string
+            emailAddresses: string[]
+            timestamp?: string
         }[] = []
 
         for (const rec of records) {
@@ -560,13 +621,57 @@ export class SesWebhookHandler {
                 })
             }
 
-            // Opt out recipients on permanent bounces
-            if (teamId && rec.eventType === 'Bounce' && rec.bounce.bounceType === 'Permanent') {
+            // State-changing writes (opt-out, suppression, delivery counter reset) require a signed
+            // tracking code. The signed header carries the HMAC we mint on send; the unsigned SES-tag
+            // carrier is only used for engagement metrics/log entries above.
+            const codeIsTrusted = parsedCode?.format === 'signed'
+
+            // Suppression writes (below) skip test sends — editor "Run test" traffic must not be
+            // able to perturb production suppression state by targeting a bad recipient. The
+            // pre-existing opt-out push stays ungated for backward compat.
+            const suppressionAllowed = teamId && codeIsTrusted && !isTest
+
+            // Opt out recipients on permanent bounces. Dual-write: also mirror into the suppression
+            // list with the SMTP diagnostic so a unified deliverability view exists before the
+            // opt-out path is retired (see phase 2 of the suppression rollout).
+            if (teamId && codeIsTrusted && rec.eventType === 'Bounce' && rec.bounce.bounceType === 'Permanent') {
                 const emails = rec.bounce.bouncedRecipients.map((r) => r.emailAddress)
+                const diagnostic = rec.bounce.bouncedRecipients.find((r) => r.diagnosticCode)?.diagnosticCode
                 optOutRecipients.push({ teamId, emailAddresses: emails })
+                if (!isTest) {
+                    hardBounceRecipients.push({ teamId, emailAddresses: emails, diagnostic })
+                }
+            }
+
+            // Count soft (Transient) bounces toward suppression. These are recipient-side failures
+            // (server unreachable, mailbox full, greylisting); one is harmless but a persistent run
+            // of them means the address can't receive mail.
+            if (suppressionAllowed && rec.eventType === 'Bounce' && rec.bounce.bounceType === 'Transient') {
+                const emails = rec.bounce.bouncedRecipients.map((r) => r.emailAddress)
+                const diagnostic = rec.bounce.bouncedRecipients.find((r) => r.diagnosticCode)?.diagnosticCode
+                transientBounceRecipients.push({ teamId, emailAddresses: emails, diagnostic })
+            }
+
+            // Successful delivery resets an address's soft-bounce counter — but only if newer than the
+            // last-recorded bounce (checked at the SQL layer), so an out-of-order delivery from an
+            // older send can't erase a fresh bounce.
+            if (suppressionAllowed && rec.eventType === 'Delivery') {
+                const emails = rec.delivery.recipients ?? rec.mail.destination ?? []
+                if (emails.length > 0) {
+                    deliveredRecipients.push({ teamId, emailAddresses: emails, timestamp: rec.delivery.timestamp })
+                }
             }
         }
 
-        return { status: 200, body: { ok: true }, metrics, logEntries, optOutRecipients }
+        return {
+            status: 200,
+            body: { ok: true },
+            metrics,
+            logEntries,
+            optOutRecipients,
+            transientBounceRecipients,
+            hardBounceRecipients,
+            deliveredRecipients,
+        }
     }
 }

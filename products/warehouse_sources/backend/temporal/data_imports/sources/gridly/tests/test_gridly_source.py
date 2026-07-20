@@ -27,7 +27,6 @@ class TestGridlySource:
         assert config.name.value == "Gridly"
         assert config.label == "Gridly"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.iconPath == "/static/services/gridly.png"
 
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]

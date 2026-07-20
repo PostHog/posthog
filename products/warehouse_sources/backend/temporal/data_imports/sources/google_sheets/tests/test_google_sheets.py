@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets import (
     _PERMISSION_DENIED_MESSAGE,
     _REQUEST_TIMEOUT_SECONDS,
+    _assert_unique_normalized_column_names,
     _get_worksheet,
     _retry_on_transient_api_error,
     get_schema_incremental_fields,
@@ -481,6 +482,39 @@ def test_reraises_spreadsheet_not_found_with_non_retryable_message(call_site):
     )
 
 
+@pytest.mark.parametrize(
+    "headers",
+    [
+        pytest.param(["Task ID", "task_id"], id="case_and_punctuation"),
+        pytest.param(["task_id", "task-id"], id="punctuation_only"),
+        pytest.param(["Name", "name"], id="case_only"),
+        pytest.param(["id", "customer name", "Customer Name"], id="collision_among_distinct"),
+    ],
+)
+def test_assert_unique_normalized_column_names_raises_on_normalized_collision(headers):
+    """Headers that differ only by case/punctuation collapse to one column name and would otherwise
+    fail with an opaque error deep in table creation. The raised message must also match one of the
+    source's non-retryable keys, or the deterministic failure gets retried forever."""
+    with pytest.raises(Exception) as exc_info:
+        _assert_unique_normalized_column_names(headers)
+
+    non_retryable_errors = GoogleSheetsSource().get_non_retryable_errors()
+    assert any(key in str(exc_info.value) for key in non_retryable_errors)
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        pytest.param(["id", "name", "email"], id="distinct"),
+        pytest.param(["id", "", "name"], id="blank_cells_ignored"),
+        # Exact duplicates are left to gspread's own "contains duplicates" check.
+        pytest.param(["id", "id"], id="exact_duplicate"),
+    ],
+)
+def test_assert_unique_normalized_column_names_allows_valid_headers(headers):
+    _assert_unique_normalized_column_names(headers)
+
+
 def test_get_schema_incremental_fields_skips_unparseable_range():
     """Google rejects the unbounded "1:2" row range with a 400 'Unable to parse range' for some
     worksheets (e.g. empty sheets). That deterministic error must not break schema discovery — the
@@ -579,6 +613,20 @@ def test_validate_credentials_maps_api_error_to_friendly_message(api_message, ex
     assert expected_fragment in (error_message or "")
     # The raw gspread "APIError: [400]: ..." dump must not reach the user.
     assert "APIError" not in (error_message or "")
+
+
+def test_validate_credentials_permission_denied_names_service_account(settings):
+    settings.GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL = "svc@posthog.iam.gserviceaccount.com"
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.source.google_sheets_client"
+    ) as mock_client:
+        mock_client.return_value.open_by_url.side_effect = PermissionError()
+        config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
+        is_valid, error_message = GoogleSheetsSource().validate_credentials(config, team_id=1)
+
+    assert is_valid is False
+    # The user needs the exact address to share the sheet with — not just a docs link.
+    assert "svc@posthog.iam.gserviceaccount.com" in (error_message or "")
 
 
 @pytest.mark.parametrize(

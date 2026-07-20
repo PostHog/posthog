@@ -10,6 +10,7 @@ from redis.asyncio import Redis
 from llm_gateway.config import (
     DEFAULT_USER_COST_LIMIT,
     FREE_PLAN_COST_LIMIT,
+    ORG_BILLED_USER_COST_LIMIT,
     get_settings,
 )
 
@@ -41,8 +42,12 @@ def _is_free_plan_throttled(context: ThrottleContext) -> bool:
     return (
         context.product == POSTHOG_CODE_PRODUCT
         and not is_pro_plan(context.plan_key)
-        and context.seat_created_at is not None
+        and (context.seat_created_at is not None or context.seat_missing)
     )
+
+
+def _is_org_billed_seatless(context: ThrottleContext) -> bool:
+    return context.product == POSTHOG_CODE_PRODUCT and context.seat_missing and context.code_usage_billed
 
 
 class CostThrottle(Throttle):
@@ -245,6 +250,10 @@ class _UserCostThrottleBase(CostThrottle):
         return f"{base}:m{mult}"
 
     def _get_config(self, context: ThrottleContext) -> UserCostLimit:
+        # Precedence matters: an org-billed seatless user is uncapped even though
+        # seat_missing would otherwise select the free-plan cap below.
+        if _is_org_billed_seatless(context):
+            return ORG_BILLED_USER_COST_LIMIT
         if _is_free_plan_throttled(context):
             return FREE_PLAN_COST_LIMIT
 

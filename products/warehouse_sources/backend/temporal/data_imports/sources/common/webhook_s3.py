@@ -208,8 +208,8 @@ class WebhookSourceManager:
         expected_team_id = self._inputs.team_id
         expected_schema_id = str(self._inputs.schema_id)
 
-        team_id_match = pc.equal(table.column("team_id"), expected_team_id)
-        schema_id_match = pc.equal(table.column("schema_id"), expected_schema_id)
+        team_id_match = pc.equal(table.column("team_id"), pa.scalar(expected_team_id))
+        schema_id_match = pc.equal(table.column("schema_id"), pa.scalar(expected_schema_id))
         valid_mask = pc.and_(team_id_match, schema_id_match)
 
         filtered = table.filter(valid_mask)

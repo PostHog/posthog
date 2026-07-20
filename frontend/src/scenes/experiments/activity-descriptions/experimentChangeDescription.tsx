@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import { match } from 'ts-pattern'
 
 import { ActivityChange } from 'lib/components/ActivityLog/humanizeActivity'

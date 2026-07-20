@@ -33,7 +33,6 @@ class TestAppfiguresSource:
         assert config.label == "Appfigures"
         assert config.category == DataWarehouseSourceCategory.ANALYTICS
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.iconPath == "/static/services/appfigures.png"
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/appfigures"
 

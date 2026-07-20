@@ -38,6 +38,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class MetorialSource(ResumableSource[MetorialSourceConfig, MetorialResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
+    supported_versions = ("2025-01-01",)
+    default_version = "2025-01-01"
+    api_docs_url = "https://metorial.com/api"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.METORIAL
@@ -49,7 +53,6 @@ class MetorialSource(ResumableSource[MetorialSourceConfig, MetorialResumeConfig]
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Metorial",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Metorial secret API key to pull your Metorial MCP data into the PostHog Data warehouse.
 
 Create a secret API key (`metorial_sk_...`) in your [Metorial dashboard](https://metorial.com). Keys are project-scoped, so connect one source per project you want to sync. A publishable key (`metorial_pk_...`) only exposes public data and will not work here.""",
