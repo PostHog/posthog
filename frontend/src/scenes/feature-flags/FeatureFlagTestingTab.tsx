@@ -22,6 +22,11 @@ const SUPER_CONDITION_INDEX = -1
 // position among the zero-based release conditions either.
 const HOLDOUT_CONDITION_INDEX = -2
 
+const SYNTHETIC_CONDITION_LABELS: Record<number, string> = {
+    [SUPER_CONDITION_INDEX]: 'Early access enrollment',
+    [HOLDOUT_CONDITION_INDEX]: 'Holdout',
+}
+
 const CONDITION_DISPLAY_STYLES = {
     success: {
         card: 'border-success bg-success-highlight',
@@ -423,12 +428,8 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                                             >
                                                                 <div className="flex items-center gap-2 mb-2">
                                                                     <h6 className="font-medium text-sm">
-                                                                        {condition.index === SUPER_CONDITION_INDEX
-                                                                            ? 'Early access enrollment'
-                                                                            : condition.index ===
-                                                                                HOLDOUT_CONDITION_INDEX
-                                                                              ? 'Holdout'
-                                                                              : `Condition #${condition.index + 1}`}
+                                                                        {SYNTHETIC_CONDITION_LABELS[condition.index] ??
+                                                                            `Condition #${condition.index + 1}`}
                                                                     </h6>
                                                                     {condition.display.label && (
                                                                         <span

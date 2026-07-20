@@ -3,7 +3,7 @@ use crate::flags::flag_group_type_mapping::GroupTypeIndex;
 use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_matching::FeatureFlagMatch;
 use crate::flags::flag_matching_utils::match_flag_value_to_flag_filter;
-use crate::flags::flag_models::{FeatureFlag, FeatureFlagId, FlagFilters};
+use crate::flags::flag_models::{FeatureFlag, FeatureFlagId, FlagFilters, Holdout};
 use crate::properties::property_matching::match_property;
 use crate::properties::property_models::OperatorType;
 use chrono_tz::Tz;
@@ -839,33 +839,36 @@ impl FlagDetails {
             analyses.push(analysis);
         }
 
-        // Surface the holdout: the matcher applies it after enrollment but before the release
-        // conditions, and the loop above can't see it. Only shown when the flag actually resolved
-        // through the holdout — the "excluded from holdout" case isn't distinguishable here without
-        // threading the holdout hash result down from the matcher.
+        // Surface synthetic entries the matcher evaluates before the release conditions above but
+        // which the loop can't see, in the matcher's enrollment-then-holdout evaluation order.
+        let mut synthetic = Vec::new();
+
+        if flag.filters.feature_enrollment == Some(true) {
+            synthetic.push(Self::build_enrollment_condition_analysis(
+                flag,
+                flag_match,
+                property_values,
+            ));
+        }
+
+        // Holdout is only shown when the flag actually resolved through it — the "excluded from
+        // holdout" case isn't distinguishable here without threading the holdout hash result down
+        // from the matcher.
         if matches!(
             flag_match.reason,
             FeatureFlagMatchReason::HoldoutConditionValue
         ) {
             if let Some(holdout) = &flag.filters.holdout {
-                analyses.insert(
-                    0,
-                    Self::build_holdout_condition_analysis(holdout, flag_match),
-                );
+                synthetic.push(Self::build_holdout_condition_analysis(holdout, flag_match));
             }
         }
 
-        // Surface the early-access enrollment super condition: the matcher applies it before the
-        // release conditions, but the loop above can't see it. Inserted last so it sits ahead of
-        // the holdout entry, matching the matcher's enrollment-then-holdout evaluation order.
-        if flag.filters.feature_enrollment == Some(true) {
-            analyses.insert(
-                0,
-                Self::build_enrollment_condition_analysis(flag, flag_match, property_values),
-            );
+        if synthetic.is_empty() {
+            return analyses;
         }
 
-        analyses
+        synthetic.extend(analyses);
+        synthetic
     }
 
     /// Synthetic [`ConditionAnalysis`] for the holdout, surfaced only when the matcher resolved the
@@ -873,10 +876,10 @@ impl FlagDetails {
     /// a hash rollout keyed on the flag's aggregation — so the entry carries no property rows and
     /// explains the exclusion percentage in prose instead.
     fn build_holdout_condition_analysis(
-        holdout: &crate::flags::flag_models::Holdout,
+        holdout: &Holdout,
         flag_match: &FeatureFlagMatch,
     ) -> ConditionAnalysis {
-        let exclusion_percentage = holdout.exclusion_percentage.clamp(0.0, 100.0);
+        let exclusion_percentage = holdout.exclusion_percentage_clamped();
 
         ConditionAnalysis {
             index: HOLDOUT_CONDITION_INDEX,
@@ -1852,14 +1855,14 @@ mod tests {
         assert!(analysis.iter().filter(|c| c.matched).count() <= 1);
     }
 
-    #[test]
-    fn test_condition_analysis_surfaces_holdout_winner() {
+    /// Shared fixture for the two holdout-surfacing tests below: a flag with a holdout and a
+    /// release condition that would otherwise match on its own.
+    fn held_flag_with_release_condition() -> (
+        crate::flags::flag_models::FeatureFlag,
+        HashMap<String, Value>,
+    ) {
         use crate::flags::flag_models::FeatureFlag;
-        use std::collections::HashMap;
 
-        // A flag with a holdout and a release condition that would otherwise match. When the matcher
-        // resolves through the holdout, the holdout entry must be surfaced as the winner and the
-        // release condition must not be attributed the win.
         let flag: FeatureFlag = serde_json::from_value(json!({
             "id": 1, "team_id": 1, "name": "held-flag", "key": "held-flag", "active": true,
             "filters": {
@@ -1873,6 +1876,15 @@ mod tests {
         .unwrap();
 
         let property_values = HashMap::from([("is_scoped".to_string(), json!("false"))]);
+
+        (flag, property_values)
+    }
+
+    #[test]
+    fn test_condition_analysis_surfaces_holdout_winner() {
+        // When the matcher resolves through the holdout, the holdout entry must be surfaced as
+        // the winner and the release condition must not be attributed the win.
+        let (flag, property_values) = held_flag_with_release_condition();
 
         let flag_match = FeatureFlagMatch {
             matches: true,
@@ -1910,25 +1922,10 @@ mod tests {
 
     #[test]
     fn test_condition_analysis_omits_holdout_entry_when_flag_did_not_resolve_via_holdout() {
-        use crate::flags::flag_models::FeatureFlag;
-        use std::collections::HashMap;
-
-        // A flag configured with a holdout, but the person was excluded from it and matched a
-        // release condition instead. Without the holdout hash threaded down we can't describe the
-        // exclusion, so no holdout entry is surfaced (only the winning release condition).
-        let flag: FeatureFlag = serde_json::from_value(json!({
-            "id": 1, "team_id": 1, "name": "held-flag", "key": "held-flag", "active": true,
-            "filters": {
-                "holdout": { "id": 42, "exclusion_percentage": 10.0 },
-                "groups": [{
-                    "properties": [{ "key": "is_scoped", "value": ["false"], "operator": "exact", "type": "person" }],
-                    "rollout_percentage": 100
-                }]
-            }
-        }))
-        .unwrap();
-
-        let property_values = HashMap::from([("is_scoped".to_string(), json!("false"))]);
+        // The person was excluded from the holdout and matched a release condition instead.
+        // Without the holdout hash threaded down we can't describe the exclusion, so no holdout
+        // entry is surfaced (only the winning release condition).
+        let (flag, property_values) = held_flag_with_release_condition();
 
         let flag_match = FeatureFlagMatch {
             matches: true,
@@ -1958,8 +1955,8 @@ mod tests {
         use std::collections::HashMap;
 
         // Two release groups, plus enrollment enabled, so this also exercises the interaction
-        // between the enrollment entry's analyses.insert(0, ...) and attribution to a non-zero
-        // condition_index: the enrollment entry must stay first while group 1 still wins.
+        // between the prepended enrollment entry and attribution to a non-zero condition_index:
+        // the enrollment entry must stay first while group 1 still wins.
         let flag: FeatureFlag = serde_json::from_value(json!({
             "id": 1, "team_id": 1, "name": "beta-feature", "key": "beta-feature", "active": true,
             "filters": {

@@ -52,8 +52,8 @@ describe('FeatureFlagTestingView', () => {
             expectedLabel: 'Early access enrollment',
         },
         // The matcher sets condition_index: None for a holdout win, which is why the guard also
-        // has to check flag.reason directly, not just condition_index !== null. The label reads
-        // flag.reason since the matched entry sits at the holdout sentinel, not the enrollment one.
+        // has to check flag.reason directly, not just condition_index !== null. The label itself
+        // reads the matched entry at the holdout sentinel index, same as the enrollment case.
         {
             reason: 'holdout_condition_value',
             condition_index: null,
@@ -88,6 +88,23 @@ describe('FeatureFlagTestingView', () => {
         )
 
         expect(screen.getByText('Early access enrollment')).toBeTruthy()
+    })
+
+    it('derives the holdout label from the matched condition entry, not flag.reason', () => {
+        // reason deliberately disagrees with the conditions entry, so this only passes if the
+        // label reads flag.conditions rather than checking flag.reason === 'holdout_condition_value'.
+        render(
+            <FeatureFlagTestingView
+                flag={{
+                    ...baseFlag,
+                    reason: 'condition_match',
+                    condition_index: 0,
+                    conditions: [{ index: HOLDOUT_CONDITION_INDEX, matched: true, rollout_percentage: 100 }],
+                }}
+            />
+        )
+
+        expect(screen.getByText('Holdout')).toBeTruthy()
     })
 
     it('labels the holdout entry in the condition breakdown, not "Condition #-1"', () => {
