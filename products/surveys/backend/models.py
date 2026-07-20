@@ -1,6 +1,6 @@
 import json
 import uuid
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import TYPE_CHECKING
 
 from django.contrib.postgres.fields import ArrayField
@@ -349,6 +349,22 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
             for flag_id in row
             if flag_id is not None
         }
+
+    def has_final_iteration_ended(self) -> bool:
+        """True once a recurring survey has run past the end of its last scheduled iteration."""
+        if not self.iteration_start_dates or not self.iteration_frequency_days:
+            return False
+
+        last_iteration_start = self.iteration_start_dates[-1]
+        if last_iteration_start is None:
+            return False
+
+        try:
+            final_iteration_end = last_iteration_start.date() + timedelta(days=self.iteration_frequency_days)
+        except OverflowError:
+            # iteration_frequency_days is not capped by the API; a huge value must not crash callers
+            return False
+        return date.today() > final_iteration_end
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(

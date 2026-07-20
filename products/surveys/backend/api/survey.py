@@ -1599,6 +1599,30 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         return instance
 
+    def _reanchor_recurring_schedule_on_resume(self, before_update: Survey, instance: Survey) -> None:
+        """Restart a recurring survey's iteration window when it is reopened after fully elapsing.
+
+        Reopening a survey clears ``end_date`` but leaves ``iteration_start_dates`` anchored to the
+        original ``start_date``. If the final iteration has already passed, the periodic
+        ``update_survey_iteration`` task sees a schedule stuck in the past and re-closes the survey
+        within ~12h — silently stopping response collection. Re-anchoring to the resume moment lets
+        the recurring schedule run again from now.
+        """
+        was_resumed = before_update.end_date is not None and instance.end_date is None
+        if not was_resumed:
+            return
+        if not instance.iteration_count or not instance.iteration_frequency_days:
+            return
+        if not instance.has_final_iteration_ended():
+            return
+
+        instance.start_date = datetime.now(UTC)
+        # Reset so the pre_save hook rebuilds iteration_start_dates from the new start_date and
+        # restarts the recurring schedule at its first iteration.
+        instance.current_iteration = None
+        instance.current_iteration_start_date = None
+        instance.save()
+
     def update(self, instance: Survey, validated_data):
         before_update = Survey.objects.get(pk=instance.pk)
         user = self.context["request"].user
@@ -1751,6 +1775,8 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 team=team,
                 request=self.context["request"],
             )
+
+        self._reanchor_recurring_schedule_on_resume(before_update, instance)
 
         should_flag_be_active = self._should_survey_flags_be_active(instance)
 
