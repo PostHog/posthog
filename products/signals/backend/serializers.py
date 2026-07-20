@@ -884,6 +884,19 @@ class PullRequestChecksResponseSerializer(serializers.Serializer):
     checks = PullRequestCheckSerializer(many=True, read_only=True)
 
 
+class PullRequestCommentReactionSerializer(serializers.Serializer):
+    """One emoji reaction on a review comment, with the reactor so the viewer's own can be toggled."""
+
+    id = serializers.CharField(read_only=True, help_text="GitHub reaction id (needed to remove it).")
+    content = serializers.CharField(
+        read_only=True,
+        help_text="Reaction key: '+1', '-1', 'laugh', 'hooray', 'confused', 'heart', 'rocket', or 'eyes'.",
+    )
+    user_login = serializers.CharField(
+        read_only=True, allow_null=True, help_text="GitHub login of the user who added the reaction."
+    )
+
+
 class PullRequestCommentSerializer(serializers.Serializer):
     """One comment on a pull request — a conversation comment or an inline review comment."""
 
@@ -934,9 +947,83 @@ class PullRequestCommentSerializer(serializers.Serializer):
         allow_null=True,
         help_text="SHA of the commit the review comment was made against (review comments only).",
     )
+    reactions = PullRequestCommentReactionSerializer(
+        many=True,
+        read_only=True,
+        help_text="Emoji reactions on this review comment, one entry per reactor.",
+    )
 
 
 class PullRequestCommentsResponseSerializer(serializers.Serializer):
     """Response for the PR comments endpoint — conversation and review comments merged chronologically."""
 
     comments = PullRequestCommentSerializer(many=True, read_only=True)
+
+
+class PullRequestReviewCommentCreateSerializer(serializers.Serializer):
+    """Request body for posting an inline PR review comment as the requesting user.
+
+    Two shapes: a reply to an existing thread (only `body` + `in_reply_to`), or a new
+    thread on a diff line (`body` + `path` + `line`, optionally `side`)."""
+
+    body = serializers.CharField(help_text="Comment body (GitHub-flavored markdown).", max_length=65536)
+    # Numeric-only: this id is interpolated into the GitHub reply URL, so an unconstrained string could
+    # smuggle path segments (e.g. `../../issues/1/comments`) and retarget the request.
+    in_reply_to = serializers.RegexField(
+        r"^[0-9]+$",
+        required=False,
+        allow_null=True,
+        help_text="Numeric id of the thread root comment to reply to. When set, path/line/side are ignored.",
+    )
+    path = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="File path to anchor a new comment thread to (required when starting a new thread).",
+    )
+    line = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        help_text="Diff line to anchor a new comment thread to (required when starting a new thread).",
+    )
+    side = serializers.ChoiceField(
+        required=False,
+        allow_null=True,
+        choices=["LEFT", "RIGHT"],
+        help_text="Diff side of the anchor line: 'LEFT' = deletions, 'RIGHT' = additions. Defaults to 'RIGHT'.",
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        if not attrs.get("in_reply_to") and not (attrs.get("path") and attrs.get("line")):
+            raise serializers.ValidationError("Provide either in_reply_to (reply) or path + line (new thread).")
+        return attrs
+
+
+class PullRequestReviewCommentCreateResponseSerializer(serializers.Serializer):
+    """Response after posting a review comment — the created comment in the normalized PR-comment shape."""
+
+    comment = PullRequestCommentSerializer(read_only=True)
+
+
+class PullRequestReviewCommentUpdateSerializer(serializers.Serializer):
+    """Request body for editing a review comment's markdown body."""
+
+    body = serializers.CharField(help_text="New comment body (GitHub-flavored markdown).", max_length=65536)
+
+
+_REACTION_CONTENTS = ["+1", "-1", "laugh", "hooray", "confused", "heart", "rocket", "eyes"]
+
+
+class PullRequestReviewCommentReactionCreateSerializer(serializers.Serializer):
+    """Request body for adding an emoji reaction to a review comment."""
+
+    content = serializers.ChoiceField(
+        choices=_REACTION_CONTENTS,
+        help_text="Reaction to add: one of '+1', '-1', 'laugh', 'hooray', 'confused', 'heart', 'rocket', 'eyes'.",
+    )
+
+
+class PullRequestReviewCommentReactionCreateResponseSerializer(serializers.Serializer):
+    """Response after adding a reaction — the created reaction, so the frontend can track its id."""
+
+    reaction = PullRequestCommentReactionSerializer(read_only=True)

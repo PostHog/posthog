@@ -26,6 +26,8 @@ export interface PersonalGitHubIntegration {
     installation_id: string | null
     repository_selection: string | null
     account: { type: string; name: string } | null
+    /** The connected user's own GitHub login (distinct from `account`, which is the installation org/user). */
+    github_login: string | null
     uses_shared_installation: boolean
     created_at: string | null
 }
