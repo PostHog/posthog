@@ -136,6 +136,8 @@ pub struct WorkerHealthSnapshot {
     pub url: String,
     pub state: String,
     pub draining: bool,
+    /// Eligible for routing right now (Healthy or Degraded, not draining).
+    pub routable: bool,
     pub consecutive_probe_failures: u32,
     pub passive_error_rate: f64,
     pub passive_samples: usize,
