@@ -1,1 +1,1 @@
-0049_retire_gemini_2_5_flash_scanner_model
+0050_remap_retired_gemini_2_5_flash_scanners

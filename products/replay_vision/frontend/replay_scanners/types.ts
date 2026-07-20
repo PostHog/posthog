@@ -143,13 +143,11 @@ export const ENABLED_OPTIONS: { value: EnabledFilter; label: string }[] = [
 // Mirrors the backend `OBSERVATION_CREDITS_BY_MODEL` table (the scanner/estimate API responses are authoritative);
 // the picker needs a price per model before anything is saved, so it can't come from a per-instance response.
 export const OBSERVATION_CREDITS_BY_MODEL: Record<ScannerModelEnumApi, number> = {
-    [ScannerModelEnumApi.Gemini25Flash]: 2,
     [ScannerModelEnumApi.Gemini3FlashPreview]: 5,
     [ScannerModelEnumApi.Gemini35Flash]: 15,
 }
 
 const MODEL_NAMES: Record<ScannerModelEnumApi, string> = {
-    [ScannerModelEnumApi.Gemini25Flash]: 'Gemini 2.5 Flash',
     [ScannerModelEnumApi.Gemini3FlashPreview]: 'Gemini 3 Flash',
     [ScannerModelEnumApi.Gemini35Flash]: 'Gemini 3.5 Flash',
 }
