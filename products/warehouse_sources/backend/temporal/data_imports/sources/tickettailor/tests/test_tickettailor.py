@@ -55,8 +55,8 @@ def _client_session(send_side_effect: Any) -> tuple[Session, list[Any]]:
         captured.append(prepared)
         return prepared
 
-    session.prepare_request = prepare  # type: ignore[method-assign]
-    session.send = mock.MagicMock(side_effect=send_side_effect)  # type: ignore[method-assign]
+    session.prepare_request = prepare  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    session.send = mock.MagicMock(side_effect=send_side_effect)  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
     return session, captured
 
 

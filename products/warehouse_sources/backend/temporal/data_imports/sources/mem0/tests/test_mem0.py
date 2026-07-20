@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -91,11 +91,11 @@ def _run(endpoint: str, responses: list[Response], manager: mock.MagicMock, **kw
 
 
 def _query(prepared: requests.PreparedRequest) -> dict[str, list[str]]:
-    return parse_qs(urlsplit(prepared.url).query)
+    return parse_qs(urlsplit(cast("str", prepared.url)).query)
 
 
 def _body(prepared: requests.PreparedRequest) -> Any:
-    return json.loads(prepared.body)
+    return json.loads(cast("str", prepared.body))
 
 
 class TestValidateCredentials:

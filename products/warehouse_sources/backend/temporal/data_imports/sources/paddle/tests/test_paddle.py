@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 from typing import Any, cast
 
 import pytest
@@ -11,10 +12,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.pad
     PADDLE_BASE_URL,
     PaddlePermissionError,
     PaddleResumeConfig,
+    _format_paddle_datetime_query_value,
     _get_paddle_session,
     paddle_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.source import PaddleSource
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -251,3 +254,36 @@ class TestPaddleSession:
         assert retry.is_retry("GET", 401) is False
         assert retry.is_retry("GET", 403) is False
         assert retry.is_retry("GET", 400) is False
+
+
+class TestFormatDatetimeQueryValue:
+    @pytest.mark.parametrize(
+        "value, expected",
+        [
+            ("2024-01-01T00:00:00Z", "2024-01-01T00:00:00Z"),
+            # Paddle's billed_at[GT] filter is UTC-only, so an offset timestamp must be normalized.
+            ("2024-01-01T02:00:00+02:00", "2024-01-01T00:00:00Z"),
+            (datetime(2024, 1, 1, 0, 0, 0), "2024-01-01T00:00:00Z"),
+        ],
+    )
+    def test_normalizes_to_utc_z(self, value: Any, expected: str) -> None:
+        assert _format_paddle_datetime_query_value(value) == expected
+
+
+class TestGetSchemas:
+    @pytest.mark.parametrize(
+        "endpoint, expected_incremental",
+        [
+            ("transactions", True),
+            ("customers", False),
+            ("discounts", False),
+            ("prices", False),
+            ("products", False),
+            ("subscriptions", False),
+            ("adjustments", False),
+        ],
+    )
+    def test_incremental_flag_per_endpoint(self, endpoint: str, expected_incremental: bool) -> None:
+        schemas = {schema.name: schema for schema in PaddleSource().get_schemas(config=mock.MagicMock(), team_id=1)}
+        assert schemas[endpoint].supports_incremental is expected_incremental
+        assert schemas[endpoint].supports_append is expected_incremental

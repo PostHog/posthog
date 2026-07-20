@@ -13,6 +13,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     BasePaginator,
     SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    Endpoint,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.roark.settings import (
@@ -168,7 +172,7 @@ def roark_source(
         data_selector = None
         data_map = _unwrap_unpaginated
 
-    endpoint_config: dict[str, Any] = {
+    endpoint_config: Endpoint = {
         "path": config.path,
         "params": _base_params(config),
         "paginator": paginator,
@@ -176,7 +180,7 @@ def roark_source(
     if data_selector is not None:
         endpoint_config["data_selector"] = data_selector
 
-    resource_config: dict[str, Any] = {"name": endpoint, "endpoint": endpoint_config}
+    resource_config: EndpointResource = {"name": endpoint, "endpoint": endpoint_config}
     if data_map is not None:
         resource_config["data_map"] = data_map
 

@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponsePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.intruder.settings import (
@@ -43,7 +44,7 @@ def _non_secret_headers() -> dict[str, str]:
     return {"Accept": "application/json"}
 
 
-def _client_config(access_token: str) -> dict[str, Any]:
+def _client_config(access_token: str) -> ClientConfig:
     # allowed_hosts=[] pins every request — including API-returned `next` links and seeded resume
     # URLs — to the base_url host (api.intruder.io), so a poisoned resume cursor or a spoofed `next`
     # can't exfiltrate the bearer token off-origin. allow_redirects=False refuses any 3xx (a redirect

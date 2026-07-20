@@ -54,7 +54,7 @@ def _base_headers() -> dict[str, str]:
     return {"Accept": "application/json"}
 
 
-def _build_resources(endpoint: str) -> list[EndpointResource]:
+def _build_resources(endpoint: str) -> list[EndpointResource | str]:
     config = PHYLLO_ENDPOINTS[endpoint]
 
     if not config.fan_out_by_account:

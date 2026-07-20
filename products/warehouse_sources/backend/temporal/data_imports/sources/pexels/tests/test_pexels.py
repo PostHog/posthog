@@ -113,7 +113,7 @@ class TestAuth:
             captured["auth"] = prepared.headers.get("Authorization")
             return _response([])
 
-        real_session.send = fake_send  # type: ignore[method-assign]
+        real_session.send = fake_send  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         with mock.patch(CLIENT_SESSION_PATCH, return_value=real_session):
             _rows(
                 pexels_source(

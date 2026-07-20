@@ -1,6 +1,7 @@
 import json
 import dataclasses
-from typing import Any
+from collections.abc import Iterable
+from typing import Any, cast
 
 import pytest
 from unittest import mock
@@ -73,7 +74,7 @@ def _drive(endpoint: str, manager: mock.MagicMock, responses: list[Response], **
         source_response = lever_source(
             "key", endpoint, team_id=1, job_id="j", resumable_source_manager=manager, **kwargs
         )
-        yielded = list(source_response.items())
+        yielded = list(cast("Iterable[Any]", source_response.items()))
     return params, yielded
 
 

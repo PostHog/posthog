@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     JSONResponseCursorPaginator,
     SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.oura.settings import (
@@ -88,14 +89,14 @@ def probe_endpoint(token: str, path: str) -> int:
     return status if status is not None else -1
 
 
-def _build_endpoint_config(config: OuraEndpointConfig) -> dict[str, Any]:
+def _build_endpoint_config(config: OuraEndpointConfig) -> Endpoint:
     if config.is_single_document:
         # Single-document endpoints (e.g. personal_info) return a flat object, not a
         # {data: [...], next_token} envelope. With no data_selector the whole body is emitted as
         # a single row.
         return {"path": config.path, "paginator": SinglePagePaginator()}
 
-    endpoint: dict[str, Any] = {
+    endpoint: Endpoint = {
         "path": config.path,
         "data_selector": "data",
         # A 200 body without `data` means the response shape changed — fail loud instead of

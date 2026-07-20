@@ -1,6 +1,7 @@
 import json
+from collections.abc import Iterable
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -73,7 +74,7 @@ def _run(
             resumable_source_manager=manager or _make_manager(),
             **kwargs,
         )
-        rows = [row for page in response.items() for row in page]
+        rows = [row for page in cast("Iterable[Any]", response.items()) for row in page]
     return rows, snapshots, session
 
 
@@ -115,7 +116,7 @@ class TestEnvelopeShapes:
     def test_unexpected_payloads_are_retried_then_fail(self, _name: str, body: Any) -> None:
         # An unexpected 200-body shape is treated as transient: retried, and exhausting retries
         # raises rather than silently syncing garbage rows.
-        with patch.object(rest_client.RESTClient._send_request.retry, "sleep", lambda *a, **k: None):
+        with patch.object(rest_client.RESTClient._send_request.retry, "sleep", lambda *a, **k: None):  # type: ignore[attr-defined]
             with pytest.raises(rest_client.RESTClientRetryableError):
                 _run("feedback", [_response(body)] * 5)
 
@@ -244,7 +245,7 @@ class TestRetries:
     )
     def test_transient_failures_are_retried(self, _name: str, first_response: Response) -> None:
         responses = [first_response, _response({"data": {"responses": [{"id": "1"}], "pages": 1}})]
-        with patch.object(rest_client.RESTClient._send_request.retry, "sleep", lambda *a, **k: None):
+        with patch.object(rest_client.RESTClient._send_request.retry, "sleep", lambda *a, **k: None):  # type: ignore[attr-defined]
             rows, _, session = _run("feedback", responses)
         assert rows == [{"id": "1"}]
         assert session.send.call_count == 2

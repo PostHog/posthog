@@ -1,6 +1,7 @@
 import json
+from collections.abc import Iterable
 from datetime import date, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest import mock
@@ -71,7 +72,7 @@ def _run(endpoint: str, responses: list[Response], manager: mock.MagicMock, **kw
             resumable_source_manager=manager,
             **kwargs,
         )
-        return [row for page in source.items() for row in page]
+        return [row for page in cast("Iterable[Any]", source.items()) for row in page]
 
 
 class TestSubdomain:
@@ -203,7 +204,7 @@ class TestTokenPagination:
                 resumable_source_manager=manager,
                 should_use_incremental_field=False,
             )
-            rows = [row for page in source.items() for row in page]
+            rows = [row for page in cast("Iterable[Any]", source.items()) for row in page]
         assert [row["id"] for row in rows] == ["2"]
         assert params[0].get("nextPageToken") == ("tok2" if expect_token_sent else None)
 
@@ -224,7 +225,7 @@ class TestTokenPagination:
                 db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58),
                 incremental_field="updated",
             )
-            list(source.items())
+            list(cast("Iterable[Any]", source.items()))
         assert params[0]["jql"] == 'updated >= "2026-03-03 02:58" ORDER BY updated ASC'
         assert params[0]["fields"] == "*all"
 
@@ -248,7 +249,7 @@ class TestOffsetPagination:
                 logger=mock.MagicMock(),
                 resumable_source_manager=manager,
             )
-            rows = [row for page in source.items() for row in page]
+            rows = [row for page in cast("Iterable[Any]", source.items()) for row in page]
         assert len(rows) == 101
         assert params[0]["startAt"] == 0
         assert params[0]["maxResults"] == 100
@@ -288,7 +289,7 @@ class TestOffsetPagination:
                 logger=mock.MagicMock(),
                 resumable_source_manager=manager,
             )
-            list(source.items())
+            list(cast("Iterable[Any]", source.items()))
         assert params[0]["startAt"] == 200
 
 

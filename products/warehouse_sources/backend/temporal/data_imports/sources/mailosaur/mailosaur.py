@@ -70,7 +70,7 @@ def _build_resources(
     endpoint: str,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
-) -> list[EndpointResource]:
+) -> list[EndpointResource | str]:
     config = MAILOSAUR_ENDPOINTS[endpoint]
 
     if not config.fan_out_over_servers:

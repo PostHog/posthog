@@ -190,9 +190,10 @@ def _resource_chain(
 
     resolve_app = {"type": "resolve", "resource": _APPS_RESOURCE, "field": "id"}
 
+    child: EndpointResource
     if config.kind == "logs":
         start, end = _time_window_params(config, should_use_incremental_field, db_incremental_field_last_value)
-        child: EndpointResource = {
+        child = {
             "name": endpoint,
             "endpoint": {
                 "path": config.path,

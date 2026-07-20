@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     JSONResponsePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.northpass_lms.settings import (
@@ -88,7 +89,7 @@ def _make_child_flattener(parent_name: str, parent_id_field: str) -> Callable[[d
     return _flatten
 
 
-def _client_config(api_key: str) -> dict[str, Any]:
+def _client_config(api_key: str) -> ClientConfig:
     return {
         "base_url": NORTHPASS_BASE_URL,
         # Auth (the API key) rides in the framework auth config so its value is redacted from logs and

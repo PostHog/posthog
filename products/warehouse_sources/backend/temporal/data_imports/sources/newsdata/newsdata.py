@@ -14,7 +14,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     JSONResponseCursorPaginator,
     SinglePagePaginator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ApiKeyAuthConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ApiKeyAuthConfig,
+    IncrementalConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.newsdata.settings import (
@@ -121,12 +124,13 @@ def get_rows(
     # Only date-filter endpoints (archive, crypto) accept from_date; on the first incremental sync
     # the lookback floor seeds it, on later syncs the stored watermark advances it.
     if config.supports_date_filter and should_use_incremental_field:
-        endpoint_config["incremental"] = {
+        incremental: IncrementalConfig = {
             "start_param": "from_date",
             "cursor_path": "pubDate",
-            "initial_value": _initial_from_date(config),
+            "initial_value": _to_from_date(_initial_from_date(config)),
             "convert": _to_from_date,
         }
+        endpoint_config["incremental"] = incremental
 
     rest_config: RESTAPIConfig = {
         "client": {

@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
+    Endpoint,
     EndpointResource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -191,7 +192,7 @@ def _measurement_resources(
     page_size: int,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
-) -> list[EndpointResource]:
+) -> list[EndpointResource | str]:
     parent: EndpointResource = {
         "name": _SENSOR_IDS_RESOURCE,
         "endpoint": {
@@ -203,7 +204,7 @@ def _measurement_resources(
         "data_map": _explode_location_sensor_ids,
     }
 
-    child_endpoint: dict[str, Any] = {
+    child_endpoint: Endpoint = {
         "path": config.path,
         "params": {
             "sensors_id": {"type": "resolve", "resource": _SENSOR_IDS_RESOURCE, "field": "id"},

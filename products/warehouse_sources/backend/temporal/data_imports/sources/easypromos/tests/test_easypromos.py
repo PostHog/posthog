@@ -1,6 +1,7 @@
 import json
+from collections.abc import Iterable
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 from unittest import mock
 
@@ -79,7 +80,7 @@ def _rows(endpoint: str, manager: mock.MagicMock) -> list[dict[str, Any]]:
         job_id="j",
         resumable_source_manager=manager,
     )
-    return [row for page in response.items() for row in page]
+    return [row for page in cast("Iterable[Any]", response.items()) for row in page]
 
 
 class TestValidateCredentials:

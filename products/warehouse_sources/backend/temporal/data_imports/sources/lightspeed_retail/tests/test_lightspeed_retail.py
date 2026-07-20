@@ -1,5 +1,6 @@
 import json
-from typing import Any
+from collections.abc import Iterable
+from typing import Any, cast
 
 import pytest
 from unittest import mock
@@ -60,11 +61,11 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
     return param_snapshots
 
 
-def _run(manager: mock.MagicMock, endpoint: str = "sales", **kwargs: Any) -> list[list[dict[str, Any]]]:
+def _run(manager: mock.MagicMock, endpoint: str = "sales", **kwargs: Any) -> list[Any]:
     response = lightspeed_retail_source(
         "mystore", "token", endpoint, team_id=1, job_id="j", resumable_source_manager=manager, **kwargs
     )
-    return list(response.items())
+    return list(cast("Iterable[Any]", response.items()))
 
 
 class TestCleanDomainPrefix:

@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
 from products.warehouse_sources.backend.temporal.data_imports.sources.metabase.settings import (
     METABASE_ENDPOINTS,
     MetabaseEndpointConfig,
@@ -283,7 +284,7 @@ def get_rows(
 
     session = make_tracked_session(redact_values=_redact_values_for_data_requests(auth, headers))
 
-    endpoint_config: dict[str, Any] = {"path": config.path, "params": dict(config.params)}
+    endpoint_config: Endpoint = {"path": config.path, "params": dict(config.params)}
     if config.data_selector:
         endpoint_config["data_selector"] = config.data_selector
 

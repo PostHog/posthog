@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.fulcrum.settings import (
@@ -112,8 +113,8 @@ class FulcrumPageNumberPaginator(BasePaginator):
         return f"FulcrumPageNumberPaginator(page={self.page})"
 
 
-def _build_endpoint(config: FulcrumEndpointConfig) -> dict[str, Any]:
-    endpoint: dict[str, Any] = {
+def _build_endpoint(config: FulcrumEndpointConfig) -> Endpoint:
+    endpoint: Endpoint = {
         "path": config.path,
         "params": {"per_page": config.page_size},
         "data_selector": config.data_key,

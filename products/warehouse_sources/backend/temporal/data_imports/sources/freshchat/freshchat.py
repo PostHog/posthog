@@ -71,9 +71,9 @@ def _base_url(domain: str) -> str:
     return f"https://{normalize_domain(domain)}/v2"
 
 
-def build_base_params(config: FreshchatEndpointConfig) -> dict[str, str]:
+def build_base_params(config: FreshchatEndpointConfig) -> dict[str, Any]:
     """Query params shared across every page of one sync (everything except `page`)."""
-    params: dict[str, str] = {}
+    params: dict[str, Any] = {}
     if config.paginated:
         params["items_per_page"] = str(PER_PAGE)
         # Explicit stable sort so page boundaries don't skip/duplicate rows if the API's implicit

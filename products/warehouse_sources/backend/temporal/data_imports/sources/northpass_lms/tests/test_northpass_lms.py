@@ -1,5 +1,6 @@
 import json
-from typing import Any
+from collections.abc import Iterable
+from typing import Any, cast
 
 import pytest
 from unittest import mock
@@ -56,14 +57,14 @@ def _wire(mock_make_session: mock.MagicMock, pages: dict[str, Any]) -> list[str]
             raise result
         return result
 
-    session.send = mock.MagicMock(side_effect=_send)  # type: ignore[method-assign]
+    session.send = mock.MagicMock(side_effect=_send)  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
     mock_make_session.return_value = session
     return sent
 
 
 def _rows(endpoint: str, manager: mock.MagicMock) -> list[dict[str, Any]]:
     response = northpass_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=manager)
-    return [row for page in response.items() for row in page]
+    return [row for page in cast("Iterable[Any]", response.items()) for row in page]
 
 
 COURSES_P1 = "https://api.northpass.com/v2/courses?limit=100"

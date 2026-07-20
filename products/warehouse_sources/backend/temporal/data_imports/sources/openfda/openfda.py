@@ -44,6 +44,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     HeaderLinkPaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    HttpBasicAuthConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.openfda.settings import (
@@ -139,7 +142,7 @@ def _make_basic_auth(api_key: str | None) -> HTTPBasicAuth | None:
     return HTTPBasicAuth(api_key, "") if api_key else None
 
 
-def _auth_config(api_key: str | None) -> Optional[dict[str, Any]]:
+def _auth_config(api_key: str | None) -> Optional[HttpBasicAuthConfig]:
     # Framework http_basic auth (key as username, empty password) so the credential is injected as an
     # Authorization header rather than a hand-built one. openFDA allows the unauthenticated tier, so a
     # blank key sends no auth at all.

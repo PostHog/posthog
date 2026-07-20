@@ -1,5 +1,5 @@
 import json
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -85,7 +85,7 @@ def _run(
 
 
 def _query(prepared: requests.PreparedRequest) -> dict[str, list[str]]:
-    return parse_qs(urlsplit(prepared.url).query)
+    return parse_qs(urlsplit(cast("str", prepared.url)).query)
 
 
 def _ok_json_response(payload: dict | list | None = None, status_code: int = 200) -> MagicMock:

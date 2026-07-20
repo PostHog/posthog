@@ -78,8 +78,8 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
         return prepared
 
     def _send(prepared: Any, **_kwargs: Any) -> Response:
-        response = responses[_send.call_index]
-        _send.call_index += 1
+        response = responses[_send.call_index]  # type: ignore[attr-defined]
+        _send.call_index += 1  # type: ignore[attr-defined]
         # Mirror the real redirect flag onto the prepared object the paginator/client inspects.
         prepared.is_redirect = response.is_redirect
         return response

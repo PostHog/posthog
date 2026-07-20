@@ -63,7 +63,7 @@ def _build_incremental_params(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
     incremental_field: str | None,
-) -> dict[str, str]:
+) -> dict[str, Any]:
     if not should_use_incremental_field or db_incremental_field_last_value is None:
         return {}
 

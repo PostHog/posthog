@@ -1,5 +1,6 @@
 import json
-from typing import Any
+from collections.abc import Iterable
+from typing import Any, cast
 
 from unittest import mock
 
@@ -71,7 +72,7 @@ def _rows(
             job_id="job-1",
             resumable_source_manager=manager,
         )
-        rows = [row for page in source_response.items() for row in page]
+        rows = [row for page in cast("Iterable[Any]", source_response.items()) for row in page]
     return rows, params, urls
 
 

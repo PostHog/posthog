@@ -348,7 +348,7 @@ class TestActivityFanOut:
 class TestLegacyResumeStateCompat:
     def test_legacy_state_shape_still_deserializes(self) -> None:
         # Resume state saved by the pre-migration source (next_page/domain_id only) must still parse.
-        state = MailerSendResumeConfig(**{"next_page": 3, "domain_id": "d2"})
+        state = MailerSendResumeConfig(next_page=3, domain_id="d2")
         assert state.next_page == 3
         assert state.domain_id == "d2"
         assert state.fanout_state is None

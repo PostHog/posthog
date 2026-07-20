@@ -17,7 +17,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     OffsetPaginator,
     SinglePagePaginator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    Endpoint,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.env0.settings import (
@@ -103,14 +106,15 @@ def _row_transform(
     """Per-item reshape matching the old `_normalize_row`: drop huge free-text blobs and
     secret-bearing fields, and rename the injected parent id to its documented column."""
     strip = set(config.strip_fields)
-    injected_key = f"_{parent_resource_name}_id" if (config.inject_parent_id_field and parent_resource_name) else None
+    rename_to = config.inject_parent_id_field
+    injected_key = f"_{parent_resource_name}_id" if (rename_to and parent_resource_name) else None
     if not strip and injected_key is None:
         return None
 
     def _transform(row: dict[str, Any]) -> dict[str, Any]:
         out = {key: value for key, value in row.items() if key not in strip}
-        if injected_key is not None and injected_key in out:
-            out[config.inject_parent_id_field] = out.pop(injected_key)
+        if injected_key is not None and rename_to is not None and injected_key in out:
+            out[rename_to] = out.pop(injected_key)
         return out
 
     return _transform
@@ -162,7 +166,7 @@ def _target_resource(
     else:
         path = config.path
 
-    endpoint: dict[str, Any] = {"path": path, "params": params, "paginator": _paginator_for(config)}
+    endpoint: Endpoint = {"path": path, "params": params, "paginator": _paginator_for(config)}
     if config.data_key:
         endpoint["data_selector"] = config.data_key
     if config.scope == "environment":
@@ -179,7 +183,7 @@ def _target_resource(
     return resource
 
 
-def _build_resources(config: Env0EndpointConfig, date_window_params: dict[str, str]) -> list[EndpointResource]:
+def _build_resources(config: Env0EndpointConfig, date_window_params: dict[str, str]) -> list[EndpointResource | str]:
     if config.scope == "organization":
         return [_organizations_parent(), _target_resource(config, "organizations", {})]
     if config.scope == "environment":

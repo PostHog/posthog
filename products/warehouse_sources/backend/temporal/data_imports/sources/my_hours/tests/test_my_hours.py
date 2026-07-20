@@ -50,7 +50,7 @@ def _wire(responses: list[Response]) -> tuple[requests.Session, list[Any]]:
         sent.append(prepared)
         return responses[len(sent) - 1]
 
-    session.send = mock.MagicMock(side_effect=_send)  # type: ignore[method-assign]
+    session.send = mock.MagicMock(side_effect=_send)  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
     return session, sent
 
 
@@ -68,7 +68,7 @@ class TestSync:
 
         assert rows == [{"id": 1}, {"id": 2}]
         # Unpaginated: exactly one request, no pagination follow-up.
-        assert session.send.call_count == 1
+        assert session.send.call_count == 1  # type: ignore[attr-defined]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_empty_array_yields_nothing(self, mock_session: mock.MagicMock) -> None:

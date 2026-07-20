@@ -1,6 +1,6 @@
 import json
-from collections.abc import Callable
-from typing import Any
+from collections.abc import Callable, Iterable
+from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -55,14 +55,14 @@ def _wire(mock_make_session: mock.MagicMock, router: Callable[[str], Any]) -> li
             raise result
         return result
 
-    session.send = mock.MagicMock(side_effect=_send)  # type: ignore[method-assign]
+    session.send = mock.MagicMock(side_effect=_send)  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
     mock_make_session.return_value = session
     return sent
 
 
 def _rows(endpoint: str) -> list[dict[str, Any]]:
     response = optimizely_source("token", endpoint, team_id=1, job_id="j")
-    return [row for page in response.items() for row in page]
+    return [row for page in cast("Iterable[Any]", response.items()) for row in page]
 
 
 class TestValidateCredentials:

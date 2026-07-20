@@ -1,6 +1,7 @@
 import json
+from collections.abc import Iterable
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import pytest
 from unittest import mock
@@ -83,7 +84,7 @@ def _run(manager, responses, **kwargs) -> tuple[list[dict[str, Any]], mock.Magic
             resumable_source_manager=manager,
             **kwargs,
         )
-        rows = [row for page in response.items() for row in page]
+        rows = [row for page in cast("Iterable[Any]", response.items()) for row in page]
     return rows, session, params
 
 
@@ -159,7 +160,7 @@ class TestPipelinerSourceTransport:
                 job_id="job-1",
                 resumable_source_manager=_manager(),
             )
-            list(response.items())
+            list(cast("Iterable[Any]", response.items()))
 
         assert urls[0] == "https://us-east.api.pipelinersales.com/api/v100/rest/spaces/space-1/entities/Accounts"
 
@@ -271,7 +272,7 @@ class TestPipelinerSourceTransport:
                 resumable_source_manager=manager,
             )
             with pytest.raises(PipelinerHostNotAllowedError):
-                list(response.items())
+                list(cast("Iterable[Any]", response.items()))
             session.send.assert_not_called()
 
 

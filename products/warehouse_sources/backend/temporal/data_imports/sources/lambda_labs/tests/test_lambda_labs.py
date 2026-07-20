@@ -283,7 +283,7 @@ class TestValidateCredentials:
         # A 5xx is not a credential rejection — it must propagate so the caller reports a transient
         # failure rather than telling the user to rotate a valid key.
         resp = mock.MagicMock(status_code=503)
-        resp.raise_for_status.side_effect = requests.HTTPError("503 Server Error")
+        resp.raise_for_status.side_effect = requests.HTTPError("503 Server Error", response=mock.MagicMock())
         mock_session.return_value.get.return_value = resp
         with pytest.raises(requests.HTTPError):
             validate_credentials("secret_key")

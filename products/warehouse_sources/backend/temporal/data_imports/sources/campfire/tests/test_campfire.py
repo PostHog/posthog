@@ -86,7 +86,7 @@ def _run(endpoint: str, responses: list[requests.Response], manager: MagicMock |
 class TestTokenAuth:
     def test_sets_token_authorization_header(self) -> None:
         request = PreparedRequest()
-        request.headers = {}
+        request.prepare_headers({})
         CampfireTokenAuth("secret-key")(request)
         assert request.headers["Authorization"] == "Token secret-key"
 

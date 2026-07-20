@@ -1,5 +1,3 @@
-from typing import Any
-
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -11,6 +9,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     HeaderLinkPaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.optimizely.settings import (
     OPTIMIZELY_ENDPOINTS,
@@ -23,7 +22,7 @@ OPTIMIZELY_BASE_URL = f"https://{OPTIMIZELY_API_HOST}/v2"
 PAGE_SIZE = 100
 
 
-def _client_config(api_token: str) -> dict[str, Any]:
+def _client_config(api_token: str) -> ClientConfig:
     return {
         "base_url": OPTIMIZELY_BASE_URL,
         # The Bearer token rides in the framework auth config so its value is redacted from logs and

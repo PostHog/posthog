@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponsePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.emailoctopus.settings import (
@@ -89,7 +90,7 @@ def validate_credentials(api_key: str) -> bool:
     return ok
 
 
-def _client_config(api_key: str, base_url: str) -> dict[str, Any]:
+def _client_config(api_key: str, base_url: str) -> ClientConfig:
     return {
         "base_url": base_url,
         "headers": _HEADERS,

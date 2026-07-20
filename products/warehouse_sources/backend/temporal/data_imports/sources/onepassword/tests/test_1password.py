@@ -1,6 +1,7 @@
 import json
+from collections.abc import Iterable
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from freezegun import freeze_time
@@ -172,7 +173,7 @@ class TestPagination:
                 resumable_source_manager=manager,
             ).items()
 
-            it = iter(batches)
+            it = iter(cast("Iterable[Any]", batches))
             first = next(it)
             assert first == [{"uuid": "a"}]
             # Nothing saved before the batch is handed to the consumer.

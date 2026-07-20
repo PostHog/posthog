@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.metorial.settings import METORIAL_ENDPOINTS
@@ -154,7 +155,7 @@ def metorial_source(
             "convert": _incremental_filter_value,
         }
 
-    resource_config: dict[str, Any] = {
+    resource_config: EndpointResource = {
         "name": endpoint,
         "endpoint": {
             "path": config.path,
