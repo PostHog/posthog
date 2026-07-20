@@ -92,7 +92,7 @@ export function AlertPreviewCard({
             : null
 
     return (
-        <div className="rounded border border-border bg-bg-light p-3 space-y-2">
+        <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5 text-sm font-medium">
                     <span>Preview</span>
