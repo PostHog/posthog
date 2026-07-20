@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from typing import Any, Optional, Union
 
 import pytest
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
 
 from django.conf import settings
 
@@ -12,13 +12,18 @@ from posthog.schema import SessionTableVersion
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
+from posthog.hogql.database.schema.sessions_v2 import SessionsTableV2, build_direct_session_id_in_pushdown
 from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV2
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.resolver import resolve_types
 from posthog.hogql.visitor import clone_expr
 
 from posthog.models import EventDefinition
+from posthog.models.utils import uuid7
 
 
 def f(s: Union[str, ast.Expr, None], placeholders: Optional[dict[str, ast.Expr]] = None) -> Union[ast.Expr, None]:
@@ -736,6 +741,183 @@ WHERE events.timestamp >= '2026-03-27 00:00:00'
             assert "or(" in in_subquery, f"Expected OR preserved in IN; got:\n{in_subquery}"
         else:
             assert "or(" not in in_subquery, f"Expected no OR in narrowed IN; got:\n{in_subquery}"
+
+
+class TestDirectSessionIdInPushdownV2(ClickhouseTestMixin, APIBaseTest):
+    # Locks build_direct_session_id_in_pushdown, the rewrite behind the web
+    # analytics session-id-set fast path. It is keyed on the sessionIdPushdown
+    # modifier, which teams can persist in team.modifiers — so ANY HogQL query
+    # with a matching shape (SQL editor included) can hit it. These tests pin:
+    # (a) it fires only for the exact supported shape, (b) it moves the id filter
+    # instead of copying it, and (c) it never changes query results.
+
+    ID_SUBQUERY_SHAPE = (
+        "SELECT $start_timestamp FROM sessions "
+        "WHERE session_id IN (SELECT $session_id FROM events WHERE event = '$pageview')"
+    )
+
+    def print_query(self, query: str, pushdown: bool, version: SessionTableVersion = SessionTableVersion.V2) -> str:
+        modifiers = create_default_modifiers_for_team(self.team)
+        modifiers.sessionTableVersion = version
+        modifiers.sessionIdPushdown = pushdown
+        context = HogQLContext(
+            team_id=self.team.pk,
+            team=self.team,
+            enable_select_queries=True,
+            modifiers=modifiers,
+        )
+        prepared_ast = prepare_ast_for_printing(node=parse(query), context=context, dialect="clickhouse")
+        assert prepared_ast is not None
+        return " ".join(print_prepared_ast(prepared_ast, context=context, dialect="clickhouse", pretty=True).split())
+
+    def test_rewrites_id_subquery_below_group_by_exactly_once(self):
+        sql = self.print_query(self.ID_SUBQUERY_SHAPE, pushdown=True)
+        assert sql.count("globalIn(raw_sessions.session_id_v7") == 1, sql
+        # Moved, not copied: a retained outer copy of the id subquery makes
+        # ClickHouse run the identical filtered-events scan a second time.
+        assert sql.count("FROM events") == 1, sql
+
+    def test_session_id_v7_subquery_skips_uuid_cast(self):
+        sql = self.print_query("SELECT $start_timestamp FROM sessions WHERE session_id_v7 IN (SELECT 1)", pushdown=True)
+        assert "globalIn(raw_sessions.session_id_v7" in sql, sql
+        # session_id_v7 is already UInt128 — wrapping it in the string→UUID cast
+        # would NULL out every id and silently return zero sessions.
+        assert "accurateCastOrNull" not in sql, sql
+
+    @parameterized.expand(
+        [
+            ("literal_list", "SELECT $start_timestamp FROM sessions WHERE session_id IN ('a', 'b')", True),
+            (
+                "not_in_subquery",
+                "SELECT $start_timestamp FROM sessions "
+                "WHERE session_id NOT IN (SELECT $session_id FROM events WHERE event = '$pageview')",
+                True,
+            ),
+            (
+                "or_nested",
+                "SELECT $start_timestamp FROM sessions "
+                "WHERE session_id IN (SELECT $session_id FROM events WHERE event = '$pageview') "
+                "OR $start_timestamp > '2026-01-01'",
+                True,
+            ),
+            ("modifier_off", ID_SUBQUERY_SHAPE, False),
+        ]
+    )
+    def test_unsupported_shapes_are_not_rewritten(self, _name: str, query: str, pushdown: bool):
+        sql = self.print_query(query, pushdown=pushdown)
+        assert "globalIn(raw_sessions.session_id_v7" not in sql, sql
+
+    def test_multi_column_subquery_fails_open_without_neutralizing(self):
+        modifiers = create_default_modifiers_for_team(self.team)
+        modifiers.sessionTableVersion = SessionTableVersion.V2
+        modifiers.sessionIdPushdown = True
+        context = HogQLContext(
+            team_id=self.team.pk,
+            team=self.team,
+            enable_select_queries=True,
+            modifiers=modifiers,
+            database=Database.create_for(team=self.team, modifiers=modifiers),
+        )
+        node = resolve_types(
+            parse("SELECT session_id FROM sessions WHERE session_id IN (SELECT $session_id, event FROM events)"),
+            context,
+            dialect="clickhouse",
+        )
+        assert isinstance(node, ast.SelectQuery)
+        assert node.where is not None
+        where_before = clone_expr(node.where, clear_types=True, clear_locations=True)
+        assert context.database is not None
+        sessions_table = context.database.get_table("sessions")
+        assert isinstance(sessions_table, SessionsTableV2)
+
+        assert build_direct_session_id_in_pushdown(node, context, sessions_table) is None
+        # Fail-open must leave the original predicate intact — neutralizing it
+        # without returning a replacement would drop the filter entirely.
+        where_after = node.where
+        assert where_after is not None
+        assert clone_expr(where_after, clear_types=True, clear_locations=True) == where_before
+
+    @parameterized.expand(
+        [
+            # Another table's session_id-named column must never be hijacked:
+            # rewriting it would silently drop the user's filter and apply a
+            # different one to the sessions subquery instead.
+            (
+                "events_property_named_session_id",
+                "SELECT s.$start_timestamp FROM sessions s JOIN events e ON e.$session_id = s.session_id "
+                "WHERE e.properties.session_id IN (SELECT $session_id FROM events WHERE event = '$pageview')",
+            ),
+            (
+                "replay_table_session_id",
+                "SELECT r.session_id FROM session_replay_events r LEFT JOIN sessions s ON s.session_id = r.session_id "
+                "WHERE r.session_id IN (SELECT $session_id FROM events WHERE event = '$pageview')",
+            ),
+            # A sessions self-join makes ownership ambiguous (lazy expansion
+            # processes occurrences one at a time against the same node), so the
+            # rewrite must skip entirely rather than push a's filter into b.
+            (
+                "sessions_self_join",
+                "SELECT a.session_id FROM sessions a CROSS JOIN sessions b "
+                "WHERE a.session_id IN (SELECT $session_id FROM events WHERE event = '$pageview')",
+            ),
+        ]
+    )
+    def test_other_tables_and_self_joins_are_not_hijacked(self, _name: str, query: str):
+        with_pushdown = self.print_query(query, pushdown=True)
+        without_pushdown = self.print_query(query, pushdown=False)
+        assert with_pushdown == without_pushdown
+
+    def test_v3_sessions_are_not_rewritten(self):
+        with_pushdown = self.print_query(self.ID_SUBQUERY_SHAPE, pushdown=True, version=SessionTableVersion.V3)
+        without_pushdown = self.print_query(self.ID_SUBQUERY_SHAPE, pushdown=False, version=SessionTableVersion.V3)
+        assert with_pushdown == without_pushdown
+
+    def test_pushdown_preserves_results_for_direct_sessions_query(self):
+        # The SQL-editor safety proof: a team that persists sessionIdPushdown in
+        # team.modifiers gets this rewrite on every matching query, so the modifier
+        # must never change which rows come back — including for malformed
+        # (non-UUID) session ids, which the cast drops from the pushed set exactly
+        # like the un-pushed filter leaves them unmatched.
+        matching_session = str(uuid7("2026-03-27"))
+        other_session = str(uuid7("2026-03-28"))
+        for session_id, distinct_id, timestamp, url in [
+            (matching_session, "d1", "2026-03-27T10:00:00Z", "/a"),
+            (other_session, "d2", "2026-03-28T10:00:00Z", "/b"),
+            ("not-a-uuid", "d3", "2026-03-27T11:00:00Z", "/a"),
+            # Uppercase UUID: casts to the same UUID value as other_session, but
+            # the un-rewritten predicate is a byte-exact string comparison against
+            # the canonical lowercase sessions.session_id — so it must not match
+            # under the pushdown either.
+            (other_session.upper(), "d4", "2026-03-28T11:00:00Z", "/a"),
+        ]:
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=distinct_id,
+                timestamp=timestamp,
+                properties={"$session_id": session_id, "$current_url": url},
+            )
+
+        query = (
+            "SELECT session_id FROM sessions "
+            "WHERE session_id IN (SELECT $session_id FROM events WHERE properties.$current_url = '/a') "
+            "ORDER BY session_id"
+        )
+        results = {}
+        for pushdown in (True, False):
+            modifiers = create_default_modifiers_for_team(self.team)
+            modifiers.sessionTableVersion = SessionTableVersion.V2
+            modifiers.sessionIdPushdown = pushdown
+            response = execute_hogql_query(query=query, team=self.team, modifiers=modifiers)
+            results[pushdown] = response.results
+            # Guard against this test passing vacuously: the rewrite fails open,
+            # so also pin that the pushed shape actually executed (and only when
+            # the modifier is on).
+            assert response.clickhouse is not None
+            assert ("globalIn(raw_sessions.session_id_v7" in response.clickhouse) == pushdown
+
+        assert results[True] == results[False]
+        assert results[True] == [(matching_session,)]
 
 
 class TestSessionPropertyPreAggregationV2(ClickhouseTestMixin, APIBaseTest):

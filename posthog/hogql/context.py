@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from posthog.hogql.database.database import Database
     from posthog.hogql.database.models import Table
     from posthog.hogql.observability import HogQLTypeObservability
+    from posthog.hogql.property_metadata import PropertyMetadata
     from posthog.hogql.transforms.property_types import PropertySwapper
 
     from posthog.clickhouse.client.execute import ClickHouseExternalTable
@@ -116,6 +117,9 @@ class HogQLContext:
     # Bounded source/surface label for type-system observability metrics.
     observability_source: str = "unknown"
 
+    # Property-definition metadata for the properties this query touches, loaded from Postgres by
+    # load_property_metadata during property-type resolution (None until build_property_swapper runs).
+    property_metadata: Optional["PropertyMetadata"] = None
     property_swapper: Optional["PropertySwapper"] = None
     # Workload detected during AST resolution (set by prepare_ast_for_printing)
     workload: Optional[Workload] = None

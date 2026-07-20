@@ -9,6 +9,7 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.tasks.backend.logic.services.agent_command import send_agent_command, send_user_message
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
+from products.tasks.backend.logic.services.run_actor import slack_actor_state_updates
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.process_task.utils import get_actor_distinct_id
 
@@ -134,12 +135,10 @@ def send_permission_response_to_sandbox(input: SendPermissionResponseToSandboxIn
         raise RuntimeError(result.error or "Failed to deliver permission response to sandbox")
 
     updates: dict[str, object] = {
-        "slack_actor_user_id": actor.id,
+        **slack_actor_state_updates(user_id=actor.id, slack_user_id=input.actor_slack_user_id),
         "slack_permission_response_last_request_id": input.request_id,
         "slack_permission_response_last_option_id": input.option_id,
     }
-    if input.actor_slack_user_id:
-        updates["slack_actor_slack_user_id"] = input.actor_slack_user_id
     if input.broker_reason:
         updates["slack_permission_broker_last_reason"] = input.broker_reason
     if input.is_denial:
