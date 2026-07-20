@@ -1,6 +1,8 @@
 import type { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 
-import type { TicketAssignee } from './components/Assignee'
+import type { AssigneeFilterEntry, TicketAssignee } from './components/Assignee'
+
+export type { AssigneeFilterEntry }
 
 export type NotificationPermission = 'default' | 'granted' | 'denied'
 export type TicketStatus = 'new' | 'open' | 'pending' | 'on_hold' | 'resolved'
@@ -21,7 +23,30 @@ export type MessageAuthorType = 'customer' | 'AI' | 'human'
 export type MessageDeliveryStatus = 'sent' | 'read'
 export type SidePanelViewState = 'list' | 'ticket' | 'new' | 'restore'
 export type RestoreFlowState = 'idle' | 'sending' | 'sent' | 'error'
+/** Legacy single-value assignee filter shape, still present in old saved views and persisted state. */
 export type AssigneeFilterValue = 'all' | 'unassigned' | TicketAssignee
+
+function isAssigneeFilterEntry(value: unknown): value is AssigneeFilterEntry {
+    if (value === 'unassigned') {
+        return true
+    }
+    if (typeof value !== 'object' || value === null) {
+        return false
+    }
+    const candidate = value as { type?: unknown; id?: unknown }
+    return (
+        (candidate.type === 'user' || candidate.type === 'role') &&
+        (typeof candidate.id === 'string' || typeof candidate.id === 'number')
+    )
+}
+
+/** Coerces both the current array shape and legacy single values into the multi-select filter shape. */
+export function normalizeAssigneeFilter(value: unknown): AssigneeFilterEntry[] {
+    if (Array.isArray(value)) {
+        return value.filter(isAssigneeFilterEntry)
+    }
+    return isAssigneeFilterEntry(value) ? [value] : []
+}
 
 export type TicketTagsMatch = 'any' | 'all'
 
@@ -73,7 +98,8 @@ export interface TicketViewFilters {
     channel?: TicketChannel | 'all'
     sla?: TicketSlaState | 'all'
     aiTriageResult?: AITriageFilterValue[]
-    assignee?: AssigneeFilterValue
+    /** Written as an array; legacy saved views may still hold a single `AssigneeFilterValue`. */
+    assignee?: AssigneeFilterEntry[] | AssigneeFilterValue
     tags?: string[]
     tagsMatch?: TicketTagsMatch
     tagsExclude?: string[]

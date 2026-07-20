@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import type { ReactNode } from 'react'
 
 import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
@@ -7,11 +8,12 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 
-import type { SavedTicketView, TicketViewFilters } from '../../types'
+import { type SavedTicketView, type TicketViewFilters, normalizeAssigneeFilter } from '../../types'
+import { AssigneeLabelDisplay, AssigneeResolver } from '../Assignee'
 import { type TicketViewsLogicProps, ticketViewsLogic } from './ticketViewsLogic'
 
 function FiltersSummary({ filters }: { filters: TicketViewFilters }): JSX.Element {
-    const lines: { label: string; value: string }[] = []
+    const lines: { label: string; value: ReactNode }[] = []
 
     if (filters.status?.length) {
         lines.push({ label: 'Status', value: filters.status.join(', ') })
@@ -34,14 +36,25 @@ function FiltersSummary({ filters }: { filters: TicketViewFilters }): JSX.Elemen
     if (filters.tagsExclude?.length) {
         lines.push({ label: 'Exclude tags', value: filters.tagsExclude.join(', ') })
     }
-    if (filters.assignee && filters.assignee !== 'all') {
-        const val =
-            filters.assignee === 'unassigned'
-                ? 'Unassigned'
-                : typeof filters.assignee === 'object'
-                  ? `${filters.assignee.type}:${filters.assignee.id}`
-                  : String(filters.assignee)
-        lines.push({ label: 'Assignee', value: val })
+    const assigneeEntries = normalizeAssigneeFilter(filters.assignee)
+    if (assigneeEntries.length) {
+        lines.push({
+            label: 'Assignee',
+            value: assigneeEntries.map((entry, index) => (
+                <span key={entry === 'unassigned' ? 'unassigned' : `${entry.type}:${entry.id}`}>
+                    {index > 0 ? ', ' : ''}
+                    {entry === 'unassigned' ? (
+                        'No assignee'
+                    ) : (
+                        <AssigneeResolver assignee={entry}>
+                            {({ assignee }) => (
+                                <AssigneeLabelDisplay assignee={assignee} placeholder={`${entry.type}:${entry.id}`} />
+                            )}
+                        </AssigneeResolver>
+                    )}
+                </span>
+            )),
+        })
     }
     if (filters.dateFrom) {
         lines.push({ label: 'Date from', value: filters.dateFrom })
