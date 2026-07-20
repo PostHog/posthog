@@ -896,7 +896,11 @@ async fn test_remote_config_etag_roundtrip() {
             .unwrap()
             .to_str()
             .unwrap(),
-        "private, must-revalidate"
+        "private, no-cache"
+    );
+    assert_eq!(
+        response.headers().get("vary").unwrap().to_str().unwrap(),
+        "Authorization"
     );
     assert_eq!(
         response.json::<Value>().await.unwrap(),
@@ -923,7 +927,11 @@ async fn test_remote_config_etag_roundtrip() {
             .unwrap()
             .to_str()
             .unwrap(),
-        "private, must-revalidate"
+        "private, no-cache"
+    );
+    assert_eq!(
+        revalidated.headers().get("vary").unwrap().to_str().unwrap(),
+        "Authorization"
     );
     assert_eq!(revalidated.text().await.unwrap(), "");
 

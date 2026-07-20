@@ -23,6 +23,12 @@
 //! redacted body and a personal-key caller's decrypted body hash to different etags, so a
 //! 304 never validates one credential class's cached body against the other's. A match
 //! saves the body transfer, not the DB read.
+//!
+//! Because the body varies by `Authorization` at the same URL, responses carry
+//! `Cache-Control: private, no-cache` (revalidate on every reuse, not just when stale)
+//! and `Vary: Authorization` — otherwise a private cache primed by a personal-key
+//! request could replay the decrypted body to a secret-key caller without ever hitting
+//! the etag check.
 
 use crate::{
     api::{auth, errors::FlagError, flag_definitions},
@@ -214,7 +220,7 @@ pub async fn remote_config(
             &[("result".to_string(), "hit".to_string())],
             1,
         );
-        return Ok(flag_definitions::not_modified_response(&current_etag));
+        return Ok(not_modified(&current_etag));
     }
     inc(
         REMOTE_CONFIG_ETAG_COUNTER,
@@ -243,17 +249,38 @@ fn compute_etag(body: &str) -> String {
     common_hypercache::writer::compute_etag(body)
 }
 
-/// 200 with a pre-serialized JSON body plus ETag and Cache-Control headers, mirroring the
-/// sibling endpoint's `ok_response_with_etag`.
+/// The body varies by `Authorization` at the same URL (decrypted vs redacted), so caches
+/// must revalidate on every reuse (`no-cache`, stronger than the sibling endpoint's
+/// `must-revalidate`) and key entries by credential (`Vary: Authorization`).
+const CACHE_CONTROL: &str = "private, no-cache";
+const VARY: &str = "Authorization";
+
+/// 200 with a pre-serialized JSON body plus ETag, Cache-Control, and Vary headers.
 fn json_ok_with_etag(body: String, etag: &str) -> Response {
     (
         StatusCode::OK,
         [
             ("content-type", "application/json".to_string()),
             ("etag", flag_definitions::format_weak_etag(etag)),
-            ("cache-control", "private, must-revalidate".to_string()),
+            ("cache-control", CACHE_CONTROL.to_string()),
+            ("vary", VARY.to_string()),
         ],
         body,
+    )
+        .into_response()
+}
+
+/// 304 carrying the same ETag/Cache-Control/Vary trio as the 200s — not the sibling
+/// endpoint's `not_modified_response`, whose `must-revalidate` would weaken the stored
+/// entry's policy when a cache updates its headers from the 304.
+fn not_modified(etag: &str) -> Response {
+    (
+        StatusCode::NOT_MODIFIED,
+        [
+            ("etag", flag_definitions::format_weak_etag(etag)),
+            ("cache-control", CACHE_CONTROL.to_string()),
+            ("vary", VARY.to_string()),
+        ],
     )
         .into_response()
 }
@@ -290,7 +317,8 @@ fn empty_ok_no_content_type(etag: &str) -> Response {
         StatusCode::OK,
         [
             ("etag", flag_definitions::format_weak_etag(etag)),
-            ("cache-control", "private, must-revalidate".to_string()),
+            ("cache-control", CACHE_CONTROL.to_string()),
+            ("vary", VARY.to_string()),
         ],
     )
         .into_response()
