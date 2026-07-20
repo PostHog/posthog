@@ -1510,6 +1510,13 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                 lemonToast.error(`Failed to load more spans: ${error}`)
             }
         },
+        // Surface a real fetch failure instead of letting the chart render an empty grid that
+        // reads as "No results matching filters" — an unreachable endpoint is not an empty query.
+        fetchLatencyHeatmapFailure: ({ error }) => {
+            if (!isUserInitiatedError(error)) {
+                lemonToast.error(`Failed to load the latency heatmap: ${error}`)
+            }
+        },
     })),
 
     events(({ values }) => ({

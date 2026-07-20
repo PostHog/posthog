@@ -61,9 +61,14 @@ export type { BoxPlotTooltipProps } from './charts/BoxPlot/BoxPlotTooltip'
 
 // Heatmap
 export { Heatmap } from './charts/Heatmap/Heatmap'
-export type { HeatmapBrushData, HeatmapCellDatum, HeatmapConfig, HeatmapProps } from './charts/Heatmap/Heatmap'
-export { HeatmapTooltip } from './charts/Heatmap/HeatmapTooltip'
-export type { HeatmapRowMeta, HeatmapTooltipContext, HeatmapTooltipProps } from './charts/Heatmap/HeatmapTooltip'
+export type {
+    HeatmapBrushData,
+    HeatmapCellDatum,
+    HeatmapConfig,
+    HeatmapProps,
+    HeatmapRowMeta,
+    HeatmapTooltipContext,
+} from './charts/Heatmap/Heatmap'
 export type { HeatmapColorScale } from './charts/Heatmap/heatmap-layout'
 
 // Slope chart

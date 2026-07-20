@@ -173,24 +173,23 @@ const RetryButton = ({
     onRetry: () => void
     query?: Record<string, any> | Node | null
 }): JSX.Element => {
-    let sideAction = {}
-    if (query) {
-        sideAction = {
-            dropdown: {
-                overlay: (
-                    <LemonMenuOverlay
-                        items={[
-                            {
-                                label: 'Open in query debugger',
-                                to: urls.debugQuery(query),
-                            },
-                        ]}
-                    />
-                ),
-                placement: 'bottom-end',
-            },
-        }
-    }
+    const sideAction = query
+        ? {
+              dropdown: {
+                  overlay: (
+                      <LemonMenuOverlay
+                          items={[
+                              {
+                                  label: 'Open in query debugger',
+                                  to: urls.debugQuery(query),
+                              },
+                          ]}
+                      />
+                  ),
+                  placement: 'bottom-end' as const,
+              },
+          }
+        : undefined
 
     return (
         <LemonButton

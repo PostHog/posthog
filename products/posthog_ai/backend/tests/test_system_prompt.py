@@ -23,8 +23,12 @@ class TestPostHogAISystemPrompt(APIBaseTest):
         assert "# PostHog MCP" in prompt
         assert "# PostHog Products" in prompt
         assert "# Tone and style" in prompt
+        assert "# Context blocks" in prompt
         # The MCP is reachable through its single entry point.
         assert "mcp__posthog__exec" in prompt
+        # The trusted/untrusted context tags the frontend wraps messages with.
+        assert "<posthog_trusted_context>" in prompt
+        assert "<posthog_untrusted_context>" in prompt
         assert "AI observability** (also called AIO, LLM analytics, or LLMA)" in prompt
 
     def test_does_not_inject_groups_billing_core_memory_or_project_context(self):

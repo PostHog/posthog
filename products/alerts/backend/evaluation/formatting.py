@@ -96,6 +96,8 @@ def format_aggregation_value(
             formatted = _format_duration_seconds(value)
         case AggregationAxisFormat.DURATION_MS:
             formatted = _format_duration_seconds(value / 1000, seconds_fixed=1)
+        case AggregationAxisFormat.DURATION_NS:
+            formatted = _format_duration_nanoseconds(value)
         case AggregationAxisFormat.PERCENTAGE:
             formatted = _percentage(value / 100, decimal_places)
         case AggregationAxisFormat.PERCENTAGE_SCALED:
@@ -196,6 +198,15 @@ def _format_duration_seconds(value: float, *, seconds_fixed: int | None = None) 
     else:
         units = [u for u in (hour_display, minute_display, second_display) if u]
     return " ".join(units)
+
+
+def _format_duration_nanoseconds(value: float) -> str:
+    absolute_value = abs(value)
+    if absolute_value < 1_000:
+        return f"{_human_friendly_number(value)}ns"
+    if absolute_value < 1_000_000:
+        return f"{_human_friendly_number(value / 1_000)}µs"
+    return _format_duration_seconds(value / 1_000_000_000, seconds_fixed=1)
 
 
 def _trim_float(formatted: str) -> str:

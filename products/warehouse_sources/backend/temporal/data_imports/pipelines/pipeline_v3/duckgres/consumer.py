@@ -5,12 +5,16 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
+from django.db import close_old_connections
+from django.utils import timezone
+
 import psycopg
 import structlog
 from asgiref.sync import sync_to_async
 from prometheus_client import Gauge
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models import DuckgresSinkSchemaState
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
     MAX_ATTEMPTS,
@@ -51,6 +55,18 @@ from products.warehouse_sources_queue.backend.models import SourceBatchDuckgresS
 logger = structlog.get_logger(__name__)
 
 DuckgresConsumerConfig = BatchConsumerConfig
+
+
+def _record_live_batch_applied(schema_id: str) -> None:
+    """Stamp the main-DB sink-state row with the time of this live apply.
+
+    This is what the Data ops Overview tab reports as "last applied to warehouse" —
+    an event stamped at the moment the work happens, so the web tier never has to
+    query the warehouse-sources queue DB (which it has no credentials for).
+    """
+    close_old_connections()
+    DuckgresSinkSchemaState.objects.filter(schema_id=schema_id).update(queue_last_applied_at=timezone.now())
+
 
 # How often the fetch path refreshes the enabled-team set and runs the
 # supersede sweep + backlog gauges (the poll loop itself runs every ~2s).
@@ -428,8 +444,18 @@ class DuckgresBatchConsumerAdapter:
         *,
         batch: PendingBatch,
     ) -> None:
-        if not batch.is_final_batch:
-            await DuckgresBatchQueue.mark_applied(conn, batch=batch)
+        if batch.is_final_batch:
+            return
+        await DuckgresBatchQueue.mark_applied(conn, batch=batch)
+        if is_backfill_metadata(batch.metadata):
+            return
+        try:
+            await sync_to_async(_record_live_batch_applied, thread_sensitive=False)(batch.schema_id)
+        except Exception as e:
+            # The batch is already applied and marked; a failed stamp only leaves the
+            # Data ops display timestamp behind until the next live apply.
+            logger.exception("duckgres_live_apply_stamp_failed", schema_id=batch.schema_id)
+            capture_exception(e)
 
     def is_retryable_error(self, err: Exception) -> bool:
         return not isinstance(err, PermanentBatchApplyError)

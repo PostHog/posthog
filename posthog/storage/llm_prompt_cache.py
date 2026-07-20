@@ -127,15 +127,16 @@ llm_prompts_hypercache = HyperCache(
 # and version entries hold immutable content, but a label entry is a resolved pointer:
 # a cache fill racing an invalidation can store an already-stale resolution that the
 # generation marker cannot detect. The short TTL bounds that staleness to a minute;
-# signal invalidation still makes the common path near-instant. Label entries are also
-# kept out of S3 (redis-only writes) — an S3 copy has no TTL, so a stale fill there
-# would keep restoring itself past every redis expiry.
+# signal invalidation still makes the common path near-instant. The S3 tier is disabled
+# entirely — an S3 copy has no TTL, so a stale fill there would keep restoring itself
+# past every redis expiry, and reads would pay a guaranteed-miss S3 round-trip.
 llm_prompts_label_hypercache = HyperCache(
     namespace="llm_prompts",
     value="prompt.json",
     load_fn=_load_prompt_cache,
     cache_ttl=settings.LLM_PROMPTS_LABEL_CACHE_TTL,
     cache_miss_ttl=settings.LLM_PROMPTS_LABEL_CACHE_TTL,
+    s3_enabled=False,
 )
 
 
@@ -178,7 +179,7 @@ def get_prompt_by_name_from_cache(
                 return None
             labeled_prompt = _serialize_labeled_prompt(db_labeled, label)
             try:
-                llm_prompts_label_hypercache.set_cache_value_redis_only(label_key, labeled_prompt)
+                llm_prompts_label_hypercache.set_cache_value(label_key, labeled_prompt)
             except Exception as err:
                 capture_exception(err)
 

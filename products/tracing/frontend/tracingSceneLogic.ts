@@ -2,7 +2,7 @@ import { deepEqual as equal } from 'fast-equals'
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
-import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
+import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/constants'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { parseTagsFilter } from 'lib/utils/url'
 import { Params } from 'scenes/sceneTypes'
