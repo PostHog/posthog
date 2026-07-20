@@ -1,4 +1,4 @@
-import { LARGE_AI_PROPERTIES } from '~/ingestion/common/steps/event-processing/split-ai-events-step'
+import { LARGE_AI_PROPERTIES } from '~/ingestion/common/subpipelines/large-ai-properties'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { BlobStore } from '~/ingestion/pipelines/ai/blob-offload/blob-store'
@@ -14,10 +14,10 @@ import {
     aiBlobOffloadTextBytes,
 } from '~/ingestion/pipelines/ai/metrics'
 import { PluginEvent } from '~/plugin-scaffold'
-import { Team } from '~/types'
+import { Team, ValueMatcher } from '~/types'
 
-export interface OffloadAiBlobsStepConfig {
-    enabledTeamIds: Set<number>
+export interface OffloadAiBlobsConfig {
+    isTeamEnabled: ValueMatcher<number>
     minBase64Length: number
 }
 
@@ -35,10 +35,10 @@ function mimeFamily(mime: string): string {
 
 export function createOffloadAiBlobsStep<T extends OffloadAiBlobsInput>(
     store: BlobStore | null,
-    config: OffloadAiBlobsStepConfig
+    config: OffloadAiBlobsConfig
 ): ProcessingStep<T, T> {
     return async function offloadAiBlobsStep(input) {
-        if (!store || !config.enabledTeamIds.has(input.team.id)) {
+        if (!store || !config.isTeamEnabled(input.team.id)) {
             return ok(input)
         }
 
@@ -46,6 +46,7 @@ export function createOffloadAiBlobsStep<T extends OffloadAiBlobsInput>(
         const properties = input.normalizedEvent.properties ?? {}
         const rewrittenProps: Record<string, unknown> = {}
         const blobsByHash = new Map<string, DetectedBlob>()
+        const textBytesPerProp: number[] = []
         let belowFloorCount = 0
         let belowFloorBytes = 0
         let bytesBefore = 0
@@ -60,7 +61,7 @@ export function createOffloadAiBlobsStep<T extends OffloadAiBlobsInput>(
             belowFloorCount += extraction.belowFloorCount
             belowFloorBytes += extraction.belowFloorBytes
             const afterBytes = Buffer.byteLength(JSON.stringify(extraction.value))
-            aiBlobOffloadTextBytes.observe(afterBytes)
+            textBytesPerProp.push(afterBytes)
             if (extraction.blobs.length === 0) {
                 continue
             }
@@ -72,12 +73,17 @@ export function createOffloadAiBlobsStep<T extends OffloadAiBlobsInput>(
             bytesAfter += afterBytes
         }
 
-        if (belowFloorCount > 0) {
-            aiBlobOffloadBelowFloorCounter.labels(teamId).inc(belowFloorCount)
-            aiBlobOffloadBelowFloorBytes.labels(teamId).inc(belowFloorBytes)
+        // Deferred until the step can no longer reject, so retried attempts don't re-count.
+        const recordScanMetrics = (): void => {
+            textBytesPerProp.forEach((bytes) => aiBlobOffloadTextBytes.observe(bytes))
+            if (belowFloorCount > 0) {
+                aiBlobOffloadBelowFloorCounter.labels(teamId).inc(belowFloorCount)
+                aiBlobOffloadBelowFloorBytes.labels(teamId).inc(belowFloorBytes)
+            }
         }
 
         if (blobsByHash.size === 0) {
+            recordScanMetrics()
             aiBlobOffloadEventsCounter.labels(teamId, 'no_blobs').inc()
             return ok(input)
         }
@@ -88,6 +94,7 @@ export function createOffloadAiBlobsStep<T extends OffloadAiBlobsInput>(
         // pipeline's retry option owns transient failures.
         const outcomes = await Promise.all(blobs.map((blob) => store.ensureStored(input.team.id, blob)))
 
+        recordScanMetrics()
         blobs.forEach((blob, i) => {
             aiBlobOffloadBlobsCounter.labels(teamId, blob.detector, mimeFamily(blob.mime), outcomes[i]).inc()
             aiBlobOffloadBlobBytes.labels(mimeFamily(blob.mime)).observe(blob.bytes.length)

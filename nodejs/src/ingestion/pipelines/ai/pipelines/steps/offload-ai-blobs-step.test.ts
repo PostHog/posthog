@@ -3,12 +3,16 @@ import { BlobStore, EnsureStoredOutcome } from '~/ingestion/pipelines/ai/blob-of
 import { parseBlobPointer } from '~/ingestion/pipelines/ai/blob-offload/pointer'
 import { aiBlobOffloadTextBytes } from '~/ingestion/pipelines/ai/metrics'
 import { PluginEvent } from '~/plugin-scaffold'
+import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
+import { createTestTeam } from '~/tests/helpers/team'
 import { Team } from '~/types'
 
 import { createOffloadAiBlobsStep } from './offload-ai-blobs-step'
 
 const PNG_BYTES = Buffer.alloc(20000, 7)
 const PNG_B64 = PNG_BYTES.toString('base64')
+
+type ImageParts = { image_url: { url: string } }[]
 
 class FakeBlobStore implements BlobStore {
     stored: { teamId: number; hash: string; bytes: Buffer; mime: string }[] = []
@@ -25,20 +29,12 @@ class FakeBlobStore implements BlobStore {
 
 function makeInput(properties: Record<string, unknown>): { normalizedEvent: PluginEvent; team: Team } {
     return {
-        normalizedEvent: {
-            event: '$ai_generation',
-            distinct_id: 'd',
-            uuid: 'u',
-            ip: null,
-            now: '2026-07-16T00:00:00Z',
-            team_id: 2,
-            properties,
-        } as PluginEvent,
-        team: { id: 2 } as Team,
+        normalizedEvent: createTestPluginEvent({ event: '$ai_generation', team_id: 2, properties }),
+        team: createTestTeam({ id: 2 }),
     }
 }
 
-const CONFIG = { enabledTeamIds: new Set([2]), minBase64Length: 8192 }
+const CONFIG = { isTeamEnabled: (teamId: number): boolean => teamId === 2, minBase64Length: 8192 }
 
 describe('offloadAiBlobsStep', () => {
     it('offloads binary from heavy props and rewrites them with pointers', async () => {
@@ -56,15 +52,17 @@ describe('offloadAiBlobsStep', () => {
         expect(store.stored[0].teamId).toBe(2)
         expect(store.stored[0].bytes.equals(PNG_BYTES)).toBe(true)
         const props = result.value.normalizedEvent.properties!
-        const url = (props.$ai_input as any)[0].image_url.url as string
+        const url = (props.$ai_input as ImageParts)[0].image_url.url
         expect(parseBlobPointer(url)?.hash).toBe(store.stored[0].hash)
         expect(props.$ai_model).toBe('gpt-9')
         // original event untouched
-        expect((input.normalizedEvent.properties!.$ai_input as any)[0].image_url.url.startsWith('data:')).toBe(true)
+        expect((input.normalizedEvent.properties!.$ai_input as ImageParts)[0].image_url.url.startsWith('data:')).toBe(
+            true
+        )
     })
 
     it.each([
-        ['team not enabled', new FakeBlobStore(), { enabledTeamIds: new Set([999]), minBase64Length: 8192 }],
+        ['team not enabled', new FakeBlobStore(), { isTeamEnabled: (): boolean => false, minBase64Length: 8192 }],
         ['store not configured', null, CONFIG],
     ])('passes through untouched when %s', async (_name, store, config) => {
         const step = createOffloadAiBlobsStep(store, config)
@@ -110,7 +108,9 @@ describe('offloadAiBlobsStep', () => {
         const step = createOffloadAiBlobsStep(store, CONFIG)
         const input = makeInput({ $ai_input: [{ image_url: { url: `data:image/png;base64,${PNG_B64}` } }] })
         await expect(step(input)).rejects.toThrow('s3 down')
-        expect((input.normalizedEvent.properties!.$ai_input as any)[0].image_url.url.startsWith('data:')).toBe(true)
+        expect((input.normalizedEvent.properties!.$ai_input as ImageParts)[0].image_url.url.startsWith('data:')).toBe(
+            true
+        )
     })
 
     it('deduplicates identical blobs across multiple heavy props', async () => {
@@ -128,8 +128,8 @@ describe('offloadAiBlobsStep', () => {
         expect(store.stored).toHaveLength(1)
         const storedHash = store.stored[0].hash
         const props = result.value.normalizedEvent.properties!
-        const inputUrl = (props.$ai_input as any)[0].image_url.url as string
-        const outputUrl = (props.$ai_output as any)[0].image_url.url as string
+        const inputUrl = (props.$ai_input as ImageParts)[0].image_url.url
+        const outputUrl = (props.$ai_output as ImageParts)[0].image_url.url
         expect(parseBlobPointer(inputUrl)?.hash).toBe(storedHash)
         expect(parseBlobPointer(outputUrl)?.hash).toBe(storedHash)
     })

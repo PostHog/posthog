@@ -53,7 +53,7 @@ import { isDropResult } from '~/ingestion/framework/results'
 
 import { BlobStore } from './blob-offload/blob-store'
 import { AiEventOutput, EVENTS_OUTPUT, EventOutput } from './outputs'
-import { OffloadAiBlobsStepConfig, createOffloadAiBlobsStep } from './pipelines/steps/offload-ai-blobs-step'
+import { OffloadAiBlobsConfig, createOffloadAiBlobsStep } from './pipelines/steps/offload-ai-blobs-step'
 import { createProcessAiEventStep } from './pipelines/steps/process-ai-event-step'
 
 export interface AiIngestionPipelineConfig {
@@ -79,7 +79,7 @@ export interface AiIngestionPipelineConfig {
     eventSchemaEnforcementManager: EventSchemaEnforcementManager
     topHog: TopHogWrapper
     aiBlobStore: BlobStore | null
-    aiBlobOffloadConfig: OffloadAiBlobsStepConfig
+    aiBlobOffloadConfig: OffloadAiBlobsConfig
 }
 
 interface AiIngestionPipelineInput {

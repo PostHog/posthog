@@ -20,8 +20,10 @@ export interface ExtractionResult {
 
 const DATA_URI = /^data:([\w.+-]+\/[\w.+-]+);base64,([A-Za-z0-9+/=\s]+)$/
 const MIME = /^[\w.+-]+\/[\w.+-]+$/
-// Anchored charset check only — decode validity is decided by Buffer.from.
-const BASE64 = /^[A-Za-z0-9+/=\s]+$/
+// Canonical base64 only (no whitespace, padding only terminal, length % 4 === 0): provider
+// `data` fields are never wrapped, and Buffer.from decodes leniently enough that a looser
+// match would silently corrupt long plain text that happens to fit the charset.
+const CANONICAL_BASE64 = /^[A-Za-z0-9+/]+={0,2}$/
 
 interface Extraction {
     blobsByHash: Map<string, DetectedBlob>
@@ -59,7 +61,7 @@ function extractFromString(state: Extraction, value: string): string {
 }
 
 function isBase64String(value: unknown): value is string {
-    return typeof value === 'string' && value.length > 0 && BASE64.test(value)
+    return typeof value === 'string' && value.length % 4 === 0 && CANONICAL_BASE64.test(value)
 }
 
 /** Shape detectors for providers that carry raw base64 with the mime in a sibling field. */

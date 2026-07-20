@@ -1,4 +1,5 @@
 import { CommonConfig } from '~/common/config'
+import { buildIntegerMatcher } from '~/common/config/config'
 import { ReadOnlyGroupTypeManager } from '~/common/groups/readonly-group-type-manager'
 import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
 import {
@@ -163,7 +164,7 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
 
     const aiBlobStore = buildAiBlobStore(config)
     const aiBlobOffloadConfig = {
-        enabledTeamIds: new Set(splitTokens(config.AI_BLOB_OFFLOAD_TEAMS).map(Number)),
+        isTeamEnabled: buildIntegerMatcher(config.AI_BLOB_OFFLOAD_TEAMS, true),
         minBase64Length: config.AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH,
     }
 

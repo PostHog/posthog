@@ -177,7 +177,7 @@ describe('AiIngestionPipeline', () => {
             // No-op metrics wrapper — these tests assert pipeline output, not topHog counters.
             topHog: ((step) => step) as TopHogWrapper,
             aiBlobStore: null,
-            aiBlobOffloadConfig: { enabledTeamIds: new Set<number>(), minBase64Length: 8192 },
+            aiBlobOffloadConfig: { isTeamEnabled: (): boolean => false, minBase64Length: 8192 },
         }
     })
 
