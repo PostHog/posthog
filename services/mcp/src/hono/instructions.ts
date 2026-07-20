@@ -47,9 +47,7 @@ export class InstructionsBuilder {
 
         const ctx = this.buildContext(state)
         if (state.useSingleExec) {
-            return this.formatter.buildExecInstructions(ctx, {
-                skillsEnabled: this.getExecLearnCapabilities(state).skillsEnabled,
-            })
+            return this.formatter.buildExecInstructions(ctx)
         }
         return this.formatter.buildToolsInstructions(ctx)
     }

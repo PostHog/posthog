@@ -327,9 +327,14 @@ export class ExecLearnCatalog {
             return lines.join('\n')
         }
 
+        // An unset listing means the count is unknown (transient failure), not zero —
+        // claiming "0 project skills" would send the agent down the no-skill path.
+        const counts = projectListing
+            ? `${posthogNames.length} posthog and ${projectListing.count} project skills exist`
+            : `${posthogNames.length} posthog skills exist; the project skill listing is temporarily unavailable`
         return (
             `${header}\n\n` +
-            `${posthogNames.length} posthog and ${projectListing?.count ?? 0} project skills exist — ` +
+            `${counts} — ` +
             'run `learn skills` to list names, or `learn -d <source>:<skill>` to describe specific ones.'
         )
     }
