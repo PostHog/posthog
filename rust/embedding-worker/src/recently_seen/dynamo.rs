@@ -101,7 +101,7 @@ impl RecentlySeenStore for DynamoDbStore {
                 Ok(response) => {
                     let unprocessed_count = response
                         .unprocessed_items()
-                        .get(&self.table)
+                        .and_then(|items| items.get(&self.table))
                         .map(Vec::len)
                         .unwrap_or_default();
                     if unprocessed_count > 0 {
@@ -181,7 +181,7 @@ impl RecentlySeenStore for DynamoDbStore {
 
             let unprocessed_count = response
                 .unprocessed_keys()
-                .get(&self.table)
+                .and_then(|keys| keys.get(&self.table))
                 .map(|keys| keys.keys().len())
                 .unwrap_or_default();
             if unprocessed_count > 0 {
