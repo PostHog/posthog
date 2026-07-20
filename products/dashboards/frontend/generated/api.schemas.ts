@@ -8031,9 +8031,9 @@ export const YAxisScaleApi = {
 } as const
 
 export interface ScatterSettingsApi {
-    /** Column whose values color the dots and build the legend. */
+    /** Column whose values color the dots and build the legend. An empty string means explicitly cleared; distinct from unset so reloads don't re-apply defaults. */
     colorByColumn?: string | null
-    /** Column holding a person distinct_id, linking each dot to a person profile. */
+    /** Column holding a person distinct_id, linking each dot to a person profile. An empty string means explicitly cleared; distinct from unset so auto-detection doesn't re-apply. */
     personColumn?: string | null
     /** Column plotted on the x-axis; one dot per row. Datetime columns render on a time axis. */
     xAxisColumn?: string | null
