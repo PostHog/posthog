@@ -585,6 +585,14 @@ export function ActionFilterRow({
                                                 index={index}
                                                 onMathPropertySelect={onMathPropertySelect}
                                                 mathName={name}
+                                                isDataWarehouseFilter={isDataWarehouseFilter}
+                                                schemaColumns={
+                                                    isDataWarehouseFilter && filter.name
+                                                        ? Object.values(
+                                                              dataWarehouseTablesMap[filter.name]?.fields ?? []
+                                                          )
+                                                        : []
+                                                }
                                             />
                                         )}
                                         {mathAvailability !== MathAvailability.BoxPlotOnly &&
