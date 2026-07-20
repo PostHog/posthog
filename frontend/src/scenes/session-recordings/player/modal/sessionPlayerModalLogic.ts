@@ -31,17 +31,17 @@ export interface sessionPlayerModalLogicActions {
     closeSessionPlayer: () => {
         value: true
     }
+    completeHeatmapBackgroundSelection: (storageKey: string) => {
+        storageKey: string
+    }
     openSessionPlayer: (
         sessionRecording: Pick<SessionRecordingType, 'id' | 'matching_events'>,
         initialTimestamp?: number | null,
         modalContext?: SessionPlayerModalContext
     ) => {
         initialTimestamp: number | null
-        sessionRecording: Pick<SessionRecordingType, 'id' | 'matching_events'>
         modalContext: SessionPlayerModalContext
-    }
-    completeHeatmapBackgroundSelection: (storageKey: string) => {
-        storageKey: string
+        sessionRecording: Pick<SessionRecordingType, 'id' | 'matching_events'>
     }
 }
 

@@ -86,9 +86,13 @@ export interface heatmapRecordingFallbackLogicValues {
 export interface heatmapRecordingFallbackLogicActions {
     openSessionPlayer: (
         sessionRecording: Pick<SessionRecordingType, 'id' | 'matching_events'>,
-        initialTimestamp?: number | null | undefined
+        initialTimestamp?: number | null | undefined,
+        modalContext?:
+            | import('scenes/session-recordings/player/modal/sessionPlayerModalLogic').SessionPlayerModalContext
+            | undefined
     ) => {
         initialTimestamp: number | null
+        modalContext: import('scenes/session-recordings/player/modal/sessionPlayerModalLogic').SessionPlayerModalContext
         sessionRecording: Pick<SessionRecordingType, 'id' | 'matching_events'>
     } // sessionPlayerModalLogic
     loadMatchingRecordings: () => {
@@ -112,8 +116,8 @@ export interface heatmapRecordingFallbackLogicActions {
             value: true
         }
     }
-    openRecording: (recordingId: string) => {
-        recordingId: string
+    openRecording: (recording: Pick<SessionRecordingType, 'id' | 'matching_events'>) => {
+        recording: Pick<SessionRecordingType, 'id' | 'matching_events'>
     }
 }
 

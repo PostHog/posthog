@@ -106,13 +106,15 @@ export interface heatmapLogicValues {
     dataUrl: string | null // heatmapsBrowserLogic
     displayUrl: string | null // heatmapsBrowserLogic
     isBrowserUrlAuthorized: boolean // heatmapsBrowserLogic
+    isBrowserUrlValid: boolean // heatmapsBrowserLogic
+    currentTeamIdStrict: number | string // teamLogic
     blockConsentModals: boolean
     containerWidth: number | null
     desiredNumericWidth: number
     displayUrlIsPattern: boolean
     effectiveWidth: number
     generatingScreenshot: boolean
-    heatmapId: number | null
+    heatmapId: string | null
     isDisplayUrlValid: boolean
     isPageUrlDraftValid: boolean
     loading: boolean
@@ -163,8 +165,11 @@ export interface heatmapLogicActions {
     changeCaptureMethod: (type: HeatmapType) => {
         type: HeatmapType
     }
-    createHeatmap: () => {
-        value: true
+    createHeatmap: (context?: HeatmapCreationContext | null) => {
+        context: HeatmapCreationContext | null
+    }
+    creationCompleted: (shortId: string) => {
+        shortId: string
     }
     exportHeatmap: () => {
         value: true
@@ -172,11 +177,7 @@ export interface heatmapLogicActions {
     load: () => {
         value: true
     }
-    pollScreenshotStatus: (
-        id: number,
-        width?: number
-    ) => {
-        id: number
+    pollScreenshotStatus: (width?: number) => {
         width: number | undefined
     }
     regenerateScreenshot: () => {
@@ -191,8 +192,8 @@ export interface heatmapLogicActions {
     setGeneratingScreenshot: (generating: boolean) => {
         generating: boolean
     }
-    setHeatmapId: (id: number | null) => {
-        id: number | null
+    setHeatmapId: (id: string | null) => {
+        id: string | null
     }
     setLoading: (loading: boolean) => {
         loading: boolean

@@ -434,6 +434,7 @@ export interface playerInspectorLogicValues {
     filteredItems: InspectorListItem[]
     fuse: Fuse
     hasEventsToDisplay: boolean
+    hasSkippedToFirstMatchingEvent: boolean
     inspectorDataState: Record<FilterableInspectorListItemTypes, 'empty' | 'loading' | 'ready'>
     isLoading: boolean
     isReady: boolean
@@ -490,6 +491,19 @@ export interface playerInspectorLogicActions {
     } // sessionRecordingDataCoordinatorLogic
     loadFullEventData: (event: RecordingEventType | RecordingEventType[]) => {
         event: RecordingEventType | RecordingEventType[]
+    } // sessionRecordingDataCoordinatorLogic
+    loadRecordingMetaSuccess: (
+        sessionPlayerMetaData: SessionRecordingType | null,
+        payload?:
+            | {
+                  value: true
+              }
+            | undefined
+    ) => {
+        payload?: {
+            value: true
+        }
+        sessionPlayerMetaData: SessionRecordingType | null
     } // sessionRecordingDataCoordinatorLogic
     registerWindowId: (uuid: string) => {
         uuid: string
@@ -557,6 +571,9 @@ export interface playerInspectorLogicActions {
         matchingEvents: MatchedRecordingEvent[] | null
         payload?: any
     }
+    markSkippedToFirstMatchingEvent: () => {
+        value: true
+    }
     setItemExpanded: (
         index: number,
         expanded: boolean
@@ -566,6 +583,9 @@ export interface playerInspectorLogicActions {
     }
     setSyncScrollPaused: (paused: boolean) => {
         paused: boolean
+    }
+    trySkipToFirstMatchingEvent: () => {
+        value: true
     }
 }
 
@@ -592,19 +612,19 @@ export interface playerInspectorLogicMeta {
         }
         notebookCommentItems: (
             sessionNotebookComments: any,
-            windowIdForTimestamp: (timestamp: number) => number | undefined,
+            windowIdForTimestamp: (timestamp: number) => number | undefined, // sessionRecordingDataCoordinatorLogic
             windowNumberForID: (windowId: number | undefined) => number | '?' | undefined,
             start: Dayjs | null
         ) => InspectorListItemNotebookComment[]
         commentItems: (
             sessionComments: CommentType[],
-            windowIdForTimestamp: (timestamp: number) => number | undefined,
+            windowIdForTimestamp: (timestamp: number) => number | undefined, // sessionRecordingDataCoordinatorLogic
             windowNumberForID: (windowId: number | undefined) => number | '?' | undefined,
             start: Dayjs | null
         ) => InspectorListItemComment[]
         experimentVariantItems: (
             experimentItems: ExperimentSessionContextItemApi[],
-            windowIdForTimestamp: (timestamp: number) => number | undefined,
+            windowIdForTimestamp: (timestamp: number) => number | undefined, // sessionRecordingDataCoordinatorLogic
             windowNumberForID: (windowId: number | undefined) => number | '?' | undefined,
             start: Dayjs | null
         ) => InspectorListItemExperimentVariant[]
