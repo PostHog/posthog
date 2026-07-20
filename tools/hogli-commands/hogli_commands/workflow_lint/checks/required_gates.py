@@ -1,4 +1,4 @@
-"""Collate gates must run unconditionally and fail closed on non-success results.
+"""Collate gates must run unconditionally and fail closed on every dependency.
 
 A "collate gate" is the job that emits a required status check by inspecting its
 dependencies' ``needs.*.result``. Two properties keep it honest, and both have
@@ -6,11 +6,18 @@ been violated in production before:
 
 1. ``if: always()`` — the gate must run and emit an explicit verdict. Worker jobs
    should use ``!cancelled()`` so they actually stop when a run is superseded, but
-   the gate itself is the thing branch protection reads, so it has to report.
+   the gate itself is what branch protection reads, so it has to report.
 
-2. Allowlist, not denylist — assert ``success``/``skipped`` and fail everything
-   else. A gate that only tests ``== 'failure'`` lets a ``cancelled`` dependency
-   fall through to a green required check with zero tests run.
+2. Allowlist per dependency — assert ``success``/``skipped`` and block everything
+   else. A dependency tested only against ``failure`` lets ``cancelled`` fall
+   through. That is not hypothetical: several gates cleared ``changes`` with a
+   bare ``== 'failure'`` test and then read ``needs.changes.outputs.*``, which is
+   empty on a cancelled job, so the gate took its "nothing to test" exit and
+   reported green with zero tests run.
+
+The allowlist rule is enforced **per dependency**, not over the step as a whole.
+A gate that checks four dependencies correctly and one with a bare ``failure``
+test is still wrong, and reading result words globally would call it clean.
 
 Gates are identified by the repo-wide naming convention: a display name ending in
 "Pass" (e.g. "Django Tests Pass", "Visual regression tests pass").
@@ -25,8 +32,16 @@ from ..model import Job, Workflow
 
 GATE_NAME = re.compile(r"\bpass$", re.IGNORECASE)
 ALWAYS = re.compile(r"\balways\s*\(\s*\)")
-# Quote-agnostic: bash in the wild uses both "failure" and 'failure'.
-RESULT_TOKEN = re.compile(r"""["']?(success|skipped)["']?""")
+
+# `"${{ needs.build.result }}" != "success"` and friends. Quote-agnostic: bash in
+# the wild uses both "..." and '...'. Captures which literal each dependency's
+# result is actually compared against, so the verdict is per dependency.
+RESULT_ASSERTION = re.compile(
+    r"""needs\.(?P<dep>[A-Za-z0-9_\-]+)\.result\s*\}\}["']?\s*(?:==|!=)\s*["']?(?P<literal>[a-z]+)["']?"""
+)
+
+SAFE_LITERALS = frozenset({"success", "skipped"})
+SAFE_LITERAL = re.compile(r"""["'](?:success|skipped)["']""")
 
 
 def _display_name(job: Job) -> str:
@@ -42,16 +57,24 @@ def _bash(job: Job) -> str:
     return "\n".join(step.run for step in job.steps if step.run)
 
 
+def _literals_by_dependency(bash: str) -> dict[str, set[str]]:
+    """Map each ``needs.<dep>.result`` to the set of literals it is compared against."""
+    found: dict[str, set[str]] = {}
+    for match in RESULT_ASSERTION.finditer(bash):
+        found.setdefault(match.group("dep"), set()).add(match.group("literal"))
+    return found
+
+
 class RequiredGateCheck(WorkflowCheck):
     id = "WF007-required-check-gates"
     label = "required-check gates"
-    description = "collate gates use always() and assert success/skipped rather than only failure"
+    description = "collate gates use always() and allowlist each dependency's result"
 
     @property
     def fix_hint(self) -> str | None:
         return (
-            "Keep `if: always()` on the gate and assert an allowlist: treat any result "
-            "that is not `success` or `skipped` as a failure. See "
+            "Keep `if: always()` on the gate, and test every dependency as "
+            '`!= "success" && != "skipped"` rather than `== "failure"`. See '
             ".agents/skills/authoring-ci-workflows/SKILL.md."
         )
 
@@ -73,16 +96,37 @@ class RequiredGateCheck(WorkflowCheck):
                         )
                     )
 
-                matched = {m.group(1) for m in RESULT_TOKEN.finditer(_bash(job))}
-                if matched != {"success", "skipped"}:
+                bash = _bash(job)
+
+                # Backstop for gates that reach results indirectly — via an `env:`
+                # block and a loop, or a shared shell function — where no literal
+                # sits next to `needs.<dep>.result`. Those are fine, but only if the
+                # allowlist is applied *somewhere*.
+                if not SAFE_LITERAL.search(bash):
                     result.issues.append(
                         Issue(
                             workflow=wf.path.name,
                             job=job.name,
                             message=(
-                                "required-check gate must assert `success`/`skipped` and fail "
-                                "everything else; a denylist on `failure` lets a cancelled "
-                                "dependency pass as green"
+                                "required-check gate never tests a result against `success`/`skipped`, "
+                                "so a cancelled dependency cannot block it"
+                            ),
+                            file=str(wf.path),
+                        )
+                    )
+
+                by_dep = _literals_by_dependency(bash)
+                for dep in sorted(by_dep):
+                    if by_dep[dep] & SAFE_LITERALS:
+                        continue
+                    result.issues.append(
+                        Issue(
+                            workflow=wf.path.name,
+                            job=job.name,
+                            message=(
+                                f"dependency '{dep}' is only compared against "
+                                f"{'/'.join(sorted(by_dep[dep]))}; a cancelled '{dep}' would pass. "
+                                'Test `!= "success" && != "skipped"` instead'
                             ),
                             file=str(wf.path),
                         )
