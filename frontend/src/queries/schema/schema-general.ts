@@ -1319,12 +1319,55 @@ export interface SharingConfigurationSettings {
     showInspector?: boolean
 }
 
+export type InsightBuilderDateGrain = 'hour' | 'day' | 'week' | 'month' | 'quarter' | 'year'
+
+export type InsightBuilderAggregation =
+    | 'sum'
+    | 'avg'
+    | 'min'
+    | 'max'
+    | 'count'
+    | 'count_distinct'
+    | 'median'
+    | 'p90'
+    | 'p95'
+    | 'p99'
+
+export interface InsightBuilderDimension {
+    /** Column name from the base query's result set */
+    column: string
+    /** Date bucketing applied to DATE/DATETIME columns */
+    dateGrain?: InsightBuilderDateGrain
+}
+
+export interface InsightBuilderMeasure {
+    /** Column name from the base query's result set. '*' is only valid with the `count` aggregation. */
+    column: string
+    aggregation: InsightBuilderAggregation
+    /** Display label; the SQL alias is always machine-generated */
+    label?: string
+}
+
+export interface InsightBuilderConfig {
+    /** When true, the SQL editor opens this insight in Build mode and treats source.query as compiled output */
+    enabled: boolean
+    /** Base SQL (the Data tab content). Compiled as FROM (baseQuery) unless baseView is set. */
+    baseQuery: string
+    /** Saved view name. When set, compiles FROM <view> so the insight tracks view updates. */
+    baseView?: string
+    rows: InsightBuilderDimension[]
+    columns: InsightBuilderDimension[]
+    values: InsightBuilderMeasure[]
+}
+
 export interface DataVisualizationNode extends Node<never> {
     kind: NodeKind.DataVisualizationNode
     source: HogQLQuery
     display?: ChartDisplayType
     chartSettings?: ChartSettings
     tableSettings?: TableSettings
+    /** BI-builder well configuration. source.query always holds the compiled SQL. */
+    builder?: InsightBuilderConfig
 }
 
 export type DataTableNodeViewPropsContextType = 'event_definition' | 'team_columns'

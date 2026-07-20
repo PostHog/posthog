@@ -2383,6 +2383,28 @@ class InfinityValue(float, Enum):
     NUMBER__999999 = -999999
 
 
+class InsightBuilderAggregation(StrEnum):
+    SUM = "sum"
+    AVG = "avg"
+    MIN = "min"
+    MAX = "max"
+    COUNT = "count"
+    COUNT_DISTINCT = "count_distinct"
+    MEDIAN = "median"
+    P90 = "p90"
+    P95 = "p95"
+    P99 = "p99"
+
+
+class InsightBuilderDateGrain(StrEnum):
+    HOUR = "hour"
+    DAY = "day"
+    WEEK = "week"
+    MONTH = "month"
+    QUARTER = "quarter"
+    YEAR = "year"
+
+
 class InsightFilterProperty(StrEnum):
     TRENDS_FILTER = "trendsFilter"
     FUNNELS_FILTER = "funnelsFilter"

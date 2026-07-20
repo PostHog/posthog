@@ -130,6 +130,8 @@ from posthog.schema_enums import (
     InCohortVia as InCohortVia,
     InfinityValue as InfinityValue,
     InlineCohortCalculation as InlineCohortCalculation,
+    InsightBuilderAggregation as InsightBuilderAggregation,
+    InsightBuilderDateGrain as InsightBuilderDateGrain,
     InsightFilterProperty as InsightFilterProperty,
     InsightNodeKind as InsightNodeKind,
     InsightThresholdType as InsightThresholdType,
@@ -1512,6 +1514,31 @@ class HogQueryResponse(BaseModel):
     coloredBytecode: list | None = None
     results: Any
     stdout: str | None = None
+
+
+class InsightBuilderDimension(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    column: str = Field(..., description="Column name from the base query's result set")
+    dateGrain: InsightBuilderDateGrain | None = Field(
+        default=None, description="Date bucketing applied to DATE/DATETIME columns"
+    )
+
+
+class InsightBuilderMeasure(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation: InsightBuilderAggregation
+    column: str = Field(
+        ...,
+        description=("Column name from the base query's result set. '*' is only valid with the `count` aggregation."),
+    )
+    label: str | None = Field(
+        default=None,
+        description="Display label; the SQL alias is always machine-generated",
+    )
 
 
 class InsightsThresholdBounds(BaseModel):
@@ -5154,6 +5181,29 @@ class DayItem(BaseModel):
     )
     label: str
     value: str | AwareDatetime | int
+
+
+class InsightBuilderConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    baseQuery: str = Field(
+        ...,
+        description=("Base SQL (the Data tab content). Compiled as FROM (baseQuery) unless baseView is set."),
+    )
+    baseView: str | None = Field(
+        default=None,
+        description=("Saved view name. When set, compiles FROM <view> so the insight tracks view updates."),
+    )
+    columns: list[InsightBuilderDimension]
+    enabled: bool = Field(
+        ...,
+        description=(
+            "When true, the SQL editor opens this insight in Build mode and treats source.query as compiled output"
+        ),
+    )
+    rows: list[InsightBuilderDimension]
+    values: list[InsightBuilderMeasure]
 
 
 class InsightThreshold(BaseModel):
@@ -25195,6 +25245,10 @@ class Response22(BaseModel):
 class DataVisualizationNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    builder: InsightBuilderConfig | None = Field(
+        default=None,
+        description=("BI-builder well configuration. source.query always holds the compiled SQL."),
     )
     chartSettings: ChartSettings | None = None
     display: ChartDisplayType | None = None
