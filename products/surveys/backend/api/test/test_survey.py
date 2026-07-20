@@ -7343,33 +7343,27 @@ class TestSurveyTargetingFlagApprovalGate(APIBaseTest):
     # Survey-internal targeting flags are an implementation detail (creation_context "surveys").
     # They must not be caught by the feature-flag approval gate — otherwise the gate raises
     # ApprovalRequired, which SurveyViewSet does not handle and would surface as a 500.
+    # A rollout-based feature_flag.update policy is what actually fires here: survey targeting
+    # flags are created through FeatureFlagSerializer with rollout filters (and only toggled
+    # active later via a direct model save, so the enable gate never sees them).
     # Resolve ApprovalPolicy via the app registry rather than a static import: products.surveys
     # is not allowed to import products.approvals (tach boundary), and its production code doesn't.
     TARGETING_FILTERS: dict[str, Any] = {"groups": [{"variant": None, "rollout_percentage": 100, "properties": []}]}
+    ROLLOUT_POLICY_CONDITIONS = {"type": "before_after", "field": "rollout_percentage", "operator": ">", "value": 0}
 
-    def _enable_policy(self, action_key: str, conditions: Optional[dict[str, Any]] = None) -> None:
+    def _enable_rollout_policy(self) -> None:
         ApprovalPolicy = apps.get_model("approvals", "ApprovalPolicy")
         ApprovalPolicy.objects.create(
             organization=self.organization,
             team=self.team,
-            action_key=action_key,
-            conditions=conditions if conditions is not None else {},
+            action_key="feature_flag.update",
+            conditions=self.ROLLOUT_POLICY_CONDITIONS,
             approver_config={"quorum": 1, "users": [self.user.id]},
             created_by=self.user,
         )
 
-    @parameterized.expand(
-        [
-            ("enable_policy", "feature_flag.enable", None),
-            (
-                "update_policy",
-                "feature_flag.update",
-                {"type": "before_after", "field": "rollout_percentage", "operator": ">", "value": 0},
-            ),
-        ]
-    )
-    def test_create_survey_with_targeting_flag_bypasses_approval(self, _name, action_key, conditions, _mock_enabled):
-        self._enable_policy(action_key, conditions)
+    def test_create_survey_with_targeting_flag_bypasses_approval(self, _mock_enabled):
+        self._enable_rollout_policy()
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
@@ -7392,10 +7386,7 @@ class TestSurveyTargetingFlagApprovalGate(APIBaseTest):
             format="json",
         ).json()["id"]
 
-        self._enable_policy(
-            "feature_flag.update",
-            {"type": "before_after", "field": "rollout_percentage", "operator": ">", "value": 0},
-        )
+        self._enable_rollout_policy()
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/surveys/{survey_id}/",
