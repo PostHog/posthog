@@ -3,7 +3,7 @@ import { Form } from 'kea-forms'
 import { useCallback, useMemo } from 'react'
 
 import { IconClock, IconPulse } from '@posthog/icons'
-import { LemonCheckbox, LemonDialog, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonDialog, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { dayjs } from 'lib/dayjs'
@@ -11,6 +11,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { formatDate } from 'lib/utils/datetime'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { getDisplayNameFromEntityNode } from 'scenes/insights/utils'
@@ -242,7 +243,7 @@ export function EditAlertModalV2({
 
     const enabledToggle = (
         <LemonField name="enabled" className="m-0">
-            <LemonCheckbox checked={alertForm.enabled} data-attr="alertForm-enabled" label="Enabled" />
+            <LemonSwitch checked={alertForm.enabled} data-attr="alertForm-enabled" label="Enabled" size="small" />
         </LemonField>
     )
 
