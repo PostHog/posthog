@@ -1385,6 +1385,13 @@ mod tests {
         ));
     }
 
+    /// A `behavioral` filter leaf — unresolvable from person/group properties, so it
+    /// always parses to `CohortValuesItem::Unsupported`.
+    fn behavioral_leaf_json() -> serde_json::Value {
+        json!({"key": "$pageview", "type": "behavioral", "value": "performed_event",
+               "negation": false, "event_type": "events", "time_value": "30", "time_interval": "day"})
+    }
+
     #[test]
     fn test_extract_dependencies_tolerates_behavioral_leaf() {
         // A `behavioral` leaf can't be resolved from person properties here, but it
@@ -1398,8 +1405,7 @@ mod tests {
                     "values": [{
                         "type": "OR",
                         "values": [
-                            {"key": "$pageview", "type": "behavioral", "value": "performed_event",
-                             "negation": false, "event_type": "events", "time_value": "30", "time_interval": "day"},
+                            behavioral_leaf_json(),
                             {"key": "id", "type": "cohort", "value": 7, "negation": false}
                         ]
                     }]
@@ -1425,8 +1431,7 @@ mod tests {
                     "values": [{
                         "type": "OR",
                         "values": [
-                            {"key": "$pageview", "type": "behavioral", "value": "performed_event",
-                             "negation": false, "event_type": "events", "time_value": "30", "time_interval": "day"},
+                            behavioral_leaf_json(),
                             {"key": "plan", "type": "person", "value": "pro", "operator": "exact"}
                         ]
                     }]
@@ -1471,8 +1476,7 @@ mod tests {
                         "type": "AND",
                         "values": [
                             {"key": "plan", "type": "person", "value": "pro", "operator": "exact"},
-                            {"key": "$pageview", "type": "behavioral", "value": "performed_event",
-                             "negation": false, "event_type": "events", "time_value": "30", "time_interval": "day"}
+                            behavioral_leaf_json()
                         ]
                     }]
                 }

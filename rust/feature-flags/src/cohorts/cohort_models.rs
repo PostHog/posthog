@@ -1,6 +1,7 @@
 use crate::properties::property_models::PropertyFilter;
 use crate::utils::json_size::estimate_json_size;
 use chrono::{DateTime, Utc};
+use serde::de::IgnoredAny;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::FromRow;
@@ -143,19 +144,19 @@ pub enum CohortPropertyType {
     OR,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct CohortProperty {
     pub properties: InnerCohortProperty,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct InnerCohortProperty {
     #[serde(rename = "type")]
     pub prop_type: CohortPropertyType,
     pub values: Vec<CohortValuesItem>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct CohortValues {
     #[serde(rename = "type")]
     pub prop_type: String,
@@ -174,18 +175,23 @@ pub struct CohortValues {
 ///
 /// `Unsupported` is the catch-all last variant: a leaf whose `type` this evaluator
 /// can't resolve from person/group properties — most commonly a `behavioral` filter,
-/// which needs event history over time. Keeping it as raw JSON means one unsupported
-/// leaf no longer aborts parsing of the whole cohort (which previously failed every
-/// referencing flag with `CohortFiltersParsingError`). It contributes no cohort
-/// dependency and is treated as a non-match during evaluation, so the cohort's
-/// person-property leaves still evaluate correctly. Because it deserializes any JSON,
-/// it must stay last so real filters and groups are tried first.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+/// which needs event history over time. One unsupported leaf no longer aborts parsing
+/// of the whole cohort (which previously failed every referencing flag with
+/// `CohortFiltersParsingError`); it contributes no cohort dependency and is treated as
+/// a non-match during evaluation, so the cohort's evaluable leaves still decide
+/// membership. The payload is discarded via `IgnoredAny` rather than kept as
+/// `serde_json::Value` since nothing reads it, avoiding materializing every
+/// unsupported leaf on each cohort parse. Because it deserializes any JSON, it must
+/// stay last so real filters and groups are tried first; this also means the whole
+/// type tree can no longer derive `Serialize` (`IgnoredAny` doesn't implement it) —
+/// nothing in the codebase serializes cohort filters back out, only the raw JSON on
+/// `Cohort::filters`.
+#[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 pub enum CohortValuesItem {
     Filter(PropertyFilter),
     Group(CohortValues),
-    Unsupported(serde_json::Value),
+    Unsupported(IgnoredAny),
 }
 
 #[cfg(test)]
