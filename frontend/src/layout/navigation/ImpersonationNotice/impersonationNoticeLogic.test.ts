@@ -166,6 +166,50 @@ describe('impersonationNoticeLogic', () => {
                 isReadOnly: true,
             })
         })
+
+        describe('adminViewUrls', () => {
+            it('returns no urls when the ticket has no email', async () => {
+                logic.actions.setTicketContext({ ticketId: '1', email: '' })
+
+                await expectLogic(logic).toMatchValues({ adminViewUrls: [] })
+            })
+
+            it('returns a single region url carrying the ticket url when the region is known', async () => {
+                logic.actions.setTicketContext({
+                    ticketId: '1',
+                    ticketNumber: 123,
+                    email: 'a+b@example.com',
+                    region: Region.EU,
+                })
+
+                await expectLogic(logic).toMatchValues({
+                    adminViewUrls: [
+                        {
+                            region: Region.EU,
+                            // jsdom origin is http://localhost; the ticket url must be URL-encoded
+                            url: 'https://eu.posthog.com/admin/posthog/user/?q=a%2Bb%40example.com&ticket=http%3A%2F%2Flocalhost%2Fsupport%2Ftickets%2F123',
+                        },
+                    ],
+                })
+            })
+
+            it('falls back to both production regions when the region is unknown', async () => {
+                logic.actions.setTicketContext({ ticketId: '1', email: 'slack@example.com' })
+
+                await expectLogic(logic).toMatchValues({
+                    adminViewUrls: [
+                        {
+                            region: Region.US,
+                            url: 'https://us.posthog.com/admin/posthog/user/?q=slack%40example.com',
+                        },
+                        {
+                            region: Region.EU,
+                            url: 'https://eu.posthog.com/admin/posthog/user/?q=slack%40example.com',
+                        },
+                    ],
+                })
+            })
+        })
     })
 
     describe('initiateImpersonation listener', () => {
