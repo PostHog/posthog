@@ -81,6 +81,10 @@ export const LinearColorScale: Story = {
 }
 
 export const BrushSelection: Story = {
+    // Skipped from visual regression: the brush overlay only appears mid-drag, so a static
+    // snapshot is just a plain heatmap with no incremental coverage. The story stays for
+    // interactive documentation of onBrush.
+    tags: ['test-skip'],
     render: function Render() {
         const theme = useReactiveTheme()
         return (
