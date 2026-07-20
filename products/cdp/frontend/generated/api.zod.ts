@@ -157,6 +157,12 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
         .array(
             zod.object({
                 name: zod.string().optional(),
+                disabled: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'When true, this mapping is paused and will not trigger the function, while keeping its filters and input values intact.'
+                    ),
                 inputs_schema: zod
                     .array(
                         zod.object({
@@ -407,6 +413,12 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
         .array(
             zod.object({
                 name: zod.string().optional(),
+                disabled: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'When true, this mapping is paused and will not trigger the function, while keeping its filters and input values intact.'
+                    ),
                 inputs_schema: zod
                     .array(
                         zod.object({
@@ -657,6 +669,12 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .array(
             zod.object({
                 name: zod.string().optional(),
+                disabled: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'When true, this mapping is paused and will not trigger the function, while keeping its filters and input values intact.'
+                    ),
                 inputs_schema: zod
                     .array(
                         zod.object({
@@ -911,6 +929,12 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
         .array(
             zod.object({
                 name: zod.string().optional(),
+                disabled: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'When true, this mapping is paused and will not trigger the function, while keeping its filters and input values intact.'
+                    ),
                 inputs_schema: zod
                     .array(
                         zod.object({
@@ -1244,6 +1268,12 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .array(
                     zod.object({
                         name: zod.string().optional(),
+                        disabled: zod
+                            .boolean()
+                            .optional()
+                            .describe(
+                                'When true, this mapping is paused and will not trigger the function, while keeping its filters and input values intact.'
+                            ),
                         inputs_schema: zod
                             .array(
                                 zod.object({

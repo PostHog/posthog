@@ -372,6 +372,8 @@ export type MappingsApiInputs = { [key: string]: InputsItemApi }
 
 export interface MappingsApi {
     name?: string
+    /** When true, this mapping is paused and will not trigger the function, while keeping its filters and input values intact. */
+    disabled?: boolean
     inputs_schema?: InputsSchemaItemApi[]
     inputs?: MappingsApiInputs
     filters?: HogFunctionFiltersApi
