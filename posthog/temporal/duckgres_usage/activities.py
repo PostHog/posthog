@@ -75,9 +75,15 @@ class DuckgresRowsOutsideWindow(Exception):
 
 class DuckgresUsageOrphanedTeam(Exception):
     """An org's managed-warehouse usage was under a deleted team and the org has
-    no live team to re-attribute it to, so it was dropped. Unlike the anomalies
+    no billable team to re-attribute it to, so it was dropped. Unlike the anomalies
     above the ack still proceeds — re-pulling can't help a warehouse with no
     projects; the data is unattributable, not withheld."""
+
+
+class DuckgresRepointFailed(Exception):
+    """Repointing an org's managed-warehouse default team failed after retries. The
+    poll re-detects the dead team and re-fires next tick, so it's not fatal — but a
+    persistent failure (org 404, auth) must be visible like the other anomalies."""
 
 
 @activity.defn(name="poll-duckgres-usage")
@@ -146,7 +152,7 @@ async def poll_duckgres_usage(inputs: PollDuckgresUsageInputs) -> PollDuckgresUs
             capture_exception(
                 DuckgresUsageOrphanedTeam(
                     f"dropped managed-warehouse usage for {len(orphaned_org_ids)} org(s) whose team was "
-                    f"deleted with no live team to re-attribute to: {sorted(orphaned_org_ids)}"
+                    f"deleted with no billable team to re-attribute to: {sorted(orphaned_org_ids)}"
                 )
             )
 
@@ -194,6 +200,16 @@ async def set_duckgres_default_team(inputs: SetDuckgresDefaultTeamInputs) -> Non
     independently of the (large) pull; idempotent server-side, so retries and
     re-detections across polls are safe."""
     await sync_to_async(set_default_team)(inputs.org_id, inputs.team_id)
+
+
+@activity.defn(name="capture-duckgres-repoint-failure")
+async def capture_duckgres_repoint_failure(inputs: SetDuckgresDefaultTeamInputs) -> None:
+    """Surface a repoint that exhausted its retries. Run from the child workflow's
+    failure path so the (fire-and-forget) repoint isn't dark when it persistently
+    breaks — matching how hole/parse/out-of-window/orphan all capture."""
+    capture_exception(
+        DuckgresRepointFailed(f"failed to repoint org {inputs.org_id} default team to {inputs.team_id} after retries")
+    )
 
 
 def _read_recorded_watermark() -> dt.datetime | None:

@@ -11,7 +11,7 @@ from typing import Any, Literal, Optional, TypedDict, Union
 
 from django.conf import settings
 from django.db import connection
-from django.db.models import Count, F, Q, Sum
+from django.db.models import Count, F, Q, QuerySet, Sum
 from django.db.models.functions import Coalesce
 
 import requests
@@ -2647,10 +2647,19 @@ def _get_all_usage_data_as_team_rows(period_start: datetime, period_end: datetim
     return all_data
 
 
+def billable_teams_queryset() -> QuerySet[Team]:
+    """Teams that count for usage/billing — the single source of truth shared by the
+    usage-report gather and the duckgres team resolver
+    (`posthog.temporal.duckgres_usage.team_resolution`), so the resolver can't elect a
+    team the gather refuses to bill. Excludes internal-metrics orgs (unbilled by
+    design) and demo projects."""
+    return Team.objects.exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True))
+
+
 def _get_teams_for_usage_reports() -> Sequence[Team]:
     return list(
-        Team.objects.select_related("organization")
-        .exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True))
+        billable_teams_queryset()
+        .select_related("organization")
         .only(
             "id",
             "name",

@@ -276,3 +276,13 @@ class TestSetDefaultTeam:
 
         with pytest.raises(DuckgresBillingAPIError):
             set_default_team(ORG_ID, 42)
+
+    @patch("posthog.temporal.duckgres_usage.client.internal_requests")
+    def test_rejects_non_uuid_org_id(self, mock_requests: MagicMock) -> None:
+        # org_id is interpolated into the URL path and is always a PostHog org UUID;
+        # fail fast on anything else (also keeps the path injection-safe).
+        mock_requests.request.return_value = _response(200, {})
+
+        with pytest.raises(ValueError):
+            set_default_team("not-a-uuid", 42)
+        mock_requests.request.assert_not_called()

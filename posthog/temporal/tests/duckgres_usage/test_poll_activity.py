@@ -318,3 +318,50 @@ async def test_ack_activity_acks_the_parsed_watermark(activity_environment) -> N
         await activity_environment.run(ack_duckgres_usage, DAY_6_END.isoformat())
 
     mock_ack.assert_called_once_with(DAY_6_END)
+
+
+def _one_row_response(org_id: str, team_id: int) -> UsageResponse:
+    return UsageResponse(
+        watermark_low=dt.datetime(2026, 7, 5, 23, 59, 59, tzinfo=dt.UTC),
+        watermark_high=dt.datetime(2026, 7, 7, 12, 39, tzinfo=dt.UTC),
+        rows=[
+            UsageRow(
+                date=dt.date(2026, 7, 6),
+                org_id=org_id,
+                team_id=team_id,
+                query_source="standard",
+                cpu=Decimal("8"),
+                mem_gib=Decimal("16"),
+                cpu_seconds=100,
+                memory_seconds=800,
+            )
+        ],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_orphaned_org_drops_rows_alerts_and_still_acks(activity_environment) -> None:
+    # An org whose usage is under a deleted team AND it has no live team at all:
+    # rows dropped, DuckgresUsageOrphanedTeam fires — but the ack STILL proceeds
+    # (the deliberate opposite of hole/parse/out-of-window, which withhold it).
+    orphan_org = "018f0000-0000-0000-0000-0000000000ff"  # no team created for it
+    is_conf, fetch, cap, log = _patched(_one_row_response(orphan_org, 999))
+    with is_conf, fetch, cap as mock_capture, log:
+        result = await activity_environment.run(poll_duckgres_usage, PollDuckgresUsageInputs())
+
+    assert await usage_count() == 0  # dropped — no billable team to attribute to
+    mock_capture.assert_called_once()  # DuckgresUsageOrphanedTeam
+    assert result.ack_watermark == DAY_6_END.isoformat()  # ack proceeds anyway
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_activity_surfaces_default_team_repoints(activity_environment) -> None:
+    # ORG's default team (999) was deleted; its live team is 42 (the fixture). The
+    # activity surfaces {ORG: 42} for the workflow to repoint duckgres at the source.
+    is_conf, fetch, cap, log = _patched(_one_row_response(ORG, 999))
+    with is_conf, fetch, cap, log:
+        result = await activity_environment.run(poll_duckgres_usage, PollDuckgresUsageInputs())
+
+    assert result.default_team_repoints == {ORG: TEAM_ID}

@@ -189,3 +189,56 @@ def test_only_the_fully_dead_org_is_repointed() -> None:
     result = resolve_billing_teams(compute, [])
 
     assert result.default_team_repoints == {str(dead_org.id): min(d0.id, d1.id)}
+
+
+# --- "live team" must equal the usage gather's "billable team" -----------------
+# The gather (_get_teams_for_usage_reports) excludes demo projects and
+# internal-metrics orgs. The resolver must use the same definition — otherwise it
+# elects a team the gather will never bill, silently under-billing the org (and
+# the repoint makes it permanent).
+
+DEMO = 88_800_001  # a demo team, low id (would be picked first by a naive election)
+REAL = 88_800_002  # the real billable team, higher id
+
+
+def test_demo_team_is_not_elected_as_surrogate() -> None:
+    org = Organization.objects.create(name="mdw org")
+    Team.objects.create(id=DEMO, organization=org, name="demo", is_demo=True)  # lowest id, NOT billable
+    real = Team.objects.create(id=REAL, organization=org, name="real")
+
+    result = resolve_billing_teams([_compute(DEAD, str(org.id))], [])
+
+    assert result.default_team_repoints == {str(org.id): real.id}  # skips the lower-id demo team
+    assert [r.team_id for r in result.compute_rows] == [real.id]
+
+
+def test_org_with_only_a_demo_team_is_orphaned_not_repointed() -> None:
+    org = Organization.objects.create(name="demo only")
+    Team.objects.create(id=DEMO, organization=org, name="demo", is_demo=True)  # the only "live" team
+
+    result = resolve_billing_teams([_compute(DEAD, str(org.id))], [])
+
+    assert result.orphaned_org_ids == {str(org.id)}  # loud + safe, not silently onto the demo team
+    assert result.default_team_repoints == {}
+    assert result.compute_rows == []
+
+
+def test_internal_metrics_org_is_orphaned() -> None:
+    org = Organization.objects.create(name="internal", for_internal_metrics=True)
+    Team.objects.create(id=88_800_003, organization=org, name="internal team")
+
+    result = resolve_billing_teams([_compute(DEAD, str(org.id))], [])
+
+    assert result.orphaned_org_ids == {str(org.id)}  # internal orgs are unbilled by design
+    assert result.default_team_repoints == {}
+
+
+def test_demo_stamped_rows_are_remapped_to_a_billable_team() -> None:
+    org = Organization.objects.create(name="demo stamped")
+    Team.objects.create(id=DEMO, organization=org, name="demo", is_demo=True)
+    real = Team.objects.create(id=REAL, organization=org, name="real")
+    # duckgres stamped usage with the demo team itself — not billable, so treat it as
+    # dead and remap to the real team, else the gather silently drops it.
+    result = resolve_billing_teams([_compute(DEMO, str(org.id))], [])
+
+    assert [r.team_id for r in result.compute_rows] == [real.id]

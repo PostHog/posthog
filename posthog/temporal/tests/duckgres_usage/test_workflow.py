@@ -12,6 +12,7 @@ import pytest
 
 import temporalio.worker
 from temporalio import activity
+from temporalio.client import WorkflowFailureError
 from temporalio.contrib.pydantic import pydantic_data_converter
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
@@ -123,3 +124,35 @@ async def test_workflow_starts_no_repoint_when_none() -> None:
         PollDuckgresUsageResult(rows_written=3, default_team_repoints={})
     )
     assert repointed == []
+
+
+@pytest.mark.asyncio
+async def test_repoint_failure_is_captured() -> None:
+    """A repoint that keeps failing must surface via a capture activity — else it
+    dies silently, unlike every other anomaly in the module (hole/parse/orphan)."""
+    captured: list[tuple[str, int]] = []
+
+    @activity.defn(name="set-duckgres-default-team")
+    async def set_fail(inputs: SetDuckgresDefaultTeamInputs) -> None:
+        raise RuntimeError("duckgres PUT 404")
+
+    @activity.defn(name="capture-duckgres-repoint-failure")
+    async def capture_mock(inputs: SetDuckgresDefaultTeamInputs) -> None:
+        captured.append((inputs.org_id, inputs.team_id))
+
+    async with await WorkflowEnvironment.start_time_skipping(data_converter=pydantic_data_converter) as env:
+        async with Worker(
+            env.client,
+            task_queue=(tq := str(uuid.uuid4())),
+            workflows=[UpdateDuckgresDefaultTeamWorkflow],
+            activities=[set_fail, capture_mock],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):  # still fails after capturing
+                await env.client.execute_workflow(
+                    UpdateDuckgresDefaultTeamWorkflow.run,
+                    SetDuckgresDefaultTeamInputs(org_id=ORG_A, team_id=7),
+                    id=str(uuid.uuid4()),
+                    task_queue=tq,
+                )
+    assert captured == [(ORG_A, 7)]

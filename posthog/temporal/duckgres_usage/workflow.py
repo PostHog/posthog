@@ -13,11 +13,12 @@ from datetime import timedelta
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
-from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.exceptions import ActivityError, WorkflowAlreadyStartedError
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.duckgres_usage.activities import (
     ack_duckgres_usage,
+    capture_duckgres_repoint_failure,
     poll_duckgres_usage,
     set_duckgres_default_team,
 )
@@ -99,9 +100,20 @@ class UpdateDuckgresDefaultTeamWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: SetDuckgresDefaultTeamInputs) -> None:
-        await workflow.execute_activity(
-            set_duckgres_default_team,
-            inputs,
-            start_to_close_timeout=timedelta(minutes=1),
-            retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=10)),
-        )
+        try:
+            await workflow.execute_activity(
+                set_duckgres_default_team,
+                inputs,
+                start_to_close_timeout=timedelta(minutes=1),
+                retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=10)),
+            )
+        except ActivityError:
+            # Retries exhausted. Surface it (capture is I/O, so its own activity — not
+            # the workflow) so a persistent failure isn't silent, then let it fail.
+            await workflow.execute_activity(
+                capture_duckgres_repoint_failure,
+                inputs,
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=5)),
+            )
+            raise

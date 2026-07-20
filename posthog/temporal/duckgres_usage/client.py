@@ -13,6 +13,7 @@ proxy as the provisioning adapter
 """
 
 import json
+import uuid
 import datetime as dt
 import dataclasses
 from decimal import Decimal, InvalidOperation
@@ -172,6 +173,12 @@ def set_default_team(org_id: str, team_id: int, timeout: int = 30) -> None:
     if team_id <= 0:
         # duckgres 400s on 0/negative and can't clear the column; fail before the round-trip.
         raise ValueError("team_id must be a positive integer")
+    try:
+        uuid.UUID(org_id)
+    except ValueError:
+        # org_id is interpolated into the URL path and is always a PostHog org UUID;
+        # fail fast on anything else (also keeps the path injection-safe).
+        raise ValueError(f"org_id must be duckgres's org UUID, got {org_id!r}") from None
     _request("PUT", f"orgs/{org_id}", json_body={"default_team_id": team_id}, timeout=timeout)
 
 
