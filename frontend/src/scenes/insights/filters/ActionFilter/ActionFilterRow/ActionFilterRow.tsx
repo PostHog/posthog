@@ -584,10 +584,12 @@ export function ActionFilterRow({
                                                 MathCategory.PropertyValue) && (
                                             <PropertyValueMathSelector
                                                 mathPropertyType={
-                                                    mathPropertyType ||
-                                                    (isDataWarehouseFilter
+                                                    // For warehouse series, don't trust mathPropertyType — a swap from an
+                                                    // event series can leave a stale non-warehouse group on the filter.
+                                                    isDataWarehouseFilter
                                                         ? TaxonomicFilterGroupType.DataWarehouseProperties
-                                                        : TaxonomicFilterGroupType.NumericalEventProperties)
+                                                        : mathPropertyType ||
+                                                          TaxonomicFilterGroupType.NumericalEventProperties
                                                 }
                                                 mathPropertyTypes={
                                                     isDataWarehouseFilter

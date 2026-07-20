@@ -7,6 +7,7 @@ import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 
 import { useAvailableFeatures } from '~/mocks/features'
@@ -291,6 +292,61 @@ describe('ActionFilterRow', () => {
                 renderRow(logic, { mathAvailability: MathAvailability.BoxPlotOnly })
                 expect(screen.queryByTestId('math-selector-0')).not.toBeInTheDocument()
                 expect(screen.getByTestId('box-plot-property-select')).toBeInTheDocument()
+            })
+
+            it('offers warehouse columns in the box plot property selector for data warehouse series', async () => {
+                databaseTableListLogic.mount()
+                databaseTableListLogic.actions.loadDatabaseSuccess({
+                    tables: {
+                        events_table: {
+                            type: 'data_warehouse',
+                            id: 'wh-table-1',
+                            name: 'events_table',
+                            fields: {
+                                duration: {
+                                    name: 'duration',
+                                    hogql_value: 'duration',
+                                    type: 'float',
+                                    schema_valid: true,
+                                },
+                            },
+                        },
+                    },
+                    joins: [],
+                } as any)
+
+                const dataWarehouseFilter = {
+                    id: 'events_table',
+                    name: 'events_table',
+                    type: EntityTypes.DATA_WAREHOUSE,
+                    table_name: 'events_table',
+                    order: 0,
+                }
+                const { logic, setFilters } = setup({
+                    events: [],
+                    actions: [],
+                    data_warehouse: [dataWarehouseFilter],
+                } as Partial<FilterType>)
+                renderRow(logic, {
+                    mathAvailability: MathAvailability.BoxPlotOnly,
+                    filter: { ...DEFAULT_FILTER, ...dataWarehouseFilter },
+                })
+
+                await userEvent.click(screen.getByTestId('box-plot-property-select'))
+                await userEvent.click(await screen.findByText('duration'))
+
+                await waitFor(() => {
+                    expect(setFilters).toHaveBeenCalledWith(
+                        expect.objectContaining({
+                            data_warehouse: [
+                                expect.objectContaining({
+                                    math_property: 'duration',
+                                    math_property_type: TaxonomicFilterGroupType.DataWarehouseProperties,
+                                }),
+                            ],
+                        })
+                    )
+                })
             })
         })
 
