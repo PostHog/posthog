@@ -48,9 +48,6 @@ from posthog.hogql.visitor import clone_expr
 from posthog.hogql.workload import WorkloadCollector
 
 from posthog.clickhouse.workload import Workload
-from posthog.models.team.event_retention import events_retention_months_for_team
-
-from products.access_control.backend.property_access_control import get_restricted_properties_for_team
 
 PRINTER_CLASSES: dict[HogQLDialect, type[BasePrinter]] = {
     "clickhouse": ClickHousePrinter,
@@ -157,6 +154,13 @@ def prepare_ast_for_printing(
     # restricted property as NULL). The warehouse (Postgres / DuckDB) dialects only compile external data-warehouse
     # sources, which carry no restrictable event/person properties, so they need no enforcement here.
     if context.team_id is not None and context.restricted_properties is None:
+        # Deferred: a Django-side load at the prepare boundary (same seam as Database.create_for and
+        # load_property_metadata) — keeping it behind the call is what lets the printer package import
+        # without django.setup().
+        from products.access_control.backend.property_access_control import (  # noqa: PLC0415
+            get_restricted_properties_for_team,
+        )
+
         with context.timings.measure("load_restricted_properties"):
             if context.team is not None and context.team.pk == context.team_id:
                 context.restricted_properties = get_restricted_properties_for_team(user=context.user, team=context.team)
@@ -280,6 +284,9 @@ def prepare_ast_for_printing(
         # enforcement floor still can't be circumvented by a query-supplied modifier.
         with context.timings.measure("events_retention_floor"):
             if context.apply_events_retention_floor:
+                # Deferred: Django-side load at the prepare boundary; see the restricted-properties load above.
+                from posthog.models.team.event_retention import events_retention_months_for_team  # noqa: PLC0415
+
                 context.events_retention_months = events_retention_months_for_team(context.team, context.team_id)
 
         # Events predicate pushdown runs on the lowered AST (between lowering and property resolution), so it matches the
