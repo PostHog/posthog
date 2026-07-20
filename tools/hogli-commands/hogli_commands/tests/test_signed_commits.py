@@ -251,6 +251,31 @@ def _stub_gh_and_remote_git(
     return gh_calls
 
 
+class TestRemoteRefPaths:
+    @pytest.mark.parametrize(
+        ("branch", "encoded"),
+        [
+            ("master#x", "master%23x"),
+            ("fix?query", "fix%3Fquery"),
+            ("50%off", "50%25off"),
+            ("feat/nested", "feat/nested"),
+        ],
+        ids=["hash_would_target_default_branch", "question_mark", "percent", "nested_slash_preserved"],
+    )
+    def test_branch_is_url_encoded_in_ref_paths(
+        self, monkeypatch: pytest.MonkeyPatch, branch: str, encoded: str
+    ) -> None:
+        calls: list[list[str]] = []
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+            calls.append(list(args))
+            return subprocess.CompletedProcess(args, 0, stdout=b"", stderr=b"")
+
+        monkeypatch.setattr(signed_commits.subprocess, "run", fake_run)
+        signed_commits._fast_forward_remote_branch("PostHog/test", branch, "a" * 40, {})
+        assert f"repos/PostHog/test/git/refs/heads/{encoded}" in calls[0]
+
+
 class TestAuthIntegration:
     def test_publish_threads_resolved_token_to_every_gh_call(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -282,6 +307,29 @@ class TestAuthIntegration:
 
         assert result.exit_code != 0
         assert "hogli git:signing-session" in result.output
+
+    @pytest.mark.parametrize(
+        ("cli_args", "publishes"),
+        [([], False), (["--auth", "gh"], True)],
+        ids=["auto_refuses_gh_fallback", "explicit_gh_still_allowed"],
+    )
+    def test_non_interactive_gh_fallback(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cli_args: list[str], publishes: bool
+    ) -> None:
+        repo, head = _init_offline_github_repo(tmp_path)
+        gh_calls = _stub_gh_and_remote_git(monkeypatch, head)
+        monkeypatch.setattr(signed_commits, "token_for_mode", lambda auth: ("gh-tok", "gh"))
+        monkeypatch.chdir(repo)
+
+        result = CliRunner().invoke(git_publish_signed, cli_args)
+
+        if publishes:
+            assert result.exit_code == 0, result.output
+            assert "Published 1 signed commit(s)" in result.output
+        else:
+            assert result.exit_code != 0
+            assert "hogli git:signing-session" in result.output
+            assert not gh_calls, "refusal must happen before any gh call"
 
     @pytest.mark.parametrize(
         ("mode", "expect_scope_error"),

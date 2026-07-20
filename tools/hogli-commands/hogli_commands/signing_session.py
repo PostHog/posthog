@@ -125,6 +125,8 @@ def git_signing_session(force: bool, no_open: bool, end_session: bool) -> None:
     Mints a short-lived GitHub App user token via the device flow and caches
     it for `hogli git:publish-signed`. Run this once before stepping away;
     unattended agents can then publish GitHub-signed commits until it expires.
+    The session is not scoped to one repository: while it is active, publishes
+    work on every repo the hogli-publisher installation covers.
     When a session is already active, prints the time remaining instead.
     There is no refresh token on disk, so start a new session (roughly once
     per workday) when it expires.

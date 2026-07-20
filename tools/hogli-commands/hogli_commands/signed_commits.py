@@ -37,6 +37,7 @@ import base64
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import quote
 
 import click
 
@@ -47,6 +48,9 @@ from hogli_commands.signing_session import AuthChoice, AuthMode, run_device_logi
 MAX_PAYLOAD_BASE64_BYTES = 30 * 1024 * 1024
 
 _MUTATION = "mutation($input: CreateCommitOnBranchInput!) { createCommitOnBranch(input: $input) { commit { oid } } }"
+
+# Pin every gh call (and the GH_TOKEN it carries) to github.com even if GH_HOST is set.
+_GH_HOSTNAME_ARGS = ["--hostname", "github.com"]
 
 MODE_SYMLINK = "120000"
 MODE_SUBMODULE = "160000"
@@ -225,7 +229,7 @@ def _token_scopes(env: dict[str, str]) -> set[str] | None:
     (fine-grained PATs and GitHub App tokens send no X-OAuth-Scopes header)."""
     try:
         headers = subprocess.run(
-            ["gh", "api", "user", "--include", "--silent"], capture_output=True, check=True, env=env
+            ["gh", "api", "user", "--include", "--silent", *_GH_HOSTNAME_ARGS], capture_output=True, check=True, env=env
         ).stdout.decode()
     except (subprocess.CalledProcessError, FileNotFoundError):
         return None
@@ -327,10 +331,16 @@ def _plan_commit(commit: str) -> CommitPlan:
 
 
 def _gh_rest(method: str, path: str, fields: dict[str, str], env: dict[str, str]) -> subprocess.CompletedProcess[bytes]:
-    args = ["gh", "api", "-X", method, path]
+    args = ["gh", "api", "-X", method, path, *_GH_HOSTNAME_ARGS]
     for key, value in fields.items():
         args += ["-f", f"{key}={value}"]
     return subprocess.run(args, capture_output=True, env=env)
+
+
+def _branch_ref_path(repo: str, branch: str) -> str:
+    # git allows `#`/`?`/`%` in branch names; unencoded, `master#x` would PATCH
+    # refs/heads/master. Slashes stay literal for nested branch names.
+    return f"repos/{repo}/git/refs/heads/{quote(branch, safe='/')}"
 
 
 def _create_remote_branch(repo: str, branch: str, sha: str, env: dict[str, str]) -> None:
@@ -340,7 +350,9 @@ def _create_remote_branch(repo: str, branch: str, sha: str, env: dict[str, str])
 
 
 def _fast_forward_remote_branch(repo: str, branch: str, sha: str, env: dict[str, str]) -> None:
-    result = _gh_rest("PATCH", f"repos/{repo}/git/refs/heads/{branch}", {"sha": sha}, env)
+    # Never pass `force`: the API default (force=false) only fast-forwards, which is
+    # the sole guard making a concurrent push fail this PATCH instead of being overwritten.
+    result = _gh_rest("PATCH", _branch_ref_path(repo, branch), {"sha": sha}, env)
     if result.returncode != 0:
         raise PublishError(
             f"Updating origin/{branch} failed (did it move during the publish?): "
@@ -350,7 +362,13 @@ def _fast_forward_remote_branch(repo: str, branch: str, sha: str, env: dict[str,
 
 
 def _delete_remote_branch(repo: str, branch: str, env: dict[str, str]) -> None:
-    _gh_rest("DELETE", f"repos/{repo}/git/refs/heads/{branch}", {}, env)
+    result = _gh_rest("DELETE", _branch_ref_path(repo, branch), {}, env)
+    if result.returncode != 0:
+        click.secho(
+            f"Could not delete scratch branch {branch} on {repo}; delete it manually.",
+            fg="yellow",
+            err=True,
+        )
 
 
 def _commit_failure_hint(stderr: str, mode: AuthMode) -> str:
@@ -393,7 +411,7 @@ def _create_commit_on_branch(
         },
     }
     result = subprocess.run(
-        ["gh", "api", "graphql", "--input", "-"],
+        ["gh", "api", "graphql", "--input", "-", *_GH_HOSTNAME_ARGS],
         input=json.dumps(payload).encode(),
         capture_output=True,
         env=env,
@@ -445,7 +463,8 @@ def _sync_local_branch(branch: str, head: str, new_tip: str) -> None:
     show_default=True,
     envvar="HOGLI_PUBLISH_AUTH",
     help="Token source: app = 8h hogli-publisher token, env = GH_TOKEN/GITHUB_TOKEN, gh = gh CLI login. "
-    "auto prefers app; set HOGLI_PUBLISH_AUTH=app in agent environments to fail closed.",
+    "auto prefers app and only falls back to gh on an interactive terminal; "
+    "set HOGLI_PUBLISH_AUTH=app in agent environments to fail closed entirely.",
 )
 def git_publish_signed(dry_run: bool, auth: AuthChoice) -> None:
     """Publish local commits as GitHub-signed (Verified) commits.
@@ -516,6 +535,14 @@ def git_publish_signed(dry_run: bool, auth: AuthChoice) -> None:
 
     token, mode = resolved or _login_or_fail(auth)
     if auth == "auto" and mode == "gh":
+        # Unattended agents never read the warning, so fail closed for them; a
+        # human on a TTY (or an explicit --auth gh) can still use the gh token.
+        if not sys.stdin.isatty():
+            raise PublishError(
+                "No app or env token; refusing to fall back to the long-lived gh CLI token "
+                "in a non-interactive session. Run `hogli git:signing-session`, set GH_TOKEN, "
+                "or pass --auth gh to allow the fallback."
+            )
         click.secho(
             "Using the long-lived gh CLI token; run `hogli git:signing-session` for a short-lived app token.",
             fg="yellow",

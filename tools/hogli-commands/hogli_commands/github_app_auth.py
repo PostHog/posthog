@@ -121,8 +121,9 @@ def write_cached_token(app: GitHubApp, token: str, expires_at: datetime) -> Path
     app.token_cache_path.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps({"token": token, "expires_at": expires_at.isoformat(), "client_id": app.client_id})
     # 0600 from the first byte (no chmod-after-write window), then an atomic
-    # rename so a concurrent reader never sees a half-written file.
-    tmp_path = app.token_cache_path.with_suffix(".tmp")
+    # rename so a concurrent reader never sees a half-written file. The tmp name
+    # is per-PID so concurrent logins can't unlink or replace each other's file.
+    tmp_path = app.token_cache_path.with_suffix(f".{os.getpid()}.tmp")
     tmp_path.unlink(missing_ok=True)
     fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
