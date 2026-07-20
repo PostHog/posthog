@@ -68,7 +68,7 @@ ANTHROPIC_TO_BEDROCK_MODEL_MAP: Final[dict[str, dict[str, str]]] = {
     },
     "claude-fable-5": {
         "us": "us.anthropic.claude-fable-5",
-        "eu": "eu.anthropic.claude-fable-5",
+        "eu": "global.anthropic.claude-fable-5",
     },
     "claude-sonnet-4-5": {
         "us": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
