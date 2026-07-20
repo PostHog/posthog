@@ -25,6 +25,16 @@ import { EvaluationTemplate, defaultEvaluationTemplates } from './templates'
 
 const HedgehogJudge = pngHoggie(judgePng)
 
+// Display order for the template list: sentiment, then Hog, then LLM judge.
+const TEMPLATE_TYPE_ORDER: Record<EvaluationTemplate['evaluation_type'], number> = {
+    sentiment: 0,
+    hog: 1,
+    llm_judge: 2,
+}
+const orderedTemplates = [...defaultEvaluationTemplates].sort(
+    (a, b) => TEMPLATE_TYPE_ORDER[a.evaluation_type] - TEMPLATE_TYPE_ORDER[b.evaluation_type]
+)
+
 export const scene: SceneExport = {
     component: EvaluationTemplatesScene,
 }
@@ -183,7 +193,7 @@ function TemplateGrid({
 
                     <div className="flex flex-col border border-border rounded-lg divide-y divide-border overflow-hidden bg-bg-light">
                         <TemplateRow template="blank" />
-                        {defaultEvaluationTemplates.map((template) => (
+                        {orderedTemplates.map((template) => (
                             <TemplateRow key={template.key} template={template} />
                         ))}
                     </div>
