@@ -5,6 +5,8 @@ rules:
       owners: team-analytics-platform
     - match: '/cdp/'
       owners: team-workflows
+    - match: '/clickhouse/hcl/'
+      owners: clickhouse
     - match: '/email.py'
       owners: team-platform-features
     - match: '/heatmaps/'
