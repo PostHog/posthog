@@ -55,6 +55,19 @@ export const WORKFLOW_METRICS_INFO: Record<string, { name: string; description: 
 function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
     const logicKey = `hog-flow-metrics-${props.id}`
     const { searchParams } = useValues(router)
+    const { workflow, hogFunctionTemplatesById } = useValues(workflowLogic)
+
+    // Seed the drilled-in step from ?action= so a refreshed or shared metrics link restores it, but
+    // only honor a value that points at a real step — a stale/deleted/mistyped id would otherwise
+    // select a nonexistent instance and get stuck in the generic step view. While the workflow is
+    // still loading (no actions yet) we honor it optimistically so a shared link doesn't flash the
+    // overview first. Later changes (clicks, back/forward) are synced by workflowSceneLogic's urlToAction.
+    const requestedAction = (searchParams.action as string) || undefined
+    const instanceId =
+        requestedAction &&
+        (!workflow.actions.length || workflow.actions.some((action) => action.id === requestedAction))
+            ? requestedAction
+            : undefined
 
     const logic = appMetricsLogic({
         logicKey,
@@ -64,13 +77,9 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
             appSource: 'hog_flow',
             appSourceId: props.id,
             breakdownBy: 'metric_name',
-            // Seed the drilled-in step from ?action= so a refreshed or shared metrics link restores it.
-            // Subsequent changes (clicks, back/forward) are synced by workflowSceneLogic's urlToAction.
-            instanceId: (searchParams.action as string) || undefined,
+            instanceId,
         },
     })
-
-    const { workflow, hogFunctionTemplatesById } = useValues(workflowLogic)
 
     const { appMetricsTrendsLoading, appMetricsTrends, getSingleTrendSeries, params, getDateRangeAbsolute } =
         useValues(logic)
