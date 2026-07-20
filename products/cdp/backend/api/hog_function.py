@@ -366,9 +366,15 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         # Check for transformation limit per team when the function will be enabled
         # We allow unlimited creation of disabled transformations as they don't run during ingestion
         enabled_cap = MAX_ENABLED_FUNCTIONS_PER_TEAM_BY_TYPE.get(hog_type)
-        if enabled_cap is not None and attrs.get("enabled", False):
-            # Don't apply the limit for updates where the function was already enabled
-            apply_limit = is_create or (isinstance(self.instance, HogFunction) and not self.instance.enabled)
+        if enabled_cap is not None:
+            # The cap covers the effective post-update state: restoring a soft-deleted
+            # enabled function ({"deleted": false} with no "enabled" key) re-enters the
+            # running set just like flipping enabled on, and must not bypass the limit.
+            instance = self.instance if isinstance(self.instance, HogFunction) else None
+            will_be_enabled = attrs.get("enabled", instance.enabled if instance else False)
+            will_be_deleted = attrs.get("deleted", instance.deleted if instance else False)
+            was_active = instance is not None and instance.enabled and not instance.deleted
+            apply_limit = will_be_enabled and not will_be_deleted and not was_active
 
             if apply_limit:
                 # Count enabled and non-deleted functions of the same type

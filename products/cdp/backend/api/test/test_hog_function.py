@@ -2790,6 +2790,38 @@ class TestLogTransformationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         response = self._create_log_transformation(name="Disabled is fine", enabled=False)
         assert response.status_code == status.HTTP_201_CREATED
 
+    def test_restoring_deleted_enabled_log_transformation_counts_against_cap(self):
+        # Archiving an enabled function keeps enabled=True on the row; restoring it
+        # with {"deleted": false} must re-enter the cap check, or archive-and-replace
+        # cycles run double the allowed transformations.
+        first = self._create_log_transformation(name="Original", enabled=True)
+        assert first.status_code == status.HTTP_201_CREATED
+        first_id = first.json()["id"]
+
+        delete_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{first_id}/", data={"deleted": True}
+        )
+        assert delete_response.status_code == status.HTTP_200_OK
+
+        for i in range(MAX_LOG_TRANSFORMATIONS_PER_TEAM):
+            response = self._create_log_transformation(name=f"Replacement {i}", enabled=True)
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        restore_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{first_id}/", data={"deleted": False}
+        )
+        assert restore_response.status_code == status.HTTP_400_BAD_REQUEST
+        assert (
+            f"Maximum of {MAX_LOG_TRANSFORMATIONS_PER_TEAM} enabled transformation log functions"
+            in restore_response.json()["detail"]
+        )
+
+        # Under the cap, restore works: free a slot, then the restore succeeds.
+        disable_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{first_id}/", data={"deleted": False, "enabled": False}
+        )
+        assert disable_response.status_code == status.HTTP_200_OK
+
         # The cap is per type: enabled event transformations are not blocked by it
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
