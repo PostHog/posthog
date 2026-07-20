@@ -1020,3 +1020,27 @@ def get_git_identity_env_vars(task: Task, state: dict[str, Any] | None = None) -
         "GIT_COMMITTER_NAME": name,
         "GIT_COMMITTER_EMAIL": email,
     }
+
+
+def _message_actor_cache_key(run_id: str, message_id: str) -> str:
+    return f"tasks:followup-actor:{run_id}:{message_id}"
+
+
+# Bounds how long after delivery a turn can finish and still get exact
+# per-message attribution; longer turns fall back to the run-state actors.
+MESSAGE_ACTOR_TTL_SECONDS = 2 * 60 * 60
+
+
+def record_message_actor(run_id: str, message_id: str, slack_user_id: str) -> None:
+    """Correlate a delivered message with its sender's Slack id, so a relay
+    echoing the message id can tag the exact speaker it answers. The sandbox
+    only ever echoes an opaque id — resolution happens against actors this
+    server recorded itself, so a compromised sandbox cannot pick an arbitrary
+    mention target."""
+    get_tasks_cache().set(
+        _message_actor_cache_key(run_id, message_id), slack_user_id, timeout=MESSAGE_ACTOR_TTL_SECONDS
+    )
+
+
+def get_message_actor(run_id: str, message_id: str) -> str | None:
+    return get_tasks_cache().get(_message_actor_cache_key(run_id, message_id))
