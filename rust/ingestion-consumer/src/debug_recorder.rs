@@ -136,6 +136,8 @@ pub struct WorkerHealthSnapshot {
     pub url: String,
     pub state: String,
     pub draining: bool,
+    /// Eligible for routing right now (Healthy or Degraded, not draining).
+    pub routable: bool,
     pub consecutive_probe_failures: u32,
     pub passive_error_rate: f64,
     pub passive_samples: usize,
@@ -156,6 +158,23 @@ pub struct DispatcherLoad {
     pub pin_count: usize,
     pub stashed_messages: usize,
     pub stashed_batches: usize,
+}
+
+/// The dispatcher's routing configuration and, under aperture, its current
+/// ring slice — computed by the same code the assignment path uses, so what
+/// this reports is what the next batch would route with.
+#[derive(Serialize)]
+pub struct RoutingDebug {
+    /// Configured strategy (`binpack`, `p2c`, `aperture`).
+    pub strategy: String,
+    /// Configured minimum aperture width; `None` when aperture is not wired.
+    pub min_aperture: Option<usize>,
+    /// The canonical sorted worker ring shared by all peers.
+    pub ring: Vec<String>,
+    /// This dispatcher's current slice candidates for unpinned keys; `None`
+    /// when routing uses the full healthy pool (non-aperture strategy, or
+    /// aperture falling back while the peer set is unknown).
+    pub slice: Option<Vec<String>>,
 }
 
 /// Merged worker row: registry health plus the dispatcher's in-flight count.
@@ -181,6 +200,7 @@ pub struct DebugState {
     pub peer_index: Option<usize>,
     /// Ready peer count; `None` when peer awareness is disabled.
     pub peer_count: Option<usize>,
+    pub routing: RoutingDebug,
     pub events: Vec<DebugEvent>,
 }
 
@@ -195,6 +215,7 @@ pub struct DebugLoad {
     pub peer_index: Option<usize>,
     /// See [`DebugState::peer_count`].
     pub peer_count: Option<usize>,
+    pub routing: RoutingDebug,
 }
 
 /// Bounded rolling event buffer plus a broadcast channel for live subscribers.
