@@ -14,7 +14,7 @@ ClickHouse queries and must never hold the row lock or affect the check outcome.
 """
 
 import math
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 import structlog
 
@@ -28,6 +28,23 @@ if TYPE_CHECKING:
     from products.metrics.backend.facade.contracts import InvestigationResult
 
 logger = structlog.get_logger(__name__)
+
+# Each target costs a handful of synchronous ClickHouse queries in the
+# alert-evaluation path, so multi-clause investigations stay bounded.
+MAX_INVESTIGATED_CLAUSES = 3
+# Mover keys and labels come from ingested telemetry, so the persisted summary
+# is capped rather than trusting label sizes.
+MAX_SUMMARY_LENGTH = 4000
+
+_SERVICE_FILTER_KEYS = ("service.name", "service_name")
+
+
+class _InvestigationTarget(NamedTuple):
+    metric_name: str
+    service_name: str | None
+    # The op of a service filter no single service could be derived from
+    # (anything but eq) — surfaced as a caveat on the summary.
+    unscoped_service_op: str | None
 
 
 def should_investigate_metrics_alert(
@@ -81,35 +98,76 @@ def _run_investigation(alert: AlertConfiguration, alert_check: AlertCheck) -> st
     from products.metrics.backend.facade.api import investigate_incident  # noqa: PLC0415
     from products.metrics.backend.facade.contracts import IncidentContext  # noqa: PLC0415
 
-    metric_name, service_name = _metric_and_service_from_insight(alert)
-    result = investigate_incident(
-        team=alert.team,
-        context=IncidentContext(
-            metric_name=metric_name,
-            fired_at=alert_check.created_at,
-            service_name=service_name,
-        ),
-    )
-    return _summarize(result)
+    summaries: list[str] = []
+    for target in _investigation_targets(alert):
+        result = investigate_incident(
+            team=alert.team,
+            context=IncidentContext(
+                metric_name=target.metric_name,
+                fired_at=alert_check.created_at,
+                service_name=target.service_name,
+            ),
+        )
+        summary = _summarize(result)
+        if target.unscoped_service_op:
+            summary += (
+                f" (The alert filters service.name with '{target.unscoped_service_op}', which does not pin "
+                "down a single service, so this investigation ran across all services.)"
+            )
+        summaries.append(summary)
+    return " ".join(summaries)[:MAX_SUMMARY_LENGTH]
 
 
-def _metric_and_service_from_insight(alert: AlertConfiguration) -> tuple[str, str | None]:
+def _investigation_targets(alert: AlertConfiguration) -> list[_InvestigationTarget]:
+    """The (metric, service) pairs to investigate for this alert.
+
+    The check records a single fired value with no pointer to the clause that
+    breached (a formula query doesn't even evaluate clauses separately), so
+    every distinct clause target is investigated — bounded by
+    MAX_INVESTIGATED_CLAUSES — rather than assuming the first clause is the
+    one that moved.
+    """
     query = alert.insight.query or {}
     clauses = get_from_dict_or_attr(query, "clauses") or []
     if not clauses:
         raise ValueError("Metrics insight has no clauses to investigate")
-    first = clauses[0]
-    metric_name = get_from_dict_or_attr(first, "metricName")
-    if not metric_name:
-        raise ValueError("Metrics insight clause has no metric name to investigate")
-    service_name: str | None = None
-    for filter_ in get_from_dict_or_attr(first, "filters") or []:
-        key = get_from_dict_or_attr(filter_, "key")
-        op = get_from_dict_or_attr(filter_, "op") or "eq"
-        if key in ("service.name", "service_name") and op == "eq":
-            service_name = get_from_dict_or_attr(filter_, "value")
+    targets: list[_InvestigationTarget] = []
+    seen: set[tuple[str, str | None]] = set()
+    for clause in clauses:
+        metric_name = get_from_dict_or_attr(clause, "metricName")
+        if not metric_name:
+            continue
+        service_name, unscoped_service_op = _service_scope(clause)
+        if (metric_name, service_name) in seen:
+            continue
+        seen.add((metric_name, service_name))
+        targets.append(_InvestigationTarget(metric_name, service_name, unscoped_service_op))
+        if len(targets) == MAX_INVESTIGATED_CLAUSES:
             break
-    return metric_name, service_name
+    if not targets:
+        raise ValueError("Metrics insight clauses have no metric name to investigate")
+    return targets
+
+
+def _service_scope(clause: Any) -> tuple[str | None, str | None]:
+    """The clause's service scope: (service to investigate, underivable op).
+
+    The metrics filter ops are eq/neq/regex/not_regex over a single value, so
+    only an eq filter pins down the one service to scope the investigation to.
+    Any other service filter can't be applied (IncidentContext scopes by exact
+    service), so its op is reported back for a summary caveat instead of
+    silently investigating globally.
+    """
+    unscoped_op: str | None = None
+    for filter_ in get_from_dict_or_attr(clause, "filters") or []:
+        if get_from_dict_or_attr(filter_, "key") not in _SERVICE_FILTER_KEYS:
+            continue
+        op = get_from_dict_or_attr(filter_, "op") or "eq"
+        value = get_from_dict_or_attr(filter_, "value")
+        if op == "eq" and value:
+            return value, None
+        unscoped_op = unscoped_op or op
+    return None, unscoped_op
 
 
 def _summarize(result: "InvestigationResult") -> str:
