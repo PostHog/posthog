@@ -168,6 +168,25 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
     @freeze_time("2024-06-15 12:00:00")
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
+    def test_skips_flag_keys_with_nul_bytes(self, mock_get_client: MagicMock, mock_sync_execute: MagicMock) -> None:
+        """A ClickHouse-sourced flag key containing a NUL byte must not reach the Postgres query,
+        since psycopg rejects NUL bytes in query parameters."""
+        redis_mock = mock_redis_client()
+        mock_get_client.return_value = redis_mock
+
+        mock_sync_execute.return_value = [
+            (self.team.pk, self.flag1.key, tz.make_aware(datetime(2024, 6, 15, 11, 0, 0)), 100),
+            (self.team.pk, "bad-flag-\x00-key", tz.make_aware(datetime(2024, 6, 15, 11, 0, 0)), 50),
+        ]
+
+        sync_feature_flag_last_called()  # must not raise
+
+        self.flag1.refresh_from_db()
+        assert self.flag1.last_called_at is not None
+
+    @freeze_time("2024-06-15 12:00:00")
+    @patch("posthog.clickhouse.client.sync_execute")
+    @patch("posthog.tasks.tasks.get_client")
     @override_settings(FEATURE_FLAG_LAST_CALLED_AT_SYNC_BATCH_SIZE=2)
     def test_bulk_update_respects_batch_size(self, mock_get_client: MagicMock, mock_sync_execute: MagicMock) -> None:
         """Bulk updates should respect configured batch size"""

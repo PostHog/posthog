@@ -143,6 +143,40 @@ describe('supportTicketSceneLogic ai reply feedback', () => {
     })
 })
 
+function makeCustomerComment(id: string, itemContext: Record<string, any>): CommentType {
+    return {
+        id,
+        content: 'reply body',
+        scope: 'conversations_ticket',
+        item_id: 'ticket-1',
+        item_context: { author_type: 'customer', ...itemContext },
+        created_at: '2026-01-01T00:00:00Z',
+        created_by: null,
+    } as unknown as CommentType
+}
+
+describe('supportTicketSceneLogic chatMessages author attribution', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        logic = supportTicketSceneLogic({ id: 'new' })
+        logic.mount()
+        logic.actions.setTicket({ ...makeTicket(), anonymous_traits: { name: 'Mark' } } as Ticket)
+    })
+
+    // A thread reply from a second Teams/Slack participant must show its own author,
+    // not fall back to the ticket requester's name.
+    test.each<[string, Record<string, any>, string]>([
+        ['teams thread reply author', { teams_author_name: 'Chris' }, 'Chris'],
+        ['slack thread reply author', { slack_author_name: 'Chris' }, 'Chris'],
+        ['requester fallback without per-message author', {}, 'Mark'],
+    ])('%s', (_name, itemContext, expectedName) => {
+        logic.actions.setMessages([makeCustomerComment('msg-1', itemContext)])
+        expect(logic.values.chatMessages[0].authorName).toBe(expectedName)
+    })
+})
+
 type GateTicket = Pick<Ticket, 'channel_source' | 'email_from' | 'email_to'>
 
 const emailTicket = (overrides: Partial<GateTicket> = {}): GateTicket => ({
@@ -176,5 +210,42 @@ describe('getEmailReplyBlockedReason', () => {
         ['fully configured email ticket', emailTicket(), { email_enabled: true }, null],
     ])('%s', (_name, ticket, settings, expected) => {
         expect(getEmailReplyBlockedReason(ticket, settings)).toBe(expected)
+    })
+})
+
+describe('supportTicketSceneLogic replyRecipientDescription', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        logic = supportTicketSceneLogic({ id: 'new' })
+        logic.mount()
+    })
+
+    // This string is shown in the draft-mode "This will send to ..." confirmation. Regressions
+    // that swap email_from (customer) for email_to (our sending identity), drop cc recipients, or
+    // mislabel a channel would tell the agent they're sending somewhere they aren't.
+    test.each<[string, Partial<Ticket>, string]>([
+        [
+            'email uses the customer address, not our sending identity',
+            { channel_source: 'email', email_from: 'customer@example.com', email_to: 'support@example.com' },
+            'customer@example.com',
+        ],
+        [
+            'email includes cc participants',
+            {
+                channel_source: 'email',
+                email_from: 'customer@example.com',
+                cc_participants: ['cc1@example.com', 'cc2@example.com'],
+            },
+            'customer@example.com, cc1@example.com, cc2@example.com',
+        ],
+        ['slack', { channel_source: 'slack' }, 'the linked Slack thread'],
+        ['teams', { channel_source: 'teams' }, 'the linked Microsoft Teams channel'],
+        ['github', { channel_source: 'github' }, 'the linked GitHub issue'],
+        ['widget', { channel_source: 'widget' }, 'the customer'],
+    ])('%s', (_name, overrides, expected) => {
+        logic.actions.setTicket({ ...makeTicket(), ...overrides })
+        expect(logic.values.replyRecipientDescription).toBe(expected)
     })
 })

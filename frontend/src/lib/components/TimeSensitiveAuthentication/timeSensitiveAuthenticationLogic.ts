@@ -66,7 +66,7 @@ export interface timeSensitiveAuthenticationLogicActions {
     setTimeSensitiveAuthenticationRequired: (required: boolean | [onSuccess: () => void, onFailure: () => void]) => {
         required: boolean | [onSuccess: () => void, onFailure: () => void]
     } // apiStatusLogic
-    loadUser: (resetOnFailure?: boolean) => {
+    loadUser: (resetOnFailure?: boolean | undefined) => {
         resetOnFailure: boolean | undefined
     } // userLogic
     beginPasskey2FA: () => {

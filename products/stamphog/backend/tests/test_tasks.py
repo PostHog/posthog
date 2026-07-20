@@ -132,17 +132,27 @@ def test_unmatched_events_create_no_review_run(team, repo_config, mutate_payload
         ({"user_type": "Bot"}, False),
         ({"author_login": "renovate[bot]"}, False),
         ({"author_association": "NONE"}, False),
-        ({"author_association": "CONTRIBUTOR"}, False),
+        ({"author_association": "CONTRIBUTOR"}, True),
         ({"author_association": "FIRST_TIME_CONTRIBUTOR"}, False),
         ({"author_association": "MEMBER"}, True),
     ],
-    ids=["draft", "bot_type", "bot_login", "none", "contributor", "first_time_contributor", "member_proceeds"],
+    ids=[
+        "draft",
+        "bot_type",
+        "bot_login",
+        "none",
+        "contributor_falls_through",
+        "first_time_contributor",
+        "member_proceeds",
+    ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_review_path_skips_untrusted_bot_or_draft_prs(team, repo_config, pr_kwargs, expect_run):
     # Drafts, bot authors, and fork/external authors must be dropped before a sandbox is spent. The
     # fork/external drop is also a security boundary: an auto-approval must never satisfy required
-    # reviews for a PR no trusted member opened.
+    # reviews for a PR no trusted member opened. CONTRIBUTOR is NOT dropped at the payload gate — App
+    # webhooks downgrade org members on private repos to CONTRIBUTOR, so it defers to the
+    # write-permission gate (write here, via the harness default).
     mock_execute = _run_task(
         _pr_payload(**pr_kwargs), f"delivery-skip-{'-'.join(map(str, pr_kwargs.values()))}", team.id
     )
@@ -158,15 +168,31 @@ def test_review_path_skips_untrusted_bot_or_draft_prs(team, repo_config, pr_kwar
 
 
 @pytest.mark.parametrize(
-    "author_permission,expect_run",
-    [("admin", True), ("write", True), ("read", False), ("none", False)],
-    ids=["admin", "write", "read_only", "no_access"],
+    "author_permission,author_association,expect_run",
+    [
+        ("admin", "MEMBER", True),
+        ("write", "MEMBER", True),
+        ("read", "MEMBER", False),
+        ("none", "MEMBER", False),
+        ("write", "CONTRIBUTOR", True),
+        ("read", "CONTRIBUTOR", False),
+    ],
+    ids=["admin", "write", "read_only", "no_access", "contributor_with_write", "contributor_read_only"],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_review_path_requires_author_write_permission(team, repo_config, author_permission, expect_run):
+def test_review_path_requires_author_write_permission(
+    team, repo_config, author_permission, author_association, expect_run
+):
     # author_association alone can't prove push access (org MEMBERs and triage/read COLLABORATORs pass
     # it), so a trusted-association author below write must still be dropped before a run is queued.
-    mock_execute = _run_task(_pr_payload(), f"delivery-perm-{author_permission}", team.id, author_permission)
+    # The CONTRIBUTOR rows pin the payload-gate fall-through to this gate: a downgraded org member with
+    # write gets reviewed, a genuine read-only contributor still never mints a run.
+    mock_execute = _run_task(
+        _pr_payload(author_association=author_association),
+        f"delivery-perm-{author_permission}-{author_association}",
+        team.id,
+        author_permission,
+    )
 
     with team_scope(team.id):
         count = ReviewRun.objects.count()

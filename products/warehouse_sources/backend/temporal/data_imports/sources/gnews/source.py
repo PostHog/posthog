@@ -51,6 +51,10 @@ _CATEGORIES = [
 
 @SourceRegistry.register
 class GNewsSource(ResumableSource[GNewsSourceConfig, GNewsResumeConfig]):
+    supported_versions = ("v4",)
+    default_version = "v4"
+    api_docs_url = "https://gnews.io/docs/v4"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

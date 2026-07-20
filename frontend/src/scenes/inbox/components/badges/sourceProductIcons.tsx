@@ -4,6 +4,7 @@ import {
     IconBug,
     IconCompass,
     IconDatabase,
+    IconEye,
     IconGithub,
     IconGraph,
     IconHeartPlus,
@@ -37,6 +38,11 @@ export const SOURCE_PRODUCT_META: Partial<Record<SignalSourceProduct, SourceProd
         Icon: IconRewindPlay,
         color: 'var(--warning)',
         label: 'Session replay',
+    },
+    [SignalSourceProduct.ReplayVision]: {
+        Icon: IconEye,
+        color: 'var(--warning)',
+        label: 'Replay vision',
     },
     [SignalSourceProduct.ErrorTracking]: {
         Icon: IconBug,

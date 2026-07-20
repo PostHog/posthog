@@ -66,7 +66,9 @@ class OpenAIEndpointConfig:
 _USAGE_GROUP_BY = ["project_id", "user_id", "api_key_id", "model"]
 _COMPLETIONS_GROUP_BY = [*_USAGE_GROUP_BY, "batch", "service_tier"]
 _IMAGES_GROUP_BY = [*_USAGE_GROUP_BY, "size", "source"]
-_COSTS_GROUP_BY = ["project_id", "line_item", "api_key_id"]
+# The costs endpoint only accepts project_id and line_item. The SDK types also list api_key_id,
+# but requesting it makes the live API reject the whole request with a 400.
+_COSTS_GROUP_BY = ["project_id", "line_item"]
 
 # For 1d buckets the usage endpoints allow at most 31 buckets per page; costs allows 180.
 _USAGE_PAGE_LIMIT = 31
