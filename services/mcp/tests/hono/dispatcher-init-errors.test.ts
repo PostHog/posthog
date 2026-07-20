@@ -135,6 +135,20 @@ describe('McpDispatcher init error accounting', () => {
         expect(mockInitTotalInc).toHaveBeenCalledWith({ status: 'error' })
     })
 
+    it.each([
+        ['invalid API key', 'Failed to get user: INVALID_API_KEY'],
+        ['inactive OAuth token', 'Failed to get user: INACTIVE_OAUTH_TOKEN'],
+        ['missing scope', "Failed to get user: Missing PostHog API scope: 'user:read'"],
+    ])('counts a %s resolution failure as auth_error, not error', async (_label, message) => {
+        mockResolveState.mockRejectedValueOnce(new Error(message))
+
+        const dispatcher = new McpDispatcher({} as any, createMockRedis())
+
+        await expect(dispatcher.handleRequest(makeRequest('initialize'), makeProps())).rejects.toThrow()
+        expect(mockInitTotalInc).toHaveBeenCalledTimes(1)
+        expect(mockInitTotalInc).toHaveBeenCalledWith({ status: 'auth_error' })
+    })
+
     it('does not count non-initialize requests when state resolution fails', async () => {
         mockResolveState.mockRejectedValueOnce(new Error('django auth is down'))
 

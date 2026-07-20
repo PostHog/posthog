@@ -705,6 +705,7 @@ from .singular.source import SingularSource
 from .skyvern.source import SkyvernSource
 from .slack.source import SlackSource
 from .slash.source import SlashSource
+from .sleekplan.source import SleekplanSource
 from .smaily.source import SmailySource
 from .smartengage.source import SmartEngageSource
 from .smartreach.source import SmartreachSource
