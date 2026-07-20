@@ -15,7 +15,9 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.temporal.signup_enrichment.trigger import dispatch_signup_enrichment, domain_from_email
 from posthog.temporal.signup_enrichment.workflow import SignupEnrichmentInputs
-from posthog.utils import get_instance_region
+from posthog.utils import GenericEmails, get_instance_region
+
+_generic_emails = GenericEmails()
 
 
 class Command(BaseCommand):
@@ -65,7 +67,8 @@ class Command(BaseCommand):
             )
             user = membership.user if membership else None
             domain = domain_from_email(user.email) if user else None
-            if user is None or not user.distinct_id or not domain:
+            # The earliest member's email can have drifted since signup, so re-check it's a work email.
+            if user is None or not user.distinct_id or not domain or _generic_emails.is_generic(user.email):
                 skipped += 1
                 self.stdout.write(f"skip {org.id} ({org.created_at:%Y-%m-%d %H:%M}) (no usable signup member)")
                 continue
