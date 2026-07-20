@@ -336,6 +336,43 @@ class SignalReportRefundSerializer(serializers.ModelSerializer):
         return obj.billing_synced_at is not None
 
 
+class PrActiveRunSerializer(serializers.Serializer):
+    """The run currently touching a report's PR — id + status for the report view's live indicator."""
+
+    id = serializers.UUIDField(read_only=True, help_text="TaskRun id.")
+    status = serializers.CharField(
+        read_only=True,
+        help_text="Run status: not_started, queued, in_progress (agent working) or a terminal completed/failed/cancelled.",
+    )
+
+
+class PrCommentRequestSerializer(serializers.Serializer):
+    """Body for commenting on a report's PR from the inbox."""
+
+    content = serializers.CharField(
+        min_length=1,
+        max_length=10000,
+        trim_whitespace=True,
+        help_text="The comment to post on the PR and have the agent address.",
+    )
+
+
+class PrCommentResponseSerializer(serializers.Serializer):
+    """Result of a report-view PR comment: the shared run to watch, or a connect prompt."""
+
+    status = serializers.ChoiceField(
+        choices=["started", "forwarded", "connect_required", "no_pr"],
+        help_text=(
+            "started: a new run began. forwarded: fed into the PR's already-running run. "
+            "connect_required: connect GitHub first (see connect_url). no_pr: the report has no PR."
+        ),
+    )
+    run = PrActiveRunSerializer(allow_null=True, help_text="The shared run to watch, when one was started/forwarded.")
+    connect_url = serializers.CharField(
+        allow_null=True, help_text="Where to connect GitHub, when status is connect_required."
+    )
+
+
 class SignalReportSerializer(serializers.ModelSerializer):
     artefact_count = serializers.IntegerField(read_only=True)
     refund_ineligibility_reason = serializers.SerializerMethodField(
@@ -376,6 +413,9 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "resolved directly, without a merged PR."
         ),
     )
+    pr_active_run = serializers.SerializerMethodField(
+        help_text="The run currently addressing this report's PR (id + status), or null. Detail view only.",
+    )
     refund = serializers.SerializerMethodField(
         help_text="The report's PR refund, when one exists. One refund per report, ever.",
     )
@@ -403,6 +443,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "scout_name",
             "implementation_pr_url",
             "implementation_pr_merged",
+            "pr_active_run",
             "refund",
             "refund_ineligibility_reason",
             "billing_exempt_reason",
@@ -526,6 +567,14 @@ class SignalReportSerializer(serializers.ModelSerializer):
         # Annotated path: the JSON flag arrives as text, and NULL means no PR-bearing run at all.
         value = getattr(obj, "implementation_pr_merged", None)
         return value in (True, "true", "True")
+
+    @extend_schema_field(PrActiveRunSerializer(allow_null=True))
+    def get_pr_active_run(self, obj: SignalReport) -> dict | None:
+        # Populated only in the detail view (see SignalReportViewSet.retrieve) to avoid an N+1 in list.
+        pr_active_run_map: dict[str, dict] | None = self.context.get("pr_active_run_map")
+        if pr_active_run_map is None:
+            return None
+        return pr_active_run_map.get(str(obj.id))
 
     @extend_schema_field(SignalReportRefundSerializer(allow_null=True))
     def get_refund(self, obj: SignalReport) -> dict | None:

@@ -22,6 +22,7 @@ import { personalIntegrationsLogic } from 'scenes/settings/user/personalIntegrat
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { isTerminalRunStatus } from 'products/posthog_ai/frontend/api/logics'
 import { Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 import {
     signalsReportArtefactsDiff,
@@ -32,10 +33,13 @@ import {
     signalsReportPrReviewCommentReactionsCreate,
     signalsReportPrReviewCommentsCreate,
     signalsReportPrReviewCommentUpdate,
+    signalsReportsPrCommentCreate,
     signalsReportsSignalsRetrieve,
 } from 'products/signals/frontend/generated/api'
 import type {
     CommitDiffResponseApi,
+    PrActiveRunApi,
+    PrCommentResponseApi,
     PullRequestCheckApi,
     PullRequestCommentApi,
     PullRequestCommentReactionApi,
@@ -176,15 +180,20 @@ export interface inboxReportDetailLogicValues {
     hasPersonalGithub: boolean
     inlineThreadCount: number
     inlineThreadsByFile: Record<string, ReviewThread[]>
+    isPrRunLive: boolean
     isReResearch: boolean
     isReportActive: boolean
     isUpdatingReviewers: boolean
     latestCommitArtefact: SignalReportArtefact | null
     optimisticReviewers: EnrichedReviewer[] | null
     postingThreadKey: string | null
+    prActiveRun: PrActiveRunApi | null
     prChecks: readonly PullRequestCheckApi[] | null
     prChecksError: string | null
     prChecksLoading: boolean
+    prCommentDraft: string
+    prCommentResponse: PrCommentResponseApi | null
+    prCommentResponseLoading: boolean
     prComments: readonly PullRequestCommentApi[] | null
     prCommentsError: string | null
     prCommentsLoading: boolean
@@ -369,6 +378,9 @@ export interface inboxReportDetailLogicActions {
     postReviewCommentFinished: () => {
         value: true
     }
+    refreshPrRunStatus: () => {
+        value: true
+    }
     searchAvailableReviewers: (query: string) => {
         query: string
     }
@@ -378,11 +390,38 @@ export interface inboxReportDetailLogicActions {
     setOptimisticReviewers: (reviewers: EnrichedReviewer[] | null) => {
         reviewers: EnrichedReviewer[] | null
     }
+    setPrActiveRun: (run: PrActiveRunApi | null) => {
+        run: PrActiveRunApi | null
+    }
+    setPrCommentDraft: (draft: string) => {
+        draft: string
+    }
     setReport: (report: SignalReport | null) => {
         report: SignalReport | null
     }
     setSelectedTaskId: (taskId: string | null) => {
         taskId: string | null
+    }
+    submitPrComment: ({ content }: { content: string }) => {
+        content: string
+    }
+    submitPrCommentFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    submitPrCommentSuccess: (
+        prCommentResponse: PrCommentResponseApi,
+        payload?: {
+            content: string
+        }
+    ) => {
+        prCommentResponse: PrCommentResponseApi
+        payload?: {
+            content: string
+        }
     }
     toggleExpandedTask: (taskId: string) => {
         taskId: string
@@ -415,6 +454,7 @@ export interface inboxReportDetailLogicMeta {
         currentUserGithubLogin: (personalIntegrations: PersonalGitHubIntegration[]) => string | null
         inlineThreadsByFile: (prComments: readonly PullRequestCommentApi[] | null) => Record<string, ReviewThread[]>
         inlineThreadCount: (inlineThreadsByFile: Record<string, ReviewThread[]>) => number
+        isPrRunLive: (prActiveRun: PrActiveRunApi | null) => boolean
         latestCommitArtefact: (reportArtefacts: SignalReportArtefact[] | null) => SignalReportArtefact | null
         priorityExplanation: (reportArtefacts: SignalReportArtefact[] | null) => string | null
         actionabilityExplanation: (reportArtefacts: SignalReportArtefact[] | null) => string | null
@@ -496,6 +536,13 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         setSelectedTaskId: (taskId: string | null) => ({ taskId }),
         // Inline-expand a linked task's run log within the report detail's Runs section.
         toggleExpandedTask: (taskId: string) => ({ taskId }),
+        // The run currently addressing the report's PR comment — seeded from the report, updated by the
+        // comment response and the status poll.
+        setPrActiveRun: (run: PrActiveRunApi | null) => ({ run }),
+        // Controlled value of the "Comment on PR" textarea (kept in the logic so it clears on submit).
+        setPrCommentDraft: (draft: string) => ({ draft }),
+        // Re-read the report's `pr_active_run` so the live PR-run indicator advances while it runs.
+        refreshPrRunStatus: true,
     }),
 
     loaders(({ props, values }) => ({
@@ -634,6 +681,19 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 },
             },
         ],
+        // Posts a comment on the report's PR and starts (or feeds into) the run that addresses it. The
+        // response carries either the run to watch (`started`/`forwarded`), a GitHub connect prompt
+        // (`connect_required`), or `no_pr`. The button's in-flight state rides `prCommentResponseLoading`.
+        prCommentResponse: [
+            null as PrCommentResponseApi | null,
+            {
+                submitPrComment: async ({ content }: { content: string }): Promise<PrCommentResponseApi> => {
+                    return await signalsReportsPrCommentCreate(String(teamLogic.values.currentTeamId), props.reportId, {
+                        content,
+                    })
+                },
+            },
+        ],
     })),
 
     reducers({
@@ -733,6 +793,24 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 setReport: () => null,
             },
         ],
+        // The live PR run, updated by the comment response and the status poll. Seeded from the report's
+        // `pr_active_run` in the `setReport` listener (not here) so a stale report prop can't clobber a
+        // fresher run picked up from the poll.
+        prActiveRun: [
+            null as PrActiveRunApi | null,
+            {
+                setPrActiveRun: (_, { run }) => run,
+            },
+        ],
+        // The "Comment on PR" textarea value; cleared once the comment posts so the box empties on success
+        // but keeps the user's text on failure to retry.
+        prCommentDraft: [
+            '',
+            {
+                setPrCommentDraft: (_, { draft }) => draft,
+                submitPrCommentSuccess: () => '',
+            },
+        ],
     }),
 
     selectors({
@@ -821,6 +899,12 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             (s) => [s.inlineThreadsByFile],
             (inlineThreadsByFile: Record<string, ReviewThread[]>): number =>
                 Object.values(inlineThreadsByFile).reduce((sum, threads) => sum + threads.length, 0),
+        ],
+        // The PR run counts as live while it has a non-terminal status — drives the status poll and the
+        // pulsing indicator. A terminal run stays visible but stops polling and reads as done.
+        isPrRunLive: [
+            (s) => [s.prActiveRun],
+            (prActiveRun: PrActiveRunApi | null): boolean => !!prActiveRun && !isTerminalRunStatus(prActiveRun.status),
         ],
         // The most recent `commit` artefact — its branch is treated as the report's branch to diff
         // against the repository default branch. A report's code work may span several pushes; the
@@ -1154,6 +1238,38 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                     actions.loadPrComments()
                 }
             }
+            // Seed the PR run only when we don't already track one, so a stale report prop can't clobber a
+            // fresher run the poll or comment response already surfaced. `setPrActiveRun` (re)gates the poll.
+            if (values.prActiveRun === null && values.report?.pr_active_run) {
+                actions.setPrActiveRun(values.report.pr_active_run)
+            }
+        },
+        // Post succeeded: watch the returned shared run (started/forwarded). `connect_required`/`no_pr`
+        // carry no run and are surfaced inline by the component off `prCommentResponse`.
+        submitPrCommentSuccess: ({ prCommentResponse }) => {
+            if (prCommentResponse.run) {
+                actions.setPrActiveRun(prCommentResponse.run)
+            }
+        },
+        submitPrCommentFailure: ({ error }: { error: any }) => {
+            lemonToast.error(error?.detail || error?.message || "Couldn't post your comment. Please try again.")
+        },
+        // (Re)gate the PR-run status poll whenever the tracked run changes: a fresh live run starts it, a
+        // terminal run stops it. The keyed disposable replaces any running interval on re-add and is torn
+        // down automatically on unmount / tab hide.
+        setPrActiveRun: () => {
+            if (values.isPrRunLive) {
+                cache.disposables.add(() => {
+                    const interval = setInterval(() => actions.refreshPrRunStatus(), REPORT_TASKS_POLL_INTERVAL_MS)
+                    return () => clearInterval(interval)
+                }, 'prRunStatusPoll')
+            } else {
+                cache.disposables.dispose('prRunStatusPoll')
+            }
+        },
+        refreshPrRunStatus: async () => {
+            const report = await api.signalReports.get(props.reportId)
+            actions.setPrActiveRun(report.pr_active_run ?? null)
         },
     })),
 

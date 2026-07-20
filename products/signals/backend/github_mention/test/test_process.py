@@ -104,3 +104,23 @@ class TestProcessGitHubMention(BaseTest):
         self.create_task.assert_not_called()
         self.github.comment_on_pull_request.assert_called_once()
         self.assertEqual(GitHubPendingMention.objects.for_team(self.team.id).count(), 0)
+
+    def test_eligible_forwards_into_active_run_instead_of_starting_a_new_one(self) -> None:
+        # One shared run per PR: a comment arriving while a run is active is fed into that run.
+        run_id, task_id = uuid4(), uuid4()
+        with (
+            patch.object(process, "_active_mention_run", return_value=(run_id, task_id)),
+            patch.object(tasks_facade, "signal_task_run_user_message", return_value=True) as signal,
+            patch.object(
+                process,
+                "resolve_commenter_identity",
+                return_value=self._identity(MentionIdentityStatus.ELIGIBLE, self.user),
+            ),
+        ):
+            self._run()
+
+        self.create_task.assert_not_called()  # no parallel/new run
+        signal.assert_called_once()
+        self.assertEqual(signal.call_args.kwargs["run_id"], str(run_id))
+        self.assertEqual(signal.call_args.kwargs["task_id"], str(task_id))
+        self.github.add_reaction_to_comment.assert_called_once_with(REPO, 55, "eyes")

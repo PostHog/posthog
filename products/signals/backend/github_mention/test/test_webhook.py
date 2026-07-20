@@ -1,7 +1,9 @@
 from types import SimpleNamespace
+from typing import cast
 
 from unittest.mock import patch
 
+from django.http import HttpRequest
 from django.test import SimpleTestCase, override_settings
 
 from products.signals.backend.github_mention import webhook
@@ -9,8 +11,8 @@ from products.signals.backend.github_mention import webhook
 PR_URL = "https://github.com/acme/app/pull/7"
 
 
-def _request() -> SimpleNamespace:
-    return SimpleNamespace(headers={"X-GitHub-Delivery": "abc-123"}, body=b"{}")
+def _request() -> HttpRequest:
+    return cast(HttpRequest, SimpleNamespace(headers={"X-GitHub-Delivery": "abc-123"}, body=b"{}"))
 
 
 def _payload(*, action: str = "created", body: str = "@posthog please fix", is_pr: bool = True, via_app=None):
@@ -33,6 +35,7 @@ class TestHandleGitHubMentionEvent(SimpleTestCase):
         cache_patch = patch.object(webhook, "cache")
         self.cache = cache_patch.start()
         self.cache.add.return_value = True
+        self.cache.get.return_value = None  # comment not already handled directly by the report-view endpoint
         self.addCleanup(patch.stopall)
 
     def test_enqueues_on_bot_mention_on_signals_pr(self) -> None:
@@ -65,5 +68,12 @@ class TestHandleGitHubMentionEvent(SimpleTestCase):
 
     def test_does_not_enqueue_on_duplicate_delivery(self) -> None:
         self.cache.add.return_value = False
+        webhook.handle_github_mention_event(_request(), _payload())
+        self.delay.assert_not_called()
+
+    def test_does_not_enqueue_when_comment_already_handled_directly(self) -> None:
+        # The report-view endpoint marks the comment id before the webhook delivers it, so the
+        # user-authored comment it posted doesn't trigger a second run here.
+        self.cache.get.return_value = True
         webhook.handle_github_mention_event(_request(), _payload())
         self.delay.assert_not_called()

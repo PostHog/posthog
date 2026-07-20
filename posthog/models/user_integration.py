@@ -432,6 +432,39 @@ class UserGitHubIntegration(GitHubIntegrationBase):
             f"/{comment_id}/reactions/{reaction_id}",
             source="signals_pr_review_comment_reaction_delete",
         )
+    def comment_on_pull_request_as_user(self, repository: str, pr_number: int, body: str) -> dict[str, Any]:
+        """Post a PR comment authored by *this connected user* (user-to-server token), not the App.
+
+        So a comment written from inside PostHog shows up on GitHub as the user, exactly as if they
+        had typed it on the PR. ``repository`` is ``owner/repo``. Returns
+        ``{"success": bool, "id": <created comment id> | None}``.
+        """
+        token = self.get_usable_user_access_token()
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        try:
+            response = github_request(
+                "POST",
+                f"https://api.github.com/repos/{repo_path}/issues/{pr_number}/comments",
+                source=self.source,
+                endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
+                headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+                json={"body": body},
+                timeout=10,
+            )
+        except Exception:
+            logger.warning("UserGitHubIntegration: user-authored comment failed", exc_info=True)
+            return {"success": False, "error": "Network error commenting as user"}
+        if response.status_code != 201:
+            return {
+                "success": False,
+                "error": f"Failed to comment as user: {response.text}",
+                "status_code": response.status_code,
+            }
+        try:
+            created_id = response.json().get("id")
+        except Exception:
+            created_id = None
+        return {"success": True, "id": created_id}
 
     def _apply_user_token_payload(self, payload: dict[str, Any]) -> None:
         """Write a fresh user token pair + expirations onto the integration row."""

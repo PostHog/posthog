@@ -37,6 +37,7 @@ import { CommitContent } from './artefactTypes'
 import { DetailSection } from './DetailSection'
 import { DiscussReportButton } from './DiscussReportButton'
 import { PrChecksSection } from './PrChecksSection'
+import { PrCommentSection } from './PrCommentSection'
 import { PrCommentsSection } from './PrCommentsSection'
 import {
     PullRequestBranchTag,
@@ -552,6 +553,8 @@ export function ReportDetail({ report, tab }: { report: SignalReport; tab: Inbox
             summaryFooter={hasPr ? <PrCommentsSection report={report} /> : undefined}
         >
             {hasPr && <PrChecksSection report={report} />}
+            {/* Comment on the PR from the inbox and watch the run that addresses it, when a PR exists. */}
+            {hasPr && <PrCommentSection report={report} />}
         </InboxDetailFrame>
     )
 }

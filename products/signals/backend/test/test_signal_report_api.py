@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlencode
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.apps import apps
 from django.core.cache import cache
@@ -2454,3 +2454,114 @@ class TestSignalReportPrEndpoints(APIBaseTest):
             response = self.client.get(self._comments_url(str(report.id)))
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"comments": comments}
+class TestSignalReportPrCommentAPI(APIBaseTest):
+    def _create_report(self) -> SignalReport:
+        return SignalReport.objects.create(team=self.team, title="t", summary="s", status=SignalReport.Status.READY)
+
+    def _report_with_pr(self, pr_url: str = "https://github.com/org/repo/pull/42") -> SignalReport:
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        report = self._create_report()
+        task = Task.objects.create(
+            team=self.team,
+            title="impl",
+            description="d",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            signal_report=report,
+            repository="org/repo",
+        )
+        record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+        TaskRun.objects.create(team=self.team, task=task, status=TaskRun.Status.COMPLETED, output={"pr_url": pr_url})
+        return report
+
+    def _url(self, report: SignalReport) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{report.id}/pr_comment/"
+
+    def _context(self) -> object:
+        from products.tasks.backend.facade import contracts
+
+        return contracts.SignalPrMentionContextDTO(
+            team_id=self.team.id,
+            task_id=uuid.uuid4(),
+            run_id=uuid.uuid4(),
+            repository="org/repo",
+            signal_report_id=uuid.uuid4(),
+            github_integration_id=1,
+            head_branch="head",
+        )
+
+    def test_no_pr_returns_400(self):
+        report = self._create_report()
+        response = self.client.post(self._url(report), data={"content": "please fix"}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["status"] == "no_pr"
+
+    @patch("products.signals.backend.views.resolve_user_push_identity")
+    @patch("products.signals.backend.views.tasks_facade.resolve_signal_pr_mention_context")
+    def test_connect_required_when_no_usable_connection(self, mock_ctx, mock_identity):
+        from products.signals.backend.github_mention.identity import MentionIdentity, MentionIdentityStatus
+
+        report = self._report_with_pr()
+        mock_ctx.return_value = self._context()
+        mock_identity.return_value = MentionIdentity(status=MentionIdentityStatus.NEEDS_CONNECT, user=self.user)
+        github = MagicMock()
+        with patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository", return_value=github):
+            response = self.client.post(self._url(report), data={"content": "fix it"}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["status"] == "connect_required"
+        assert body["connect_url"]
+        github.comment_on_pull_request.assert_not_called()  # no run, no GitHub write when un-connected
+
+    @patch("products.signals.backend.views.tasks_facade.get_task_run")
+    @patch("products.signals.backend.views.dispatch_eligible_mention")
+    @patch("products.signals.backend.views.resolve_user_push_identity")
+    @patch("products.signals.backend.views.tasks_facade.resolve_signal_pr_mention_context")
+    def test_eligible_posts_comment_and_returns_started_run(self, mock_ctx, mock_identity, mock_dispatch, mock_get_run):
+        from products.signals.backend.github_mention.identity import MentionIdentity, MentionIdentityStatus
+        from products.signals.backend.github_mention.process import MentionOutcome
+
+        report = self._report_with_pr()
+        mock_ctx.return_value = self._context()
+        user_github = MagicMock()
+        user_github.comment_on_pull_request_as_user.return_value = {"success": True, "id": 555}
+        mock_identity.return_value = MentionIdentity(
+            status=MentionIdentityStatus.ELIGIBLE, user=self.user, user_github_integration=user_github
+        )
+        run_id = uuid.uuid4()
+        mock_dispatch.return_value = (MentionOutcome.LAUNCHED, run_id)
+        mock_get_run.return_value = SimpleNamespace(id=run_id, status="in_progress")
+        github = MagicMock()
+        with patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository", return_value=github):
+            response = self.client.post(self._url(report), data={"content": "rename the helper"}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["status"] == "started"
+        assert body["run"]["id"] == str(run_id)
+        assert body["run"]["status"] == "in_progress"
+        # The comment is authored as the user, not the App, and the run is triggered directly.
+        user_github.comment_on_pull_request_as_user.assert_called_once()
+        github.comment_on_pull_request.assert_not_called()
+        mock_dispatch.assert_called_once()
+
+    @patch("products.signals.backend.views.tasks_facade.resolve_signal_pr_mention_context")
+    def test_rejects_pr_resolving_to_another_team(self, mock_ctx):
+        # The PR URL comes from this team's report, but the task that opened it must also be this
+        # team's — a PR recorded across projects must not cross the tenant boundary.
+        from products.tasks.backend.facade import contracts
+
+        report = self._report_with_pr()
+        mock_ctx.return_value = contracts.SignalPrMentionContextDTO(
+            team_id=self.team.id + 999,
+            task_id=uuid.uuid4(),
+            run_id=uuid.uuid4(),
+            repository="org/repo",
+            signal_report_id=uuid.uuid4(),
+            github_integration_id=1,
+            head_branch="head",
+        )
+        response = self.client.post(self._url(report), data={"content": "fix"}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["status"] == "no_pr"
