@@ -398,23 +398,35 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     dropdownMatchSelectWidth={false}
                                 />
                             </div>
-                            <div className="flex justify-between items-center">
+                            <div className="flex justify-between items-start">
                                 <span className="text-muted-alt">Assignee</span>
-                                <AssigneeSelect assignee={assignee} onChange={setAssignee}>
-                                    {(resolvedAssignee, isOpen) => (
-                                        <LemonButton
-                                            size="small"
-                                            type="secondary"
-                                            active={isOpen}
-                                            sideIcon={<IconChevronDown />}
-                                        >
-                                            <span className="flex items-center gap-1">
-                                                <AssigneeIconDisplay assignee={resolvedAssignee} size="small" />
-                                                <AssigneeLabelDisplay assignee={resolvedAssignee} size="small" />
-                                            </span>
-                                        </LemonButton>
-                                    )}
-                                </AssigneeSelect>
+                                <div className="flex flex-col items-end gap-1">
+                                    {user?.id != null &&
+                                        !(assignee?.type === 'user' && String(assignee.id) === String(user.id)) && (
+                                            <LemonButton
+                                                size="xxsmall"
+                                                type="tertiary"
+                                                onClick={() => setAssignee({ type: 'user', id: user.id })}
+                                            >
+                                                <span className="text-accent">Assign to me</span>
+                                            </LemonButton>
+                                        )}
+                                    <AssigneeSelect assignee={assignee} onChange={setAssignee}>
+                                        {(resolvedAssignee, isOpen) => (
+                                            <LemonButton
+                                                size="small"
+                                                type="secondary"
+                                                active={isOpen}
+                                                sideIcon={<IconChevronDown />}
+                                            >
+                                                <span className="flex items-center gap-1">
+                                                    <AssigneeIconDisplay assignee={resolvedAssignee} size="small" />
+                                                    <AssigneeLabelDisplay assignee={resolvedAssignee} size="small" />
+                                                </span>
+                                            </LemonButton>
+                                        )}
+                                    </AssigneeSelect>
+                                </div>
                             </div>
                             {ticket?.sla_due_at && (
                                 <div className="flex justify-between items-center">
