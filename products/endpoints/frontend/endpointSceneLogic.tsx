@@ -21,6 +21,7 @@ import {
 import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
 import { Breadcrumb, ChartDisplayType, EndpointType, EndpointVersionType } from '~/types'
 
+import { endpointSqlEditorTabId } from './common'
 import { endpointLogic } from './endpointLogic'
 import { endpointsMaterializationSuggestionCreate } from './generated/api'
 import type { EndpointMaterializationSuggestionApi } from './generated/api.schemas'
@@ -734,16 +735,18 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             }
 
             actions.setActiveTab(EndpointTab.QUERY)
-            if (values.endpoint?.name) {
-                const { searchParams, hashParams } = router.values
-                const { tab: _tab, ...nextSearchParams } = searchParams
-                router.actions.replace(urls.endpoint(values.endpoint.name), nextSearchParams, hashParams)
+            const endpointName = values.endpoint?.name
+            if (!endpointName) {
+                return
             }
+            const { searchParams, hashParams } = router.values
+            const { tab: _tab, ...nextSearchParams } = searchParams
+            router.actions.replace(urls.endpoint(endpointName), nextSearchParams, hashParams)
 
             // Always target the latest version's editor: apply is only reachable on the latest
             // version, and cache.sqlEditorTabId can still point at an old version's editor when
             // the Query tab was last mounted while browsing that version.
-            const editorTabId = 'endpoint-query-latest'
+            const editorTabId = endpointSqlEditorTabId(endpointName)
             actions.keepSqlEditorMounted(editorTabId)
             const editorLogic = sqlEditorLogic.findMounted({ tabId: editorTabId, mode: SQLEditorMode.Embedded })
 
