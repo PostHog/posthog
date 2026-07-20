@@ -22373,6 +22373,27 @@ export namespace Schemas {
       properties?: ErrorTrackingEventProperties;
     }
 
+    /**
+     * Payload to send back as external_context when creating a reference to this issue.
+     */
+    export type ErrorTrackingExternalIssueResultExternalContext = { [key: string]: unknown };
+
+    export interface ErrorTrackingExternalIssueResult {
+      /** Provider-native identifier of the issue (e.g. issue key or number). */
+      id: string;
+      /** Human-readable issue title, for display in the picker. */
+      title: string;
+      /** Link to the issue in the provider's system. */
+      url: string;
+      /** Payload to send back as external_context when creating a reference to this issue. */
+      external_context: ErrorTrackingExternalIssueResultExternalContext;
+    }
+
+    export interface ErrorTrackingExternalIssueSearchResult {
+      /** Matching existing issues. */
+      issues: ErrorTrackingExternalIssueResult[];
+    }
+
     export interface ErrorTrackingExternalReferenceIntegrationResult {
       /** ID of the integration backing this external reference. */
       readonly id: number;
@@ -22380,6 +22401,20 @@ export namespace Schemas {
       readonly kind: string;
       /** Human-readable name of the connected integration. */
       readonly display_name: string;
+    }
+
+    /**
+     * Identifier of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}.
+     */
+    export type ErrorTrackingExternalReferenceLinkExternalContext = { [key: string]: unknown };
+
+    export interface ErrorTrackingExternalReferenceLink {
+      /** ID of the connected integration the existing issue lives in (one of 'github', 'gitlab', 'linear', 'jira'). */
+      integration_id: number;
+      /** ID of the error tracking issue to link the reference to. */
+      issue: string;
+      /** Identifier of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. */
+      external_context: ErrorTrackingExternalReferenceLinkExternalContext;
     }
 
     /**
@@ -66593,6 +66628,22 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsErrorTrackingExternalReferencesSearchIssuesRetrieveParams = {
+    /**
+     * ID of the connected integration to search issues in.
+     */
+    integration_id: number;
+    /**
+     * Repository to search within. Required for GitHub, ignored by other providers.
+     */
+    repository?: string;
+    /**
+     * Text to match against existing issue titles / keys in the provider.
+     * @minLength 1
+     */
+    search: string;
+    };
+
     export type EnvironmentsErrorTrackingFingerprintsListParams = {
     /**
      * Number of results to return per page.
@@ -73860,6 +73911,22 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type ErrorTrackingExternalReferencesSearchIssuesRetrieveParams = {
+    /**
+     * ID of the connected integration to search issues in.
+     */
+    integration_id: number;
+    /**
+     * Repository to search within. Required for GitHub, ignored by other providers.
+     */
+    repository?: string;
+    /**
+     * Text to match against existing issue titles / keys in the provider.
+     * @minLength 1
+     */
+    search: string;
     };
 
     export type ErrorTrackingFingerprintsListParams = {
