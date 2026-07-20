@@ -18,7 +18,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { OrganizationMemberType, Region, UserType } from '~/types'
 
-import { impersonationNoticeLogic } from './impersonationNoticeLogic'
+import { impersonationNoticeLogic, toTicketMessage } from './impersonationNoticeLogic'
 
 jest.mock('@posthog/lemon-ui', () => {
     const actual = jest.requireActual('@posthog/lemon-ui')
@@ -297,7 +297,8 @@ describe('impersonationNoticeLogic', () => {
 
     describe('returnToTicket listener', () => {
         it('logs out of impersonation back to the ticket and shows a loading state', async () => {
-            logic.actions.setReturnToTicketContext({ ticketNumber: 42, email: 'a@example.com' })
+            userLogic.actions.loadUserSuccess(MOCK_IMPERSONATED_USER)
+            logic.actions.setReturnToTicketContext({ ticketNumber: 42, email: MOCK_IMPERSONATED_USER.email })
 
             const originalLocation = window.location
             Object.defineProperty(window, 'location', {
@@ -314,11 +315,37 @@ describe('impersonationNoticeLogic', () => {
                     // Context is intentionally kept so the button doesn't flip variants
                     // before navigating; isReturningToTicket drives the loading state.
                     .toMatchValues({
-                        returnToTicketContext: { ticketNumber: 42, email: 'a@example.com' },
+                        returnToTicketContext: { ticketNumber: 42, email: MOCK_IMPERSONATED_USER.email },
                         isReturningToTicket: true,
                     })
 
                 expect(window.location.href).toBe('/admin/logout/?next=%2Fsupport%2Ftickets%2F42')
+            } finally {
+                Object.defineProperty(window, 'location', {
+                    configurable: true,
+                    writable: true,
+                    value: originalLocation,
+                })
+            }
+        })
+
+        it('does not navigate from a stored context that fails the email-match guard', async () => {
+            userLogic.actions.loadUserSuccess(MOCK_IMPERSONATED_USER)
+            logic.actions.setReturnToTicketContext({ ticketNumber: 42, email: 'someone-else@example.com' })
+
+            const originalLocation = window.location
+            Object.defineProperty(window, 'location', {
+                configurable: true,
+                writable: true,
+                value: { ...originalLocation, href: 'sentinel' },
+            })
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.returnToTicket()
+                }).toFinishAllListeners()
+
+                expect(window.location.href).toBe('sentinel')
             } finally {
                 Object.defineProperty(window, 'location', {
                     configurable: true,
@@ -382,6 +409,87 @@ describe('impersonationNoticeLogic', () => {
             }
 
             await expectLogic(logic).toMatchValues({ canReturnToTicket: expected })
+        })
+    })
+
+    describe('impersonation ticket panel', () => {
+        const SERVER_TICKET = {
+            id: 'b6d0f1e2-0000-4000-8000-000000000000',
+            ticket_number: 77,
+            messages: [],
+        }
+
+        it.each([
+            {
+                name: 'customer message',
+                message: {
+                    id: '1',
+                    content: 'Help!',
+                    created_at: '2026-01-01T00:00:00Z',
+                    created_by: null,
+                    item_context: { author_type: 'customer' },
+                },
+                expected: { authorType: 'customer', authorName: 'Customer', isPrivate: false },
+            },
+            {
+                name: 'staff message with name',
+                message: {
+                    id: '2',
+                    content: 'On it',
+                    created_at: '2026-01-01T00:00:00Z',
+                    created_by: { first_name: 'Ann', last_name: 'Staff', email: 'ann@posthog.com' },
+                    item_context: { author_type: 'team' },
+                },
+                expected: { authorType: 'staff', authorName: 'Ann Staff', isPrivate: false },
+            },
+            {
+                name: 'private staff note falls back to email',
+                message: {
+                    id: '3',
+                    content: 'internal',
+                    created_at: '2026-01-01T00:00:00Z',
+                    created_by: { email: 'ann@posthog.com' },
+                    item_context: { author_type: 'team', is_private: true },
+                },
+                expected: { authorType: 'staff', authorName: 'ann@posthog.com', isPrivate: true },
+            },
+        ])('toTicketMessage maps $name', ({ message, expected }) => {
+            expect(toTicketMessage(message)).toMatchObject(expected)
+        })
+
+        it('does not fetch the session ticket when not impersonated', async () => {
+            // Endpoint would answer — the guard must prevent the request entirely.
+            useMocks({
+                get: {
+                    '/admin/impersonation/ticket/': () => [200, SERVER_TICKET],
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadImpersonationTicket()
+            })
+                .toDispatchActions(['loadImpersonationTicketSuccess'])
+                .toMatchValues({ impersonationTicket: null })
+        })
+
+        it('server ticket enables return-to-ticket without a stored context', async () => {
+            useMocks({
+                get: {
+                    '/admin/impersonation/ticket/': () => [200, SERVER_TICKET],
+                },
+            })
+            userLogic.actions.loadUserSuccess(MOCK_IMPERSONATED_USER)
+
+            await expectLogic(logic, () => {
+                logic.actions.loadImpersonationTicket()
+            })
+                .toDispatchActions(['loadImpersonationTicketSuccess'])
+                .toMatchValues({
+                    impersonationTicket: SERVER_TICKET,
+                    returnTicketNumber: 77,
+                    canReturnToTicket: true,
+                    returnTicketLabel: 'Return to ticket #77',
+                })
         })
     })
 

@@ -109,6 +109,32 @@ export interface LoginAsFromTicketResult {
     redirect_region?: string
 }
 
+export interface ImpersonationTicketMessage {
+    id: string
+    content: string | null
+    created_at: string
+    created_by: { first_name?: string; last_name?: string; email?: string } | null
+    item_context?: { author_type?: string; is_private?: boolean } | null
+}
+
+export interface ImpersonationTicketResult {
+    id: string
+    ticket_number: number
+    messages: ImpersonationTicketMessage[]
+}
+
+/** Fetch the ticket tied to the current impersonation session, or null when there is none. */
+export async function getImpersonationTicket(): Promise<ImpersonationTicketResult | null> {
+    const response = await fetch('/admin/impersonation/ticket/', {
+        method: 'GET',
+        credentials: 'same-origin',
+    })
+    if (!response.ok) {
+        return null
+    }
+    return await response.json().catch(() => null)
+}
+
 export async function loginAsFromTicket(ticketId: string): Promise<LoginAsFromTicketResult> {
     await ensureAdminOAuth2()
 

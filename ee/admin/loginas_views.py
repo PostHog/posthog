@@ -14,6 +14,7 @@ from loginas import settings as la_settings
 from loginas.utils import is_impersonated_session
 from loginas.views import user_login as loginas_user_login
 
+from posthog.api.comments import CommentSerializer
 from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.middleware import (
     IMPERSONATION_READ_ONLY_SESSION_KEY,
@@ -22,6 +23,7 @@ from posthog.middleware import (
     is_read_only_impersonation,
 )
 from posthog.models import User
+from posthog.models.comment.comment import Comment
 
 if TYPE_CHECKING:
     from products.conversations.backend.models import Ticket
@@ -274,3 +276,45 @@ def loginas_user_from_ticket(request):
     # return it so the frontend keys its return-to-ticket context on the identity
     # actually impersonated.
     return JsonResponse({"success": True, "ticket_id": str(ticket.id), "email": target_user.email})
+
+
+@require_http_methods(["GET"])
+def get_impersonation_ticket(request):
+    """Return the support ticket (and its messages) tied to the current impersonation session.
+
+    Runs while logged in as the customer, so authorization is based on the original
+    staff user stored on the session — request.user is the impersonated customer.
+    """
+    staff_user = get_original_user_from_session(request)
+    if not staff_user or not staff_user.is_staff:
+        return JsonResponse({"error": "Not found"}, status=404)
+
+    if not is_impersonated_session(request):
+        return JsonResponse({"error": "Not found"}, status=404)
+
+    ticket_id = request.session.get(IMPERSONATION_TICKET_ID_SESSION_KEY)
+    if not ticket_id:
+        return JsonResponse({"error": "Not found"}, status=404)
+
+    ticket = _get_ticket(ticket_id, staff_user)
+    if not ticket:
+        return JsonResponse({"error": "Not found"}, status=404)
+
+    comments = (
+        Comment.objects.filter(
+            team_id=ticket.team_id,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            deleted=False,
+        )
+        .select_related("created_by")
+        .order_by("created_at")
+    )
+
+    return JsonResponse(
+        {
+            "id": str(ticket.id),
+            "ticket_number": ticket.ticket_number,
+            "messages": CommentSerializer(comments, many=True).data,
+        }
+    )
