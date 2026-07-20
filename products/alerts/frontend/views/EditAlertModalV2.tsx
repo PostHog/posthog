@@ -425,7 +425,7 @@ export function EditAlertModalV2({
                                     <AlertEditorSection title="Notifications">{notifyNode}</AlertEditorSection>
                                 </div>
 
-                                <div className="rounded border border-border p-3">{advancedNode}</div>
+                                {advancedNode}
 
                                 {alertId && alert ? (
                                     <div className="rounded border border-border p-3">
