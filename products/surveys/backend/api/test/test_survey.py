@@ -4664,6 +4664,42 @@ class TestSurveyWithActions(APIBaseTest):
         assert survey is not None
         assert len(survey.actions.all()) == 0
 
+    def test_partial_update_omitting_conditions_preserves_associated_actions(self):
+        Action.objects.create(
+            team=self.team,
+            name="user subscribed",
+            steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
+        )
+        Action.objects.create(
+            team=self.team,
+            name="user unsubscribed",
+            steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
+        )
+
+        survey_with_actions = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="survey with actions",
+            type="popover",
+            questions=[{"type": "open", "question": "Why's a hedgehog?"}],
+        )
+        survey_with_actions.actions.set(Action.objects.filter(name__in=["user subscribed", "user unsubscribed"]))
+        survey_with_actions.save()
+
+        # A partial update that never mentions `conditions` must leave the linked actions alone.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_with_actions.id}/",
+            data={"name": "renamed survey"},
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_200_OK, response_data
+        survey = Survey.objects.get(id=response_data["id"])
+        assert survey.name == "renamed survey"
+        assert survey.actions.count() == 2
+        assert survey.actions.filter(name="user subscribed").exists()
+        assert survey.actions.filter(name="user unsubscribed").exists()
+
 
 @freeze_time("2024-12-12 00:00:00")
 class TestSurveyResponseSampling(APIBaseTest):

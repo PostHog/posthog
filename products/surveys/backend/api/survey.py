@@ -1764,7 +1764,11 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             instance.targeting_flag.save()
 
         self._add_user_survey_interacted_filters(instance)
-        self._associate_actions(instance, validated_data.get("conditions"))
+        # Only reconcile actions when the caller actually sent `conditions`. On a partial update
+        # that omits it, `.get("conditions")` is None and `_associate_actions` would clear every
+        # linked action — silently dropping state the caller never intended to touch.
+        if "conditions" in validated_data:
+            self._associate_actions(instance, validated_data.get("conditions"))
         self._add_internal_response_sampling_filters(instance)
         return instance
 
