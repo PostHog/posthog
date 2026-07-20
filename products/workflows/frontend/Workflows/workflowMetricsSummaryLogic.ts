@@ -82,12 +82,12 @@ export type EmailMetricRow = {
 // which is built for it — except Failed, which always uses `danger` so a failure reads as an error.
 export const METRIC_COLORS: Record<string, string> = {
     // Whole-workflow summary
-    'In progress': getColorVar('warning'),
-    Started: getColorVar('success'),
+    'Workflows in progress': getColorVar('warning'),
+    'Workflows started': getColorVar('success'),
     Emails: getColorVar('blue'),
     'Push notifications': getColorVar('data-color-3'),
     Messages: getColorVar('blue'),
-    Completed: getColorVar('warning'),
+    'Workflows completed': getColorVar('warning'),
     Converted: getColorVar('purple'),
     // Email + push step funnels
     Sent: getColorVar('data-color-1'),
@@ -117,15 +117,15 @@ export const WORKFLOW_SUMMARY_METRICS: Record<
     }
 > = {
     in_progress: {
-        name: 'In progress',
+        name: 'Workflows in progress',
         description: 'Total number of workflow runs currently in progress',
-        color: METRIC_COLORS['In progress'],
+        color: METRIC_COLORS['Workflows in progress'],
         metricNames: ['in_progress'],
     },
     started: {
-        name: 'Started',
+        name: 'Workflows started',
         description: 'Total number of workflow runs started',
-        color: METRIC_COLORS['Started'],
+        color: METRIC_COLORS['Workflows started'],
         metricNames: ['triggered'],
     },
     persons_messaged: {
@@ -135,10 +135,10 @@ export const WORKFLOW_SUMMARY_METRICS: Record<
         metricNames: ['email_sent'],
     },
     completed: {
-        name: 'Completed',
+        name: 'Workflows completed',
         description:
             'Total number of workflow runs that finished — whether they reached the end of the workflow or exited early (for example, by meeting the conversion goal on an exit-on-conversion workflow). This may include runs that began before the selected date range but finished within it.',
-        color: METRIC_COLORS['Completed'],
+        color: METRIC_COLORS['Workflows completed'],
         metricNames: ['succeeded'],
     },
     converted: {
