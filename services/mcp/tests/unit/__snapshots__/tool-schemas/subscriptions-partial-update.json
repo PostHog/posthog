@@ -157,6 +157,10 @@
             ],
             "description": "Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters."
         },
+        "skip_weekend": {
+            "description": "Whether to skip scheduled deliveries that fall on Saturday or Sunday. Only supported for daily subscriptions.",
+            "type": "boolean"
+        },
         "start_date": {
             "description": "When to start delivering (ISO 8601 datetime).",
             "format": "date-time",

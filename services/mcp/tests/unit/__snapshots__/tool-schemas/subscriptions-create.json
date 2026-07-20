@@ -158,6 +158,10 @@
             "description": "Whether to immediately deliver the subscription once on save so the editor can confirm it looks right. Defaults to true on create. When omitted on update, a delivery is sent only if the edit changed what gets delivered (recipient, channel, source) or re-enabled the subscription. The recurring schedule is unaffected.",
             "type": "boolean"
         },
+        "skip_weekend": {
+            "description": "Whether to skip scheduled deliveries that fall on Saturday or Sunday. Only supported for daily subscriptions.",
+            "type": "boolean"
+        },
         "start_date": {
             "description": "When to start delivering (ISO 8601 datetime).",
             "format": "date-time",
