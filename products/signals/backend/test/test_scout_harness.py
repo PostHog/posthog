@@ -291,6 +291,38 @@ class TestPromptBuilder(BaseTest):
         assert "Suggested reviewers route the report" not in prompt
         assert "scratchpad entry is a pointer" not in prompt
 
+    def test_github_evidence_section_gated_on_token_grant(self) -> None:
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-gh-reports",
+            description="Report scout",
+            body="watch",
+            allowed_tools=["emit_report", "edit_report"],
+        )
+        loaded = load_skill_for_run(self.team, "signals-scout-gh-reports")
+        kwargs: dict = {
+            "run_id": "00000000-0000-0000-0000-000000000abc",
+            "team_id": self.team.id,
+            "started_at": datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+        }
+        granted = build_run_prompt(loaded, **kwargs, github_read_access=True)
+        # The section only renders when the sandbox actually holds the token, and must carry the
+        # read-only framing so the scout doesn't attempt writes.
+        assert "Code-derived reviewer evidence" in granted
+        assert "read-only" in granted
+
+        # Default (no grant): naming `gh` in a tokenless sandbox burns the budget on 401s.
+        ungranted = build_run_prompt(loaded, **kwargs)
+        assert "Code-derived reviewer evidence" not in ungranted
+
+        # A signal-channel scout has no reviewers field — the section must not leak into its
+        # prompt even if the runner flag were mis-set for it.
+        LLMSkill.objects.create(team=self.team, name="signals-scout-plain", description="s", body="watch")
+        signal_prompt = build_run_prompt(
+            load_skill_for_run(self.team, "signals-scout-plain"), **kwargs, github_read_access=True
+        )
+        assert "Code-derived reviewer evidence" not in signal_prompt
+
     def test_report_channel_renders_report_persona_and_guidance(self) -> None:
         LLMSkill.objects.create(
             team=self.team,
