@@ -131,6 +131,36 @@ describe('tracingOperationSceneLogic', () => {
         expect(logic.values.durationSelection).toEqual({ minNs: 1 * MS, maxNs: 2 * MS })
     })
 
+    it('preserves a completed empty heatmap instead of refetching it on every chart switch', () => {
+        const heatmapSpy = jest.spyOn(api.tracing, 'latencyHeatmap').mockResolvedValue({ results: [] })
+        // A completed fetch that returned no rows still counts as loaded.
+        logic.actions.fetchLatencyHeatmapSuccess([])
+        expect(logic.values.latencyHeatmapLoaded).toBe(true)
+
+        logic.actions.setChartType('heatmap')
+        expect(heatmapSpy).not.toHaveBeenCalled()
+    })
+
+    it('ignores a heatmap brush while a date-range refresh is still loading', async () => {
+        const MS = 1_000_000
+        const heatmapSpy = jest.spyOn(api.tracing, 'latencyHeatmap').mockResolvedValue({ results: [] })
+        logic.actions.fetchLatencyHeatmapSuccess([
+            { time: '2024-01-01T00:00:00Z', bucket_ns: 1 * MS, count: 1 },
+            { time: '2024-01-01T00:10:00Z', bucket_ns: 2 * MS, count: 1 },
+            { time: '2024-01-01T00:20:00Z', bucket_ns: 5 * MS, count: 1 },
+        ])
+        // A refresh is in flight: the grid on screen is now stale, so brushes must be ignored.
+        logic.actions.fetchLatencyHeatmap()
+        expect(logic.values.rawLatencyHeatmapLoading).toBe(true)
+
+        logic.actions.applyHeatmapBrush({ x: { startIndex: 0, endIndex: 1 }, y: { startIndex: 1, endIndex: 1 } })
+        expect(logic.values.durationSelection).toBeNull()
+
+        // Settle the in-flight fetch so it can't resolve after the test ends.
+        await logic.asyncActions.fetchLatencyHeatmap()
+        expect(heatmapSpy).toHaveBeenCalled()
+    })
+
     // A trace longer than the ±1h lookup window can share a trace_id with the loaded waterfall yet
     // omit spans that fell outside it — reuse must be gated on the span actually being present.
     it.each([

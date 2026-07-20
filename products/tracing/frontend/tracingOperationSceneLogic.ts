@@ -47,6 +47,7 @@ export interface tracingOperationSceneLogicValues {
     heatmapEnabled: boolean
     histogramData: TracingDurationHistogramData
     latencyHeatmapData: TracingLatencyHeatmapData
+    latencyHeatmapLoaded: boolean
     operationStats: AggregatedSpanRow | null
     operationStatsLoading: boolean
     rawHistogram: DurationHistogramRow[]
@@ -202,7 +203,7 @@ export interface tracingOperationSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         serviceName: (arg: any) => string
         spanName: (arg: any) => string
-        heatmapEnabled: (featureFlags: any) => boolean
+        heatmapEnabled: (featureFlags: FeatureFlagsSet) => boolean
         histogramData: (rawHistogram: DurationHistogramRow[]) => TracingDurationHistogramData
         latencyHeatmapData: (rawLatencyHeatmap: LatencyHeatmapRow[]) => TracingLatencyHeatmapData
         currentSample: (samples: Span[], sampleIndex: number) => Span | null
@@ -368,6 +369,15 @@ export const tracingOperationSceneLogic = kea<tracingOperationSceneLogicType>([
                 setDateRange: () => 0,
             },
         ],
+        // Distinguishes "heatmap fetch completed" (possibly empty) from "never fetched". A date
+        // change invalidates it so a later switch back to the heatmap refetches for the new range.
+        latencyHeatmapLoaded: [
+            false,
+            {
+                fetchLatencyHeatmapSuccess: () => true,
+                setDateRange: () => false,
+            },
+        ],
         selectedSpanId: [null as string | null, { selectSpan: (_, { spanId }) => spanId }],
         samplesHaveMore: [false, { setSamplesHaveMore: (_, { hasMore }) => hasMore }],
         // A stale waterfall must not linger under a new (or empty) sample set.
@@ -408,8 +418,10 @@ export const tracingOperationSceneLogic = kea<tracingOperationSceneLogicType>([
             }
         },
         setChartType: ({ chartType }) => {
-            // Fetch lazily on first switch; date-range changes keep it fresh while active.
-            if (chartType === 'heatmap' && values.rawLatencyHeatmap.length === 0) {
+            // Fetch lazily on first switch; date-range changes keep it fresh while active. Gate on
+            // "has it ever loaded" rather than row count, so an operation with no data doesn't
+            // refetch the same empty result every time the user flips back to the heatmap.
+            if (chartType === 'heatmap' && !values.latencyHeatmapLoaded && !values.rawLatencyHeatmapLoading) {
                 actions.fetchLatencyHeatmap()
             }
         },
@@ -426,6 +438,12 @@ export const tracingOperationSceneLogic = kea<tracingOperationSceneLogicType>([
             }
         },
         applyHeatmapBrush: ({ selection }) => {
+            // While a date-range refetch is in flight the rendered heatmap still shows the
+            // previous query's buckets. Ignore brushes until it settles so the selection maps
+            // against the grid on screen rather than a stale one (mirrors the shared scene).
+            if (values.rawLatencyHeatmapLoading) {
+                return
+            }
             const data = values.latencyHeatmapData
             const dateFrom = data.timeBuckets[selection.x.startIndex]
             if (!dateFrom) {
