@@ -30,6 +30,7 @@ from .types import (
     FinalizeRasterizationInput,
     RasterizationActivityOutput,
     RasterizeRecordingInputs,
+    rasterize_activity_timeout,
 )
 
 
@@ -122,7 +123,8 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
             "rasterize-recording",
             prep.activity_input.model_dump(exclude_none=True),
             task_queue=settings.RASTERIZATION_TASK_QUEUE,
-            start_to_close_timeout=dt.timedelta(minutes=30),
+            # Sized to the recording length so long sessions finish instead of hitting a fixed ceiling.
+            start_to_close_timeout=rasterize_activity_timeout(prep.activity_input),
             heartbeat_timeout=dt.timedelta(seconds=30),
             retry_policy=common.RetryPolicy(maximum_attempts=2),
         )

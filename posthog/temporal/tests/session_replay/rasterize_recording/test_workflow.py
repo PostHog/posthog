@@ -1,4 +1,5 @@
 import uuid
+import datetime as dt
 
 import pytest
 
@@ -13,12 +14,42 @@ from temporalio.worker import Worker
 from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
 from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import BumpStuckCounterInput
 from posthog.temporal.session_replay.rasterize_recording.types import (
+    RASTERIZE_MAX_TIMEOUT,
+    RASTERIZE_MIN_TIMEOUT,
     BuildRasterizationResult,
     FinalizeRasterizationInput,
+    RasterizationActivityInput,
     RasterizationActivityOutput,
     RasterizeRecordingInputs,
+    rasterize_activity_timeout,
 )
 from posthog.temporal.session_replay.rasterize_recording.workflow import RasterizeRecordingWorkflow
+
+
+def _activity_input(**overrides) -> RasterizationActivityInput:
+    base = {"session_id": "s", "team_id": 1, "s3_bucket": "b", "s3_key_prefix": "p"}
+    return RasterizationActivityInput(**{**base, **overrides})
+
+
+@pytest.mark.parametrize(
+    "start_offset_s,end_offset_s,expected",
+    [
+        # No end offset (e.g. replay_vision) — allow the most headroom.
+        (None, None, RASTERIZE_MAX_TIMEOUT),
+        # Short clip — floored at the minimum so we never regress below the old ceiling.
+        (0.0, 30.0, RASTERIZE_MIN_TIMEOUT),
+        # 2h recording — the case that used to time out at 30m — gets well over 30m.
+        (0.0, 7200.0, dt.timedelta(minutes=70)),
+        # Very long recording — capped so a single render can't tie up a worker indefinitely.
+        (0.0, 100_000.0, RASTERIZE_MAX_TIMEOUT),
+        # Only the played span counts, not the absolute offset.
+        (100.0, 130.0, RASTERIZE_MIN_TIMEOUT),
+    ],
+)
+def test_rasterize_activity_timeout_scales_with_clip_length(start_offset_s, end_offset_s, expected):
+    timeout = rasterize_activity_timeout(_activity_input(start_offset_s=start_offset_s, end_offset_s=end_offset_s))
+    assert timeout == expected
+    assert RASTERIZE_MIN_TIMEOUT <= timeout <= RASTERIZE_MAX_TIMEOUT
 
 
 async def _register_search_attributes(env: WorkflowEnvironment) -> None:
