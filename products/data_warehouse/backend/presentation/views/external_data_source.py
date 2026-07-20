@@ -4009,6 +4009,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": f"Could not resume CDC: {e}"},
             )
 
+        # Extraction is running again: clear the paused marker so the schema stops reading as
+        # halted (failure digest badge, loader status guard). Status stays FAILED until a run
+        # actually succeeds. After the unpause, so a failure here leaves the marker for retry.
+        for schema in cdc_schemas:
+            try:
+                update_sync_type_config_keys(schema.id, instance.team_id, removes=["cdc_extraction_paused"])
+            except ExternalDataSchema.DoesNotExist:
+                pass
+
         return Response(status=status.HTTP_200_OK, data={"success": True})
 
     @action(methods=["POST"], detail=True)

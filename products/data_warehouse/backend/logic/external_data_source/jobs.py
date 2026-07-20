@@ -77,12 +77,11 @@ def update_external_job_status(
 
         schema = ExternalDataSchema.objects.select_for_update().get(id=model.schema_id, team_id=team_id)
 
-        # The CDC halted states are absorbing: a loader finishing an in-flight batch after
-        # `mark_cdc_broken` (or after a non-retryable error paused extraction) must not repaint
-        # the schema healthy while syncing is stopped. The markers are cleared by repair_cdc /
-        # disable_cdc / a successful extraction run, after which updates resume.
-        halting_config = schema.sync_type_config or {}
-        if halting_config.get("cdc_broken") or halting_config.get("cdc_extraction_paused"):
+        # The CDC halted states are absorbing: a loader finishing an in-flight batch after the
+        # source broke (or a non-retryable error paused extraction) must not repaint the schema
+        # healthy while syncing is stopped. Which markers halt a schema is the model's business
+        # (cdc_halted) — this generic layer only honors the state.
+        if schema.cdc_halted:
             logger.info(
                 "dwh_schema_status_update_skipped_cdc_halted",
                 job_id=job_id,

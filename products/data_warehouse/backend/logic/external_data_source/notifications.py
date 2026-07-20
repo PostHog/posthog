@@ -81,8 +81,8 @@ def notify_external_data_sync_failures(team_id: int) -> None:
         if not failing_schemas:
             return
 
-        # Halted schemas (paused, CDC broken, extraction paused) first — they need user action.
-        # sync_halted reads sync_type_config, so this sort happens in Python, not SQL.
+        # Halted schemas first — they need user action. sync_halted reads sync_type_config,
+        # so this sort happens in Python, not SQL.
         failing_schemas.sort(key=lambda schema: not schema.sync_halted)
 
         # The template regroups on source_id, which needs schemas consecutive per
