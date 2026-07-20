@@ -140,6 +140,47 @@ class TestMergeFiltersByPriority(SimpleTestCase):
         )
         assert len(merged["properties"]) == 2
 
+    def test_dashboard_properties_as_property_group_dict_are_flattened(self):
+        # Dashboard filters can store `properties` as a PropertyGroupFilter dict rather than a flat list;
+        # the merge must flatten it to leaves instead of iterating the dict's keys and raising.
+        dashboard_prop = {"key": "$country", "value": "US", "type": "event"}
+        tile_prop = {"key": "$browser", "value": "Chrome", "type": "event"}
+
+        merged = merge_filters_by_priority(
+            {"properties": {"type": "AND", "values": [dashboard_prop]}},
+            {"properties": [tile_prop]},
+        )
+
+        assert merged["properties"] == [dashboard_prop, tile_prop]
+
+    def test_tile_properties_as_property_group_dict_are_flattened(self):
+        dashboard_prop = {"key": "$country", "value": "US", "type": "event"}
+        tile_prop = {"key": "$browser", "value": "Chrome", "type": "event"}
+
+        merged = merge_filters_by_priority(
+            {"properties": [dashboard_prop]},
+            {"properties": {"type": "AND", "values": [tile_prop]}},
+        )
+
+        assert merged["properties"] == [dashboard_prop, tile_prop]
+
+    def test_contradiction_detected_across_property_group_dicts(self):
+        # Flattening must preserve contradiction handling: the tile leaf still overrides the dashboard leaf
+        # on the same key even when both layers arrive as property-group dicts.
+        dashboard_prop = {"key": "$browser", "value": ["Chrome"], "type": "event", "operator": "exact"}
+        tile_prop = {"key": "$browser", "value": ["Firefox"], "type": "event", "operator": "exact"}
+
+        resolved_layers = resolve_filter_layers_by_priority(
+            {"properties": {"type": "AND", "values": [dashboard_prop]}},
+            {"properties": {"type": "AND", "values": [tile_prop]}},
+        )
+
+        assert resolved_layers == {
+            "dashboard": {},
+            "tile": {"properties": {"type": "AND", "values": [tile_prop]}},
+            "overridden_dashboard": {"properties": [dashboard_prop]},
+        }
+
 
 class TestRemoveQueryPropertiesOverriddenBy(SimpleTestCase):
     def _query(self, properties):
@@ -217,6 +258,23 @@ class TestRemoveQueryPropertiesOverriddenBy(SimpleTestCase):
         assert stripped["source"]["properties"]["values"][0]["values"] == [
             {"key": "$country", "value": "US", "type": "event"}
         ]
+
+    def test_overriding_properties_as_property_group_dict_does_not_raise(self):
+        # The overriding filters' `properties` can itself be a PropertyGroupFilter dict; it must be
+        # flattened to leaves before contradiction detection rather than iterated as a dict.
+        query = self._query(
+            [
+                {"key": "$browser", "value": "Chrome", "type": "event"},
+                {"key": "$country", "value": "US", "type": "event"},
+            ]
+        )
+        overriding = {
+            "properties": {"type": "AND", "values": [{"key": "$browser", "value": "Firefox", "type": "event"}]}
+        }
+
+        stripped = remove_query_properties_overridden_by(query, overriding)
+
+        assert stripped["source"]["properties"] == [{"key": "$country", "value": "US", "type": "event"}]
 
     def test_prunes_matching_leaf_nested_three_levels_deep(self):
         # AND[OR[AND[leaf]]] — a plain PropertyGroupFilter nesting shape. A shallow, one-level-only
