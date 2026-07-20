@@ -365,6 +365,11 @@ resolved → candidate
 ready | pending_input → resolved
 suppressed → resolved (restore an archived, already-researched report straight to resolved)
 
+# Refund interaction: a refund is final (later PR runs are never billed), so the refund path
+# suppresses the report to stop it re-promoting to candidate on new signals — even a
+# manually-resolved one. Only a report resolved by a merged PR stays resolved. A refunded
+# (suppressed) report can't then be restored or resolved back out (guard in the state action).
+
 # Transitions enforced by SignalReport.transition_to():
 # - deleted is terminal (no transitions out; excluded from API via queryset)
 # - suppressed only transitions back to potential

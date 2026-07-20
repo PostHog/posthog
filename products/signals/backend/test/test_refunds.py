@@ -221,16 +221,24 @@ class TestSignalReportRefundAPI(APIBaseTest):
         report.refresh_from_db()
         assert report.status == SignalReport.Status.SUPPRESSED
 
+    @parameterized.expand(
+        [
+            # A merged PR is a genuine terminal state — the work shipped — so refund leaves it RESOLVED.
+            ("merged_pr", {"pr_url": "https://github.com/x/y/pull/1", "pr_merged": True}, SignalReport.Status.RESOLVED),
+            # Resolved manually without a merged PR: refund must suppress it, otherwise it can
+            # re-promote to candidate on new signals and spawn a fresh unbillable PR (refunds are final).
+            ("resolved_without_merge", {"pr_url": "https://github.com/x/y/pull/1"}, SignalReport.Status.SUPPRESSED),
+        ]
+    )
     @freeze_time(_NOW)
-    def test_refund_keeps_resolved_report_resolved(self, _flag):
-        report = self._report_with_pr(
-            pr_created_at=datetime(2026, 6, 10, tzinfo=UTC), report_status=SignalReport.Status.RESOLVED
-        )
+    def test_refund_of_resolved_report_suppresses_unless_pr_merged(self, _flag, _name, output, expected_status):
+        report = _make_report(self.team, status=SignalReport.Status.RESOLVED)
+        _make_pr_run(self.team, report, created_at=datetime(2026, 6, 10, tzinfo=UTC), output=output)
         response = self._refund(report)
-        assert response.status_code == status.HTTP_200_OK
+        assert response.status_code == status.HTTP_200_OK, response.json()
         report.refresh_from_db()
-        assert report.status == SignalReport.Status.RESOLVED
-        # The permanent marker still lands even though the status did not change.
+        assert report.status == expected_status
+        # The permanent marker lands regardless of whether the status changed.
         assert SignalReportArtefact.objects.filter(
             report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL
         ).exists()
@@ -322,6 +330,23 @@ class TestSignalReportRefundAPI(APIBaseTest):
         assert response.json()["error"] == "Refunded reports can't be restored."
         report.refresh_from_db()
         assert report.status == SignalReport.Status.SUPPRESSED
+
+    @freeze_time(_NOW)
+    def test_resolve_then_refund_suppresses_report(self, _flag):
+        # The exploit path the refund must close: a task:write caller resolves a ready report through
+        # the API (no merged PR), then refunds it. If the refund left it RESOLVED it would re-promote
+        # to candidate on the next matching signal and spawn a fresh unbillable PR. The refund must
+        # suppress it, and it must then be non-restorable.
+        report = self._report_with_pr(pr_created_at=datetime(2026, 6, 10, tzinfo=UTC))
+        resolve = self.client.post(self._state_url(str(report.id)), {"state": "resolved"}, format="json")
+        assert resolve.status_code == status.HTTP_200_OK, resolve.json()
+
+        assert self._refund(report).status_code == status.HTTP_200_OK
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.SUPPRESSED
+
+        reopen = self.client.post(self._state_url(str(report.id)), {"state": "resolved"}, format="json")
+        assert reopen.status_code == status.HTTP_409_CONFLICT
 
     @freeze_time(_NOW)
     def test_bulk_restore_of_refunded_report_is_blocked(self, _flag):

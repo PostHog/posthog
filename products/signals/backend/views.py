@@ -1546,37 +1546,47 @@ class SignalReportViewSet(
         internal pipeline concern and must never be reachable from this public API surface, so it is
         passed explicitly rather than splatting caller-supplied kwargs.
         """
-        # "potential" on a suppressed report means "restore" (un-archive): return it to the state it
-        # held before suppression when that was a researched, user-visible report, instead of always
-        # dropping back to potential. snooze_for is irrelevant here and ignored by transition_to.
         target_status = SignalReport.Status(target)
 
-        # Refund guard: a refunded report can never be billed again (see billing.py), so pulling it
-        # back out of SUPPRESSED would be repeatable free work — both POTENTIAL (restore/snooze) and
-        # RESOLVED can re-promote to candidate on new signals and spawn a fresh PR. The refund is
-        # final, so any un-archive of a refunded report is refused.
-        if (
-            report.status == SignalReport.Status.SUPPRESSED
-            and target_status in (SignalReport.Status.POTENTIAL, SignalReport.Status.RESOLVED)
-            and getattr(report, "refund", None) is not None
-        ):
-            return SignalReportBulkStateOutcome.SKIPPED, "Refunded reports can't be restored."
-
-        if report.status == SignalReport.Status.SUPPRESSED and target_status == SignalReport.Status.POTENTIAL:
-            target_status = report.restore_target_status()
-
-        effective_snooze_for = snooze_for if target == "potential" else None
-
-        try:
-            updated_fields = report.transition_to(target_status, snooze_for=effective_snooze_for)
-        except InvalidStatusTransition as e:
-            logger.warning("Invalid status transition for SignalReport %s: %s", report.id, e, exc_info=True)
-            return SignalReportBulkStateOutcome.SKIPPED, None
-        except (ValueError, TypeError) as e:
-            logger.warning("Invalid data when transitioning SignalReport %s: %s", report.id, e, exc_info=True)
-            return SignalReportBulkStateOutcome.FAILED, None
-
         with transaction.atomic():
+            # Lock the report row for the whole guard + transition so it serializes with the refund
+            # path (which locks the same row before suppressing). Re-read committed state under the
+            # lock: a resolve/restore that raced a refund must observe the refund's SUPPRESSED status
+            # and refund row and refuse, instead of overwriting the suppression and re-opening
+            # already-refunded work.
+            if SignalReport.objects.select_for_update().filter(id=report.id, team_id=self.team.id).first() is not None:
+                report.refresh_from_db()
+            is_refunded = SignalReportRefund.objects.filter(report_id=report.id).exists()
+
+            # Refund guard: a refunded report can never be billed again (see billing.py), so pulling
+            # it back out of SUPPRESSED would be repeatable free work — both POTENTIAL (restore/snooze)
+            # and RESOLVED can re-promote to candidate on new signals and spawn a fresh PR. The refund
+            # is final, so any un-archive of a refunded report is refused.
+            if (
+                report.status == SignalReport.Status.SUPPRESSED
+                and target_status in (SignalReport.Status.POTENTIAL, SignalReport.Status.RESOLVED)
+                and is_refunded
+            ):
+                return SignalReportBulkStateOutcome.SKIPPED, "Refunded reports can't be restored."
+
+            # "potential" on a suppressed report means "restore" (un-archive): return it to the state
+            # it held before suppression when that was a researched, user-visible report, instead of
+            # always dropping back to potential. snooze_for is irrelevant here and ignored.
+            effective_target = target_status
+            if report.status == SignalReport.Status.SUPPRESSED and target_status == SignalReport.Status.POTENTIAL:
+                effective_target = report.restore_target_status()
+
+            effective_snooze_for = snooze_for if target == "potential" else None
+
+            try:
+                updated_fields = report.transition_to(effective_target, snooze_for=effective_snooze_for)
+            except InvalidStatusTransition as e:
+                logger.warning("Invalid status transition for SignalReport %s: %s", report.id, e, exc_info=True)
+                return SignalReportBulkStateOutcome.SKIPPED, None
+            except (ValueError, TypeError) as e:
+                logger.warning("Invalid data when transitioning SignalReport %s: %s", report.id, e, exc_info=True)
+                return SignalReportBulkStateOutcome.FAILED, None
+
             report.save(update_fields=updated_fields)
 
             # Persist the dismissal feedback as its own artefact so it survives status changes
@@ -1815,11 +1825,16 @@ class SignalReportViewSet(
                     raise
                 return self._refund_response(existing, already_refunded=True)
 
-            # Refund doubles as archive: suppress unless the report is already resolved (a terminal
-            # state stays put — whether it was resolved by a merged PR or directly) or already
-            # suppressed. The dismissal artefact records the rationale like any other dismissal; the
-            # structured truth lives on the refund row.
-            if report.status not in (SignalReport.Status.RESOLVED, SignalReport.Status.SUPPRESSED):
+            # Refund doubles as archive: suppress the report so it leaves the inbox and, crucially,
+            # can no longer re-promote to candidate on new signals — a refund is final (later PR runs
+            # are never billed), so re-promotion would be repeatable free work. The one exception is a
+            # report resolved by a merged PR: that PR shipped, so it stays put as a genuine terminal
+            # state. A report resolved manually without a merged PR is NOT exempt — it must be
+            # suppressed like any other, otherwise resolve-then-refund would leave refunded work
+            # eligible for re-promotion. Already-suppressed reports need no transition. The dismissal
+            # artefact records the rationale; the structured truth lives on the refund row.
+            resolved_via_merged_pr = report.status == SignalReport.Status.RESOLVED and pr_merged
+            if report.status != SignalReport.Status.SUPPRESSED and not resolved_via_merged_pr:
                 updated_fields = report.transition_to(SignalReport.Status.SUPPRESSED)
                 report.save(update_fields=updated_fields)
             SignalReportArtefact.append_dismissal(
