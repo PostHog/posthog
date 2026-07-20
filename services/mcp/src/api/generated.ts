@@ -13894,6 +13894,13 @@ export namespace Schemas {
       available: boolean;
     }
 
+    export interface CheckSchemaNameResponse {
+      /** The schema name that was checked */
+      name: string;
+      /** Whether the schema name is free within the organization's warehouse */
+      available: boolean;
+    }
+
     /**
      * * `new` - new
      * * `rate_shift` - rate_shift
@@ -21478,18 +21485,6 @@ export namespace Schemas {
          * @nullable
          */
       remediation: string | null;
-    }
-
-    export interface EnableWarehouseBackfillRequest {
-      /** Name for this environment's warehouse tables (events_<name>, persons_<name>, …). Lowercase letters, numbers, and underscores only; used verbatim as the suffix and must be unique across the organization's environments. */
-      table_name: string;
-    }
-
-    export interface EnableWarehouseBackfillResponse {
-      /** Whether warehouse backfill is now enabled */
-      enabled: boolean;
-      /** Suffix used for this environment's tables (events_<suffix>, persons_<suffix>) */
-      table_suffix: string;
     }
 
     export interface EndExperiment {
@@ -36446,6 +36441,18 @@ export namespace Schemas {
     export interface OfflineExperimentItemsResponse {
       /** Tuple-positional rows; positions match `RawOfflineExperimentMetricRow` in the frontend. */
       results: unknown[][];
+    }
+
+    export interface OnboardWarehouseTeamRequest {
+      /** Schema name for this project's data in the organization's warehouse. Lowercase letters, numbers, and underscores only, max 63 characters. Must be unique within the organization and cannot be changed later. */
+      schema_name: string;
+    }
+
+    export interface OnboardWarehouseTeamResponse {
+      /** Whether this project is now onboarded onto the managed warehouse */
+      onboarded: boolean;
+      /** Schema this project's data lands in */
+      schema_name: string;
     }
 
     /**
@@ -51942,8 +51949,8 @@ export namespace Schemas {
     export interface ProvisionWarehouseRequest {
       /** Name for the new database */
       database_name: string;
-      /** Name for the provisioning project's warehouse tables (events_<name>, persons_<name>, …). Lowercase letters, numbers, and underscores only; used verbatim as the suffix. Required so the first project gets its own per-environment tables. */
-      table_name: string;
+      /** Schema name for the provisioning project's data in the warehouse. Lowercase letters, numbers, and underscores only, max 63 characters. Cannot be changed later. Required — the first project gets its own schema, and other projects pick theirs when they join. */
+      schema_name: string;
     }
 
     export interface ProvisionWarehouseResponse {
@@ -63462,6 +63469,13 @@ export namespace Schemas {
          * @nullable
          */
       table_suffix: string | null;
+      /** Whether this project is onboarded onto the managed warehouse. False when the warehouse exists but this project has not picked a schema yet — show the onboarding screen in that case. */
+      team_onboarded: boolean;
+      /**
+         * Schema this project's data lands in. Null when the project is not onboarded.
+         * @nullable
+         */
+      schema_name: string | null;
     }
 
     /**
@@ -66340,6 +66354,14 @@ export namespace Schemas {
     export type EnvironmentsDataWarehouseCheckDatabaseNameRetrieveParams = {
     /**
      * Database name to check
+     * @minLength 1
+     */
+    name: string;
+    };
+
+    export type EnvironmentsDataWarehouseCheckSchemaNameRetrieveParams = {
+    /**
+     * Schema name to check
      * @minLength 1
      */
     name: string;
@@ -73013,6 +73035,14 @@ export namespace Schemas {
     export type DataWarehouseCheckDatabaseNameRetrieveParams = {
     /**
      * Database name to check
+     * @minLength 1
+     */
+    name: string;
+    };
+
+    export type DataWarehouseCheckSchemaNameRetrieveParams = {
+    /**
+     * Schema name to check
      * @minLength 1
      */
     name: string;

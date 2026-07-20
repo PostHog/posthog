@@ -60,9 +60,9 @@ def test_provision_persists_duckgres_server_on_success(mock_request: MagicMock) 
 @pytest.mark.django_db
 @override_settings(CLOUD_DEPLOYMENT="US", DUCKGRES_PG_PORT=5432)
 @patch("products.data_warehouse.backend.presentation.views.managed_warehouse._request")
-def test_provision_sends_default_team_id_to_control_plane(mock_request: MagicMock) -> None:
-    # duckgres denies a provision without a default team, so the provisioning team must be
-    # forwarded as default_team_id in the outbound body.
+def test_provision_sends_team_id_and_schema_name_to_control_plane(mock_request: MagicMock) -> None:
+    # The provisioning team becomes the warehouse's first (billing) team via the org-teams
+    # API: the outbound body carries team_id + schema_name and never default_team_id.
     org = Organization.objects.create(name="Org")
     team = Team.objects.create(organization=org)
     mock_request.return_value = Response(
@@ -70,10 +70,12 @@ def test_provision_sends_default_team_id_to_control_plane(mock_request: MagicMoc
         status=202,
     )
 
-    managed_warehouse.provision(org.id, "my-warehouse", team.id, "events")
+    managed_warehouse.provision(org.id, "my-warehouse", team.id, "prod_events")
 
     json_body = mock_request.call_args.kwargs["json_body"]
-    assert json_body["default_team_id"] == team.id
+    assert json_body["team_id"] == team.id
+    assert json_body["schema_name"] == "prod_events"
+    assert "default_team_id" not in json_body
 
 
 @parameterized.expand(
@@ -336,7 +338,7 @@ def test_cp_bucket_for_bypasses_feature_gate_and_reconciles(mock_internal: Magic
 
 @pytest.mark.django_db
 @patch("products.data_warehouse.backend.presentation.views.managed_warehouse._request")
-def test_provision_rejects_invalid_table_name(mock_request: MagicMock) -> None:
+def test_provision_rejects_invalid_schema_name(mock_request: MagicMock) -> None:
     org = Organization.objects.create(name="Org")
     team = Team.objects.create(organization=org)
 
@@ -392,13 +394,22 @@ def test_cp_bucket_for_returns_none_when_cp_has_no_bucket(mock_request: MagicMoc
 
 @pytest.mark.django_db
 @patch("products.data_warehouse.backend.presentation.views.managed_warehouse.is_enabled", return_value=True)
-def test_enable_backfill_creates_backfill_and_membership(mock_enabled: MagicMock) -> None:
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse._request")
+def test_onboard_team_dual_writes_duckgres_and_django(mock_request: MagicMock, _mock_enabled: MagicMock) -> None:
     org, team, server = _provisioned_org()
+    mock_request.return_value = Response({"team_id": team.id, "schema_name": "my_events"}, status=200)
 
-    resp = managed_warehouse.enable_backfill(org.id, team.id, "my_events")
+    resp = managed_warehouse.onboard_team(org.id, team.id, "my_events")
 
     assert resp.status_code == 200
-    assert resp.data == {"enabled": True, "table_suffix": "my_events"}
+    assert resp.data == {"onboarded": True, "schema_name": "my_events"}
+
+    # duckgres team row created via the org-teams upsert, without legacy table names
+    # (NULL legacy fields mean the derived <schema>.events layout).
+    method, org_id, path = mock_request.call_args.args
+    assert (method, org_id, path) == ("POST", org.id, "/teams")
+    json_body = mock_request.call_args.kwargs["json_body"]
+    assert json_body == {"team_id": team.id, "schema_name": "my_events"}
 
     link = DuckgresServerTeam.objects.get(server=server, team_id=team.id)
     assert link.backfill_enabled is True
@@ -407,47 +418,75 @@ def test_enable_backfill_creates_backfill_and_membership(mock_enabled: MagicMock
 
 @pytest.mark.django_db
 @patch("products.data_warehouse.backend.presentation.views.managed_warehouse.is_enabled", return_value=True)
-def test_enable_backfill_rejects_invalid_name(mock_enabled: MagicMock) -> None:
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse._request")
+def test_onboard_team_surfaces_duckgres_schema_conflict(mock_request: MagicMock, _mock_enabled: MagicMock) -> None:
+    # duckgres owns cross-team schema uniqueness (it also knows grandfathered schemas Django
+    # doesn't) — its 409 must reach the caller as a clear conflict, with no Django row written.
     org, team, _ = _provisioned_org()
+    mock_request.return_value = Response({"error": "schema already in use"}, status=409)
 
-    for bad_name in ("", "My Project", "my-project"):
-        resp = managed_warehouse.enable_backfill(org.id, team.id, bad_name)
-        assert resp.status_code == 400, bad_name
+    resp = managed_warehouse.onboard_team(org.id, team.id, "taken")
 
+    assert resp.status_code == 409
+    assert "taken" in resp.data["error"]
     assert not DuckgresServerTeam.objects.filter(team_id=team.id).exists()
 
 
 @pytest.mark.django_db
 @patch("products.data_warehouse.backend.presentation.views.managed_warehouse.is_enabled", return_value=True)
-def test_enable_backfill_rejects_duplicate_suffix_in_org(mock_enabled: MagicMock) -> None:
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse._request")
+def test_onboard_team_rejects_invalid_name_before_control_plane(
+    mock_request: MagicMock, _mock_enabled: MagicMock
+) -> None:
+    org, team, _ = _provisioned_org()
+
+    for bad_name in ("", "My Project", "my-project"):
+        resp = managed_warehouse.onboard_team(org.id, team.id, bad_name)
+        assert resp.status_code == 400, bad_name
+
+    mock_request.assert_not_called()
+    assert not DuckgresServerTeam.objects.filter(team_id=team.id).exists()
+
+
+@pytest.mark.django_db
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.is_enabled", return_value=True)
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse._request")
+def test_onboard_team_rejects_duplicate_suffix_before_control_plane(
+    mock_request: MagicMock, _mock_enabled: MagicMock
+) -> None:
+    # The Django guard must run before the duckgres upsert: the upsert overwrites an existing
+    # row's schema, so a rejected name must never reach the control plane.
     org, team_a, server = _provisioned_org()
     team_b = Team.objects.create(organization=org, name="Env B")
     DuckgresServerTeam.objects.create(server=server, team=team_a, table_suffix="shared")
 
-    resp = managed_warehouse.enable_backfill(org.id, team_b.id, "shared")
+    resp = managed_warehouse.onboard_team(org.id, team_b.id, "shared")
 
     assert resp.status_code == 400
+    mock_request.assert_not_called()
     assert not DuckgresServerTeam.objects.filter(team_id=team_b.id).exists()
 
 
 @pytest.mark.django_db
 @patch("products.data_warehouse.backend.presentation.views.managed_warehouse.is_enabled", return_value=True)
-def test_enable_backfill_without_provisioned_server(mock_enabled: MagicMock) -> None:
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse._request")
+def test_onboard_team_without_provisioned_server(mock_request: MagicMock, _mock_enabled: MagicMock) -> None:
     org = Organization.objects.create(name="Org")
     team = Team.objects.create(organization=org, name="Env")
 
-    resp = managed_warehouse.enable_backfill(org.id, team.id, "events")
+    resp = managed_warehouse.onboard_team(org.id, team.id, "events")
 
     assert resp.status_code == 400
     assert "provision" in resp.data["error"].lower()
+    mock_request.assert_not_called()
 
 
 @pytest.mark.django_db
 @patch("products.data_warehouse.backend.presentation.views.managed_warehouse.is_enabled", return_value=False)
-def test_enable_backfill_gated_on_feature_flag(mock_enabled: MagicMock) -> None:
+def test_onboard_team_gated_on_feature_flag(mock_enabled: MagicMock) -> None:
     org, team, _ = _provisioned_org()
 
-    resp = managed_warehouse.enable_backfill(org.id, team.id, "events")
+    resp = managed_warehouse.onboard_team(org.id, team.id, "events")
 
     assert resp.status_code == 403
     assert not DuckgresServerTeam.objects.filter(team_id=team.id).exists()
@@ -455,11 +494,13 @@ def test_enable_backfill_gated_on_feature_flag(mock_enabled: MagicMock) -> None:
 
 @pytest.mark.django_db
 @patch("products.data_warehouse.backend.presentation.views.managed_warehouse.is_enabled", return_value=True)
-def test_enable_backfill_same_name_is_idempotent(mock_enabled: MagicMock) -> None:
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse._request")
+def test_onboard_team_same_name_is_idempotent(mock_request: MagicMock, _mock_enabled: MagicMock) -> None:
     org, team, _ = _provisioned_org()
+    mock_request.return_value = Response({"team_id": team.id, "schema_name": "first"}, status=200)
 
-    managed_warehouse.enable_backfill(org.id, team.id, "first")
-    resp = managed_warehouse.enable_backfill(org.id, team.id, "first")
+    managed_warehouse.onboard_team(org.id, team.id, "first")
+    resp = managed_warehouse.onboard_team(org.id, team.id, "first")
 
     assert resp.status_code == 200
     assert DuckgresServerTeam.objects.filter(team_id=team.id).count() == 1
@@ -468,27 +509,36 @@ def test_enable_backfill_same_name_is_idempotent(mock_enabled: MagicMock) -> Non
 
 @pytest.mark.django_db
 @patch("products.data_warehouse.backend.presentation.views.managed_warehouse.is_enabled", return_value=True)
-def test_enable_backfill_refuses_to_change_an_existing_suffix(mock_enabled: MagicMock) -> None:
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse._request")
+def test_onboard_team_refuses_to_change_an_existing_suffix(mock_request: MagicMock, _mock_enabled: MagicMock) -> None:
     org, team, _ = _provisioned_org()
-    managed_warehouse.enable_backfill(org.id, team.id, "first")
+    mock_request.return_value = Response({"team_id": team.id, "schema_name": "first"}, status=200)
+    managed_warehouse.onboard_team(org.id, team.id, "first")
+    mock_request.reset_mock()
 
-    resp = managed_warehouse.enable_backfill(org.id, team.id, "second")
+    resp = managed_warehouse.onboard_team(org.id, team.id, "second")
 
-    # Changing a set suffix would split the team's data across two tables — rejected, unchanged.
+    # Changing a set suffix would split the team's data across two tables — rejected before
+    # the control plane, so the duckgres row keeps its schema too.
     assert resp.status_code == 400
+    mock_request.assert_not_called()
     assert DuckgresServerTeam.objects.get(team_id=team.id).table_suffix == "first"
 
 
 @pytest.mark.django_db
 @patch("products.data_warehouse.backend.presentation.views.managed_warehouse.is_enabled", return_value=True)
-def test_enable_backfill_refuses_to_set_a_suffix_on_a_legacy_shared_team(mock_enabled: MagicMock) -> None:
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse._request")
+def test_onboard_team_refuses_to_set_a_suffix_on_a_legacy_shared_team(
+    mock_request: MagicMock, _mock_enabled: MagicMock
+) -> None:
     org, team, server = _provisioned_org()
     # A legacy team already backfilling to the shared tables (NULL suffix), e.g. backfilled by migration.
     DuckgresServerTeam.objects.create(server=server, team=team, backfill_enabled=True, table_suffix=None)
 
-    resp = managed_warehouse.enable_backfill(org.id, team.id, "new_name")
+    resp = managed_warehouse.onboard_team(org.id, team.id, "new_name")
 
     assert resp.status_code == 400
+    mock_request.assert_not_called()
     assert DuckgresServerTeam.objects.get(team_id=team.id).table_suffix is None
 
 
@@ -507,3 +557,278 @@ def test_delete_org_issues_delete_to_org_root(mock_internal: MagicMock, _mock_en
     method, url = mock_internal.request.call_args.args
     assert method == "DELETE"
     assert url == f"http://duckgres.invalid/api/v1/orgs/{org_id}"
+
+
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.is_enabled", return_value=True)
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.internal_requests")
+@override_settings(DUCKGRES_API_URL="http://duckgres.invalid", DUCKGRES_INTERNAL_SECRET="s")
+def test_list_teams_hits_org_teams_route(mock_internal: MagicMock, _mock_enabled: MagicMock) -> None:
+    org_id = uuid4()
+    mock_internal.request.return_value = MagicMock(status_code=200, **{"json.return_value": []})
+
+    resp = managed_warehouse.list_teams(org_id)
+
+    assert resp.status_code == 200
+    method, url = mock_internal.request.call_args.args
+    assert method == "GET"
+    assert url == f"http://duckgres.invalid/api/v1/orgs/{org_id}/teams"
+
+
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.is_enabled", return_value=True)
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.internal_requests")
+@override_settings(DUCKGRES_API_URL="http://duckgres.invalid", DUCKGRES_INTERNAL_SECRET="s")
+def test_create_team_posts_upsert_with_only_set_optional_fields(
+    mock_internal: MagicMock, _mock_enabled: MagicMock
+) -> None:
+    # Unset legacy fields must be omitted entirely — sending them as null would make duckgres
+    # treat a derived-layout team as explicitly named.
+    org_id = uuid4()
+    mock_internal.request.return_value = MagicMock(status_code=200, **{"json.return_value": {}})
+
+    resp = managed_warehouse.create_team(
+        org_id, 42, "my_schema", events_table_name="events_my", persons_table_name="persons_my"
+    )
+
+    assert resp.status_code == 200
+    method, url = mock_internal.request.call_args.args
+    assert method == "POST"
+    assert url == f"http://duckgres.invalid/api/v1/orgs/{org_id}/teams"
+    assert mock_internal.request.call_args.kwargs["json"] == {
+        "team_id": 42,
+        "schema_name": "my_schema",
+        "events_table_name": "events_my",
+        "persons_table_name": "persons_my",
+    }
+
+
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.is_enabled", return_value=True)
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.internal_requests")
+def test_create_team_rejects_invalid_schema_name(mock_internal: MagicMock, _mock_enabled: MagicMock) -> None:
+    resp = managed_warehouse.create_team(uuid4(), 42, "Bad Name")
+
+    assert resp.status_code == 400
+    mock_internal.request.assert_not_called()
+
+
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.is_enabled", return_value=True)
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.internal_requests")
+@override_settings(DUCKGRES_API_URL="http://duckgres.invalid", DUCKGRES_INTERNAL_SECRET="s")
+def test_delete_team_hits_org_team_route(mock_internal: MagicMock, _mock_enabled: MagicMock) -> None:
+    org_id = uuid4()
+    mock_internal.request.return_value = MagicMock(status_code=200, **{"json.return_value": {}})
+
+    resp = managed_warehouse.delete_team(org_id, 42)
+
+    assert resp.status_code == 200
+    method, url = mock_internal.request.call_args.args
+    assert method == "DELETE"
+    assert url == f"http://duckgres.invalid/api/v1/orgs/{org_id}/teams/42"
+
+
+@pytest.mark.django_db
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.create_team")
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.list_teams")
+def test_team_onboarding_state_for_duckgres_team(mock_list: MagicMock, mock_create: MagicMock) -> None:
+    # Branch b: the duckgres row exists — onboarded, no grandfather push.
+    org, team, server = _provisioned_org()
+    DuckgresServerTeam.objects.create(server=server, team=team, table_suffix="mine")
+    mock_list.return_value = Response([{"team_id": team.id, "schema_name": "mine"}], status=200)
+
+    state = managed_warehouse.team_onboarding_state(org.id, team.id)
+
+    assert state == {"team_onboarded": True, "schema_name": "mine"}
+    mock_create.assert_not_called()
+
+
+@pytest.mark.django_db
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.create_team")
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.list_teams")
+def test_team_onboarding_state_for_unonboarded_team(mock_list: MagicMock, mock_create: MagicMock) -> None:
+    # Branch c: warehouse exists but this team has no row anywhere — the onboarding screen case.
+    org, team, _ = _provisioned_org()
+    mock_list.return_value = Response([{"team_id": team.id + 1, "schema_name": "other"}], status=200)
+
+    state = managed_warehouse.team_onboarding_state(org.id, team.id)
+
+    assert state == {"team_onboarded": False, "schema_name": None}
+    mock_create.assert_not_called()
+
+
+@parameterized.expand(
+    [
+        # suffix set: schema is the suffix, explicit suffixed legacy names
+        (
+            "with_suffix",
+            "prod_env",
+            {
+                "schema_name": "prod_env",
+                "events_table_name": "events_prod_env",
+                "persons_table_name": "persons_prod_env",
+                "schema_data_imports_name": "posthog_data_imports_prod_env",
+            },
+        ),
+        # NULL suffix: legacy shared tables and the team-id data-imports schema
+        (
+            "without_suffix",
+            None,
+            {
+                "schema_name": None,  # filled per-team below
+                "events_table_name": "events",
+                "persons_table_name": "persons",
+                "schema_data_imports_name": None,  # filled per-team below
+            },
+        ),
+    ]
+)
+@pytest.mark.django_db
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.list_teams")
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.internal_requests")
+@override_settings(DUCKGRES_API_URL="http://duckgres.invalid", DUCKGRES_INTERNAL_SECRET="s")
+def test_team_onboarding_state_lazily_grandfathers_django_only_team(
+    _name: str,
+    table_suffix: str | None,
+    expected: dict,
+    mock_internal: MagicMock,
+    mock_list: MagicMock,
+) -> None:
+    # A team onboarded before the control plane tracked teams (Django row only) is pushed to
+    # duckgres during the status read, pinning its explicit legacy table names.
+    org, team, server = _provisioned_org()
+    DuckgresServerTeam.objects.create(server=server, team=team, table_suffix=table_suffix)
+    mock_list.return_value = Response([], status=200)
+    mock_internal.request.return_value = MagicMock(status_code=200, **{"json.return_value": {}})
+
+    expected = {
+        **expected,
+        "schema_name": expected["schema_name"] or f"team_{team.id}",
+        "schema_data_imports_name": expected["schema_data_imports_name"] or f"posthog_data_imports_team_{team.id}",
+    }
+
+    state = managed_warehouse.team_onboarding_state(org.id, team.id)
+
+    assert state == {"team_onboarded": True, "schema_name": expected["schema_name"]}
+    assert mock_internal.request.call_args.kwargs["json"] == {"team_id": team.id, **expected}
+
+
+@pytest.mark.django_db
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.create_team")
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.list_teams")
+def test_team_onboarding_state_survives_control_plane_failure(mock_list: MagicMock, mock_create: MagicMock) -> None:
+    # The status read must never fail on the control plane: a Django-onboarded team still
+    # reports as onboarded (with its would-be schema) when list-teams errors.
+    org, team, server = _provisioned_org()
+    DuckgresServerTeam.objects.create(server=server, team=team, table_suffix="mine")
+    mock_list.return_value = Response({"error": "unreachable"}, status=502)
+
+    state = managed_warehouse.team_onboarding_state(org.id, team.id)
+
+    assert state == {"team_onboarded": True, "schema_name": "mine"}
+    mock_create.assert_not_called()
+
+
+@pytest.mark.django_db
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.create_team")
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.list_teams")
+def test_team_onboarding_state_survives_failed_grandfather_push(mock_list: MagicMock, mock_create: MagicMock) -> None:
+    # A failed push is logged and retried on the next status read; the team still reports
+    # onboarded from its Django row.
+    org, team, server = _provisioned_org()
+    DuckgresServerTeam.objects.create(server=server, team=team, table_suffix="mine")
+    mock_list.return_value = Response([], status=200)
+    mock_create.return_value = Response({"error": "boom"}, status=500)
+
+    state = managed_warehouse.team_onboarding_state(org.id, team.id)
+
+    assert state == {"team_onboarded": True, "schema_name": "mine"}
+
+
+@pytest.mark.django_db
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.list_teams")
+def test_check_schema_name_availability(mock_list: MagicMock) -> None:
+    # Taken by a duckgres row, taken by a Django-only (not yet grandfathered) suffix, or free.
+    org, team, server = _provisioned_org()
+    DuckgresServerTeam.objects.create(server=server, team=team, table_suffix="django_only")
+    mock_list.return_value = Response([{"team_id": 999, "schema_name": "in_duckgres"}], status=200)
+
+    for name, available in (("in_duckgres", False), ("django_only", False), ("fresh_name", True)):
+        resp = managed_warehouse.check_schema_name(org.id, name)
+        assert resp.status_code == 200, name
+        assert resp.data == {"name": name, "available": available}
+
+
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.list_teams")
+def test_check_schema_name_rejects_invalid_name(mock_list: MagicMock) -> None:
+    resp = managed_warehouse.check_schema_name(uuid4(), "Bad Name")
+
+    assert resp.status_code == 400
+    mock_list.assert_not_called()
+
+
+@pytest.mark.django_db
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.delete_team")
+def test_block_team_deletion_skips_orgs_without_warehouse(mock_delete: MagicMock) -> None:
+    # Teams with no warehouse involvement must never trigger a control-plane call.
+    org = Organization.objects.create(name="Org")
+    team = Team.objects.create(organization=org)
+
+    assert managed_warehouse.block_team_deletion(team.id, org.id) is None
+    mock_delete.assert_not_called()
+
+
+@parameterized.expand(
+    [
+        ("deleted", 200, None),
+        ("not_in_duckgres", 404, None),
+    ]
+)
+@pytest.mark.django_db
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.delete_team")
+def test_block_team_deletion_proceeds_when_duckgres_row_gone(
+    _name: str, cp_status: int, expected: None, mock_delete: MagicMock
+) -> None:
+    org, team, server = _provisioned_org()
+    DuckgresServerTeam.objects.create(server=server, team=team, table_suffix="mine")
+    mock_delete.return_value = Response({}, status=cp_status)
+
+    assert managed_warehouse.block_team_deletion(team.id, org.id) is expected
+    mock_delete.assert_called_once_with(org.id, team.id, require_enabled=False)
+
+
+@pytest.mark.django_db
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.delete_team")
+def test_block_team_deletion_blocks_last_warehouse_team(mock_delete: MagicMock) -> None:
+    # duckgres 409s on the org's last team: the Django deletion must be blocked with guidance
+    # to deprovision the warehouse (or delete the organization) instead.
+    org, team, server = _provisioned_org()
+    DuckgresServerTeam.objects.create(server=server, team=team, table_suffix="mine")
+    mock_delete.return_value = Response({"error": "last team"}, status=409)
+
+    reason = managed_warehouse.block_team_deletion(team.id, org.id)
+
+    assert reason is not None
+    assert "deprovision" in reason.lower()
+
+
+@pytest.mark.django_db
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.delete_team")
+def test_block_team_deletion_blocks_onboarded_team_when_control_plane_unreachable(mock_delete: MagicMock) -> None:
+    # An onboarded team must not be silently orphaned in duckgres — block with a retry error.
+    org, team, server = _provisioned_org()
+    DuckgresServerTeam.objects.create(server=server, team=team, table_suffix="mine")
+    mock_delete.return_value = Response({"error": "unreachable"}, status=502)
+
+    reason = managed_warehouse.block_team_deletion(team.id, org.id)
+
+    assert reason is not None
+    assert "try again" in reason.lower()
+
+
+@pytest.mark.django_db
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.delete_team")
+def test_block_team_deletion_lets_unonboarded_team_through_on_control_plane_error(mock_delete: MagicMock) -> None:
+    # The org has a warehouse but this team is not onboarded Django-side: a control-plane
+    # outage must not brick its deletion.
+    org, team, _ = _provisioned_org()
+    mock_delete.return_value = Response({"error": "unreachable"}, status=502)
+
+    assert managed_warehouse.block_team_deletion(team.id, org.id) is None
