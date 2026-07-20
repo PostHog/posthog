@@ -78,12 +78,7 @@ export function Properties({
                     label="Show null"
                     size="small"
                 />
-                <LemonCheckbox
-                    checked={showPinnedOnly}
-                    onChange={setShowPinnedOnly}
-                    label="Pinned only"
-                    size="small"
-                />
+                <LemonCheckbox checked={showPinnedOnly} onChange={setShowPinnedOnly} label="Pinned only" size="small" />
             </div>
 
             {numProperties === 0 ? (
