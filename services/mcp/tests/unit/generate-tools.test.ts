@@ -1815,7 +1815,7 @@ describe('generateToolCode with confirmed_action', () => {
         expect(result.code).not.toMatch(/const organizationEnforce2faUpdate\s*=/)
     })
 
-    it('extends the base schema for the execute variant with confirmation fields', () => {
+    it('emits a strict confirmation-only schema for the execute variant', () => {
         const result = generateToolCode(
             'organization-enforce-2fa-update',
             makeConfirmedConfig(),
@@ -1826,7 +1826,8 @@ describe('generateToolCode with confirmed_action', () => {
             stubGetQuerySchema
         )
         expect(result.code).toContain('OrganizationEnforce2faUpdateSchemaExecute')
-        expect(result.code).toContain('.extend({')
+        expect(result.code).toContain('z.strictObject({')
+        expect(result.code).not.toContain('OrganizationEnforce2faUpdateSchema.extend({')
         expect(result.code).toContain('confirmation_hash')
         expect(result.code).toContain('confirmation:')
     })
@@ -1864,12 +1865,7 @@ describe('generateToolCode with confirmed_action', () => {
         expect(result.code).toContain("method: 'PATCH'")
     })
 
-    it('REPLACES params with verifiedArgs (never merges) so unsigned extras cannot survive', () => {
-        // The generated handler must not preserve incoming params alongside
-        // verifiedArgs — only the signed payload is authorized. A merge
-        // would let the model slip an unsigned base-schema field (e.g. an
-        // extra 'name') into the downstream API body without it ever being
-        // shown to the user at prepare time.
+    it('uses only verifiedArgs as the downstream action params', () => {
         const result = generateToolCode(
             'organization-enforce-2fa-update',
             makeConfirmedConfig(),
@@ -1879,8 +1875,8 @@ describe('generateToolCode with confirmed_action', () => {
             new Set<string>(),
             stubGetQuerySchema
         )
-        expect(result.code).toContain('params = { ...__guard.verifiedArgs }')
-        expect(result.code).not.toMatch(/params\s*=\s*\{\s*\.\.\.params\s*,\s*\.\.\.__guard\.verifiedArgs/)
+        expect(result.code).toContain('const params = __guard.verifiedArgs')
+        expect(result.code).toContain('incomingArgs: confirmationParams')
     })
 
     it('uses the tool title as the fallback action_label when none is set', () => {

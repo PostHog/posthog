@@ -2,6 +2,7 @@ from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters_to_dict,
     apply_dashboard_variables_to_dict,
 )
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
@@ -80,6 +81,7 @@ class InsightContext:
         return_exceptions: bool = False,
         truncate_results: bool = True,
         include_prompt_framing: bool = True,
+        execution_mode: ExecutionMode | None = None,
     ) -> str:
         """Execute query and format results."""
         effective_query = await self._get_effective_query()
@@ -93,6 +95,7 @@ class InsightContext:
                 truncate_results=truncate_results,
                 user=self.user,
                 include_prompt_framing=include_prompt_framing,
+                execution_mode=execution_mode,
             )
         except Exception as e:
             error_message = f"Error executing query: {str(e)}"

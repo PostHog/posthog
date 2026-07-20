@@ -190,7 +190,7 @@ to require explicit user confirmation. When this field is present, codegen emits
 instead of one:
 
 - `<name>-prepare` — validates args, returns a signed confirmation hash and a message to surface to the user
-- `<name>-execute` — verifies the hash plus the literal "confirm" string from the user, then executes the action
+- `<name>-execute` — accepts only the hash plus the literal "confirm" string from the user, then executes the signed action
 
 The model calls them in sequence: prepare → surface message → wait for user to type "confirm" → execute.
 
@@ -217,6 +217,7 @@ tools:
 | `action_label` | No       | Short label for the action (e.g. "delete project"). Defaults to the tool's title.                        |
 
 The prepare step also signs the active project/organization scope into the hash, and execute refuses if the active scope has changed since prepare — so a confirmation prepared in one project can't be replayed against another after `switch-project`.
+Action arguments belong only on the prepare call. The execute schema is strict: it rejects extra action fields and recovers the original validated arguments from the signed hash.
 
 Requirements:
 

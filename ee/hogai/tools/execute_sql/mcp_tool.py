@@ -8,6 +8,7 @@ from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import parse_select
 from posthog.hogql.taxonomy_validation import validate_taxonomy_references
 
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.sync import database_sync_to_async
 
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
@@ -18,6 +19,19 @@ from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.mcp_tool import MCPTool, mcp_tool_registry
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.tools.execute_sql.import_suggestions import build_import_suggestion, extract_unknown_tables
+
+_INFORMATION_SCHEMA_PREFIX = "system.information_schema."
+
+
+def _execution_mode_for_query(query: str) -> ExecutionMode | None:
+    try:
+        table_names = get_table_names(parse_select(query, placeholders={}))
+    except Exception:
+        return None
+
+    if any(table_name.lower().startswith(_INFORMATION_SCHEMA_PREFIX) for table_name in table_names):
+        return ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+    return None
 
 
 class ExecuteSQLMCPToolArgs(BaseModel):
@@ -50,6 +64,7 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
     async def execute(self, args: ExecuteSQLMCPToolArgs) -> str:
         query: AssistantHogQLQuery | HogQLQuery
         taxonomy_warnings: list[HogQLNotice] = []
+        execution_mode: ExecutionMode | None = None
         if args.connectionId:
             # Queries targeting an external connection reference tables that aren't in the
             # default ClickHouse database, so the local parse/print HogQL validation step
@@ -72,6 +87,7 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
 
             variables = await self._abuild_query_variables(validated.query)
             query = HogQLQuery(query=validated.query, variables=variables) if variables else validated
+            execution_mode = _execution_mode_for_query(query.query)
 
             # Warn (non-fatally) when the query references events/properties absent from the project
             # taxonomy — the most common silent-wrong-answer surface for agents (e.g. `event = 'purchase'`
@@ -86,7 +102,10 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
             user=self._user,
         )
         results = await insight_context.execute_and_format(
-            prompt_template="{{{results}}}", truncate_results=args.truncate, include_prompt_framing=False
+            prompt_template="{{{results}}}",
+            truncate_results=args.truncate,
+            include_prompt_framing=False,
+            execution_mode=execution_mode,
         )
 
         return _prepend_taxonomy_warnings(results, taxonomy_warnings)

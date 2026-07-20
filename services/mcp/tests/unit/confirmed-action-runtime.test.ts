@@ -125,7 +125,6 @@ describe('executeConfirmedAction', () => {
             incomingArgs: {
                 [CONFIRMATION_HASH_ARG]: hash,
                 [CONFIRMATION_WORD_ARG]: 'confirm',
-                orgId: 'acme',
             },
             purpose: 'enforce-2fa',
             codec,
@@ -186,14 +185,14 @@ describe('executeConfirmedAction', () => {
         const { codec, ledger } = setup()
         const hash = await mintToken(codec, 'did-1', 'p', { orgId: 'x' })
         const first = await executeConfirmedAction(makeContext('did-1'), {
-            incomingArgs: { [CONFIRMATION_HASH_ARG]: hash, [CONFIRMATION_WORD_ARG]: 'confirm', orgId: 'x' },
+            incomingArgs: { [CONFIRMATION_HASH_ARG]: hash, [CONFIRMATION_WORD_ARG]: 'confirm' },
             purpose: 'p',
             codec,
             ledger,
         })
         expect(first.ok).toBe(true)
         const second = await executeConfirmedAction(makeContext('did-1'), {
-            incomingArgs: { [CONFIRMATION_HASH_ARG]: hash, [CONFIRMATION_WORD_ARG]: 'confirm', orgId: 'x' },
+            incomingArgs: { [CONFIRMATION_HASH_ARG]: hash, [CONFIRMATION_WORD_ARG]: 'confirm' },
             purpose: 'p',
             codec,
             ledger,
@@ -221,7 +220,6 @@ describe('executeConfirmedAction', () => {
             incomingArgs: {
                 [CONFIRMATION_HASH_ARG]: prep.confirmation_hash,
                 [CONFIRMATION_WORD_ARG]: 'confirm',
-                name: 'mrr',
             },
             purpose: 'metric-approve',
             codec,
@@ -248,7 +246,6 @@ describe('executeConfirmedAction', () => {
             incomingArgs: {
                 [CONFIRMATION_HASH_ARG]: prep.confirmation_hash,
                 [CONFIRMATION_WORD_ARG]: 'confirm',
-                name: 'mrr',
             },
             purpose: 'metric-approve',
             codec,
@@ -295,7 +292,7 @@ describe('executeConfirmedAction', () => {
         })
         const hash = await mintToken(codec, 'did-1', 'tool-A', { x: 1 })
         const outcome = await executeConfirmedAction(makeContext('did-1'), {
-            incomingArgs: { [CONFIRMATION_HASH_ARG]: hash, [CONFIRMATION_WORD_ARG]: 'confirm', x: 1 },
+            incomingArgs: { [CONFIRMATION_HASH_ARG]: hash, [CONFIRMATION_WORD_ARG]: 'confirm' },
             purpose: 'tool-A',
             codec,
             ledger,
@@ -368,7 +365,6 @@ describe('confirmed-action metrics', () => {
             incomingArgs: {
                 [CONFIRMATION_HASH_ARG]: prep.confirmation_hash,
                 [CONFIRMATION_WORD_ARG]: 'confirm',
-                id: 'x',
             },
             purpose: 'tool-B',
             codec,

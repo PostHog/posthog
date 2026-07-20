@@ -132,14 +132,14 @@ export async function prepareConfirmedAction<P extends Record<string, unknown>>(
         next_steps:
             `Surface the message above to the user. Wait for them to reply with the literal word "${CONFIRMATION_WORD}". ` +
             `Then call the matching \`-execute\` tool with \`${CONFIRMATION_HASH_ARG}\` set to the confirmation_hash from this result, ` +
-            `\`${CONFIRMATION_WORD_ARG}\` set to the user's literal reply, and the same arguments you used here. ` +
+            `and \`${CONFIRMATION_WORD_ARG}\` set to the user's literal reply. The signed hash already contains the action arguments. ` +
             `If the user does not reply with "${CONFIRMATION_WORD}", do not call the execute tool.`,
     }
 }
 
-export interface ExecuteConfirmedActionOptions<P extends Record<string, unknown>> {
-    /** The full incoming args object — includes `confirmation_hash`, `confirmation`, and the original tool args. */
-    incomingArgs: P & { [CONFIRMATION_HASH_ARG]: string; [CONFIRMATION_WORD_ARG]: string }
+export interface ExecuteConfirmedActionOptions {
+    /** The execute tool accepts only the signed hash and the user's confirmation word. */
+    incomingArgs: { [CONFIRMATION_HASH_ARG]: string; [CONFIRMATION_WORD_ARG]: string }
     /** Same `purpose` value used at prepare time. */
     purpose: string
     /** Codec + ledger; both single instances reused across requests. */
@@ -168,7 +168,7 @@ interface ToolErrorResult {
  */
 export async function executeConfirmedAction<P extends Record<string, unknown>>(
     context: Context,
-    options: ExecuteConfirmedActionOptions<P>
+    options: ExecuteConfirmedActionOptions
 ): Promise<ExecuteConfirmedActionOutcome<P>> {
     const sub = await context.getDistinctId()
 

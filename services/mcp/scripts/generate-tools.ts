@@ -1256,8 +1256,8 @@ const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${resultType}> => ${fa
 
 /**
  * Emit prepare + execute factories for a tool that declares `confirmed_action`.
- * Returns the combined `code` block — the two factories plus the extended
- * schema used by `-execute`. The base schema is emitted exactly as the
+ * Returns the combined `code` block — the two factories plus the strict
+ * confirmation schema used by `-execute`. The base schema is emitted exactly as the
  * non-confirmed path does it, so the prepare variant reuses it directly.
  */
 function buildConfirmedActionFactories(args: {
@@ -1281,13 +1281,15 @@ function buildConfirmedActionFactories(args: {
     const actionLabel = config.confirmed_action?.action_label ?? config.title ?? toolName
     const messageTemplate = config.confirmed_action?.message ?? `Confirm ${actionLabel}?`
 
-    // Execute schema = base schema extended with the two framework fields.
+    // Execute accepts only the two framework fields. The action arguments
+    // were validated and signed at prepare time; accepting them again would
+    // advertise mutable inputs that the runtime intentionally discards.
     // `confirmation` is z.string() not z.literal('confirm') on purpose: the
     // runtime checks the value and refuses with a structured tool-call
     // result + metric counter. A literal would raise a generic zod parse
     // error before our guard runs, losing the metric and the
     // user-targetted refusal text.
-    const executeSchemaDecl = `const ${executeSchemaName} = ${schemaName}.extend({
+    const executeSchemaDecl = `const ${executeSchemaName} = z.strictObject({
     confirmation_hash: z.string().describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
     confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
 })`
@@ -1326,13 +1328,11 @@ ${prepareScopeField}        })
 `
 
     // Execute handler: guard, then re-run the original handler body with
-    // the verified args. `params` is reassigned to the verified payload so
-    // the rest of the original code path (which reads from `params.*`)
-    // works unchanged. The cast pins the type so TS knows the original
-    // shape survives.
+    // the signed, verified args under the same `params` name the generated
+    // request code expects.
     const executeHandler = `        const __runtime = getConfirmedActionRuntime()
-${scopeResolveBlock}        const __guard = await executeConfirmedAction(context, {
-            incomingArgs: params,
+${scopeResolveBlock}        const __guard = await executeConfirmedAction<z.infer<typeof ${schemaName}>>(context, {
+            incomingArgs: confirmationParams,
             purpose: ${JSON.stringify(toolName)},
             codec: __runtime.codec,
             ledger: __runtime.ledger,
@@ -1340,12 +1340,7 @@ ${executeScopeField}        })
         if (!__guard.ok) {
             return __guard.result as never
         }
-        // Replace, do NOT merge: only signed fields are authorized. Any
-        // base-schema field the model slipped into the execute call
-        // (e.g. an unsigned 'name' alongside the signed 'enforce_2fa')
-        // would otherwise survive into the downstream API body.
-        // eslint-disable-next-line no-param-reassign
-        params = { ...__guard.verifiedArgs } as typeof params
+        const params = __guard.verifiedArgs
 ${originalHandlerBody}`
 
     const prepareBody = `{
@@ -1358,7 +1353,7 @@ ${prepareHandler}    },
     const executeBody = `{
     name: '${executeName}',
     schema: ${executeSchemaName},
-    handler: async (context: Context, params: z.infer<typeof ${executeSchemaName}>) => {
+    handler: async (context: Context, confirmationParams: z.infer<typeof ${executeSchemaName}>) => {
 ${executeHandler}    },
 }`
 

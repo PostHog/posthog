@@ -1,10 +1,14 @@
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event
 from unittest.mock import AsyncMock, patch
 
+from django.test import SimpleTestCase
+
 from asgiref.sync import sync_to_async
+from parameterized import parameterized
 
 from posthog.schema import HogQLNotice, HogQLQuery
 
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import EventDefinition
 
 from products.product_analytics.backend.models.insight import Insight
@@ -13,9 +17,27 @@ from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.tools.execute_sql.mcp_tool import (
     ExecuteSQLMCPTool,
     ExecuteSQLMCPToolArgs,
+    _execution_mode_for_query,
     _prepend_taxonomy_warnings,
     _sanitize_warning_line,
 )
+
+
+class TestExecuteSQLExecutionMode(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("metrics",),
+            ("tables",),
+            ("relationships",),
+        ]
+    )
+    def test_information_schema_queries_force_fresh_results(self, table_name: str) -> None:
+        query = f"SELECT * FROM system.information_schema.{table_name}"
+
+        assert _execution_mode_for_query(query) == ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+
+    def test_analytics_queries_keep_default_cache_behavior(self) -> None:
+        assert _execution_mode_for_query("SELECT count() FROM events") is None
 
 
 class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
@@ -81,6 +103,33 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
         )
 
         self.assertIn("Revenue Trends", content)
+
+    async def test_information_schema_execution_bypasses_cached_results(self):
+        captured_execution_mode: ExecutionMode | None = None
+
+        async def fake_execute_and_format(_context, *args, **kwargs):
+            nonlocal captured_execution_mode
+            captured_execution_mode = kwargs.get("execution_mode")
+            return "ok"
+
+        query = "SELECT name, status FROM system.information_schema.metrics"
+        with (
+            patch(
+                "ee.hogai.tools.execute_sql.mcp_tool.InsightContext.execute_and_format",
+                new=fake_execute_and_format,
+            ),
+            patch.object(
+                self.tool,
+                "_validate_hogql_query",
+                new=AsyncMock(return_value=HogQLQuery(query=query)),
+            ),
+        ):
+            result = await self.tool.execute(
+                ExecuteSQLMCPToolArgs(query=query),
+            )
+
+        self.assertEqual(result, "ok")
+        self.assertEqual(captured_execution_mode, ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
     async def test_taxonomy_warning_for_unknown_event(self):
         await sync_to_async(EventDefinition.objects.create)(team=self.team, name="paid_bill")
