@@ -17,7 +17,7 @@ from playwright.sync_api import (
 )
 from prometheus_client import REGISTRY
 
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import AccessDeniedError, QueryError
 
 from posthog.caching.fetch_from_cache import InsightResult
 from posthog.hogql_queries.query_runner import ExecutionMode
@@ -269,6 +269,53 @@ class TestImageExporter(APIBaseTest):
                 f"URL should contain cache key for insight {insight.id}"
             )
 
+    @patch("products.exports.backend.tasks.image_exporter.calculate_for_query_based_insight")
+    def test_dashboard_export_survives_tile_access_denied(
+        self,
+        mock_calculate: Any,
+        mock_remove: Any,
+        mock_open: Any,
+        mock_screenshot_asset: Any,
+    ) -> None:
+        # A tile the export owner can't read (e.g. a denied warehouse table) must degrade to its
+        # access-denied render state, not crash the whole export into error tracking.
+        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
+
+        accessible = Insight.objects.create(
+            team=self.team,
+            name="Accessible",
+            query={"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "SELECT 1"}},
+        )
+        denied = Insight.objects.create(
+            team=self.team,
+            name="Denied warehouse table",
+            query={"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "SELECT 2"}},
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=accessible)
+        DashboardTile.objects.create(dashboard=dashboard, insight=denied)
+
+        dashboard_asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            dashboard=dashboard,
+        )
+
+        def mock_calc(insight: Any, **kwargs: Any) -> InsightResult:
+            if insight.id == denied.id:
+                raise AccessDeniedError("You don't have access to table `customer_billing_summary`.")
+            return make_insight_result(f"cache_key_for_insight_{insight.id}")
+
+        mock_calculate.side_effect = mock_calc
+
+        with self.settings(OBJECT_STORAGE_ENABLED=False):
+            image_exporter.export_image(dashboard_asset)
+
+        # Export completed (screenshot taken) despite the denied tile.
+        assert mock_screenshot_asset.called
+        url_to_render = mock_screenshot_asset.call_args[0][1]
+        assert f"cache_key_for_insight_{accessible.id}" in url_to_render
+        assert f"cache_key_for_insight_{denied.id}" not in url_to_render
+
     @patch("products.exports.backend.tasks.image_exporter._screenshot_asset_browserless")
     @patch("products.exports.backend.tasks.image_exporter.open", new_callable=mock_open, read_data=b"image_data")
     @patch("os.remove")
@@ -433,7 +480,7 @@ class TestImageExporter(APIBaseTest):
         if expected_query_override is not None:
             assert call_kwargs["query_override"] == expected_query_override
         else:
-            assert "query_override" not in call_kwargs
+            assert call_kwargs["query_override"] is None
 
         if expected_query_override is not None:
             # When query_override is present, variables_override must be None —

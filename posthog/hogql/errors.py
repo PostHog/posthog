@@ -59,6 +59,17 @@ class QueryError(ExposedHogQLError):
     pass
 
 
+class AccessDeniedError(QueryError):
+    """The query references a table or view the current access context can't read.
+
+    A subclass of QueryError so existing ``except QueryError`` handlers keep working, while
+    callers that want to degrade gracefully (e.g. skip one tile rather than fail a whole
+    export) can catch this specific case.
+    """
+
+    pass
+
+
 class NotImplementedError(InternalHogQLError):
     """This feature isn't implemented in HogQL (yet)."""
 
