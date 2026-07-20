@@ -10,10 +10,15 @@ import type { OrganizationType } from '~/types'
 
 import { billingAlertNotificationLogic, createPendingBillingDestinations } from './billingAlertNotificationLogic'
 import { billingAlertsLogic } from './billingAlertsLogic'
-import { billingAlertsCreate, billingAlertsDestroy, billingAlertsPartialUpdate } from './generated/api'
+import {
+    billingAlertsCreate,
+    billingAlertsDestroy,
+    billingAlertsPartialUpdate,
+    billingAlertsRetrieve,
+} from './generated/api'
 import type {
     BillingAlertConfigurationApi,
-    BillingAlertMetricEnumApi,
+    CheckIntervalHoursEnumApi,
     PatchedBillingAlertConfigurationApi,
     ThresholdTypeEnumApi,
 } from './generated/api.schemas'
@@ -22,15 +27,13 @@ export interface BillingAlertFormValues {
     name: string
     description: string
     enabled: boolean
-    metric: BillingAlertMetricEnumApi
-    currency: string
     thresholdType: ThresholdTypeEnumApi
     thresholdPercentage: number
     thresholdValue: number
     minimumValue: number
     baselineWindowDays: number
     evaluationDelayHours: number
-    checkIntervalHours: number
+    checkIntervalHours: CheckIntervalHoursEnumApi
     cooldownHours: number
 }
 
@@ -48,8 +51,6 @@ function formDefaults(alert: BillingAlertConfigurationApi | null): BillingAlertF
         name: alert?.name ?? '',
         description: alert?.description ?? '',
         enabled: alert?.enabled ?? true,
-        metric: alert?.metric ?? 'spend',
-        currency: alert?.currency ?? 'USD',
         thresholdType: alert?.threshold_type ?? 'relative_increase',
         thresholdPercentage: numberValue(alert?.threshold_percentage, 50),
         thresholdValue: numberValue(alert?.threshold_value, 100),
@@ -66,8 +67,6 @@ function payload(form: BillingAlertFormValues): PatchedBillingAlertConfiguration
         name: form.name.trim(),
         description: form.description.trim(),
         enabled: form.enabled,
-        metric: form.metric,
-        currency: form.currency,
         threshold_type: form.thresholdType,
         threshold_percentage: form.thresholdType === 'relative_increase' ? String(form.thresholdPercentage) : null,
         threshold_value: form.thresholdType === 'relative_increase' ? null : String(form.thresholdValue),
@@ -178,6 +177,7 @@ export const billingAlertFormLogic = kea<billingAlertFormLogicType>([
                     form.thresholdType !== 'relative_increase' && form.thresholdValue < 0
                         ? 'Enter a value of 0 or more.'
                         : undefined,
+                minimumValue: form.minimumValue < 0 ? 'Enter a value of 0 or more.' : undefined,
                 baselineWindowDays:
                     form.baselineWindowDays < 1 || form.baselineWindowDays > 90
                         ? 'Use a baseline between 1 and 90 days.'
@@ -186,10 +186,9 @@ export const billingAlertFormLogic = kea<billingAlertFormLogicType>([
                     form.evaluationDelayHours < 0 || form.evaluationDelayHours > 72
                         ? 'Use a delay between 0 and 72 hours.'
                         : undefined,
-                checkIntervalHours:
-                    form.checkIntervalHours < 1 || form.checkIntervalHours > 24
-                        ? 'Use an interval between 1 and 24 hours.'
-                        : undefined,
+                checkIntervalHours: !([1, 2, 3, 4, 6, 8, 12, 24] as number[]).includes(form.checkIntervalHours)
+                    ? 'Choose a supported check interval.'
+                    : undefined,
                 cooldownHours:
                     form.cooldownHours < 0 || form.cooldownHours > 720
                         ? 'Use a cooldown between 0 and 720 hours.'
@@ -209,6 +208,7 @@ export const billingAlertFormLogic = kea<billingAlertFormLogicType>([
                 }
 
                 let created: BillingAlertConfigurationApi | null = null
+                let createdDestinationKeys: string[] = []
                 try {
                     const formPayload = payload(form)
                     const saved = props.alert
@@ -221,14 +221,22 @@ export const billingAlertFormLogic = kea<billingAlertFormLogicType>([
 
                     const destinationResult = await createPendingBillingDestinations(organizationId, saved.id, pending)
                     const { createdKeys } = destinationResult
-                    notificationLogic.actions.clearCreatedDestinations(createdKeys)
+                    createdDestinationKeys = createdKeys
                     if (destinationResult.error) {
+                        if (props.alert) {
+                            notificationLogic.actions.clearCreatedDestinations(createdKeys)
+                            try {
+                                actions.editAlert(await billingAlertsRetrieve(organizationId, saved.id))
+                            } catch {
+                                actions.loadAlerts()
+                            }
+                        }
                         throw destinationResult.error
                     }
-
                     if (!props.alert && form.enabled) {
                         await billingAlertsPartialUpdate(organizationId, saved.id, { enabled: true })
                     }
+                    notificationLogic.actions.clearCreatedDestinations(createdKeys)
 
                     lemonToast.success(props.alert ? 'Billing alert updated.' : 'Billing alert created.')
                     actions.loadAlerts()
@@ -239,7 +247,12 @@ export const billingAlertFormLogic = kea<billingAlertFormLogicType>([
                         try {
                             await billingAlertsDestroy(organizationId, created.id)
                         } catch {
-                            actions.editAlert(created)
+                            notificationLogic.actions.clearCreatedDestinations(createdDestinationKeys)
+                            try {
+                                actions.editAlert(await billingAlertsRetrieve(organizationId, created.id))
+                            } catch {
+                                actions.editAlert(created)
+                            }
                             lemonToast.warning('The alert was saved disabled. Add its destination and enable it.')
                         }
                     }

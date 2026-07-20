@@ -147,7 +147,10 @@ function NotificationsStory(): JSX.Element {
             title: 'Slack: #product-alerts',
             tags: [{ label: 'Active', type: 'success' }],
             viewAction: { kind: 'button', label: 'View', url: '#destination' },
-            onDelete: () => setExistingDestinations([]),
+            onDelete: () =>
+                setExistingDestinations((destinations) =>
+                    destinations.map((destination) => ({ ...destination, deleting: true }))
+                ),
         },
     ])
     const [pendingDestinations, setPendingDestinations] = useState<PendingAlertNotificationDestinationView[]>([
@@ -240,7 +243,7 @@ const HISTORY_POINTS: AlertEvaluationHistoryPoint[] = [
     { label: '11:30', value: 71, firedAtTime: true },
     { label: '11:45', value: 64, firedAtTime: true },
     { label: '12:00', value: 53, firedAtTime: false },
-    { label: '12:15', value: 38, firedAtTime: false },
+    { label: '12:15', value: 68, firedAtTime: false, wouldFireUnderCurrentConfiguration: true },
     { label: '12:30', value: 76, firedAtTime: true },
 ]
 
@@ -257,6 +260,7 @@ function EvaluationHistoryStory(): JSX.Element {
                 evaluationsTotal={47}
                 evaluationNoun="evaluation"
                 tableAvailable
+                formatValue={(value) => `$${value.toFixed(2)}`}
             />
         </div>
     )

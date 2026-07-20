@@ -15,7 +15,6 @@ import type {
     BillingAlertConfigurationApi,
     BillingAlertCreateDestinationApi,
     BillingAlertDestinationSummaryApi,
-    NotificationDestinationTypeEnumApi,
 } from './generated/api.schemas'
 
 export type BillingAlertNotificationType = 'slack' | 'teams' | 'webhook'
@@ -40,6 +39,27 @@ function requestError(error: unknown): string {
 function isHttpsUrl(value: string): boolean {
     const trimmed = value.trim()
     return Boolean(trimmed && URL.canParse(trimmed) && new URL(trimmed).protocol === 'https:')
+}
+
+function isMicrosoftTeamsWebhook(value: string): boolean {
+    if (!isHttpsUrl(value)) {
+        return false
+    }
+    const url = new URL(value.trim())
+    const hostname = url.hostname
+    const path = url.pathname
+    if (hostname.endsWith('.logic.azure.com')) {
+        return path.startsWith('/workflows/') && path.includes('/triggers/manual/paths/invoke')
+    }
+    if (hostname.endsWith('.webhook.office.com')) {
+        return path.startsWith('/webhookb2/') && path.includes('/IncomingWebhook/')
+    }
+    if (hostname.endsWith('.powerautomate.com') || hostname.endsWith('.flow.microsoft.com')) {
+        return Boolean(path.replaceAll('/', ''))
+    }
+    return hostname.endsWith('.environment.api.powerplatform.com')
+        ? path.startsWith('/powerautomate/automations/direct/') && path.includes('/workflows/')
+        : false
 }
 
 export async function createPendingBillingDestinations(
@@ -73,6 +93,7 @@ export interface billingAlertNotificationLogicValues {
     webhookUrl: string
     addDisabledReason: string | undefined
     executionTeamMismatch: boolean
+    deletingDestinationKeys: Set<string>
 }
 
 export interface billingAlertNotificationLogicActions {
@@ -87,6 +108,7 @@ export interface billingAlertNotificationLogicActions {
     }
     removePendingDestination: (key: string) => { key: string }
     clearCreatedDestinations: (keys: string[]) => { keys: string[] }
+    setDestinationDeleting: (key: string, deleting: boolean) => { key: string; deleting: boolean }
     deleteDestination: (destination: BillingAlertDestinationSummaryApi) => {
         destination: BillingAlertDestinationSummaryApi
     }
@@ -125,6 +147,7 @@ export const billingAlertNotificationLogic = kea<billingAlertNotificationLogicTy
         removePendingDestination: (key: string) => ({ key }),
         clearCreatedDestinations: (keys: string[]) => ({ keys }),
         deleteDestination: (destination: BillingAlertDestinationSummaryApi) => ({ destination }),
+        setDestinationDeleting: (key: string, deleting: boolean) => ({ key, deleting }),
     }),
     reducers({
         pendingDestinations: [
@@ -159,6 +182,13 @@ export const billingAlertNotificationLogic = kea<billingAlertNotificationLogicTy
             '',
             {
                 setWebhookUrl: (_, { webhookUrl }) => webhookUrl,
+            },
+        ],
+        deletingDestinationKeys: [
+            new Set<string>(),
+            {
+                setDestinationDeleting: (state, { key, deleting }) =>
+                    deleting ? new Set([...state, key]) : new Set([...state].filter((candidate) => candidate !== key)),
             },
         ],
     }),
@@ -197,7 +227,7 @@ export const billingAlertNotificationLogic = kea<billingAlertNotificationLogicTy
                 alert: BillingAlertConfigurationApi | null,
                 executionTeamMismatch: boolean
             ): string | undefined => {
-                if (alert?.destination_types.includes(selectedType as NotificationDestinationTypeEnumApi)) {
+                if (alert?.destinations.some((destination) => destination.type === selectedType)) {
                     return 'This alert already has that destination type.'
                 }
                 if (pending.some((destination) => destination.payload.type === selectedType)) {
@@ -211,6 +241,11 @@ export const billingAlertNotificationLogic = kea<billingAlertNotificationLogicTy
                         return 'Connect Slack first.'
                     }
                     return slackChannel ? undefined : 'Select a Slack channel.'
+                }
+                if (selectedType === 'teams') {
+                    return isMicrosoftTeamsWebhook(webhookUrl)
+                        ? undefined
+                        : 'Enter a supported Microsoft Teams webhook URL.'
                 }
                 return isHttpsUrl(webhookUrl) ? undefined : 'Enter a valid HTTPS webhook URL.'
             },
@@ -250,6 +285,11 @@ export const billingAlertNotificationLogic = kea<billingAlertNotificationLogicTy
             if (!values.currentOrganization?.id || !props.alert) {
                 return
             }
+            const destinationKey = `${destination.type}-${destination.hog_function_ids.join('-')}`
+            if (values.deletingDestinationKeys.has(destinationKey)) {
+                return
+            }
+            actions.setDestinationDeleting(destinationKey, true)
             try {
                 await billingAlertsDestinationsDeleteCreate(values.currentOrganization.id, props.alert.id, {
                     hog_function_ids: [...destination.hog_function_ids],
@@ -263,11 +303,12 @@ export const billingAlertNotificationLogic = kea<billingAlertNotificationLogicTy
                 actions.editAlert({
                     ...props.alert,
                     destinations,
-                    destination_types: destinations.map((candidate) => candidate.type),
                 })
                 actions.loadAlerts()
             } catch (error) {
                 lemonToast.error(requestError(error))
+            } finally {
+                actions.setDestinationDeleting(destinationKey, false)
             }
         },
     })),

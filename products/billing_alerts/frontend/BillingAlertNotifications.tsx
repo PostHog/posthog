@@ -32,6 +32,7 @@ export function BillingAlertNotifications(props: BillingAlertNotificationLogicPr
         slackChannel,
         webhookUrl,
         addDisabledReason,
+        deletingDestinationKeys,
     } = useValues(logic)
     const {
         setSelectedType,
@@ -58,6 +59,7 @@ export function BillingAlertNotifications(props: BillingAlertNotificationLogicPr
                   }
                 : undefined,
             onDelete: () => deleteDestination(destination),
+            deleting: deletingDestinationKeys.has(`${destination.type}-${destination.hog_function_ids.join('-')}`),
         })
     )
     const pendingViews: PendingAlertNotificationDestinationView[] = pendingDestinations.map((destination) => ({

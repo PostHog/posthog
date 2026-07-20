@@ -37,6 +37,7 @@ export interface AlertNotificationDestinationView {
     tags?: { label: string; type?: LemonTagType }[]
     viewAction?: AlertNotificationDestinationIconAction | AlertNotificationDestinationButtonAction
     onDelete: () => void
+    deleting?: boolean
 }
 
 export interface PendingAlertNotificationDestinationView {
@@ -161,6 +162,8 @@ function ExistingDestinations({
                             size="xsmall"
                             status="danger"
                             onClick={destination.onDelete}
+                            loading={destination.deleting}
+                            disabledReason={destination.deleting ? 'Deleting notification.' : undefined}
                             tooltip="Delete notification"
                         />
                     </div>

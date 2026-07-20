@@ -14,8 +14,8 @@ import { billingAlertsLogic } from './billingAlertsLogic'
 import type { BillingAlertConfigurationApi } from './generated/api.schemas'
 
 export function BillingAlertsList(): JSX.Element {
-    const { alerts, alertsLoading, checkingAlertId, deletingAlertIds } = useValues(billingAlertsLogic)
-    const { createAlert, editAlert, checkNow, deleteAlert } = useActions(billingAlertsLogic)
+    const { alerts, alertsPage, alertsPageLoading, checkingAlertId, deletingAlertIds } = useValues(billingAlertsLogic)
+    const { createAlert, editAlert, checkNow, deleteAlert, loadMoreAlerts } = useActions(billingAlertsLogic)
     const columns: LemonTableColumns<BillingAlertConfigurationApi> = [
         {
             title: 'Alert',
@@ -30,11 +30,11 @@ export function BillingAlertsList(): JSX.Element {
         {
             title: 'Destinations',
             render: (_, alert) =>
-                alert.destination_types.length > 0 ? (
+                alert.destinations.length > 0 ? (
                     <div className="flex gap-1 flex-wrap">
-                        {alert.destination_types.map((type) => (
-                            <LemonTag key={type} size="small">
-                                {type === 'teams' ? 'Microsoft Teams' : type}
+                        {alert.destinations.map((destination) => (
+                            <LemonTag key={destination.type} size="small">
+                                {destination.type === 'teams' ? 'Microsoft Teams' : destination.type}
                             </LemonTag>
                         ))}
                     </div>
@@ -96,7 +96,7 @@ export function BillingAlertsList(): JSX.Element {
                         <IconBell /> Billing alerts
                     </h2>
                     <p className="text-secondary mb-0 mt-1">
-                        Get notified when organization spend or usage crosses a threshold.
+                        Get notified when organization spend crosses a threshold.
                     </p>
                 </div>
                 <LemonButton type="primary" icon={<IconPlus />} onClick={createAlert} data-attr="new-billing-alert">
@@ -107,12 +107,18 @@ export function BillingAlertsList(): JSX.Element {
                 dataSource={alerts}
                 columns={columns}
                 rowKey="id"
-                loading={alertsLoading}
+                loading={alertsPageLoading}
                 nouns={['billing alert', 'billing alerts']}
                 emptyState="No billing alerts yet."
                 data-attr="billing-alerts-table"
-                pagination={{ pageSize: 30 }}
             />
+            {alertsPage.next ? (
+                <div className="flex justify-center">
+                    <LemonButton type="secondary" loading={alertsPageLoading} onClick={loadMoreAlerts}>
+                        Load more alerts
+                    </LemonButton>
+                </div>
+            ) : null}
         </div>
     )
 }
