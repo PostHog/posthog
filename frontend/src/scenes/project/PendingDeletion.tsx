@@ -43,8 +43,8 @@ export function ProjectPendingDeletion(): JSX.Element {
                     </h3>
                     <p className="text-secondary">
                         Our hedgehog engineer is carefully taking everything apart. This runs in the background, so it's
-                        safe to close this page. Projects with a lot of data can take several hours, sometimes overnight.
-                        We'll email you when it's done.
+                        safe to close this page. Projects with a lot of data can take several hours, sometimes
+                        overnight. We'll email you when it's done.
                     </p>
                     <div className="flex items-center gap-2 text-secondary text-sm">
                         <Spinner />
