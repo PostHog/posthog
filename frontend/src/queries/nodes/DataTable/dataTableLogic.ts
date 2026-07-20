@@ -15,8 +15,7 @@ import {
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
-import { ExpandedRowKey } from 'lib/logic/tabUiStateLogic'
+import { tabUiStateLogic, type ExpandedRowKey } from 'lib/logic/tabUiStateLogic'
 import { objectsEqual, sortedKeys } from 'lib/utils/objects'
 import { RequiredExcept } from 'lib/utils/types'
 import { teamLogic } from 'scenes/teamLogic'
@@ -507,7 +506,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
         getExpandedRowKey: [
             (s) => [s.columnsInResponse],
             (columnsInResponse: string[] | null): ((row: DataTableRow, rowIndex: number) => ExpandedRowKey) => {
-                // Only column 0 holding `*` guarantees the full event is at that position — an
+                // Only a column holding `*` guarantees the full event is at that position — an
                 // events query can `select` other columns first (e.g. `person`), so guessing
                 // index 0 without `*` would key expansion off the wrong object.
                 const starColumnIndex = columnsInResponse?.includes('*') ? columnsInResponse.indexOf('*') : null
