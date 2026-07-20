@@ -379,9 +379,11 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         ],
         dateRangeBeforeView: [
             null as { dateFrom: string | null; dateTo: string | null } | null,
+            { persist: true },
             {
                 setDateRangeBeforeView: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
-                clearActiveView: () => null,
+                // A manual date pick is the user's new preference, so the snapshot is obsolete
+                setDateRange: () => null,
             },
         ],
         bulkUpdating: [
@@ -582,9 +584,11 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             actions.setCurrentPage(1)
         },
         applyView: ({ view }) => {
-            // Snapshot the pre-view date range once, so switching between views
-            // doesn't overwrite it with the previous view's dates
-            if (!values.activeView) {
+            // Snapshot the user's own date selection the first time a view overwrites it.
+            // The snapshot survives view switches and detaches (a detached view's dates
+            // remain applied and persisted, so the snapshot is the only copy of the
+            // user's preference) and is invalidated only by a manual date pick.
+            if (!values.dateRangeBeforeView) {
                 actions.setDateRangeBeforeView(values.dateFrom, values.dateTo)
             }
             actions.applyViewFilters(view.filters || {})
