@@ -45,7 +45,9 @@ def _dcr_pass_probe() -> ProbeResult:
 class TestCatalogEntries(SimpleTestCase):
     def test_catalog_entries_are_valid(self):
         # A typo'd category/auth_type or duplicate url in a future catalog PR would otherwise
-        # only surface as a failed sync in production — this is the pre-merge guard.
+        # only surface as a failed sync in production — this is the pre-merge guard. Format
+        # checks only: whether a url actually belongs to the named vendor is established by
+        # human review of catalog.py (CODEOWNERS-gated), not by this test.
         urls = [entry.url for entry in MCP_SERVER_CATALOG]
         assert len(urls) == len(set(urls))
         for entry in MCP_SERVER_CATALOG:
@@ -166,6 +168,27 @@ class TestSyncMCPCatalog(TestCase):
         probe_mock.assert_not_called()
         assert counts.created == 1
         assert MCPServerTemplate.objects.get(url=_entry().url).is_active is False
+
+    def test_warns_on_active_row_missing_from_catalog(self):
+        # A catalog url edit orphans the old active row silently — the sync warning is the
+        # only thing that surfaces it, so a refactor dropping it must fail here.
+        MCPServerTemplate.objects.create(name="Linear", url=_entry().url, auth_type="oauth", is_active=True)
+        orphan = MCPServerTemplate.objects.create(
+            name="Old Linear", url="https://legacy.linear.app/mcp", auth_type="oauth", is_active=True
+        )
+        MCPServerTemplate.objects.create(
+            name="Inactive orphan", url="https://gone.example/mcp", auth_type="oauth", is_active=False
+        )
+
+        with patch("products.mcp_store.backend.catalog_sync.logger") as logger_mock:
+            sync_mcp_catalog(entries=[_entry()])
+
+        warned_urls = [
+            call.kwargs["urls"]
+            for call in logger_mock.warning.call_args_list
+            if call.args[0] == "mcp_catalog_sync.active_rows_not_in_catalog"
+        ]
+        assert warned_urls == [[orphan.url]]
 
     def test_one_bad_entry_does_not_stop_the_sync(self):
         # category outside the model's choices makes .create raise only on full_clean, so use a

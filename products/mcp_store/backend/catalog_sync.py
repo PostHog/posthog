@@ -6,7 +6,8 @@ Semantics, chosen so the sync can run unattended at every app startup:
   existing row **updates content fields only** (name, description, auth_type, category,
   icon_domain, docs_url). A changed ``url`` is therefore a new identity: the sync creates a
   fresh row and leaves the old row — and installations pointing at it — untouched. Retire
-  the old row by deactivating it in admin.
+  the old row by deactivating it in admin; the sync logs a warning for every *active* row
+  with no catalog entry so an orphaned row can't linger unnoticed.
 - The sync never touches operational state: ``is_active`` after creation,
   ``oauth_credentials`` (operator-provisioned shared client creds), or ``oauth_metadata``
   once set. Rows absent from the catalog (admin-added or removed entries) are left alone.
@@ -20,6 +21,11 @@ Semantics, chosen so the sync can run unattended at every app startup:
   credentials are always born inactive: an operator provisions credentials in admin and
   activates. Probes run only on creation — a DCR probe mints a real client on the
   provider, so re-probing every sync cycle would leak registrations.
+
+  The probe is a liveness and protocol check, not a security control: it catches a dead
+  url or a mis-declared auth model, but a malicious server passes it trivially. Vendor
+  identity is established by human review of the ``catalog.py`` PR (CODEOWNERS-gated),
+  not by anything in this module.
 """
 
 from dataclasses import dataclass
@@ -121,7 +127,8 @@ def _update_template(template: MCPServerTemplate, entry: CatalogEntry, counts: S
 
 def sync_mcp_catalog(entries: list[CatalogEntry] | None = None, skip_probe: bool = False) -> SyncCounts:
     counts = SyncCounts()
-    for entry in entries if entries is not None else MCP_SERVER_CATALOG:
+    catalog = entries if entries is not None else MCP_SERVER_CATALOG
+    for entry in catalog:
         try:
             template = MCPServerTemplate.objects.filter(url=entry.url).first()
             if template is None:
@@ -135,6 +142,16 @@ def sync_mcp_catalog(entries: list[CatalogEntry] | None = None, skip_probe: bool
         except Exception:
             logger.exception("mcp_catalog_sync.entry_failed", url=entry.url)
             counts.failed += 1
+    orphaned_active = list(
+        MCPServerTemplate.objects.filter(is_active=True)
+        .exclude(url__in=[e.url for e in catalog])
+        .values_list("url", flat=True)
+    )
+    if orphaned_active:
+        # Either an admin-added row (consider folding it into the catalog) or a row
+        # orphaned by a catalog url edit — the latter keeps serving installs forever
+        # unless an operator notices and retires it.
+        logger.warning("mcp_catalog_sync.active_rows_not_in_catalog", urls=orphaned_active)
     logger.info(
         "mcp_catalog_sync.done",
         created=counts.created,

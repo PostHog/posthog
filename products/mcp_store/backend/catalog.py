@@ -10,6 +10,15 @@ docs_url, auth_type). Operational state — ``is_active`` after creation, and th
 Registration — lives on the row and is never touched by the sync. See
 ``catalog_sync.py`` for the exact semantics, including the probe-gated activation
 of newly created entries.
+
+REVIEWERS: merging an entry here is a vendor-trust decision, not data entry. Once
+merged, the sync runs in every environment on the next deploy and — if the probe
+passes — activates the server, making it installable by every tenant and reachable
+by their LLM agents. The probe only verifies the server is alive, speaks MCP, and
+matches the declared auth model; it CANNOT verify that the url belongs to the named
+vendor — a malicious endpoint passes it trivially. PR review of this file is the
+vendor-identity check: confirm the url is the vendor's officially documented MCP
+endpoint before approving. This file is CODEOWNERS-gated for that reason.
 """
 
 from dataclasses import dataclass
