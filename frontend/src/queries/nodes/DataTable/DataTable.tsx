@@ -152,8 +152,6 @@ const DEFAULT_COLUMN_FEATURES = [
     ColumnFeature.canRemove,
 ]
 
-const EVENT_DETAIL_TABLE_PROPS = { pagination: { pageSize: 50, hideOnSinglePage: true } }
-
 let uniqueNode = 0
 
 export function DataTable({
@@ -761,17 +759,10 @@ export function DataTable({
                                 (isEventsQuery(query.source) || isRevenueExampleEventsQuery(query.source)) &&
                                 Array.isArray(result)
                             ) {
-                                return (
-                                    <EventDetails
-                                        event={result[columnsInResponse.indexOf('*')] ?? {}}
-                                        tableProps={EVENT_DETAIL_TABLE_PROPS}
-                                    />
-                                )
+                                return <EventDetails event={result[columnsInResponse.indexOf('*')] ?? {}} />
                             }
                             if (result && !Array.isArray(result)) {
-                                return (
-                                    <EventDetails event={result as EventType} tableProps={EVENT_DETAIL_TABLE_PROPS} />
-                                )
+                                return <EventDetails event={result as EventType} />
                             }
                         },
                         rowExpandable: isExpandableRow,

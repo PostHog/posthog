@@ -9,7 +9,6 @@ import { SurveyResponseDisplay } from 'lib/components/SurveyResponseDisplay/Surv
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { ReplayCaptureDiagnosticsModalButton } from 'scenes/session-recordings/components/ReplayCaptureDiagnosticsModalButton'
 import { hasReplayDiagnosticSignals } from 'scenes/session-recordings/utils/replayCaptureDiagnostics'
@@ -27,19 +26,10 @@ import { MCPEventView } from './MCPEventView'
 
 interface EventDetailsProps {
     event: ErrorPropertyTabEvent
-    tableProps?: Partial<LemonTableProps<Record<string, any>>>
 }
 
-export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Element {
+export function EventDetails({ event }: EventDetailsProps): JSX.Element {
     const getEventId = (event: ErrorPropertyTabEvent): string => String(eventIdentityKey(event) ?? '')
-    const eventId = getEventId(event)
-
-    // Each tab's PropertiesTable paginates independently, so give every embedded LemonTable a
-    // unique id — otherwise LemonTable's router-backed pagination stores the current page under
-    // the shared `?page=` search param, and paging one expanded event's table pages every other
-    // expanded table (and every tab of this same EventDetails) at once.
-    const tablePropsForTab = (tabKey: string): Partial<LemonTableProps<Record<string, any>>> | undefined =>
-        tableProps ? { ...tableProps, id: `event-details-${eventId}-${tabKey}` } : undefined
 
     return (
         <EventPropertyTabs
@@ -133,7 +123,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                     type={PropertyDefinitionType.Event}
                                     properties={properties}
                                     sortProperties
-                                    tableProps={tablePropsForTab(tabKey)}
+                                    virtualized
                                     collapsible
                                 />
                             </div>
@@ -152,7 +142,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                     type={PropertyDefinitionType.Event}
                                     properties={properties}
                                     useDetectedPropertyType={true}
-                                    tableProps={tablePropsForTab(tabKey)}
+                                    virtualized
                                     searchable
                                     collapsible
                                 />
@@ -172,7 +162,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                     type={PropertyDefinitionType.Event}
                                     properties={properties}
                                     useDetectedPropertyType={true}
-                                    tableProps={tablePropsForTab(tabKey)}
+                                    virtualized
                                     searchable
                                     collapsible
                                 />
@@ -202,7 +192,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                     type={PropertyDefinitionType.Event}
                                     properties={properties}
                                     useDetectedPropertyType={['flags', 'properties'].includes(tabKey)}
-                                    tableProps={tablePropsForTab(tabKey)}
+                                    virtualized
                                     filterable={tabKey === 'properties'}
                                     sortProperties
                                     // metadata is so short, that serachable is wasted space
