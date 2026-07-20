@@ -2,7 +2,15 @@ import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 
 import { IconGear, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDropdown, LemonInput, LemonLabel, LemonSelect, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDropdown,
+    LemonInput,
+    LemonLabel,
+    LemonSelect,
+    LemonSwitch,
+    LemonTextArea,
+} from '@posthog/lemon-ui'
 
 import { ModelPicker, getModelPickerFooterLink } from 'products/ai_observability/frontend/ModelPicker'
 import { modelPickerLogic } from 'products/ai_observability/frontend/modelPickerLogic'
@@ -27,8 +35,14 @@ const ROLE_OPTIONS: { value: LlmMessage['role']; label: string }[] = [
 function LlmModelPicker({ action }: { action: LlmAction }): JSX.Element {
     const { logicProps } = useValues(workflowLogic)
     const { partialSetWorkflowActionConfig } = useActions(workflowLogic(logicProps))
-    const { hasByokKeys, providerModelGroups, trialProviderModelGroups, byokModelsLoading, trialModelsLoading, providerKeysLoading } =
-        useValues(modelPickerLogic)
+    const {
+        hasByokKeys,
+        providerModelGroups,
+        trialProviderModelGroups,
+        byokModelsLoading,
+        trialModelsLoading,
+        providerKeysLoading,
+    } = useValues(modelPickerLogic)
 
     const groups = hasByokKeys ? providerModelGroups : trialProviderModelGroups
     const loading = hasByokKeys ? byokModelsLoading || providerKeysLoading : trialModelsLoading
@@ -51,12 +65,32 @@ function LlmModelPicker({ action }: { action: LlmAction }): JSX.Element {
 function LlmSettingsOverlay({ action }: { action: LlmAction }): JSX.Element {
     const { logicProps } = useValues(workflowLogic)
     const { partialSetWorkflowActionConfig } = useActions(workflowLogic(logicProps))
-    const { max_tokens, temperature, top_p, reasoning_effort, thinking } = action.config
+    const { max_tokens, temperature, top_p, reasoning_effort, thinking, response_format } = action.config
 
     const set = (patch: Partial<LlmAction['config']>): void => partialSetWorkflowActionConfig(action.id, patch)
 
     return (
         <div className="space-y-4 p-4 w-[300px]">
+            <div>
+                <label className="text-xs font-medium mb-1 block">Response format</label>
+                <LemonSelect<'text' | 'json_schema'>
+                    size="small"
+                    value={response_format ?? 'text'}
+                    onChange={(value) => set({ response_format: value })}
+                    options={[
+                        { label: 'Text', value: 'text' },
+                        { label: 'JSON', value: 'json_schema' },
+                    ]}
+                    fullWidth
+                    dropdownMatchSelectWidth={false}
+                />
+                {response_format === 'json_schema' && (
+                    <p className="text-xxs text-muted mt-1 mb-0">
+                        The response is parsed into <code>result.parsed</code>. Ask for JSON only in the prompt, then
+                        map fields like <code>parsed.urgency</code>.
+                    </p>
+                )}
+            </div>
             <div>
                 <label className="text-xs font-medium mb-1 block">Max tokens</label>
                 <LemonInput

@@ -124,8 +124,11 @@ export class FetchLlmGatewayClient implements LlmGatewayClient {
 }
 
 function safeParse(text: string): unknown {
+    // Models often wrap JSON in a ```json fence even in json mode; strip it before parsing so the
+    // parsed object still lands in `result.parsed` for downstream mapping.
+    const unfenced = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
     try {
-        return parseJSON(text)
+        return parseJSON(unfenced)
     } catch {
         return undefined
     }
