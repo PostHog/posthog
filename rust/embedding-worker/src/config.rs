@@ -62,6 +62,11 @@ pub struct Config {
     )]
     pub recent_ids_dynamodb_table: String,
 
+    // Optional endpoint override for local development and compatible DynamoDB
+    // implementations. Production uses the standard AWS endpoint when unset.
+    #[envconfig(from = "RECENT_IDS_DYNAMODB_ENDPOINT")]
+    pub recent_ids_dynamodb_endpoint: Option<String>,
+
     // How long a recorded document stays queryable. Defaults to 1 week, matching the
     // DynamoDB table's TTL; the worker writes this as each item's `expires_at` attribute.
     #[envconfig(from = "RECENT_IDS_TTL_SECONDS", default = "604800")]
