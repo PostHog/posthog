@@ -493,9 +493,6 @@ export interface FeatureFlagApi {
     readonly experiment_set_metadata: readonly FeatureFlagExperimentSetMetadataApi[]
     readonly surveys: FeatureFlagApiSurveys
     readonly features: FeatureFlagApiFeatures
-    rollback_conditions?: unknown
-    /** @nullable */
-    performed_rollback?: boolean | null
     readonly can_edit: boolean
     tags?: unknown[]
     evaluation_contexts?: unknown[]
@@ -1241,9 +1238,6 @@ export interface FeatureFlagVersionResponseApi {
      * @nullable
      */
     version?: number | null
-    rollback_conditions?: unknown
-    /** @nullable */
-    performed_rollback?: boolean | null
     /** @nullable */
     ensure_experience_continuity?: boolean | null
     /** @nullable */
@@ -1778,6 +1772,10 @@ export type FeatureFlagsListParams = {
      */
     created_by_id?: string
     /**
+     * When 'true', only return flags that can back an experiment: multivariate with 2-20 variants. Any other value is ignored.
+     */
+    eligible_for_experiment?: FeatureFlagsListEligibleForExperiment
+    /**
      * Filter feature flags by their evaluation runtime.
      */
     evaluation_runtime?: FeatureFlagsListEvaluationRuntime
@@ -1824,6 +1822,13 @@ export type FeatureFlagsListArchived = (typeof FeatureFlagsListArchived)[keyof t
 
 export const FeatureFlagsListArchived = {
     False: 'false',
+    True: 'true',
+} as const
+
+export type FeatureFlagsListEligibleForExperiment =
+    (typeof FeatureFlagsListEligibleForExperiment)[keyof typeof FeatureFlagsListEligibleForExperiment]
+
+export const FeatureFlagsListEligibleForExperiment = {
     True: 'true',
 } as const
 

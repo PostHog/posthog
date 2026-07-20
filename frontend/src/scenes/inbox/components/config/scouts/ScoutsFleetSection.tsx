@@ -115,7 +115,7 @@ function ScoutAlphaBanner(): JSX.Element | null {
     )
 }
 
-/** One-line fleet pulse: running, success rate, signals emitted + emit rate. */
+/** One-line fleet pulse: running, success rate, output on both emit channels + output rate. */
 function summarize(summary: FleetSummary | null): string {
     if (!summary) {
         return 'None running now'
@@ -124,11 +124,23 @@ function summarize(summary: FleetSummary | null): string {
     if (summary.successRate !== null) {
         parts.push(`${percentage(summary.successRate, 0)} success`)
     }
-    const emittedPart =
-        summary.emitRate !== null
-            ? `${pluralize(summary.emittedCount, 'signal')} emitted (${percentage(summary.emitRate, 0)})`
-            : `${pluralize(summary.emittedCount, 'signal')} emitted`
-    parts.push(emittedPart)
+    // Output across both emit channels, zero parts dropped — a report-only fleet reads
+    // "4 reports touched", not "0 signals emitted". The rate shares the channel-agnostic
+    // definition of output (`emitRate`), so the count and the percentage always agree.
+    const outputParts: string[] = []
+    if (summary.emittedCount > 0) {
+        outputParts.push(pluralize(summary.emittedCount, 'finding'))
+    }
+    if (summary.touchedReportCount > 0) {
+        outputParts.push(`${pluralize(summary.touchedReportCount, 'report')} touched`)
+    }
+    if (outputParts.length === 0) {
+        parts.push('no output yet')
+    } else if (summary.emitRate !== null) {
+        parts.push(`${outputParts.join(' · ')} (${percentage(summary.emitRate, 0)} of runs)`)
+    } else {
+        parts.push(outputParts.join(' · '))
+    }
     return parts.join(' · ')
 }
 

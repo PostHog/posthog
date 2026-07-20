@@ -58,6 +58,7 @@ class AggregationAxisFormat(StrEnum):
     NUMERIC = "numeric"
     DURATION = "duration"
     DURATION_MS = "duration_ms"
+    DURATION_NS = "duration_ns"
     PERCENTAGE = "percentage"
     PERCENTAGE_SCALED = "percentage_scaled"
     CURRENCY = "currency"
@@ -1911,6 +1912,7 @@ class ExternalDataSourceType(StrEnum):
     PINECONE = "Pinecone"
     PLATFORM_SH = "PlatformSh"
     PROMPTING_COMPANY = "PromptingCompany"
+    PROMPT_WATCH = "PromptWatch"
     QDRANT = "Qdrant"
     RENDER = "Render"
     REPLICATE = "Replicate"
@@ -2040,6 +2042,8 @@ class ExternalDataSourceType(StrEnum):
     SHOPWARE = "Shopware"
     DUBSADO = "Dubsado"
     CAMPFIRE = "Campfire"
+    CRISP = "Crisp"
+    KOMMO = "Kommo"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2125,6 +2129,7 @@ class FileSystemIconType(StrEnum):
     TOOLBAR = "toolbar"
     VISUAL_REVIEW = "visual_review"
     CODE_REVIEW = "code_review"
+    STAMPHOG = "stamphog"
     SETTINGS = "settings"
     HEALTH = "health"
     INBOX = "inbox"
@@ -2877,6 +2882,7 @@ class ProductIntentContext(StrEnum):
     DATA_WAREHOUSE_SOURCES_TABLE = "data warehouse sources table"
     EXPERIMENT_CREATED = "experiment created"
     EXPERIMENT_ANALYZED = "experiment analyzed"
+    EXPERIMENT_VIEW_RECORDINGS = "experiment view recordings"
     FEATURE_FLAG_CREATED = "feature flag created"
     SESSION_REPLAY_SET_FILTERS = "session_replay_set_filters"
     SESSION_REPLAY_EXPERIMENT_LINK_CLICKED = "session_replay_experiment_link_clicked"
@@ -3022,6 +3028,7 @@ class ProductKey(StrEnum):
     PLATFORM_AND_SUPPORT = "platform_and_support"
     PRODUCT_ANALYTICS = "product_analytics"
     PRODUCT_TOURS = "product_tours"
+    PULSE = "pulse"
     REVENUE_ANALYTICS = "revenue_analytics"
     REVIEW_HOG = "review_hog"
     SESSION_REPLAY = "session_replay"

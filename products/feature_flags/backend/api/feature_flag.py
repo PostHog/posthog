@@ -16,6 +16,7 @@ from django.db import transaction
 from django.db.models import Count, Prefetch, Q, QuerySet, deletion
 
 import grpc
+import requests
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse, extend_schema_field
@@ -33,7 +34,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
-from posthog.api.services.flags_service import get_flags_from_service
+from posthog.api.services.flags_service import RETRYABLE_FLAGS_SERVICE_EXCEPTIONS, get_flags_from_service
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, ErrorResponseSerializer, action
@@ -72,7 +73,7 @@ from posthog.rate_limit import (
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.settings.feature_flags import REMOTE_CONFIG_RATE_LIMITS
-from posthog.utils import is_valid_regex
+from posthog.utils import is_valid_regex, str_to_bool
 from posthog.views import format_bytes
 
 from products.approvals.backend.decorators import approval_gate
@@ -953,8 +954,6 @@ class FeatureFlagSerializer(
             "experiment_set_metadata",
             "surveys",
             "features",
-            "rollback_conditions",
-            "performed_rollback",
             "can_edit",
             "tags",
             "evaluation_contexts",
@@ -1356,8 +1355,18 @@ class FeatureFlagSerializer(
                         raise serializers.ValidationError(
                             "Filters are not valid (person-aggregated conditions can only use person, cohort, and flag properties)"
                         )
-                    if prop.type == "flag" and prop_dict.get("operator") != "flag_evaluates_to":
-                        raise serializers.ValidationError("Flag properties must use the 'flag_evaluates_to' operator")
+                    if prop.type == "flag":
+                        if prop_dict.get("operator") != "flag_evaluates_to":
+                            raise serializers.ValidationError(
+                                "Flag properties must use the 'flag_evaluates_to' operator"
+                            )
+                        # Flag dependency keys are flag IDs. The Rust flags service declares
+                        # PropertyFilter.key as a string and serde won't coerce a JSON number,
+                        # so a numeric key fails deserialization of the entire team's cached
+                        # flag payload. Persist it as a string so it round-trips cleanly.
+                        dependency_key = prop_dict.get("key")
+                        if dependency_key is not None:
+                            prop_dict["key"] = str(dependency_key)
                 else:
                     # Group-aggregated condition: only allow group properties matching the
                     # condition's group type
@@ -2088,10 +2097,6 @@ class FeatureFlagSerializer(
         if "get_filters" in validated_data:
             validated_data["filters"] = validated_data.pop("get_filters")
 
-        active = validated_data.get("active", None)
-        if active:
-            validated_data["performed_rollback"] = False
-
     def get_status(self, feature_flag: FeatureFlag) -> str:
         checker = FeatureFlagStatusChecker(feature_flag=feature_flag)
         flag_status, _ = checker.get_status()
@@ -2489,8 +2494,6 @@ class FeatureFlagVersionResponseSerializer(serializers.ModelSerializer):
             "active",
             "deleted",
             "version",
-            "rollback_conditions",
-            "performed_rollback",
             "ensure_experience_continuity",
             "has_enriched_analytics",
             "is_remote_configuration",
@@ -2944,6 +2947,14 @@ class FeatureFlagViewSet(
                 required=False,
                 enum=["true", "false"],
                 description="Filter feature flags by presence of evaluation contexts. 'true' returns only flags with at least one evaluation context, 'false' returns only flags without.",
+            ),
+            OpenApiParameter(
+                "eligible_for_experiment",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=["true"],
+                description="When 'true', only return flags that can back an experiment: multivariate with 2-20 variants. Any other value is ignored.",
             ),
         ]
     )
@@ -3597,8 +3608,7 @@ class FeatureFlagViewSet(
             if key == "active":
                 queryset = filter_flags_by_active_param(queryset, value)
             elif key == "archived":
-                is_archived = value if isinstance(value, bool) else str(value).lower() == "true"
-                queryset = queryset.filter(archived=is_archived)
+                queryset = queryset.filter(archived=str_to_bool(value))
             elif key == "created_by_id":
                 user_ids = parse_created_by_ids(value)
                 if user_ids:
@@ -3668,17 +3678,19 @@ class FeatureFlagViewSet(
                 except (json.JSONDecodeError, TypeError):
                     pass
             elif key == "has_evaluation_contexts":
-                # Handle both string and boolean
-                if isinstance(value, bool):
-                    filter_value = value
-                else:
-                    filter_value = str(value).lower() in ("true", "1", "yes")
-
                 queryset = queryset.annotate(eval_tag_count=Count("flag_evaluation_contexts"))
-                if filter_value:
+                if str_to_bool(value):
                     queryset = queryset.filter(eval_tag_count__gt=0)
                 else:
                     queryset = queryset.filter(eval_tag_count=0)
+            elif key == "eligible_for_experiment":
+                if str_to_bool(value):
+                    # Subquery so this works on plain QuerySets too (e.g. objects_including_soft_deleted).
+                    queryset = queryset.filter(
+                        pk__in=FeatureFlag.objects.filter(team__project_id=self.project_id)
+                        .eligible_for_experiment()
+                        .values("pk")
+                    )
 
         return queryset
 
@@ -3686,6 +3698,10 @@ class FeatureFlagViewSet(
         query_serializer=EvaluationReasonsQuerySerializer,
         responses={
             200: OpenApiResponse(response=EvaluationReasonsResponseSerializer()),
+            502: OpenApiResponse(response=ErrorResponseSerializer, description="Flag evaluation service error"),
+            503: OpenApiResponse(
+                response=ErrorResponseSerializer, description="Flag evaluation service temporarily unavailable"
+            ),
         },
         examples=[
             OpenApiExample(
@@ -3729,15 +3745,48 @@ class FeatureFlagViewSet(
         flag_keys = request.validated_query_data.get("flag_keys") or None
 
         # PostHog UI debug endpoint, not customer SDK traffic. Pass the internal
-        # token so the call bypasses per-team billing.
-        result = get_flags_from_service(
-            token=self.team.api_token,
-            distinct_id=distinct_id,
-            groups=groups,
-            flag_keys=flag_keys,
-            evaluation_runtime="all",
-            internal_request_token=settings.INTERNAL_REQUEST_TOKEN,
-        )
+        # token so the call bypasses per-team billing. Retry the transient
+        # connection blips (the service occasionally times out or refuses the
+        # connection) and turn a persistent failure into a clean error instead of
+        # an unhandled 500, so the person-profile flags tab can show a retry
+        # affordance rather than an empty table that looks like "no flags".
+        try:
+            result = get_flags_from_service(
+                token=self.team.api_token,
+                distinct_id=distinct_id,
+                groups=groups,
+                flag_keys=flag_keys,
+                evaluation_runtime="all",
+                internal_request_token=settings.INTERNAL_REQUEST_TOKEN,
+                max_retries=2,
+            )
+        except RETRYABLE_FLAGS_SERVICE_EXCEPTIONS as e:
+            logger.warning("evaluation_reasons flags service call failed: %s", e)
+            capture_exception(e)
+            return Response(
+                {"error": "Feature flag evaluation service is temporarily unavailable. Please try again."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except (requests.exceptions.HTTPError, requests.exceptions.JSONDecodeError) as e:
+            # A non-2xx response or an unparseable body from the flags service — a real
+            # upstream failure, not the "will probably clear on retry" case above, so it
+            # gets its own status rather than being folded into the 503.
+            logger.warning("evaluation_reasons flags service returned an invalid response: %s", e)
+            capture_exception(e)
+            return Response(
+                {"error": "Feature flag evaluation service returned an unexpected response."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        except requests.exceptions.RequestException as e:
+            # Any other requests failure (SSLError, ProxyError, InvalidSchema, ...) is still an
+            # upstream availability problem, not a "no flags" state — surface the same 503 as
+            # the retryable case above rather than letting it bubble up as an unhandled 500.
+            logger.warning("evaluation_reasons flags service call failed: %s", e)
+            capture_exception(e)
+            return Response(
+                {"error": "Feature flag evaluation service is temporarily unavailable. Please try again."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
         # Result from Rust service is always a dictionary with a "flags" key. Parse it to get the flags data.
         flags_data = result.get("flags", {})

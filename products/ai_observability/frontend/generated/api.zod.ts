@@ -1794,6 +1794,15 @@ export const LlmPromptsNameDuplicateCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const LlmPromptsNameLabelsUpdateBody = /* @__PURE__ */ zod.object({
+    version: zod
+        .number()
+        .min(1)
+        .describe(
+            'Prompt version this label should point to. If the label already exists on another version of the prompt, it is moved there.'
+        ),
+})
+
 export const taggersCreateBodyNameMax = 400
 
 export const taggersCreateBodyTaggerTypeDefault = `llm`

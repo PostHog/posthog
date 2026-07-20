@@ -19,7 +19,7 @@ from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.event_usage import groups
 from posthog.models.integration import Integration
 from posthog.models.user_integration import UserIntegration
-from posthog.security.url_validation import is_url_allowed
+from posthog.security.url_validation import is_url_allowed, resolve_url_hosts_ips
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import (
@@ -347,6 +347,11 @@ class TaskSerializer(DataclassSerializer):
 
     latest_run = TaskRunDetailSerializer(allow_null=True, required=False, help_text="Latest run details for this task")
     created_by = TaskUserBasicInfoSerializer(allow_null=True, required=False)
+    runtime = serializers.ChoiceField(
+        choices=tasks_facade.TaskRuntime.choices,
+        read_only=True,
+        help_text="Agent protocol and harness used for this task's runs.",
+    )
 
     class Meta:
         dataclass = TaskDetailDTO
@@ -358,6 +363,7 @@ class TaskSerializer(DataclassSerializer):
             "title_manually_set",
             "description",
             "origin_product",
+            "runtime",
             "repository",
             "github_integration",
             "github_user_integration",
@@ -617,6 +623,9 @@ class TaskWriteSerializer(serializers.Serializer):
         return normalized
 
     def validate(self, attrs: dict) -> dict:
+        if "runtime" in self.initial_data and "runtime" not in self.fields:
+            raise serializers.ValidationError({"runtime": "Runtime cannot be changed after task creation."})
+
         rel = attrs.get("signal_report_task_relationship")
         if rel is not None:
             if not attrs.get("signal_report"):
@@ -635,6 +644,14 @@ class TaskWriteSerializer(serializers.Serializer):
                 {"github_user_integration": "Signal report tasks use the team GitHub integration."}
             )
         return attrs
+
+
+class TaskCreateSerializer(TaskWriteSerializer):
+    runtime = serializers.ChoiceField(
+        choices=tasks_facade.TaskRuntime.choices,
+        required=False,
+        help_text="Agent protocol and harness used for this task's runs. Defaults to ACP when omitted.",
+    )
 
 
 class TaskRunSetOutputRequestSerializer(serializers.Serializer):
@@ -1535,6 +1552,13 @@ class ImportedMcpServerHeaderSerializer(serializers.Serializer):
     )
 
 
+class ImportedMcpServerListSerializer(serializers.ListSerializer):
+    def to_internal_value(self, data: object) -> list[dict[str, object]]:
+        if isinstance(data, list) and len(data) > MAX_IMPORTED_MCP_SERVERS:
+            raise serializers.ValidationError(f"At most {MAX_IMPORTED_MCP_SERVERS} imported MCP servers are allowed.")
+        return cast(list[dict[str, object]], super().to_internal_value(data))
+
+
 class ImportedMcpServerSerializer(serializers.Serializer):
     """One client-imported MCP server, in the agent server's --mcpServers entry shape."""
 
@@ -1543,14 +1567,8 @@ class ImportedMcpServerSerializer(serializers.Serializer):
     url = serializers.URLField(max_length=2048)
     headers = ImportedMcpServerHeaderSerializer(many=True, required=False, default=list)
 
-    def validate_url(self, value: str) -> str:
-        # The client classifies public vs private hosts for UX, but that is not a
-        # security boundary: the sandbox egresses from PostHog infrastructure, so a
-        # private URL here is a user-controlled SSRF vector. Re-check server-side.
-        allowed, reason = is_url_allowed(value)
-        if not allowed:
-            raise serializers.ValidationError(reason or "URL is not allowed.")
-        return value
+    class Meta:
+        list_serializer_class = ImportedMcpServerListSerializer
 
 
 class ImportedMcpServersFieldMixin(serializers.Serializer):
@@ -1572,11 +1590,15 @@ class ImportedMcpServersFieldMixin(serializers.Serializer):
     def validate_imported_mcp_servers(self, value):
         if not value:
             return None
-        if len(value) > MAX_IMPORTED_MCP_SERVERS:
-            raise serializers.ValidationError(f"At most {MAX_IMPORTED_MCP_SERVERS} imported MCP servers are allowed.")
         _validate_unique_unreserved_mcp_names(value)
         if len(json.dumps(value)) > MAX_IMPORTED_MCP_SERVERS_BYTES:
             raise serializers.ValidationError("Imported MCP servers payload is too large.")
+
+        resolved_ips_by_host = resolve_url_hosts_ips(server["url"] for server in value)
+        for server in value:
+            allowed, reason = is_url_allowed(server["url"], resolved_ips_by_host=resolved_ips_by_host)
+            if not allowed:
+                raise serializers.ValidationError(reason or "URL is not allowed.")
         return value
 
 

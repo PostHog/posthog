@@ -2191,6 +2191,7 @@ export const AggregationAxisFormatApi = {
     Numeric: 'numeric',
     Duration: 'duration',
     DurationMs: 'duration_ms',
+    DurationNs: 'duration_ns',
     Percentage: 'percentage',
     PercentageScaled: 'percentage_scaled',
     Currency: 'currency',
@@ -8207,9 +8208,15 @@ export interface InsightApi {
     order?: number | null
     deleted?: boolean
     /**
+     *
      *         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
      *         A dashboard ID for each of the dashboards that this insight is displayed on.
-     *          */
+     *         This field may be omitted from responses: once opt-in enforcement is enabled, API-token
+     *         callers (personal API keys, OAuth) only receive it when passing the
+     *         `include_dashboards=true` query parameter. Do not rely on it being present.
+     *
+     * @deprecated
+     */
     dashboards?: number[]
     /**
      *     A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
@@ -8478,6 +8485,11 @@ export interface DashboardWidgetRunResultApi {
 export interface RunWidgetsResponseApi {
     /** Per-tile widget run results. */
     results: DashboardWidgetRunResultApi[]
+}
+
+export interface DashboardSubscribeNudgeResponseApi {
+    /** Whether a nudge notification was created. False when one was already sent recently for this user and dashboard, or when in-app notifications are unavailable. */
+    created: boolean
 }
 
 export interface UpdateTextTileRequestApi {
@@ -9217,6 +9229,10 @@ export type DashboardTemplatesListParams = {
      * Optional. `global`: official templates only. `team`: this project's saved templates only (`scope=team` rows for the current project). `organization`: templates shared across all projects in this organization. `feature_flag`: feature-flag dashboard templates only. Omit for official, organization, and this project's templates (default dashboard template picker behavior).
      */
     scope?: DashboardTemplatesListScope
+    /**
+     * Optional. Full-text search across template name, tags, and description, ranked by relevance. Use it to find templates for a topic (e.g. `retention`, `revenue`, `product analytics`).
+     */
+    search?: string
 }
 
 export type DashboardTemplatesListScope = (typeof DashboardTemplatesListScope)[keyof typeof DashboardTemplatesListScope]
@@ -9257,6 +9273,10 @@ export const DashboardsListFormat = {
 
 export type DashboardsCreateParams = {
     format?: DashboardsCreateFormat
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean
 }
 
 export type DashboardsCreateFormat = (typeof DashboardsCreateFormat)[keyof typeof DashboardsCreateFormat]
@@ -9273,6 +9293,10 @@ export type DashboardsRetrieveParams = {
     filters_override?: string
     format?: DashboardsRetrieveFormat
     /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean
+    /**
      * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
      */
     variables_override?: string
@@ -9287,6 +9311,10 @@ export const DashboardsRetrieveFormat = {
 
 export type DashboardsUpdateParams = {
     format?: DashboardsUpdateFormat
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean
 }
 
 export type DashboardsUpdateFormat = (typeof DashboardsUpdateFormat)[keyof typeof DashboardsUpdateFormat]
@@ -9298,6 +9326,10 @@ export const DashboardsUpdateFormat = {
 
 export type DashboardsPartialUpdateParams = {
     format?: DashboardsPartialUpdateFormat
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean
 }
 
 export type DashboardsPartialUpdateFormat =
@@ -9481,6 +9513,18 @@ export type DashboardsStreamTilesRetrieveLayoutSize =
 export const DashboardsStreamTilesRetrieveLayoutSize = {
     Sm: 'sm',
     Xs: 'xs',
+} as const
+
+export type DashboardsSubscribeNudgeCreateParams = {
+    format?: DashboardsSubscribeNudgeCreateFormat
+}
+
+export type DashboardsSubscribeNudgeCreateFormat =
+    (typeof DashboardsSubscribeNudgeCreateFormat)[keyof typeof DashboardsSubscribeNudgeCreateFormat]
+
+export const DashboardsSubscribeNudgeCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
 } as const
 
 export type DashboardsUpdateTextTileCreateParams = {

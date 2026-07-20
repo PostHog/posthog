@@ -79,6 +79,7 @@ logger = logging.getLogger(__name__)
 TaskRunStatus = TaskRun.Status
 TaskRunEnvironment = TaskRun.Environment
 TaskOriginProduct = Task.OriginProduct
+TaskRuntime = Task.Runtime
 SandboxNetworkAccessLevel = SandboxEnvironment.NetworkAccessLevel
 SandboxSnapshotStatus = SandboxSnapshot.Status
 
@@ -113,6 +114,7 @@ __all__ = [
     "SandboxNetworkAccessLevel",
     "SandboxSnapshotStatus",
     "TaskOriginProduct",
+    "TaskRuntime",
     "TaskRunEnvironment",
     "TaskRunStatus",
     "append_task_run_log",
@@ -191,18 +193,15 @@ __all__ = [
     "relay_task_run_message",
     "reset_code_workflow_bindings",
     "resolve_slack_thread_context",
-    "respond_to_permission_request",
     "resume_task_run_in_cloud",
     "run_task",
     "run_task_automation_now",
     "save_code_workflow_bindings",
     "send_cancel",
-    "send_user_message",
     "select_repository_for_message",
     "set_task_run_output",
     "set_task_title",
     "signal_report_queryset",
-    "signal_task_run_permission_response",
     "signal_task_run_user_message",
     "signal_workflow_completion",
     "soft_delete_task",
@@ -212,6 +211,7 @@ __all__ = [
     "task_ids_with_pr_url_subquery",
     "task_run_has_slack_mapping",
     "task_run_is_terminal",
+    "task_runtime",
     "task_visible",
     "update_sandbox_environment",
     "update_task",
@@ -403,6 +403,7 @@ def _task_detail_to_dto(
         title_manually_set=task.title_manually_set,
         description=task.description,
         origin_product=task.origin_product,
+        runtime=task.runtime,
         repository=task.repository,
         github_integration=task.github_integration_id,
         github_user_integration=task.github_user_integration_id,
@@ -1379,10 +1380,19 @@ def build_sandbox_custom_image(
         raise ValueError("The image spec is empty; add packages, commands, or env vars before building")
     validate_spec_buildable(spec, image.repository)
 
-    image.spec = spec.model_dump()
-    image.status = SandboxCustomImage.Status.SCANNING
-    image.error = ""
-    image.save(update_fields=["spec", "status", "error", "updated_at"])
+    updated = (
+        _accessible_custom_images(team_id, user_id)
+        .filter(id=image.id)
+        .exclude(status__in=(SandboxCustomImage.Status.SCANNING, SandboxCustomImage.Status.BUILDING))
+        .update(
+            spec=spec.model_dump(),
+            status=SandboxCustomImage.Status.SCANNING,
+            error="",
+            updated_at=django_timezone.now(),
+        )
+    )
+    if not updated:
+        raise ValueError("A build is already in progress for this image")
 
     observe_custom_image_build("started")
     execute_build_sandbox_image_workflow(str(image.id), team_id)
@@ -2535,12 +2545,23 @@ def validate_task_run_artifact_ids(
 
 
 def signal_task_run_user_message(
-    run_id: str | UUID, task_id: str | UUID, team_id: int, *, content: str | None, artifact_ids: list[str]
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    content: str | None,
+    artifact_ids: list[str],
+    message_id: str | None = None,
 ) -> bool | None:
     """Queue a user_message follow-up signal on the run's workflow.
 
-    Returns ``True`` on success, ``False`` if signalling failed, ``None`` if the run isn't found.
+    Returns ``True`` on success, ``False`` when the target workflow is gone
+    (completed or evicted — a terminal outcome), ``None`` when the run isn't
+    found. Transient signalling failures propagate so a calling Temporal
+    activity retries rather than reporting a dead end to the user.
     """
+    from temporalio.service import RPCError, RPCStatusCode  # noqa: PLC0415 — keep temporalio off the api import path
+
     from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
         signal_task_followup_message,
     )
@@ -2549,51 +2570,12 @@ def signal_task_run_user_message(
     if run is None:
         return None
     try:
-        signal_task_followup_message(run.workflow_id, content, artifact_ids)
-    except Exception:
-        logger.exception("Failed to signal follow-up message for task run %s", run.id)
-        return False
-    return True
-
-
-def signal_task_run_permission_response(
-    run_id: str | UUID,
-    task_id: str | UUID,
-    team_id: int,
-    *,
-    request_id: str,
-    option_id: str,
-    actor_user_id: int,
-    actor_slack_user_id: str | None = None,
-    is_denial: bool = False,
-    denial_message: str | None = None,
-    broker_reason: str | None = None,
-) -> bool | None:
-    """Queue an agent permission response signal on the run's workflow.
-
-    Returns ``True`` on success, ``False`` if signalling failed, ``None`` if the run isn't found.
-    """
-    from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
-        signal_task_permission_response,
-    )
-
-    run = _get_visible_run(run_id, task_id, team_id)
-    if run is None:
-        return None
-    try:
-        signal_task_permission_response(
-            run.workflow_id,
-            request_id=request_id,
-            option_id=option_id,
-            actor_user_id=actor_user_id,
-            actor_slack_user_id=actor_slack_user_id,
-            is_denial=is_denial,
-            denial_message=denial_message,
-            broker_reason=broker_reason,
-        )
-    except Exception:
-        logger.exception("Failed to signal permission response for task run %s", run.id)
-        return False
+        signal_task_followup_message(run.workflow_id, content, artifact_ids, message_id)
+    except RPCError as e:
+        if e.status == RPCStatusCode.NOT_FOUND:
+            logger.warning("Follow-up signal target workflow gone for task run %s", run.id)
+            return False
+        raise
     return True
 
 
@@ -3039,6 +3021,8 @@ def check_task_run_startable(run_id: str | UUID, task_id: str | UUID, team_id: i
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return "not_found"
+    if run.task.runtime == Task.Runtime.PI:
+        return "unsupported_runtime"
     if run.environment != TaskRun.Environment.CLOUD:
         return "not_cloud"
     if run.status not in _STARTABLE_TASK_RUN_STATUSES:
@@ -3118,6 +3102,8 @@ def resume_task_run_in_cloud(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return "not_found", None, None
+    if run.task.runtime == Task.Runtime.PI:
+        return "unsupported_runtime", None, None
 
     logger.info(
         "resume_in_cloud_called",
@@ -3288,6 +3274,15 @@ def get_conversation_task_dtos(task_ids: Sequence[str | UUID], team_id: int) -> 
         .annotate(_latest_run_id=Subquery(latest_run_id_sq))
     )
     return {task.id: _task_detail_to_dto(task, include_latest_run=False) for task in tasks}
+
+
+def task_runtime(task_id: str | UUID, team_id: int, user_id: int | None, *, for_control: bool = False) -> str | None:
+    return (
+        _visible_task_qs(team_id, user_id, for_control=for_control)
+        .filter(id=task_id)
+        .values_list("runtime", flat=True)
+        .first()
+    )
 
 
 def task_visible(task_id: str | UUID, team_id: int, user_id: int | None, *, for_control: bool = False) -> bool:
@@ -4060,6 +4055,12 @@ def run_task(
     task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
     if task is None:
         return None
+    if task.runtime == Task.Runtime.PI:
+        return contracts.TaskRunResult(
+            error=contracts.TaskValidationError(
+                kind="detail", detail="Pi tasks cannot be run through the ACP task workflow."
+            )
+        )
 
     mode = validated_data.get("mode", "background")
     branch = validated_data.get("branch")
@@ -4734,36 +4735,6 @@ def create_sandbox_connection_token(run_id: str | UUID, user_id: int, distinct_i
     return _create(run, user_id, distinct_id)
 
 
-def send_user_message(
-    run_id: str | UUID,
-    message: str | None = None,
-    *,
-    artifacts: list[dict] | None = None,
-    auth_token: str | None = None,
-    timeout: int | None = None,
-    message_id: str | None = None,
-):
-    """Push a follow-up user message (and/or artifacts) into a run's live sandbox.
-
-    ``message_id`` is the agent-server idempotency key — pass a deterministic id when the
-    caller may retry delivery so a redelivered message isn't applied twice.
-    """
-    from products.tasks.backend.logic.services.agent_command import (  # noqa: PLC0415 — keep sandbox deps off the api import path
-        send_user_message as _send,
-    )
-
-    run = TaskRun.objects.select_related("task").get(id=run_id)
-    # Forward only explicitly-provided optionals so the underlying call shape is unchanged.
-    extra: dict = {}
-    if artifacts is not None:
-        extra["artifacts"] = artifacts
-    if timeout is not None:
-        extra["timeout"] = timeout
-    if message_id is not None:
-        extra["message_id"] = message_id
-    return _send(run, message, auth_token=auth_token, **extra)
-
-
 def send_cancel(run_id: str | UUID, *, auth_token: str | None = None):
     """Cancel the agent running in a run's live sandbox."""
     from products.tasks.backend.logic.services.agent_command import (  # noqa: PLC0415 — keep sandbox deps off the api import path
@@ -5273,33 +5244,3 @@ def post_turn_complete_thread_update(
         )
     except Exception:
         logger.exception("Failed to post turn-complete thread update", extra={"task_id": str(task_id)})
-
-
-def respond_to_permission_request(
-    run_id: str | UUID,
-    task_id: str | UUID,
-    team_id: int,
-    *,
-    request_id: str,
-    option_id: str,
-) -> contracts.PermissionResponseResult:
-    """Deliver a human permission decision (from an origin surface like a Slack approval
-    card) to a run's sandbox agent, authenticated as the task creator."""
-    from products.tasks.backend.logic.services.permission_broker import (  # noqa: PLC0415 — keep sandbox deps off the api import path
-        send_permission_response,
-    )
-
-    run = (
-        TaskRun.objects.select_related("task", "task__created_by")
-        .filter(id=run_id, task_id=task_id, team_id=team_id)
-        .first()
-    )
-    if run is None:
-        return contracts.PermissionResponseResult(outcome="not_found")
-    if run.is_terminal:
-        return contracts.PermissionResponseResult(outcome="terminal", run_status=run.status)
-
-    result = send_permission_response(run, request_id=request_id, option_id=option_id)
-    if not result.success:
-        return contracts.PermissionResponseResult(outcome="failed", status_code=result.status_code, error=result.error)
-    return contracts.PermissionResponseResult(outcome="sent")

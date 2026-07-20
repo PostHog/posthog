@@ -9,10 +9,8 @@ import { useInView } from 'react-intersection-observer'
 
 import { ApiError } from 'lib/api'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { themeLogic } from 'lib/logic/themeLogic'
 import { accessLevelSatisfied, getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
@@ -30,7 +28,7 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { extractValidationError, extractValidationErrorCode } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
 import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
-import { queryVizRendersToCanvas } from '~/queries/utils'
+import { queryVizDefinitelyRendersToCanvas, queryVizRendersToCanvas } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -51,6 +49,30 @@ import { EditModeEdge, EditModeEdgeOverlay } from './EditModeEdgeOverlay'
 import { InsightMeta } from './InsightMeta'
 
 const IS_STORYBOOK = inStorybook() || inStorybookTestRunner()
+
+export function shouldRenderInsightCardViz({
+    isStorybook,
+    placement,
+    inView,
+    isPageVisible,
+    query,
+}: {
+    isStorybook: boolean
+    placement: DashboardPlacement | 'SavedInsightGrid'
+    inView: boolean
+    isPageVisible: boolean
+    query: QueryBasedInsightModel['query']
+}): boolean {
+    if (isStorybook || placement === DashboardPlacement.Export) {
+        return true
+    }
+
+    if (!inView) {
+        return false
+    }
+
+    return isPageVisible || !queryVizDefinitelyRendersToCanvas(query)
+}
 
 const LazyEditAlertModal = React.lazy(() =>
     import('products/alerts/frontend/views/EditAlertModal').then(({ EditAlertModal }) => ({ default: EditAlertModal }))
@@ -240,19 +262,23 @@ function InsightCardInternal(
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
 ): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { ref: inViewRef, inView } = useInView({ rootMargin: '500px' })
     const { isVisible: isPageVisible } = usePageVisibility()
 
-    /** Wether the page is active and the line graph is currently in view. Used to free resources, by not rendering
-     * insight cards that aren't visible. See also https://wiki.whatwg.org/wiki/Canvas_Context_Loss_and_Restoration.
-     *
-     * We add an extra check to make sure all insights are visible in Storybook.
+    const rendersToCanvas = queryVizRendersToCanvas(insight.query)
+
+    /**
+     * Hidden canvas visualizations are unmounted to release their backing stores and reduce the risk of context loss.
+     * When the page is hidden, DOM and SVG visualizations stay mounted to preserve state such as table scroll position.
+     * See https://wiki.whatwg.org/wiki/Canvas_Context_Loss_and_Restoration.
      */
-    const isVisible =
-        featureFlags[FEATURE_FLAGS.EXPERIMENTAL_DASHBOARD_ITEM_RENDERING] === false
-            ? true
-            : IS_STORYBOOK || placement === DashboardPlacement.Export || (inView && isPageVisible)
+    const shouldRenderViz = shouldRenderInsightCardViz({
+        isStorybook: IS_STORYBOOK,
+        placement,
+        inView,
+        isPageVisible,
+        query: insight.query,
+    })
 
     const mergedRefs = useMergeRefs([ref, inViewRef])
 
@@ -379,10 +405,8 @@ function InsightCardInternal(
     }, [BlockingEmptyState, insight, insightLogicProps, variablesOverride, placement])
 
     // Only canvas viz (charts) redraw per resize frame; tables/numbers/maps are cheap DOM/SVG and stay fully live.
-    const vizContent = isVisible ? (
-        <ResizeThrottledViz throttled={!!isResizing && queryVizRendersToCanvas(insight.query)}>
-            {vizInner}
-        </ResizeThrottledViz>
+    const vizContent = shouldRenderViz ? (
+        <ResizeThrottledViz throttled={!!isResizing && rendersToCanvas}>{vizInner}</ResizeThrottledViz>
     ) : null
 
     return (

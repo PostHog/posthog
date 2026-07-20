@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, Any, Optional, Union
 
+import orjson
 import structlog
 from pydantic import BaseModel
 
@@ -7,7 +8,7 @@ from posthog.schema import CacheMissResponse, DashboardFilter
 
 from posthog.hogql.constants import LimitContext
 
-from posthog.api.services.query import ExecutionMode, process_query_dict
+from posthog.api.services.query import ExecutionMode, RawCachedQueryResponse, process_query_dict
 from posthog.clickhouse.query_tagging import get_team_query_tags, tag_queries
 from posthog.event_usage import AnalyticsProps
 from posthog.hogql_queries.apply_dashboard_filters import resolve_effective_dashboard_filters
@@ -88,6 +89,7 @@ def calculate_for_query_based_insight(
     query_override: Optional[dict] = None,
     cache_age_seconds: Optional[int] = None,
     analytics_props: Optional[AnalyticsProps] = None,
+    allow_raw_results: bool = False,
 ) -> "InsightResult":
     from posthog.caching.fetch_from_cache import InsightResult, NothingInCacheResult
 
@@ -125,7 +127,13 @@ def calculate_for_query_based_insight(
         limit_context=LimitContext.QUERY_ASYNC,
         cache_age_seconds=cache_age_seconds,
         analytics_props=analytics_props,
+        allow_raw_results=allow_raw_results,
     )
+
+    raw_results: Optional[bytes] = None
+    if isinstance(process_response, RawCachedQueryResponse):
+        raw_results = process_response.raw_results
+        process_response = process_response.response
 
     if isinstance(process_response, CacheMissResponse):
         return NothingInCacheResult(
@@ -138,13 +146,19 @@ def calculate_for_query_based_insight(
         # Pull fields off the model instead, converting just the small nested models to dicts
         # (which is what model_dump produced before). The response class may not carry every
         # field (legacy insights shape), hence the getattr defaults.
-        result = getattr(process_response, "results", None)
-        if result is not None and response_results_contain_models(type(process_response)):
-            # Model-typed results (e.g. RetentionResult, PathsLink) must be dumped to dicts
-            # like model_dump did — DRF's JSON encoder would otherwise mangle them into
-            # (field, value) tuple arrays. Results whose annotation is plain data (the huge
-            # trends/funnels payloads, or scalar/dict-shaped results) pass through untouched.
-            result = _dump_nested_models(result)
+        if raw_results is not None:
+            # orjson.Fragment embeds the cached results bytes into the JSON response as-is,
+            # skipping the parse/re-serialize round trip. Callers passing allow_raw_results
+            # guarantee the result feeds an orjson renderer.
+            result: Any = orjson.Fragment(raw_results)
+        else:
+            result = getattr(process_response, "results", None)
+            if result is not None and response_results_contain_models(type(process_response)):
+                # Model-typed results (e.g. RetentionResult, PathsLink) must be dumped to dicts
+                # like model_dump did — DRF's JSON encoder would otherwise mangle them into
+                # (field, value) tuple arrays. Results whose annotation is plain data (the huge
+                # trends/funnels payloads, or scalar/dict-shaped results) pass through untouched.
+                result = _dump_nested_models(result)
         return InsightResult(
             result=result,
             has_more=getattr(process_response, "hasMore", None),

@@ -34,9 +34,9 @@ from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.visitor import Visitor, clone_expr
 
 from posthog.clickhouse.kafka_engine import json_extract_trim_quotes
-from posthog.models.team.team import WeekStartDay
-from posthog.models.utils import UUIDT
 from posthog.schema_enums import PersonsOnEventsMode
+from posthog.uuidt import UUIDT
+from posthog.week_start_day import WeekStartDay
 
 MAX_PLACEHOLDER_MACRO_EXPANSION_DEPTH = 8
 
