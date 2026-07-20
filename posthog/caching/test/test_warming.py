@@ -3,7 +3,11 @@ from datetime import UTC, datetime, timedelta
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from posthog.caching.warming import insights_to_keep_fresh, schedule_warming_for_teams_task
+from parameterized import parameterized
+
+from posthog.hogql.errors import QueryError, TableAccessDeniedError
+
+from posthog.caching.warming import insights_to_keep_fresh, schedule_warming_for_teams_task, warm_insight_cache_task
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -156,3 +160,30 @@ class TestScheduleWarmingForTeamsTask(APIBaseTest):
         self.assertEqual(mock_warm_insight_cache_task_si.call_args_list[0][0][0], "1234")
         self.assertEqual(mock_warm_insight_cache_task_si.call_args_list[0][0][1], "5678")
         self.assertEqual(mock_warm_insight_cache_task_si.call_args_list[1][0][0], "2345")
+
+
+class TestWarmInsightCacheTask(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.insight = Insight.objects.create(team=self.team, created_by=self.user, query={"kind": "TrendsQuery"})
+
+    @parameterized.expand(
+        [
+            # Warming runs as the insight creator; a creator without warehouse access hits this on a
+            # warehouse-backed insight. It's an expected denial, not a failure worth error tracking.
+            ("warehouse_access_denied", TableAccessDeniedError("prod_postgres_invoice_with_annual"), False),
+            # Any other failure is still a real problem and must reach error tracking.
+            ("other_query_error", QueryError("boom"), True),
+        ]
+    )
+    @patch("posthog.caching.warming.capture_exception")
+    @patch("posthog.caching.warming.process_query_dict")
+    def test_warm_insight_cache_task_error_handling(
+        self, _name, raised_error, should_capture, mock_process_query_dict, mock_capture_exception
+    ):
+        mock_process_query_dict.side_effect = raised_error
+
+        # The task must never raise regardless of the underlying error.
+        warm_insight_cache_task(self.insight.pk, None)
+
+        self.assertEqual(mock_capture_exception.called, should_capture)

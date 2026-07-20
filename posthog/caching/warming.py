@@ -12,6 +12,7 @@ from celery.canvas import chain
 from prometheus_client import Counter, Gauge
 
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.errors import TableAccessDeniedError
 
 from posthog.api.services.query import process_query_dict
 from posthog.caching.utils import largest_teams
@@ -273,5 +274,17 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
 
         except CHQueryErrorTooManySimultaneousQueries:
             raise
+        except TableAccessDeniedError:
+            # Warming runs as the insight's creator. If that creator lacks warehouse access control
+            # rights for a table the query reads, there's no valid shared-cache entry to warm for them
+            # (the cache key is partitioned by the creator's access, so warming past the denial would
+            # either never be reused or leak data the creator can't see). Skip quietly instead of
+            # reporting an expected denial as an exception.
+            logger.info(
+                "Skipping cache warming: insight creator lacks warehouse access",
+                insight_id=insight.pk,
+                team_id=insight.team_id,
+                dashboard_id=dashboard_id,
+            )
         except Exception as e:
             capture_exception(e)
