@@ -51,6 +51,13 @@ SANDBOX_API_URL: str | None = get_from_env("SANDBOX_API_URL", None, optional=Tru
 SANDBOX_LLM_GATEWAY_URL: str | None = get_from_env("SANDBOX_LLM_GATEWAY_URL", None, optional=True)
 SANDBOX_MCP_URL: str | None = get_from_env("SANDBOX_MCP_URL", None, optional=True)
 
+# Launch task sandboxes with the Rust agent-server binary (baked into the
+# sandbox image as /usr/local/bin/agent-server-rs) instead of the Node
+# implementation from @posthog/agent. Instance-level canary switch for the
+# Rust rewrite (posthog/code rust/README.md); a per-team flag can layer on
+# top via run state once the binary ships by default.
+SANDBOX_RUST_AGENT_SERVER: bool = get_from_env("SANDBOX_RUST_AGENT_SERVER", False, type_cast=str_to_bool)
+
 # client_id of the OAuthApplication used to mint the access token the PostHog setup wizard
 # uses when it runs inside a task sandbox (the "run the wizard in the cloud" onboarding path).
 # It must be the wizard's own app so the LLM gateway authorizes the token like a normal wizard

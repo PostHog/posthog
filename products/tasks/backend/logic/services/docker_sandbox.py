@@ -54,6 +54,7 @@ from .sandbox import (
     SandboxConfig,
     SandboxStatus,
     SandboxTemplate,
+    agent_server_launch_binary,
     build_agent_runtime_env_prefix,
     parse_sandbox_repo_mount_map,
     redact_sandbox_command,
@@ -832,7 +833,7 @@ class DockerSandbox(SandboxBase):
         unset_flags = "".join(f"-u {name} " for name in SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS)
         server_cmd = (
             f"env {unset_flags}BASH_ENV={shlex.quote(BASH_ENV_SCRIPT)} "
-            f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
+            f"{env_prefix}{agent_server_launch_binary()} --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
             f"{create_pr_flag}{auto_publish_flag}{branch_flag}{mcp_servers_arg}{relay_mcp_servers_arg}"
             f"{domains_flag}{repo_ready_flag}"

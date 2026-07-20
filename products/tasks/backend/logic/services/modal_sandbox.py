@@ -82,6 +82,7 @@ from products.tasks.backend.logic.services.modal_provision_diagnostics import (
 from products.tasks.backend.logic.services.sandbox import (
     WORKING_DIR,
     SandboxBase,
+    agent_server_launch_binary,
     build_agent_runtime_env_prefix,
     redact_sandbox_command,
     wait_for_health_check,
@@ -980,7 +981,7 @@ class ModalSandbox(SandboxBase):
         unset_flags = "".join(f"-u {name} " for name in SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS)
         server_cmd = (
             f"env {unset_flags}BASH_ENV={shlex.quote(BASH_ENV_SCRIPT)} "
-            f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
+            f"{env_prefix}{agent_server_launch_binary()} --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
             f"{create_pr_flag}{auto_publish_flag}{branch_flag}{mcp_servers_arg}{relay_mcp_servers_arg}"
             f"{domains_flag}{repo_ready_flag}"

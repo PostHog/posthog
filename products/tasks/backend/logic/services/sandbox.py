@@ -164,6 +164,23 @@ def redact_sandbox_command(command: str) -> str:
     return SENSITIVE_AGENT_RUNTIME_ENV_PATTERN.sub(r"\g<name>=<redacted>", command)
 
 
+RUST_AGENT_SERVER_BINARY = "/usr/local/bin/agent-server-rs"
+NODE_AGENT_SERVER_BINARY = "./node_modules/.bin/agent-server"
+
+
+def agent_server_launch_binary() -> str:
+    """The agent-server executable the launch command runs (relative to /scripts).
+
+    SANDBOX_RUST_AGENT_SERVER switches runs onto the Rust implementation
+    (CLI-compatible; see rust/README.md in posthog/code). The Rust binary
+    spawns the Node ACP sidecar from the same /scripts install, so the npm
+    package stays required either way.
+    """
+    if getattr(settings, "SANDBOX_RUST_AGENT_SERVER", False):
+        return RUST_AGENT_SERVER_BINARY
+    return NODE_AGENT_SERVER_BINARY
+
+
 def build_agent_runtime_env_prefix(
     *,
     interaction_origin: str | None = None,

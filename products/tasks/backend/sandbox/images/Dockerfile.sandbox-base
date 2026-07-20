@@ -127,6 +127,29 @@ RUN set -eux; \
     rm /tmp/rtk.tar.gz && \
     rtk --version
 
+# Optionally install the Rust agent-server (posthog/code rust/README.md).
+# Skipped while the args are empty; once releases exist, pin a tag plus
+# per-arch SHA256s (same pattern as agentsh above). Runs are switched onto it
+# via the SANDBOX_RUST_AGENT_SERVER Django setting.
+ARG RUST_AGENT_SERVER_TAG=""
+ARG RUST_AGENT_SERVER_SHA256_AMD64=""
+ARG RUST_AGENT_SERVER_SHA256_ARM64=""
+RUN set -eux; \
+    if [ -n "${RUST_AGENT_SERVER_TAG}" ]; then \
+      arch="$(dpkg --print-architecture)"; \
+      case "$arch" in \
+        amd64) target="x86_64-unknown-linux-musl"; sha256="${RUST_AGENT_SERVER_SHA256_AMD64}" ;; \
+        arm64) target="aarch64-unknown-linux-musl"; sha256="${RUST_AGENT_SERVER_SHA256_ARM64}" ;; \
+        *) echo "Unsupported architecture for rust agent-server: $arch" >&2; exit 1 ;; \
+      esac; \
+      curl -fsSL -o /tmp/agent-server-rs \
+        "https://github.com/PostHog/code/releases/download/${RUST_AGENT_SERVER_TAG}/agent-server-${target}" && \
+      echo "${sha256}  /tmp/agent-server-rs" | sha256sum -c - && \
+      install -m 0755 /tmp/agent-server-rs /usr/local/bin/agent-server-rs && \
+      rm /tmp/agent-server-rs && \
+      /usr/local/bin/agent-server-rs --help >/dev/null; \
+    fi
+
 ###
 # Agent SDK
 ###

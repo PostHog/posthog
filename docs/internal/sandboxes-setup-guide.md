@@ -85,7 +85,8 @@ orchestrates these activities:
    Docker sandbox (reusing a snapshot if one exists), clones the repository, and
    stores the sandbox URL in `TaskRun.state`
 3. **start_agent_server** — Runs `npx agent-server` inside the sandbox and polls
-   `/health` until it responds
+   `/health` until it responds.
+   With the `SANDBOX_RUST_AGENT_SERVER` setting enabled, the launch command runs the CLI-compatible Rust implementation (`/usr/local/bin/agent-server-rs`, baked into the image from posthog/code releases — see `rust/README.md` there) instead of the Node binary.
 4. **wait_condition** — The workflow blocks with a 30-minute inactivity timeout,
    extended by `heartbeat` signals from the agent. Exits on a `complete_task`
    signal or when no heartbeat arrives within 30 minutes
