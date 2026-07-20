@@ -87,6 +87,7 @@ orchestrates these activities:
 3. **start_agent_server** — Runs `npx agent-server` inside the sandbox and polls
    `/health` until it responds.
    With the `SANDBOX_RUST_AGENT_SERVER` setting enabled, the launch command runs the CLI-compatible Rust implementation (`/usr/local/bin/agent-server-rs`, baked into the image from posthog/code releases — see `rust/README.md` there) instead of the Node binary.
+   `SANDBOX_RUST_CLAUDE_DRIVER` additionally exports `POSTHOG_CLAUDE_ADAPTER_CMD=/usr/local/bin/claude-acp-driver`, which the Rust agent-server applies to Claude runs only, replacing the Node ACP sidecar with the native driver (codex runs keep the sidecar).
 4. **wait_condition** — The workflow blocks with a 30-minute inactivity timeout,
    extended by `heartbeat` signals from the agent. Exits on a `complete_task`
    signal or when no heartbeat arrives within 30 minutes

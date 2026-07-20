@@ -58,6 +58,13 @@ SANDBOX_MCP_URL: str | None = get_from_env("SANDBOX_MCP_URL", None, optional=Tru
 # top via run state once the binary ships by default.
 SANDBOX_RUST_AGENT_SERVER: bool = get_from_env("SANDBOX_RUST_AGENT_SERVER", False, type_cast=str_to_bool)
 
+# Point Claude runs at the native Rust ACP driver (baked into the sandbox
+# image as /usr/local/bin/claude-acp-driver) instead of the Node sidecar.
+# Applied by the Rust agent-server to Claude runs only — codex runs keep the
+# Node sidecar, and the Node agent-server ignores the variable — so enabling
+# this is only meaningful alongside SANDBOX_RUST_AGENT_SERVER.
+SANDBOX_RUST_CLAUDE_DRIVER: bool = get_from_env("SANDBOX_RUST_CLAUDE_DRIVER", False, type_cast=str_to_bool)
+
 # client_id of the OAuthApplication used to mint the access token the PostHog setup wizard
 # uses when it runs inside a task sandbox (the "run the wizard in the cloud" onboarding path).
 # It must be the wizard's own app so the LLM gateway authorizes the token like a normal wizard
