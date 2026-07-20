@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import { IconEllipsis } from '@posthog/icons'
-import { LemonButton, LemonSwitch, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonSwitch, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -171,7 +171,23 @@ export function InsightAlerts({ alertId }: InsightAlertsProps): JSX.Element {
                             variant="destructive"
                             data-attr="insight-alert-row-delete"
                             disabled={deletingAlertIds.has(alert.id)}
-                            onClick={() => deleteAlert(alert)}
+                            onClick={() => {
+                                LemonDialog.open({
+                                    title: `Delete "${alert.name}"?`,
+                                    description:
+                                        'This alert will be permanently deleted. This action cannot be undone.',
+                                    primaryButton: {
+                                        children: 'Delete',
+                                        type: 'primary',
+                                        status: 'danger',
+                                        onClick: () => deleteAlert(alert),
+                                        'data-attr': 'insight-alert-delete-confirm',
+                                    },
+                                    secondaryButton: {
+                                        children: 'Cancel',
+                                    },
+                                })
+                            }}
                         >
                             Delete
                         </DropdownMenuItem>
