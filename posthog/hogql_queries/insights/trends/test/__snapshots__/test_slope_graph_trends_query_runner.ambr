@@ -267,7 +267,7 @@
        (SELECT count() AS total,
                toStartOfMonth(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC')), toIntervalMonth(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-03-31 23:59:59', 'UTC'))), equals(e.event, '$pageview'), or(and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-01-01 00:00:00', 6, 'UTC')), less(e.timestamp, parseDateTime64BestEffortOrNull('2024-02-01 00:00:00', 6, 'UTC'))), and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-03-01 00:00:00', 6, 'UTC')), lessOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-03-31 23:59:59', 6, 'UTC')))))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-03-31 23:59:59', 'UTC'))), equals(e.event, '$pageview'), or(and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-01-01 00:00:00', 6, 'UTC')), less(e.timestamp, parseDateTime64BestEffortOrNull('2024-02-01 00:00:00', 6, 'UTC'))), and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-03-01 00:00:00', 6, 'UTC')), lessOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-03-31 23:59:59', 6, 'UTC')))))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -298,7 +298,7 @@
        (SELECT count() AS total,
                toStartOfMonth(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events_json AS e
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC')), toIntervalMonth(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-03-31 23:59:59', 'UTC'))), equals(e.event, '$pageview'), or(and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-01-01 00:00:00', 6, 'UTC')), less(e.timestamp, parseDateTime64BestEffortOrNull('2024-02-01 00:00:00', 6, 'UTC'))), and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-03-01 00:00:00', 6, 'UTC')), lessOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-03-31 23:59:59', 6, 'UTC')))))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-03-31 23:59:59', 'UTC'))), equals(e.event, '$pageview'), or(and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-01-01 00:00:00', 6, 'UTC')), less(e.timestamp, parseDateTime64BestEffortOrNull('2024-02-01 00:00:00', 6, 'UTC'))), and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-03-01 00:00:00', 6, 'UTC')), lessOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-03-31 23:59:59', 6, 'UTC')))))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -453,7 +453,7 @@
        (SELECT count() AS total,
                toStartOfMonth(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-04-01 00:00:00', 'UTC')), toIntervalMonth(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-06-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'), or(and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-04-01 00:00:00', 6, 'UTC')), less(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-01 00:00:00', 6, 'UTC'))), and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-06-01 00:00:00', 6, 'UTC')), lessOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-06-15 23:59:59', 6, 'UTC')))))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-04-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-06-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'), or(and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-04-01 00:00:00', 6, 'UTC')), less(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-01 00:00:00', 6, 'UTC'))), and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-06-01 00:00:00', 6, 'UTC')), lessOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-06-15 23:59:59', 6, 'UTC')))))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -484,7 +484,7 @@
        (SELECT count() AS total,
                toStartOfMonth(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events_json AS e
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-04-01 00:00:00', 'UTC')), toIntervalMonth(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-06-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'), or(and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-04-01 00:00:00', 6, 'UTC')), less(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-01 00:00:00', 6, 'UTC'))), and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-06-01 00:00:00', 6, 'UTC')), lessOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-06-15 23:59:59', 6, 'UTC')))))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-04-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-06-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'), or(and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-04-01 00:00:00', 6, 'UTC')), less(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-01 00:00:00', 6, 'UTC'))), and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-06-01 00:00:00', 6, 'UTC')), lessOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-06-15 23:59:59', 6, 'UTC')))))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -927,7 +927,7 @@
        (SELECT count() AS total,
                toStartOfMonth(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalMonth(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-05-31 23:59:59', 'UTC'))), equals(e.event, '$pageview'), or(and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-01 00:00:00', 6, 'UTC')), less(e.timestamp, parseDateTime64BestEffortOrNull('2024-06-01 00:00:00', 6, 'UTC'))), and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-01 00:00:00', 6, 'UTC')), lessOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-31 23:59:59', 6, 'UTC')))))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-05-31 23:59:59', 'UTC'))), equals(e.event, '$pageview'), or(and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-01 00:00:00', 6, 'UTC')), less(e.timestamp, parseDateTime64BestEffortOrNull('2024-06-01 00:00:00', 6, 'UTC'))), and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-01 00:00:00', 6, 'UTC')), lessOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-31 23:59:59', 6, 'UTC')))))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -958,7 +958,7 @@
        (SELECT count() AS total,
                toStartOfMonth(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events_json AS e
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalMonth(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-05-31 23:59:59', 'UTC'))), equals(e.event, '$pageview'), or(and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-01 00:00:00', 6, 'UTC')), less(e.timestamp, parseDateTime64BestEffortOrNull('2024-06-01 00:00:00', 6, 'UTC'))), and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-01 00:00:00', 6, 'UTC')), lessOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-31 23:59:59', 6, 'UTC')))))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-05-31 23:59:59', 'UTC'))), equals(e.event, '$pageview'), or(and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-01 00:00:00', 6, 'UTC')), less(e.timestamp, parseDateTime64BestEffortOrNull('2024-06-01 00:00:00', 6, 'UTC'))), and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-01 00:00:00', 6, 'UTC')), lessOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-31 23:59:59', 6, 'UTC')))))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)

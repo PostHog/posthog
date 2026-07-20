@@ -23,6 +23,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_conc
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorTooManySimultaneousQueries
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import pushed_metrics_registry
 from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
@@ -1039,16 +1040,6 @@ def clickhouse_send_license_usage() -> None:
         pass
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)
-def check_flags_to_rollback() -> None:
-    try:
-        from ee.tasks.auto_rollback_feature_flag import check_flags_to_rollback
-
-        check_flags_to_rollback()
-    except ImportError:
-        pass
-
-
 @shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
 def background_delete_model_task(
     model_name: str, team_id: int, batch_size: int = 10000, records_to_delete: int | None = None
@@ -1187,7 +1178,9 @@ def _queue_delete_team_recordings(team_ids: list[int], deleted_by: str) -> None:
     base=PushGatewayTask,
     ignore_result=True,
     queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value,
-    autoretry_for=CH_TRANSIENT_ERRORS,
+    # sync_execute wraps TOO_MANY_SIMULTANEOUS_QUERIES/CANNOT_SCHEDULE_TASK into
+    # ClickHouseAtCapacity, so it must be listed alongside the raw CH error classes.
+    autoretry_for=(*CH_TRANSIENT_ERRORS, ClickHouseAtCapacity),
     retry_backoff=30,
     retry_backoff_max=120,
     max_retries=3,

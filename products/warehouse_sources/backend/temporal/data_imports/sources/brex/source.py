@@ -14,6 +14,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     SourceResponse,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.brex.brex import (
+    BREX_API_VERSION_V1,
+    BREX_API_VERSION_V2,
     BrexResumeConfig,
     brex_source,
     validate_credentials as validate_brex_credentials,
@@ -33,7 +35,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class BrexSource(ResumableSource[BrexSourceConfig, BrexResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    api_docs_url = "https://developer.brex.com/"
+    api_docs_url = "https://developer.brex.com/changelog"
+
+    supported_versions = (BREX_API_VERSION_V1, BREX_API_VERSION_V2)
+    default_version = BREX_API_VERSION_V2
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -129,6 +134,7 @@ Note: Brex tokens expire after 90 days without API activity, so a token that has
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

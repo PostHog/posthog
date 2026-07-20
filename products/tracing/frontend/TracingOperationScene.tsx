@@ -58,11 +58,11 @@ export function TracingOperationScene(): JSX.Element {
     } = useValues(tracingOperationSceneLogic)
     const { setDateRange, setDurationSelection, setSampleIndex, selectSpan } = useActions(tracingOperationSceneLogic)
 
-    if (!spanName) {
+    if (!spanName || !serviceName) {
         return (
             <SceneContent>
                 <div className="flex flex-col items-center gap-1 py-16">
-                    <span>This link is missing an operation name.</span>
+                    <span>This link is missing an operation or service name.</span>
                     <Link to={urls.tracing()}>Back to tracing</Link>
                 </div>
             </SceneContent>
@@ -105,6 +105,7 @@ export function TracingOperationScene(): JSX.Element {
                 selection={durationSelection}
                 onSelect={setDurationSelection}
                 onClear={() => setDurationSelection(null)}
+                samplesLoading={samplesLoading}
             />
             <SceneDivider />
             {samples.length === 0 && samplesLoading ? (

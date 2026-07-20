@@ -16,12 +16,32 @@ import type {
     ReviewBlindSpotsConfigApi,
     ReviewDetailApi,
     ReviewHogReviewsListParams,
+    ReviewHogReviewsPerspectiveStatsRetrieveParams,
     ReviewPerspectiveConfigApi,
     ReviewPerspectiveStatsApi,
     ReviewRecentReviewsPageApi,
+    ReviewTriggerRequestApi,
+    ReviewTriggerResponseApi,
     ReviewUserSettingsApi,
     ReviewValidatorConfigApi,
 } from './api.schemas'
+
+// https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
+type IfEquals<X, Y, A = X, B = never> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B
+
+type WritableKeys<T> = {
+    [P in keyof T]-?: IfEquals<{ [Q in P]: T[P] }, { -readonly [Q in P]: T[P] }, P>
+}[keyof T]
+
+type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (k: infer I) => void ? I : never
+type DistributeReadOnlyOverUnions<T> = T extends any ? NonReadonly<T> : never
+
+type Writable<T> = Pick<T, WritableKeys<T>>
+type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
+    ? {
+          [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
+      }
+    : DistributeReadOnlyOverUnions<T>
 
 export const getReviewHogBlindSpotsListUrl = (projectId: string) => {
     return `/api/projects/${projectId}/review_hog/blind_spots/`
@@ -153,21 +173,58 @@ export const reviewHogReviewsRetrieve = async (
     })
 }
 
-export const getReviewHogReviewsPerspectiveStatsRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/review_hog/reviews/perspective_stats/`
+export const getReviewHogReviewsPerspectiveStatsRetrieveUrl = (
+    projectId: string,
+    params?: ReviewHogReviewsPerspectiveStatsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/review_hog/reviews/perspective_stats/?${stringifiedParams}`
+        : `/api/projects/${projectId}/review_hog/reviews/perspective_stats/`
 }
 
 /**
- * How many findings each review skill (perspective or blind-spot sweep) raised across the requesting user's recent completed reviews, and how many of those the validator kept vs dismissed.
+ * How many findings each review skill (perspective or blind-spot sweep) raised across the recent completed reviews in scope — the requesting user's by default, every review on this project with `scope=everyone` — and how many of those the validator kept vs dismissed.
  * @summary Perspective effectiveness stats
  */
 export const reviewHogReviewsPerspectiveStatsRetrieve = async (
     projectId: string,
+    params?: ReviewHogReviewsPerspectiveStatsRetrieveParams,
     options?: RequestInit
 ): Promise<ReviewPerspectiveStatsApi> => {
-    return apiMutator<ReviewPerspectiveStatsApi>(getReviewHogReviewsPerspectiveStatsRetrieveUrl(projectId), {
+    return apiMutator<ReviewPerspectiveStatsApi>(getReviewHogReviewsPerspectiveStatsRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getReviewHogReviewsTriggerCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/review_hog/reviews/trigger/`
+}
+
+/**
+ * Start a ReviewHog review of any pull request the project's GitHub App installation can access, and publish it back to the PR. The requesting user is the review's acting user: their enabled perspectives, blind-spot check, validator, and urgency threshold drive the run, and it appears under their recent reviews. Nonexistent, closed, and fork PRs are rejected synchronously; a PR whose current commit already has a published review returns 'already_reviewed' without starting a run, and triggering a PR whose review is currently running joins the in-flight run. Otherwise non-blocking: returns the Temporal workflow id immediately while the review runs in the worker.
+ * @summary Start a review of a pull request
+ */
+export const reviewHogReviewsTriggerCreate = async (
+    projectId: string,
+    reviewTriggerRequestApi: ReviewTriggerRequestApi,
+    options?: RequestInit
+): Promise<ReviewTriggerResponseApi> => {
+    return apiMutator<ReviewTriggerResponseApi>(getReviewHogReviewsTriggerCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(reviewTriggerRequestApi),
     })
 }
 
@@ -199,7 +256,7 @@ export const getReviewHogSettingsPartialUpdateUrl = (projectId: string) => {
  */
 export const reviewHogSettingsPartialUpdate = async (
     projectId: string,
-    patchedReviewUserSettingsApi?: PatchedReviewUserSettingsApi,
+    patchedReviewUserSettingsApi?: NonReadonly<PatchedReviewUserSettingsApi>,
     options?: RequestInit
 ): Promise<ReviewUserSettingsApi> => {
     return apiMutator<ReviewUserSettingsApi>(getReviewHogSettingsPartialUpdateUrl(projectId), {

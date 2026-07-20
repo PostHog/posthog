@@ -57,6 +57,17 @@ async fn handle_notification_batch(
     for result in batch {
         match result {
             Ok((notification, offset)) => {
+                let offset = match validate_notification_with_offset(
+                    &notification,
+                    offset,
+                    Offset::store,
+                    pending_offsets,
+                ) {
+                    Ok(Some(offset)) => offset,
+                    Ok(None) => continue,
+                    Err(e) => panic!("failed to store invalid notification offset: {e}"),
+                };
+
                 log_notification_summary(&notification);
                 metrics::counter!(NOTIFICATIONS_RECEIVED_TOTAL).increment(1);
                 match handle_notification(context, notification).await {
@@ -91,6 +102,23 @@ async fn handle_notification_batch(
             }
         }
     }
+}
+
+fn validate_notification_with_offset<O, E>(
+    notification: &IngestionNotification,
+    offset: O,
+    store_offset: impl FnOnce(O) -> Result<(), E>,
+    pending_offsets: &mut usize,
+) -> Result<Option<O>, E> {
+    if let Err(e) = notification.validate() {
+        warn!(error = %e, "notification validation error (poison pill skipped)");
+        metrics::counter!(NOTIFICATIONS_SKIPPED_TOTAL, "reason" => "validation").increment(1);
+        store_offset(offset)?;
+        *pending_offsets += 1;
+        return Ok(None);
+    }
+
+    Ok(Some(offset))
 }
 
 fn commit_pending_offsets(
@@ -143,5 +171,84 @@ fn log_notification_summary(notification: &IngestionNotification) {
                 "received error-tracking ingestion notification"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use uuid::Uuid;
+
+    fn issue_created(issue_id: Uuid, property_issue_id: Uuid) -> IngestionNotification {
+        serde_json::from_value(serde_json::json!({
+            "type": "issue_created",
+            "notification_id": Uuid::nil(),
+            "team_id": 42,
+            "issue_id": issue_id,
+            "issue": {
+                "name": "Example",
+                "description": "Example issue",
+                "status": "active",
+                "created_at": "1970-01-01T00:00:00Z"
+            },
+            "event_properties": {
+                "$exception_list": [{"type": "Error", "value": "boom"}],
+                "$exception_fingerprint": "abc",
+                "$exception_fingerprint_record": [{"type": "manual"}],
+                "$exception_issue_id": property_issue_id,
+                "$exception_handled": false,
+                "$exception_types": ["Error"],
+                "$exception_values": ["boom"],
+                "$exception_sources": [],
+                "$exception_functions": []
+            },
+            "fingerprint": "abc",
+            "event_uuid": Uuid::nil(),
+            "event_timestamp": "1970-01-01T00:00:00Z",
+            "assignee": null
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn invalid_notification_is_stored_and_does_not_block_the_next_valid_item() {
+        let issue_id = Uuid::now_v7();
+        let invalid = issue_created(issue_id, Uuid::now_v7());
+        let valid = issue_created(issue_id, issue_id);
+        let mut pending_offsets = 0;
+        let mut stored = Vec::new();
+        let mut handled = Vec::new();
+
+        let result = validate_notification_with_offset(
+            &invalid,
+            10,
+            |offset| {
+                stored.push(offset);
+                Ok::<_, ()>(())
+            },
+            &mut pending_offsets,
+        )
+        .unwrap();
+        if let Some(offset) = result {
+            handled.push(offset);
+        }
+
+        let result = validate_notification_with_offset(
+            &valid,
+            11,
+            |offset| {
+                stored.push(offset);
+                Ok::<_, ()>(())
+            },
+            &mut pending_offsets,
+        )
+        .unwrap();
+        if let Some(offset) = result {
+            handled.push(offset);
+        }
+
+        assert_eq!(stored, vec![10]);
+        assert_eq!(handled, vec![11]);
+        assert_eq!(pending_offsets, 1);
     }
 }

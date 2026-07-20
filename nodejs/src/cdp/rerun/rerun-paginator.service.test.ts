@@ -118,6 +118,10 @@ describe('RerunPaginatorService integration', () => {
         seededCount += rows.length
         const expected = seededCount
 
+        // Seed visibility rides the shared Kafka -> ClickHouse pipe, whose consumer may still be
+        // chewing a backlog from whichever suite the shard ran just before this one (run order
+        // shifts whenever sibling files change size). The deadline is sized for that worst case;
+        // waitForExpect polls, so a healthy pipe still completes in seconds.
         await waitForExpect(async () => {
             const got = await clickhouse.query<{ c: number }>(
                 `SELECT count() AS c FROM hog_invocation_results

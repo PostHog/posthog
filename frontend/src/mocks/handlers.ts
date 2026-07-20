@@ -213,11 +213,6 @@ export const defaultMocks: Mocks = {
         },
         '/_system_status': _systemStatus,
         '/api/instance_status': _instanceStatus,
-        // TODO: Add a real mock once we know why this endpoint returns an error inside a 200 response
-        '/api/sentry_stats/': {
-            error: 'Error fetching stats from sentry',
-            exception: "[ErrorDetail(string='Sentry integration not configured', code='invalid')]",
-        },
         // We don't want to show the "new version available" banner in tests
         'https://api.github.com/repos/posthog/posthog-js/tags': () => [200, []],
         'https://www.gravatar.com/avatar/:gravatar_id': () => [404, ''],
