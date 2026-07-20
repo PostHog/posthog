@@ -85,7 +85,7 @@ class TestReplayScanner(BaseTest):
             ("scanner_config", {"prompt": "different prompt"}),
             ("query", {"properties": [{"key": "foo"}]}),
             ("sampling_rate", 0.25),
-            ("model", ScannerModel.GEMINI_2_5_FLASH),
+            ("model", ScannerModel.GEMINI_3_5_FLASH),
             ("emits_signals", True),
         ]
     )

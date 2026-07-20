@@ -23,11 +23,11 @@ CREDITS_PER_DOLLAR = 100  # 1 credit = $0.01, matching ai_credits
 # Keyed on the raw model-id string (not the enum) because frozen `scanner_snapshot`s and
 # receipts outlive enum members; retired ids must keep pricing in-flight observations.
 OBSERVATION_CREDITS_BY_MODEL: dict[str, int] = {
-    ScannerModel.GEMINI_2_5_FLASH: 2,
     ScannerModel.GEMINI_3_FLASH: 5,
     ScannerModel.GEMINI_3_5_FLASH: 15,
     # Retired ids, kept for observations frozen before the lineup change.
     "gemini-3.1-flash-lite-preview": 2,
+    "gemini-2.5-flash": 2,
 }
 
 # Unknown models bill at the highest known price: never underbill on a mapping gap.

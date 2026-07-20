@@ -1,1 +1,1 @@
-0048_alter_visionaction_alert_config
+0049_retire_gemini_2_5_flash_scanner_model

@@ -109,7 +109,7 @@ class _VisionQuotaTestCase(APIBaseTest):
 class TestComputeQuotaSnapshot(_VisionQuotaTestCase):
     @parameterized.expand(
         [
-            (ObservationStatus.SUCCEEDED, ScannerModel.GEMINI_2_5_FLASH, 2),
+            (ObservationStatus.SUCCEEDED, "gemini-2.5-flash", 2),
             (ObservationStatus.SUCCEEDED, ScannerModel.GEMINI_3_FLASH, 5),
             (ObservationStatus.SUCCEEDED, ScannerModel.GEMINI_3_5_FLASH, 15),
             (ObservationStatus.PENDING, ScannerModel.GEMINI_3_5_FLASH, 15),

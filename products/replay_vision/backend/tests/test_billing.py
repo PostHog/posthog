@@ -43,7 +43,8 @@ class TestReplayVisionBillingUsage(APIBaseTest):
         self._receipt(team_id=self.team.id, created_at=now, model=ScannerModel.GEMINI_3_FLASH)
         self._receipt(team_id=self.team.id, created_at=now, model=ScannerModel.GEMINI_3_5_FLASH)
         self._receipt(team_id=self.team.id, created_at=now - timedelta(days=3))
-        self._receipt(team_id=self.team.id + 1, created_at=now, model=ScannerModel.GEMINI_2_5_FLASH)
+        # A frozen receipt for the retired gemini-2.5-flash id still bills at its kept price.
+        self._receipt(team_id=self.team.id + 1, created_at=now, model="gemini-2.5-flash")
 
         result = dict(get_replay_vision_credits_by_team(begin, end))
         assert result == {self.team.id: 5 + 15, self.team.id + 1: 2}

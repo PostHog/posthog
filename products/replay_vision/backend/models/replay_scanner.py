@@ -34,7 +34,6 @@ class ScannerProvider(models.TextChoices):
 class ScannerModel(models.TextChoices):
     """Priced per observation in `billing.OBSERVATION_CREDITS_BY_MODEL`; new members need a price there."""
 
-    GEMINI_2_5_FLASH = "gemini-2.5-flash", "Gemini 2.5 Flash"
     GEMINI_3_FLASH = "gemini-3-flash-preview", "Gemini 3 Flash"
     GEMINI_3_5_FLASH = "gemini-3.5-flash", "Gemini 3.5 Flash"
 
