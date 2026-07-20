@@ -6,7 +6,8 @@ A curated catalog of MCP servers that PostHog users can install with one click, 
 
 Catalog icons are not committed image assets.
 Each `MCPServerTemplate` carries an `icon_domain` (the vendor's brand domain, e.g. `linear.app`), and the frontend renders it through the authenticated proxy endpoint `GET /api/projects/:team_id/mcp_servers/icon/?domain=<domain>`.
-The proxy fetches the brand icon from [logo.dev](https://logo.dev) via the egress-gated `CDPIconsService` and caches the response for a day.
+The proxy fetches the brand icon from [logo.dev](https://logo.dev) via the egress-gated `CDPIconsService`.
+Icon bytes are never stored on PostHog infrastructure (our logo.dev plan does not include a data-caching license); browsers cache responses via `Cache-Control`, and only the fact of a definitive miss is cached server-side.
 Custom installations without a template derive a best-effort brand domain from their server URL.
 
 ### Self-hosted instances
