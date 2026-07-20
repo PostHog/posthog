@@ -1,9 +1,8 @@
 import { JSONContent } from '@tiptap/core'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconChevronDown, IconLock } from '@posthog/icons'
+import { IconLock } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@posthog/quill-primitives'
 
 import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -189,50 +188,36 @@ export function MessageInput({
                         </Tooltip>
                     )}
                     {extraActions}
-                    {sendAndSetStatusOptions?.length ? (
-                        <div className="flex items-center gap-px">
-                            <LemonButton
-                                type="primary"
-                                className="rounded-r-none"
-                                onClick={() => handleSubmit()}
-                                loading={messageSending}
-                                disabledReason={sendBlockedReason}
-                            >
-                                {isPrivate ? 'Attach' : buttonText}
-                            </LemonButton>
-                            <DropdownMenu>
-                                <DropdownMenuTrigger
-                                    disabled={!!sendBlockedReason || messageSending}
-                                    render={
-                                        <LemonButton
-                                            type="primary"
-                                            className="rounded-l-none"
-                                            icon={<IconChevronDown />}
-                                            loading={messageSending}
-                                            disabledReason={sendBlockedReason}
-                                            aria-label="Send and set ticket status"
-                                        />
-                                    }
-                                />
-                                <DropdownMenuContent align="end" className="w-auto">
-                                    {sendAndSetStatusOptions.map((option) => (
-                                        <DropdownMenuItem key={option.value} onClick={() => handleSubmit(option.value)}>
-                                            {option.label}
-                                        </DropdownMenuItem>
-                                    ))}
-                                </DropdownMenuContent>
-                            </DropdownMenu>
-                        </div>
-                    ) : (
-                        <LemonButton
-                            type="primary"
-                            onClick={() => handleSubmit()}
-                            loading={messageSending}
-                            disabledReason={sendBlockedReason}
-                        >
-                            {isPrivate ? 'Attach' : buttonText}
-                        </LemonButton>
-                    )}
+                    <LemonButton
+                        type="primary"
+                        onClick={() => handleSubmit()}
+                        loading={messageSending}
+                        disabledReason={sendBlockedReason}
+                        sideAction={
+                            sendAndSetStatusOptions?.length
+                                ? {
+                                      'aria-label': 'Send and set ticket status',
+                                      disabled: messageSending,
+                                      disabledReason: sendBlockedReason,
+                                      dropdown: {
+                                          placement: 'bottom-end',
+                                          overlay: sendAndSetStatusOptions.map((option) => (
+                                              <LemonButton
+                                                  key={option.value}
+                                                  fullWidth
+                                                  size="small"
+                                                  onClick={() => handleSubmit(option.value)}
+                                              >
+                                                  {option.label}
+                                              </LemonButton>
+                                          )),
+                                      },
+                                  }
+                                : undefined
+                        }
+                    >
+                        {isPrivate ? 'Attach' : buttonText}
+                    </LemonButton>
                 </div>
             </div>
         </div>
