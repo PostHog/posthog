@@ -3437,6 +3437,69 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         self.assertNotIn("secret_customer_property", json.dumps(streamed_tile))
 
+    def test_streamed_tile_error_redacts_insight_metadata_for_restricted_user(self):
+        # A user who can view the dashboard but is explicitly denied the insight must not receive
+        # the restricted insight's query/filters/name via the serialization-error fallback.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+
+        restricted_user = self._create_user("restricted@posthog.com", level=OrganizationMembership.Level.MEMBER)
+
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="Test Dashboard",
+            created_by=self.user,
+            filters={},
+        )
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Confidential usage",
+            filters={},
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                },
+            },
+        )
+        tile = DashboardTile.objects.create(
+            dashboard=dashboard,
+            insight=insight,
+        )
+        AccessControl.objects.create(resource="insight", resource_id=insight.id, team=self.team, access_level="none")
+
+        request = MagicMock()
+        request.user = restricted_user
+        request.query_params = {}
+        request.data = {}
+        context = {
+            "request": request,
+            "team_id": self.team.id,
+            "get_team": lambda: self.team,
+            "insight_variables": [],
+            "dashboard": dashboard,
+            "raw_results_supported": True,
+            "user_access_control": UserAccessControl(restricted_user, team=self.team),
+        }
+        with patch.object(InsightSerializer, "get_result", side_effect=RuntimeError("boom")):
+            order, streamed_tile = serialize_tile_with_context(tile, 0, context)
+
+        self.assertEqual(order, 0)
+        self.assertEqual(streamed_tile["error"]["type"], "DashboardTileError")
+
+        insight_payload = streamed_tile["insight"]
+        self.assertEqual(insight_payload["id"], insight.id)
+        self.assertEqual(insight_payload["short_id"], insight.short_id)
+        self.assertEqual(insight_payload["user_access_level"], "none")
+
+        # No restricted insight metadata may leak through the error fallback.
+        self.assertNotIn("name", insight_payload)
+        self.assertNotIn("query", insight_payload)
+        self.assertNotIn("filters", insight_payload)
+
     def test_create_unlisted_dashboard_creates_tags(self):
         """Test that unlisted dashboards get tags"""
         response = self.client.post(
