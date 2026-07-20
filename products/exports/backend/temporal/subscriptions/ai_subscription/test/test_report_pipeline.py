@@ -489,10 +489,15 @@ def test_plan_to_freeze_requires_no_failures(total_steps: int, failed_count: int
         freshly_planned=True,
         failed_count=failed_count,
         total_steps=total_steps,
+        relevant_events=["export created"],
         trace_correlation_id=None,
     )
     if should_freeze:
-        assert result == {"version": AI_QUERY_PLAN_VERSION, "plan": plan.model_dump()}
+        assert result == {
+            "version": AI_QUERY_PLAN_VERSION,
+            "plan": plan.model_dump(),
+            "relevant_events": ["export created"],
+        }
     else:
         assert result is None
 

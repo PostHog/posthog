@@ -1881,6 +1881,8 @@ export const TasksRunsCommandCreateBody = /* @__PURE__ */ zod
  */
 export const tasksRunsRelayMessageCreateBodyTextMax = 10000
 
+export const tasksRunsRelayMessageCreateBodyMessageIdMax = 128
+
 export const tasksRunsRelayMessageCreateBodyTextPartsItemMax = 10000
 
 export const TasksRunsRelayMessageCreateBody = /* @__PURE__ */ zod.object({
@@ -1888,6 +1890,11 @@ export const TasksRunsRelayMessageCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(tasksRunsRelayMessageCreateBodyTextMax)
         .describe('Joined message body. Used when text_parts is absent.'),
+    message_id: zod
+        .string()
+        .max(tasksRunsRelayMessageCreateBodyMessageIdMax)
+        .nullish()
+        .describe('Id of the user message this turn answers, when the agent-server echoes it.'),
     text_parts: zod
         .array(zod.string().max(tasksRunsRelayMessageCreateBodyTextPartsItemMax))
         .optional()
