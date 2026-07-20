@@ -398,11 +398,7 @@ export function EditAlertModalV2({
                                 }
                             }}
                             steps={buildWizardSteps({
-                                nameNode: (
-                                    <AlertEditorFormDetails
-                                        enabled={{ checked: alertForm.enabled, dataAttr: 'alertForm-enabled' }}
-                                    />
-                                ),
+                                nameNode: <AlertEditorFormDetails />,
                                 definitionNode,
                                 previewNode,
                                 scheduleNode,
