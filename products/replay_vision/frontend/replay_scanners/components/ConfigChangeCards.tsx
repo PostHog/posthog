@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconExpand45, IconPencil, IconRevert } from '@posthog/icons'
+import { IconExpand45, IconPencil } from '@posthog/icons'
 import {
     LemonButton,
     LemonCard,
@@ -14,7 +14,6 @@ import {
 } from '@posthog/lemon-ui'
 
 import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
-import { objectsEqual } from 'lib/utils/objects'
 
 import { BooleanTag } from '../../components/BooleanTag'
 import { CardHeader } from '../../components/CardHeader'
@@ -421,22 +420,6 @@ export function ConfigChangeCards({
     const fieldNames = Object.keys(suggested).sort((a, b) => (a === 'prompt' ? -1 : b === 'prompt' ? 1 : 0))
     const structuredFields = fieldNames.filter((field) => field !== 'prompt')
 
-    // Rendered even when not edited (invisible) so the row height never changes as it appears or disappears.
-    const revertButton = (field: string, edited: boolean): JSX.Element => (
-        <LemonButton
-            size="xsmall"
-            type="secondary"
-            icon={<IconRevert />}
-            onClick={() => setFieldValue(suggestion.id, field, suggested[field])}
-            tooltip="Revert to the suggested value"
-            data-attr="vision-quality-revert-field"
-            className={edited ? undefined : 'invisible'}
-            aria-hidden={!edited}
-        >
-            Revert
-        </LemonButton>
-    )
-
     const fieldLabelText = (field: string): string => {
         const { label } = fieldEditor(field, fieldValues[field])
         return field === 'prompt' && scanner?.scanner_type === 'summarizer' ? 'Additional context' : label
@@ -448,10 +431,7 @@ export function ConfigChangeCards({
             <div className="flex flex-col gap-4">
                 {fieldNames.includes('prompt') && (
                     <div>
-                        <div className="flex items-center justify-between gap-2 mb-1">
-                            <span className="text-xs text-muted">{fieldLabelText('prompt')}</span>
-                            {revertButton('prompt', !objectsEqual(fieldValues.prompt, suggested.prompt))}
-                        </div>
+                        <div className="text-xs text-muted mb-1">{fieldLabelText('prompt')}</div>
                         <FieldValueEditor
                             kind="prompt"
                             value={fieldValues.prompt}
@@ -471,7 +451,6 @@ export function ConfigChangeCards({
                         </div>
                         {structuredFields.map((field) => {
                             const { kind } = fieldEditor(field, fieldValues[field])
-                            const edited = !objectsEqual(fieldValues[field], suggested[field])
                             const label = fieldLabelText(field)
                             const candidates =
                                 kind === 'tags'
@@ -480,18 +459,11 @@ export function ConfigChangeCards({
                             return (
                                 <div key={field} className="grid grid-cols-2 gap-10 items-start">
                                     <div>
-                                        {/* Reserve the revert button's height so both columns' values line up. */}
-                                        <div className="flex items-center justify-between gap-2 mb-1">
-                                            <span className="text-xs text-muted">{label}</span>
-                                            {revertButton(field, false)}
-                                        </div>
+                                        <div className="text-xs text-muted mb-1">{label}</div>
                                         <FieldCurrentValue kind={kind} value={base[field]} />
                                     </div>
                                     <div>
-                                        <div className="flex items-center justify-between gap-2 mb-1">
-                                            <span className="text-xs text-muted">{label}</span>
-                                            {revertButton(field, edited)}
-                                        </div>
+                                        <div className="text-xs text-muted mb-1">{label}</div>
                                         <FieldValueEditor
                                             kind={kind}
                                             value={fieldValues[field]}
