@@ -1,0 +1,221 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Data catalog
+feature: data_catalog
+url_prefix: /data-catalog
+ui_apps: {}
+tools:
+    data-catalog-certification-certify:
+        operation: data_catalog_certifications_certify_create
+        enabled: true
+        scopes:
+            - data_catalog_approval:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Certify a table/view
+        description: |
+            Mark a table or view as certified (prefer this source). Requires human typed confirmation.
+        feature_flag: data-catalog
+        confirmed_action:
+            message: >
+                About to mark certification '{id}' as certified (agents should prefer this source). Reply 'confirm' to
+                proceed.
+            action_label: certify source
+    data-catalog-certification-deprecate:
+        operation: data_catalog_certifications_deprecate_create
+        enabled: true
+        scopes:
+            - data_catalog_approval:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Deprecate a table/view
+        description: |
+            Mark a table or view as deprecated (avoid this source). Requires human typed confirmation.
+        feature_flag: data-catalog
+        confirmed_action:
+            message: >
+                About to mark certification '{id}' as deprecated (agents should avoid this source). Reply 'confirm' to
+                proceed.
+            action_label: deprecate source
+    data-catalog-certification-propose:
+        operation: data_catalog_certifications_create
+        enabled: true
+        scopes:
+            - data_catalog:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Propose a table/view certification
+        description: >
+            Propose a trust mark on a warehouse table or view. Address the target by id, or by name (an ambiguous name
+            returns the candidate ids to pick from).
+        feature_flag: data-catalog
+    data-catalog-certifications-destroy:
+        operation: data_catalog_certifications_destroy
+        enabled: false
+    data-catalog-certifications-list:
+        operation: data_catalog_certifications_list
+        enabled: false
+    data-catalog-certifications-partial-update:
+        operation: data_catalog_certifications_partial_update
+        enabled: false
+    data-catalog-certifications-retrieve:
+        operation: data_catalog_certifications_retrieve
+        enabled: false
+    data-catalog-certifications-update:
+        operation: data_catalog_certifications_update
+        enabled: false
+    data-catalog-metric-approve:
+        operation: data_catalog_metrics_approve_create
+        enabled: true
+        scopes:
+            - data_catalog_approval:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Approve a catalog metric
+        description: >
+            Bless a metric as canonical. Blocked while the metric is drifted from its source insight (refresh or unlink
+            it first). Requires human typed confirmation — an agent cannot self-approve.
+        feature_flag: data-catalog
+        confirmed_action:
+            message: |
+                About to approve metric '{name}' as a canonical, human-vouched metric. Reply 'confirm' to proceed.
+            action_label: approve metric
+    data-catalog-metric-create:
+        operation: data_catalog_metrics_create
+        enabled: true
+        scopes:
+            - data_catalog:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Create or refine a catalog metric
+        description: >
+            Create a canonical metric, or refine the one already holding this name (upsert on name; always lands
+            'proposed'). The definition can be an executable query (HogQLQuery / TrendsQuery / FunnelsQuery / an event
+            node) that the query runner computes, OR an agent-calculated markdown definition - {"kind":
+            "MarkdownDefinition", "markdown": "<numbered steps to calculate the metric>"} - which an agent follows to
+            produce the number. Prefer an executable definition when the metric is deterministic; use a markdown
+            definition when the calculation needs judgment or multiple steps. Only propose a definition that was
+            explicitly asked for or that you have seen reused at least twice - do not speculatively catalog one-off
+            queries. If you derived a number and no metric exists for it, offer to save the derivation as a proposed
+            metric. There is no list tool: discover existing metrics with execute-sql over
+            system.information_schema.metrics.
+        feature_flag: data-catalog
+    data-catalog-metric-run:
+        operation: data_catalog_metrics_run_create
+        enabled: true
+        scopes:
+            - data_catalog:read
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Run a catalog metric
+        description: >
+            Run a metric's definition. For an executable metric, returns the results plus a deep link (posthog_url). For
+            an agent-calculated markdown metric, returns the calculation steps in 'instructions' (with 'results' null)
+            for you to follow. Prefer running the canonical metric over re-deriving the number yourself. The response
+            'status' tells you whether the metric is approved - never present a 'proposed' metric's result as canonical.
+        feature_flag: data-catalog
+    data-catalog-metric-update:
+        operation: data_catalog_metrics_partial_update
+        enabled: true
+        scopes:
+            - data_catalog:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update a catalog metric
+        description: >
+            Update a metric's fields. Editing the definition of an approved metric resets it to 'proposed' (it must be
+            re-approved by a human).
+        feature_flag: data-catalog
+    data-catalog-metrics-destroy:
+        operation: data_catalog_metrics_destroy
+        enabled: false
+    data-catalog-metrics-list:
+        operation: data_catalog_metrics_list
+        enabled: false
+    data-catalog-metrics-refresh-from-insight-create:
+        operation: data_catalog_metrics_refresh_from_insight_create
+        enabled: false
+    data-catalog-metrics-retrieve:
+        operation: data_catalog_metrics_retrieve
+        enabled: false
+    data-catalog-metrics-update:
+        operation: data_catalog_metrics_update
+        enabled: false
+    data-catalog-relationship-accept:
+        operation: data_catalog_relationship_proposals_accept_create
+        enabled: true
+        scopes:
+            - data_catalog_approval:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Accept a relationship proposal
+        description: >
+            Promote a relationship proposal to a real warehouse join after re-validating and probing it. Requires human
+            typed confirmation.
+        feature_flag: data-catalog
+        confirmed_action:
+            message: >
+                About to accept relationship proposal '{id}', promoting it to a real warehouse join. Reply 'confirm' to
+                proceed.
+            action_label: accept relationship
+    data-catalog-relationship-proposals-list:
+        operation: data_catalog_relationship_proposals_list
+        enabled: false
+    data-catalog-relationship-proposals-retrieve:
+        operation: data_catalog_relationship_proposals_retrieve
+        enabled: false
+    data-catalog-relationship-propose:
+        operation: data_catalog_relationship_proposals_create
+        enabled: true
+        scopes:
+            - data_catalog:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Propose a table relationship
+        description: >
+            Propose a reviewed join between two warehouse tables, with confidence and sampling evidence (match rates,
+            sample values). Both tables must exist. Proposals are deduped undirected, so do not propose the reverse of
+            an existing pair.
+        feature_flag: data-catalog
+    data-catalog-relationship-reject:
+        operation: data_catalog_relationship_proposals_reject_create
+        enabled: true
+        scopes:
+            - data_catalog_approval:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Reject a relationship proposal
+        description: >
+            Reject a relationship proposal. Persists forever so the pair is never re-proposed. Requires human typed
+            confirmation.
+        feature_flag: data-catalog
+        confirmed_action:
+            message: >
+                About to reject relationship proposal '{id}'. This permanently suppresses re-proposing the pair. Reply
+                'confirm' to proceed.
+            action_label: reject relationship

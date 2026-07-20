@@ -2286,6 +2286,231 @@
             "readOnlyHint": false
         }
     },
+    "data-catalog-certification-certify-execute": {
+        "description": "Step 2 of 2 for certify source. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Mark a table or view as certified (prefer this source). Requires human typed confirmation.",
+        "category": "Data catalog",
+        "feature": "data_catalog",
+        "summary": "Certify a table/view (execute)",
+        "title": "Certify a table/view (execute)",
+        "required_scopes": ["data_catalog_approval:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "data-catalog"
+    },
+    "data-catalog-certification-certify-prepare": {
+        "description": "Step 1 of 2 for certify source. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Mark a table or view as certified (prefer this source). Requires human typed confirmation.",
+        "category": "Data catalog",
+        "feature": "data_catalog",
+        "summary": "Certify a table/view (prepare)",
+        "title": "Certify a table/view (prepare)",
+        "required_scopes": ["data_catalog_approval:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "data-catalog"
+    },
+    "data-catalog-certification-deprecate-execute": {
+        "description": "Step 2 of 2 for deprecate source. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Mark a table or view as deprecated (avoid this source). Requires human typed confirmation.",
+        "category": "Data catalog",
+        "feature": "data_catalog",
+        "summary": "Deprecate a table/view (execute)",
+        "title": "Deprecate a table/view (execute)",
+        "required_scopes": ["data_catalog_approval:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "data-catalog"
+    },
+    "data-catalog-certification-deprecate-prepare": {
+        "description": "Step 1 of 2 for deprecate source. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Mark a table or view as deprecated (avoid this source). Requires human typed confirmation.",
+        "category": "Data catalog",
+        "feature": "data_catalog",
+        "summary": "Deprecate a table/view (prepare)",
+        "title": "Deprecate a table/view (prepare)",
+        "required_scopes": ["data_catalog_approval:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "data-catalog"
+    },
+    "data-catalog-certification-propose": {
+        "description": "Propose a trust mark on a warehouse table or view. Address the target by id, or by name (an ambiguous name returns the candidate ids to pick from).",
+        "category": "Data catalog",
+        "feature": "data_catalog",
+        "summary": "Propose a table/view certification",
+        "title": "Propose a table/view certification",
+        "required_scopes": ["data_catalog:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "data-catalog"
+    },
+    "data-catalog-metric-approve-execute": {
+        "description": "Step 2 of 2 for approve metric. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Bless a metric as canonical. Blocked while the metric is drifted from its source insight (refresh or unlink it first). Requires human typed confirmation — an agent cannot self-approve.",
+        "category": "Data catalog",
+        "feature": "data_catalog",
+        "summary": "Approve a catalog metric (execute)",
+        "title": "Approve a catalog metric (execute)",
+        "required_scopes": ["data_catalog_approval:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "data-catalog"
+    },
+    "data-catalog-metric-approve-prepare": {
+        "description": "Step 1 of 2 for approve metric. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Bless a metric as canonical. Blocked while the metric is drifted from its source insight (refresh or unlink it first). Requires human typed confirmation — an agent cannot self-approve.",
+        "category": "Data catalog",
+        "feature": "data_catalog",
+        "summary": "Approve a catalog metric (prepare)",
+        "title": "Approve a catalog metric (prepare)",
+        "required_scopes": ["data_catalog_approval:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "data-catalog"
+    },
+    "data-catalog-metric-create": {
+        "description": "Create a canonical metric, or refine the one already holding this name (upsert on name; always lands 'proposed'). The definition can be an executable query (HogQLQuery / TrendsQuery / FunnelsQuery / an event node) that the query runner computes, OR an agent-calculated markdown definition - {\"kind\": \"MarkdownDefinition\", \"markdown\": \"<numbered steps to calculate the metric>\"} - which an agent follows to produce the number. Prefer an executable definition when the metric is deterministic; use a markdown definition when the calculation needs judgment or multiple steps. Only propose a definition that was explicitly asked for or that you have seen reused at least twice - do not speculatively catalog one-off queries. If you derived a number and no metric exists for it, offer to save the derivation as a proposed metric. There is no list tool: discover existing metrics with execute-sql over system.information_schema.metrics.",
+        "category": "Data catalog",
+        "feature": "data_catalog",
+        "summary": "Create or refine a catalog metric",
+        "title": "Create or refine a catalog metric",
+        "required_scopes": ["data_catalog:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "data-catalog"
+    },
+    "data-catalog-metric-run": {
+        "description": "Run a metric's definition. For an executable metric, returns the results plus a deep link (posthog_url). For an agent-calculated markdown metric, returns the calculation steps in 'instructions' (with 'results' null) for you to follow. Prefer running the canonical metric over re-deriving the number yourself. The response 'status' tells you whether the metric is approved - never present a 'proposed' metric's result as canonical.",
+        "category": "Data catalog",
+        "feature": "data_catalog",
+        "summary": "Run a catalog metric",
+        "title": "Run a catalog metric",
+        "required_scopes": ["data_catalog:read", "query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "data-catalog"
+    },
+    "data-catalog-metric-update": {
+        "description": "Update a metric's fields. Editing the definition of an approved metric resets it to 'proposed' (it must be re-approved by a human).",
+        "category": "Data catalog",
+        "feature": "data_catalog",
+        "summary": "Update a catalog metric",
+        "title": "Update a catalog metric",
+        "required_scopes": ["data_catalog:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "data-catalog"
+    },
+    "data-catalog-relationship-accept-execute": {
+        "description": "Step 2 of 2 for accept relationship. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Promote a relationship proposal to a real warehouse join after re-validating and probing it. Requires human typed confirmation.",
+        "category": "Data catalog",
+        "feature": "data_catalog",
+        "summary": "Accept a relationship proposal (execute)",
+        "title": "Accept a relationship proposal (execute)",
+        "required_scopes": ["data_catalog_approval:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "data-catalog"
+    },
+    "data-catalog-relationship-accept-prepare": {
+        "description": "Step 1 of 2 for accept relationship. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Promote a relationship proposal to a real warehouse join after re-validating and probing it. Requires human typed confirmation.",
+        "category": "Data catalog",
+        "feature": "data_catalog",
+        "summary": "Accept a relationship proposal (prepare)",
+        "title": "Accept a relationship proposal (prepare)",
+        "required_scopes": ["data_catalog_approval:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "data-catalog"
+    },
+    "data-catalog-relationship-propose": {
+        "description": "Propose a reviewed join between two warehouse tables, with confidence and sampling evidence (match rates, sample values). Both tables must exist. Proposals are deduped undirected, so do not propose the reverse of an existing pair.",
+        "category": "Data catalog",
+        "feature": "data_catalog",
+        "summary": "Propose a table relationship",
+        "title": "Propose a table relationship",
+        "required_scopes": ["data_catalog:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "data-catalog"
+    },
+    "data-catalog-relationship-reject-execute": {
+        "description": "Step 2 of 2 for reject relationship. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Reject a relationship proposal. Persists forever so the pair is never re-proposed. Requires human typed confirmation.",
+        "category": "Data catalog",
+        "feature": "data_catalog",
+        "summary": "Reject a relationship proposal (execute)",
+        "title": "Reject a relationship proposal (execute)",
+        "required_scopes": ["data_catalog_approval:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "data-catalog"
+    },
+    "data-catalog-relationship-reject-prepare": {
+        "description": "Step 1 of 2 for reject relationship. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Reject a relationship proposal. Persists forever so the pair is never re-proposed. Requires human typed confirmation.",
+        "category": "Data catalog",
+        "feature": "data_catalog",
+        "summary": "Reject a relationship proposal (prepare)",
+        "title": "Reject a relationship proposal (prepare)",
+        "required_scopes": ["data_catalog_approval:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "data-catalog"
+    },
     "data-warehouse-source-connect-link": {
         "description": "Return a secure browser link to connect a data warehouse source WITHOUT the user pasting secrets into the chat. The link opens a minimal page rendering the source's full connection form — the user authorizes via OAuth or enters credentials there, whichever the source offers — and the page stores the connection details encrypted and temporarily; it does NOT create the source. This is the preferred, secure way to collect credentials: share the returned connect_url with the user, wait for them to confirm they're done, then find the stored credential via 'data-warehouse-stored-credentials-list' (filter by source_type, newest first) and call 'data-warehouse-source-setup' with {'credential_id': '<uuid>'} in the payload. Stored credentials are single-use, expire after 24 hours, and are only visible to the PostHog user who entered them — the page must be filled by the same user this session authenticates as. Never ask the user to paste raw database passwords, API keys, or OAuth tokens into the chat.",
         "category": "Warehouse sources",
