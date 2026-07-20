@@ -65,7 +65,7 @@ export function AlertPreviewCard({
     const config = alertForm.config
     const isDetector = !!alertForm.detector_config
 
-    let body: JSX.Element
+    let body: JSX.Element | null = null
     if (isTrendsAlertConfig(config) && trendsValues && trendsValues.length > 0) {
         const referenceLines = isDetector ? [] : thresholdReferenceLines(alertForm)
         body = (
@@ -78,12 +78,14 @@ export function AlertPreviewCard({
                 className="w-full"
             />
         )
-    } else if (isFunnelsAlertConfig(config)) {
+    } else if (isFunnelsAlertConfig(config) && funnelPreview) {
         body = <FunnelAlertPreviewBanner preview={funnelPreview} />
-    } else if (isHogQLAlertConfig(config)) {
+    } else if (isHogQLAlertConfig(config) && hogqlPreview) {
         body = <HogQLAlertPreviewBanner preview={hogqlPreview} conditionType={alertForm.condition?.type} />
-    } else {
-        body = <div className="text-sm text-muted">Load the insight to preview what this alert watches.</div>
+    }
+
+    if (!body) {
+        return <></>
     }
 
     const lastValue =
