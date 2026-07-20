@@ -3679,6 +3679,15 @@
             "description": "Reddit Click ID",
             "label": "rdt_cid"
         },
+        "receiver_email": {
+            "description": "The inbound email address a support ticket was sent to (e.g. support@, billing@). Use it to route or tag tickets by destination inbox.",
+            "examples": [
+                "support@example.com",
+                "tech-support@example.com"
+            ],
+            "label": "Receiver email",
+            "type": "String"
+        },
         "referring_application": {
             "description": "The namespace of the app that made the request.",
             "examples": [
@@ -8477,6 +8486,15 @@
         "rdt_cid": {
             "description": "Reddit Click ID Data from the last time this user was seen.",
             "label": "Latest rdt_cid"
+        },
+        "receiver_email": {
+            "description": "The inbound email address a support ticket was sent to (e.g. support@, billing@). Use it to route or tag tickets by destination inbox.",
+            "examples": [
+                "support@example.com",
+                "tech-support@example.com"
+            ],
+            "label": "Receiver email",
+            "type": "String"
         },
         "referring_application": {
             "description": "The namespace of the app that made the request.",

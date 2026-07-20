@@ -5,6 +5,7 @@ import { LemonSelect } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
+import { HogFlowPropertyFilters } from 'products/workflows/frontend/Workflows/hogflows/filters/HogFlowFilters'
 import {
     type EventTriggerConfig,
     registerTriggerType,
@@ -75,6 +76,30 @@ function StepTriggerConfigurationSupportStatusChanged({ node }: { node: any }): 
     )
 }
 
+function StepTriggerConfigurationSupportTicketCreated({ node }: { node: any }): JSX.Element {
+    const { setWorkflowActionConfig } = useActions(workflowLogic)
+    const config = node.data.config as EventTriggerConfig
+
+    return (
+        <div className="flex flex-col gap-2 w-full">
+            <p className="mb-0 text-sm text-muted-alt">
+                This trigger runs when a new ticket is created. Add a filter to scope it, for example filter on{' '}
+                <code>receiver_email</code> to only run for tickets sent to a specific inbound address.
+            </p>
+            <HogFlowPropertyFilters
+                filtersKey={`workflow-trigger-${node.data.id}`}
+                filters={config.filters ?? {}}
+                setFilters={(filters) =>
+                    setWorkflowActionConfig(node.data.id, {
+                        type: 'event',
+                        filters: filters ?? {},
+                    })
+                }
+            />
+        </div>
+    )
+}
+
 function StepTriggerConfigurationSupportMessage({ node }: { node: any }): JSX.Element {
     const config = node.data.config as EventTriggerConfig
     const eventId = getEventId(config)
@@ -104,6 +129,7 @@ registerTriggerType({
             events: [{ id: '$conversation_ticket_created', type: 'events', name: 'New ticket created' }],
         },
     }),
+    ConfigComponent: StepTriggerConfigurationSupportTicketCreated,
 })
 
 registerTriggerType({
