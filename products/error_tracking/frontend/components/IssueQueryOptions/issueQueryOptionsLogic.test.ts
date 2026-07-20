@@ -32,18 +32,20 @@ describe('issueQueryOptionsLogic', () => {
     })
 
     it('resets an invalid persisted orderBy on mount', async () => {
-        // Seed localStorage the way kea-localstorage stores it: mount once, force a write,
-        // then overwrite that exact key with an invalid value before remounting.
+        // Discover the persisted storage key by mounting once, then reset the kea context so
+        // the next mount re-hydrates from the seeded (invalid) value rather than reusing the
+        // already-built logic.
         logic = issueQueryOptionsLogic({ logicKey: LOGIC_KEY })
         logic.mount()
-        logic.actions.setOrderBy('occurrences')
         const storageKey = Object.keys(window.localStorage).find(
             (key) => key.includes('issueQueryOptionsLogic') && key.endsWith('orderBy')
         )
         expect(storageKey).not.toBeUndefined()
         logic.unmount()
 
-        window.localStorage.setItem(storageKey!, JSON.stringify('revenue'))
+        initKeaTests()
+        // kea-localstorage reads/writes via property access, so seed the same way.
+        ;(window.localStorage as any)[storageKey!] = JSON.stringify('revenue')
 
         logic = issueQueryOptionsLogic({ logicKey: LOGIC_KEY })
         logic.mount()
