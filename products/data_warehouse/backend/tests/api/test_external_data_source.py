@@ -3,7 +3,7 @@ import time
 import uuid
 import typing as t
 from datetime import date, timedelta
-from typing import cast
+from typing import Any, cast
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, FuzzyInt
@@ -109,14 +109,26 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.set
     ENDPOINTS as STRIPE_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.utils import TikTokAdsAPIError
 
 
 def _configure_source_mock_versioning(mock_get_source) -> None:
     """Tests that patch `SourceRegistry.get_source` with a bare MagicMock must give the versioning
     attributes real values: the create path persists `default_version` into the `api_version`
-    column, and the serializer renders `get_version_deprecation` into the response."""
+    column, and the serializer renders `get_version_deprecation` into the response. The create path
+    also reads `max_instances_per_team` to enforce the per-team source limit — leave it unset so the
+    limit check is skipped rather than comparing against a MagicMock.
+
+    The update path also asks the source whether an edit introduces a new connection host or leaves
+    row-backed credentials preserved; a bare MagicMock returns truthy for both, which would wrongly
+    trip the credential-reentry gate. Stub them to their real (falsy) defaults."""
     mock_get_source.return_value.default_version = "v1"
     mock_get_source.return_value.get_version_deprecation.return_value = None
+    mock_get_source.return_value.max_instances_per_team = None
+    mock_get_source.return_value.connection_host_fields = []
+    mock_get_source.return_value.server_managed_job_input_fields.return_value = []
+    mock_get_source.return_value.job_inputs_add_connection_host.return_value = False
+    mock_get_source.return_value.has_preserved_row_backed_credentials.return_value = False
 
 
 class TestExternalDataSource(APIBaseTest):
@@ -1155,6 +1167,289 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         schema.refresh_from_db()
         assert schema.sync_type == ExternalDataSchema.SyncType.WEBHOOK
+
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+        return_value=False,
+    )
+    def test_bulk_update_schemas_apply_sync_defaults_fills_settings_from_source(self, _mock_workflow_exists):
+        # `apply_sync_defaults` on a schema with no sync method: one discovery call fills in the
+        # default sync settings and the schema is enabled with them. Without this the request
+        # would 400 with "Sync type must be set up first before enabling schema".
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+            SourceSchema as _SourceSchema,
+        )
+        from products.warehouse_sources.backend.types import IncrementalFieldType
+
+        source = self._create_external_data_source()
+        schema = ExternalDataSchema.objects.create(
+            name="Customer",
+            team_id=self.team.pk,
+            source=source,
+            should_sync=False,
+            sync_type=None,
+        )
+
+        discovered = [
+            _SourceSchema(
+                name="Customer",
+                supports_incremental=True,
+                supports_append=True,
+                incremental_fields=[
+                    {
+                        "label": "updated_at",
+                        "type": IncrementalFieldType.DateTime,
+                        "field": "updated_at",
+                        "field_type": IncrementalFieldType.DateTime,
+                        "nullable": False,
+                    }
+                ],
+                detected_primary_keys=["id"],
+            )
+        ]
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_schemas",
+                return_value=discovered,
+            ) as mock_get_schemas,
+            patch(
+                "products.data_warehouse.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+            ) as mock_sync_workflow,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+                data={"schemas": [{"id": str(schema.id), "should_sync": True, "apply_sync_defaults": True}]},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()[0]["should_sync"] is True
+        assert response.json()[0]["sync_type"] == "incremental"
+
+        schema.refresh_from_db()
+        assert schema.should_sync is True
+        assert schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+        assert schema.sync_type_config.get("incremental_field") == "updated_at"
+        assert schema.sync_type_config.get("incremental_field_type") == "datetime"
+        assert schema.sync_type_config.get("primary_key_columns") == ["id"]
+
+        # One discovery round-trip for the whole batch — the webhook-only warm check reuses it.
+        assert mock_get_schemas.call_count == 1
+        assert mock_get_schemas.call_args.kwargs.get("names") == ["Customer"]
+        # The newly enabled schema gets its Temporal schedule created.
+        assert mock_sync_workflow.call_count == 1
+        assert mock_sync_workflow.call_args.kwargs == {"create": True, "should_sync": True}
+
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+        return_value=False,
+    )
+    def test_bulk_update_schemas_apply_sync_defaults_webhook_only_fails_only_that_schema(self, _mock_workflow_exists):
+        # A webhook-only table can't be enabled with polling defaults: it fails with a clear
+        # reason while the rest of the batch is still applied.
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+            SourceSchema as _SourceSchema,
+        )
+
+        source = self._create_external_data_source()
+        webhook_only_schema = ExternalDataSchema.objects.create(
+            name="Discount", team_id=self.team.pk, source=source, should_sync=False, sync_type=None
+        )
+        normal_schema = ExternalDataSchema.objects.create(
+            name="Customer", team_id=self.team.pk, source=source, should_sync=False, sync_type=None
+        )
+
+        discovered = [
+            _SourceSchema(
+                name="Discount",
+                supports_incremental=False,
+                supports_append=False,
+                supports_webhooks=True,
+                webhook_only=True,
+            ),
+            _SourceSchema(name="Customer", supports_incremental=False, supports_append=False),
+        ]
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_schemas",
+                return_value=discovered,
+            ),
+            patch(
+                "products.data_warehouse.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+            ),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+                data={
+                    "schemas": [
+                        {"id": str(webhook_only_schema.id), "should_sync": True, "apply_sync_defaults": True},
+                        {"id": str(normal_schema.id), "should_sync": True, "apply_sync_defaults": True},
+                    ]
+                },
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        detail = response.json()["detail"]
+        assert "Discount" in detail
+        assert "webhooks" in detail
+
+        webhook_only_schema.refresh_from_db()
+        normal_schema.refresh_from_db()
+        assert webhook_only_schema.should_sync is False
+        assert webhook_only_schema.sync_type is None
+        assert normal_schema.should_sync is True
+        assert normal_schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+        return_value=True,
+    )
+    def test_bulk_update_schemas_apply_sync_defaults_discovery_failure_spares_other_items(self, _mock_workflow_exists):
+        # An unreachable source fails only the items that needed discovery; items that don't
+        # need defaults still apply.
+        source = self._create_external_data_source()
+        unconfigured_schema = ExternalDataSchema.objects.create(
+            name="Customer", team_id=self.team.pk, source=source, should_sync=False, sync_type=None
+        )
+        configured_schema = ExternalDataSchema.objects.create(
+            name="Invoice",
+            team_id=self.team.pk,
+            source=source,
+            should_sync=False,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_schemas",
+                side_effect=requests.ConnectionError("connection refused"),
+            ),
+            patch(
+                "products.data_warehouse.backend.presentation.views.external_data_schema.unpause_external_data_schedule"
+            ) as mock_unpause,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+                data={
+                    "schemas": [
+                        {"id": str(unconfigured_schema.id), "should_sync": True, "apply_sync_defaults": True},
+                        {"id": str(configured_schema.id), "should_sync": True},
+                    ]
+                },
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        detail = response.json()["detail"]
+        assert "Customer" in detail
+        assert "could not read the source" in detail
+
+        unconfigured_schema.refresh_from_db()
+        configured_schema.refresh_from_db()
+        assert unconfigured_schema.should_sync is False
+        assert configured_schema.should_sync is True
+        assert mock_unpause.call_count == 1
+
+    @parameterized.expand(
+        [
+            # A bad-credentials rejection from the customer's database is theirs to fix and is
+            # already reported back in the response, so it must not be captured as error-tracking noise.
+            (
+                "expected_credential_error",
+                psycopg.OperationalError(
+                    'connection failed: FATAL:  password authentication failed for user "postgres"'
+                ),
+                False,
+            ),
+            # An unexpected error still points at a bug in our discovery code, so keep capturing it.
+            ("unexpected_error", ValueError("unexpected discovery failure"), True),
+        ]
+    )
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+        return_value=False,
+    )
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.capture_exception")
+    def test_bulk_update_schemas_apply_sync_defaults_skips_capture_for_expected_errors(
+        self, _name, raised_exception, should_capture, mock_capture_exception, _mock_workflow_exists
+    ):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="pg",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "app",
+                "user": "user",
+                "password": "pass",
+                "schema": "public",
+            },
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="Customer", team_id=self.team.pk, source=source, should_sync=False, sync_type=None
+        )
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.get_schemas",
+            side_effect=raised_exception,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+                data={"schemas": [{"id": str(schema.id), "should_sync": True, "apply_sync_defaults": True}]},
+                format="json",
+            )
+
+        # Discovery failed, so the schema is reported back either way and stays unconfigured.
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "could not read the source" in response.json()["detail"]
+        schema.refresh_from_db()
+        assert schema.should_sync is False
+
+        assert mock_capture_exception.called is should_capture
+
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+        return_value=True,
+    )
+    def test_bulk_update_schemas_apply_sync_defaults_noop_for_configured_schema(self, _mock_workflow_exists):
+        # A schema that already has a sync method is just re-enabled: no discovery round-trip,
+        # and its existing sync settings are not clobbered by defaults.
+        source = self._create_external_data_source()
+        schema = ExternalDataSchema.objects.create(
+            name="Customer",
+            team_id=self.team.pk,
+            source=source,
+            should_sync=False,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_schemas"
+            ) as mock_get_schemas,
+            patch(
+                "products.data_warehouse.backend.presentation.views.external_data_schema.unpause_external_data_schedule"
+            ),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+                data={"schemas": [{"id": str(schema.id), "should_sync": True, "apply_sync_defaults": True}]},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        schema.refresh_from_db()
+        assert schema.should_sync is True
+        assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+        mock_get_schemas.assert_not_called()
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
@@ -2239,6 +2534,8 @@ class TestExternalDataSource(APIBaseTest):
                 "description",
                 "access_method",
                 "direct_query_enabled",
+                "auto_sync_new_schemas",
+                "auto_sync_schema_patterns",
                 "engine",
                 "last_run_at",
                 "schemas",
@@ -2437,6 +2734,7 @@ class TestExternalDataSource(APIBaseTest):
         data = response.json()
         self.assertEqual(data["added"], 2)
         self.assertEqual(data["deleted"], 0)
+        self.assertEqual(data["auto_enabled"], 0)
         self.assertEqual(data["total_tables_seen"], 2)
         self.assertEqual(
             ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, deleted=False).count(), 2
@@ -2447,6 +2745,90 @@ class TestExternalDataSource(APIBaseTest):
             )
         )
         self.assertCountEqual(names, ["table_a", "table_b"])
+
+    @patch("products.data_warehouse.backend.facade.api.sync_external_data_job_workflow")
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_auto_enables_matching_new_schemas(self, mock_get_source, mock_schedule):
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(
+                name="raw_events",
+                supports_incremental=True,
+                supports_append=False,
+                incremental_fields=[
+                    {
+                        "label": "updated_at",
+                        "type": IncrementalFieldType.DateTime,
+                        "field": "updated_at",
+                        "field_type": IncrementalFieldType.DateTime,
+                    }
+                ],
+            ),
+            SourceSchema(name="audit_log", supports_incremental=False, supports_append=False),
+        ]
+        source = self._create_external_data_source()
+        source.auto_sync_new_schemas = True
+        source.auto_sync_schema_patterns = ["raw_*"]
+        source.save()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["added"], 2)
+        self.assertEqual(data["auto_enabled"], 1)
+        enabled = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="raw_events")
+        self.assertTrue(enabled.should_sync)
+        self.assertEqual(enabled.sync_type, ExternalDataSchema.SyncType.INCREMENTAL)
+        self.assertEqual(enabled.sync_type_config.get("incremental_field"), "updated_at")
+        disabled = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="audit_log")
+        self.assertFalse(disabled.should_sync)
+        mock_schedule.assert_called_once()
+
+    def test_update_source_auto_sync_new_schemas_fields(self):
+        source = self._create_external_data_source()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"auto_sync_new_schemas": True, "auto_sync_schema_patterns": ["raw_*", "billing_?"]},
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        source.refresh_from_db()
+        self.assertTrue(source.auto_sync_new_schemas)
+        self.assertEqual(source.auto_sync_schema_patterns, ["raw_*", "billing_?"])
+
+    def test_update_source_rejects_auto_sync_for_direct_query(self):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            created_by=self.user,
+            prefix="direct source",
+            job_inputs={
+                "host": "172.16.0.0",
+                "port": "123",
+                "database": "database",
+                "user": "user",
+                "password": "password",
+                "schema": "public",
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"auto_sync_new_schemas": True},
+        )
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("direct query sources", response.json()["detail"])
+        source.refresh_from_db()
+        self.assertFalse(source.auto_sync_new_schemas)
 
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_creates_new_schemas_and_deletes_missing_schemas(self, mock_get_source):
@@ -7439,7 +7821,7 @@ class TestExternalDataSource(APIBaseTest):
 
         # Every case 400s; only the at-limit case is blocked *by the per-team limit* — the
         # excluded cases stay under the limit and fail later on the (empty) manifest instead.
-        limit_message = f"You can create at most {MAX_CUSTOM_SOURCES_PER_TEAM} custom sources per project."
+        limit_message = f"You can create at most {MAX_CUSTOM_SOURCES_PER_TEAM} sources of this type per project."
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         if expect_blocked:
             assert response.json()["message"] == limit_message
@@ -10546,10 +10928,14 @@ class TestCDCStatus(APIBaseTest):
         assert response.json() == {"enabled": False}
 
     @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_extraction_schedule_paused",
+        return_value=False,
+    )
+    @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
         return_value={"slot_exists": True, "publication_exists": True, "lag_bytes": 2048},
     )
-    def test_returns_live_status_when_enabled(self, mock_get_status) -> None:
+    def test_returns_live_status_when_enabled(self, mock_get_status, _mock_paused) -> None:
         source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/cdc_status/")
         assert response.status_code == 200, response.content
@@ -10561,14 +10947,48 @@ class TestCDCStatus(APIBaseTest):
         assert body["slot_exists"] is True
         assert body["publication_exists"] is True
         assert body["lag_bytes"] == 2048
+        assert body["schedule_paused"] is False
         # Read against the stored source model, not a client payload.
         assert mock_get_status.call_args.args[0].pk == source.pk
 
     @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_extraction_schedule_paused",
+        return_value=True,
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
+        return_value={"slot_exists": True, "publication_exists": True, "lag_bytes": 2048},
+    )
+    def test_surfaces_schedule_paused(self, _mock_get_status, _mock_paused) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/cdc_status/")
+        assert response.status_code == 200, response.content
+        assert response.json()["schedule_paused"] is True
+
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_extraction_schedule_paused",
+        side_effect=Exception("temporal unavailable"),
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
+        return_value={"slot_exists": True, "publication_exists": True, "lag_bytes": 2048},
+    )
+    def test_schedule_paused_lookup_failure_degrades_to_false(self, _mock_get_status, _mock_paused) -> None:
+        # A Temporal outage must not 500 this otherwise DB-only status read.
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/cdc_status/")
+        assert response.status_code == 200, response.content
+        assert response.json()["schedule_paused"] is False
+
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_extraction_schedule_paused",
+        return_value=False,
+    )
+    @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
         return_value={"slot_exists": False, "publication_exists": True, "lag_bytes": None},
     )
-    def test_surfaces_missing_slot(self, _mock_get_status) -> None:
+    def test_surfaces_missing_slot(self, _mock_get_status, _mock_paused) -> None:
         source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/cdc_status/")
         assert response.status_code == 200, response.content
@@ -10585,6 +11005,105 @@ class TestCDCStatus(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/cdc_status/")
         assert response.status_code == 400
         assert "Could not connect to source" in response.json()["message"]
+
+
+class TestResumeCDC(APIBaseTest):
+    def _resume(self, source: ExternalDataSource):
+        return self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/resume_cdc/",
+        )
+
+    def _cdc_schema(self, source: ExternalDataSource, *, broken: bool = False) -> ExternalDataSchema:
+        config: dict[str, t.Any] = {"cdc_mode": "streaming"}
+        if broken:
+            config["cdc_broken"] = BROKEN_MARKER
+        return ExternalDataSchema.objects.create(
+            name="orders",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            should_sync=True,
+            status=ExternalDataSchema.Status.FAILED,
+            sync_type_config=config,
+        )
+
+    def test_resume_cdc_rejects_when_cdc_not_enabled(self) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+        response = self._resume(source)
+        assert response.status_code == 400
+        assert "CDC is not enabled" in response.json()["message"]
+
+    def test_resume_cdc_rejects_when_no_cdc_schemas(self) -> None:
+        # CDC enabled but nothing syncs via CDC — resuming would report success while nothing runs.
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        response = self._resume(source)
+        assert response.status_code == 400
+        assert "nothing to resume" in response.json()["message"]
+
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.sync_cdc_extraction_schedule")
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.unpause_cdc_extraction_schedule")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
+        return_value={"slot_exists": True, "publication_exists": True, "lag_bytes": 128},
+    )
+    def test_resume_cdc_unpauses_when_slot_intact(self, mock_get_status, mock_unpause, mock_sync) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        self._cdc_schema(source)
+
+        response = self._resume(source)
+        assert response.status_code == 200, response.content
+        assert response.json()["success"] is True
+        # Recreate-if-missing then unpause, so a schedule deleted out-of-band can't report false success.
+        mock_sync.assert_called_once()
+        assert mock_sync.call_args.args[0].pk == source.pk
+        mock_unpause.assert_called_once_with(str(source.pk))
+        assert mock_get_status.call_args.args[0].pk == source.pk
+
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.unpause_cdc_extraction_schedule")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status"
+    )
+    def test_resume_cdc_rejected_when_broken_marker(self, mock_get_status, mock_unpause) -> None:
+        # A lost slot/publication is marked cdc_broken — resume must route to Repair, not unpause
+        # (and must not even probe, since the source is known-broken).
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        self._cdc_schema(source, broken=True)
+
+        response = self._resume(source)
+        assert response.status_code == 400
+        assert "Repair CDC" in response.json()["message"]
+        mock_unpause.assert_not_called()
+        mock_get_status.assert_not_called()
+
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.unpause_cdc_extraction_schedule")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
+        side_effect=psycopg.OperationalError("password authentication failed"),
+    )
+    def test_resume_cdc_rejected_when_connection_still_fails(self, _mock_get_status, mock_unpause) -> None:
+        # The whole point: don't unpause straight back into the same deterministic auth failure.
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        self._cdc_schema(source)
+
+        response = self._resume(source)
+        assert response.status_code == 400
+        assert "check the credentials" in response.json()["message"]
+        mock_unpause.assert_not_called()
+
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.unpause_cdc_extraction_schedule")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
+        return_value={"slot_exists": False, "publication_exists": True, "lag_bytes": None},
+    )
+    def test_resume_cdc_rejected_when_slot_missing_without_marker(self, _mock_get_status, mock_unpause) -> None:
+        # Slot dropped on the source DB before any run set cdc_broken: the live probe still catches it.
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        self._cdc_schema(source)
+
+        response = self._resume(source)
+        assert response.status_code == 400
+        assert "Repair CDC" in response.json()["message"]
+        mock_unpause.assert_not_called()
 
 
 class TestExternalDataSourceConnectLink(APIBaseTest):
@@ -11210,8 +11729,12 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
     _BING_LIST_ACCOUNTS = (
         "products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.client.BingAdsClient.list_accounts"
     )
+    _GOOGLE_ADS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.source"
     _REDDIT_ADS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.source"
     _LINKEDIN_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source"
+    _PINTEREST_ADS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.source"
+    _TIKTOK_ADS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.source"
+    _SNAPCHAT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.source"
     _META_ADS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.source"
 
     def setUp(self):
@@ -11244,6 +11767,16 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
             config={},
             sensitive_config={"access_token": "token"},
             integration_id="linkedin_test",
+            created_by=self.user,
+        )
+
+    def _pinterest_integration(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="pinterest-ads",
+            config={},
+            sensitive_config={"access_token": "token", "refresh_token": "refresh"},
+            integration_id="pinterest_test",
             created_by=self.user,
         )
 
@@ -11301,6 +11834,266 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
         # raises NotImplementedError — it must surface as a 400, not an unhandled 500.
         response = self.client.get(self._url("Salesforce", 1))
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+    def test_pinterest_ads_maps_accounts_with_permission_badges(self):
+        integration = self._pinterest_integration()
+        listed = [
+            {"id": "549770029420", "name": "Posthog Inc", "permissions": ["OWNER"]},
+            {"id": "111", "name": "Client", "permissions": ["CAMPAIGN_MANAGER"]},
+        ]
+        with (
+            patch(f"{self._PINTEREST_ADS_MODULE}.OauthIntegration") as mock_oauth,
+            patch(f"{self._PINTEREST_ADS_MODULE}.build_session"),
+            patch(f"{self._PINTEREST_ADS_MODULE}.list_ad_accounts", return_value=listed),
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            response = self.client.get(self._url("PinterestAds", integration.id))
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["accounts"] == [
+            {
+                "value": "549770029420",
+                "display_name": "Posthog Inc",
+                "is_primary": False,
+                "badges": ["Owner"],
+                "group": None,
+                "secondary_text": None,
+            },
+            {
+                "value": "111",
+                "display_name": "Client",
+                "is_primary": False,
+                "badges": ["Campaign manager"],
+                "group": None,
+                "secondary_text": None,
+            },
+        ]
+
+    def _pinterest_http_error(self, status_code: int) -> requests.HTTPError:
+        response = Mock()
+        response.status_code = status_code
+        return requests.HTTPError(f"{status_code} Client Error", response=response)
+
+    @parameterized.expand([(401,), (403,)])
+    def test_pinterest_ads_auth_error_returns_actionable_400(self, status_code: int):
+        integration = self._pinterest_integration()
+        with (
+            patch(f"{self._PINTEREST_ADS_MODULE}.OauthIntegration") as mock_oauth,
+            patch(f"{self._PINTEREST_ADS_MODULE}.build_session"),
+            patch(
+                f"{self._PINTEREST_ADS_MODULE}.list_ad_accounts",
+                side_effect=self._pinterest_http_error(status_code),
+            ),
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            response = self.client.get(self._url("PinterestAds", integration.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "reconnect" in str(response.json()).lower()
+
+    def _tiktok_integration(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="tiktok-ads",
+            config={},
+            sensitive_config={"access_token": "token"},
+            integration_id="tiktok_test",
+            created_by=self.user,
+        )
+
+    def test_tiktok_auth_error_returns_actionable_400(self):
+        integration = self._tiktok_integration()
+        error = TikTokAdsAPIError("TikTok advertiser/get failed (40105): invalid", api_code=40105)
+        with patch(f"{self._TIKTOK_ADS_MODULE}.list_advertisers", side_effect=error):
+            response = self.client.get(self._url("TikTokAds", integration.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "reconnect" in str(response.json()).lower()
+
+    @parameterized.expand([(429,), (500,), (503,)])
+    def test_pinterest_ads_transient_error_asks_the_user_to_retry(self, status_code: int):
+        # Pinterest rate-limits `/ad_accounts` and 5xxs during outages. Neither is a bug on our side,
+        # so the picker must say "try again" rather than blow up with a 500.
+        integration = self._pinterest_integration()
+        with (
+            patch(f"{self._PINTEREST_ADS_MODULE}.OauthIntegration") as mock_oauth,
+            patch(f"{self._PINTEREST_ADS_MODULE}.build_session"),
+            patch(
+                f"{self._PINTEREST_ADS_MODULE}.list_ad_accounts",
+                side_effect=self._pinterest_http_error(status_code),
+            ),
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            response = self.client.get(self._url("PinterestAds", integration.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "try again" in str(response.json()).lower()
+
+    def test_pinterest_ads_non_auth_api_error_is_not_swallowed(self):
+        # A 404 means we built a request Pinterest doesn't recognise — our bug, so let it surface.
+        integration = self._pinterest_integration()
+        with (
+            patch(f"{self._PINTEREST_ADS_MODULE}.OauthIntegration") as mock_oauth,
+            patch(f"{self._PINTEREST_ADS_MODULE}.build_session"),
+            patch(
+                f"{self._PINTEREST_ADS_MODULE}.list_ad_accounts",
+                side_effect=self._pinterest_http_error(404),
+            ),
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            response = self.client.get(self._url("PinterestAds", integration.id))
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR, response.content
+
+    def test_pinterest_ads_unreachable_token_endpoint_returns_400(self):
+        # `refresh_access_token` reports a refusal via `integration.errors`, but a network failure (or
+        # an HTML error page it can't parse) escapes as an exception — that must not become a 500.
+        integration = self._pinterest_integration()
+        with (
+            patch(f"{self._PINTEREST_ADS_MODULE}.OauthIntegration") as mock_oauth,
+            patch(f"{self._PINTEREST_ADS_MODULE}.build_session"),
+            patch(f"{self._PINTEREST_ADS_MODULE}.list_ad_accounts") as mock_list,
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = True
+            mock_oauth.return_value.refresh_access_token.side_effect = requests.ConnectionError("boom")
+            response = self.client.get(self._url("PinterestAds", integration.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "try again" in str(response.json()).lower()
+        mock_list.assert_not_called()
+
+    @parameterized.expand([(40016,), (40100,), (40101,), (40102,), (50000,), (51001,), (60001,)])
+    def test_tiktok_transient_error_returns_actionable_400_not_a_reconnect_prompt(self, api_code: int):
+        # 40100 ("requests made too frequently") used to be classified as an auth error, telling a
+        # throttled team to reconnect a perfectly healthy integration. None of these are credential
+        # problems, and none are our bug — they must not page us, nor prompt a pointless re-OAuth.
+        integration = self._tiktok_integration()
+        error = TikTokAdsAPIError(f"TikTok advertiser/get failed ({api_code}): busy", api_code=api_code)
+        with patch(f"{self._TIKTOK_ADS_MODULE}.list_advertisers", side_effect=error):
+            response = self.client.get(self._url("TikTokAds", integration.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        body = str(response.json()).lower()
+        assert "rate-limiting" in body
+        assert "reconnect" not in body
+
+    def test_tiktok_non_auth_api_error_is_not_swallowed(self):
+        integration = self._tiktok_integration()
+        error = TikTokAdsAPIError("TikTok advertiser/get failed (40002): bad request", api_code=40002)
+        with patch(f"{self._TIKTOK_ADS_MODULE}.list_advertisers", side_effect=error):
+            response = self.client.get(self._url("TikTokAds", integration.id))
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR, response.content
+
+    def test_tiktok_missing_access_token_returns_actionable_400(self):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="tiktok-ads",
+            config={},
+            sensitive_config={},
+            integration_id="tiktok_no_token",
+            created_by=self.user,
+        )
+        response = self.client.get(self._url("TikTokAds", integration.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "access token" in str(response.json()).lower()
+
+    def test_tiktok_ads_maps_advertisers_to_accounts(self):
+        integration = self._tiktok_integration()
+        advertisers = [
+            {"advertiser_id": "7554133187111469074", "advertiser_name": "Posthog0925"},
+            {"advertiser_id": "7554135782433308688", "advertiser_name": "Posthog Inc"},
+        ]
+        with patch(f"{self._TIKTOK_ADS_MODULE}.list_advertisers", return_value=advertisers):
+            response = self.client.get(self._url("TikTokAds", integration.id))
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["accounts"] == [
+            {
+                "value": "7554133187111469074",
+                "display_name": "Posthog0925",
+                "is_primary": False,
+                "badges": [],
+                "group": None,
+                "secondary_text": None,
+            },
+            {
+                "value": "7554135782433308688",
+                "display_name": "Posthog Inc",
+                "is_primary": False,
+                "badges": [],
+                "group": None,
+                "secondary_text": None,
+            },
+        ]
+
+    def _snapchat_integration(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="snapchat",
+            config={},
+            sensitive_config={"access_token": "token"},
+            integration_id="snapchat_test",
+            created_by=self.user,
+        )
+
+    def test_snapchat_maps_accounts_grouped_by_organization(self):
+        integration = self._snapchat_integration()
+        listed = [
+            ({"id": "acc-1", "name": "PostHog Self Service", "status": "PENDING"}, "PostHog"),
+            ({"id": "acc-2", "name": "PostHog", "status": "ACTIVE"}, "PostHog"),
+        ]
+        with (
+            patch(f"{self._SNAPCHAT_MODULE}.OauthIntegration") as mock_oauth,
+            patch(f"{self._SNAPCHAT_MODULE}.list_ad_accounts", return_value=listed),
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            response = self.client.get(self._url("SnapchatAds", integration.id))
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["accounts"] == [
+            {
+                "value": "acc-1",
+                "display_name": "PostHog Self Service",
+                "is_primary": False,
+                "badges": ["Pending"],
+                "group": "PostHog",
+                "secondary_text": None,
+            },
+            {
+                "value": "acc-2",
+                "display_name": "PostHog",
+                "is_primary": False,
+                "badges": ["Active"],
+                "group": "PostHog",
+                "secondary_text": None,
+            },
+        ]
+
+    @parameterized.expand([(401,), (403,)])
+    def test_snapchat_auth_error_returns_actionable_400(self, status_code: int):
+        integration = self._snapchat_integration()
+        with (
+            patch(f"{self._SNAPCHAT_MODULE}.OauthIntegration") as mock_oauth,
+            patch(f"{self._SNAPCHAT_MODULE}.list_ad_accounts", side_effect=self._http_error(status_code)),
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            response = self.client.get(self._url("SnapchatAds", integration.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "reconnect your snapchat ads" in str(response.json()).lower()
+
+    def test_snapchat_non_auth_api_error_is_not_swallowed(self):
+        integration = self._snapchat_integration()
+        with (
+            patch(f"{self._SNAPCHAT_MODULE}.OauthIntegration") as mock_oauth,
+            patch(f"{self._SNAPCHAT_MODULE}.list_ad_accounts", side_effect=self._http_error(500)),
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            response = self.client.get(self._url("SnapchatAds", integration.id))
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR, response.content
 
     def _reddit_integration(self, **kwargs) -> Integration:
         return Integration.objects.create(
@@ -11557,6 +12350,92 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "reconnect your account" in str(response.json()).lower()
+
+    def _google_ads_integration(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="google-ads",
+            config={},
+            sensitive_config={"access_token": "token"},
+            integration_id="google_ads_test",
+            created_by=self.user,
+        )
+
+    def _google_ads_accounts(self, listed: list[dict[str, Any]]):
+        with (
+            patch(f"{self._GOOGLE_ADS_MODULE}.OauthIntegration") as mock_oauth,
+            patch(f"{self._GOOGLE_ADS_MODULE}.GoogleAdsIntegration") as mock_google_ads,
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            mock_google_ads.return_value.list_google_ads_accessible_accounts.return_value = listed
+            return self.client.get(self._url("GoogleAds", self._google_ads_integration().id))
+
+    def test_google_ads_maps_hierarchy_to_accounts(self):
+        listed: list[dict[str, Any]] = [
+            {"parent_id": "6501924158", "id": "6501924158", "level": None, "name": "Acme Corp", "manager": True},
+            {"parent_id": "6501924158", "id": "1234567890", "level": "1", "name": "Client One", "manager": False},
+        ]
+
+        response = self._google_ads_accounts(listed)
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        # Stored dashed as the Google Ads UI shows it; clean_customer_id normalizes to bare at the API boundary.
+        assert response.json()["accounts"] == [
+            {
+                "value": "650-192-4158",
+                "display_name": "Acme Corp",
+                "is_primary": True,
+                "badges": ["Manager"],
+                "group": None,
+                "secondary_text": None,
+            },
+            {
+                "value": "123-456-7890",
+                "display_name": "Client One",
+                "is_primary": False,
+                "badges": [],
+                "group": "Acme Corp",
+                "secondary_text": None,
+            },
+        ]
+
+    def test_google_ads_does_not_group_accounts_below_the_first_level(self):
+        # `parent_id` is the accessible root the hierarchy walk started from, not the direct manager, so
+        # it names the true parent only one level down. A sub-manager's client must not claim to sit
+        # "under" the root.
+        listed: list[dict[str, Any]] = [
+            {"parent_id": "6501924158", "id": "6501924158", "level": None, "name": "Acme Corp", "manager": True},
+            {"parent_id": "6501924158", "id": "1234567890", "level": "1", "name": "Sub Manager", "manager": True},
+            {"parent_id": "6501924158", "id": "5555555555", "level": "2", "name": "Deep Client", "manager": False},
+        ]
+
+        response = self._google_ads_accounts(listed)
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert [(a["display_name"], a["group"]) for a in response.json()["accounts"]] == [
+            ("Acme Corp", None),
+            ("Sub Manager", "Acme Corp"),
+            ("Deep Client", None),
+        ]
+
+    def test_google_ads_search_matches_a_manager_name(self):
+        # The client folds `group` into its search text, but the endpoint filters server-side first, so a
+        # manager's name has to match there or the client never sees the row.
+        listed = [
+            {"parent_id": "6501924158", "id": "6501924158", "level": None, "name": "Acme Corp", "manager": True},
+            {"parent_id": "6501924158", "id": "1234567890", "level": "1", "name": "Client One", "manager": False},
+        ]
+
+        with (
+            patch(f"{self._GOOGLE_ADS_MODULE}.OauthIntegration") as mock_oauth,
+            patch(f"{self._GOOGLE_ADS_MODULE}.GoogleAdsIntegration") as mock_google_ads,
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            mock_google_ads.return_value.list_google_ads_accessible_accounts.return_value = listed
+            response = self.client.get(self._url("GoogleAds", self._google_ads_integration().id) + "&search=acme")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert [a["value"] for a in response.json()["accounts"]] == ["650-192-4158", "123-456-7890"]
 
     def test_linkedin_success_maps_ad_accounts_to_accounts(self):
         integration = self._linkedin_integration()

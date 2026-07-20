@@ -111,7 +111,7 @@ class TestBraintreeSource:
 
         assert is_valid is expected_valid
         assert error_message == expected_message
-        mock_validate.assert_called_once_with("production", "pub", "priv")
+        mock_validate.assert_called_once_with("production", "pub", "priv", "2026-07-14")
 
     def test_get_resumable_source_manager_binds_resume_config(self):
         inputs = mock.MagicMock()
@@ -150,3 +150,40 @@ class TestBraintreeSource:
         self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
 
         assert mock_bt_source.call_args.kwargs["db_incremental_field_last_value"] is None
+
+    def test_supported_versions_and_default(self):
+        assert self.source.supported_versions == ("2019-01-01", "2026-07-14")
+        # New sources start on the latest version; the default must stay in supported.
+        assert self.source.default_version == "2026-07-14"
+        assert self.source.default_version in self.source.supported_versions
+
+    @pytest.mark.parametrize(
+        "pinned, expected",
+        [
+            ("2019-01-01", "2019-01-01"),
+            ("2026-07-14", "2026-07-14"),
+            (None, "2026-07-14"),
+            ("", "2026-07-14"),
+        ],
+    )
+    def test_resolve_api_version(self, pinned, expected):
+        assert self.source.resolve_api_version(pinned) == expected
+
+    @pytest.mark.parametrize(
+        "pinned, expected",
+        [
+            ("2019-01-01", "2019-01-01"),
+            ("2026-07-14", "2026-07-14"),
+            (None, "2026-07-14"),
+        ],
+    )
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.braintree.source.braintree_source")
+    def test_source_for_pipeline_dispatches_resolved_version(self, mock_bt_source, pinned, expected):
+        inputs = mock.MagicMock()
+        inputs.schema_name = "transactions"
+        inputs.should_use_incremental_field = False
+        inputs.api_version = pinned
+
+        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+
+        assert mock_bt_source.call_args.kwargs["api_version"] == expected

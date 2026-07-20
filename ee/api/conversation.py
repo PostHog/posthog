@@ -198,7 +198,12 @@ class QueueMessageUpdateSerializer(serializers.Serializer):
 
 
 class SandboxAttachedContextItemSerializer(serializers.Serializer):
-    """One typed attachment carried by a sandbox message."""
+    """One typed attachment carried by a sandbox message.
+
+    DEPRECATED PATH — do not extend. This structured `attached_context` (and its server-side wrap in
+    `context_wrapper.py`) exists only for the legacy Max conversations bridge and is removed with it;
+    the live path wraps context client-side (`products/posthog_ai/frontend/utils/posthogContextBlock.ts`).
+    """
 
     type = serializers.ChoiceField(
         choices=sorted(ALLOWED_ATTACHED_CONTEXT_TYPES),
@@ -236,6 +241,7 @@ class SandboxOpenSerializer(serializers.Serializer):
     trace_id = serializers.UUIDField(
         required=False, help_text="Client-generated trace id correlated with the resulting Run's SSE stream."
     )
+    # Deprecated with the legacy Max bridge (see SandboxAttachedContextItemSerializer) — do not extend.
     attached_context = serializers.ListField(
         required=False,
         child=SandboxAttachedContextItemSerializer(),

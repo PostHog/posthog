@@ -1,8 +1,13 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import SourceFieldInputConfig, SourceFieldOauthConfig
+import requests
 
+from posthog.schema import SourceFieldOauthAccountSelectConfig, SourceFieldOauthConfig
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccountListingError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PinterestAdsSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.source import PinterestAdsSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -26,16 +31,18 @@ class TestPinterestAdsSource:
         assert config.featureFlag is None
         assert len(config.fields) == 2
 
-        account_field = config.fields[0]
-        assert isinstance(account_field, SourceFieldInputConfig)
-        assert account_field.name == "ad_account_id"
-        assert account_field.required is True
-
-        oauth_field = config.fields[1]
+        oauth_field = config.fields[0]
         assert isinstance(oauth_field, SourceFieldOauthConfig)
         assert oauth_field.name == "pinterest_ads_integration_id"
         assert oauth_field.kind == "pinterest-ads"
         assert oauth_field.required is True
+
+        account_field = config.fields[1]
+        assert isinstance(account_field, SourceFieldOauthAccountSelectConfig)
+        assert account_field.name == "ad_account_id"
+        assert account_field.required is True
+        assert account_field.integrationField == "pinterest_ads_integration_id"
+        assert account_field.integrationKind == "pinterest-ads"
 
     def test_validate_credentials_missing_account_id(self):
         invalid_config = PinterestAdsSourceConfig(pinterest_ads_integration_id=456, ad_account_id="")
@@ -156,3 +163,30 @@ class TestPinterestAdsSource:
         inputs.job_id = "job-1"
         manager = self.source.get_resumable_source_manager(inputs)
         assert manager._data_class.__name__ == "PinterestAdsResumeConfig"
+
+    @pytest.mark.parametrize(
+        "transport_error",
+        [requests.ConnectionError("connection reset"), requests.ReadTimeout("read timed out")],
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.source.list_ad_accounts"
+    )
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.source.build_session")
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.source.OauthIntegration"
+    )
+    @mock.patch.object(PinterestAdsSource, "get_oauth_integration")
+    def test_get_oauth_accounts_maps_transport_failure_to_listing_error(
+        self, mock_get_oauth, mock_oauth_integration, mock_build_session, mock_list_ad_accounts, transport_error
+    ):
+        # A connection error / read timeout survives the retry policy and reaches the picker as a
+        # RequestException (not an HTTPError); it must become an actionable transient error, not a 500.
+        integration = mock.MagicMock()
+        integration.errors = ""
+        integration.access_token = "token"
+        mock_get_oauth.return_value = integration
+        mock_oauth_integration.return_value.access_token_expired.return_value = False
+        mock_list_ad_accounts.side_effect = transport_error
+
+        with pytest.raises(IntegrationAccountListingError, match="Pinterest is having trouble responding"):
+            self.source.get_oauth_accounts(456, self.team_id)

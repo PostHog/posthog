@@ -5914,6 +5914,7 @@ const api = {
         async refreshSchemas(sourceId: ExternalDataSource['id']): Promise<{
             added: number
             deleted: number
+            auto_enabled: number
             total_tables_seen: number
         }> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('refresh_schemas').create()
@@ -5922,7 +5923,10 @@ const api = {
             sourceId: ExternalDataSource['id'],
             // Callers send a minimal diff — only `id` is required; the backend writes just the fields
             // present and leaves the rest untouched. (Matches `externalDataSchemas.update`'s shape.)
-            schemas: (Partial<ExternalDataSourceSchema> & Pick<ExternalDataSourceSchema, 'id'>)[]
+            // `apply_sync_defaults` asks the backend to discover and fill in default sync settings
+            // for schemas that have no sync method configured yet.
+            schemas: (Partial<ExternalDataSourceSchema> &
+                Pick<ExternalDataSourceSchema, 'id'> & { apply_sync_defaults?: boolean })[]
         ): Promise<ExternalDataSourceSchema[]> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('bulk_update_schemas').update({
                 data: { schemas },
@@ -6014,6 +6018,7 @@ const api = {
             publication_exists?: boolean
             lag_bytes?: number | null
             published_tables?: string[]
+            schedule_paused?: boolean
         }> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('cdc_status').get()
         },
