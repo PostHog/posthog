@@ -523,6 +523,14 @@ class TestSearchScratchpad(BaseTest):
 
         assert results[0].content == ""
 
+    def test_oversized_content_max_chars_returns_the_whole_body(self) -> None:
+        remember(team_id=self.team.id, key="k1", content="abcdefghij")
+
+        # Unclamped this reaches Postgres as an out-of-range LEFT() length and 500s.
+        results = search_scratchpad(team_id=self.team.id, content_max_chars=2**40)
+
+        assert results[0].content == "abcdefghij"
+
     def test_key_lookup_survives_newer_entries_quoting_that_key(self) -> None:
         remember(team_id=self.team.id, key="pattern:target", content="the body we want back")
         # `text` would match all of these on content and, being newer, they'd crowd out the row.

@@ -52,7 +52,8 @@ export function ScratchpadEntryCard({ entry }: { entry: ScratchpadEntryApi }): J
 
     const expanded = expandedKeys.includes(entry.key)
     const isLoadingContent = loadingContentKeys.includes(entry.key)
-    const content = fullContentByKey[entry.key] ?? entry.content
+    // `hasOwn` guards against a key like `constructor` resolving to an inherited prototype value.
+    const content = Object.hasOwn(fullContentByKey, entry.key) ? fullContentByKey[entry.key] : entry.content
 
     const { kind, body } = splitKey(entry.key)
     const scoutName = entry.created_by_skill ? stripScoutPrefix(entry.created_by_skill) : null

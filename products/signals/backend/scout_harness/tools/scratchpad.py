@@ -222,7 +222,11 @@ def _project_content_in_sql(
         return qs.defer("content").annotate(projected_content=Value("", output_field=TextField()))
     if content_max_chars is None:
         return qs
-    return qs.defer("content").annotate(projected_content=Left("content", content_max_chars))
+    # Clamp to the write cap: a preview longer than the longest storable body is a no-op, and an
+    # unbounded value would reach Postgres as an out-of-range `LEFT()` length and 500.
+    return qs.defer("content").annotate(
+        projected_content=Left("content", min(content_max_chars, MAX_SCRATCHPAD_CONTENT_LENGTH))
+    )
 
 
 def _resolve_content(row: SignalScratchpad, *, keys_only: bool, content_max_chars: int | None) -> str:
