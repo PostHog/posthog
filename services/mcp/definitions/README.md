@@ -219,7 +219,10 @@ tools:
 The prepare step also signs the active project/organization scope into the hash, and execute refuses if the active scope has changed since prepare — so a confirmation prepared in one project can't be replayed against another after `switch-project`.
 Action arguments belong only on the prepare call. The execute schema is strict: it rejects extra action fields and recovers the original validated arguments from the signed hash.
 
+The confirmation word is supplied through model-authored tool arguments. This is an instruction-backed workflow guard, not client-attested proof that the human typed the word. API scopes remain the authorization boundary.
+
 Requirements:
 
 - The `MCP_SIGNED_STATE_KEY` environment variable (≥32 bytes) must be set on the MCP Hono server
+- Cannot be combined with `input_schema` (codegen limitation)
 - Cannot be combined with `ui_app` (codegen limitation)

@@ -83,7 +83,7 @@ tools:
         title: Approve a catalog metric
         description: >
             Bless a metric as canonical. Blocked while the metric is drifted from its source insight (refresh or unlink
-            it first). Requires human typed confirmation — an agent cannot self-approve.
+            it first). The MCP workflow requires the user to reply with the literal word 'confirm' before execution.
         feature_flag: product-data-catalog
         confirmed_action:
             message: |

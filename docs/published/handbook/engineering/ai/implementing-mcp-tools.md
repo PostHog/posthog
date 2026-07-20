@@ -305,7 +305,10 @@ Product teams own their definitions and control which operations are exposed as 
 
    **Security model:** the prepare step signs the validated args, user identity, tool purpose, the active project/organization scope, a TTL, and a single-use nonce into an HMAC-SHA256 token. The execute step has a strict confirmation-only schema, verifies the signature, re-checks that the active scope still matches the one signed at prepare time, burns the nonce, and only then runs the original handler with the signed payload. Action args belong only on prepare; extra execute-time fields are rejected, and a confirmation prepared while one project was active can't be replayed against another after `switch-project`.
 
+   The confirmation word is supplied through model-authored tool arguments. This is an instruction-backed workflow guard, not client-attested proof that the human typed the word. API scopes remain the authorization boundary.
+
    **Constraints:**
+   - Cannot combine `confirmed_action` with `input_schema` – custom input schemas do not use the confirmed-action codegen path yet.
    - Cannot combine `confirmed_action` with `ui_app` – the codegen doesn't wrap the execute factory with `withUiApp` yet.
    - Requires the `MCP_SIGNED_STATE_KEY` environment variable (≥32 bytes) on every environment running the MCP Hono server. A missing or short key disables the paradigm at boot (non-`confirmed_action` tools keep working), and `-prepare`/`-execute` calls fail at request time with a message pointing at the env var.
 

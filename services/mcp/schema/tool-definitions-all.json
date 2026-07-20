@@ -2362,7 +2362,7 @@
         "feature_flag": "product-data-catalog"
     },
     "data-catalog-metric-approve-execute": {
-        "description": "Step 2 of 2 for approve metric. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Bless a metric as canonical. Blocked while the metric is drifted from its source insight (refresh or unlink it first). Requires human typed confirmation — an agent cannot self-approve.",
+        "description": "Step 2 of 2 for approve metric. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Bless a metric as canonical. Blocked while the metric is drifted from its source insight (refresh or unlink it first). The MCP workflow requires the user to reply with the literal word 'confirm' before execution.",
         "category": "Data catalog",
         "feature": "data_catalog",
         "summary": "Approve a catalog metric (execute)",
@@ -2377,7 +2377,7 @@
         "feature_flag": "product-data-catalog"
     },
     "data-catalog-metric-approve-prepare": {
-        "description": "Step 1 of 2 for approve metric. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Bless a metric as canonical. Blocked while the metric is drifted from its source insight (refresh or unlink it first). Requires human typed confirmation — an agent cannot self-approve.",
+        "description": "Step 1 of 2 for approve metric. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Bless a metric as canonical. Blocked while the metric is drifted from its source insight (refresh or unlink it first). The MCP workflow requires the user to reply with the literal word 'confirm' before execution.",
         "category": "Data catalog",
         "feature": "data_catalog",
         "summary": "Approve a catalog metric (prepare)",

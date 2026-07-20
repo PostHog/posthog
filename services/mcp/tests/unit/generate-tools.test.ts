@@ -1765,6 +1765,18 @@ describe('ToolConfigSchema confirmed_action', () => {
         }
     })
 
+    it('rejects confirmed_action combined with a whole-tool input_schema', () => {
+        const result = ToolConfigSchema.safeParse({
+            ...base,
+            input_schema: 'OrganizationUpdateSchema',
+            confirmed_action: { message: 'x' },
+        })
+        expect(result.success).toBe(false)
+        if (!result.success) {
+            expect(result.error.issues[0]!.message).toContain('input_schema')
+        }
+    })
+
     it('rejects unknown keys inside the confirmed_action object', () => {
         const result = ToolConfigSchema.safeParse({
             ...base,
