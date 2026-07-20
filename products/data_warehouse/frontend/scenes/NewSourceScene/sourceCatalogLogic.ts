@@ -46,6 +46,11 @@ const MANUAL_SOURCE_KEYWORDS: Record<string, string[]> = {
     azure: ['azure', 'microsoft azure', 'azure blob', 'blob storage'],
 }
 
+// Every self-managed connector links files from a bucket, so a user searching for a file
+// format ("csv", "parquet") should land on them rather than an empty result that pushes
+// them to request a source we already support. Matches the formats the link form accepts.
+const FILE_STORAGE_FORMAT_KEYWORDS = ['csv', 'parquet', 'delta', 'file', 'files', 'flat file']
+
 // "Request a data warehouse source" survey. We render our own modal and submit the answer
 // directly as a `survey sent` event rather than using the posthog-js survey popover.
 export const SOURCE_REQUEST_SURVEY_ID = '0190ff15-5032-0000-722a-e13933c140ac'
@@ -1984,7 +1989,7 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                         label: source.name,
                         iconType: source.type,
                         category: MANUAL_SOURCE_CATEGORY,
-                        keywords: MANUAL_SOURCE_KEYWORDS[source.type] ?? [],
+                        keywords: [...(MANUAL_SOURCE_KEYWORDS[source.type] ?? []), ...FILE_STORAGE_FORMAT_KEYWORDS],
                         status: 'stable',
                         url: urls.dataWarehouseSourceNew(source.type),
                         selfManaged: true,

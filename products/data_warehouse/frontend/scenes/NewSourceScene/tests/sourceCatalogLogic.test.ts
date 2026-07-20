@@ -71,6 +71,16 @@ describe('sourceCatalogLogic', () => {
         expect(names.indexOf('Zebra')).toBeLessThan(names.indexOf('Apple'))
     })
 
+    it('surfaces self-managed file-storage connectors when searching for a file format', () => {
+        const logic = sourceCatalogLogic()
+        logic.actions.setSearch('csv')
+
+        // CSV files are imported via the self-managed bucket connectors, so a "csv" search must
+        // find them instead of dead-ending on "no sources match".
+        const names = logic.values.filteredItems.map((item) => item.name)
+        expect(names).toContain('aws')
+    })
+
     it('clears the request text when the modal is closed', () => {
         const logic = sourceCatalogLogic()
         logic.actions.setSearch('Podium')
