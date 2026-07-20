@@ -27,6 +27,7 @@ duckgres keeps the source data until the upstream cause is fixed.
 """
 
 import datetime as dt
+import dataclasses
 
 from django.db import transaction
 
@@ -39,9 +40,20 @@ from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.duckgres_usage.acking import day_boundary_ack
-from posthog.temporal.duckgres_usage.client import UsageResponse, ack_usage, fetch_usage, is_configured
+from posthog.temporal.duckgres_usage.client import (
+    UsageResponse,
+    ack_usage,
+    fetch_usage,
+    is_configured,
+    set_default_team,
+)
 from posthog.temporal.duckgres_usage.mirror import count_out_of_window_rows, replace_window
-from posthog.temporal.duckgres_usage.types import PollDuckgresUsageInputs, PollDuckgresUsageResult
+from posthog.temporal.duckgres_usage.team_resolution import resolve_billing_teams
+from posthog.temporal.duckgres_usage.types import (
+    PollDuckgresUsageInputs,
+    PollDuckgresUsageResult,
+    SetDuckgresDefaultTeamInputs,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -59,6 +71,13 @@ class DuckgresRowsOutsideWindow(Exception):
     """Duckgres served rows dated outside the ack window (at or below its own
     cursor). They were dropped, not persisted, so the ack is withheld — acking
     could delete their source buckets and permanently under-bill."""
+
+
+class DuckgresUsageOrphanedTeam(Exception):
+    """An org's managed-warehouse usage was under a deleted team and the org has
+    no live team to re-attribute it to, so it was dropped. Unlike the anomalies
+    above the ack still proceeds — re-pulling can't help a warehouse with no
+    projects; the data is unattributable, not withheld."""
 
 
 @activity.defn(name="poll-duckgres-usage")
@@ -98,7 +117,9 @@ async def poll_duckgres_usage(inputs: PollDuckgresUsageInputs) -> PollDuckgresUs
         watermark_to_record = ack_at if should_ack else None
         if watermark_to_record is not None and recorded is not None:
             watermark_to_record = max(watermark_to_record, recorded)
-        rows_written = await database_sync_to_async(_persist)(response, watermark_to_record)
+        rows_written, orphaned_org_ids, default_team_repoints = await database_sync_to_async(_persist)(
+            response, watermark_to_record
+        )
 
         if hole:
             capture_exception(
@@ -121,6 +142,13 @@ async def poll_duckgres_usage(inputs: PollDuckgresUsageInputs) -> PollDuckgresUs
                     f"(watermark_low {response.watermark_low.isoformat()}) and withheld the ack"
                 )
             )
+        if orphaned_org_ids:
+            capture_exception(
+                DuckgresUsageOrphanedTeam(
+                    f"dropped managed-warehouse usage for {len(orphaned_org_ids)} org(s) whose team was "
+                    f"deleted with no live team to re-attribute to: {sorted(orphaned_org_ids)}"
+                )
+            )
 
         await logger.ainfo(
             "duckgres_usage_polled",
@@ -133,6 +161,9 @@ async def poll_duckgres_usage(inputs: PollDuckgresUsageInputs) -> PollDuckgresUs
             watermark_hole=hole,
             unparsed_row_count=response.unparsed_row_count,
             out_of_window_dropped=out_of_window,
+            # A source-config mutation follows for each entry (repoint duckgres's
+            # default team), so surface it: {org_id: elected_live_team}.
+            default_team_repoints=default_team_repoints,
         )
         return PollDuckgresUsageResult(
             rows_written=rows_written,
@@ -142,6 +173,7 @@ async def poll_duckgres_usage(inputs: PollDuckgresUsageInputs) -> PollDuckgresUs
             watermark_hole=hole,
             unparsed_row_count=response.unparsed_row_count,
             out_of_window_dropped=out_of_window,
+            default_team_repoints=default_team_repoints,
         )
 
 
@@ -153,16 +185,32 @@ async def ack_duckgres_usage(ack_watermark: str) -> None:
     await sync_to_async(ack_usage)(dt.datetime.fromisoformat(ack_watermark))
 
 
+@activity.defn(name="set-duckgres-default-team")
+async def set_duckgres_default_team(inputs: SetDuckgresDefaultTeamInputs) -> None:
+    """Repoint one org's managed-warehouse default team in duckgres.
+
+    Fired fire-and-forget by the poll workflow when duckgres is stamping a
+    deleted default team. Its own activity so this control-plane write retries
+    independently of the (large) pull; idempotent server-side, so retries and
+    re-detections across polls are safe."""
+    await sync_to_async(set_default_team)(inputs.org_id, inputs.team_id)
+
+
 def _read_recorded_watermark() -> dt.datetime | None:
     cursor = DuckgresUsageCursor.objects.first()
     return cursor.last_acked_watermark if cursor is not None else None
 
 
-def _persist(response: UsageResponse, watermark_to_record: dt.datetime | None) -> int:
+def _persist(response: UsageResponse, watermark_to_record: dt.datetime | None) -> tuple[int, set[str], dict[str, int]]:
+    # Re-attribute rows under a deleted team to a live team in the same org
+    # before persisting, so the (live-teams-only) usage-report gather doesn't
+    # drop them. Needs the Team table, so it runs here in the sync DB context.
+    resolution = resolve_billing_teams(response.rows, response.storage_rows)
+    resolved = dataclasses.replace(response, rows=resolution.compute_rows, storage_rows=resolution.storage_rows)
     with transaction.atomic():
-        rows_written = replace_window(response)
+        rows_written = replace_window(resolved)
         if watermark_to_record is not None:
             DuckgresUsageCursor.objects.update_or_create(
                 singleton=1, defaults={"last_acked_watermark": watermark_to_record}
             )
-    return rows_written
+    return rows_written, resolution.orphaned_org_ids, resolution.default_team_repoints

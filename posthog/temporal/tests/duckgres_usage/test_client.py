@@ -20,10 +20,13 @@ from posthog.temporal.duckgres_usage.client import (
     ack_usage,
     fetch_usage,
     is_configured,
+    set_default_team,
 )
 
 USAGE_URL = "https://duckgres.example.com/api/v1/billing/usage"
 ACK_URL = "https://duckgres.example.com/api/v1/billing/ack"
+ORG_ID = "018f0000-0000-0000-0000-000000000000"
+ORGS_URL = f"https://duckgres.example.com/api/v1/orgs/{ORG_ID}"
 
 
 def _response(status_code: int = 200, body: dict | None = None, raw_text: str | None = None) -> MagicMock:
@@ -241,3 +244,35 @@ class TestConfiguration:
         settings.DUCKGRES_API_URL = "https://duckgres.example.com"
         settings.DUCKGRES_INTERNAL_SECRET = "shh"
         assert is_configured() is True
+
+
+@pytest.mark.usefixtures("duckgres_configured")
+class TestSetDefaultTeam:
+    """PUT /api/v1/orgs/:id {default_team_id} repoints an org's managed-warehouse
+    default team (and triggers duckgres's own un-acked re-attribution)."""
+
+    @patch("posthog.temporal.duckgres_usage.client.internal_requests")
+    def test_puts_default_team_id_to_the_org_url(self, mock_requests: MagicMock) -> None:
+        mock_requests.request.return_value = _response(200, {"name": ORG_ID, "default_team_id": 42})
+
+        set_default_team(ORG_ID, 42)
+
+        method, url = mock_requests.request.call_args.args[:2]
+        assert method == "PUT"
+        assert url == ORGS_URL
+        assert mock_requests.request.call_args.kwargs["json"] == {"default_team_id": 42}
+        headers = mock_requests.request.call_args.kwargs["headers"]
+        assert headers["X-Duckgres-Internal-Secret"] == "shh"
+
+    def test_rejects_non_positive_team_id(self) -> None:
+        # duckgres rejects 0/negative with a 400; catch it before the round-trip.
+        for bad in (0, -1):
+            with pytest.raises(ValueError):
+                set_default_team(ORG_ID, bad)
+
+    @patch("posthog.temporal.duckgres_usage.client.internal_requests")
+    def test_raises_on_http_error(self, mock_requests: MagicMock) -> None:
+        mock_requests.request.return_value = _response(404, {"error": "org not found"})
+
+        with pytest.raises(DuckgresBillingAPIError):
+            set_default_team(ORG_ID, 42)

@@ -157,6 +157,24 @@ def ack_usage(watermark_high: dt.datetime, timeout: int = 30) -> None:
     _request("POST", "billing/ack", json_body={"watermark_high": watermark}, timeout=timeout)
 
 
+def set_default_team(org_id: str, team_id: int, timeout: int = 30) -> None:
+    """Repoint an org's managed-warehouse default team in duckgres.
+
+    duckgres stamps every usage bucket with the org's default team and keeps
+    emitting that id even after the PostHog team is deleted (it treats the id as
+    opaque). Pointing the default at a live team makes duckgres stamp the live
+    team going forward and atomically re-attributes its own un-acked buffer. PUTs
+    are presence-merge and idempotent — setting the value duckgres already holds
+    is a server-side no-op — so re-issuing across polls (or on retry) is safe.
+
+    `org_id` is duckgres's org key, the same value it stamps on the usage rows.
+    """
+    if team_id <= 0:
+        # duckgres 400s on 0/negative and can't clear the column; fail before the round-trip.
+        raise ValueError("team_id must be a positive integer")
+    _request("PUT", f"orgs/{org_id}", json_body={"default_team_id": team_id}, timeout=timeout)
+
+
 def _request(method: str, path: str, json_body: dict | None = None, timeout: int = 60) -> dict:
     config = _config()
     if config is None:

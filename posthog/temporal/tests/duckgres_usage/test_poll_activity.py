@@ -24,11 +24,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from asgiref.sync import sync_to_async
 
 from posthog.ducklake.models import DuckgresDailyStorageUsage, DuckgresDailyUsage, DuckgresUsageCursor
+from posthog.models import Organization, Team
 from posthog.temporal.duckgres_usage.activities import ack_duckgres_usage, poll_duckgres_usage
 from posthog.temporal.duckgres_usage.client import StorageRow, UsageResponse, UsageRow
 from posthog.temporal.duckgres_usage.types import PollDuckgresUsageInputs
 
 ORG = "018f0000-0000-0000-0000-000000000000"
+TEAM_ID = 42
 
 
 def _row(date: dt.date, cpu_seconds: int = 100) -> UsageRow:
@@ -94,6 +96,7 @@ usage_count = sync_to_async(lambda: DuckgresDailyUsage.objects.count())
 cursor_exists = sync_to_async(lambda: DuckgresUsageCursor.objects.exists())
 get_cursor_watermark = sync_to_async(lambda: DuckgresUsageCursor.objects.get(singleton=1).last_acked_watermark)
 usage_dates = sync_to_async(lambda: sorted(DuckgresDailyUsage.objects.values_list("date", flat=True)))
+usage_team_ids = sync_to_async(lambda: sorted(DuckgresDailyUsage.objects.values_list("team_id", flat=True)))
 storage_dates = sync_to_async(lambda: sorted(DuckgresDailyStorageUsage.objects.values_list("date", flat=True)))
 
 
@@ -112,6 +115,15 @@ def _patched(response):
     )
 
 
+@pytest.fixture(autouse=True)
+def live_default_team(transactional_db) -> None:
+    # The activity fixtures attribute usage to org ORG / team 42. Team resolution
+    # now drops usage under a deleted team, so these tests must make that team real
+    # — otherwise every row would look orphaned and be dropped before persistence.
+    org = Organization.objects.create(id=ORG, name="mdw test org")
+    Team.objects.create(id=TEAM_ID, organization=org, name="default")
+
+
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_persists_and_returns_ack_watermark_when_a_day_closed(activity_environment) -> None:
@@ -124,6 +136,36 @@ async def test_persists_and_returns_ack_watermark_when_a_day_closed(activity_env
     assert result.ack_watermark == DAY_6_END.isoformat()  # for the workflow to ack
     assert result.watermark_hole is False
     assert await get_cursor_watermark() == DAY_6_END  # recorded before the ack (record-before-ack)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_reattributes_usage_from_a_deleted_team(activity_environment) -> None:
+    # duckgres stamps usage with a team that has since been deleted (999). It's
+    # re-attributed to the org's live team (42) before landing in the mirror, so the
+    # live-teams-only usage-report gather still bills it instead of dropping it.
+    deleted_team_response = UsageResponse(
+        watermark_low=dt.datetime(2026, 7, 5, 23, 59, 59, tzinfo=dt.UTC),
+        watermark_high=dt.datetime(2026, 7, 7, 12, 39, tzinfo=dt.UTC),
+        rows=[
+            UsageRow(
+                date=dt.date(2026, 7, 6),
+                org_id=ORG,
+                team_id=999,
+                query_source="standard",
+                cpu=Decimal("8"),
+                mem_gib=Decimal("16"),
+                cpu_seconds=100,
+                memory_seconds=800,
+            )
+        ],
+    )
+    is_conf, fetch, cap, log = _patched(deleted_team_response)
+    with is_conf, fetch, cap, log:
+        result = await activity_environment.run(poll_duckgres_usage, PollDuckgresUsageInputs())
+
+    assert result.rows_written == 1
+    assert await usage_team_ids() == [TEAM_ID]  # remapped off the deleted 999 to the live team
 
 
 @pytest.mark.django_db(transaction=True)

@@ -5,11 +5,18 @@ Temporal pydantic data converter handles datetimes natively, and new fields
 must be Optional-with-default so in-flight payloads decode across deploys.
 """
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class PollDuckgresUsageInputs(BaseModel):
     """No knobs yet — exists so future fields don't change the wire shape."""
+
+
+class SetDuckgresDefaultTeamInputs(BaseModel):
+    """Repoint one org's managed-warehouse default team in duckgres."""
+
+    org_id: str
+    team_id: int
 
 
 class PollDuckgresUsageResult(BaseModel):
@@ -30,3 +37,7 @@ class PollDuckgresUsageResult(BaseModel):
     # Rows dated outside the ack window (duckgres served at/below its cursor).
     # Dropped, not persisted; non-zero withholds the ack.
     out_of_window_dropped: int = 0
+    # Orgs whose managed-warehouse default team was deleted, mapped to the live
+    # team we elected to replace it. The workflow fires one fire-and-forget child
+    # per entry to repoint duckgres at the source (UpdateDuckgresDefaultTeamWorkflow).
+    default_team_repoints: dict[str, int] = Field(default_factory=dict)
