@@ -41,6 +41,12 @@ export interface ExperimentMetricsLogicProps {
 
 const RECALCULATION_POLL_INTERVAL_MS = 2000
 const MAX_POLL_RETRIES = 5
+/**
+ * Mirrors the backend's 30-minute staleness threshold (_STALE_RECALC_THRESHOLD): a run still non-terminal
+ * past it is a zombie whose worker died, and the backend will force-fail it on the next trigger. Without
+ * this cap every tab that resumed the run would poll its id (and the per-tick live-progress query) forever.
+ */
+const MAX_POLL_DURATION_MS = 30 * 60 * 1000
 
 export const RECALCULATION_STATUSES = {
     pending: 'pending',
@@ -755,6 +761,12 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                 }
                 cache.activeRecalculationId = recalculationId
 
+                if (Date.now() - (cache.recalcStartMs ?? Date.now()) > MAX_POLL_DURATION_MS) {
+                    actions.setRecalculatingMetricUuids([])
+                    lemonToast.error('Recalculation appears stuck. Please reload to try again.')
+                    return
+                }
+
                 // Pace this tick; aborts here if a newer poll superseded us or the logic unmounted.
                 await breakpoint(RECALCULATION_POLL_INTERVAL_MS)
 
@@ -788,6 +800,18 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                  */
                 if (cache.activeRecalculationId !== recalculationId) {
                     return
+                }
+
+                /**
+                 * Anchor duration telemetry (and the zombie cap) to the run's actual start, not the moment
+                 * this tab triggered or resumed it. Once per run: the first successful poll wins.
+                 */
+                if (cache.recalcAnchoredId !== recalculationId) {
+                    const runStartMs = Date.parse(recalculation.started_at ?? recalculation.created_at)
+                    if (!Number.isNaN(runStartMs)) {
+                        cache.recalcStartMs = runStartMs
+                    }
+                    cache.recalcAnchoredId = recalculationId
                 }
 
                 /**
