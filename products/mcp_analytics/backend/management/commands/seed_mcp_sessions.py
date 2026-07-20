@@ -1,4 +1,5 @@
 import uuid
+import zlib
 import random
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -6,6 +7,7 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandParser
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.events_json import EVENTS_JSON_DATA_TABLE
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.event.util import create_event
 from posthog.models.person.util import create_person, create_person_distinct_id, get_person_by_distinct_id
@@ -31,6 +33,18 @@ TOOL_NAMES = [
 
 # Marks events as coming from the new MCP SDK — the tool detail page filters on this.
 NEW_SDK_SOURCE = "posthog_mcp_analytics"
+MCP_SERVER_NAME = "posthog-mcp"
+
+# Every seeded event carries this marker so --clear can target exactly what this
+# command created, never genuine SDK traffic sharing the same event names.
+SEEDED_MARKER_PROPERTY = "$mcp_seeded"
+
+
+def stable_hash(value: str) -> int:
+    # Not hash(): that's salted per process, which would change how many RNG draws
+    # each session consumes and break --seed reproducibility across invocations.
+    return zlib.crc32(value.encode())
+
 
 # $mcp_tool_category powers the dashboard "share of calls by category" and the tool quality scope filter.
 TOOL_CATEGORIES = {
@@ -117,6 +131,19 @@ INTENTS_BY_TOOL: dict[str, list[str]] = {
 }
 DEFAULT_INTENT = "Helping the user investigate a recent product-analytics question without a specific recorded intent."
 
+MISSING_CAPABILITY_INTENTS: list[str] = [
+    "Create a new dashboard and arrange the most relevant insights on it.",
+    "Update a feature flag's rollout percentage for a specific customer cohort.",
+    "Create and launch an experiment for the new onboarding flow.",
+    "Define a behavioral cohort of users who started but did not finish checkout.",
+    "Add a deployment annotation to the signup conversion trend.",
+    "Invite a teammate and grant them access to this project.",
+    "Change an existing insight's filters and save the updated definition.",
+    "Export a short clip from a session recording for a bug report.",
+    "Resolve an error-tracking issue after confirming the fix is deployed.",
+    "Configure a new data warehouse source and start its first sync.",
+]
+
 
 # Session-level summarised intents. These intentionally repeat themes so the
 # clustering pipeline has something to cluster: variants of "check a feature
@@ -153,7 +180,7 @@ EXCEPTION_PAIR_PROBABILITY = 0.6
 
 
 class Command(BaseCommand):
-    help = "Seed $mcp_tool_call events into ClickHouse for local testing of MCP analytics."
+    help = "Seed MCP analytics events into ClickHouse for local testing."
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--team-id", type=int, required=True, help="Team ID to seed events for.")
@@ -166,11 +193,19 @@ class Command(BaseCommand):
             default=0,
             help="Spread sessions across the last N days (for trend charts). 0 keeps everything in the last hour.",
         )
+        parser.add_argument(
+            "--missing-capabilities",
+            type=int,
+            default=None,
+            help="Number of missing-capability events to attach to distinct seeded sessions. "
+            "Defaults to 8, clamped to --sessions.",
+        )
         parser.add_argument("--seed", type=int, default=None, help="Optional random seed for reproducible output.")
         parser.add_argument(
             "--clear",
             action="store_true",
-            help="Delete existing $mcp_tool_call events for the team before seeding (clean slate).",
+            help="Delete events previously seeded by this command (marked with $mcp_seeded) before seeding. "
+            "Genuine MCP events and data seeded before the marker existed are left alone.",
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
@@ -179,11 +214,20 @@ class Command(BaseCommand):
         min_calls: int = options["min_calls"]
         max_calls: int = options["max_calls"]
         days: int = options["days"]
+        # An explicit value is validated against --sessions; the default clamps instead,
+        # so low-volume smoke runs (--sessions 5) work without extra flags.
+        explicit_missing_capabilities: int | None = options["missing_capabilities"]
+        missing_capability_count: int = (
+            explicit_missing_capabilities if explicit_missing_capabilities is not None else min(8, session_count)
+        )
         seed: int | None = options["seed"]
         clear: bool = options["clear"]
 
         if min_calls > max_calls:
             self.stderr.write(self.style.ERROR("--min-calls must be <= --max-calls"))
+            return
+        if missing_capability_count < 0 or missing_capability_count > session_count:
+            self.stderr.write(self.style.ERROR("--missing-capabilities must be between 0 and --sessions"))
             return
 
         try:
@@ -193,19 +237,24 @@ class Command(BaseCommand):
             return
 
         if clear:
-            sync_execute(
-                f"ALTER TABLE {EVENTS_DATA_TABLE()} DELETE WHERE team_id = %(team_id)s "
-                "AND (event = '$mcp_tool_call' OR (event = '$exception' AND JSONExtractString(properties, '$mcp_tool_name') != '')) "
-                "SETTINGS mutations_sync=1",
-                {"team_id": team_id},
-            )
+            # Scoped to the seeded marker so genuine SDK traffic sharing these event
+            # names survives; runs against both tables create_event dual-writes to.
+            for table in (EVENTS_DATA_TABLE(), EVENTS_JSON_DATA_TABLE):
+                sync_execute(
+                    f"ALTER TABLE {table} DELETE WHERE team_id = %(team_id)s "
+                    "AND event IN ('$mcp_tool_call', '$mcp_missing_capability', '$exception') "
+                    f"AND JSONExtractBool(properties, '{SEEDED_MARKER_PROPERTY}') "
+                    "SETTINGS mutations_sync=1",
+                    {"team_id": team_id},
+                )
             with team_scope(team_id):
                 MCPSession.objects.filter(team=team).delete()
-            self.stdout.write(self.style.WARNING(f"Cleared existing MCP events for team {team_id}."))
+            self.stdout.write(self.style.WARNING(f"Cleared previously seeded MCP events for team {team_id}."))
 
         rng = random.Random(seed)
         now = datetime.now(tz=UTC)
         total_events = 0
+        seeded_sessions: list[tuple[str, str, str, dict[str, Any], str, datetime]] = []
 
         # distinct_id -> (person_uuid, person_properties). Events carry person_id so the
         # person-on-events join (Top users table) keeps them — without a real person the
@@ -299,9 +348,9 @@ class Command(BaseCommand):
                 timestamp = session_start + timedelta(seconds=cumulative_offset_s)
                 tool_name = rng.choice(TOOL_NAMES)
                 # Skew error rate and latency per tool so the Tool quality tab has variation.
-                tool_error_rate = (hash(tool_name) % 30) / 100.0
+                tool_error_rate = (stable_hash(tool_name) % 30) / 100.0
                 is_error = rng.random() < tool_error_rate
-                base_latency = 80 + (hash(tool_name) % 400)
+                base_latency = 80 + (stable_hash(tool_name) % 400)
                 duration_ms = max(1, int(rng.gauss(base_latency, base_latency * 0.4)))
                 if is_error:
                     duration_ms = int(duration_ms * rng.uniform(1.5, 3.0))
@@ -314,8 +363,10 @@ class Command(BaseCommand):
                     person_id=uuid.UUID(person_uuid),
                     person_properties=person_props,
                     properties={
+                        SEEDED_MARKER_PROPERTY: True,
                         "$session_id": session_id,
                         "$mcp_source": NEW_SDK_SOURCE,
+                        "$mcp_server_name": MCP_SERVER_NAME,
                         "$mcp_tool_name": tool_name,
                         "$mcp_tool_category": TOOL_CATEGORIES.get(tool_name, "Other"),
                         "$mcp_tool_description": TOOL_DESCRIPTIONS.get(tool_name, ""),
@@ -344,6 +395,7 @@ class Command(BaseCommand):
                         person_id=uuid.UUID(person_uuid),
                         person_properties=person_props,
                         properties={
+                            SEEDED_MARKER_PROPERTY: True,
                             "$session_id": session_id,
                             "$mcp_tool_name": tool_name,
                             "$mcp_client_name": client_name,
@@ -359,10 +411,37 @@ class Command(BaseCommand):
                 MCPSession.objects.update_or_create(
                     team=team, session_id=session_id, defaults={"intent": session_intent}
                 )
+            session_end = session_start + total_call_duration
+            seeded_sessions.append((session_id, distinct_id, person_uuid, person_props, client_name, session_end))
             self.stdout.write(
                 f"  session {session_idx + 1}/{session_count}: {calls} tool calls (session_id={session_id})"
             )
 
+        for session_id, distinct_id, person_uuid, person_props, client_name, session_end in rng.sample(
+            seeded_sessions, k=missing_capability_count
+        ):
+            create_event(
+                event_uuid=uuid.uuid4(),
+                event="$mcp_missing_capability",
+                team=team,
+                distinct_id=distinct_id,
+                timestamp=session_end + timedelta(seconds=rng.randint(1, 30)),
+                person_id=uuid.UUID(person_uuid),
+                person_properties=person_props,
+                properties={
+                    SEEDED_MARKER_PROPERTY: True,
+                    "$session_id": session_id,
+                    "$mcp_source": NEW_SDK_SOURCE,
+                    "$mcp_server_name": MCP_SERVER_NAME,
+                    "$mcp_intent": rng.choice(MISSING_CAPABILITY_INTENTS),
+                    "$mcp_client_name": client_name,
+                },
+            )
+            total_events += 1
+
         self.stdout.write(
-            self.style.SUCCESS(f"Seeded {session_count} sessions ({total_events} events) for team {team_id}.")
+            self.style.SUCCESS(
+                f"Seeded {session_count} sessions ({total_events} events, including "
+                f"{missing_capability_count} missing-capability reports) for team {team_id}."
+            )
         )
