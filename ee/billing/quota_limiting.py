@@ -625,6 +625,19 @@ def org_quota_limited_until(
         }
 
 
+def invalidate_llm_gateway_quota_cache(team_ids: Iterable[int]) -> None:
+    cache_keys = [
+        key
+        for team_id in team_ids
+        for key in (
+            f"quota:code_usage_billing:team:{team_id}",
+            *(f"quota:{resource.value}:team:{team_id}" for resource in QuotaResource),
+        )
+    ]
+    if cache_keys:
+        get_client().delete(*cache_keys)
+
+
 def update_org_billing_quotas(organization: Organization):
     """
     This method is basically update_all_orgs_billing_quotas but for a single org. It's called more often
@@ -687,6 +700,8 @@ def update_org_billing_quotas(organization: Organization):
 
     if recordings_transitioned_team_ids:
         dispatch_recordings_remote_config_sync(recordings_transitioned_team_ids)
+
+    invalidate_llm_gateway_quota_cache(teams_by_token.values())
 
 
 def set_org_usage_summary(
