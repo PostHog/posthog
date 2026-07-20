@@ -8,7 +8,6 @@ from django.db.models import Q
 import structlog
 
 from posthog.constants import ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER
-from posthog.hogql_queries.apply_dashboard_filters import normalize_dashboard_filters_properties
 from posthog.models.scoping import team_scope
 from posthog.models.tag import Tag
 
@@ -503,6 +502,10 @@ def create_from_template(
         dashboard.name = template.template_name
     # `template.dashboard_filters` is unvalidated JSON; normalize `properties` to the flat-list contract
     # so a group-dict stored on a template doesn't propagate to (and crash) dashboards created from it.
+    # Imported lazily to avoid pulling the query_runner import graph into posthog.helpers at module load,
+    # which trips the posthog.models.property circular import during django.setup().
+    from posthog.hogql_queries.apply_dashboard_filters import normalize_dashboard_filters_properties  # noqa: PLC0415
+
     dashboard.filters = normalize_dashboard_filters_properties(dict(template.dashboard_filters or {}))
     dashboard.description = template.dashboard_description or ""
 
