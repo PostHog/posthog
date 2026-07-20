@@ -17,6 +17,7 @@ from posthog.api.llm_prompt_serializers import (
     validate_prompt_label_name_value,
 )
 from posthog.api.services.llm_prompt import MAX_PROMPT_VERSION
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.rate_limit import BurstRateThrottle, LLMPromptPublishBurstRateThrottle, SustainedRateThrottle
 
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptLabel
@@ -1147,6 +1148,33 @@ class TestLLMPromptLabelsAPI(APIBaseTest):
         with self.captureOnCommitCallbacks(execute=True):
             self.client.post(f"/api/environments/{self.team.id}/llm_prompts/name/my-prompt/archive/")
         assert self._fetch_by_label("my-prompt", "production").status_code == status.HTTP_404_NOT_FOUND
+
+    def test_label_changes_are_activity_logged_with_version_movement(self):
+        self.create_prompt_version(version=1, is_latest=False)
+        self.create_prompt_version(version=2)
+
+        self._set_label("my-prompt", "production", 1)
+        self._set_label("my-prompt", "production", 2)
+        self._set_label("my-prompt", "production", 2)  # no-op move must not log
+        self.client.delete(self._label_url("my-prompt", "production"))
+
+        entries = list(ActivityLog.objects.filter(team_id=self.team.id, scope="LLMPromptLabel").order_by("created_at"))
+        assert [entry.activity for entry in entries] == ["created", "updated", "deleted"]
+        move_detail = entries[1].detail
+        assert move_detail is not None
+        assert move_detail["name"] == "my-prompt: production"
+        assert move_detail["changes"][0]["before"] == 1
+        assert move_detail["changes"][0]["after"] == 2
+        assert entries[1].user is not None and entries[1].user.id == self.user.id
+
+    def test_archive_logs_label_deletion(self):
+        self.create_prompt_version(version=1)
+        self._set_label("my-prompt", "production", 1)
+
+        self.client.post(f"/api/environments/{self.team.id}/llm_prompts/name/my-prompt/archive/")
+
+        deletions = ActivityLog.objects.filter(team_id=self.team.id, scope="LLMPromptLabel", activity="deleted")
+        assert deletions.count() == 1
 
     def test_label_writes_forbidden_for_read_only_personal_api_key(self):
         self.create_prompt_version(version=1)
