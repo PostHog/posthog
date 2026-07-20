@@ -122,7 +122,7 @@ function PropertyGroupCard({
                                 properties. Chart is limited to 25 properties.
                             </div>
                         )}
-                        <div>
+                        <div className="flex flex-col h-64">
                             <Query query={queryResult.query} readOnly embedded />
                         </div>
                     </div>
