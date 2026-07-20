@@ -34,7 +34,6 @@ import {
 } from './configChanges'
 import { SUMMARIZER_LENGTH_OPTIONS } from './ScannerTypeConfigEditor'
 
-/** The bordered side-by-side prompt diff. When editable, the right pane is the prompt editor. */
 function SuggestionDiffPanes({
     original,
     modified,
@@ -96,7 +95,7 @@ function SuggestionDiffPanes({
     )
 }
 
-/** The prompt diff, expandable to full screen. Edits in either instance flow through the same onChange. */
+/** The prompt diff, expandable to full screen. Both instances share one onChange. */
 function PromptDiff({
     original,
     modified,
@@ -142,7 +141,6 @@ const TAG_OP_TAG_TYPE: Record<ScannerConfigChange['op'], LemonTagType> = {
     set: 'default',
 }
 
-/** Read-only hint of the tag adds and removes the AI proposed, above the editable tag list. */
 function TagChips({ changes }: { changes: ScannerConfigChange[] }): JSX.Element {
     return (
         <div className="flex flex-wrap gap-1">
@@ -155,24 +153,42 @@ function TagChips({ changes }: { changes: ScannerConfigChange[] }): JSX.Element 
     )
 }
 
-/** Editable tag list that renders the same `option` chips as the current-config column, plus an inline add. */
-function EditableTags({ value, onChange }: { value: string[]; onChange: (tags: string[]) => void }): JSX.Element {
+/** Editable tag vocabulary: each candidate is a clickable chip, greyed out when not in the new vocabulary. */
+function EditableTags({
+    candidates,
+    value,
+    onChange,
+}: {
+    candidates: string[]
+    value: string[]
+    onChange: (tags: string[]) => void
+}): JSX.Element {
     const [draft, setDraft] = useState('')
-    const tags = value ?? []
+    const selected = new Set(value)
+    const allTags = [...new Set([...candidates, ...value])]
+    const toggle = (tag: string): void => onChange(selected.has(tag) ? value.filter((t) => t !== tag) : [...value, tag])
     const addDraft = (): void => {
         const tag = draft.trim()
-        if (tag && !tags.includes(tag)) {
-            onChange([...tags, tag])
+        if (tag && !value.includes(tag)) {
+            onChange([...value, tag])
         }
         setDraft('')
     }
     return (
         <div className="flex flex-wrap items-center gap-1">
-            {tags.map((tag) => (
-                <LemonTag key={tag} type="option" closable onClose={() => onChange(tags.filter((t) => t !== tag))}>
-                    {tag}
-                </LemonTag>
-            ))}
+            {allTags.map((tag) => {
+                const isSelected = selected.has(tag)
+                return (
+                    <LemonTag
+                        key={tag}
+                        type={isSelected ? 'option' : 'default'}
+                        onClick={() => toggle(tag)}
+                        className={isSelected ? 'cursor-pointer' : 'cursor-pointer opacity-50 line-through'}
+                    >
+                        {tag}
+                    </LemonTag>
+                )
+            })}
             <LemonInput
                 size="small"
                 value={draft}
@@ -186,19 +202,20 @@ function EditableTags({ value, onChange }: { value: string[]; onChange: (tags: s
     )
 }
 
-/** The editable control for a config field, by kind. */
 function FieldValueEditor({
     kind,
     value,
     onChange,
     basePrompt,
     isDarkModeOn,
+    tagCandidates = [],
 }: {
     kind: FieldEditorKind
     value: unknown
     onChange: (value: unknown) => void
     basePrompt: string | null
     isDarkModeOn: boolean
+    tagCandidates?: string[]
 }): JSX.Element {
     if (kind === 'prompt') {
         if (!basePrompt) {
@@ -215,10 +232,9 @@ function FieldValueEditor({
         )
     }
     if (kind === 'tags') {
-        return <EditableTags value={(value as string[]) ?? []} onChange={onChange} />
+        return <EditableTags candidates={tagCandidates} value={(value as string[]) ?? []} onChange={onChange} />
     }
     if (kind === 'scale') {
-        // Mirrors the scale editor in ScannerTypeConfigEditor.
         const scale = (value as { min: number; max: number; label?: string }) ?? { min: 0, max: 10 }
         return (
             <div className="space-y-3">
@@ -263,7 +279,6 @@ function FieldValueEditor({
     return <LemonTextArea value={String(value ?? '')} onChange={onChange} minRows={2} />
 }
 
-/** The read-only rendering of a field's current value, shown in the "Current" column beside its editor. */
 function FieldCurrentValue({ kind, value }: { kind: FieldEditorKind; value: unknown }): JSX.Element {
     if (kind === 'tags') {
         const tags = (value as string[]) ?? []
@@ -296,7 +311,7 @@ function FieldCurrentValue({ kind, value }: { kind: FieldEditorKind; value: unkn
     return <span className="text-sm whitespace-pre-wrap">{String(value ?? '') || '—'}</span>
 }
 
-/** The static before-to-after view of a field, used for past recommendations. */
+/** The read-only before-to-after view of a field, used for past recommendations. */
 function FieldValueReadOnly({
     kind,
     suggestion,
@@ -332,7 +347,7 @@ function FieldValueReadOnly({
     )
 }
 
-/** The rationales behind a field's changes, deduplicated (several tag ops often share one). */
+/** A field's change rationales, deduplicated since several tag ops often share one. */
 function FieldRationales({ fieldChanges }: { fieldChanges: ScannerConfigChange[] }): JSX.Element {
     return (
         <>
@@ -345,9 +360,8 @@ function FieldRationales({ fieldChanges }: { fieldChanges: ScannerConfigChange[]
     )
 }
 
-/** One recommendation. The current suggestion renders every configurable field as an editor seeded with the
- *  AI's suggestion, so the user controls exactly what the new version will be (editing everything back to the
- *  current config makes applying a no-op). Past recommendations render only their changes, read-only. */
+/** One recommendation as a Current-to-New comparison: every configurable field is editable, so the user
+ *  controls the new version. Past recommendations render their changes read-only. */
 export function ConfigChangeCards({
     suggestion,
     isDarkModeOn,
@@ -405,7 +419,6 @@ export function ConfigChangeCards({
         )
     }
 
-    // The prompt is a full-width current-vs-new diff; the remaining fields sit in Current | New columns.
     const fieldNames = Object.keys(suggested).sort((a, b) => (a === 'prompt' ? -1 : b === 'prompt' ? 1 : 0))
     const structuredFields = fieldNames.filter((field) => field !== 'prompt')
 
@@ -451,39 +464,43 @@ export function ConfigChangeCards({
                     </div>
                 )}
                 {structuredFields.length > 0 && (
-                    <div className="relative flex flex-col gap-3">
-                        {/* A quiet divider down the middle to separate the current and new columns. */}
-                        <div className="absolute inset-y-0 left-1/2 border-l" aria-hidden />
-                        <div className="grid grid-cols-2 gap-3 text-xs font-medium text-muted border-b pb-1">
+                    <div className="relative flex flex-col gap-4">
+                        <div className="absolute inset-y-4 left-1/2 border-l" aria-hidden />
+                        <div className="grid grid-cols-2 gap-10 text-xs font-medium text-muted">
                             <span>Current</span>
                             <span>New</span>
                         </div>
                         {structuredFields.map((field) => {
                             const { kind } = fieldEditor(field, fieldValues[field])
                             const edited = !objectsEqual(fieldValues[field], suggested[field])
+                            const label = fieldLabelText(field)
+                            const candidates =
+                                kind === 'tags'
+                                    ? [...((base[field] as string[]) ?? []), ...((suggested[field] as string[]) ?? [])]
+                                    : []
                             return (
-                                <div key={field}>
-                                    <div className="flex items-center justify-between gap-2 mb-1">
-                                        <span className="text-xs text-muted">{fieldLabelText(field)}</span>
-                                        {revertButton(field, edited)}
+                                <div key={field} className="grid grid-cols-2 gap-10 items-start">
+                                    <div>
+                                        <div className="text-xs text-muted mb-1">{label}</div>
+                                        <FieldCurrentValue kind={kind} value={base[field]} />
                                     </div>
-                                    <div className="grid grid-cols-2 gap-3 items-start">
-                                        <div>
-                                            <FieldCurrentValue kind={kind} value={base[field]} />
+                                    <div>
+                                        <div className="flex items-center justify-between gap-2 mb-1">
+                                            <span className="text-xs text-muted">{label}</span>
+                                            {revertButton(field, edited)}
                                         </div>
-                                        <div>
-                                            <FieldValueEditor
-                                                kind={kind}
-                                                value={fieldValues[field]}
-                                                onChange={(newValue) => setFieldValue(suggestion.id, field, newValue)}
-                                                basePrompt={suggestion.base_prompt}
-                                                isDarkModeOn={isDarkModeOn}
-                                            />
-                                        </div>
+                                        <FieldValueEditor
+                                            kind={kind}
+                                            value={fieldValues[field]}
+                                            onChange={(newValue) => setFieldValue(suggestion.id, field, newValue)}
+                                            basePrompt={suggestion.base_prompt}
+                                            isDarkModeOn={isDarkModeOn}
+                                            tagCandidates={candidates}
+                                        />
+                                        <FieldRationales
+                                            fieldChanges={changes.filter((change) => change.field === field)}
+                                        />
                                     </div>
-                                    <FieldRationales
-                                        fieldChanges={changes.filter((change) => change.field === field)}
-                                    />
                                 </div>
                             )
                         })}
