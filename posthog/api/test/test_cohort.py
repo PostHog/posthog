@@ -1823,6 +1823,39 @@ email@example.org,
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["id"], regular_cohort.id)
 
+    def test_list_cohorts_realtime_supported_only_returns_backfilled_realtime_cohorts(self):
+        behavioral_filters = {
+            "properties": {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "behavioral",
+                        "key": "$pageview",
+                        "value": "performed_event",
+                        "event_type": "events",
+                        "time_value": 30,
+                        "time_interval": "day",
+                    }
+                ],
+            }
+        }
+        Cohort.objects.create(team=self.team, name="regular", filters=behavioral_filters)
+        Cohort.objects.create(
+            team=self.team, name="realtime not backfilled", filters=behavioral_filters, cohort_type=CohortType.REALTIME
+        )
+        backfilled = Cohort.objects.create(
+            team=self.team,
+            name="realtime backfilled",
+            filters=behavioral_filters,
+            cohort_type=CohortType.REALTIME,
+            last_backfill_events_at=timezone.now(),
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?realtime_supported=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual([r["id"] for r in results], [backfilled.id])
+
     def test_find_behavioral_cohorts_propagates_through_references(self):
         # Build an in-memory dependency graph (no DB needed): 1 is behavioral, 2->1,
         # 3->2 (both transitively affected), 4 unrelated. 5 is a behavioral realtime

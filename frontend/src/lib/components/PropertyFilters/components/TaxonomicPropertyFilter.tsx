@@ -85,6 +85,7 @@ export function TaxonomicPropertyFilter({
     excludedOperators,
     selectingKeyOnly,
     hideBehavioralCohorts,
+    realtimeCohortsOnly,
     addFilterDocLink,
     editable = true,
     operatorAllowlist,
@@ -185,6 +186,7 @@ export function TaxonomicPropertyFilter({
             excludedProperties={excludedProperties}
             optionsFromProp={taxonomicFilterOptionsFromProp}
             hideBehavioralCohorts={hideBehavioralCohorts}
+            realtimeCohortsOnly={realtimeCohortsOnly}
             selectFirstItem={!cohortOrOtherValue}
             endpointFilters={endpointFilters}
             hogQLGlobals={hogQLGlobals}
@@ -327,6 +329,7 @@ export function TaxonomicPropertyFilter({
             propertyAllowList={propertyAllowList}
             optionsFromProp={taxonomicFilterOptionsFromProp}
             hideBehavioralCohorts={hideBehavioralCohorts}
+            realtimeCohortsOnly={realtimeCohortsOnly}
             endpointFilters={endpointFilters}
             hogQLGlobals={hogQLGlobals}
             enableKeywordShortcuts

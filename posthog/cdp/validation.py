@@ -501,6 +501,14 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
     transpiled = serializers.JSONField(required=False)
     filter_test_accounts = serializers.BooleanField(required=False)
     bytecode_error = serializers.CharField(required=False)
+    cohort_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        help_text=(
+            "Cohort ids referenced by these filters. Compiled server-side alongside bytecode so the "
+            "runtime can pre-fetch cohort membership. Do not set."
+        ),
+    )
 
     def to_internal_value(self, data):
         # Weirdly nested serializers don't get this set...
@@ -542,7 +550,13 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
             if "bytecode" in data:
                 del data["bytecode"]
         else:
-            data = compile_filters_bytecode(data, team)
+            data = compile_filters_bytecode(
+                data,
+                team,
+                # Only callers whose runtime injects inCohort/notInCohort implementations (workflow
+                # conditional branches) may opt in — everywhere else cohort filters keep failing closed.
+                cohort_membership_supported=self.context.get("allow_cohort_membership", False),
+            )
             # Uncompilable filters are only fatal when the function will run (stay enabled).
             # Callers that allow saving anyway (e.g. disabling/deleting a hog function) opt out
             # via context; the error stays persisted on the filters for the UI to surface.

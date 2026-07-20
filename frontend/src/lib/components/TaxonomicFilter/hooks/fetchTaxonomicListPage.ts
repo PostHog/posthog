@@ -18,6 +18,7 @@ export interface FetchTaxonomicPageParams {
     isExpanded: boolean
     showNumericalPropsOnly?: boolean
     hideBehavioralCohorts?: boolean
+    realtimeCohortsOnly?: boolean
     /** Exclude event definitions not ingested within the staleness window. Only
      *  applies to the event / custom-event endpoints (mirrors legacy `exclude_stale`). */
     excludeStale?: boolean
@@ -34,6 +35,7 @@ export async function fetchTaxonomicListPage({
     isExpanded,
     showNumericalPropsOnly,
     hideBehavioralCohorts,
+    realtimeCohortsOnly,
     excludeStale,
     signal,
 }: FetchTaxonomicPageParams): Promise<ListStorage> {
@@ -66,6 +68,9 @@ export async function fetchTaxonomicListPage({
     }
     if (hideBehavioralCohorts) {
         baseParams.hide_behavioral_cohorts = 'true'
+    }
+    if (realtimeCohortsOnly) {
+        baseParams.realtime_supported = 'true'
     }
     const isEventGroup =
         group.type === TaxonomicFilterGroupType.Events || group.type === TaxonomicFilterGroupType.CustomEvents

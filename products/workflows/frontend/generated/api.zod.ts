@@ -106,6 +106,12 @@ export const HogFlowTemplatesCreateBody = /* @__PURE__ */ zod
                                 transpiled: zod.unknown().optional(),
                                 filter_test_accounts: zod.boolean().optional(),
                                 bytecode_error: zod.string().optional(),
+                                cohort_ids: zod
+                                    .array(zod.number())
+                                    .optional()
+                                    .describe(
+                                        'Cohort ids referenced by these filters. Compiled server-side alongside bytecode so the runtime can pre-fetch cohort membership. Do not set.'
+                                    ),
                             }),
                             zod.null(),
                         ])
@@ -228,6 +234,12 @@ export const HogFlowTemplatesUpdateBody = /* @__PURE__ */ zod
                                 transpiled: zod.unknown().optional(),
                                 filter_test_accounts: zod.boolean().optional(),
                                 bytecode_error: zod.string().optional(),
+                                cohort_ids: zod
+                                    .array(zod.number())
+                                    .optional()
+                                    .describe(
+                                        'Cohort ids referenced by these filters. Compiled server-side alongside bytecode so the runtime can pre-fetch cohort membership. Do not set.'
+                                    ),
                             }),
                             zod.null(),
                         ])
@@ -356,6 +368,12 @@ export const HogFlowTemplatesPartialUpdateBody = /* @__PURE__ */ zod
                                     transpiled: zod.unknown().optional(),
                                     filter_test_accounts: zod.boolean().optional(),
                                     bytecode_error: zod.string().optional(),
+                                    cohort_ids: zod
+                                        .array(zod.number())
+                                        .optional()
+                                        .describe(
+                                            'Cohort ids referenced by these filters. Compiled server-side alongside bytecode so the runtime can pre-fetch cohort membership. Do not set.'
+                                        ),
                                 }),
                                 zod.null(),
                             ])
@@ -465,6 +483,12 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                                         transpiled: zod.unknown().optional(),
                                         filter_test_accounts: zod.boolean().optional(),
                                         bytecode_error: zod.string().optional(),
+                                        cohort_ids: zod
+                                            .array(zod.number())
+                                            .optional()
+                                            .describe(
+                                                'Cohort ids referenced by these filters. Compiled server-side alongside bytecode so the runtime can pre-fetch cohort membership. Do not set.'
+                                            ),
                                     })
                                     .describe(
                                         "Event\/action filters for this conversion event, same shape as trigger filters: {events: [{id, name, type: 'events', properties?: [<cond>]}], actions?: [...], properties?: [<cond>]}. bytecode is compiled server-side."
@@ -566,6 +590,12 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                                 transpiled: zod.unknown().optional(),
                                 filter_test_accounts: zod.boolean().optional(),
                                 bytecode_error: zod.string().optional(),
+                                cohort_ids: zod
+                                    .array(zod.number())
+                                    .optional()
+                                    .describe(
+                                        'Cohort ids referenced by these filters. Compiled server-side alongside bytecode so the runtime can pre-fetch cohort membership. Do not set.'
+                                    ),
                             }),
                             zod.null(),
                         ])
@@ -615,6 +645,12 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                                                         transpiled: zod.unknown().optional(),
                                                         filter_test_accounts: zod.boolean().optional(),
                                                         bytecode_error: zod.string().optional(),
+                                                        cohort_ids: zod
+                                                            .array(zod.number())
+                                                            .optional()
+                                                            .describe(
+                                                                'Cohort ids referenced by these filters. Compiled server-side alongside bytecode so the runtime can pre-fetch cohort membership. Do not set.'
+                                                            ),
                                                     }),
                                                     zod.null(),
                                                 ])
@@ -662,6 +698,12 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                                                             transpiled: zod.unknown().optional(),
                                                             filter_test_accounts: zod.boolean().optional(),
                                                             bytecode_error: zod.string().optional(),
+                                                            cohort_ids: zod
+                                                                .array(zod.number())
+                                                                .optional()
+                                                                .describe(
+                                                                    'Cohort ids referenced by these filters. Compiled server-side alongside bytecode so the runtime can pre-fetch cohort membership. Do not set.'
+                                                                ),
                                                         }),
                                                         zod.null(),
                                                     ])
@@ -687,7 +729,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                                 ),
                         ])
                         .describe(
-                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
+                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. conditional_branch conditions may also filter on realtime cohort membership ({type:'cohort', key:'id', value:<cohort_id>, operator:'in'|'not_in'}) where the cohort is a backfilled realtime cohort and the feature is enabled for the project. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
                         ),
                     output_variable: zod
                         .unknown()
@@ -790,6 +832,12 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
                                         transpiled: zod.unknown().optional(),
                                         filter_test_accounts: zod.boolean().optional(),
                                         bytecode_error: zod.string().optional(),
+                                        cohort_ids: zod
+                                            .array(zod.number())
+                                            .optional()
+                                            .describe(
+                                                'Cohort ids referenced by these filters. Compiled server-side alongside bytecode so the runtime can pre-fetch cohort membership. Do not set.'
+                                            ),
                                     })
                                     .describe(
                                         "Event\/action filters for this conversion event, same shape as trigger filters: {events: [{id, name, type: 'events', properties?: [<cond>]}], actions?: [...], properties?: [<cond>]}. bytecode is compiled server-side."
@@ -891,6 +939,12 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
                                 transpiled: zod.unknown().optional(),
                                 filter_test_accounts: zod.boolean().optional(),
                                 bytecode_error: zod.string().optional(),
+                                cohort_ids: zod
+                                    .array(zod.number())
+                                    .optional()
+                                    .describe(
+                                        'Cohort ids referenced by these filters. Compiled server-side alongside bytecode so the runtime can pre-fetch cohort membership. Do not set.'
+                                    ),
                             }),
                             zod.null(),
                         ])
@@ -940,6 +994,12 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
                                                         transpiled: zod.unknown().optional(),
                                                         filter_test_accounts: zod.boolean().optional(),
                                                         bytecode_error: zod.string().optional(),
+                                                        cohort_ids: zod
+                                                            .array(zod.number())
+                                                            .optional()
+                                                            .describe(
+                                                                'Cohort ids referenced by these filters. Compiled server-side alongside bytecode so the runtime can pre-fetch cohort membership. Do not set.'
+                                                            ),
                                                     }),
                                                     zod.null(),
                                                 ])
@@ -987,6 +1047,12 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
                                                             transpiled: zod.unknown().optional(),
                                                             filter_test_accounts: zod.boolean().optional(),
                                                             bytecode_error: zod.string().optional(),
+                                                            cohort_ids: zod
+                                                                .array(zod.number())
+                                                                .optional()
+                                                                .describe(
+                                                                    'Cohort ids referenced by these filters. Compiled server-side alongside bytecode so the runtime can pre-fetch cohort membership. Do not set.'
+                                                                ),
                                                         }),
                                                         zod.null(),
                                                     ])
@@ -1012,7 +1078,7 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
                                 ),
                         ])
                         .describe(
-                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
+                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. conditional_branch conditions may also filter on realtime cohort membership ({type:'cohort', key:'id', value:<cohort_id>, operator:'in'|'not_in'}) where the cohort is a backfilled realtime cohort and the feature is enabled for the project. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
                         ),
                     output_variable: zod
                         .unknown()
@@ -1120,6 +1186,12 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
                                         transpiled: zod.unknown().optional(),
                                         filter_test_accounts: zod.boolean().optional(),
                                         bytecode_error: zod.string().optional(),
+                                        cohort_ids: zod
+                                            .array(zod.number())
+                                            .optional()
+                                            .describe(
+                                                'Cohort ids referenced by these filters. Compiled server-side alongside bytecode so the runtime can pre-fetch cohort membership. Do not set.'
+                                            ),
                                     })
                                     .describe(
                                         "Event\/action filters for this conversion event, same shape as trigger filters: {events: [{id, name, type: 'events', properties?: [<cond>]}], actions?: [...], properties?: [<cond>]}. bytecode is compiled server-side."
@@ -1221,6 +1293,12 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
                                 transpiled: zod.unknown().optional(),
                                 filter_test_accounts: zod.boolean().optional(),
                                 bytecode_error: zod.string().optional(),
+                                cohort_ids: zod
+                                    .array(zod.number())
+                                    .optional()
+                                    .describe(
+                                        'Cohort ids referenced by these filters. Compiled server-side alongside bytecode so the runtime can pre-fetch cohort membership. Do not set.'
+                                    ),
                             }),
                             zod.null(),
                         ])
@@ -1270,6 +1348,12 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
                                                         transpiled: zod.unknown().optional(),
                                                         filter_test_accounts: zod.boolean().optional(),
                                                         bytecode_error: zod.string().optional(),
+                                                        cohort_ids: zod
+                                                            .array(zod.number())
+                                                            .optional()
+                                                            .describe(
+                                                                'Cohort ids referenced by these filters. Compiled server-side alongside bytecode so the runtime can pre-fetch cohort membership. Do not set.'
+                                                            ),
                                                     }),
                                                     zod.null(),
                                                 ])
@@ -1317,6 +1401,12 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
                                                             transpiled: zod.unknown().optional(),
                                                             filter_test_accounts: zod.boolean().optional(),
                                                             bytecode_error: zod.string().optional(),
+                                                            cohort_ids: zod
+                                                                .array(zod.number())
+                                                                .optional()
+                                                                .describe(
+                                                                    'Cohort ids referenced by these filters. Compiled server-side alongside bytecode so the runtime can pre-fetch cohort membership. Do not set.'
+                                                                ),
                                                         }),
                                                         zod.null(),
                                                     ])
@@ -1342,7 +1432,7 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
                                 ),
                         ])
                         .describe(
-                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
+                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. conditional_branch conditions may also filter on realtime cohort membership ({type:'cohort', key:'id', value:<cohort_id>, operator:'in'|'not_in'}) where the cohort is a backfilled realtime cohort and the feature is enabled for the project. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
                         ),
                     output_variable: zod
                         .unknown()
@@ -1617,6 +1707,12 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                             transpiled: zod.unknown().optional(),
                                             filter_test_accounts: zod.boolean().optional(),
                                             bytecode_error: zod.string().optional(),
+                                            cohort_ids: zod
+                                                .array(zod.number())
+                                                .optional()
+                                                .describe(
+                                                    'Cohort ids referenced by these filters. Compiled server-side alongside bytecode so the runtime can pre-fetch cohort membership. Do not set.'
+                                                ),
                                         })
                                         .describe(
                                             "Event\/action filters for this conversion event, same shape as trigger filters: {events: [{id, name, type: 'events', properties?: [<cond>]}], actions?: [...], properties?: [<cond>]}. bytecode is compiled server-side."
@@ -1725,6 +1821,12 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                     transpiled: zod.unknown().optional(),
                                     filter_test_accounts: zod.boolean().optional(),
                                     bytecode_error: zod.string().optional(),
+                                    cohort_ids: zod
+                                        .array(zod.number())
+                                        .optional()
+                                        .describe(
+                                            'Cohort ids referenced by these filters. Compiled server-side alongside bytecode so the runtime can pre-fetch cohort membership. Do not set.'
+                                        ),
                                 }),
                                 zod.null(),
                             ])
@@ -1778,6 +1880,12 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                                             transpiled: zod.unknown().optional(),
                                                             filter_test_accounts: zod.boolean().optional(),
                                                             bytecode_error: zod.string().optional(),
+                                                            cohort_ids: zod
+                                                                .array(zod.number())
+                                                                .optional()
+                                                                .describe(
+                                                                    'Cohort ids referenced by these filters. Compiled server-side alongside bytecode so the runtime can pre-fetch cohort membership. Do not set.'
+                                                                ),
                                                         }),
                                                         zod.null(),
                                                     ])
@@ -1825,6 +1933,12 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                                                 transpiled: zod.unknown().optional(),
                                                                 filter_test_accounts: zod.boolean().optional(),
                                                                 bytecode_error: zod.string().optional(),
+                                                                cohort_ids: zod
+                                                                    .array(zod.number())
+                                                                    .optional()
+                                                                    .describe(
+                                                                        'Cohort ids referenced by these filters. Compiled server-side alongside bytecode so the runtime can pre-fetch cohort membership. Do not set.'
+                                                                    ),
                                                             }),
                                                             zod.null(),
                                                         ])
@@ -1850,7 +1964,7 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                     ),
                             ])
                             .describe(
-                                "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
+                                "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. conditional_branch conditions may also filter on realtime cohort membership ({type:'cohort', key:'id', value:<cohort_id>, operator:'in'|'not_in'}) where the cohort is a backfilled realtime cohort and the feature is enabled for the project. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
                             ),
                         output_variable: zod
                             .unknown()
@@ -2162,6 +2276,12 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
                                         transpiled: zod.unknown().optional(),
                                         filter_test_accounts: zod.boolean().optional(),
                                         bytecode_error: zod.string().optional(),
+                                        cohort_ids: zod
+                                            .array(zod.number())
+                                            .optional()
+                                            .describe(
+                                                'Cohort ids referenced by these filters. Compiled server-side alongside bytecode so the runtime can pre-fetch cohort membership. Do not set.'
+                                            ),
                                     })
                                     .describe(
                                         "Event\/action filters for this conversion event, same shape as trigger filters: {events: [{id, name, type: 'events', properties?: [<cond>]}], actions?: [...], properties?: [<cond>]}. bytecode is compiled server-side."
@@ -2263,6 +2383,12 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
                                 transpiled: zod.unknown().optional(),
                                 filter_test_accounts: zod.boolean().optional(),
                                 bytecode_error: zod.string().optional(),
+                                cohort_ids: zod
+                                    .array(zod.number())
+                                    .optional()
+                                    .describe(
+                                        'Cohort ids referenced by these filters. Compiled server-side alongside bytecode so the runtime can pre-fetch cohort membership. Do not set.'
+                                    ),
                             }),
                             zod.null(),
                         ])
@@ -2312,6 +2438,12 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
                                                         transpiled: zod.unknown().optional(),
                                                         filter_test_accounts: zod.boolean().optional(),
                                                         bytecode_error: zod.string().optional(),
+                                                        cohort_ids: zod
+                                                            .array(zod.number())
+                                                            .optional()
+                                                            .describe(
+                                                                'Cohort ids referenced by these filters. Compiled server-side alongside bytecode so the runtime can pre-fetch cohort membership. Do not set.'
+                                                            ),
                                                     }),
                                                     zod.null(),
                                                 ])
@@ -2359,6 +2491,12 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
                                                             transpiled: zod.unknown().optional(),
                                                             filter_test_accounts: zod.boolean().optional(),
                                                             bytecode_error: zod.string().optional(),
+                                                            cohort_ids: zod
+                                                                .array(zod.number())
+                                                                .optional()
+                                                                .describe(
+                                                                    'Cohort ids referenced by these filters. Compiled server-side alongside bytecode so the runtime can pre-fetch cohort membership. Do not set.'
+                                                                ),
                                                         }),
                                                         zod.null(),
                                                     ])
@@ -2384,7 +2522,7 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
                                 ),
                         ])
                         .describe(
-                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
+                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. conditional_branch conditions may also filter on realtime cohort membership ({type:'cohort', key:'id', value:<cohort_id>, operator:'in'|'not_in'}) where the cohort is a backfilled realtime cohort and the feature is enabled for the project. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
                         ),
                     output_variable: zod
                         .unknown()

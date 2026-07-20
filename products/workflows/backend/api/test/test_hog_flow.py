@@ -19,7 +19,7 @@ from posthog.test.fixtures import create_app_metric2
 
 from products.actions.backend.models.action import Action
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
-from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.workflows.backend.api.hog_flow import _should_validate_strictly
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import HogFlowBatchJob
@@ -2018,6 +2018,115 @@ class TestHogFlowAPI(APIBaseTest):
         # Web builder drafts stay lenient so incomplete graphs can be saved mid-edit.
         cohort = self._make_cohort(behavioral=True)
         response = self._post_event_trigger_with_cohort(cohort.pk)
+        assert response.status_code == 201, response.json()
+
+    def _make_realtime_cohort(self, *, backfilled=True) -> Cohort:
+        cohort = self._make_cohort(behavioral=True)
+        cohort.cohort_type = CohortType.REALTIME
+        if backfilled:
+            cohort.last_backfill_events_at = datetime.now(UTC)
+        cohort.save()
+        return cohort
+
+    def _post_conditional_branch_with_cohort(
+        self,
+        cohort_id: int,
+        *,
+        operator: str = "in",
+        action_type: str = "conditional_branch",
+        status: str = "active",
+        **extra,
+    ):
+        condition = {
+            "filters": {"properties": [{"key": "id", "type": "cohort", "value": cohort_id, "operator": operator}]}
+        }
+        if action_type == "conditional_branch":
+            config: dict = {"conditions": [condition]}
+        else:
+            config = {"condition": condition, "max_wait_duration": "1h"}
+        actions = [
+            {
+                "id": "trigger_node",
+                "name": "trigger_1",
+                "type": "trigger",
+                "config": {
+                    "type": "event",
+                    "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+                },
+            },
+            {"id": "branch_node", "name": "branch_1", "type": action_type, "config": config},
+        ]
+        hog_flow = {"name": "Test Branch Flow", "status": status, "actions": actions}
+        return self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, **extra)
+
+    @parameterized.expand([("in", "inCohort"), ("not_in", "notInCohort")])
+    @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="all")
+    @patch("products.workflows.backend.api.hog_flow._is_realtime_cohort_conditions_enabled", return_value=True)
+    def test_hog_flow_conditional_branch_allows_realtime_cohort(self, operator, expected_call, _mock_flag):
+        cohort = self._make_realtime_cohort()
+        response = self._post_conditional_branch_with_cohort(cohort.pk, operator=operator)
+        assert response.status_code == 201, response.json()
+        branch = next(a for a in response.json()["actions"] if a["type"] == "conditional_branch")
+        filters = branch["config"]["conditions"][0]["filters"]
+        assert expected_call in str(filters["bytecode"])
+        assert filters["cohort_ids"] == [cohort.pk]
+
+    @parameterized.expand(
+        [
+            ("static", "isn't a realtime cohort"),
+            ("behavioral_not_realtime", "isn't a realtime cohort"),
+            ("realtime_not_backfilled", "still being backfilled"),
+            ("deleted", "doesn't exist"),
+        ]
+    )
+    @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="all")
+    @patch("products.workflows.backend.api.hog_flow._is_realtime_cohort_conditions_enabled", return_value=True)
+    def test_hog_flow_conditional_branch_rejects_ineligible_cohort(self, case, expected_error, _mock_flag):
+        if case == "static":
+            cohort = self._make_cohort(static=True)
+        elif case == "behavioral_not_realtime":
+            cohort = self._make_cohort(behavioral=True)
+        elif case == "realtime_not_backfilled":
+            cohort = self._make_realtime_cohort(backfilled=False)
+        else:
+            cohort = self._make_realtime_cohort()
+            cohort.deleted = True
+            cohort.save()
+        response = self._post_conditional_branch_with_cohort(cohort.pk)
+        assert response.status_code == 400, response.json()
+        assert expected_error in str(response.json())
+
+    @patch("products.workflows.backend.api.hog_flow._is_realtime_cohort_conditions_enabled", return_value=False)
+    def test_hog_flow_conditional_branch_cohort_rejected_when_flag_disabled(self, _mock_flag):
+        cohort = self._make_realtime_cohort()
+        response = self._post_conditional_branch_with_cohort(cohort.pk)
+        assert response.status_code == 400, response.json()
+        assert "aren't available" in str(response.json())
+
+    @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="none")
+    @patch("products.workflows.backend.api.hog_flow._is_realtime_cohort_conditions_enabled", return_value=True)
+    def test_hog_flow_conditional_branch_cohort_rejected_when_team_not_allowlisted(self, _mock_flag):
+        cohort = self._make_realtime_cohort()
+        response = self._post_conditional_branch_with_cohort(cohort.pk)
+        assert response.status_code == 400, response.json()
+        assert "aren't available" in str(response.json())
+
+    @patch("products.workflows.backend.api.hog_flow._is_realtime_cohort_conditions_enabled", return_value=True)
+    def test_hog_flow_wait_until_condition_rejects_cohort(self, _mock_flag):
+        # The wait-step condition bytecode also runs in the subscription matcher, which can't
+        # resolve cohort membership — must stay rejected even for realtime-eligible cohorts.
+        cohort = self._make_realtime_cohort()
+        response = self._post_conditional_branch_with_cohort(cohort.pk, action_type="wait_until_condition")
+        assert response.status_code == 400, response.json()
+        assert "wait steps" in str(response.json())
+
+    @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="all")
+    @patch("products.workflows.backend.api.hog_flow._is_realtime_cohort_conditions_enabled", return_value=True)
+    def test_hog_flow_conditional_branch_ineligible_cohort_allowed_for_web_draft(self, _mock_flag):
+        # Web builder drafts stay lenient; the ineligible cohort keeps the filters uncompiled
+        # (fail-closed at runtime) and enabling the draft re-validates strictly.
+        cohort = self._make_cohort(static=True)
+        response = self._post_conditional_branch_with_cohort(cohort.pk, status="draft")
         assert response.status_code == 201, response.json()
 
     @parameterized.expand(

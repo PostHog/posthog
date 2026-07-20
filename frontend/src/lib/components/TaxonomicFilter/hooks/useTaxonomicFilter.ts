@@ -80,6 +80,7 @@ export interface UseTaxonomicFilterOptions {
     propertyAllowList?: AllowedProperties
     maxContextOptions?: MaxContextTaxonomicFilterOption[]
     hideBehavioralCohorts?: boolean
+    realtimeCohortsOnly?: boolean
     endpointFilters?: Record<string, any>
     hogQLGlobals?: Record<string, any>
     hogQLExpressionShowBreakdownLabelHint?: boolean
@@ -283,6 +284,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         propertyAllowList,
         maxContextOptions,
         hideBehavioralCohorts,
+        realtimeCohortsOnly,
         endpointFilters,
         hogQLGlobals,
         hogQLExpressionShowBreakdownLabelHint,
@@ -528,6 +530,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
             optionsFromProp,
             showNumericalPropsOnly,
             hideBehavioralCohorts,
+            realtimeCohortsOnly,
             minSearchQueryLength,
             allowNonCapturedEvents,
             enableKeywordShortcuts,
@@ -551,6 +554,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
             optionsFromProp,
             showNumericalPropsOnly,
             hideBehavioralCohorts,
+            realtimeCohortsOnly,
             minSearchQueryLength,
             allowNonCapturedEvents,
             enableKeywordShortcuts,

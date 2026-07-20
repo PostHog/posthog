@@ -4,7 +4,9 @@ import { Counter } from 'prom-client'
 import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
+import { logger } from '~/common/utils/logger'
 
+import { CohortMembershipService } from '../cohort-membership.service'
 import { findContinueAction, findNextAction, isEvaluableCondition } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 import { calculatedScheduledAt } from './delay'
@@ -21,6 +23,8 @@ export const counterHogflowWaitPollOnlyAdvance = new Counter({
 })
 
 export class ConditionalBranchHandler implements ActionHandler {
+    constructor(private cohortMembershipService: CohortMembershipService | null = null) {}
+
     async execute({
         invocation,
         action,
@@ -54,7 +58,8 @@ export class ConditionalBranchHandler implements ActionHandler {
                           conditions: isEvaluableCondition(action.config.condition) ? [action.config.condition] : [],
                           delay_duration: action.config.max_wait_duration,
                       },
-                  }
+                  },
+            this.cohortMembershipService
         )
 
         const isWait = action.type === 'wait_until_condition'
@@ -81,18 +86,29 @@ export class ConditionalBranchHandler implements ActionHandler {
 
 export async function checkConditions(
     invocation: CyclotronJobInvocationHogFlow,
-    action: Extract<HogFlowAction, { type: 'conditional_branch' }>
+    action: Extract<HogFlowAction, { type: 'conditional_branch' }>,
+    cohortMembershipService: CohortMembershipService | null = null
 ): Promise<{
     scheduledAt?: DateTime
     nextAction?: HogFlowAction
 }> {
+    const cohortEvaluation = await buildCohortEvaluation(invocation, action, cohortMembershipService)
+
     // the index is used to find the right edge
     for (const [index, condition] of action.config.conditions.entries()) {
         // TODO(team-workflows): Figure out error handling here - do we throw or just move on to other conditions?
+        const conditionUsesCohorts = (condition.filters?.cohort_ids?.length ?? 0) > 0
+        if (conditionUsesCohorts && !cohortEvaluation.functions) {
+            // Membership couldn't be determined — fail this condition closed (no match) rather than
+            // guessing, so notInCohort can never wrongly pass. Cohort-free conditions still evaluate.
+            continue
+        }
+
         const filterResults = await filterFunctionInstrumented({
             fn: invocation.hogFlow,
             filters: condition.filters,
             filterGlobals: { ...invocation.filterGlobals, variables: invocation.state.variables },
+            functions: conditionUsesCohorts ? cohortEvaluation.functions : undefined,
         })
 
         if (filterResults.match) {
@@ -119,4 +135,60 @@ export async function checkConditions(
         }
     }
     return {}
+}
+
+/**
+ * Pre-fetches realtime cohort membership for every cohort referenced by the action's conditions
+ * (one batched lookup per invocation) and turns it into the sync inCohort/notInCohort
+ * implementations the compiled filter bytecode calls. Returns no functions when membership can't
+ * be determined, so cohort-referencing conditions fail closed.
+ */
+async function buildCohortEvaluation(
+    invocation: CyclotronJobInvocationHogFlow,
+    action: Extract<HogFlowAction, { type: 'conditional_branch' }>,
+    cohortMembershipService: CohortMembershipService | null
+): Promise<{ functions?: Record<string, (...args: any[]) => any> }> {
+    const cohortIds = Array.from(
+        new Set(action.config.conditions.flatMap((condition) => condition.filters?.cohort_ids ?? []))
+    )
+    if (cohortIds.length === 0) {
+        return {}
+    }
+
+    const personId = invocation.filterGlobals.person?.id
+    if (!personId) {
+        // A person-less event genuinely isn't in any cohort — deterministic, no lookup needed
+        return {
+            functions: {
+                inCohort: () => false,
+                notInCohort: () => true,
+            },
+        }
+    }
+
+    if (!cohortMembershipService) {
+        logger.error('Cohort conditions configured but no cohort membership service is available', {
+            teamId: invocation.hogFlow.team_id,
+            hogFlowId: invocation.hogFlow.id,
+            actionId: action.id,
+        })
+        return {}
+    }
+
+    try {
+        const memberships = await cohortMembershipService.fetchMemberships(
+            invocation.hogFlow.team_id,
+            personId,
+            cohortIds
+        )
+        return {
+            functions: {
+                inCohort: (cohortId: unknown) => memberships.get(Number(cohortId)) === true,
+                notInCohort: (cohortId: unknown) => memberships.get(Number(cohortId)) !== true,
+            },
+        }
+    } catch {
+        // Already logged with context by the service
+        return {}
+    }
 }

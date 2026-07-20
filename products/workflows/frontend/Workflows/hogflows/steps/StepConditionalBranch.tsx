@@ -98,6 +98,7 @@ export function StepConditionalBranchConfiguration({
 
                     <HogFlowPropertyFilters
                         filtersKey={`condition-branch-condition-${action.id}-${index}`}
+                        allowRealtimeCohorts
                         filters={condition.filters ?? {}}
                         setFilters={(filters) =>
                             setConditions(

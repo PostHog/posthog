@@ -31,6 +31,12 @@ export const CohortsListQueryParams = /* @__PURE__ */ zod.object({
         ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    realtime_supported: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Set true to only return realtime cohorts whose membership is maintained in real time (backfilled realtime cohorts) — the only cohorts usable in workflow conditions.'
+        ),
     search: zod
         .string()
         .optional()

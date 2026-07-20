@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from copy import deepcopy
 from typing import Annotated, Any, ClassVar, Literal, Optional, Union, cast
 
-from django.db.models import OuterRef, QuerySet, Subquery
+from django.db.models import OuterRef, Q, QuerySet, Subquery
 from django.utils import timezone
 
 import requests
@@ -1466,6 +1466,15 @@ def get_cohorts_using_cohort(cohort: Cohort) -> QuerySet[Cohort]:
                 description="Set true to exclude behavioral (event-based) cohorts, which can't be used in feature flags or batch workflow audiences.",
             ),
             OpenApiParameter(
+                name="realtime_supported",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Set true to only return realtime cohorts whose membership is maintained in real time "
+                    "(backfilled realtime cohorts) — the only cohorts usable in workflow conditions."
+                ),
+            ),
+            OpenApiParameter(
                 name="basic",
                 type=bool,
                 location=OpenApiParameter.QUERY,
@@ -1508,6 +1517,13 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                     queryset = queryset.filter(is_static=True)
                 elif cohort_type == "dynamic":
                     queryset = queryset.filter(is_static=False)
+            elif key == "realtime_supported":
+                if str_to_bool(filters[key]):
+                    # DB-level approximation of Cohort.is_flag_compatible (which backfill timestamp is
+                    # required depends on the filter tree); save-time validation stays authoritative.
+                    queryset = queryset.filter(cohort_type=CohortType.REALTIME).filter(
+                        Q(last_backfill_person_properties_at__isnull=False) | Q(last_backfill_events_at__isnull=False)
+                    )
             elif key == "created_by_id":
                 queryset = queryset.filter(created_by_id=request.GET["created_by_id"])
             elif key == "search":

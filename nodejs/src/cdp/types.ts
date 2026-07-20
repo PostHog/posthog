@@ -51,6 +51,7 @@ export interface HogFunctionFilters {
     properties?: Record<string, any>[] // Global property filters that apply to all events
     filter_test_accounts?: boolean
     bytecode?: HogBytecode
+    cohort_ids?: number[] // Cohort ids the bytecode checks via inCohort/notInCohort — compiled server-side so the runtime can pre-fetch membership
 }
 
 export type GroupType = {

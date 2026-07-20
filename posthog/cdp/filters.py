@@ -70,6 +70,31 @@ def _is_cohort_filter(prop: dict) -> bool:
     return isinstance(prop, dict) and prop.get("type") in COHORT_FILTER_TYPES
 
 
+def collect_cohort_ids_from_properties(properties: Any) -> list[int]:
+    """Collect all cohort ids referenced by a property filter tree (including nested AND/OR groups)."""
+    cohort_ids: set[int] = set()
+
+    def _walk(node: Any) -> None:
+        if isinstance(node, list):
+            for item in node:
+                _walk(item)
+            return
+        if not isinstance(node, dict):
+            return
+        if node.get("type") in ("AND", "OR") and isinstance(node.get("values"), list):
+            for value in node["values"]:
+                _walk(value)
+            return
+        if _is_cohort_filter(node) and node.get("value") is not None:
+            try:
+                cohort_ids.add(int(node["value"]))
+            except (ValueError, TypeError):
+                pass
+
+    _walk(properties)
+    return sorted(cohort_ids)
+
+
 def _check_only_person_properties(properties: Any) -> set[str]:
     """Walk a cohort's filter property tree and return any non-person leaf types found.
 
@@ -359,7 +384,13 @@ class _LowerConstantMembership(CloningVisitor):
         return super().visit_compare_operation(node)
 
 
-def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optional[dict[int, Action]] = None) -> dict:
+def compile_filters_bytecode(
+    filters: Optional[dict],
+    team: Team,
+    actions: Optional[dict[int, Action]] = None,
+    *,
+    cohort_membership_supported: bool = False,
+) -> dict:
     filters = filters or {}
     try:
         expr = compile_filters_expr(filters, team, actions)
@@ -368,7 +399,27 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
 
         expr = _LowerConstantMembership().visit(expr)
         context = HogQLContext(team_id=team.id)
-        filters["bytecode"] = create_bytecode(expr, context=context).bytecode
+        # inCohort/notInCohort aren't STL functions — the runtime injects implementations backed by
+        # a cohort_membership lookup, so tell the compiler they're supported to keep them out of
+        # context.errors.
+        supported_functions = {"inCohort", "notInCohort"} if cohort_membership_supported else None
+        filters["bytecode"] = create_bytecode(
+            expr,
+            supported_functions=supported_functions,
+            context=context,
+            cohort_membership_supported=cohort_membership_supported,
+        ).bytecode
+
+        # The runtime needs the referenced cohort ids to pre-fetch membership before executing the
+        # bytecode, so persist them next to it (they'd otherwise have to be re-derived from the
+        # property tree in Node).
+        cohort_ids = (
+            collect_cohort_ids_from_properties(filters.get("properties")) if cohort_membership_supported else []
+        )
+        if cohort_ids:
+            filters["cohort_ids"] = cohort_ids
+        else:
+            filters.pop("cohort_ids", None)
 
         # context.errors here only contains "function not implemented" errors from the
         # bytecode compiler (the resolver doesn't run during create_bytecode). These are
@@ -382,6 +433,7 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
         settings_url = _internal_user_settings_url(team.id)
         details = "; ".join(e.reasons)
         filters["bytecode"] = None
+        filters.pop("cohort_ids", None)
         filters["bytecode_error"] = (
             f"Your internal/test user filters include cohorts that can't be used in real-time filters: "
             f"{details}. "
@@ -404,6 +456,7 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
             )
 
         filters["bytecode"] = None
+        filters.pop("cohort_ids", None)
         filters["bytecode_error"] = error_msg
 
     return filters

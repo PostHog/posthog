@@ -348,6 +348,8 @@ export interface HogFunctionFiltersApi {
     transpiled?: unknown
     filter_test_accounts?: boolean
     bytecode_error?: string
+    /** Cohort ids referenced by these filters. Compiled server-side alongside bytecode so the runtime can pre-fetch cohort membership. Do not set. */
+    cohort_ids?: number[]
 }
 
 export interface HogFunctionMaskingApi {

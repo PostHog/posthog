@@ -43,6 +43,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import log_activity_from_viewset
 from posthog.auth import InternalAPIAuthentication
+from posthog.cdp.filters import collect_cohort_ids_from_properties
 from posthog.cdp.validation import (
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
@@ -53,6 +54,7 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.event_usage import EventSource, get_event_source
 from posthog.models import Team
 from posthog.models.filters import Filter
+from posthog.ph_client import feature_enabled_or_false
 from posthog.plugins.plugin_server_api import (
     create_hog_flow_invocation_test,
     create_hog_flow_scheduled_invocation,
@@ -64,8 +66,9 @@ from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils import relative_date_parse_with_delta_mapping
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
-from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
+from products.cohorts.backend.realtime_teams import is_realtime_cohort_team
 from products.feature_flags.backend.user_blast_radius import (
     PERSON_BATCH_SIZE,
     get_user_blast_radius,
@@ -143,6 +146,28 @@ DRAFT_CONTENT_FIELDS = (
 BATCH_FLAG_CONDITION_REJECTION = (
     "Feature flags can't be used as a batch audience condition. Use person properties or cohorts instead."
 )
+
+# Gates realtime-cohort membership checks in conditional_branch steps. Requires both this flag and
+# the REALTIME_COHORT_TEAM_ALLOWLIST infra gate — bytecode with inCohort calls must only be compiled
+# for teams whose realtime membership the pipeline actually maintains.
+WORKFLOWS_REALTIME_COHORT_CONDITIONS_FLAG = "workflows-realtime-cohort-conditions"
+
+
+def _is_realtime_cohort_conditions_enabled(request) -> bool:
+    try:
+        user = getattr(request, "user", None)
+        if user is None or user.is_anonymous:
+            return False
+        return feature_enabled_or_false(
+            WORKFLOWS_REALTIME_COHORT_CONDITIONS_FLAG,
+            user.distinct_id,
+            groups={"organization": str(user.organization.id)},
+            group_properties={"organization": {"id": str(user.organization.id)}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        return False
 
 
 def reject_flag_conditions_in_audience(team: Team, filters: dict) -> None:
@@ -400,6 +425,9 @@ class HogFlowActionSerializer(serializers.Serializer):
             "seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. "
             "Max 30d. "
             "conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. "
+            "conditional_branch conditions may also filter on realtime cohort membership "
+            "({type:'cohort', key:'id', value:<cohort_id>, operator:'in'|'not_in'}) where the cohort is a "
+            "backfilled realtime cohort and the feature is enabled for the project. "
             "wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, "
             "type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as "
             "delay). Continues when condition.filters match OR any events entry fires; each events entry "
@@ -454,6 +482,38 @@ class HogFlowActionSerializer(serializers.Serializer):
                             )
                         }
                     )
+
+    def _realtime_cohort_condition_error(self, properties) -> Optional[str]:
+        # Conditional-branch conditions evaluate in real time, so cohort refs are only allowed when the
+        # runtime can answer membership from the realtime cohort_membership store: the rollout flag and
+        # the infra allowlist must both be on (bytecode with inCohort calls is useless for teams whose
+        # membership the pipeline doesn't maintain), and every referenced cohort must be a backfilled
+        # realtime cohort. Mirrors _validate_behavioral_cohort_for_feature_flag for flag targeting.
+        cohort_ids = collect_cohort_ids_from_properties(properties)
+        if not cohort_ids:
+            return None
+        team = self.context["get_team"]()
+        if not (
+            _is_realtime_cohort_conditions_enabled(self.context.get("request")) and is_realtime_cohort_team(team.id)
+        ):
+            return "Cohort conditions aren't available for this project. Use person property filters instead."
+        for cohort_id in cohort_ids:
+            try:
+                cohort = Cohort.objects.get(pk=cohort_id, team__project_id=team.project_id, deleted=False)
+            except Cohort.DoesNotExist:
+                return f"Cohort id={cohort_id} doesn't exist in this project."
+            if cohort.is_flag_compatible:
+                continue
+            if cohort.cohort_type != CohortType.REALTIME:
+                return (
+                    f"Cohort '{cohort.name}' isn't a realtime cohort, so its membership can't be checked "
+                    "in workflow conditions. Use a realtime cohort or person property filters instead."
+                )
+            return (
+                f"Cohort '{cohort.name}' is still being backfilled and can't be used in workflow "
+                "conditions yet. It will become available once its initial backfill completes."
+            )
+        return None
 
     def validate(self, data):
         is_draft = self.context.get("is_draft")
@@ -602,7 +662,25 @@ class HogFlowActionSerializer(serializers.Serializer):
                     if strict:
                         raise serializers.ValidationError("Event filters are not allowed in conditionals")
                 else:
-                    serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
+                    filters_context = self.context
+                    if collect_cohort_ids_from_properties(filters.get("properties")):
+                        if not is_conditional_branch:
+                            # The wait-step condition bytecode also runs in the subscription matcher,
+                            # which has no membership lookup — and a "wait until in cohort" needs a
+                            # membership-change wake signal that doesn't exist yet.
+                            if strict:
+                                raise serializers.ValidationError(
+                                    {"filters": "Cohort conditions aren't supported in wait steps yet."}
+                                )
+                        else:
+                            cohort_error = self._realtime_cohort_condition_error(filters.get("properties"))
+                            if cohort_error is None:
+                                filters_context = {**self.context, "allow_cohort_membership": True}
+                            elif strict:
+                                raise serializers.ValidationError({"filters": cohort_error})
+                            # Lenient drafts with an ineligible cohort keep the default context, so the
+                            # compile fails and the condition stays fail-closed until fixed.
+                    serializer = HogFunctionFiltersSerializer(data=filters, context=filters_context)
                     if not strict:
                         if serializer.is_valid():
                             condition["filters"] = serializer.validated_data

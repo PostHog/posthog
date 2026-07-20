@@ -56,6 +56,7 @@ export interface PropertyFiltersProps {
     excludedOperators?: ExcludedOperators
     selectingKeyOnly?: SelectingKeyOnly
     hideBehavioralCohorts?: boolean
+    realtimeCohortsOnly?: boolean
     addFilterDocLink?: string
     operatorAllowlist?: OperatorValueSelectProps['operatorAllowlist']
     hogQLGlobals?: Record<string, any>
@@ -100,6 +101,7 @@ export function PropertyFilters({
     excludedOperators,
     selectingKeyOnly,
     hideBehavioralCohorts,
+    realtimeCohortsOnly,
     addFilterDocLink,
     operatorAllowlist,
     hogQLGlobals,
@@ -169,6 +171,7 @@ export function PropertyFilters({
                                             excludedOperators={excludedOperators}
                                             selectingKeyOnly={selectingKeyOnly}
                                             hideBehavioralCohorts={hideBehavioralCohorts}
+                                            realtimeCohortsOnly={realtimeCohortsOnly}
                                             size={buttonSize}
                                             addFilterDocLink={addFilterDocLink}
                                             editable={editable}

@@ -894,6 +894,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         // TODO: remove this filter once we can support behavioral cohorts for feature flags, it's only
                         // used in the feature flag property filter UI
                         ...(props.hideBehavioralCohorts ? { hide_behavioral_cohorts: 'true' } : {}),
+                        ...(props.realtimeCohortsOnly ? { realtime_supported: 'true' } : {}),
                         ...(eventsTab && !values.includeStaleEvents ? { exclude_stale: 'true' } : {}),
                     }
 
