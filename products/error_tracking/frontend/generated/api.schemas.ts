@@ -455,19 +455,26 @@ export interface ErrorTrackingExternalReferenceIntegrationResultApi {
 }
 
 /**
- * Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}.
+ * Provider-specific fields describing a NEW external issue to create. Supply this OR external_context, not both. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}.
  */
 export type ErrorTrackingExternalReferenceResultApiConfig = { [key: string]: string }
+
+/**
+ * Identifier of an EXISTING external issue to link (from the search-issues endpoint). Supply this OR config, not both. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}.
+ */
+export type ErrorTrackingExternalReferenceResultApiExternalContext = { [key: string]: unknown }
 
 export interface ErrorTrackingExternalReferenceResultApi {
     /** Unique ID of the external reference. */
     readonly id: string
     /** The connected integration this reference was created through. */
     readonly integration: ErrorTrackingExternalReferenceIntegrationResultApi
-    /** ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira'). */
+    /** ID of the connected integration to link the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira'). */
     integration_id: number
-    /** Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}. */
-    config: ErrorTrackingExternalReferenceResultApiConfig
+    /** Provider-specific fields describing a NEW external issue to create. Supply this OR external_context, not both. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}. */
+    config?: ErrorTrackingExternalReferenceResultApiConfig
+    /** Identifier of an EXISTING external issue to link (from the search-issues endpoint). Supply this OR config, not both. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. */
+    external_context?: ErrorTrackingExternalReferenceResultApiExternalContext
     /** ID of the error tracking issue to link the reference to. */
     issue: string
     /** URL of the linked external issue in the provider's system. */
@@ -481,6 +488,27 @@ export interface PaginatedErrorTrackingExternalReferenceResultListApi {
     /** @nullable */
     previous?: string | null
     results: ErrorTrackingExternalReferenceResultApi[]
+}
+
+/**
+ * Payload to send back as external_context when creating a reference to this issue.
+ */
+export type ErrorTrackingExternalIssueResultApiExternalContext = { [key: string]: unknown }
+
+export interface ErrorTrackingExternalIssueResultApi {
+    /** Provider-native identifier of the issue (e.g. issue key or number). */
+    id: string
+    /** Human-readable issue title, for display in the picker. */
+    title: string
+    /** Link to the issue in the provider's system. */
+    url: string
+    /** Payload to send back as external_context when creating a reference to this issue. */
+    external_context: ErrorTrackingExternalIssueResultApiExternalContext
+}
+
+export interface ErrorTrackingExternalIssueSearchResultApi {
+    /** Matching existing issues. */
+    issues: ErrorTrackingExternalIssueResultApi[]
 }
 
 export interface ErrorTrackingFingerprintApi {
@@ -1778,6 +1806,22 @@ export type ErrorTrackingExternalReferencesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type ErrorTrackingExternalReferencesSearchIssuesRetrieveParams = {
+    /**
+     * ID of the connected integration to search issues in.
+     */
+    integration_id: number
+    /**
+     * Repository to search within. Required for GitHub, ignored by other providers.
+     */
+    repository?: string
+    /**
+     * Text to match against existing issue titles / keys in the provider.
+     * @minLength 1
+     */
+    search: string
 }
 
 export type ErrorTrackingFingerprintsListParams = {
