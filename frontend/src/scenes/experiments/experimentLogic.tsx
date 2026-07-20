@@ -2801,12 +2801,34 @@ export const experimentLogic = kea<experimentLogicType>([
                 (m) => !('isSharedMetric' in m && m.isSharedMetric && m.sharedMetricId === sharedMetricId)
             )
 
-            await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
-                saved_metrics_ids: sharedMetricsIds,
+            // Drop the metric locally right away so the table updates without waiting on the
+            // refetch below; restore the previous state if the save fails.
+            const previousSavedMetrics = values.experiment.saved_metrics
+            const previousMetrics = values.experiment.metrics
+            const previousMetricsSecondary = values.experiment.metrics_secondary
+            actions.setExperiment({
+                saved_metrics: previousSavedMetrics.filter(
+                    (sharedMetric) => sharedMetric.saved_metric !== sharedMetricId
+                ),
                 metrics: cleanedMetrics,
                 metrics_secondary: cleanedMetricsSecondary,
-                update_feature_flag_params: false,
             })
+
+            try {
+                await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
+                    saved_metrics_ids: sharedMetricsIds,
+                    metrics: cleanedMetrics,
+                    metrics_secondary: cleanedMetricsSecondary,
+                    update_feature_flag_params: false,
+                })
+            } catch (error) {
+                actions.setExperiment({
+                    saved_metrics: previousSavedMetrics,
+                    metrics: previousMetrics,
+                    metrics_secondary: previousMetricsSecondary,
+                })
+                throw error
+            }
 
             actions.loadExperiment({ triggeredBy: 'config_change' })
         },
@@ -3132,14 +3154,14 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
             }
         },
-        removeMetric: ({ uuid, context }) => {
+        removeMetric: async ({ uuid, context }) => {
             const isPrimary = context === 'primary'
             const field = isPrimary ? 'metrics' : 'metrics_secondary'
             const currentMetrics: (ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery)[] =
                 values.experiment[field] || []
             const filtered = currentMetrics.filter((m) => m.uuid !== uuid)
 
-            actions.updateExperiment({
+            await asyncActions.updateExperiment({
                 [field]: filtered,
                 update_feature_flag_params: false,
             })

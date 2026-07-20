@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonModal } from '@posthog/lemon-ui'
 
@@ -17,15 +18,27 @@ export function ExperimentMetricModal({
 }: {
     experiment: Experiment
     exposureCriteria: ExperimentExposureCriteria | undefined
-    onSave: (metric: ExperimentMetric, context: MetricContext) => void
-    onDelete: (metric: ExperimentMetric, context: MetricContext) => void
+    onSave: (metric: ExperimentMetric, context: MetricContext) => Promise<void>
+    onDelete: (metric: ExperimentMetric, context: MetricContext) => Promise<void>
 }): JSX.Element | null {
     const { isModalOpen, metric, context, isCreateMode, isEditMode } = useValues(experimentMetricModalLogic)
     const { closeExperimentMetricModal, setMetric: setModalMetric } = useActions(experimentMetricModalLogic)
     const { openExposureCriteriaModal } = useActions(exposureCriteriaModalLogic)
+    const [isSaving, setIsSaving] = useState(false)
 
     if (!isModalOpen || !metric) {
         return null
+    }
+
+    const handleSave = async (): Promise<void> => {
+        setIsSaving(true)
+        try {
+            await onSave(metric, context)
+        } catch {
+            // Failure is surfaced via a toast by the caller; keep the modal open to retry.
+        } finally {
+            setIsSaving(false)
+        }
     }
 
     return (
@@ -39,6 +52,7 @@ export function ExperimentMetricModal({
                         <LemonButton
                             type="secondary"
                             status="danger"
+                            disabledReason={isSaving ? 'Saving…' : undefined}
                             onClick={() => {
                                 LemonDialog.open({
                                     title: 'Delete this metric?',
@@ -46,7 +60,10 @@ export function ExperimentMetricModal({
                                     primaryButton: {
                                         children: 'Delete',
                                         type: 'primary',
-                                        onClick: () => onDelete(metric, context),
+                                        onClick: () => {
+                                            // Toast + modal close handled by the caller.
+                                            void onDelete(metric, context).catch(() => {})
+                                        },
                                         size: 'small',
                                     },
                                     secondaryButton: {
@@ -64,13 +81,15 @@ export function ExperimentMetricModal({
                         <LemonButton
                             form="edit-experiment-metric-form"
                             type="secondary"
+                            disabledReason={isSaving ? 'Saving…' : undefined}
                             onClick={closeExperimentMetricModal}
                         >
                             Cancel
                         </LemonButton>
                         <LemonButton
                             form="edit-experiment-metric-form"
-                            onClick={() => onSave(metric, context)}
+                            onClick={handleSave}
+                            loading={isSaving}
                             type="primary"
                             data-attr="save-experiment-metric"
                         >
