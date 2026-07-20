@@ -798,7 +798,16 @@ export const sceneLogic = kea<sceneLogicType>([
                     return
                 }
 
-                if (sceneId !== Scene.InviteSignup) {
+                // While the org is pending deletion or deactivated, organizationLogic's
+                // locationChanged listener steers all navigation to the matching lockout
+                // scene. Redirecting to org/project creation or onboarding here would fight
+                // it in an infinite synchronous replace loop (kea-router has no same-URL
+                // short-circuit), so these redirects only apply to healthy orgs.
+                const { currentOrganization } = organizationLogic.values
+                const orgInLockoutState =
+                    currentOrganization?.is_pending_deletion || currentOrganization?.is_active === false
+
+                if (sceneId !== Scene.InviteSignup && !orgInLockoutState) {
                     // Redirect to org/project creation if there's no org/project respectively, unless using invite
                     if (organizationLogic.values.isCurrentOrganizationUnavailable) {
                         if (

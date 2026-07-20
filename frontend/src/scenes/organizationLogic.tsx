@@ -11,6 +11,7 @@ import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isUserLoggedIn } from 'lib/utils/getAppContext'
 import { getAppContext } from 'lib/utils/getAppContext'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { AvailableFeature, OrganizationType } from '~/types'
@@ -333,13 +334,17 @@ export const organizationLogic = kea<organizationLogicType>([
             }
         },
         locationChanged: ({ pathname }) => {
+            // The pathname may carry a /project/<id> prefix, so strip it before comparing —
+            // otherwise the "already there" checks below never match and each replace
+            // re-triggers this listener in an infinite synchronous loop.
+            const path = removeProjectIdIfPresent(pathname)
             // Redirect to pending deletion page if organization deletion is in progress
-            if (values.currentOrganization?.is_pending_deletion && pathname !== urls.organizationPendingDeletion()) {
+            if (values.currentOrganization?.is_pending_deletion && path !== urls.organizationPendingDeletion()) {
                 router.actions.replace(urls.organizationPendingDeletion())
                 return
             }
             // Redirect to deactivated page if organization is inactive (client-side navigation)
-            if (values.currentOrganization?.is_active === false && pathname !== urls.organizationDeactivated()) {
+            if (values.currentOrganization?.is_active === false && path !== urls.organizationDeactivated()) {
                 router.actions.replace(urls.organizationDeactivated())
             }
         },

@@ -30,6 +30,20 @@ describe('router-utils', () => {
         expect(altered).toEqual('/project/123/feature_flags/123')
     })
 
+    describe('organization lockout pages', () => {
+        // These org-level pages must stay at the bare path: the backend middleware compares
+        // request.path against it exactly, and a /project/<id> prefix used to defeat the
+        // "already there" check in organizationLogic, causing an infinite redirect loop.
+        it.each([
+            ['/organization-pending-deletion', '/organization-pending-deletion'],
+            ['/project/123/organization-pending-deletion', '/organization-pending-deletion'],
+            ['/organization-deactivated', '/organization-deactivated'],
+            ['/project/123/organization-deactivated', '/organization-deactivated'],
+        ])('normalizes %s to %s', (input, expected) => {
+            expect(addProjectIdIfMissing(input, 123)).toEqual(expected)
+        })
+    })
+
     describe('relative path normalization', () => {
         it('normalizes ../ prefix to absolute path with project id', () => {
             expect(addProjectIdIfMissing('../dashboard/1663553', 112509)).toEqual('/project/112509/dashboard/1663553')

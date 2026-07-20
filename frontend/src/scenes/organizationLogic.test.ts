@@ -1,11 +1,14 @@
-import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
+import { router } from 'kea-router'
+import type { LocationChangedPayload } from 'kea-router/lib/types'
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 
-import { AppContext } from '../types'
+import { AppContext, OrganizationType } from '../types'
 import { organizationLogic } from './organizationLogic'
+import { urls } from './urls'
 
 describe('organizationLogic', () => {
     let logic: ReturnType<typeof organizationLogic.build>
@@ -58,6 +61,63 @@ describe('organizationLogic', () => {
             await expectLogic(logic).toMatchValues({
                 currentOrganization: { ...MOCK_DEFAULT_ORGANIZATION },
             })
+        })
+    })
+
+    describe('lockout redirects on locationChanged', () => {
+        const mountWithOrganization = async (organization: Partial<OrganizationType>): Promise<void> => {
+            initKeaTests(true, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_PROJECT, {
+                ...MOCK_DEFAULT_ORGANIZATION,
+                ...organization,
+            })
+            logic = organizationLogic()
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
+        }
+
+        // Regression guard: the redirect used to recurse infinitely ("Maximum call stack size
+        // exceeded") because the replaced pathname came back with a /project/<id> prefix and
+        // never matched the bare lockout URL.
+        it.each<[string, Partial<OrganizationType>, string]>([
+            ['pending deletion', { is_pending_deletion: true }, urls.organizationPendingDeletion()],
+            ['deactivated', { is_active: false }, urls.organizationDeactivated()],
+        ])(
+            'navigation while the organization is %s settles on its bare lockout page',
+            async (_label, organization, lockoutPath) => {
+                await mountWithOrganization(organization)
+
+                router.actions.push('/dashboard')
+
+                expect(router.values.location.pathname).toEqual(lockoutPath)
+            }
+        )
+
+        it('does not redirect again when already on the lockout page', async () => {
+            await mountWithOrganization({ is_pending_deletion: true })
+
+            router.actions.push(urls.organizationPendingDeletion())
+
+            expect(router.values.location.pathname).toEqual(urls.organizationPendingDeletion())
+            await expectLogic(router).toNotHaveDispatchedActions(['replace'])
+        })
+
+        it('does not rewrite history on a POP to a legacy project-prefixed lockout URL', async () => {
+            await mountWithOrganization({ is_pending_deletion: true })
+            const prefixedLockoutUrl = `/project/${MOCK_DEFAULT_TEAM.id}${urls.organizationPendingDeletion()}`
+
+            // POP events (browser back/forward) bypass the router's path transforms, so the
+            // pathname can still carry a prefix recorded by an older client.
+            router.actions.locationChanged({
+                method: 'POP',
+                pathname: prefixedLockoutUrl,
+                search: '',
+                searchParams: {},
+                hash: '',
+                hashParams: {},
+                url: prefixedLockoutUrl,
+            } as LocationChangedPayload)
+
+            await expectLogic(router).toNotHaveDispatchedActions(['replace'])
         })
     })
 

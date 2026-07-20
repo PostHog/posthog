@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { kea, path } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic, partial, truth } from 'kea-test-utils'
@@ -5,6 +7,7 @@ import { expectLogic, partial, truth } from 'kea-test-utils'
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -102,6 +105,40 @@ describe('sceneLogic', () => {
         expect(logic.values.exportedScenes).toMatchObject({
             [Scene.DataManagement]: expectedAnnotation,
             [Scene.Settings]: expectedSettings,
+        })
+    })
+
+    describe('organization lockout', () => {
+        // Regression guard: openScene used to see a pending-deletion org (which loads without a
+        // membership level) as "unavailable" and redirect to /create-organization, while
+        // organizationLogic's locationChanged redirected straight back — an infinite synchronous
+        // replace loop ("Maximum call stack size exceeded").
+        it('loads the pending-deletion scene instead of redirecting to organization creation', async () => {
+            logic.unmount()
+            const priorAppContext = window.POSTHOG_APP_CONTEXT
+            try {
+                initKeaTests(true, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_PROJECT, {
+                    ...MOCK_DEFAULT_ORGANIZATION,
+                    is_pending_deletion: true,
+                    membership_level: null,
+                })
+                ;(api.get as jest.Mock).mockResolvedValue({ tabs: [], homepage: null })
+                ;(api.update as jest.Mock).mockResolvedValue({ tabs: [], homepage: null })
+                await expectLogic(organizationLogic).toDispatchActions(['loadCurrentOrganizationSuccess'])
+                featureFlagLogic.mount()
+                const lockoutLogic = sceneLogic.build({
+                    scenes: { ...testScenes, [Scene.OrganizationPendingDeletion]: sceneImport },
+                })
+                lockoutLogic.mount()
+
+                router.actions.push(urls.organizationPendingDeletion())
+                await expectLogic(lockoutLogic).delay(1)
+
+                expect(lockoutLogic.values.sceneId).toEqual(Scene.OrganizationPendingDeletion)
+                expect(router.values.location.pathname).toEqual(urls.organizationPendingDeletion())
+            } finally {
+                window.POSTHOG_APP_CONTEXT = priorAppContext
+            }
         })
     })
 
