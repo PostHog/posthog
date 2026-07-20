@@ -899,6 +899,13 @@ class ExternalDataSourceType(models.TextChoices):
     SHOPWARE = "Shopware", "Shopware"
     DUBSADO = "Dubsado", "Dubsado"
     CAMPFIRE = "Campfire", "Campfire"
+    PROMPTWATCH = "PromptWatch", "PromptWatch"
+    CRISP = "Crisp", "Crisp"
+    KOMMO = "Kommo", "Kommo"
+    AXIOM = "Axiom", "Axiom"
+    PLIVO = "Plivo", "Plivo"
+    DATAFORSEO = "DataForSEO", "DataForSEO"
+    SLEEKPLAN = "Sleekplan", "Sleekplan"
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only

@@ -81,6 +81,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         hasUnsavedChanges,
         draftContent,
         draftIsPrivate,
+        draftModeEnabled,
+        replyRecipientDescription,
         snoozedUntil,
         knowledgeGaps,
         knowledgeGapsLoading,
@@ -99,6 +101,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         loadOlderMessages,
         setDraftContent,
         setDraftIsPrivate,
+        setDraftModeEnabled,
         dismissKnowledgeGap,
         submitAiReplyFeedback,
     } = useActions(logic)
@@ -209,6 +212,9 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         onDraftChange={setDraftContent}
                         isPrivate={draftIsPrivate}
                         onPrivateChange={setDraftIsPrivate}
+                        draftMode={draftModeEnabled}
+                        onDraftModeChange={setDraftModeEnabled}
+                        sendConfirmationMessage={`This will send to ${replyRecipientDescription}`}
                         replyDisabledReason={replyDisabledReason}
                         minHeight="min(400px, calc(100svh - 20rem))"
                         maxHeight="calc(100svh - 20rem)"

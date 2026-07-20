@@ -90,6 +90,12 @@ class HogFlow(UUIDTModel):
     draft = models.JSONField(null=True, blank=True)
     draft_updated_at = models.DateTimeField(null=True, blank=True)
 
+    # Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained
+    # by the API whenever a live graph edit deletes actions, so runs parked on a deleted step can
+    # continue at its surviving successor instead of exiting. Values always reference actions
+    # present in this row's `actions`; entries with no surviving successor are omitted.
+    action_redirects = models.JSONField(null=True, blank=True)
+
     def __str__(self):
         return f"HogFlow {self.id}/{self.version}: {self.name}"
 

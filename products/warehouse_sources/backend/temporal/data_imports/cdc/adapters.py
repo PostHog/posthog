@@ -70,6 +70,13 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
         such that it cannot be resumed and must be recreated."""
         ...
 
+    def is_connection_error(self, exc: BaseException) -> bool:
+        """Whether the exception is an expected failure to reach the source DB (unreachable
+        host, connect timeout, refused, dropped, or a tunnel that can't be established) rather
+        than a bug in PostHog's own code. Callers use it to avoid capturing expected
+        customer/upstream connection failures as error-tracking noise."""
+        ...
+
     def classify_error(self, exc: BaseException) -> CDCErrorInfo | None:
         """Interpret a single engine-specific exception as a CDC error category, or None
         when unrecognized (the caller falls back to the engine-agnostic default). Mirrors

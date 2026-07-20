@@ -175,6 +175,16 @@ class LLMPromptViewSet(
         return prompt
 
     def _track_prompt_fetch(self, prompt: dict[str, Any]) -> None:
+        # prompt_label + prompt_version together answer "what was the production label
+        # actually serving at time X" from the event stream alone.
+        properties = {
+            "prompt_id": prompt["id"],
+            "prompt_name": prompt["name"],
+            "prompt_version": prompt["version"],
+            "prompt_label": prompt.get("label"),
+            "prompt_is_latest": prompt["is_latest"],
+            "prompt_first_version_created_at": prompt["first_version_created_at"],
+        }
         if not settings.TEST:
             try:
                 capture_internal(
@@ -183,28 +193,12 @@ class LLMPromptViewSet(
                     event_source=PROMPT_FETCHED_EVENT_SOURCE,
                     distinct_id=str(self.team.uuid),
                     timestamp=None,
-                    properties={
-                        "prompt_id": prompt["id"],
-                        "prompt_name": prompt["name"],
-                        "prompt_version": prompt["version"],
-                        "prompt_is_latest": prompt["is_latest"],
-                        "prompt_first_version_created_at": prompt["first_version_created_at"],
-                    },
+                    properties=properties,
                 )
             except Exception as err:
                 capture_exception(err)
 
-        report_team_action(
-            self.team,
-            "llma prompt fetched",
-            {
-                "prompt_id": prompt["id"],
-                "prompt_name": prompt["name"],
-                "prompt_version": prompt["version"],
-                "prompt_is_latest": prompt["is_latest"],
-                "prompt_first_version_created_at": prompt["first_version_created_at"],
-            },
-        )
+        report_team_action(self.team, "llma prompt fetched", properties)
 
     def _get_list_params(self, request: Request) -> dict[str, Any]:
         serializer = LLMPromptListQuerySerializer(data=request.query_params)
@@ -270,9 +264,15 @@ class LLMPromptViewSet(
     def get_by_name(self, request: Request, prompt_name: str = "", **kwargs) -> Response:
         query_params = self._get_get_by_name_params(request)
         version = cast(int | None, query_params.get("version"))
+        label = cast(str | None, query_params.get("label"))
         content_mode = cast(str, query_params.get("content", "full"))
-        prompt = get_prompt_by_name_from_cache(self.team, prompt_name, version)
+        prompt = get_prompt_by_name_from_cache(self.team, prompt_name, version, label=label)
         if prompt is None:
+            if label is not None:
+                return Response(
+                    {"detail": f"Prompt '{prompt_name}' not found or has no label '{label}'."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
             return self._prompt_not_found_response(prompt_name)
 
         self._track_prompt_fetch(prompt)

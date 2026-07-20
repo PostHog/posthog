@@ -42,7 +42,9 @@ export interface scoutFleetLogicValues {
     customScoutCount: number
     deletingScoutIds: string[]
     emittedFindingsSummary: {
+        authoredReportCount: number
         count: number
+        editedReportCount: number
         latestAt: string | null
         scoutCount: number
     }
@@ -205,7 +207,9 @@ export interface scoutFleetLogicMeta {
         visibleConfigs: (scoutConfigs: SignalScoutConfig[] | null, hideDisabled: boolean) => SignalScoutConfig[]
         runsWindowComplete: (runsWindow: { complete: boolean; runs: SignalScoutRunSummary[] }) => boolean
         emittedFindingsSummary: (fleetFindingsSummary: FleetFindingsSummaryApi | null) => {
+            authoredReportCount: number
             count: number
+            editedReportCount: number
             latestAt: string | null
             scoutCount: number
         }
@@ -279,9 +283,10 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 },
             },
         ],
-        // Cheap fleet-wide findings tally for the "Scout findings" callout — one backend query over
-        // emitted runs, so the callout no longer waits on the full paginated runs-window walk (which
-        // could take ~10s and was the reason the callout appeared long after the modal opened).
+        // Cheap fleet-wide output tally for the "Scout findings" callout — one backend query over
+        // runs that produced output (findings or report-channel activity), so the callout no longer
+        // waits on the full paginated runs-window walk (which could take ~10s and was the reason the
+        // callout appeared long after the modal opened).
         fleetFindingsSummary: [
             null as FleetFindingsSummaryApi | null,
             {
@@ -463,17 +468,26 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             (s) => [s.runsWindow],
             (runsWindow: { complete: boolean; runs: SignalScoutRunSummary[] }): boolean => runsWindow.complete,
         ],
-        // Fleet-wide findings tally for the "Scout findings" callout, read from the cheap backend
-        // summary rather than the paginated runs window. The backend counts the same capped set the
-        // findings page renders (most recent 120 emitted runs in the window), so the callout can't
+        // Fleet-wide output tally for the "Scout findings" callout, read from the cheap backend
+        // summary rather than the paginated runs window. Covers both emit channels — legacy findings
+        // and reports authored/edited via the report channel — over the same capped set the findings
+        // page renders (most recent 120 output runs in the window), so the callout can't
         // over-advertise. Zeroed until the summary loads.
         emittedFindingsSummary: [
             (s) => [s.fleetFindingsSummary],
             (
                 fleetFindingsSummary: FleetFindingsSummaryApi | null
-            ): { count: number; scoutCount: number; latestAt: string | null } => ({
+            ): {
+                count: number
+                scoutCount: number
+                authoredReportCount: number
+                editedReportCount: number
+                latestAt: string | null
+            } => ({
                 count: fleetFindingsSummary?.count ?? 0,
                 scoutCount: fleetFindingsSummary?.scout_count ?? 0,
+                authoredReportCount: fleetFindingsSummary?.authored_report_count ?? 0,
+                editedReportCount: fleetFindingsSummary?.edited_report_count ?? 0,
                 latestAt: fleetFindingsSummary?.latest_at ?? null,
             }),
         ],

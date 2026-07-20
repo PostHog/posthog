@@ -523,6 +523,7 @@ export class Worker {
                     secretAllowedHosts: (name) => getSecretAllowedHosts(rev.spec, name),
                     transportFactory: this.deps.mcpTransportFactory,
                     identity: mcpIdentity,
+                    linkableProviders: new Set(rev.spec.identity_providers.map((provider) => provider.id)),
                     connections: mcpConnections,
                     devMcpBearerToken: this.deps.devMcpBearerToken,
                     log: (level, msg, meta) => sLog[level](meta ?? {}, msg),

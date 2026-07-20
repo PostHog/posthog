@@ -41,7 +41,7 @@ from posthog.temporal.oauth import create_oauth_access_token_for_user
 from products.stamphog.backend.facade.enums import TERMINAL_STATUSES, ReviewMode, ReviewRunStatus, ReviewVerdict
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.audiences import resolve_audience_key
-from products.stamphog.backend.logic.github_client import StamphogGitHubClient
+from products.stamphog.backend.logic.github_client import StamphogGitHubClient, expected_app_bot_login
 from products.stamphog.backend.logic.reviewer import (
     ReviewerInvocation,
     ReviewerVerdict,
@@ -221,6 +221,9 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
     reviews = client.get_pr_reviews(repo, pull_request.pr_number)
     # Top-level discussion comments are blocker context (a maintainer's "please hold").
     discussion = client.get_pr_discussion(repo, pull_request.pr_number)
+    # Inline review threads (GraphQL-only) carry a maintainer's unresolved "do not merge" that the
+    # top-level discussion misses; fails closed on truncation/errors, same as get_pr_discussion.
+    review_threads = client.get_pr_review_threads(repo, pull_request.pr_number)
     # Head-commit check runs let the engine's migration gate see a passing "Migration risk" check.
     check_runs = client.get_check_runs(repo, run.head_sha)
 
@@ -239,6 +242,7 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
         "files": files,
         "reviews": reviews,
         "discussion": discussion,
+        "review_threads": review_threads,
         "check_runs": check_runs,
         "pr_reactions": client.get_pr_reactions(repo, pull_request.pr_number),
         "policy_files": policy_files,
@@ -275,16 +279,50 @@ def dismiss_stale_approvals(input: StamphogReviewInput) -> dict:
     # pending — if it refuses, an earlier same-head approval must not keep the PR mergeable. The
     # sweep's same-head exclusion remains for the skip paths, where no new review will run and the
     # current-head approval is still the delivered verdict.
-    dismissed = dismiss_stale_approvals_for_head(
-        input.team_id,
-        pull_request,
-        repo_config,
-        "",
-        message="A new stamphog review started for this PR — the fresh verdict replaces this approval.",
+    message = "A new stamphog review started for this PR — the fresh verdict replaces this approval."
+    dismissed = dismiss_stale_approvals_for_head(input.team_id, pull_request, repo_config, "", message=message)
+
+    # Belt-and-braces GitHub-side sweep (see _sweep_own_github_approvals): the DB sweep above keys off
+    # posted_review_id, so an approval this App left on GitHub with NO ReviewRun row carrying its id (a run
+    # that approved but crashed before persisting, or any other drift) is invisible to it and would stand
+    # forever. keep_review_ids=frozenset() voids everything, regardless of head — the same all-heads
+    # semantic the DB sweep uses at workflow start.
+    client = StamphogGitHubClient(repo_config.installation_id)
+    github_dismissed = _sweep_own_github_approvals(
+        client, repo_config, pull_request, message, keep_review_ids=frozenset()
     )
 
-    activity.logger.info(f"Dismissed {dismissed} stale approval(s) for run {run.id} (pr #{pull_request.pr_number})")
-    return {"dismissed": dismissed}
+    activity.logger.info(
+        f"Dismissed {dismissed} DB-tracked + {github_dismissed} GitHub-side stale approval(s) "
+        f"for run {run.id} (pr #{pull_request.pr_number})"
+    )
+    return {"dismissed": dismissed, "github_dismissed": github_dismissed}
+
+
+@activity.defn
+@asyncify
+def signal_review_started(input: StamphogReviewInput) -> dict:
+    """Post stamphog's own 👀 on the PR the moment this run commits to reviewing.
+
+    Mirrors the convention this same workflow reads off OTHER bots (``STAMPHOG_TRUSTED_REACTOR_BOTS``,
+    ``list_in_flight_reviewer_bots``): a fresh 👀 means "a review is in flight". Emitting it lets other
+    tooling (and a human watching the PR) see stamphog is actively working, the same signal every other
+    reviewer bot already gives. Runs right after ``dismiss_stale_approvals`` — the moment this run
+    commits to reviewing — so the 👀 appears before the (possibly long) context fetch and sandbox run.
+    Cosmetic only: ``add_pr_reaction`` fails open (see its docstring), so a reaction hiccup here never
+    fails or retries this activity, let alone the review itself. The returned reaction id (if any) rides
+    on ``run.output`` so the terminal activities (``post_verdict``, ``mark_review_failed``) can remove it.
+    """
+    run = _load_run(input)
+    if run.status == ReviewRunStatus.SUPERSEDED:
+        return {"reaction_id": None}
+    pull_request = run.pull_request
+    repo_config = pull_request.repo_config
+    client = StamphogGitHubClient(repo_config.installation_id)
+    reaction_id = client.add_pr_reaction(repo_config.repository, pull_request.pr_number)
+    run.output = {**(run.output or {}), "own_eyes_reaction_id": reaction_id}
+    run.save(update_fields=["output", "updated_at"])
+    return {"reaction_id": reaction_id}
 
 
 @activity.defn
@@ -308,12 +346,18 @@ def list_in_flight_reviewer_bots(input: StamphogReviewInput) -> dict:
     run.save(update_fields=["output", "updated_at"])
 
     now = timezone.now()
+    # Exclude stamphog's own bot login: STAMPHOG_TRUSTED_REACTOR_BOTS is a hardcoded set of OTHER
+    # reviewer bots' logins, so this app's own 👀 (posted by signal_review_started) can't collide
+    # with it today — but that set is just literal strings, not a same-app check, so a future
+    # addition or a misconfigured STAMPHOG_GITHUB_APP_SLUG could make stamphog wait out itself.
+    own_login = (expected_app_bot_login() or "").lower()
     in_flight = sorted(
         {
             reaction["user"]
             for reaction in reactions
             if reaction.get("content") == "eyes"
-            and (reaction.get("user") or "").lower() in STAMPHOG_TRUSTED_REACTOR_BOTS
+            and (login := (reaction.get("user") or "").lower()) in STAMPHOG_TRUSTED_REACTOR_BOTS
+            and login != own_login
             and (created := parse_datetime(reaction.get("created_at") or "")) is not None
             and (now - created).total_seconds() <= STAMPHOG_BOT_EYES_MAX_AGE_SECONDS
         }
@@ -344,6 +388,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
     files = output.get("files", [])
     reviews = output.get("reviews", [])
     discussion = output.get("discussion", [])
+    review_threads = output.get("review_threads", [])
     check_runs = output.get("check_runs", [])
     pr_reactions = output.get("pr_reactions", [])
     policy_files = output.get("policy_files", {})
@@ -384,6 +429,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
         files=files,
         reviews=reviews,
         discussion=discussion,
+        review_threads=review_threads,
         check_runs=check_runs,
         pr_reactions=pr_reactions,
         author_pr_numbers=author_pr_numbers,
@@ -442,6 +488,93 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
     return {"exit_code": result.exit_code}
 
 
+def _sweep_own_github_approvals(
+    client: StamphogGitHubClient,
+    repo_config: StamphogRepoConfig,
+    pull_request: PullRequest,
+    message: str,
+    *,
+    keep_review_ids: frozenset[int],
+) -> int:
+    """Dismiss every one of this App's still-active APPROVE reviews on the PR, except ``keep_review_ids``.
+
+    Asks GitHub for our own still-active approvals and retracts each one regardless of head — the DB sweep
+    keys off ``posted_review_id``, so an approval this App left on GitHub with no ReviewRun row carrying its
+    id is invisible to it. Identity fails closed without a configured app slug (``list_own_active_approvals``
+    returns nothing), and ``dismiss_pr_review`` swallows 422, so re-dismissing an already-retracted review is
+    an idempotent no-op. Returns the count dismissed.
+
+    ``keep_review_ids`` spares specific reviews: the terminal-sweep caller passes the persisted approval ids
+    of OTHER live runs so a slow run at its own terminal never dismisses a newer run's legit approval.
+    ``dismiss_stale_approvals`` passes an empty set — at workflow start every standing approval goes.
+    """
+    dismissed = 0
+    for review in client.list_own_active_approvals(repo_config.repository, pull_request.pr_number):
+        review_id = _comment_id(review)
+        if review_id is None or review_id in keep_review_ids:
+            continue
+        client.dismiss_pr_review(repo_config.repository, pull_request.pr_number, review_id, message)
+        dismissed += 1
+    return dismissed
+
+
+def _peer_persisted_approval_ids(team_id: int, pull_request: PullRequest, run: ReviewRun) -> frozenset[int]:
+    """Persisted approval ids of OTHER live runs on this PR — the terminal sweep's allow-list.
+
+    A run reaching a non-approve terminal re-runs the GitHub-side own-approvals sweep to catch an orphan an
+    older, superseded run posted after this (newer) run's startup sweep already ran. But it must never
+    dismiss a NEWER run's legitimately posted approval, so keep every ``posted_review_id`` on a run for this
+    PR that still holds a live status (not superseded, not failed) — those approvals stand on purpose.
+
+    Writer-pinned: this read gates a GitHub write, and a lagged replica could miss a newer run's freshly
+    persisted approval and dismiss it (see CLAUDE.md reader-lag invariant).
+    """
+    peer_ids = (
+        ReviewRun.objects.for_team(team_id)
+        .using(router.db_for_write(ReviewRun))
+        .filter(pull_request=pull_request, posted_review_id__isnull=False)
+        .exclude(id=run.id)
+        .exclude(status__in=(ReviewRunStatus.SUPERSEDED, ReviewRunStatus.FAILED))
+        .values_list("posted_review_id", flat=True)
+    )
+    return frozenset(review_id for review_id in peer_ids if review_id is not None)
+
+
+_TERMINAL_SWEEP_MESSAGE = (
+    "This stamphog run finished without approving — retracting an approval an earlier run left standing so "
+    "it can't satisfy required reviews over a verdict that no longer approves."
+)
+
+
+def _sweep_orphan_approvals_at_terminal(client: StamphogGitHubClient, run: ReviewRun, team_id: int) -> None:
+    """Re-run the GitHub-side own-approvals sweep when a run ends WITHOUT a standing approval of its own.
+
+    Closes the supersession orphan race: an older run can clear post_verdict's final guards, get superseded,
+    then land its GitHub approval AFTER the newer run's startup sweep already ran. If the newer run's verdict
+    is non-APPROVE (or the run fails), nothing lists our own approvals again, so the orphan satisfies branch
+    protection over a refusing verdict until some future run sweeps. Running the sweep at this run's own
+    terminal catches it — the run that superseded the orphan-poster is the natural place to clean up.
+
+    ``keep_review_ids`` spares every OTHER live run's persisted approval, so a slow run at terminal can't
+    dismiss a newer run's legit approval. UNLIKE the fail-closed STARTUP sweep, this one must not fail or
+    retry the terminal transition if GitHub errors: the terminal save has to win, and the approval-integrity
+    gap on error here is the pre-existing exposure, strictly no worse than before this sweep existed.
+    """
+    keep_review_ids = _peer_persisted_approval_ids(team_id, run.pull_request, run)
+    try:
+        _sweep_own_github_approvals(
+            client,
+            run.pull_request.repo_config,
+            run.pull_request,
+            _TERMINAL_SWEEP_MESSAGE,
+            keep_review_ids=keep_review_ids,
+        )
+    except Exception:
+        activity.logger.exception(
+            f"Run {run.id}: terminal orphan-approval sweep failed; leaving the pre-existing exposure as-is"
+        )
+
+
 def _dismiss_orphaned_approval(client: StamphogGitHubClient, run: ReviewRun, team_id: int) -> None:
     """Retract an approval this run posted to GitHub but never recorded as its saved verdict.
 
@@ -466,6 +599,40 @@ def _dismiss_orphaned_approval(client: StamphogGitHubClient, run: ReviewRun, tea
         approval_dismissed_at=run.approval_dismissed_at, updated_at=timezone.now()
     )
     activity.logger.info(f"Run {run.id}: dismissed orphaned approval {run.posted_review_id}")
+
+
+def _remove_own_eyes_reaction(client: StamphogGitHubClient, run: ReviewRun) -> None:
+    """Remove this run's own "review in flight" 👀, if ``signal_review_started`` posted one.
+
+    Called from the terminal activities (``post_verdict``'s completion path, ``mark_review_failed``)
+    once this run is done actively reviewing — AFTER this run's terminal save, so the peer check
+    below counts only genuinely-other live runs. No id on ``run.output`` means either the signal
+    never posted one (fail-open there too) or a later run already adopted/removed it — either way,
+    nothing to do. ``remove_pr_reaction`` itself fails open, so this never raises into the caller.
+
+    GitHub keeps ONE 👀 per (user, content) per issue, so overlapping runs share the same reaction
+    id: a run created after this one went terminal (a fresh delivery, not a supersession) adopts the
+    identical id in its own ``signal_review_started``. Removing it here would strip the in-flight
+    signal out from under that still-reviewing peer, so skip when a live peer exists — the last
+    standing run removes. Writer-pinned: a lagged replica missing the just-created peer would remove
+    under it (reader-lag invariant).
+    """
+    reaction_id = (run.output or {}).get("own_eyes_reaction_id")
+    if not isinstance(reaction_id, int):
+        return
+    pull_request = run.pull_request
+    live_peer_exists = (
+        ReviewRun.objects.for_team(run.team_id)
+        .using(router.db_for_write(ReviewRun))
+        .filter(pull_request=pull_request)
+        .exclude(id=run.id)
+        .exclude(status__in=TERMINAL_STATUSES)
+        .exists()
+    )
+    if live_peer_exists:
+        activity.logger.info(f"Run {run.id}: leaving the shared in-flight reaction for a live peer run")
+        return
+    client.remove_pr_reaction(pull_request.repo_config.repository, pull_request.pr_number, reaction_id)
 
 
 @activity.defn
@@ -546,12 +713,30 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         # Idempotent under Temporal at-least-once retries: the id is persisted the moment GitHub
         # accepts the review, so a retry after any later crash skips re-approving.
         if run.posted_review_id is None:
-            body = _neutralize_active_markdown(_scrub_credentials(parsed.review_body or _approve_comment(parsed)))
-            review = client.post_approve_review(repo, pull_request.pr_number, body, run.head_sha)
-            run.posted_review_id = _comment_id(review)
+            # Adopt-before-post: a prior attempt could have posted the approval to GitHub, then crashed
+            # BEFORE the immediate-persist below — leaving an approval with no DB trace that the
+            # posted_review_id-keyed sweep can never see. Re-posting would stack a SECOND standing
+            # approval. So first ask GitHub whether we already have an active APPROVE pinned to exactly
+            # this head; adopt its id instead of posting again if so. Identity fails closed without a
+            # configured app slug (list_own_active_approvals returns nothing), so we never adopt another
+            # bot's review off a fuzzy match — we post fresh, same as before.
+            adopted_review_id: int | None = None
+            for review in client.list_own_active_approvals(repo, pull_request.pr_number):
+                if (review.get("commit_id") or "") != run.head_sha:
+                    continue
+                adopted_review_id = _comment_id(review)
+                if adopted_review_id is not None:
+                    break
+            if adopted_review_id is not None:
+                run.posted_review_id = adopted_review_id
+            else:
+                body = _neutralize_active_markdown(_scrub_credentials(parsed.review_body or _approve_comment(parsed)))
+                review = client.post_approve_review(repo, pull_request.pr_number, body, run.head_sha)
+                run.posted_review_id = _comment_id(review)
             # Persist the id immediately, outside the conditional terminal save below: if that save
             # loses to a supersession or this activity crashes, this row is the only record the
-            # approval exists — the orphan-dismissal paths and the stale-approval sweep need it.
+            # approval exists — the orphan-dismissal paths and the stale-approval sweep need it. The
+            # adopted id must be persisted exactly the same way as a freshly posted one.
             ReviewRun.objects.for_team(input.team_id).filter(id=run.id).update(
                 posted_review_id=run.posted_review_id, updated_at=timezone.now()
             )
@@ -605,6 +790,15 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     # and unstamped, so the closed-webhook path and this path can't double-stamp.
     if run.verdict == ReviewVerdict.APPROVED:
         _stamp_digest_audience_if_merged(repo_config, pull_request, run, current_pr)
+    else:
+        # This run reached a terminal outcome without a standing approval of its own (gated / refused /
+        # escalate / wait). Re-run the GitHub-side sweep now to catch an orphan an older, superseded run
+        # posted after this run's startup sweep — see _sweep_orphan_approvals_at_terminal.
+        _sweep_orphan_approvals_at_terminal(client, run, input.team_id)
+
+    # The run stopped actively reviewing the moment the terminal save above committed — remove the
+    # "review in flight" 👀 now, whichever verdict landed (approved, gated, refused, escalate).
+    _remove_own_eyes_reaction(client, run)
 
     activity.logger.info(f"Posted verdict {parsed.verdict} for run {run.id}")
     return {"verdict": str(parsed.verdict)}
@@ -627,17 +821,29 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
     # would ever retract the approval on a FAILED run. Dismiss BEFORE marking FAILED: if the
     # dismissal itself fails, this activity retries into a still-non-terminal run and tries again,
     # whereas the reverse order would hit the terminal guard above and orphan the approval forever.
+    client = StamphogGitHubClient(run.pull_request.repo_config.installation_id)
     if run.verdict != ReviewVerdict.APPROVED and run.posted_review_id and run.approval_dismissed_at is None:
-        client = StamphogGitHubClient(run.pull_request.repo_config.installation_id)
         _dismiss_orphaned_approval(client, run, input.team_id)
     # Persist only the first line, truncated: run.error is returned by the serializer to anyone with
     # stamphog:read, and raw exception text can embed repository file content (a yaml.YAMLError over
     # .stamphog/policy.yml echoes the offending source lines on its continuation lines). Full detail is
     # already in the worker logs — the workflow logs the complete error before calling this activity.
-    run.status = ReviewRunStatus.FAILED
-    run.error = first_error_line
-    run.completed_at = timezone.now()
-    run.save(update_fields=["status", "error", "completed_at", "updated_at"])
+    # Conditional like every terminal save (the load-time guard above can race an in-flight
+    # supersession): a run that just went SUPERSEDED keeps that status, FAILED must not clobber it.
+    now = timezone.now()
+    ReviewRun.objects.for_team(input.team_id).filter(id=run.id).exclude(status__in=TERMINAL_STATUSES).update(
+        status=ReviewRunStatus.FAILED, error=first_error_line, completed_at=now, updated_at=now
+    )
+    # This run is done reviewing (unrecoverably) — clean up its own "review in flight" 👀 too. After
+    # the terminal save on purpose: the removal's live-peer check must see this run as terminal, or
+    # two concurrently failing runs could each defer to the other and leak the reaction.
+    _remove_own_eyes_reaction(client, run)
+
+    # A newer run that FAILS leaves the same supersession-orphan exposure a non-approve post_verdict does:
+    # an older, superseded run's approval could have landed after this run's startup sweep, and a FAILED run
+    # never lists our approvals again. Sweep after the FAILED save so a GitHub hiccup can't block the
+    # terminal transition (the STARTUP sweep is fail-closed; this terminal one is fail-open on purpose).
+    _sweep_orphan_approvals_at_terminal(client, run, input.team_id)
 
     # Hosted failures were only visible in worker logs; capture them so the dashboards see hosted
     # breakage next to the review-completed events. ph_scoped_capture, not posthoganalytics.capture —

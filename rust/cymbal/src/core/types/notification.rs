@@ -6,7 +6,25 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::types::OutputErrProps;
+use crate::types::ProcessedExceptionProperties;
+
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum NotificationValidationError {
+    #[error(
+        "notification issue id {context_issue_id} does not match processed property issue id {property_issue_id}"
+    )]
+    IssueIdMismatch {
+        context_issue_id: Uuid,
+        property_issue_id: Uuid,
+    },
+    #[error(
+        "notification fingerprint {notification_fingerprint:?} does not match processed property fingerprint {property_fingerprint:?}"
+    )]
+    FingerprintMismatch {
+        notification_fingerprint: String,
+        property_fingerprint: String,
+    },
+}
 
 /// A notification emitted by error-tracking ingestion. Serialized as
 /// internally-tagged JSON (`{"type": "issue_created", ...}`) so new variants can
@@ -59,6 +77,33 @@ impl IngestionNotification {
             }
         }
     }
+
+    pub fn validate(&self) -> Result<(), NotificationValidationError> {
+        let issue = match self {
+            IngestionNotification::IssueCreated(notification) => &notification.issue,
+            IngestionNotification::IssueReopened(notification) => &notification.issue,
+            IngestionNotification::IssueSpiking(notification) => &notification.issue,
+        };
+        let property_issue_id = issue.event_properties.issue_id();
+        if issue.issue_id != property_issue_id {
+            return Err(NotificationValidationError::IssueIdMismatch {
+                context_issue_id: issue.issue_id,
+                property_issue_id,
+            });
+        }
+
+        if let IngestionNotification::IssueCreated(notification) = self {
+            let property_fingerprint = notification.issue.event_properties.fingerprint();
+            if notification.fingerprint != property_fingerprint {
+                return Err(NotificationValidationError::FingerprintMismatch {
+                    notification_fingerprint: notification.fingerprint.clone(),
+                    property_fingerprint: property_fingerprint.to_string(),
+                });
+            }
+        }
+
+        Ok(())
+    }
 }
 
 /// Shared metadata for every ingestion notification.
@@ -76,7 +121,7 @@ pub struct IssueNotificationContext {
     pub issue_id: Uuid,
     pub issue: IssueSnapshot,
     /// Full final exception event properties after Cymbal processing.
-    pub event_properties: OutputErrProps,
+    pub event_properties: ProcessedExceptionProperties,
 }
 
 impl IssueNotificationContext {
@@ -118,6 +163,8 @@ pub struct IssueSpiking {
     pub issue: IssueNotificationContext,
     pub computed_baseline: f64,
     pub current_bucket_value: f64,
+    #[serde(default)]
+    pub assignee: Option<String>,
 }
 
 /// Issue state captured when the ingestion transition happened.
@@ -148,16 +195,26 @@ mod tests {
                     status: "active".to_string(),
                     created_at: DateTime::from_timestamp(0, 0).unwrap(),
                 },
-                event_properties: OutputErrProps {
-                    fingerprint: "abc".to_string(),
-                    ..Default::default()
-                },
+                event_properties: serde_json::from_value(serde_json::json!({
+                    "$exception_list": [{"type": "Error", "value": "boom"}],
+                    "$exception_fingerprint": "abc",
+                    "$exception_fingerprint_record": [{"type": "manual"}],
+                    "$exception_issue_id": Uuid::nil(),
+                    "$exception_handled": false,
+                    "$exception_types": ["Error"],
+                    "$exception_values": ["boom"],
+                    "$exception_sources": [],
+                    "$exception_functions": [],
+                }))
+                .unwrap(),
             },
             fingerprint: "abc".to_string(),
             event_uuid: Uuid::nil(),
             event_timestamp: "1970-01-01T00:00:00Z".to_string(),
             assignee: None,
         });
+
+        assert_eq!(notification.validate(), Ok(()));
 
         let json = serde_json::to_value(&notification).unwrap();
         assert_eq!(json["type"], "issue_created");
@@ -168,5 +225,21 @@ mod tests {
         // Round-trips back to the same JSON through the typed enum.
         let decoded: IngestionNotification = serde_json::from_value(json.clone()).unwrap();
         assert_eq!(serde_json::to_value(&decoded).unwrap(), json);
+
+        let mut issue_mismatch = json.clone();
+        issue_mismatch["issue_id"] = serde_json::json!(Uuid::now_v7());
+        let decoded: IngestionNotification = serde_json::from_value(issue_mismatch).unwrap();
+        assert!(matches!(
+            decoded.validate(),
+            Err(NotificationValidationError::IssueIdMismatch { .. })
+        ));
+
+        let mut fingerprint_mismatch = json;
+        fingerprint_mismatch["fingerprint"] = serde_json::json!("different");
+        let decoded: IngestionNotification = serde_json::from_value(fingerprint_mismatch).unwrap();
+        assert!(matches!(
+            decoded.validate(),
+            Err(NotificationValidationError::FingerprintMismatch { .. })
+        ));
     }
 }

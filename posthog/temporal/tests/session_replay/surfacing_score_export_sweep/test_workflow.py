@@ -49,9 +49,15 @@ async def test_bounds_concurrent_partition_activities() -> None:
         patch("temporalio.workflow.execute_activity", side_effect=execute_activity),
         patch("temporalio.workflow.patched", return_value=True),
         patch("temporalio.workflow.logger", MagicMock()),
+        patch(
+            "posthog.temporal.session_replay.surfacing_score_export_sweep.workflow.record_tick_summary"
+        ) as record_summary,
     ):
         result = await ExportSurfacingScoresWorkflow().run(ExportScoresSweepInputs())
 
     assert peak_active == MAX_CONCURRENT_EXPORT_PARTITIONS
     assert result.partitions_dispatched == partition_count
     assert result.total_rows == partition_count
+    record_summary.assert_called_once_with(
+        partitions_dispatched=partition_count, partitions_failed=0, total_rows=partition_count
+    )

@@ -88,6 +88,7 @@ from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
 from posthog.hogql.database.schema.hog_invocation_results import HogInvocationResultsTable
+from posthog.hogql.database.schema.information_schema import disable_data_catalog
 from posthog.hogql.database.schema.log_entries import (
     BatchExportLogEntriesTable,
     LogEntriesTable,
@@ -148,6 +149,7 @@ from posthog.ph_client import feature_enabled_or_false
 from posthog.schema_enums import DatabaseSerializedFieldType, PersonsOnEventsMode, SessionTableVersion
 from posthog.scopes import APIScopeObject
 from posthog.synthetic_user import SyntheticUser
+from posthog.week_start_day import WeekStartDay
 
 # The Django ORM / products models below are imported lazily inside the functions that build a
 # Database (Database._fetch_sources / _build_from_sources / serialize and their helpers) so this
@@ -168,7 +170,7 @@ if TYPE_CHECKING:
     )
 
     from posthog.models import User
-    from posthog.models.team.team import Team, WeekStartDay
+    from posthog.models.team.team import Team
     from posthog.rbac.user_access_control import UserAccessControl
     from posthog.shared_link_user import SharedLinkUser
 
@@ -550,8 +552,6 @@ class Database(BaseModel):
         return self._timezone or "UTC"
 
     def get_week_start_day(self) -> WeekStartDay:
-        from posthog.models.team.team import WeekStartDay  # noqa: PLC0415
-
         return self._week_start_day or WeekStartDay.SUNDAY
 
     def get_serialization_errors(self) -> dict[str, str]:
@@ -1527,8 +1527,6 @@ class Database(BaseModel):
         with timings.measure("filter_system_tables_for_user", emit_span=True):
             database._apply_system_table_access(sources.user_access_control, sources.denied_system_table_names)
             if not sources.is_data_catalog_enabled:
-                # Semantic layer is flag-gated: without it the metrics table must not exist at all —
-                # absent from information_schema listings and "Unknown table" on direct queries.
                 system_node = database.tables.children.get("system")
                 info_schema = (
                     system_node.children.get("information_schema")
@@ -1536,7 +1534,7 @@ class Database(BaseModel):
                     else None
                 )
                 if info_schema is not None and hasattr(info_schema, "children"):
-                    info_schema.children.pop("metrics", None)
+                    disable_data_catalog(info_schema)
 
         with timings.measure("modifiers", emit_span=True):
             if not database._is_direct_query():
