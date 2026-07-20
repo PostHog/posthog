@@ -1053,9 +1053,11 @@ export function DataTable({
                                     ) /* Bust the LemonTable cache when columns change */
                                 }
                                 dataSource={dataTableRows ?? NO_ROWS}
-                                rowKey={(_, rowIndex) => {
-                                    return rowIndex
-                                }}
+                                // Key rows by the same stable identity used for expansion, so a
+                                // refresh that reorders events keeps each row's React key (and its
+                                // expanded EventDetails subtree) instead of remounting it. Label
+                                // rows fall back to their positional index via getExpandedRowKey.
+                                rowKey={(row, rowIndex) => getExpandedRowKey(row, rowIndex)}
                                 sorting={null}
                                 useURLForSorting={false}
                                 emptyState={
