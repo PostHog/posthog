@@ -22,6 +22,7 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { BREAKPOINTS, BREAKPOINT_COLUMN_COUNTS, isWidgetTileVisibleOnPlacement } from 'scenes/dashboard/dashboardUtils'
 import { continueDragGestureInEditMode, continueResizeGestureInEditMode } from 'scenes/dashboard/editLayoutGesture'
 import { InsertTileOverlay } from 'scenes/dashboard/InsertTileOverlay'
+import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { useSurveyLinkedInsights } from 'scenes/surveys/hooks/useSurveyLinkedInsights'
 import { getBestSurveyOpportunityFunnel } from 'scenes/surveys/utils/opportunityDetection'
 import { urls } from 'scenes/urls'
@@ -523,6 +524,22 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                     copyToDashboard(tile, requireDashboardId('copy this tile'), id, name)
                                 },
                                 removeFromDashboard: () => removeTile(tile),
+                            }
+
+                            if (tile.error && !insight) {
+                                return (
+                                    <div
+                                        key={tile.id}
+                                        className="DashboardTileCard InsightCard border"
+                                        data-attr="dashboard-tile-error"
+                                    >
+                                        <InsightErrorState
+                                            title="This dashboard tile couldn't be loaded. Refresh the dashboard to try again."
+                                            excludeDetail
+                                            excludeActions
+                                        />
+                                    </div>
+                                )
                             }
 
                             if (insight) {

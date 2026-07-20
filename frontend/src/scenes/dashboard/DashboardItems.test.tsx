@@ -61,6 +61,10 @@ jest.mock('scenes/surveys/utils/opportunityDetection', () => ({
     getBestSurveyOpportunityFunnel: () => null,
 }))
 
+jest.mock('scenes/insights/EmptyStates', () => ({
+    InsightErrorState: ({ title }: { title: string }) => <div data-attr="insight-error-state">{title}</div>,
+}))
+
 jest.mock('~/exporter/exporterViewLogic', () => ({
     getCurrentExporterData: () => null,
 }))
@@ -284,5 +288,44 @@ describe('DashboardItems', () => {
 
         const { getByTestId } = render(<DashboardItems />)
         expect(getByTestId('widget-card')).toBeInTheDocument()
+    })
+
+    it('shows an error card when a streamed tile fails before its insight is serialized', () => {
+        mockedUseValues.mockImplementation((logic) => {
+            if (logic === dashboardLogic) {
+                return {
+                    dashboard: { id: 5 },
+                    tiles: [{ id: 2, error: { type: 'ValidationError', message: 'Invalid filters' } }],
+                    layouts: { sm: [{ i: '2', x: 0, y: 0, w: 6, h: 5 }] },
+                    dashboardMode: null,
+                    placement: DashboardPlacement.Dashboard,
+                    isRefreshingQueued: () => false,
+                    isRefreshing: () => false,
+                    highlightedInsightId: null,
+                    refreshStatus: {},
+                    dashboardStreaming: false,
+                    effectiveEditBarFilters: {},
+                    effectiveDashboardVariableOverrides: {},
+                    temporaryBreakdownColors: [],
+                    dataColorThemeId: null,
+                    canEditDashboard: true,
+                    layoutZoom: 1,
+                    dashboardWidgetsEnabled: true,
+                    widgetResultsByTileId: {},
+                    widgetRefreshStatus: {},
+                }
+            }
+
+            if (logic === dashboardsModel) {
+                return { nameSortedDashboards: [] }
+            }
+
+            return {}
+        })
+
+        const { getByText } = render(<DashboardItems />)
+        expect(
+            getByText("This dashboard tile couldn't be loaded. Refresh the dashboard to try again.")
+        ).toBeInTheDocument()
     })
 })
