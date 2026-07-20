@@ -232,6 +232,14 @@ def team_ids_with_source_product_enabled(source_product: str) -> list[int]:
     )
 
 
+def is_signal_source_enabled(team_id: int, source_product: str, source_type: str) -> bool:
+    """Whether ``emit_signal`` will accept this ``(source_product, source_type)`` for the team, or
+    silently drop it. A scheduled emitter that pre-checks this can skip a disabled type instead of
+    recording a phantom emission in its own dedupe ledger — ``emit_signal`` returns silently, not by
+    raising, so the caller can't otherwise tell an accepted emit from a dropped one."""
+    return SignalSourceConfig.is_source_enabled(team_id, source_product, source_type)
+
+
 def onboarding_sources(team_id: int) -> list[OnboardingSource]:
     """The onboarding sources, in order, with current enabled state (for pre-checking the checkboxes)."""
     enabled_pairs = set(
