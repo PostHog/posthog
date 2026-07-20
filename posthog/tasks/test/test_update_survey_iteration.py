@@ -6,6 +6,7 @@ from django.test import TestCase
 from django.utils.timezone import now
 
 from posthog.models import Organization, Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.tasks.update_survey_iteration import update_survey_iteration
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -61,6 +62,18 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
         self.recurring_survey.refresh_from_db()
         self.assertIsNotNone(self.recurring_survey.end_date)
         self.assertEqual(self.recurring_survey.current_iteration, 1)
+
+    def test_survey_auto_close_logs_system_activity(self) -> None:
+        self.recurring_survey.start_date = now() - timedelta(days=self.iteration_frequency_days * 3 + 1)
+        self.recurring_survey.save()
+        update_survey_iteration()
+        self.recurring_survey.refresh_from_db()
+        self.assertIsNotNone(self.recurring_survey.end_date)
+
+        log = ActivityLog.objects.get(scope="Survey", item_id=str(self.recurring_survey.id), activity="updated")
+        self.assertIsNone(log.user)
+        self.assertTrue(log.is_system)
+        self.assertEqual(log.detail["changes"][0]["field"], "end_date")
 
     def test_huge_iteration_frequency_does_not_crash_task(self) -> None:
         self.recurring_survey.iteration_count = 1
