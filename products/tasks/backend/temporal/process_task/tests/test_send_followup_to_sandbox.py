@@ -469,6 +469,19 @@ class TestSendFollowupActivityRefreshOrdering:
         args, _kwargs = _patches["refresh"].call_args
         assert args[1] == "read_only"
 
+    def test_steer_from_different_actor_declines_before_using_credentials(self, _patches):
+        _patches["task_run"].state = {"sandbox_id": "sandbox-1"}
+        _patches["task_run"].task.created_by_id = 42
+
+        outcome = send_followup_to_sandbox(
+            SendFollowupToSandboxInput(run_id="run-1", message="hi", actor_user_id=99, steer=True)
+        )
+
+        assert outcome == STEER_DECLINED_OUTCOME
+        _patches["conn_token"].assert_not_called()
+        _patches["refresh"].assert_not_called()
+        _patches["user_msg"].assert_not_called()
+
 
 class TestSendFollowupTurnTimeout:
     """A read timeout (turn_in_flight) means the message was delivered and the
@@ -504,6 +517,7 @@ class TestSendFollowupTurnTimeout:
             mock_conn_token.return_value = "jwt"
 
             yield {
+                "task_run": task_run,
                 "user_msg": mock_user_msg,
                 "turn_complete": mock_turn_complete,
                 "error": mock_error,
@@ -607,17 +621,29 @@ class TestSendFollowupTurnTimeout:
         _patches["turn_complete"].assert_not_called()
 
     def test_declined_steer_returns_for_normal_requeue_without_markers(self, _patches):
+        _patches["task_run"].state = {"sandbox_id": "sandbox-1"}
         _patches["user_msg"].return_value = CommandResult(
             success=True,
             status_code=200,
             data={"result": {"steered": False, "stopReason": STEER_DECLINED_OUTCOME}},
         )
 
-        outcome = send_followup_to_sandbox(
-            SendFollowupToSandboxInput(run_id="run-1", message="hi", message_id="m-1", steer=True)
-        )
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_mcp_session_user",
+            return_value=42,
+        ):
+            outcome = send_followup_to_sandbox(
+                SendFollowupToSandboxInput(
+                    run_id="run-1",
+                    message="hi",
+                    message_id="m-1",
+                    actor_user_id=42,
+                    steer=True,
+                )
+            )
 
         assert outcome == STEER_DECLINED_OUTCOME
+        _patches["user_msg"].assert_called_once()
         _patches["error"].assert_not_called()
         _patches["turn_complete"].assert_not_called()
 
