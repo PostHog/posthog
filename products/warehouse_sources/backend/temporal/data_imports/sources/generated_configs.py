@@ -487,6 +487,11 @@ class AwsCloudTrailSourceConfig(config.Config):
 
 
 @config.config
+class AxiomSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class AzureBlobSourceConfig(config.Config):
     pass
 
@@ -1136,6 +1141,11 @@ class CoverallsSourceConfig(config.Config):
 @config.config
 class CratesIOSourceConfig(config.Config):
     crates: str
+
+
+@config.config
+class CrispSourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -2398,6 +2408,11 @@ class KnockSourceConfig(config.Config):
 
 
 @config.config
+class KommoSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class KongKonnectSourceConfig(config.Config):
     api_token: str
     lookback_days: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
@@ -3364,6 +3379,11 @@ class PlausibleSourceConfig(config.Config):
     api_key: str
     site_id: str
     host: str | None = None
+
+
+@config.config
+class PlivoSourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -5019,6 +5039,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.AVIATOR: AviatorSourceConfig,
         ExternalDataSourceType.AWIN: AwinSourceConfig,
         ExternalDataSourceType.AWSCLOUDTRAIL: AwsCloudTrailSourceConfig,
+        ExternalDataSourceType.AXIOM: AxiomSourceConfig,
         ExternalDataSourceType.AZUREBLOB: AzureBlobSourceConfig,
         ExternalDataSourceType.AZUREDEVOPS: AzureDevOpsSourceConfig,
         ExternalDataSourceType.AZURETABLESTORAGE: AzureTableStorageSourceConfig,
@@ -5128,6 +5149,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.COUPA: CoupaSourceConfig,
         ExternalDataSourceType.COVERALLS: CoverallsSourceConfig,
         ExternalDataSourceType.CRATESIO: CratesIOSourceConfig,
+        ExternalDataSourceType.CRISP: CrispSourceConfig,
         ExternalDataSourceType.CRITEO: CriteoSourceConfig,
         ExternalDataSourceType.CRONITOR: CronitorSourceConfig,
         ExternalDataSourceType.CRUNCHBASE: CrunchbaseSourceConfig,
@@ -5354,6 +5376,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.KLAUS: KlausSourceConfig,
         ExternalDataSourceType.KLAVIYO: KlaviyoSourceConfig,
         ExternalDataSourceType.KNOCK: KnockSourceConfig,
+        ExternalDataSourceType.KOMMO: KommoSourceConfig,
         ExternalDataSourceType.KONGKONNECT: KongKonnectSourceConfig,
         ExternalDataSourceType.KOYEB: KoyebSourceConfig,
         ExternalDataSourceType.KUBECOST: KubecostSourceConfig,
@@ -5530,6 +5553,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.PLANHAT: PlanhatSourceConfig,
         ExternalDataSourceType.PLATFORMSH: PlatformShSourceConfig,
         ExternalDataSourceType.PLAUSIBLE: PlausibleSourceConfig,
+        ExternalDataSourceType.PLIVO: PlivoSourceConfig,
         ExternalDataSourceType.PLUNK: PlunkSourceConfig,
         ExternalDataSourceType.POCKET: PocketSourceConfig,
         ExternalDataSourceType.PODIUM: PodiumSourceConfig,

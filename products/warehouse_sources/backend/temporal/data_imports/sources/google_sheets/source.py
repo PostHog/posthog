@@ -113,7 +113,9 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
         except PermissionError:
             return (
                 False,
-                "Permissions missing from spreadsheet. View documentation at https://posthog.com/docs/cdp/sources/google-sheets",
+                "PostHog does not have access to this spreadsheet. Share it with our service account "
+                f"({settings.GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL}) as a Viewer, then try again. "
+                "See https://posthog.com/docs/cdp/sources/google-sheets for more.",
             )
         except gspread.exceptions.APIError as e:
             # gspread stringifies these as "APIError: [<code>]: <message>", which isn't actionable.
