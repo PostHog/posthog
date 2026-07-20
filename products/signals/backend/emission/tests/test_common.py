@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 
 from products.signals.backend.emission._common import make_flat_emitter, parse_json_list
@@ -23,7 +25,7 @@ class TestParseJsonList:
 
 class TestMakeFlatEmitter:
     def _emitter(self, **kwargs):
-        defaults = {
+        defaults: dict[str, Any] = {
             "source_product": "acme",
             "source_type": "ticket",
             "id_field": "id",

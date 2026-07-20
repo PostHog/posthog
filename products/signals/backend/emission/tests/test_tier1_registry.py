@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 
 from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP
@@ -78,14 +80,17 @@ def test_emitter_output_matches_contract(source_type, table, product, kind):
     variant = SIGNAL_VARIANT_LOOKUP.get((output.source_product, output.source_type))
     assert variant is not None, f"no contract variant for ({output.source_product}, {output.source_type})"
     # extra="forbid" + strict types: this fails if the emitted extra drifts from the contract.
-    variant(
-        source_id=output.source_id,
-        description=output.description,
-        weight=output.weight,
-        extra=output.extra,
-        source_type=output.source_type,
-        source_product=output.source_product,
-    )
+    # Splat via a dict[str, Any] because `variant` is typed as the base class, which doesn't
+    # declare the discriminator/extra fields the concrete variant adds.
+    variant_fields: dict[str, Any] = {
+        "source_id": output.source_id,
+        "description": output.description,
+        "weight": output.weight,
+        "extra": output.extra,
+        "source_type": output.source_type,
+        "source_product": output.source_product,
+    }
+    variant(**variant_fields)
 
 
 @pytest.mark.parametrize("source_type,table,product,kind", TIER1_SOURCES, ids=IDS)
