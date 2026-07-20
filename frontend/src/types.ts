@@ -5771,7 +5771,6 @@ export const API_SCOPE_OBJECTS = [
     'task',
     'toolbar',
     'tracing',
-    'toolbar',
     'field_note',
     'uploaded_media',
     'usage_metric',

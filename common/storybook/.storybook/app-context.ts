@@ -93,6 +93,5 @@ export const getStorybookAppContext = (): AppContext => ({
         toolbar: 'viewer',
         error_tracking: 'manager',
         metrics: 'manager',
-        toolbar: 'viewer',
     },
 })
