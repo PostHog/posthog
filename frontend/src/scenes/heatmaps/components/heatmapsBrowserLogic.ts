@@ -87,6 +87,7 @@ export const normalizeHeatmapDataUrl = (
 export interface heatmapsBrowserLogicValues {
     checkUrlIsAuthorized: (url: string) => boolean // authorizedUrlListLogic
     urlsKeyed: KeyedAppUrl[] // authorizedUrlListLogic
+    featureFlags: FeatureFlagsSet // featureFlagLogic
     commonFilters: CommonFilters // heatmapDataLogic
     heatmapColorPalette: string | null // heatmapDataLogic
     heatmapEmpty: boolean // heatmapDataLogic
@@ -96,7 +97,6 @@ export interface heatmapsBrowserLogicValues {
     hrefMatchType: HrefMatchType // heatmapDataLogic
     isHeightCapped: boolean // heatmapDataLogic
     widthOverride: number // heatmapDataLogic
-    featureFlags: FeatureFlagsSet // featureFlagLogic
     browserSearchResults: string[] | null
     browserSearchResultsLoading: boolean
     browserSearchTerm: string
@@ -257,7 +257,10 @@ export interface heatmapsBrowserLogicMeta {
                 | null,
             browserSearchTerm: string
         ) => string[] | null
-        isBrowserUrlAuthorized: (dataUrl: string | null, checkUrlIsAuthorized: (url: string) => boolean) => boolean
+        isBrowserUrlAuthorized: (
+            dataUrl: string | null,
+            checkUrlIsAuthorized: (url: string) => boolean // authorizedUrlListLogic
+        ) => boolean
         isBrowserUrlValid: (dataUrl: string | null) => boolean
         viewportRange: (
             heatmapFilters: HeatmapFilters,
