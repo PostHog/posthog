@@ -10,6 +10,7 @@ import type { CliConfig } from './config'
 import { resolveCliConfig, requireApiKey } from './config'
 import { buildCliContext, flushAnalytics } from './context'
 import { installSkill, listSkills } from './skills'
+import { buildToolCallProperties } from './tool-call-properties'
 import { getCliTools } from './tools'
 
 const COMMAND_REFERENCE = `CLI-style command string. Supported commands:
@@ -92,15 +93,7 @@ async function buildExec(config: CliConfig = resolveCliConfig()): Promise<BuiltE
         COMMAND_REFERENCE,
         'posthog-cli',
         (toolName, properties) => {
-            const toolCallProperties = {
-                tool_name: toolName,
-                $mcp_tool_name: toolName,
-                $mcp_duration_ms: properties.duration_ms,
-                $mcp_is_error: !properties.success,
-                output_format: properties.output_format,
-                ...(properties.error_message ? { error_message: properties.error_message } : {}),
-            }
-            void context.trackEvent(AnalyticsEvent.MCP_TOOL_CALL, toolCallProperties)
+            void context.trackEvent(AnalyticsEvent.MCP_TOOL_CALL, buildToolCallProperties(toolName, properties))
         },
         [],
         { requireDestructiveConfirmation: true }
