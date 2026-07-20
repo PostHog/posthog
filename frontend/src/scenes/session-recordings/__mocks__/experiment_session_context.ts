@@ -24,7 +24,25 @@ export const makeExperimentSessionContextItem = (
 export const experimentSessionContextResponse: ExperimentSessionContextResponseApi = {
     session_id: 'experiment-context-session',
     results: [
-        makeExperimentSessionContextItem(),
+        makeExperimentSessionContextItem({
+            seen_reason: 'both',
+            metrics_in_session: [
+                {
+                    metric_uuid: 'metric-1',
+                    metric_name: 'purchase completed',
+                    event_count: 3,
+                    // Inside the recording_meta mock's bounds — renders as a seekable jump link.
+                    first_timestamp: '2023-05-01T14:46:26.000000Z',
+                },
+                {
+                    metric_uuid: 'metric-2',
+                    metric_name: 'checkout started',
+                    event_count: 1,
+                    // Outside the recording bounds (backend ±1h slack) — renders without a jump link.
+                    first_timestamp: '2023-05-01T15:20:00.000000Z',
+                },
+            ],
+        }),
         makeExperimentSessionContextItem({
             experiment_id: 102,
             experiment_name: 'Pricing page layout',
