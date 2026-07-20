@@ -437,7 +437,7 @@ export function ConfigChangeCards({
                     aria-label="Revert to the suggested value"
                     data-attr="vision-quality-revert-field"
                     onClick={() => setFieldValue(suggestion.id, field, suggested[field])}
-                    className="absolute top-0 right-0 flex text-muted hover:text-default"
+                    className="absolute top-0 right-0 flex cursor-pointer text-muted hover:text-default"
                 >
                     <IconRevert />
                 </button>
