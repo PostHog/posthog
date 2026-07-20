@@ -63,7 +63,15 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
         // the sentinel index) instead of re-deriving "was this enrollment/holdout" from flag.reason.
         const matchedCondition = flag.conditions.find((condition) => condition.matched)
         const syntheticLabel = matchedCondition && SYNTHETIC_CONDITION_LABELS[matchedCondition.index]
-        return syntheticLabel ?? `#${flag.condition_index! + 1}`
+        if (syntheticLabel) {
+            return syntheticLabel
+        }
+        // Falls back to flag.reason if the backend hasn't started emitting the synthetic holdout
+        // entry yet (the Rust service and this frontend deploy independently).
+        if (flag.reason === 'holdout_condition_value') {
+            return 'Holdout'
+        }
+        return `#${flag.condition_index! + 1}`
     }
 
     return (
@@ -149,8 +157,10 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                                         <CardContent>
                                             <div className="flex items-center gap-2">
                                                 <span className="text-sm font-medium">
-                                                    {(SYNTHETIC_CONDITION_LABELS[condition.index] ??
-                                                        `Condition #${condition.index + 1}`) + ':'}
+                                                    {`${
+                                                        SYNTHETIC_CONDITION_LABELS[condition.index] ??
+                                                        `Condition #${condition.index + 1}`
+                                                    }:`}
                                                 </span>
                                                 <Badge variant={condition.matched ? 'success' : 'destructive'}>
                                                     {condition.matched ? 'Matched' : 'No match'}

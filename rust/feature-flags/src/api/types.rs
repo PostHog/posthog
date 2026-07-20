@@ -1908,6 +1908,8 @@ mod tests {
         let holdout = &analysis[0];
         assert_eq!(holdout.index, HOLDOUT_CONDITION_INDEX);
         assert!(holdout.matched);
+        assert!(holdout.properties_matched);
+        assert!(!holdout.rollout_excluded);
         assert!(holdout.properties.is_empty());
         assert_eq!(holdout.variant, Some("holdout-42".to_string()));
         assert!(holdout.explanation.contains("holdout"));
@@ -1947,6 +1949,57 @@ mod tests {
         assert_eq!(analysis.len(), 1);
         assert_eq!(analysis[0].index, 0);
         assert!(analysis[0].matched);
+    }
+
+    #[test]
+    fn test_condition_analysis_orders_enrollment_before_holdout_when_both_configured() {
+        // A flag with both an enrollment super condition and a holdout: when the person isn't
+        // enrolled and the matcher resolves via the holdout, both synthetic entries must be
+        // surfaced together, in the matcher's enrollment-then-holdout order.
+        use crate::flags::flag_models::FeatureFlag;
+
+        let flag: FeatureFlag = serde_json::from_value(json!({
+            "id": 1, "team_id": 1, "name": "held-flag", "key": "held-flag", "active": true,
+            "filters": {
+                "feature_enrollment": true,
+                "holdout": { "id": 42, "exclusion_percentage": 10.0 },
+                "groups": [{
+                    "properties": [{ "key": "is_scoped", "value": ["false"], "operator": "exact", "type": "person" }],
+                    "rollout_percentage": 100
+                }]
+            }
+        }))
+        .unwrap();
+
+        // No enrollment property set, so the person isn't enrolled and the matcher falls
+        // through to the holdout.
+        let property_values = HashMap::from([("is_scoped".to_string(), json!("false"))]);
+
+        let flag_match = FeatureFlagMatch {
+            matches: true,
+            variant: Some("holdout-42".to_string()),
+            reason: FeatureFlagMatchReason::HoldoutConditionValue,
+            condition_index: None,
+            payload: None,
+        };
+
+        let analysis = FlagDetails::build_condition_analysis(
+            &flag,
+            &flag_match,
+            Some(&property_values),
+            None,
+            None,
+            chrono_tz::Tz::UTC,
+        );
+
+        assert_eq!(analysis.len(), 3);
+        assert_eq!(analysis[0].index, SUPER_CONDITION_INDEX);
+        assert!(!analysis[0].matched);
+        assert_eq!(analysis[1].index, HOLDOUT_CONDITION_INDEX);
+        assert!(analysis[1].matched);
+        assert_eq!(analysis[2].index, 0);
+        assert!(!analysis[2].matched);
+        assert_eq!(analysis.iter().filter(|c| c.matched).count(), 1);
     }
 
     #[test]
