@@ -32,6 +32,7 @@ const Component = (): JSX.Element | null => {
 
     return (
         <Properties
+            key={`${groupData.group_type_index}-${groupData.group_key}`}
             properties={groupData.group_properties || {}}
             pinnedProperties={pinnedGroupProperties}
             onPin={pinGroupProperty}
