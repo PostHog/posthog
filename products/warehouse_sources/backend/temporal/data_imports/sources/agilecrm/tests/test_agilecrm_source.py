@@ -28,8 +28,6 @@ class TestSourceConfig:
         assert config.category == DataWarehouseSourceCategory.CRM
         assert config.releaseStatus == ReleaseStatus.ALPHA
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/agilecrm"
-        # Ships hidden behind unreleasedSource for now, labelled alpha.
-        assert config.unreleasedSource is True
 
     def test_fields_are_domain_email_api_key(self) -> None:
         fields = AgileCRMSource().get_source_config.fields

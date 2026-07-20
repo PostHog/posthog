@@ -8,16 +8,22 @@ posthog/urls.py at internal/notebooks/runs/<run_id>/result/.
 import json
 
 from django.core import signing
+from django.db.models import Q
 from django.http import JsonResponse
 
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 
-from products.notebooks.backend.models import NotebookNodeRun
+from products.notebooks.backend.models import KernelRuntime, NotebookNodeRun
 from products.notebooks.backend.sql_v2 import verify_callback_token
 from products.notebooks.backend.sql_v2_serializers import NotebookSQLV2CallbackRequestSerializer
 
 logger = structlog.get_logger(__name__)
+
+# The envelope lands whole in a Postgres row. The kernel already caps streams, media, and
+# preview cells well below this; anything bigger is a misbehaving (or hostile) sandbox, so
+# reject rather than store. Sized above the kernel's worst case (~4 MB media + streams).
+MAX_ENVELOPE_BYTES = 8_000_000
 
 
 @extend_schema(
@@ -55,6 +61,10 @@ def notebook_sql_v2_callback(request, run_id: str) -> JsonResponse:
     if token_run_id != run_id:
         return JsonResponse({"error": "Token does not match run"}, status=403)
 
+    if len(request.body) > MAX_ENVELOPE_BYTES:
+        logger.warning("sql_v2_callback_envelope_too_large", run_id=run_id, size=len(request.body))
+        return JsonResponse({"error": "Envelope too large"}, status=400)
+
     try:
         body = json.loads(request.body)
     except (json.JSONDecodeError, ValueError):
@@ -67,17 +77,56 @@ def notebook_sql_v2_callback(request, run_id: str) -> JsonResponse:
     # Store the raw JSON envelope (JSON-native types) — the serializer's validated_data
     # would coerce result_id to a uuid.UUID, which the JSONField can't serialize.
     envelope = body["envelope"]
+    # The snapshot is kernel state, read only off KernelRuntime. Keeping a copy on every run
+    # row would park a duplicate catalog forever on the table that grows fastest (one row per
+    # cell execution), so it rides the envelope to get here and is then dropped.
+    frames = envelope.pop("frames", None)
 
     try:
-        run = NotebookNodeRun.objects.for_team(team_id).get(id=run_id)
+        # select_related: the frame snapshot below scopes to the run's user, so fetch it up front
+        # rather than lazy-loading it on attribute access.
+        run = NotebookNodeRun.objects.for_team(team_id).select_related("user").get(id=run_id)
     except NotebookNodeRun.DoesNotExist:
         return JsonResponse({"error": "Run not found"}, status=404)
 
-    is_ok = envelope.get("status") == "ok"
-    run.status = NotebookNodeRun.Status.DONE if is_ok else NotebookNodeRun.Status.FAILED
+    status_by_envelope = {
+        "ok": NotebookNodeRun.Status.DONE,
+        "interrupted": NotebookNodeRun.Status.INTERRUPTED,
+    }
+    run.status = status_by_envelope.get(envelope.get("status"), NotebookNodeRun.Status.FAILED)
     run.envelope = envelope
     run.result_id = envelope.get("result_id")
     run.error = envelope.get("error")
     run.save(update_fields=["status", "envelope", "result_id", "error", "updated_at"])
 
+    _store_frame_snapshot(run, frames, team_id)
+
     return JsonResponse({"ok": True})
+
+
+def _store_frame_snapshot(run: NotebookNodeRun, frames: list | None, team_id: int) -> None:
+    """File the run's DuckDB catalog snapshot against the kernel that produced it (Journey 7).
+
+    `frames` is absent for a hogql run (it never enters the kernel) and for a kernel whose
+    catalog read failed. Both mean "leave the stored snapshot alone" — a hogql run changes no
+    local state, and a failed read knows nothing. Only an actual empty list means "the kernel
+    has nothing", so absent must never be coerced to empty here.
+    """
+    if frames is None or not run.kernel_runtime_id:
+        return
+    # Scoped to the dispatch-time kernel rather than "the notebook's current kernel": if the
+    # kernel was replaced mid-run, this snapshot describes the dead one and must not overwrite
+    # the live one. Team AND user because a KernelRuntime is scoped to both — kernels are per
+    # user, so a notebook's collaborators each have their own, and a snapshot must never land
+    # on someone else's row. Both come from the run, which was itself looked up team-scoped.
+    #
+    # The created_at guard makes the write last-run-wins rather than last-callback-wins. The
+    # kernel runs cells one at a time in arrival order, but callbacks land on separate web
+    # workers and can arrive out of order, so without it a slow older callback would overwrite
+    # a newer catalog and leave deleted frames on show until the next run. Done as a
+    # conditional UPDATE rather than read-then-write so concurrent callbacks can't interleave.
+    (
+        KernelRuntime.objects.filter(id=run.kernel_runtime_id, team_id=team_id, user=run.user)
+        .filter(Q(frames_run_created_at__isnull=True) | Q(frames_run_created_at__lt=run.created_at))
+        .update(frames=frames, frames_run_created_at=run.created_at)
+    )

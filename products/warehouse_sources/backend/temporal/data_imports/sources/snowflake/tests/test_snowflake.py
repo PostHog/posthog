@@ -557,6 +557,12 @@ class TestGetPrimaryKeysForTable:
         with pytest.raises(ValueError, match="column_name"):
             impl.get_primary_keys_for_table(cursor, "DB", "PUBLIC", "t")
 
+    def test_returns_none_when_show_fails(self, impl, cursor):
+        # A transient/permission SHOW failure must degrade to None so the pipeline falls back to a
+        # persisted or `id`-column PK, instead of crashing the incremental merge intermittently.
+        cursor.execute.side_effect = Exception("does not exist or not authorized")
+        assert impl.get_primary_keys_for_table(cursor, "DB", "PUBLIC", "t") is None
+
 
 class TestGetRowsToSync:
     def test_returns_count(self, impl, cursor, logger):
@@ -769,6 +775,20 @@ class TestSnowflakeSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            "HTTP 403: Forbidden",
+            # The real shape from production: the errno prefix and host vary, but the status
+            # text is stable. Newlines are normalized to spaces upstream.
+            "290403: 290403: HTTP 403: Forbidden",
+        ],
+    )
+    def test_forbidden_403_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Persistent HTTP 403 should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             "JWT token is invalid",
             # The real shape from production: codes, host, and request id vary, but the substring is stable.
             "250001 (08001): None: Failed to connect to DB: novjltn-acme.snowflakecomputing.com:443. "
@@ -840,6 +860,20 @@ class TestSnowflakeSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Wrong passphrase for an encrypted key (cryptography ValueError).
+            "Incorrect password, could not decrypt key",
+            # No passphrase given for an encrypted key (cryptography TypeError).
+            "Password was not given but private key is encrypted",
+        ],
+    )
+    def test_encrypted_key_passphrase_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Encrypted-key passphrase error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             "250003 (08001): Failed to connect to DB: acme-xy123.snowflakecomputing.com:443. Connection timed out",
             "Operation timed out while waiting for the warehouse to resume",
         ],
@@ -870,6 +904,28 @@ class TestSnowflakeValidateCredentials:
 
         assert ok is False
         assert message is not None and "PEM private key" in message
+        mock_capture.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            # Wrong passphrase for an encrypted key.
+            ValueError("Incorrect password, could not decrypt key"),
+            # No passphrase given for an encrypted key — a TypeError, not a ValueError.
+            TypeError("Password was not given but private key is encrypted"),
+        ],
+    )
+    def test_encrypted_key_passphrase_returns_friendly_message_without_capture(self, source, error):
+        with (
+            patch.object(source, "get_schemas", side_effect=error),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.source.capture_exception"
+            ) as mock_capture,
+        ):
+            ok, message = source.validate_credentials(_make_config("keypair"), team_id=1)
+
+        assert ok is False
+        assert message is not None and "passphrase" in message
         mock_capture.assert_not_called()
 
     def test_mfa_enrollment_required_returns_friendly_message_without_capture(self, source):

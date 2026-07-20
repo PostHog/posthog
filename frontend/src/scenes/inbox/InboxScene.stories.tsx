@@ -11,6 +11,7 @@ import {
     mockSignals,
     mockSourceConfigs,
     mockTask,
+    mockTeamConfig,
 } from './__mocks__/inboxMocks'
 import { InboxScene } from './InboxScene'
 
@@ -35,6 +36,7 @@ const sceneMocks = mswDecorator({
         ],
         '/api/projects/:id/tasks/:taskId': (req) => [200, mockTask(req.params.taskId as string)],
         '/api/projects/:id/signals/source_configs': () => [200, mockSourceConfigs],
+        '/api/projects/:id/signals/config': () => [200, mockTeamConfig],
         '/api/projects/:id/signals/scout/configs': () => [200, []],
         '/api/projects/:id/signals/scout/runs': () => [200, []],
         '/api/projects/:id/external_data_sources': () => [200, { results: [], count: 0 }],

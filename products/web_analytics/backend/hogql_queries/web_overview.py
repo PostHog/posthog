@@ -12,13 +12,16 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.filters.mixins.utils import cached_property
 
-from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import WebAnalyticsQueryRunner
+from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import (
+    WEB_ANALYTICS_NO_JOIN_SERVED,
+    WebAnalyticsQueryRunner,
+)
 from products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute import (
     can_use_lazy_precompute,
     execute_lazy_precomputed_read,
@@ -41,9 +44,212 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
         team_version = getattr(self.team, "web_analytics_pre_aggregated_tables_version", "v2")
         self.use_v2_tables = team_version == "v2" if team_version else use_v2_tables
         self.preaggregated_query_builder = WebOverviewPreAggregatedQueryBuilder(self)
+        # None = not yet checked (e.g. EXPLAIN paths); set by `_calculate` before execution.
+        self._session_id_set_selectivity_ok: Optional[bool] = None
 
     def to_query(self) -> ast.SelectQuery:
+        if self.should_skip_session_join:
+            WEB_ANALYTICS_NO_JOIN_SERVED.labels(family="overview").inc()
+            return self.no_join_select
+        if self.should_use_session_id_set and self._session_id_set_selectivity_ok is not False:
+            # Count only executions whose preflight passed — `to_query` also runs for
+            # EXPLAIN/debug paths where selectivity was never checked (None).
+            if self._session_id_set_selectivity_ok:
+                WEB_ANALYTICS_NO_JOIN_SERVED.labels(family="overview_session_id_set").inc()
+            return self.session_id_set_select
         return self.outer_select
+
+    def _check_session_id_set_selectivity(self) -> bool:
+        return self._run_session_id_set_preflight(
+            filters=property_to_expr(list(self.query.properties) + self._test_account_filters, team=self.team),
+            query_type="web_overview_session_id_set_preflight",
+        )
+
+    @cached_property
+    def should_use_session_id_set(self) -> bool:
+        """Whether a filtered query can run as two independent scans linked by an id set.
+
+        Applies when every filter is evaluable events-side (see
+        `_session_id_set_common_eligibility`): the events side evaluates the
+        filters directly, and the sessions side aggregates only the sessions
+        whose ids appear in a `SELECT DISTINCT $session_id` subquery over the
+        filtered events (rewritten below the per-session GROUP BY by
+        `build_direct_session_id_in_pushdown`, executing once via GLOBAL IN).
+        """
+        return self._session_id_set_common_eligibility()
+
+    @cached_property
+    def session_id_set_select(self) -> ast.SelectQuery:
+        """Filtered overview as two scans linked by the set of matching session ids.
+
+        Instead of joining events to sessions (which re-executes the sessions
+        subquery on every shard), run the filtered events scan first and collect
+        the distinct session ids it matches, then aggregate the sessions side
+        only over that id set. `build_direct_session_id_in_pushdown` rewrites the
+        `IN` into a GLOBAL IN on `raw_sessions.session_id_v7` below the
+        per-session GROUP BY, so the id collection executes once on the initiator
+        and the set is broadcast to shards. `_check_session_id_set_selectivity`
+        bounds the set size beforehand so we never ship a set too large to hold
+        in memory.
+        """
+        filters = property_to_expr(list(self.query.properties) + self._test_account_filters, team=self.team)
+        # The id set flows as the nullable-UUID materialized column: malformed
+        # `$session_id` strings become NULL and drop out of the set (the join path
+        # left such events unmatched; a string set would hit toUUID() and abort the
+        # whole query). Matching on `session_id_v7` keeps the flow UInt128 end to
+        # end — no string↔UUID conversion anywhere, in either join mode.
+        matching_session_ids = parse_select(
+            """
+SELECT DISTINCT events.$session_id_uuid AS session_id_uuid
+FROM events
+WHERE and(
+    events.$session_id_uuid IS NOT NULL,
+    {event_type_expr},
+    {inside_timestamp_period},
+    {filters},
+)
+            """,
+            placeholders={
+                "event_type_expr": self.event_type_expr,
+                "inside_timestamp_period": self._periods_expression("timestamp"),
+                "filters": filters,
+            },
+        )
+        sessions_id_filter = ast.CompareOperation(
+            op=ast.CompareOperationOp.In,
+            left=ast.Field(chain=["sessions", "session_id_v7"]),
+            right=matching_session_ids,
+        )
+        return self._two_scan_select(events_extra_where=filters, sessions_extra_where=sessions_id_filter)
+
+    @cached_property
+    def no_join_select(self) -> ast.SelectQuery:
+        return self._two_scan_select()
+
+    def _two_scan_select(
+        self,
+        events_extra_where: Optional[ast.Expr] = None,
+        sessions_extra_where: Optional[ast.Expr] = None,
+    ) -> ast.SelectQuery:
+        """Overview metrics from two independent scans, no events↔sessions join.
+
+        Column order must match ``outer_select`` — ``_calculate`` indexes rows
+        positionally. Semantics differ from the join path only at range boundaries:
+        sessions are bucketed by their own start timestamp here, while the join path
+        keeps sessions that had a matching event in range AND started in range; the
+        drift measured on team 2 over 30d is ≤0.15% on sessions and ~0 on
+        bounce/duration.
+        """
+        has_comparison = bool(self.query_compare_to_date_range)
+
+        events_agg = parse_select(
+            """
+SELECT
+    uniqIf(events.person_id, {current_users}) AS unique_users,
+    {previous_users} AS previous_unique_users,
+    countIf({current_views}) AS total_filtered_pageview_count,
+    {previous_views} AS previous_total_filtered_pageview_count
+FROM events
+WHERE and(
+    {events_session_id_present},
+    {event_type_expr},
+    {inside_timestamp_period},
+    {events_extra_where},
+)
+            """,
+            placeholders={
+                "events_extra_where": events_extra_where or ast.Constant(value=True),
+                "events_session_id_present": self.events_session_id_present,
+                "event_type_expr": self.event_type_expr,
+                "inside_timestamp_period": self._periods_expression("timestamp"),
+                "current_users": self._current_period_expression("timestamp"),
+                "previous_users": (
+                    parse_expr(
+                        "uniqIf(events.person_id, {previous_period})",
+                        placeholders={"previous_period": self._previous_period_expression("timestamp")},
+                    )
+                    if has_comparison
+                    else ast.Constant(value=None)
+                ),
+                "current_views": self._current_period_expression("timestamp"),
+                "previous_views": (
+                    parse_expr(
+                        "countIf({previous_period})",
+                        placeholders={"previous_period": self._previous_period_expression("timestamp")},
+                    )
+                    if has_comparison
+                    else ast.Constant(value=None)
+                ),
+            },
+        )
+
+        sessions_agg = parse_select(
+            """
+SELECT
+    uniqIf(sessions.session_id, {current_period}) AS unique_sessions,
+    {previous_sessions} AS previous_unique_sessions,
+    avgIf(sessions.$session_duration, {current_period}) AS avg_duration_s,
+    {previous_duration} AS previous_avg_duration_s,
+    avgIf(sessions.$is_bounce, {current_period}) AS bounce_rate,
+    {previous_bounce} AS previous_bounce_rate
+FROM sessions
+WHERE and(
+    {inside_start_timestamp_period},
+    or(sessions.$pageview_count > 0, sessions.$screen_count > 0),
+    {sessions_extra_where},
+)
+            """,
+            placeholders={
+                "sessions_extra_where": sessions_extra_where or ast.Constant(value=True),
+                "inside_start_timestamp_period": self._periods_expression("$start_timestamp"),
+                "current_period": self._current_period_expression("$start_timestamp"),
+                "previous_sessions": (
+                    parse_expr(
+                        "uniqIf(sessions.session_id, {previous_period})",
+                        placeholders={"previous_period": self._previous_period_expression("$start_timestamp")},
+                    )
+                    if has_comparison
+                    else ast.Constant(value=None)
+                ),
+                "previous_duration": (
+                    parse_expr(
+                        "avgIf(sessions.$session_duration, {previous_period})",
+                        placeholders={"previous_period": self._previous_period_expression("$start_timestamp")},
+                    )
+                    if has_comparison
+                    else ast.Constant(value=None)
+                ),
+                "previous_bounce": (
+                    parse_expr(
+                        "avgIf(sessions.$is_bounce, {previous_period})",
+                        placeholders={"previous_period": self._previous_period_expression("$start_timestamp")},
+                    )
+                    if has_comparison
+                    else ast.Constant(value=None)
+                ),
+            },
+        )
+
+        combined = parse_select(
+            """
+SELECT
+    events_agg.unique_users AS unique_users,
+    events_agg.previous_unique_users AS previous_unique_users,
+    events_agg.total_filtered_pageview_count AS total_filtered_pageview_count,
+    events_agg.previous_total_filtered_pageview_count AS previous_total_filtered_pageview_count,
+    sessions_agg.unique_sessions AS unique_sessions,
+    sessions_agg.previous_unique_sessions AS previous_unique_sessions,
+    sessions_agg.avg_duration_s AS avg_duration_s,
+    sessions_agg.previous_avg_duration_s AS previous_avg_duration_s,
+    sessions_agg.bounce_rate AS bounce_rate,
+    sessions_agg.previous_bounce_rate AS previous_bounce_rate
+FROM {events_agg} AS events_agg
+CROSS JOIN {sessions_agg} AS sessions_agg
+            """,
+            placeholders={"events_agg": events_agg, "sessions_agg": sessions_agg},
+        )
+        assert isinstance(combined, ast.SelectQuery)
+        return combined
 
     def get_pre_aggregated_response(self):
         should_use_preaggregated = (
@@ -97,22 +303,19 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
 
         include_previous = bool(self.query.compareFilter and self.query.compareFilter.compare)
 
-        def get_prev_val(idx, use_unsample=True):
-            if not include_previous:
-                return None
-            return self._unsample(row[idx]) if use_unsample else row[idx]
+        def get_prev_val(idx):
+            return row[idx] if include_previous else None
 
         results = [
-            to_data("visitors", "unit", self._unsample(row[0]), get_prev_val(1)),
-            to_data("views", "unit", self._unsample(row[2]), get_prev_val(3)),
-            to_data("sessions", "unit", self._unsample(row[4]), get_prev_val(5)),
-            to_data("session duration", "duration_s", row[6], get_prev_val(7, False)),
-            to_data("bounce rate", "percentage", row[8], get_prev_val(9, False), is_increase_bad=True),
+            to_data("visitors", "unit", row[0], get_prev_val(1)),
+            to_data("views", "unit", row[2], get_prev_val(3)),
+            to_data("sessions", "unit", row[4], get_prev_val(5)),
+            to_data("session duration", "duration_s", row[6], get_prev_val(7)),
+            to_data("bounce rate", "percentage", row[8], get_prev_val(9), is_increase_bad=True),
         ]
 
         return WebOverviewQueryResponse(
             results=results,
-            samplingRate=self._sample_rate,
             modifiers=self.modifiers,
             dateFrom=self.query_date_range.date_from_str,
             dateTo=self.query_date_range.date_to_str,
@@ -126,14 +329,42 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
 
         pre_aggregated_response = self.get_pre_aggregated_response()
 
+        # Preflight only when the main query will actually run — if the
+        # pre-aggregated builder already served the response, spending a
+        # filtered-events scan on selectivity would be pure waste (and would emit
+        # orphan preflight tags into query_log).
+        if self.should_use_session_id_set and not self.should_skip_session_join and not pre_aggregated_response:
+            self._session_id_set_selectivity_ok = self._check_session_id_set_selectivity()
+
+        execution_modifiers = self.modifiers
+        if (
+            self.should_use_session_id_set
+            and self._session_id_set_selectivity_ok is not False
+            and not self.should_skip_session_join
+        ):
+            # The session-id-set shape relies on `build_direct_session_id_in_pushdown`
+            # rewriting the id-set filter below the sessions GROUP BY; that rewrite
+            # is gated on the sessionIdPushdown modifier.
+            execution_modifiers = self.modifiers.model_copy() if self.modifiers else HogQLQueryModifiers()
+            execution_modifiers.sessionIdPushdown = True
+
         response = (
             execute_hogql_query(
-                query_type="web_overview_query",
+                # Distinct tags per strategy so query_log analysis doesn't need to
+                # text-match the SQL shape (see /evaluating-web-analytics-performance).
+                # Cache warming prefix-matches web_overview_, so new tags stay warmed.
+                query_type=(
+                    "web_overview_no_join_query"
+                    if self.should_skip_session_join
+                    else "web_overview_session_id_set_query"
+                    if self.should_use_session_id_set and self._session_id_set_selectivity_ok is not False
+                    else "web_overview_query"
+                ),
                 query=self.to_query(),
                 team=self.team,
                 user=self.user,
                 timings=self.timings,
-                modifiers=self.modifiers,
+                modifiers=execution_modifiers,
                 limit_context=self.limit_context,
             )
             if not pre_aggregated_response
@@ -145,30 +376,27 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
         row = response.results[0]
         include_previous = bool(self.query.compareFilter and self.query.compareFilter.compare)
 
-        def get_prev_val(idx, use_unsample=True):
-            if not include_previous:
-                return None
-            return self._unsample(row[idx]) if use_unsample else row[idx]
+        def get_prev_val(idx):
+            return row[idx] if include_previous else None
 
         if self.query.conversionGoal:
             results = [
-                to_data("visitors", "unit", self._unsample(row[0]), get_prev_val(1)),
-                to_data("total conversions", "unit", self._unsample(row[2]), get_prev_val(3)),
-                to_data("unique conversions", "unit", self._unsample(row[4]), get_prev_val(5)),
-                to_data("conversion rate", "percentage", row[6], get_prev_val(7, False)),
+                to_data("visitors", "unit", row[0], get_prev_val(1)),
+                to_data("total conversions", "unit", row[2], get_prev_val(3)),
+                to_data("unique conversions", "unit", row[4], get_prev_val(5)),
+                to_data("conversion rate", "percentage", row[6], get_prev_val(7)),
             ]
         else:
             results = [
-                to_data("visitors", "unit", self._unsample(row[0]), get_prev_val(1)),
-                to_data("views", "unit", self._unsample(row[2]), get_prev_val(3)),
-                to_data("sessions", "unit", self._unsample(row[4]), get_prev_val(5)),
-                to_data("session duration", "duration_s", row[6], get_prev_val(7, False)),
-                to_data("bounce rate", "percentage", row[8], get_prev_val(9, False), is_increase_bad=True),
+                to_data("visitors", "unit", row[0], get_prev_val(1)),
+                to_data("views", "unit", row[2], get_prev_val(3)),
+                to_data("sessions", "unit", row[4], get_prev_val(5)),
+                to_data("session duration", "duration_s", row[6], get_prev_val(7)),
+                to_data("bounce rate", "percentage", row[8], get_prev_val(9), is_increase_bad=True),
             ]
 
         return WebOverviewQueryResponse(
             results=results,
-            samplingRate=self._sample_rate,
             modifiers=self.modifiers,
             dateFrom=self.query_date_range.date_from_str,
             dateTo=self.query_date_range.date_to_str,

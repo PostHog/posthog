@@ -37,6 +37,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class DropboxSignSource(ResumableSource[DropboxSignSourceConfig, DropboxSignResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v3",)
+    default_version = "v3"
+    api_docs_url = "https://developers.hellosign.com/api/reference/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -49,7 +52,6 @@ class DropboxSignSource(ResumableSource[DropboxSignSourceConfig, DropboxSignResu
             category=DataWarehouseSourceCategory.SALES,
             label="Dropbox Sign",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Dropbox Sign API key to automatically pull your Dropbox Sign data into the PostHog Data warehouse.
 
 You can create an API key in your [Dropbox Sign API settings](https://app.hellosign.com/home/myAccount#api). The API key is used with HTTP Basic authentication (the key as the username, with a blank password).""",

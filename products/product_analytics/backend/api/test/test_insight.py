@@ -47,22 +47,20 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog import settings
 from posthog.api.test.dashboards import DashboardAPI
-from posthog.caching.insight_cache import update_cache
-from posthog.caching.insight_caching_state import TargetCacheAge
+from posthog.caching.fetch_from_cache import InsightResult
 from posthog.constants import AvailableFeature
-from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.hogql_queries.query_runner import SHARED_FORCE_BLOCKING_STALENESS_WINDOW, ExecutionMode
 from posthog.models import Filter, OrganizationMembership, SharingConfiguration, Team, User
 from posthog.models.project import Project
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.persons import create_person
 
-from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from products.cohorts.backend.models.cohort import Cohort
+from products.dashboards.backend.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
-from products.product_analytics.backend.api.insight import _last_refresh_for_shared_gate
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
-from products.product_analytics.backend.models.insight_caching_state import InsightCachingState
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 from ee.models.rbac.access_control import AccessControl
@@ -498,6 +496,50 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertNotEqual(insight_in_isolation["filters_hash"], insight_on_dashboard["filters_hash"])
 
+    @parameterized.expand(
+        [
+            ("hit", True, None, True),
+            ("miss", False, None, True),
+            ("forced_refresh", False, "force_blocking", False),
+        ]
+    )
+    @patch("products.product_analytics.backend.api.insight.record_dashboard_cache_outcome")
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_dashboard_insight_records_cache_outcome(
+        self,
+        _name: str,
+        is_cached: bool,
+        refresh: str | None,
+        expect_recorded: bool,
+        mock_calculate: mock.MagicMock,
+        mock_record_outcome: mock.MagicMock,
+    ) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Dashboard", created_by=self.user)
+        insight = Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        mock_calculate.return_value = InsightResult(
+            result=[],
+            last_refresh=timezone.now(),
+            cache_key="cache-key",
+            is_cached=is_cached,
+            timezone=self.team.timezone,
+        )
+
+        query_params = {"from_dashboard": str(dashboard.id)}
+        if refresh is not None:
+            query_params["refresh"] = refresh
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight.id}/", query_params)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        if expect_recorded:
+            mock_record_outcome.assert_called_once_with(DashboardAccessMethod.HUMAN, is_cached=is_cached)
+        else:
+            mock_record_outcome.assert_not_called()
+
     def test_get_insight_in_shared_context(self) -> None:
         filter_dict = {
             "events": [{"id": "$pageview"}],
@@ -515,9 +557,12 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         valid_url = f"{settings.SITE_URL}/shared/{sharing_config.access_token}"
 
-        with patch(
-            "posthog.caching.calculate_results.calculate_for_query_based_insight"
-        ) as calculate_for_query_based_insight:
+        with (
+            patch(
+                "posthog.caching.calculate_results.calculate_for_query_based_insight"
+            ) as calculate_for_query_based_insight,
+            patch("products.product_analytics.backend.api.insight.record_dashboard_cache_outcome") as record_outcome,
+        ):
             self.client.get(valid_url)
             calculate_for_query_based_insight.assert_called_once_with(
                 mock.ANY,
@@ -529,8 +574,11 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 filters_override={},
                 variables_override={},
                 tile_filters_override={},
+                cache_age_seconds=None,
                 analytics_props=ANY,
+                allow_raw_results=False,
             )
+            record_outcome.assert_not_called()
 
         with patch(
             "posthog.caching.calculate_results.calculate_for_query_based_insight"
@@ -539,9 +587,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             calculate_for_query_based_insight.assert_called_once_with(
                 mock.ANY,
                 dashboard=mock.ANY,
-                # The shared force_blocking gate downgrades to IF_STALE because the insight was
-                # just created — the InsightCachingState row's `created_at` is younger than
-                # `SHARED_FORCE_BLOCKING_MIN_AGE` and the throttle clock falls back to it.
+                # Shared force_blocking runs as blocking-if-stale with the throttle window as
+                # the staleness threshold: a cache younger than `SHARED_FORCE_BLOCKING_STALENESS_WINDOW`
+                # is served as-is, anything older (or missing) recomputes synchronously.
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 team=self.team,
                 user=mock.ANY,
@@ -549,28 +597,72 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 filters_override={},
                 variables_override={},
                 tile_filters_override={},
+                cache_age_seconds=int(SHARED_FORCE_BLOCKING_STALENESS_WINDOW.total_seconds()),
                 analytics_props=ANY,
+                allow_raw_results=False,
             )
 
-    @parameterized.expand(
-        [
-            # When no caching state row exists, the gate falls back to insight.created_at so
-            # legitimate stale-refresh isn't silently blocked on insights without rows.
-            ("missing_row_falls_back_to_insight_created_at", True),
-            ("existing_row_used_when_present", False),
-        ]
-    )
-    def test_last_refresh_for_shared_gate_fallback(self, _name: str, delete_caching_state: bool) -> None:
-        insight = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
-        if delete_caching_state:
-            InsightCachingState.objects.filter(insight=insight).delete()
-            self.assertIsNone(InsightCachingState.objects.filter(insight=insight).first())
-            expected = insight.created_at
-        else:
-            cs = InsightCachingState.objects.filter(insight=insight, dashboard_tile=None).first()
-            assert cs is not None  # narrows type for mypy
-            expected = cs.created_at  # last_refresh is null on a freshly created row
-        self.assertEqual(_last_refresh_for_shared_gate(insight, None), expected)
+    def test_get_shared_insight_with_force_refresh_returns_200(self) -> None:
+        # Un-mocked end-to-end regression test: exercises the real process_query_dict ->
+        # process_query_model -> query_runner.run() chain that the mocked assertions above
+        # never execute the body of. A 200 alone doesn't prove this: insight_result's
+        # broad except Exception swallows calculation crashes into a query_status error
+        # and still renders 200, so assert the embedded result actually computed.
+        filter_dict = {"events": [{"id": "$pageview"}]}
+
+        insight_id, _ = self.dashboard_api.create_insight({"filters": filter_dict, "name": "insight"})
+        sharing_config = SharingConfiguration.objects.create(team=self.team, insight_id=insight_id, enabled=True)
+
+        # .json suffix returns exported_data directly, skipping exporter.html rendering
+        valid_url = f"{settings.SITE_URL}/shared/{sharing_config.access_token}.json"
+
+        response = self.client.get(valid_url, data={"refresh": "force_blocking"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        exported = response.json()
+        query_status = exported["insight"]["query_status"] or {}
+        self.assertFalse(query_status.get("error"), query_status)
+        self.assertIsNotNone(exported["insight"]["result"])
+
+    def test_shared_force_refresh_ignores_client_filter_overrides(self) -> None:
+        # Regression: the /shared/<token> page load runs without an authenticator, so the serializer
+        # must rely on the is_shared context flag to drop client-supplied overrides. Without the flag
+        # reaching the override helpers, a viewer could pair a unique filters_override with
+        # refresh=force_blocking on every request — each novel value is a fresh cache miss that
+        # recomputes synchronously, defeating the throttle this PR relies on.
+        insight_id, _ = self.dashboard_api.create_insight(
+            {"filters": {"events": [{"id": "$pageview"}]}, "name": "insight"}
+        )
+        sharing_config = SharingConfiguration.objects.create(team=self.team, insight_id=insight_id, enabled=True)
+
+        valid_url = f"{settings.SITE_URL}/shared/{sharing_config.access_token}"
+
+        with patch(
+            "posthog.caching.calculate_results.calculate_for_query_based_insight"
+        ) as calculate_for_query_based_insight:
+            self.client.get(
+                valid_url,
+                data={
+                    "refresh": "force_blocking",
+                    "filters_override": json.dumps({"date_from": "-1d"}),
+                    "variables_override": json.dumps({"injected": {"value": "evil"}}),
+                    "tile_filters_override": json.dumps({"breakdown": "region"}),
+                },
+            )
+            calculate_for_query_based_insight.assert_called_once_with(
+                mock.ANY,
+                dashboard=mock.ANY,
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                team=self.team,
+                user=mock.ANY,
+                user_access_control=mock.ANY,
+                filters_override={},
+                variables_override={},
+                tile_filters_override={},
+                cache_age_seconds=int(SHARED_FORCE_BLOCKING_STALENESS_WINDOW.total_seconds()),
+                analytics_props=ANY,
+                allow_raw_results=False,
+            )
 
     def test_get_insight_by_short_id(self) -> None:
         filter_dict = {"events": [{"id": "$pageview"}]}
@@ -1039,6 +1131,51 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert len(ctx.captured_queries) == baseline_query_count, (
                 f"n={n}: {len(ctx.captured_queries)} queries vs baseline {baseline_query_count}; "
                 f"adding insights should not grow the per-request query count."
+            )
+
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    def test_listing_insights_with_alerts_does_not_nplus1(self) -> None:
+        url = f"/api/projects/{self.team.id}/insights/?saved=true&limit=30"
+
+        def _create_insight_with_alerts(short_id: str) -> None:
+            insight_id, _ = self.dashboard_api.create_insight(
+                data={"short_id": short_id, "filters": {"events": [{"id": "$pageview"}]}}
+            )
+            threshold = Threshold.objects.create(
+                team=self.team,
+                insight_id=insight_id,
+                created_by=self.user,
+                configuration={"type": "absolute", "bounds": {"upper": 1}},
+            )
+            # one threshold alert and one detector alert — AlertSerializer emits threshold and
+            # subscribed_users per alert, the two relations that regress to per-alert queries
+            for alert_threshold in (threshold, None):
+                alert = AlertConfiguration.objects.create(
+                    team=self.team,
+                    insight_id=insight_id,
+                    created_by=self.user,
+                    name="alert",
+                    threshold=alert_threshold,
+                    condition={"type": "absolute_value"},
+                    config={"type": "TrendsAlertConfig", "series_index": 0},
+                    detector_config=None if alert_threshold else {"type": "zscore", "threshold": 3},
+                )
+                AlertSubscription.objects.create(user=self.user, alert_configuration=alert, created_by=self.user)
+
+        _create_insight_with_alerts("first")
+        with capture_db_queries() as ctx:
+            assert self.client.get(url).status_code == status.HTTP_200_OK
+        baseline = len(ctx.captured_queries)
+
+        for n in range(2, 5):
+            _create_insight_with_alerts(f"insight-{n}")
+            with capture_db_queries() as ctx:
+                response = self.client.get(url)
+                assert response.status_code == status.HTTP_200_OK
+                assert len(response.json()["results"]) == n
+            assert len(ctx.captured_queries) == baseline, (
+                f"n={n}: {len(ctx.captured_queries)} queries vs baseline {baseline}; "
+                f"adding insights with alerts should not grow the per-request query count."
             )
 
     def test_listing_insights_shows_legacy_and_hogql_ones(self) -> None:
@@ -2089,159 +2226,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     0.0,
                 ],
             )
-
-    @patch(
-        "posthog.caching.insight_caching_state.calculate_target_age_insight",
-        # The tested insight normally wouldn't satisfy the criteria for being refreshed in the background,
-        # this patch means it will be treated as if it did satisfy them
-        return_value=TargetCacheAge.MID_PRIORITY,
-    )
-    def test_insight_refreshing_legacy_with_background_update(self, spy_calculate_target_age_insight) -> None:
-        with freeze_time("2012-01-14T03:21:34.000Z"):
-            _create_event(
-                team=self.team,
-                event="$pageview",
-                distinct_id="1",
-                properties={"prop": "val"},
-            )
-            _create_event(
-                team=self.team,
-                event="$pageview",
-                distinct_id="2",
-                properties={"prop": "another_val"},
-            )
-            _create_event(
-                team=self.team,
-                event="$pageview",
-                distinct_id="2",
-                properties={"prop": "val", "another": "never_return_this"},
-            )
-            flush_persons_and_events()
-
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/insights",
-                data={
-                    "filters": {
-                        "events": [{"id": "$pageview"}],
-                        "properties": [
-                            {
-                                "key": "another",
-                                "value": "never_return_this",
-                                "operator": "is_not",
-                            }
-                        ],
-                    },
-                },
-            ).json()
-            self.assertNotIn("code", response)  # Watching out for an error code
-            self.assertEqual(response["last_refresh"], None)
-            insight_id = response["id"]
-
-            response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true").json()
-            self.assertNotIn("code", response)
-            self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
-            self.assertEqual(response["last_refresh"], "2012-01-15T04:01:34Z")
-            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")
-            self.assertFalse(response["is_cached"])
-
-        with freeze_time("2012-01-17T05:01:34.000Z"):
-            update_cache(InsightCachingState.objects.get(insight_id=insight_id).id)
-
-        with freeze_time("2012-01-17T06:01:34.000Z"):
-            response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=false").json()
-            self.assertNotIn("code", response)
-            self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 2, 0, 0, 0])
-            self.assertEqual(response["last_refresh"], "2012-01-17T05:01:34Z")  # Got refreshed with `update_cache`!
-            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")
-            self.assertTrue(response["is_cached"])
-
-    @parameterized.expand(
-        [
-            [  # Property group filter, which is what's actually used these days
-                PropertyGroupFilter(
-                    type=FilterLogicalOperator.AND_,
-                    values=[
-                        PropertyGroupFilterValue(
-                            type=FilterLogicalOperator.OR_,
-                            values=[EventPropertyFilter(key="another", value="never_return_this", operator="is_not")],
-                        )
-                    ],
-                )
-            ],
-            [  # Classic list of filters
-                [EventPropertyFilter(key="another", value="never_return_this", operator="is_not")]
-            ],
-        ]
-    )
-    @patch("posthog.hogql_queries.insights.trends.trends_query_runner.execute_hogql_query", wraps=execute_hogql_query)
-    @patch(
-        "posthog.caching.insight_caching_state.calculate_target_age_insight",
-        # The tested insight normally wouldn't satisfy the criteria for being refreshed in the background,
-        # this patch means it will be treated as if it did satisfy them
-        return_value=TargetCacheAge.MID_PRIORITY,
-    )
-    def test_insight_refreshing_query_with_background_update(
-        self, properties_filter, spy_execute_hogql_query, spy_calculate_target_age_insight
-    ) -> None:
-        with freeze_time("2012-01-14T03:21:34.000Z"):
-            _create_event(
-                team=self.team,
-                event="$pageview",
-                distinct_id="1",
-                properties={"prop": "val"},
-            )
-            _create_event(
-                team=self.team,
-                event="$pageview",
-                distinct_id="2",
-                properties={"prop": "another_val"},
-            )
-            _create_event(
-                team=self.team,
-                event="$pageview",
-                distinct_id="2",
-                properties={"prop": "val", "another": "never_return_this"},
-            )
-            flush_persons_and_events()
-
-        query_dict = TrendsQuery(
-            series=[
-                EventsNode(
-                    event="$pageview",
-                )
-            ],
-            properties=properties_filter,
-        ).model_dump()
-
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            response = self.client.post(f"/api/projects/{self.team.id}/insights", data={"query": query_dict}).json()
-            self.assertNotIn("code", response)  # Watching out for an error code
-            self.assertEqual(response["last_refresh"], None)
-            insight_id = response["id"]
-
-            response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true").json()
-            self.assertNotIn("code", response)
-
-            self.assertEqual(spy_execute_hogql_query.call_count, 1)
-
-            self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
-            self.assertEqual(response["last_refresh"], "2012-01-15T04:01:34Z")
-            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")
-            self.assertFalse(response["is_cached"])
-
-        with freeze_time("2012-01-17T05:01:34.000Z"):
-            update_cache(InsightCachingState.objects.get(insight_id=insight_id).id)
-
-        with freeze_time("2012-01-17T06:01:34.000Z"):
-            call_count_before = spy_execute_hogql_query.call_count
-            response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=false").json()
-            self.assertNotIn("code", response)
-            self.assertEqual(spy_execute_hogql_query.call_count, call_count_before)
-            self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 2, 0, 0, 0])
-            self.assertEqual(response["last_refresh"], "2012-01-17T05:01:34Z")  # Got refreshed with `update_cache`!
-            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")
-            self.assertTrue(response["is_cached"])
 
     @parameterized.expand(
         [
@@ -4317,7 +4301,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert isinstance(response["query"]["source"], dict)
         assert response["query"]["source"]["dateRange"]["date_from"] == "-7d"
 
-    def test_tile_filters_override_replaces_dashboard_filters_in_returned_query(self) -> None:
+    def test_tile_filters_merge_with_dashboard_filters_in_returned_query(self) -> None:
         insight = Insight.objects.create(
             filters={},
             query={
@@ -4331,18 +4315,14 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             team=self.team,
         )
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard 1", created_by=self.user)
-        # Tile has its own date-range filter (no person properties). The compute path treats
-        # this as a complete replacement for all dashboard filters.
         DashboardTile.objects.create(
             dashboard=dashboard,
             insight=insight,
             filters_overrides={"date_from": "-7d"},
         )
 
-        # Dashboard-level filter includes a person property filter (e.g. $initial_host = readdy.ai).
-        dashboard_filters = {
-            "properties": [{"key": "$initial_host", "type": "person", "operator": "exact", "value": ["readdy.ai"]}]
-        }
+        person_filter = {"key": "$initial_host", "type": "person", "operator": "exact", "value": ["readdy.ai"]}
+        dashboard_filters = {"properties": [person_filter]}
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/insights/{insight.pk}",
@@ -4353,14 +4333,156 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         ).json()
 
         source = response["query"]["source"]
-        # The tile's filter (date_from = -7d, no person properties) must win over the
-        # dashboard filter. If the dashboard person properties appeared here the persons
-        # modal would use a different filter set than the chart — the bug this test guards.
         assert source["dateRange"]["date_from"] == "-7d"
-        # properties must be absent or empty — the dashboard's person filter must not appear.
-        assert not source.get("properties"), (
-            f"Tile filters should replace dashboard filters; persons modal would diverge. Got: {source.get('properties')}"
+        merged_properties = source.get("properties") or []
+        assert any(p.get("key") == "$initial_host" and p.get("value") == ["readdy.ai"] for p in merged_properties), (
+            f"Dashboard person filter should be merged into the tile query. Got: {merged_properties}"
         )
+
+    def test_tile_property_override_replaces_insight_and_dashboard_on_same_key(self) -> None:
+        # Insight, dashboard, and tile all filter $browser. The tile must win outright on that key —
+        # over both the insight's own filter and the dashboard's — instead of AND-ing all three (which
+        # would be an impossible intersection and return nothing).
+        insight = Insight.objects.create(
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"event": "$pageview", "kind": "EventsNode"}],
+                    "properties": [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Chrome"]}],
+                },
+            },
+            team=self.team,
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="dashboard 1", created_by=self.user)
+        DashboardTile.objects.create(
+            dashboard=dashboard,
+            insight=insight,
+            filters_overrides={
+                "properties": [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Firefox"]}]
+            },
+        )
+        dashboard_filters = {
+            "properties": [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Chrome", "Safari"]}]
+        }
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.pk}",
+            data={"from_dashboard": str(dashboard.pk), "filters_override": json.dumps(dashboard_filters)},
+        ).json()
+
+        browser_values = self._collect_property_values(response["query"]["source"].get("properties"), "$browser")
+        assert browser_values == [["Firefox"]], f"Tile $browser should replace all others. Got: {browser_values}"
+        assert response["filter_override_context"] == {
+            "dashboard": None,
+            "tile": {"properties": [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Firefox"]}]},
+            "overridden_dashboard": {
+                "properties": [
+                    {
+                        "key": "$browser",
+                        "type": "event",
+                        "operator": "exact",
+                        "value": ["Chrome", "Safari"],
+                    }
+                ]
+            },
+        }
+
+    def test_dashboard_property_override_replaces_insight_on_same_key(self) -> None:
+        # Insight and dashboard both filter $browser, no tile. The dashboard must win on that key —
+        # over the insight's own filter — instead of AND-ing (Chrome AND Safari would return nothing).
+        insight = Insight.objects.create(
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"event": "$pageview", "kind": "EventsNode"}],
+                    "properties": [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Chrome"]}],
+                },
+            },
+            team=self.team,
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="dashboard 1", created_by=self.user)
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        dashboard_filters = {
+            "properties": [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Safari"]}]
+        }
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.pk}",
+            data={"from_dashboard": str(dashboard.pk), "filters_override": json.dumps(dashboard_filters)},
+        ).json()
+
+        browser_values = self._collect_property_values(response["query"]["source"].get("properties"), "$browser")
+        assert browser_values == [["Safari"]], f"Dashboard $browser should replace the insight's. Got: {browser_values}"
+
+    def test_from_dashboard_ignores_dashboard_context_without_view_access(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        viewer = self._create_user("viewer@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        insight = Insight.objects.create(
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"event": "$pageview", "kind": "EventsNode"}],
+                },
+            },
+            team=self.team,
+            created_by=self.user,
+        )
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="restricted dashboard",
+            created_by=self.user,
+            filters={
+                "properties": [
+                    {"key": "email", "type": "person", "operator": "exact", "value": ["private@example.com"]}
+                ]
+            },
+        )
+        DashboardTile.objects.create(
+            dashboard=dashboard,
+            insight=insight,
+            filters_overrides={
+                "properties": [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Chrome"]}]
+            },
+        )
+        AccessControl.objects.create(
+            resource="dashboard",
+            resource_id=dashboard.id,
+            team=self.team,
+            access_level="none",
+        )
+        self.client.force_login(viewer)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.pk}",
+            data={"from_dashboard": str(dashboard.pk)},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        response_data = response.json()
+        assert response_data["filter_override_context"] is None
+        properties = response_data["query"]["source"].get("properties")
+        assert self._collect_property_values(properties, "email") == []
+        assert self._collect_property_values(properties, "$browser") == []
+
+    @staticmethod
+    def _collect_property_values(properties: object, key: str) -> list:
+        """Flatten a query's properties (flat list or nested PropertyGroupFilter) to the values set for one key."""
+        found: list = []
+        if isinstance(properties, list):
+            for prop in properties:
+                found.extend(TestInsight._collect_property_values(prop, key))
+        elif isinstance(properties, dict):
+            if isinstance(properties.get("values"), list):
+                found.extend(TestInsight._collect_property_values(properties["values"], key))
+            elif properties.get("key") == key:
+                found.append(properties.get("value"))
+        return found
 
     def test_insight_cache_key_changes_with_variable_override_when_tile_filters_are_set(self) -> None:
         dashboard = Dashboard.objects.create(

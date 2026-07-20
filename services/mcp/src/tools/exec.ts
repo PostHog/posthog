@@ -7,11 +7,13 @@ import { ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { formatResponse } from '@/lib/response'
 
+import type { ExecHelpCatalog } from './exec-help'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
 import type { ScopeGatedTool } from './toolDefinitions'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
+    POSTHOG_INFORMATIONAL_RESPONSE_KEY,
     POSTHOG_META_KEY,
     type Context,
     type Tool,
@@ -48,6 +50,7 @@ export type ExecInnerCallTracker = (toolName: string, properties: ExecInnerCallP
 
 export interface ExecToolOptions {
     requireDestructiveConfirmation?: boolean
+    helpCatalog?: ExecHelpCatalog
     /**
      * Client is an inline-exec UI-app host that renders MCP UI apps on the exec
      * response (Claude Code, Cowork). Gets the same UI-app payload treatment as the
@@ -190,6 +193,45 @@ export function formatInputValidationError(toolName: string, error: z.ZodError):
     return `Invalid input for "${toolName}": ${[...new Set(parts)].join('; ')}`
 }
 
+/** Caps on what we record so a single failure can't blow up analytics cardinality. */
+const MAX_VALIDATION_DESCRIPTORS = 20
+const MAX_KEY_LENGTH = 64
+
+/**
+ * Derives a value-free descriptor of a validation failure for telemetry, so a
+ * contract regression (agents sending a field name the schema doesn't accept) is
+ * diagnosable from the `$mcp_tool_call` event alone — without ever recording the
+ * request payload.
+ *
+ * `fields` are the offending top-level field + issue code (e.g. `orgId:invalid_type`);
+ * for a union rejection the path is empty and it reads `(root):invalid_union`, which
+ * is why `inputKeys` — the top-level keys the caller actually sent — carries the real
+ * signal there (it surfaces the unaccepted alias, e.g. `organizationId`).
+ *
+ * Records only structural information (field names, issue codes). It never touches
+ * input VALUES: the ZodError embeds raw values in `issue.input` and `.message` (see
+ * `formatInputValidationError`), so we read `issue.path[0]`/`issue.code` and the
+ * input's own key names only.
+ */
+export function describeValidationError(
+    error: z.ZodError,
+    input: Record<string, unknown>
+): { fields: string[]; inputKeys: string[] } {
+    const fields = [
+        ...new Set(
+            error.issues.map((issue) => {
+                const top = issue.path.length ? String(issue.path[0]) : '(root)'
+                return `${top.slice(0, MAX_KEY_LENGTH)}:${issue.code}`
+            })
+        ),
+    ].slice(0, MAX_VALIDATION_DESCRIPTORS)
+    const inputKeys = Object.keys(input)
+        .sort()
+        .slice(0, MAX_VALIDATION_DESCRIPTORS)
+        .map((key) => key.slice(0, MAX_KEY_LENGTH))
+    return { fields, inputKeys }
+}
+
 /** Whether the tool's input schema declares an `output_format` field. */
 function schemaHasOutputFormat(schema: ZodObjectAny): boolean {
     return schema instanceof z.ZodObject && 'output_format' in schema.shape
@@ -253,6 +295,35 @@ export function createExecTool(
             const { verb, rest } = parseCommand(params.command)
 
             switch (verb) {
+                case 'learn': {
+                    const helpCatalog = options.helpCatalog
+                    if (!helpCatalog) {
+                        throw new Error('The learning catalog is not available for this client.')
+                    }
+                    if (!rest) {
+                        return JSON.stringify(helpCatalog.list())
+                    }
+                    const topicIds = [...new Set(rest.split(/\s+/))]
+                    const entries = topicIds.map((topicId) => helpCatalog.get(topicId))
+                    const unknownTopicIds = topicIds.filter((_, index) => entries[index] === undefined)
+                    if (unknownTopicIds.length > 0) {
+                        const available = helpCatalog
+                            .list()
+                            .map((item) => item.id)
+                            .join(', ')
+                        if (unknownTopicIds.length === 1) {
+                            throw new Error(`Unknown learning topic: "${unknownTopicIds[0]}". Available: ${available}`)
+                        }
+                        const unknownTopics = unknownTopicIds.map((topicId) => `"${topicId}"`).join(', ')
+                        throw new Error(`Unknown learning topics: ${unknownTopics}. Available: ${available}`)
+                    }
+                    const resolvedEntries = entries.filter((entry) => entry !== undefined)
+                    if (resolvedEntries.length === 1) {
+                        return resolvedEntries[0]!.content
+                    }
+                    return resolvedEntries.map((entry) => `## ${entry.title}\n\n${entry.content}`).join('\n\n')
+                }
+
                 case 'tools': {
                     return JSON.stringify(allTools.map((t) => t.name))
                 }
@@ -479,8 +550,10 @@ export function createExecTool(
                             validation_error: true,
                         })
                         // Typed so the executor's catch skips exception capture and
-                        // classifies it as `validation`, not `internal`.
-                        throw new ToolInputValidationError(message)
+                        // classifies it as `validation`, not `internal`. The value-free
+                        // descriptor rides along so the errored `$mcp_tool_call` records
+                        // which field/alias was rejected — without the payload.
+                        throw new ToolInputValidationError(message, describeValidationError(validation.error, input))
                     }
                     input = validation.data as Record<string, unknown>
 
@@ -499,6 +572,27 @@ export function createExecTool(
                         throw err
                     }
                     const durationMs = Date.now() - startedAt
+                    const formattedOverride =
+                        result !== null && typeof result === 'object'
+                            ? (result as Record<string, unknown>)[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]
+                            : undefined
+                    const isInformationalResponse =
+                        result !== null &&
+                        typeof result === 'object' &&
+                        (result as Record<string, unknown>)[POSTHOG_INFORMATIONAL_RESPONSE_KEY] === true
+
+                    if (useJson && isInformationalResponse && typeof formattedOverride === 'string') {
+                        const outputText = JSON.stringify({ content: formattedOverride })
+                        trackInnerCall?.(tool.name, {
+                            duration_ms: durationMs,
+                            success: true,
+                            output_format: 'json',
+                            input_tokens: estimateTokens(input),
+                            output_tokens: estimateTokens(outputText),
+                            input,
+                        })
+                        return outputText
+                    }
 
                     // If the inner tool has a UI app attached AND the caller self-identifies as
                     // PostHog Code (the UI-apps host), emit a full `CallToolResult` payload
@@ -550,10 +644,6 @@ export function createExecTool(
                         // `results`/`_posthogUrl` payload would otherwise duplicate the table
                         // and crowd it out — buildToolResultPayload makes the same choice for
                         // the non-exec path, this keeps exec consistent.
-                        const formattedOverride =
-                            result !== null && typeof result === 'object'
-                                ? (result as Record<string, unknown>)[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]
-                                : undefined
                         outputText = typeof formattedOverride === 'string' ? formattedOverride : formatResponse(result)
                     }
                     trackInnerCall?.(tool.name, {
@@ -568,7 +658,9 @@ export function createExecTool(
                 }
 
                 default:
-                    throw new Error(`Unknown command: "${verb}". Supported commands: tools, search, info, schema, call`)
+                    throw new Error(
+                        `Unknown command: "${verb}". Supported commands: ${options.helpCatalog ? 'learn, ' : ''}tools, search, info, schema, call`
+                    )
             }
         },
     }

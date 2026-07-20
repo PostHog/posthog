@@ -97,7 +97,6 @@ export enum Scene {
     LiveEvents = 'LiveEvents',
     Login = 'Login',
     Login2FA = 'Login2FA',
-    EmailMFAVerify = 'EmailMFAVerify',
     MaterializedColumns = 'MaterializedColumns',
     Max = 'Max',
     Models = 'Models',
@@ -131,6 +130,7 @@ export enum Scene {
     PropertyDefinitions = 'PropertyDefinitions',
     PropertyDefinitionEdit = 'PropertyDefinitionEdit',
     QueryPerformance = 'QueryPerformance',
+    Quickstart = 'Quickstart',
     Replay = 'Replay',
     ReplayFilePlayback = 'ReplayFilePlayback',
     ReplayPlaylist = 'ReplayPlaylist',
@@ -160,6 +160,7 @@ export enum Scene {
     Survey = 'Survey',
     SurveyWizard = 'SurveyWizard',
     SurveyFormBuilder = 'SurveyFormBuilder',
+    SupportTickets = 'SupportTickets',
     Surveys = 'Surveys',
     SystemStatus = 'SystemStatus',
     ToolbarLaunch = 'ToolbarLaunch',
@@ -345,6 +346,9 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
 
     // Marketing Analytics
     [Scene.MarketingAnalytics]: AccessControlResourceType.WebAnalytics,
+
+    // Metrics
+    [Scene.Metrics]: AccessControlResourceType.Metrics,
 
     // Surveys
     [Scene.Survey]: AccessControlResourceType.Survey,

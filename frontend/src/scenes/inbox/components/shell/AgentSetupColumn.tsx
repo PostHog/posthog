@@ -14,9 +14,11 @@ import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
+import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { userAutonomyLogic } from '../../logics/userAutonomyLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
 import { ScoutsFleetSection } from '../config/scouts/ScoutsFleetSection'
+import { SelfDrivingSection } from '../config/SelfDrivingSection'
 import { SignalSourcesPanel } from '../config/SignalSourcesPanel'
 import { SlackNotificationsSection } from '../config/SlackNotificationsSection'
 import { AgentSetupModalKey, agentSetupModalLogic } from './agentSetupModalLogic'
@@ -245,10 +247,18 @@ function NotificationsWidget(): JSX.Element {
     useMountedLogic(userAutonomyLogic)
     const { slackIntegrations, integrationsLoading } = useValues(integrationsLogic)
     const { autonomyConfig } = useValues(userAutonomyLogic)
+    const { teamConfig } = useValues(signalTeamConfigLogic)
     const { openSetupModal } = useActions(agentSetupModalLogic)
 
-    const channel = autonomyConfig?.slack_notification_channel ?? null
-    const notifying = (slackIntegrations?.length ?? 0) > 0 && !!channel
+    // Either target counts as set up: the team-wide channel catches every actionable report,
+    // the personal channel pings the suggested reviewer. The status names each configured one.
+    const teamChannel = teamConfig?.default_slack_notification_channel ?? null
+    const userChannel = autonomyConfig?.slack_notification_channel ?? null
+    const channelLabels = [
+        teamChannel ? `Team ${slackChannelDisplayName(teamChannel)}` : null,
+        userChannel ? `You ${slackChannelDisplayName(userChannel)}` : null,
+    ].filter(Boolean)
+    const notifying = (slackIntegrations?.length ?? 0) > 0 && channelLabels.length > 0
     return (
         <SetupWidgetCard
             icon={<IconSlack className="grayscale" />}
@@ -256,7 +266,7 @@ function NotificationsWidget(): JSX.Element {
             size="md"
             tone={notifying ? 'done' : 'todo'}
             loading={integrationsLoading && slackIntegrations === undefined}
-            status={notifying && channel ? `Slack ${slackChannelDisplayName(channel)}` : 'Not connected'}
+            status={notifying ? channelLabels.join(' · ') : 'Not connected'}
             onClick={() => openSetupModal('slack')}
         />
     )
@@ -338,6 +348,7 @@ export function AgentSetupColumn({ layout }: { layout: 'rail' | 'stacked' }): JS
             <SetupSection title="Agents">
                 <SignalSourcesWidget />
                 <ScoutTroopWidget />
+                <SelfDrivingSection />
             </SetupSection>
             <SetupSection title="Connections">
                 <CodeAccessWidget />

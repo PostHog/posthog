@@ -1,0 +1,60 @@
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "runs": {
+        "description": "A single execution of a Trigger.dev task, with its lifecycle status, timings, and cost.",
+        "docs_url": "https://trigger.dev/docs/management/runs/list",
+        "columns": {
+            "id": "Unique identifier for the run, prefixed with `run_`.",
+            "status": "Current lifecycle status (e.g. QUEUED, EXECUTING, COMPLETED, FAILED, CANCELED, CRASHED).",
+            "taskIdentifier": "Identifier of the task that this run executes.",
+            "version": "Worker version that executed the run (e.g. 20240523.1).",
+            "env": "The environment the run belongs to (id, name, and optional dev username).",
+            "idempotencyKey": "Key used to prevent duplicate runs.",
+            "isTest": "Whether the run was triggered as a test run.",
+            "createdAt": "When the run was created.",
+            "updatedAt": "When the run was last updated.",
+            "startedAt": "When the run started executing.",
+            "finishedAt": "When the run finished.",
+            "delayedUntil": "When a delayed run is scheduled to be enqueued.",
+            "ttl": "Time-to-live before an unstarted run expires (e.g. 1h42m).",
+            "expiredAt": "When the run's TTL passed and it expired.",
+            "tags": "User-defined tags attached to the run (up to 10).",
+            "costInCents": "Compute cost accrued so far, in cents (not set for DEV runs).",
+            "baseCostInCents": "Fixed invocation cost, in cents (not set for DEV runs).",
+            "durationMs": "Compute duration in milliseconds, excluding waits.",
+        },
+    },
+    "schedules": {
+        "description": "A schedule that triggers a task on a recurring cron expression.",
+        "docs_url": "https://trigger.dev/docs/management/schedules/list",
+        "columns": {
+            "id": "Unique identifier for the schedule, prefixed with `sched_`.",
+            "task": "Identifier of the scheduled task this schedule triggers.",
+            "type": "Whether the schedule is DECLARATIVE (defined in code) or IMPERATIVE (created via the API/dashboard).",
+            "active": "Whether the schedule is currently enabled.",
+            "deduplicationKey": "Key used to prevent creating duplicate schedules.",
+            "externalId": "Your own identifier associated with the schedule (e.g. a user or org id).",
+            "generator": "The cron generator: type, cron expression, and a plain-English description.",
+            "timezone": "IANA timezone the cron expression is evaluated in.",
+            "nextRun": "Next scheduled run time.",
+            "environments": "Environments the schedule is attached to.",
+        },
+    },
+    "queues": {
+        "description": "A task queue and its live concurrency and depth counters.",
+        "docs_url": "https://trigger.dev/docs/management/queues/list",
+        "columns": {
+            "id": "Unique identifier for the queue, prefixed with `queue_`.",
+            "name": "Queue name. For task queues this is the task id; for custom queues it is the name you specified.",
+            "type": "Whether the queue is a `task` queue (auto-created) or a `custom` queue (defined in code).",
+            "running": "Number of runs currently executing on the queue.",
+            "queued": "Number of runs currently waiting on the queue.",
+            "paused": "Whether the queue is paused (no new runs will start).",
+            "concurrencyLimit": "The current concurrency limit for the queue, if set.",
+            "concurrency": "Detailed concurrency info (current effective limit, base limit, and any override).",
+        },
+    },
+}

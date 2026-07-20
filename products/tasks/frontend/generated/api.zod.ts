@@ -295,6 +295,33 @@ export const TaskChannelsCreateBody = /* @__PURE__ */ zod
     .describe('Request body for creating (resolve-or-create) or renaming a public channel.')
 
 /**
+ * API for a channel's system-announcement feed — durable "PostHog agent" rows
+ * (context created, CONTEXT.md being built) rendered alongside the channel's task
+ * cards. Read by any team member for a public channel; personal channels are owner-only.
+ * @summary Post a channel feed message
+ */
+export const TaskChannelsFeedCreateBody = /* @__PURE__ */ zod
+    .object({
+        event: zod
+            .enum(['context_created', 'context_md_building'])
+            .describe('\* `context_created` - context_created\n\* `context_md_building` - context_md_building')
+            .describe(
+                'Lifecycle event key.\n\n\* `context_created` - context_created\n\* `context_md_building` - context_md_building'
+            ),
+        payload: zod
+            .unknown()
+            .optional()
+            .describe('Structured event data, e.g. {\"context_name\": \"mobile\"}. At most 8 KB of JSON.'),
+        created_at: zod.iso
+            .datetime({ offset: true })
+            .optional()
+            .describe(
+                'Optional explicit timestamp (within 10 minutes of now), so a client can order a burst of announcements.'
+            ),
+    })
+    .describe("Request body for posting a system announcement into a channel's feed.")
+
+/**
  * API for task channels — the shared feeds tasks are kicked off in. Listing lazily
  * provisions the requester's personal "#me" channel; creation is resolve-or-create
  * by normalized name so clients can map channel-like surfaces onto backend channels.
@@ -318,6 +345,8 @@ export const TaskChannelsPartialUpdateBody = /* @__PURE__ */ zod
 export const tasksCreateBodyTitleMax = 255
 
 export const tasksCreateBodyRepositoryMax = 255
+
+export const tasksCreateBodySignalReportTaskRelationshipMax = 200
 
 export const tasksCreateBodyBranchMax = 255
 
@@ -354,14 +383,15 @@ export const TasksCreateBody = /* @__PURE__ */ zod
                 'signals_scout',
                 'support_reply',
                 'hogdesk',
+                'review_hog',
                 'image_builder',
             ])
             .describe(
-                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `image_builder` - Image Builder'
+                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder'
             )
             .optional()
             .describe(
-                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `image_builder` - Image Builder'
+                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder'
             ),
         repository: zod
             .string()
@@ -375,9 +405,12 @@ export const TasksCreateBody = /* @__PURE__ */ zod
             .describe('User-scoped GitHub integration to use for user-authored cloud runs.'),
         signal_report: zod.uuid().nullish().describe('Signal report this task implements, when created from a report.'),
         signal_report_task_relationship: zod
-            .enum(['implementation'])
-            .describe('\* `implementation` - Implementation')
-            .optional(),
+            .string()
+            .max(tasksCreateBodySignalReportTaskRelationshipMax)
+            .optional()
+            .describe(
+                "How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted."
+            ),
         json_schema: zod.unknown().optional().describe('JSON schema used to validate the output of the task.'),
         internal: zod
             .boolean()
@@ -439,6 +472,13 @@ export const TasksCreateBody = /* @__PURE__ */ zod
                 "When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead."
             ),
         channel: zod.uuid().nullish().describe('Channel this task is owned by (the channel it was kicked off in).'),
+        runtime: zod
+            .enum(['acp', 'pi'])
+            .describe('\* `acp` - ACP\n\* `pi` - Pi')
+            .optional()
+            .describe(
+                "Agent protocol and harness used for this task's runs. Defaults to ACP when omitted.\n\n\* `acp` - ACP\n\* `pi` - Pi"
+            ),
     })
     .describe(
         'Request body for creating or updating a task.\n\nField required\/default semantics match the ``Task`` model. The view passes\n``validated_data`` (integration\/report PK fields already resolved to instances) to the\nfacade ``create_task`` \/ ``update_task`` functions.'
@@ -450,6 +490,8 @@ export const TasksCreateBody = /* @__PURE__ */ zod
 export const tasksUpdateBodyTitleMax = 255
 
 export const tasksUpdateBodyRepositoryMax = 255
+
+export const tasksUpdateBodySignalReportTaskRelationshipMax = 200
 
 export const tasksUpdateBodyBranchMax = 255
 
@@ -486,14 +528,15 @@ export const TasksUpdateBody = /* @__PURE__ */ zod
                 'signals_scout',
                 'support_reply',
                 'hogdesk',
+                'review_hog',
                 'image_builder',
             ])
             .describe(
-                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `image_builder` - Image Builder'
+                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder'
             )
             .optional()
             .describe(
-                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `image_builder` - Image Builder'
+                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder'
             ),
         repository: zod
             .string()
@@ -507,9 +550,12 @@ export const TasksUpdateBody = /* @__PURE__ */ zod
             .describe('User-scoped GitHub integration to use for user-authored cloud runs.'),
         signal_report: zod.uuid().nullish().describe('Signal report this task implements, when created from a report.'),
         signal_report_task_relationship: zod
-            .enum(['implementation'])
-            .describe('\* `implementation` - Implementation')
-            .optional(),
+            .string()
+            .max(tasksUpdateBodySignalReportTaskRelationshipMax)
+            .optional()
+            .describe(
+                "How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted."
+            ),
         json_schema: zod.unknown().optional().describe('JSON schema used to validate the output of the task.'),
         internal: zod
             .boolean()
@@ -583,6 +629,8 @@ export const tasksPartialUpdateBodyTitleMax = 255
 
 export const tasksPartialUpdateBodyRepositoryMax = 255
 
+export const tasksPartialUpdateBodySignalReportTaskRelationshipMax = 200
+
 export const tasksPartialUpdateBodyBranchMax = 255
 
 export const tasksPartialUpdateBodyPendingUserArtifactIdsItemMax = 128
@@ -618,14 +666,15 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod
                 'signals_scout',
                 'support_reply',
                 'hogdesk',
+                'review_hog',
                 'image_builder',
             ])
             .describe(
-                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `image_builder` - Image Builder'
+                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder'
             )
             .optional()
             .describe(
-                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `image_builder` - Image Builder'
+                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder'
             ),
         repository: zod
             .string()
@@ -639,9 +688,12 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod
             .describe('User-scoped GitHub integration to use for user-authored cloud runs.'),
         signal_report: zod.uuid().nullish().describe('Signal report this task implements, when created from a report.'),
         signal_report_task_relationship: zod
-            .enum(['implementation'])
-            .describe('\* `implementation` - Implementation')
-            .optional(),
+            .string()
+            .max(tasksPartialUpdateBodySignalReportTaskRelationshipMax)
+            .optional()
+            .describe(
+                "How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted."
+            ),
         json_schema: zod.unknown().optional().describe('JSON schema used to validate the output of the task.'),
         internal: zod
             .boolean()
@@ -728,10 +780,30 @@ export const TasksPresenceCreateBody = /* @__PURE__ */ zod
  * Create a new task run and kick off the workflow.
  * @summary Run task
  */
+export const tasksRunCreateBodyOneImportedMcpServersItemNameMax = 64
+
+export const tasksRunCreateBodyOneImportedMcpServersItemUrlMax = 2048
+
+export const tasksRunCreateBodyOneImportedMcpServersItemHeadersItemNameMax = 256
+
+export const tasksRunCreateBodyOneImportedMcpServersItemHeadersItemValueMax = 4096
+
+export const tasksRunCreateBodyOneRelayedMcpServersItemNameMax = 64
+
 export const tasksRunCreateBodyOneModeDefault = `background`
 export const tasksRunCreateBodyOneBranchMax = 255
 
 export const tasksRunCreateBodyOnePendingUserArtifactIdsItemMax = 128
+
+export const tasksRunCreateBodyTwoImportedMcpServersItemNameMax = 64
+
+export const tasksRunCreateBodyTwoImportedMcpServersItemUrlMax = 2048
+
+export const tasksRunCreateBodyTwoImportedMcpServersItemHeadersItemNameMax = 256
+
+export const tasksRunCreateBodyTwoImportedMcpServersItemHeadersItemValueMax = 4096
+
+export const tasksRunCreateBodyTwoRelayedMcpServersItemNameMax = 64
 
 export const tasksRunCreateBodyTwoModeDefault = `background`
 export const tasksRunCreateBodyTwoBranchMax = 255
@@ -744,6 +816,46 @@ export const tasksRunCreateBodyThreeBranchMax = 255
 export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
     zod
         .object({
+            imported_mcp_servers: zod
+                .array(
+                    zod
+                        .object({
+                            type: zod.enum(['http', 'sse']).describe('\* `http` - http\n\* `sse` - sse'),
+                            name: zod.string().max(tasksRunCreateBodyOneImportedMcpServersItemNameMax),
+                            url: zod.url().max(tasksRunCreateBodyOneImportedMcpServersItemUrlMax),
+                            headers: zod
+                                .array(
+                                    zod.object({
+                                        name: zod
+                                            .string()
+                                            .max(tasksRunCreateBodyOneImportedMcpServersItemHeadersItemNameMax),
+                                        value: zod
+                                            .string()
+                                            .max(tasksRunCreateBodyOneImportedMcpServersItemHeadersItemValueMax),
+                                    })
+                                )
+                                .optional(),
+                        })
+                        .describe("One client-imported MCP server, in the agent server's --mcpServers entry shape.")
+                )
+                .nullish()
+                .describe(
+                    'Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.'
+                ),
+            relayed_mcp_servers: zod
+                .array(
+                    zod
+                        .object({
+                            name: zod.string().max(tasksRunCreateBodyOneRelayedMcpServersItemNameMax),
+                        })
+                        .describe(
+                            'One desktop-only MCP server relayed into the run — a name only, never configuration.'
+                        )
+                )
+                .nullish()
+                .describe(
+                    'Names of desktop-only MCP servers the creating client (PostHog Code) relays into the cloud sandbox over the durable event\/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.'
+                ),
             mode: zod
                 .enum(['interactive', 'background'])
                 .describe('\* `interactive` - interactive\n\* `background` - background')
@@ -841,6 +953,46 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
         .describe('Request body for creating a new task run'),
     zod
         .object({
+            imported_mcp_servers: zod
+                .array(
+                    zod
+                        .object({
+                            type: zod.enum(['http', 'sse']).describe('\* `http` - http\n\* `sse` - sse'),
+                            name: zod.string().max(tasksRunCreateBodyTwoImportedMcpServersItemNameMax),
+                            url: zod.url().max(tasksRunCreateBodyTwoImportedMcpServersItemUrlMax),
+                            headers: zod
+                                .array(
+                                    zod.object({
+                                        name: zod
+                                            .string()
+                                            .max(tasksRunCreateBodyTwoImportedMcpServersItemHeadersItemNameMax),
+                                        value: zod
+                                            .string()
+                                            .max(tasksRunCreateBodyTwoImportedMcpServersItemHeadersItemValueMax),
+                                    })
+                                )
+                                .optional(),
+                        })
+                        .describe("One client-imported MCP server, in the agent server's --mcpServers entry shape.")
+                )
+                .nullish()
+                .describe(
+                    'Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.'
+                ),
+            relayed_mcp_servers: zod
+                .array(
+                    zod
+                        .object({
+                            name: zod.string().max(tasksRunCreateBodyTwoRelayedMcpServersItemNameMax),
+                        })
+                        .describe(
+                            'One desktop-only MCP server relayed into the run — a name only, never configuration.'
+                        )
+                )
+                .nullish()
+                .describe(
+                    'Names of desktop-only MCP servers the creating client (PostHog Code) relays into the cloud sandbox over the durable event\/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.'
+                ),
             mode: zod
                 .enum(['interactive', 'background'])
                 .describe('\* `interactive` - interactive\n\* `background` - background')
@@ -1188,6 +1340,16 @@ export const TasksStagedArtifactsPrepareUploadCreateBody = /* @__PURE__ */ zod.o
  * Create a new run for a specific task without starting execution.
  * @summary Create task run
  */
+export const tasksRunsCreateBodyImportedMcpServersItemNameMax = 64
+
+export const tasksRunsCreateBodyImportedMcpServersItemUrlMax = 2048
+
+export const tasksRunsCreateBodyImportedMcpServersItemHeadersItemNameMax = 256
+
+export const tasksRunsCreateBodyImportedMcpServersItemHeadersItemValueMax = 4096
+
+export const tasksRunsCreateBodyRelayedMcpServersItemNameMax = 64
+
 export const tasksRunsCreateBodyEnvironmentDefault = `local`
 export const tasksRunsCreateBodyModeDefault = `background`
 export const tasksRunsCreateBodyBranchMax = 255
@@ -1196,6 +1358,42 @@ export const tasksRunsCreateBodyHomeQuickActionMax = 120
 
 export const TasksRunsCreateBody = /* @__PURE__ */ zod
     .object({
+        imported_mcp_servers: zod
+            .array(
+                zod
+                    .object({
+                        type: zod.enum(['http', 'sse']).describe('\* `http` - http\n\* `sse` - sse'),
+                        name: zod.string().max(tasksRunsCreateBodyImportedMcpServersItemNameMax),
+                        url: zod.url().max(tasksRunsCreateBodyImportedMcpServersItemUrlMax),
+                        headers: zod
+                            .array(
+                                zod.object({
+                                    name: zod.string().max(tasksRunsCreateBodyImportedMcpServersItemHeadersItemNameMax),
+                                    value: zod
+                                        .string()
+                                        .max(tasksRunsCreateBodyImportedMcpServersItemHeadersItemValueMax),
+                                })
+                            )
+                            .optional(),
+                    })
+                    .describe("One client-imported MCP server, in the agent server's --mcpServers entry shape.")
+            )
+            .nullish()
+            .describe(
+                'Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.'
+            ),
+        relayed_mcp_servers: zod
+            .array(
+                zod
+                    .object({
+                        name: zod.string().max(tasksRunsCreateBodyRelayedMcpServersItemNameMax),
+                    })
+                    .describe('One desktop-only MCP server relayed into the run — a name only, never configuration.')
+            )
+            .nullish()
+            .describe(
+                'Names of desktop-only MCP servers the creating client (PostHog Code) relays into the cloud sandbox over the durable event\/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.'
+            ),
         environment: zod
             .enum(['local', 'cloud'])
             .describe('\* `local` - local\n\* `cloud` - cloud')
@@ -1641,7 +1839,21 @@ export const TasksRunsArtifactsPresignCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, and set_config_option commands.
+ * Stop an active cloud run. Interrupts the agent, snapshots interactive sessions for later resume, tears down the sandbox, and marks the run cancelled. Idempotent: cancelling a finished run returns it unchanged.
+ * @summary Cancel task run
+ */
+export const tasksRunsCancelCreateBodyReasonMax = 500
+
+export const TasksRunsCancelCreateBody = /* @__PURE__ */ zod.object({
+    reason: zod
+        .string()
+        .max(tasksRunsCancelCreateBodyReasonMax)
+        .nullish()
+        .describe('Optional reason for the cancellation, recorded on the run and shown to run watchers.'),
+})
+
+/**
+ * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, set_config_option, and mcp_response commands.
  * @summary Send command to task run
  */
 export const TasksRunsCommandCreateBody = /* @__PURE__ */ zod
@@ -1651,12 +1863,12 @@ export const TasksRunsCommandCreateBody = /* @__PURE__ */ zod
             .describe('\* `2.0` - 2.0')
             .describe("JSON-RPC version, must be '2.0'\n\n\* `2.0` - 2.0"),
         method: zod
-            .enum(['user_message', 'cancel', 'close', 'permission_response', 'set_config_option'])
+            .enum(['user_message', 'cancel', 'close', 'permission_response', 'set_config_option', 'mcp_response'])
             .describe(
-                '\* `user_message` - user_message\n\* `cancel` - cancel\n\* `close` - close\n\* `permission_response` - permission_response\n\* `set_config_option` - set_config_option'
+                '\* `user_message` - user_message\n\* `cancel` - cancel\n\* `close` - close\n\* `permission_response` - permission_response\n\* `set_config_option` - set_config_option\n\* `mcp_response` - mcp_response'
             )
             .describe(
-                'Command method to execute on the agent server\n\n\* `user_message` - user_message\n\* `cancel` - cancel\n\* `close` - close\n\* `permission_response` - permission_response\n\* `set_config_option` - set_config_option'
+                'Command method to execute on the agent server\n\n\* `user_message` - user_message\n\* `cancel` - cancel\n\* `close` - close\n\* `permission_response` - permission_response\n\* `set_config_option` - set_config_option\n\* `mcp_response` - mcp_response'
             ),
         params: zod.record(zod.string(), zod.unknown()).optional().describe('Parameters for the command'),
         id: zod.unknown().optional().describe('Optional JSON-RPC request ID (string or number)'),
@@ -1755,7 +1967,7 @@ export const TasksRunsLivingArtifactsCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            'Base64-encoded binary content for Slack file uploads or other external adapters. Prefer source_artifact_id or source_storage_path for large files that were already uploaded as run artifacts.'
+            'Base64-encoded binary content for Slack file uploads or other external adapters. Prefer source_artifact_id or source_storage_path for large files that were already uploaded as run output artifacts.'
         ),
     content_type: zod
         .string()
@@ -1767,11 +1979,15 @@ export const TasksRunsLivingArtifactsCreateBody = /* @__PURE__ */ zod.object({
     source_artifact_id: zod
         .string()
         .optional()
-        .describe('Existing run artifact id to use as the initial content source.'),
+        .describe(
+            'Existing run artifact id to use as the initial content source. Only agent-uploaded output artifacts are accepted; internal run artifacts are rejected.'
+        ),
     source_storage_path: zod
         .string()
         .optional()
-        .describe('Existing run artifact storage_path to use as the initial content source.'),
+        .describe(
+            'Existing run artifact storage_path to use as the initial content source. Only agent-uploaded output artifacts are accepted; internal run artifacts are rejected.'
+        ),
     metadata: zod
         .record(zod.string(), zod.unknown())
         .optional()
@@ -1811,11 +2027,15 @@ export const TasksRunsLivingArtifactsEditBody = /* @__PURE__ */ zod.object({
     source_artifact_id: zod
         .string()
         .optional()
-        .describe('Existing run artifact id to use as the next version content source.'),
+        .describe(
+            'Existing run artifact id to use as the next version content source. Only agent-uploaded output artifacts are accepted; internal run artifacts are rejected.'
+        ),
     source_storage_path: zod
         .string()
         .optional()
-        .describe('Existing run artifact storage_path to use as the next version content source.'),
+        .describe(
+            'Existing run artifact storage_path to use as the next version content source. Only agent-uploaded output artifacts are accepted; internal run artifacts are rejected.'
+        ),
     metadata: zod
         .record(zod.string(), zod.unknown())
         .optional()
@@ -1841,6 +2061,9 @@ export const TasksThreadMessagesSendToAgentCreateBody = /* @__PURE__ */ zod
     .object({
         id: zod.uuid(),
         task: zod.uuid(),
+        author_kind: zod.string(),
+        event: zod.string(),
+        payload: zod.record(zod.string(), zod.unknown()),
         content: zod.string(),
         created_at: zod.iso.datetime({ offset: true }),
         author: zod

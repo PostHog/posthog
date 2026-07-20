@@ -38,6 +38,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class ChartHopSource(ResumableSource[ChartHopSourceConfig, ChartHopResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://docs.charthop.com/charthop-for-developers"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -65,7 +66,6 @@ The organization ID (or slug) is optional — it's detected automatically when y
             docsUrl="https://posthog.com/docs/cdp/sources/charthop",
             iconPath="/static/services/charthop.png",
             keywords=["hr", "people analytics", "org chart", "compensation"],
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

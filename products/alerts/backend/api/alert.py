@@ -2,7 +2,7 @@ import uuid
 from typing import Annotated, Any, cast
 from zoneinfo import ZoneInfo
 
-from django.db.models import OuterRef, QuerySet, Subquery
+from django.db.models import OuterRef, Q, QuerySet, Subquery
 
 import posthoganalytics
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema, extend_schema_view
@@ -12,7 +12,7 @@ from pydantic import (
 )
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 
 from posthog.schema import (
@@ -23,6 +23,7 @@ from posthog.schema import (
     FunnelsAlertConfig,
     HogQLAlertConfig,
     InsightThreshold,
+    MetricsAlertConfig,
     NodeKind,
     TrendsAlertConfig,
 )
@@ -39,6 +40,7 @@ from posthog.helpers.trigram_search import (
     drop_similar_when_exact_exists,
 )
 from posthog.models import User
+from posthog.permissions import get_authenticator_scopes
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.alerts.detector import MAX_DETECTOR_BREAKDOWN_VALUES
@@ -87,11 +89,67 @@ class AlertConditionField(serializers.JSONField):
     pass
 
 
+def _insight_alert_flag_enabled(context: dict[str, Any], flag: str) -> bool:
+    # Scope the flag to the alert's organization (via team scope), not the user's current
+    # organization — otherwise a user in multiple orgs could flip their current org to a
+    # flag-on org and create an alert in a team where the flag is disabled. get_organization is
+    # always injected by TeamAndOrgViewSetMixin; access it unconditionally so the org-scoping
+    # invariant can't silently degrade to an unscoped check.
+    user = context["request"].user
+    org = context["get_organization"]()
+    return bool(
+        posthoganalytics.feature_enabled(
+            flag,
+            str(user.distinct_id),
+            groups={"organization": str(org.id)},
+        )
+    )
+
+
+def _enforce_alert_feature_flags(context: dict[str, Any], insight: Insight) -> None:
+    # Shared by create/update (AlertSerializer) and simulate (AlertSimulateSerializer), so a
+    # flag-gated insight kind gets the same rejection on every alerts entry point.
+    kind = insight.alertable_query_kind
+    if kind is None:
+        raise ValidationError("Alerts are not supported for this insight.")
+    # Gated on the Metrics product flag itself: anyone who can see the product can alert on it.
+    if kind == NodeKind.METRICS_QUERY and not _insight_alert_flag_enabled(context, "metrics"):
+        raise ValidationError("Metrics insight alerts are not enabled for your account.")
+
+
+# Matches insights whose (bare or one-level-wrapped) query is a MetricsQuery — the shapes the
+# product persists today. Used to hide metric alert data from tokens lacking the metrics scope.
+_METRICS_INSIGHT_QUERY_FILTER = Q(insight__query__kind="MetricsQuery") | Q(insight__query__source__kind="MetricsQuery")
+
+
+def _token_lacks_metrics_scope(request) -> bool:
+    # Session auth (no token scopes) is exempt: those users are gated by team membership and
+    # insight viewer access instead.
+    key_scopes = get_authenticator_scopes(request.successful_authenticator)
+    if key_scopes is None or "*" in key_scopes:
+        return False
+    return not any(scope in key_scopes for scope in ("metrics:read", "metrics:write"))
+
+
+def _require_metrics_scope_for_programmatic_auth(context: dict[str, Any], insight: Insight) -> None:
+    # An alert on a metrics insight executes the query as `created_by` and delivers the computed
+    # value and labels in notifications, so a programmatic token must also carry the metrics data
+    # scope — otherwise `alert:write` alone becomes a metrics-read oracle bypassing the explicit
+    # product-scope gate on the query endpoints.
+    if insight.alertable_query_kind != NodeKind.METRICS_QUERY:
+        return
+    if _token_lacks_metrics_scope(context["request"]):
+        raise PermissionDenied("API key missing required scope 'metrics:read'")
+
+
 class AlertConfigUnion(RootModel):
     """Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the
     generated frontend types and MCP tool schemas) in sync with every kind alerts support."""
 
-    root: Annotated[TrendsAlertConfig | HogQLAlertConfig | FunnelsAlertConfig, PydanticField(discriminator="type")]
+    root: Annotated[
+        TrendsAlertConfig | HogQLAlertConfig | FunnelsAlertConfig | MetricsAlertConfig,
+        PydanticField(discriminator="type"),
+    ]
 
 
 @extend_schema_field(AlertConfigUnion)  # type: ignore[arg-type]
@@ -546,43 +604,8 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         if not value:
             return value
         _require_insight_viewer_access(self.context, value)
-        self._enforce_alert_feature_flags(value)
+        _enforce_alert_feature_flags(self.context, value)
         return value
-
-    def _enforce_alert_feature_flags(self, insight) -> None:
-        # Enforced from the object-level validate() so it runs on every create and update — including
-        # a PATCH that omits `insight` (which skips this field-level validator), so an alert can't be
-        # repointed at a flag-gated insight kind in an account where the flag is off. The model stays
-        # flag-agnostic so existing alerts keep working when the flag is off.
-        kind = insight.alertable_query_kind
-        if kind is None:
-            raise ValidationError("Alerts are not supported for this insight.")
-        if kind == NodeKind.HOG_QL_QUERY and not self._hogql_alerts_enabled():
-            raise ValidationError("SQL insight alerts are not enabled for your account.")
-        if kind == NodeKind.FUNNELS_QUERY and not self._funnel_alerts_enabled():
-            raise ValidationError("Funnel insight alerts are not enabled for your account.")
-
-    def _hogql_alerts_enabled(self) -> bool:
-        return self._insight_alert_flag_enabled("hogql-insight-alerts")
-
-    def _funnel_alerts_enabled(self) -> bool:
-        return self._insight_alert_flag_enabled("funnel-insight-alerts")
-
-    def _insight_alert_flag_enabled(self, flag: str) -> bool:
-        # Scope the flag to the alert's organization (via team scope), not the user's current
-        # organization — otherwise a user in multiple orgs could flip their current org to a
-        # flag-on org and create an alert in a team where the flag is disabled. get_organization is
-        # always injected by TeamAndOrgViewSetMixin; access it unconditionally so the org-scoping
-        # invariant can't silently degrade to an unscoped check.
-        user = self.context["request"].user
-        org = self.context["get_organization"]()
-        return bool(
-            posthoganalytics.feature_enabled(
-                flag,
-                str(user.distinct_id),
-                groups={"organization": str(org.id)},
-            )
-        )
 
     def validate_subscribed_users(self, value):
         for user in value:
@@ -605,7 +628,13 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         insight = attrs.get("insight") or (self.instance.insight if self.instance else None)
         if insight is None:
             raise ValidationError({"insight": ["Insight is required."]})
-        self._enforce_alert_feature_flags(insight)
+        # Enforced from the object-level validate() so it runs on every create and update — including
+        # a PATCH that omits `insight` (which skips the field-level validator), so an alert can't be
+        # repointed at a flag-gated insight kind (or a scope-gated one) in an account where the flag
+        # is off or the token lacks the data scope. The model stays flag-agnostic so existing alerts
+        # keep working when the flag is off.
+        _enforce_alert_feature_flags(self.context, insight)
+        _require_metrics_scope_for_programmatic_auth(self.context, insight)
         with upgrade_query(insight):
             query = insight.query
             if query is None:
@@ -762,6 +791,9 @@ class AlertSimulateSerializer(serializers.Serializer):
 
     def validate_insight(self, value):
         _require_insight_viewer_access(self.context, value)
+        # Same feature gate as create/update: a flag-gated insight kind must get the gated
+        # rejection here too, not fall through to the unsupported-detector error.
+        _enforce_alert_feature_flags(self.context, value)
         return value
 
     def validate_detector_config(self, value):
@@ -913,6 +945,15 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             Insight.objects.filter(team_id=self.team_id)
         )
         queryset = queryset.filter(insight_id__in=viewable_insights.values("id"))
+
+        # Read-side twin of the write-side metrics scope gate: a programmatic token without the
+        # metrics data scope must not read metric alert results (last_value, check history, breach
+        # labels) that a session user scheduled. Filtering here covers list, retrieve, update,
+        # delete, and the embedded checks, since get_object() resolves from this queryset.
+        # filter-then-exclude-by-id rather than exclude(Q) — NOT over a JSON path is three-valued,
+        # so a plain exclude also drops rows whose query lacks the key entirely.
+        if _token_lacks_metrics_scope(self.request):
+            queryset = queryset.exclude(id__in=queryset.filter(_METRICS_INSIGHT_QUERY_FILTER).values("id"))
 
         latest_check = AlertCheck.objects.filter(alert_configuration=OuterRef("pk")).order_by("-created_at")
         queryset = queryset.annotate(last_value=Subquery(latest_check.values("calculated_value")[:1]))
@@ -1086,3 +1127,10 @@ class ThresholdViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     scope_object = "alert"
     queryset = Threshold.objects.all()
     serializer_class = ThresholdWithAlertSerializer
+
+    def safely_get_queryset(self, queryset) -> QuerySet:
+        # Thresholds embed full alerts (including check values), so they get the same read-side
+        # metrics scope gate as the alerts endpoints. Same null-safe filter-then-exclude shape.
+        if _token_lacks_metrics_scope(self.request):
+            queryset = queryset.exclude(id__in=queryset.filter(_METRICS_INSIGHT_QUERY_FILTER).values("id"))
+        return queryset

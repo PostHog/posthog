@@ -87,7 +87,7 @@ export class ToolExecutor {
             if (entry.name === EXECUTE_SQL_TOOL_NAME) {
                 return {
                     ...entry,
-                    description: this.instructionsBuilder.formatExecuteSqlDescription(),
+                    description: this.instructionsBuilder.formatExecuteSqlDescription(state.toolFeatureFlags),
                 }
             }
             return entry
@@ -398,7 +398,7 @@ export class ToolExecutor {
             tool.name === EXECUTE_SQL_TOOL_NAME
                 ? {
                       ...tool,
-                      description: this.instructionsBuilder.formatExecuteSqlDescription(),
+                      description: this.instructionsBuilder.formatExecuteSqlDescription(state.toolFeatureFlags),
                   }
                 : tool
         )
@@ -411,7 +411,10 @@ export class ToolExecutor {
             clientContext.mcpConsumer,
             trackInnerCall,
             state.scopeGatedTools,
-            { isInlineExecUiHost: state.clientProfile.isInlineExecUiHost() }
+            {
+                isInlineExecUiHost: state.clientProfile.isInlineExecUiHost(),
+                helpCatalog: this.instructionsBuilder.buildExecHelpCatalog(state),
+            }
         )
 
         return {
@@ -483,6 +486,10 @@ interface ToolErrorClassification {
     errorType: ToolErrorType
     /** Upstream HTTP status, when the failure came from a PostHog API error. */
     status?: number
+    /** Value-free descriptors of a schema rejection (offending field+code). */
+    validationFields?: string[]
+    /** Top-level keys the caller sent — surfaces unaccepted aliases on a union rejection. */
+    validationInputKeys?: string[]
 }
 
 /**
@@ -503,7 +510,11 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
         return { errorType: 'missing_context' }
     }
     if (error instanceof ToolInputValidationError) {
-        return { errorType: 'validation' }
+        return {
+            errorType: 'validation',
+            ...(error.fields.length ? { validationFields: error.fields } : {}),
+            ...(error.inputKeys.length ? { validationInputKeys: error.inputKeys } : {}),
+        }
     }
     if (findPostHogPermissionError(error)) {
         return { errorType: 'permission' }
@@ -538,5 +549,9 @@ function errorAnalyticsProperties(classification: ToolErrorClassification): Reco
     return {
         $mcp_error_type: classification.errorType,
         ...(classification.status !== undefined ? { $mcp_error_status: classification.status } : {}),
+        ...(classification.validationFields?.length ? { $mcp_validation_fields: classification.validationFields } : {}),
+        ...(classification.validationInputKeys?.length
+            ? { $mcp_validation_input_keys: classification.validationInputKeys }
+            : {}),
     }
 }

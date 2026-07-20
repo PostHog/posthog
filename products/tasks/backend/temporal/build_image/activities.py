@@ -19,6 +19,7 @@ from products.tasks.backend.logic.services.image_spec import (
     validate_image_repository,
     validate_spec_buildable,
 )
+from products.tasks.backend.metrics import observe_custom_image_build
 from products.tasks.backend.models import SandboxCustomImage
 from products.tasks.backend.temporal.observability import log_activity_execution
 
@@ -57,6 +58,7 @@ Hard severity rule: "unknown organization", "unfamiliar vendor", "unrelated to t
 class ImageBuildActivityInput:
     image_id: str
     team_id: int
+    refresh: bool = False
 
     def to_log_context(self) -> dict[str, Any]:
         return {"image_id": self.image_id, "team_id": self.team_id}
@@ -136,6 +138,7 @@ def scan_image_spec(input: ImageBuildActivityInput) -> ScanImageSpecOutput:
             image.status = SandboxCustomImage.Status.SCAN_FAILED
             image.error = "Security scan failed: " + ("; ".join(filter(None, high_findings)) or "unsafe spec")
             image.save(update_fields=["scan_result", "status", "error", "updated_at"])
+            observe_custom_image_build("scan_rejected")
         return result
 
 
@@ -202,10 +205,13 @@ def _attach_repo_warm_layer(image: "modal.Image", spec: SandboxImageSpec):
     )
 
 
-def _compose_modal_image(spec: SandboxImageSpec, *, repository: str, team_id: int) -> "tuple[modal.Image, modal.App]":
+def _compose_modal_image(
+    spec: SandboxImageSpec, *, repository: str, team_id: int
+) -> "tuple[modal.Image, modal.App, str | None]":
     from products.tasks.backend.logic.services.modal_sandbox import (  # noqa: PLC0415
         ModalSandbox,
         resolve_template_base_image,
+        resolve_template_base_image_reference,
     )
     from products.tasks.backend.logic.services.sandbox import SandboxTemplate, get_sandbox_class  # noqa: PLC0415
 
@@ -215,6 +221,7 @@ def _compose_modal_image(spec: SandboxImageSpec, *, repository: str, team_id: in
 
     app = sandbox_cls._get_app_for_template(SandboxTemplate.VM_BASE)
     image = resolve_template_base_image(SandboxTemplate.VM_BASE)
+    base_image_reference = resolve_template_base_image_reference(SandboxTemplate.VM_BASE)
 
     # Clone the linked repo with the token FIRST, on the trusted base, before any spec-authored
     # layer can tamper with git to capture it. The warm step runs later, token-free.
@@ -232,7 +239,7 @@ def _compose_modal_image(spec: SandboxImageSpec, *, repository: str, team_id: in
     if spec.repo_setup_commands:
         image = _attach_repo_warm_layer(image, spec)
 
-    return image, app
+    return image, app, base_image_reference
 
 
 BUILD_LOG_FLUSH_INTERVAL_SECONDS = 2.0
@@ -297,7 +304,9 @@ def build_and_publish_image(input: ImageBuildActivityInput) -> str:
         image.save(update_fields=["status", "build_log", "updated_at"])
 
         spec = parse_image_spec_json(image.spec)
-        modal_image, app = _compose_modal_image(spec, repository=image.repository, team_id=image.team_id)
+        modal_image, app, base_image_reference = _compose_modal_image(
+            spec, repository=image.repository, team_id=image.team_id
+        )
 
         log_stream = _BuildLogBuffer()
         stop_flusher = threading.Event()
@@ -319,9 +328,22 @@ def build_and_publish_image(input: ImageBuildActivityInput) -> str:
 
         image.version = image.version + 1
         image.modal_image_name = publish_name
+        image.base_image_reference = base_image_reference
+        image.base_image_refresh_reference = None
         image.status = SandboxCustomImage.Status.READY
         image.error = ""
-        image.save(update_fields=["version", "modal_image_name", "status", "error", "updated_at"])
+        image.save(
+            update_fields=[
+                "version",
+                "modal_image_name",
+                "base_image_reference",
+                "base_image_refresh_reference",
+                "status",
+                "error",
+                "updated_at",
+            ]
+        )
+        observe_custom_image_build("succeeded")
 
         logger.info(
             "custom_image_published",
@@ -335,6 +357,7 @@ class MarkImageBuildFailedInput:
     image_id: str
     team_id: int
     error: str
+    refresh: bool = False
 
     def to_log_context(self) -> dict[str, Any]:
         return {"image_id": self.image_id, "team_id": self.team_id}
@@ -349,6 +372,13 @@ def mark_image_build_failed(input: MarkImageBuildFailedInput) -> None:
             logger.warning("mark_image_build_failed_image_gone", extra=input.to_log_context())
             return
         if image.status in (SandboxCustomImage.Status.SCANNING, SandboxCustomImage.Status.BUILDING):
-            image.status = SandboxCustomImage.Status.BUILD_FAILED
+            image.status = (
+                SandboxCustomImage.Status.READY
+                if input.refresh and image.modal_image_name
+                else SandboxCustomImage.Status.BUILD_FAILED
+            )
             image.error = input.error[:2000]
-            image.save(update_fields=["status", "error", "updated_at"])
+            if input.refresh:
+                image.base_image_refresh_reference = None
+            image.save(update_fields=["status", "error", "base_image_refresh_reference", "updated_at"])
+            observe_custom_image_build("failed")

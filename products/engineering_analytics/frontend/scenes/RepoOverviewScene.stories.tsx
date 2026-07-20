@@ -8,6 +8,7 @@ import { mswDecorator } from '~/mocks/browser'
 
 import type {
     GitHubSourceApi,
+    MasterFailureGroupApi,
     PullRequestListApi,
     RepoOverviewApi,
     WorkflowHealthItemApi,
@@ -25,6 +26,9 @@ const OVERVIEW: RepoOverviewApi = {
     success_rate_prev: 0.82,
     rerun_cycles: 41,
     rerun_cycles_prev: 30,
+    // Matches the cost_series merges below: 8 merges x 7 daily buckets.
+    merged_pr_count: 56,
+    merged_pr_count_prev: 49,
     median_open_to_merge_seconds: 14 * 3600,
     median_open_to_merge_seconds_prev: 19 * 3600,
     billable_minutes: 5230,
@@ -108,6 +112,20 @@ const WORKFLOW_HEALTH: WorkflowHealthItemApi[] = [
     healthItem('Backend CI', 210.4, [2, 0, 4, 1, 0, 3, 1], 0.91),
     healthItem('E2E - Playwright', 130.2, [5, 3, 6, 2, 4, 5, 3], 0.78),
     healthItem('Frontend CI', 71.9, [0, 1, 0, 0, 2, 0, 1], 0.95),
+]
+
+// The latest run recovered, but the 24-hour failure feed still includes the earlier failure. The hero
+// must stay green while the triage section preserves that history.
+const RECENT_FAILURES: MasterFailureGroupApi[] = [
+    {
+        repo: { provider: 'github', owner: 'PostHog', name: 'posthog' },
+        workflow_name: 'Backend CI',
+        failed_job: 'Backend tests',
+        run_count: 1,
+        first_seen: '2026-07-01T12:00:00Z',
+        last_seen: '2026-07-01T12:00:00Z',
+        latest_run_id: 8999,
+    },
 ]
 
 const PULL_REQUESTS: PullRequestListApi = {
@@ -215,7 +233,13 @@ const meta: Meta = {
             get: {
                 'api/projects/:team_id/engineering_analytics/sources/': SOURCES,
                 'api/projects/:team_id/engineering_analytics/repo_overview/': OVERVIEW,
-                'api/projects/:team_id/engineering_analytics/master_failures/': [],
+                'api/projects/:team_id/engineering_analytics/current_branch_health/': {
+                    default_branch: 'master',
+                    settled_workflows: WORKFLOW_HEALTH.length,
+                    failing_workflows: 0,
+                    failing_workflow_names: [],
+                },
+                'api/projects/:team_id/engineering_analytics/master_failures/': RECENT_FAILURES,
                 'api/projects/:team_id/engineering_analytics/repo_run_activity/': ACTIVITY,
                 'api/projects/:team_id/engineering_analytics/ci_cards/': {
                     open_prs: 18,
@@ -236,4 +260,22 @@ type Story = StoryObj<typeof meta>
 export const RepoOverview: Story = {
     render: () => <App />,
     parameters: { pageUrl: urls.engineeringAnalytics() },
+}
+
+// The red verdict: failing workflows drive the danger styling, the names subline, and the jump link.
+export const RepoOverviewFailing: Story = {
+    render: () => <App />,
+    parameters: { pageUrl: urls.engineeringAnalytics() },
+    decorators: [
+        mswDecorator({
+            get: {
+                'api/projects/:team_id/engineering_analytics/current_branch_health/': {
+                    default_branch: 'master',
+                    settled_workflows: WORKFLOW_HEALTH.length,
+                    failing_workflows: 2,
+                    failing_workflow_names: ['Backend CI', 'E2E - Playwright'],
+                },
+            },
+        }),
+    ],
 }

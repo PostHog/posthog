@@ -34,6 +34,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class GoldcastSource(SimpleSource[GoldcastSourceConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://customapi.goldcast.io/swagger-ui/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -46,7 +47,6 @@ class GoldcastSource(SimpleSource[GoldcastSourceConfig]):
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Goldcast",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Goldcast API token to sync your virtual event and webinar data into the PostHog Data warehouse.
 
 An org admin can create a personal access token in Goldcast Studio under **Settings → Tokens**. The token is shown only once, so copy it immediately.

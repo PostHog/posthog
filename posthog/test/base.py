@@ -51,6 +51,7 @@ from posthog.clickhouse.adhoc_events_deletion import (
 )
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import get_client_from_pool
+from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.custom_metrics import (
     CREATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
     CREATE_CUSTOM_METRICS_COUNTERS_VIEW,
@@ -77,7 +78,7 @@ from posthog.clickhouse.query_log_archive import (
     WRITABLE_QUERY_LOG_ARCHIVE_TABLE,
 )
 from posthog.cloud_utils import TEST_clear_instance_license_cache
-from posthog.helpers.two_factor_session import email_mfa_token_generator
+from posthog.helpers.two_factor_session import code_based_verification_token_generator
 from posthog.hogql_queries.ai.ai_table_resolver import AI_EVENT_NAMES as _AI_EVENT_TYPES
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.models import Organization, Team, User
@@ -100,11 +101,19 @@ from posthog.models.cohortmembership.sql import (
     KAFKA_COHORT_MEMBERSHIP_TABLE_SQL,
 )
 from posthog.models.event.sql import (
+    DISTRIBUTED_EVENTS_JSON_TABLE,
+    DISTRIBUTED_EVENTS_JSON_TABLE_SQL,
     DISTRIBUTED_EVENTS_TABLE_SQL,
     DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
     DROP_EVENTS_TABLE_SQL,
+    EVENTS_JSON_DATA_TABLE,
+    EVENTS_JSON_TABLE_SQL,
     EVENTS_TABLE_SQL,
     TRUNCATE_EVENTS_RECENT_TABLE_SQL,
+    WRITABLE_EVENTS_DATA_TABLE,
+    WRITABLE_EVENTS_JSON_TABLE,
+    WRITABLE_EVENTS_JSON_TABLE_SQL,
+    WRITABLE_EVENTS_TABLE_SQL,
 )
 from posthog.models.event.util import _resolve_person_for_bulk_event, bulk_create_events
 from posthog.models.exchange_rate.sql import (
@@ -454,13 +463,6 @@ def clean_varying_query_parts(query, replace_all_numbers):
         query,
     )
 
-    # insight cache key varies with team id
-    query = re.sub(
-        r"WHERE \(\"posthog_insightcachingstate\".\"cache_key\" = 'cache_\w{32}'",
-        """WHERE ("posthog_insightcachingstate"."cache_key" = 'cache_THE_CACHE_KEY'""",
-        query,
-    )
-
     # replace Savepoint numbers
     query = re.sub(r"SAVEPOINT \".+\"", "SAVEPOINT _snapshot_", query)
 
@@ -676,6 +678,13 @@ class PostHogTestCase(SimpleTestCase):
 
     def setUp(self):
         get_instance_setting.cache_clear()  # type: ignore[attr-defined]
+
+        # Warm the new-events-schema gate settings so their cold reads don't land inside
+        # assertNumQueries blocks: production workers serve requests with this cache warm
+        # (60s TTL), and counting the cold reads would make every exact-count test depend
+        # on which events-schema mode CI is running.
+        get_instance_setting("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA")
+        get_instance_setting("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS")
 
         if get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
             from posthog.models.team import util
@@ -1067,13 +1076,13 @@ class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
         )
         return key_value
 
-    def complete_email_mfa(self, email: str, user: Optional[Any] = None):
+    def complete_code_based_verification(self, email: str, user: Optional[Any] = None):
         if user is None:
             user = User.objects.get(email=email)
 
-        token = email_mfa_token_generator.make_token(user)
+        token = code_based_verification_token_generator.make_token(user)
 
-        response = self.client.post("/api/login/email-mfa/", {"email": email, "token": token})
+        response = self.client.post("/api/login/code-based-verification/", {"email": email, "token": token})
 
         return response
 
@@ -1153,6 +1162,7 @@ def cleanup_materialized_columns():
     }
 
     optionally_drop("events", lambda name: name not in default_column_names)
+
     optionally_drop("person")
     optionally_drop("groups")
     # Raw DROP COLUMN above bypasses drop_column(), which normally self-invalidates the cache.
@@ -1296,18 +1306,22 @@ def materialized(
         yield column
     finally:
         if column is not None:
-            data_table = "sharded_events" if table == "events" else table
-            indexes_to_drop = []
-            if create_minmax_index:
-                indexes_to_drop.append(get_minmax_index_name(column.name))
-            if create_bloom_filter_index:
-                indexes_to_drop.append(get_bloom_filter_index_name(column.name))
-            if create_ngram_lower_index:
-                indexes_to_drop.append(get_ngram_lower_index_name(column.name))
-            if create_bloom_filter_lower_index:
-                indexes_to_drop.append(get_bloom_filter_lower_index_name(column.name))
-            for index_name in indexes_to_drop:
-                sync_execute(f"ALTER TABLE {data_table} DROP INDEX IF EXISTS {index_name} SETTINGS mutations_sync = 2")
+            event_materialization_disabled = table == "events" and settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+            if not event_materialization_disabled:
+                data_table = "sharded_events" if table == "events" else table
+                indexes_to_drop = []
+                if create_minmax_index:
+                    indexes_to_drop.append(get_minmax_index_name(column.name))
+                if create_bloom_filter_index:
+                    indexes_to_drop.append(get_bloom_filter_index_name(column.name))
+                if create_ngram_lower_index:
+                    indexes_to_drop.append(get_ngram_lower_index_name(column.name))
+                if create_bloom_filter_lower_index:
+                    indexes_to_drop.append(get_bloom_filter_lower_index_name(column.name))
+                for index_name in indexes_to_drop:
+                    sync_execute(
+                        f"ALTER TABLE {data_table} DROP INDEX IF EXISTS {index_name} SETTINGS mutations_sync = 2"
+                    )
         cleanup_materialized_columns()
 
 
@@ -1393,25 +1407,45 @@ class QueryMatchingTest:
     snapshot: Any
     replace_all_numbers: bool = False
 
+    def _allow_dual_schema_snapshots(self) -> None:
+        if getattr(self, "allow_dual_schema_snapshots", False):
+            self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
+
+    def _schema_snapshot(self, use_new_events_schema_snapshot: bool = False):
+        if not use_new_events_schema_snapshot:
+            self._allow_dual_schema_snapshots()
+            return self.snapshot
+
+        self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
+        snapshot_index = getattr(self, "_new_events_schema_snapshot_index", 0)
+        self._new_events_schema_snapshot_index = snapshot_index + 1
+        snapshot_name = "new_events_schema" if snapshot_index == 0 else f"new_events_schema.{snapshot_index}"
+        return self.snapshot(name=snapshot_name)
+
     # :NOTE: Update snapshots by passing --snapshot-update to bin/tests
     def assertQueryMatchesSnapshot(self, query, params=None, replace_all_numbers=False):
         replace_all_numbers = replace_all_numbers or self.replace_all_numbers
 
         query = clean_varying_query_parts(query, replace_all_numbers)
+        use_new_events_schema_snapshot = (
+            settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and "events_json" in query.lower()
+        )
 
+        query_snapshot = self._schema_snapshot(use_new_events_schema_snapshot)
         try:
-            assert _format_sql_for_snapshot(query) == self.snapshot
+            assert _format_sql_for_snapshot(query) == query_snapshot
         except AssertionError:
-            diff_lines = "\n".join(self.snapshot.get_assert_diff())
+            diff_lines = "\n".join(query_snapshot.get_assert_diff())
             error_message = f"Query does not match snapshot. Update snapshots with --snapshot-update.\n\n{diff_lines}"
             raise AssertionError(error_message)
 
         if params is not None:
             del params["team_id"]  # Changes every run
+            params_snapshot = self._schema_snapshot(use_new_events_schema_snapshot)
             try:
-                assert params == self.snapshot
+                assert params == params_snapshot
             except AssertionError:
-                params_diff_lines = "\n".join(self.snapshot.get_assert_diff())
+                params_diff_lines = "\n".join(params_snapshot.get_assert_diff())
                 params_error_message = f"Query parameters do not match snapshot. Update snapshots with --snapshot-update.\n\n{params_diff_lines}"
                 raise AssertionError(params_error_message)
 
@@ -1750,7 +1784,7 @@ class ClickhouseTestMixin(QueryMatchingTest):
                 self.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
 
 
-def run_clickhouse_statement_in_parallel(statements: list[str]):
+def run_clickhouse_statement_in_parallel(statements: list[str]) -> None:
     # Test infrastructure runs a single-node ClickHouse, so ON CLUSTER only adds
     # distributed-DDL keeper round-trips (~0.3-0.5s per statement) without changing
     # the outcome — strip it from TRUNCATEs.
@@ -1786,6 +1820,41 @@ def run_clickhouse_statement_in_parallel(statements: list[str]):
 
         if exceptions:
             raise exceptions[0]
+
+
+def clickhouse_events_table_drop_statements() -> list[str]:
+    statements = [
+        DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
+        DROP_EVENTS_TABLE_SQL(),
+    ]
+
+    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+        statements = [
+            f"DROP TABLE IF EXISTS {DISTRIBUTED_EVENTS_JSON_TABLE}",
+            f"DROP TABLE IF EXISTS {WRITABLE_EVENTS_JSON_TABLE}",
+            f"DROP TABLE IF EXISTS {EVENTS_JSON_DATA_TABLE}",
+            f"DROP TABLE IF EXISTS {WRITABLE_EVENTS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}",
+            *statements,
+        ]
+
+    return statements
+
+
+def clickhouse_events_data_table_sqls() -> list[str]:
+    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+        return [EVENTS_TABLE_SQL(), EVENTS_JSON_TABLE_SQL()]
+    return [EVENTS_TABLE_SQL()]
+
+
+def clickhouse_events_distributed_table_sqls() -> list[str]:
+    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+        return [
+            DISTRIBUTED_EVENTS_TABLE_SQL(),
+            WRITABLE_EVENTS_TABLE_SQL(),
+            WRITABLE_EVENTS_JSON_TABLE_SQL(),
+            DISTRIBUTED_EVENTS_JSON_TABLE_SQL(),
+        ]
+    return [DISTRIBUTED_EVENTS_TABLE_SQL()]
 
 
 # A client checkout is the "ClickHouse may have changed" signal. Counted at two
@@ -1855,8 +1924,7 @@ def reset_clickhouse_database() -> None:
             DROP_CHANNEL_DEFINITION_TABLE_SQL,
             DROP_EXCHANGE_RATE_TABLE_SQL(),
             DROP_WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL(),
-            DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
-            DROP_EVENTS_TABLE_SQL(),
+            *clickhouse_events_table_drop_statements(),
             DROP_PERSON_TABLE_SQL,
             DROP_PROPERTY_DEFINITIONS_TABLE_SQL(),
             DROP_RAW_SESSION_SHARDED_TABLE_SQL(),
@@ -1898,7 +1966,7 @@ def reset_clickhouse_database() -> None:
         [
             CHANNEL_DEFINITION_TABLE_SQL(),
             EXCHANGE_RATE_TABLE_SQL(),
-            EVENTS_TABLE_SQL(),
+            *clickhouse_events_data_table_sqls(),
             PERSONS_TABLE_SQL(),
             PROPERTY_DEFINITIONS_TABLE_SQL(),
             RAW_SESSIONS_TABLE_SQL(),
@@ -1923,7 +1991,7 @@ def reset_clickhouse_database() -> None:
         [
             CHANNEL_DEFINITION_DICTIONARY_SQL(),
             EXCHANGE_RATE_DICTIONARY_SQL(),
-            DISTRIBUTED_EVENTS_TABLE_SQL(),
+            *clickhouse_events_distributed_table_sqls(),
             DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE_SQL(),
             DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(),
             DISTRIBUTED_RAW_SESSIONS_TABLE_SQL_V3(),
@@ -2016,7 +2084,9 @@ def snapshot_clickhouse_queries(fn_or_class):
             fn_or_class(self, *args, **kwargs)
 
         for query in queries:
-            if "FROM system.columns" not in query:
+            # system.columns / system.tables reads are schema bookkeeping (materialized-column
+            # discovery, events-table existence checks), not behavior worth snapshotting.
+            if "FROM system.columns" not in query and "FROM system.tables" not in query:
                 replace_all_numbers = getattr(self, "snapshot_replace_all_numbers", False)
                 self.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
 

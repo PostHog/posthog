@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class FastlySource(ResumableSource[FastlySourceConfig, FastlyResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://www.fastly.com/documentation/reference/api/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -52,7 +53,6 @@ You can create an API token in your [Fastly account settings](https://manage.fas
 A read-only token with **global** scope is sufficient to sync every table.""",
             iconPath="/static/services/fastly.png",
             docsUrl="https://posthog.com/docs/cdp/sources/fastly",
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

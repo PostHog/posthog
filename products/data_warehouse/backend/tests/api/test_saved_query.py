@@ -293,6 +293,31 @@ class TestSavedQuery(APIBaseTest):
 
             mock_get_columns.assert_not_called()
 
+    def test_column_order_survives_postgres_roundtrip(self):
+        # Columns are stored in a jsonb object, which does not preserve key insertion order. Names
+        # are chosen so jsonb reorders them (by length then bytes -> a, mm, zebra) away from the
+        # SELECT order (zebra, mm, a). A fresh GET must still return SELECT order via column_order.
+        select_order = ["zebra", "mm", "a"]
+        create = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "ordered_view",
+                "query": {"kind": "HogQLQuery", "query": "select 1 as zebra, 2 as mm, 3 as a"},
+                "types": [[name, "Int64"] for name in select_order],
+            },
+        )
+        assert create.status_code == 201, create.json()
+        view_id = create.json()["id"]
+
+        # Refetch from Postgres so the assertion runs against the persisted jsonb, not the
+        # in-memory instance whose dict order is trivially preserved.
+        get = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/{view_id}/")
+        assert get.status_code == 200
+        assert [column["name"] for column in get.json()["columns"]] == select_order
+
+        saved_query = DataWarehouseSavedQuery.objects.get(id=view_id)
+        assert saved_query.column_order == select_order
+
     def test_create_name_overlap_error(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",

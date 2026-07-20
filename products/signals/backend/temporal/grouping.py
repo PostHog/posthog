@@ -29,12 +29,15 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
-from products.signals.backend.models import SignalReport
+from products.signals.backend.artefact_attribution import ArtefactAttribution
+from products.signals.backend.artefact_schemas import RelatedTo
+from products.signals.backend.billing import BILLING_EXEMPT_SOURCE_PRODUCTS
+from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.signal_metadata import EMBEDDING_MODEL
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
 from products.signals.backend.temporal.llm import MAX_QUERY_TOKENS, call_llm, truncate_query_to_token_limit
 from products.signals.backend.temporal.signal_queries import (
-    EMBEDDING_MODEL,
     FetchSignalsForReportInput,
     FetchSignalsForReportOutput,
     FetchSignalTypeExamplesInput,
@@ -724,13 +727,37 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         metadata=metadata,
                     )
                     return report_id, False, ts, True, report.run_count, False, report.status, report.signal_count
-                report.total_weight += input.weight
-                report.signal_count += 1
-                update_fields = ["total_weight", "signal_count", "updated_at"]
-                if input.updated_title:
-                    report.title = input.updated_title
-                    update_fields.append("title")
-                report.save(update_fields=update_fields)
+                # Resolved reports are terminal — never reopen them. When a signal would have grouped
+                # into an already-resolved report, the issue it fixed has recurred (or a related one
+                # has), so we start a fresh report and link it to the resolved report via a
+                # `related_to` artefact. add_log writes the symmetric back-link automatically, so the
+                # link is discoverable from either side. The research agent is later handed that
+                # resolved report as context (see report.py).
+                if report.status == SignalReport.Status.RESOLVED:
+                    resolved_report = report
+                    report = SignalReport.objects.create(
+                        team_id=input.team_id,
+                        status=SignalReport.Status.POTENTIAL,
+                        total_weight=input.weight,
+                        signal_count=1,
+                        title=resolved_report.title,
+                        summary=resolved_report.summary,
+                        billing_exempt_reason=BILLING_EXEMPT_SOURCE_PRODUCTS.get(input.source_product),
+                    )
+                    SignalReportArtefact.add_log(
+                        team_id=input.team_id,
+                        report_id=str(report.id),
+                        content=RelatedTo(report_id=str(resolved_report.id)),
+                        attribution=ArtefactAttribution.system(),
+                    )
+                else:
+                    report.total_weight += input.weight
+                    report.signal_count += 1
+                    update_fields = ["total_weight", "signal_count", "updated_at"]
+                    if input.updated_title:
+                        report.title = input.updated_title
+                        update_fields.append("title")
+                    report.save(update_fields=update_fields)
             else:
                 report = SignalReport.objects.create(
                     team_id=input.team_id,
@@ -739,16 +766,21 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     signal_count=1,
                     title=match_result.title,
                     summary=match_result.summary,
+                    # A report born from a PostHog-system signal (e.g. health checks) must never
+                    # bill the customer. Only this founding signal decides: signals that join the
+                    # report later (the branch above) leave the exemption unchanged either way.
+                    billing_exempt_reason=BILLING_EXEMPT_SOURCE_PRODUCTS.get(input.source_product),
                 )
 
             # Promotion rules by status:
             # - SUPPRESSED: never promoted.
+            # - RESOLVED: terminal — never receives new signals (a recurrence spawns a fresh report above).
             # - POTENTIAL: promote once total_weight >= WEIGHT_THRESHOLD and signal_count >= signals_at_run
             #   (snooze gate, defaults to 0). Uncapped — a report's first research always runs.
-            # - READY / RESOLVED: re-research on every new signal (resolved = issue recurred), but only
-            #   while signal_count <= RERESEARCH_MAX_SIGNALS; past the cap, signals are collected, not researched.
+            # - READY: re-research on every new signal, but only while signal_count <= RERESEARCH_MAX_SIGNALS;
+            #   past the cap, signals are collected, not researched.
             # - CANDIDATE: re-promote to self-heal failed spawns (uncapped; concurrent runs blocked by Temporal).
-            is_reresearch = report.status == SignalReport.Status.READY or report.status == SignalReport.Status.RESOLVED
+            is_reresearch = report.status == SignalReport.Status.READY
             reresearch_capped = is_reresearch and report.signal_count > RERESEARCH_MAX_SIGNALS
             if (
                 (is_reresearch and not reresearch_capped)

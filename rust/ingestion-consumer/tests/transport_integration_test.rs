@@ -222,7 +222,7 @@ async fn transport_sends_batch_and_receives_ack() {
     ];
 
     let accepted = transport
-        .send_batch(&url, "batch-1", messages)
+        .send_batch(&url, "batch-1", messages, false)
         .await
         .unwrap();
 
@@ -251,7 +251,9 @@ async fn transport_retries_on_server_error() {
 
     let messages = vec![make_message("tok", "user", 0, "{}")];
 
-    let result = transport.send_batch(&url, "batch-retry", messages).await;
+    let result = transport
+        .send_batch(&url, "batch-retry", messages, false)
+        .await;
     assert!(result.is_err());
 }
 
@@ -270,7 +272,7 @@ async fn transport_retries_on_worker_busy() {
 
     let start = std::time::Instant::now();
     let err = transport
-        .send_batch(&url, "batch-busy", messages)
+        .send_batch(&url, "batch-busy", messages, false)
         .await
         .unwrap_err();
     let elapsed = start.elapsed();
@@ -298,7 +300,7 @@ async fn transport_recovers_after_worker_busy() {
     let messages = vec![make_message("tok", "user", 0, "{}")];
 
     let accepted = transport
-        .send_batch(&url, "batch-recover", messages)
+        .send_batch(&url, "batch-recover", messages, false)
         .await
         .expect("should succeed after the worker stops being busy");
     assert_eq!(accepted, 1);
@@ -311,7 +313,9 @@ async fn transport_fails_on_unreachable_worker() {
     let transport = HttpTransport::new(Duration::from_secs(1), 0, None, &urls, 1);
     let messages = vec![make_message("tok", "user", 0, "{}")];
 
-    let result = transport.send_batch(&url, "batch-fail", messages).await;
+    let result = transport
+        .send_batch(&url, "batch-fail", messages, false)
+        .await;
     assert!(result.is_err());
 }
 
@@ -327,7 +331,7 @@ async fn transport_lazily_creates_semaphore_for_unseeded_worker() {
 
     let messages = vec![make_message("tok", "user", 0, "{}")];
     let accepted = transport
-        .send_batch(&url, "batch-lazy", messages)
+        .send_batch(&url, "batch-lazy", messages, false)
         .await
         .expect("send to an unseeded worker should succeed via lazy semaphore creation");
 
@@ -361,6 +365,7 @@ async fn transport_serializes_concurrent_sends_to_same_worker() {
                 &u,
                 &format!("batch-{i}"),
                 vec![make_message("tok", "u", 0, "{}")],
+                false,
             )
             .await
             .unwrap()
@@ -404,18 +409,28 @@ async fn transport_parallelizes_across_different_workers() {
         let t = transport.clone();
         let u = url_a.clone();
         tokio::spawn(async move {
-            t.send_batch(&u, "batch-a", vec![make_message("tok", "u", 0, "{}")])
-                .await
-                .unwrap()
+            t.send_batch(
+                &u,
+                "batch-a",
+                vec![make_message("tok", "u", 0, "{}")],
+                false,
+            )
+            .await
+            .unwrap()
         })
     };
     let t2 = {
         let t = transport.clone();
         let u = url_b.clone();
         tokio::spawn(async move {
-            t.send_batch(&u, "batch-b", vec![make_message("tok", "u", 0, "{}")])
-                .await
-                .unwrap()
+            t.send_batch(
+                &u,
+                "batch-b",
+                vec![make_message("tok", "u", 0, "{}")],
+                false,
+            )
+            .await
+            .unwrap()
         })
     };
     t1.await.unwrap();
@@ -481,7 +496,7 @@ async fn dispatcher_and_transport_end_to_end() {
         let d = Arc::clone(&dispatcher);
         handles.push(tokio::spawn(async move {
             let result = t
-                .send_batch(&worker, "batch-e2e", sub_batch.messages)
+                .send_batch(&worker, "batch-e2e", sub_batch.messages, false)
                 .await
                 .unwrap();
             d.on_sub_batch_resolved(&worker, message_count, &routing_keys, false);
@@ -546,7 +561,7 @@ async fn wire_format_preserves_unicode_and_null_fields() {
     }];
 
     transport
-        .send_batch(&url, "batch-unicode", messages)
+        .send_batch(&url, "batch-unicode", messages, false)
         .await
         .unwrap();
 

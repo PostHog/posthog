@@ -15,11 +15,13 @@ import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { dayjs } from 'lib/dayjs'
 import { holidaysMatcher, isChristmas } from 'lib/holidays'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { IconChristmasOrnament, IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
+import posthog from 'lib/posthog-typed'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { humanFriendlyNumber, humanizeBytes } from 'lib/utils/numbers'
 import { isTrustedPostHogUrl } from 'lib/utils/trustedUrl'
@@ -171,24 +173,23 @@ const RetryButton = ({
     onRetry: () => void
     query?: Record<string, any> | Node | null
 }): JSX.Element => {
-    let sideAction = {}
-    if (query) {
-        sideAction = {
-            dropdown: {
-                overlay: (
-                    <LemonMenuOverlay
-                        items={[
-                            {
-                                label: 'Open in query debugger',
-                                to: urls.debugQuery(query),
-                            },
-                        ]}
-                    />
-                ),
-                placement: 'bottom-end',
-            },
-        }
-    }
+    const sideAction = query
+        ? {
+              dropdown: {
+                  overlay: (
+                      <LemonMenuOverlay
+                          items={[
+                              {
+                                  label: 'Open in query debugger',
+                                  to: urls.debugQuery(query),
+                              },
+                          ]}
+                      />
+                  ),
+                  placement: 'bottom-end' as const,
+              },
+          }
+        : undefined
 
     return (
         <LemonButton
@@ -547,6 +548,12 @@ export function renderDetailWithLinks(detail: string): (string | JSX.Element)[] 
     )
 }
 
+/** Kind of the query that errored, unwrapping InsightVizNode/DataTableNode wrappers to the source query. */
+function queryKindForReporting(query: Record<string, any> | Node | null | undefined): string | null {
+    const record = query as Record<string, any> | null | undefined
+    return record?.source?.kind ?? record?.kind ?? null
+}
+
 export function InsightValidationError({
     detail,
     validationErrorCode,
@@ -565,6 +572,15 @@ export function InsightValidationError({
     const isMemoryLimitError = validationErrorCode === CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE
     const defaultCta =
         cta ?? (onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />)
+
+    // Raw error detail can echo query fragments, so telemetry only gets the code and coarse metadata
+    useOnMountEffect(() => {
+        posthog.capture('insight error message shown', {
+            error_type: 'validation',
+            code: validationErrorCode ?? null,
+            query_kind: queryKindForReporting(query),
+        })
+    })
 
     return (
         <div
@@ -645,6 +661,16 @@ export function InsightErrorState({
 }: InsightErrorStateProps): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
+
+    // Raw error detail can echo query fragments, so telemetry only gets coarse metadata;
+    // query_id lets staff look the actual error up server-side
+    useOnMountEffect(() => {
+        posthog.capture('insight error message shown', {
+            error_type: 'server',
+            query_kind: queryKindForReporting(query),
+            query_id: queryId ?? null,
+        })
+    })
 
     if (!preflight?.cloud) {
         excludeDetail = true // We don't provide support for self-hosted instances

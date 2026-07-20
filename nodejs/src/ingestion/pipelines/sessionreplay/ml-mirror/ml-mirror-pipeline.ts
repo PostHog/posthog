@@ -15,10 +15,8 @@ import { createAiTrainingOptInFilterStep } from '~/ingestion/pipelines/sessionre
 import { createParseAndAnonymizeMessageStep } from '~/ingestion/pipelines/sessionreplay/parse-and-anonymize-step'
 import { MessageContext } from '~/ingestion/pipelines/sessionreplay/pipeline-types'
 import { createRecordSessionEventStep } from '~/ingestion/pipelines/sessionreplay/record-session-event-step'
-import { SessionBatchContext } from '~/ingestion/pipelines/sessionreplay/session-batch-context'
 import { createMarkSeenStep } from '~/ingestion/pipelines/sessionreplay/session-batch-mark-seen-step'
 import { createResolveRetentionStep } from '~/ingestion/pipelines/sessionreplay/session-batch-resolve-retention-step'
-import { createAttachSessionBatchStep } from '~/ingestion/pipelines/sessionreplay/session-batch-step'
 import { createTrackAndGateStep } from '~/ingestion/pipelines/sessionreplay/session-batch-track-and-gate-step'
 import { createResolveKeyStep } from '~/ingestion/pipelines/sessionreplay/session-resolve-key-step'
 import { createTeamFilterStep } from '~/ingestion/pipelines/sessionreplay/team-filter-step'
@@ -37,7 +35,6 @@ export function createMlMirrorReplayPipeline(config: SessionReplayPipelineConfig
         keyStore,
         sessionKeyResolutionMaxConcurrency,
         topHog,
-        sessionBatchManager,
         isDebugLoggingEnabled,
     } = config
 
@@ -48,11 +45,14 @@ export function createMlMirrorReplayPipeline(config: SessionReplayPipelineConfig
         SessionReplayPipelineInput,
         SessionReplayPipelineOutput,
         MessageContext,
-        SessionBatchContext,
+        Record<never, object>,
         MessageContext,
         OverflowOutput
     >(
-        (beforeBatch) => beforeBatch.pipe(createAttachSessionBatchStep(sessionBatchManager)),
+        (beforeBatch) =>
+            beforeBatch.pipe(function passThroughBeforeBatch(input) {
+                return Promise.resolve(ok(input))
+            }),
         (batch) =>
             batch
                 .messageAware((b) =>
@@ -74,13 +74,13 @@ export function createMlMirrorReplayPipeline(config: SessionReplayPipelineConfig
                         // Resolve retention up front (before parse), keyed on the (validated) session_id
                         // header; drop unresolvable sessions.
                         .gather()
-                        .pipeBatch(createResolveRetentionStep(retentionService), {
+                        .pipeChunk(createResolveRetentionStep(retentionService), {
                             retry: { tries: 3, sleepMs: 100 },
                         })
                         // Track sessions and rate-limit new ones for the whole batch, tagging each with
                         // isNewSession and a gate verdict; blocked sessions are carried (not dropped) to the
                         // mark-seen step, all in this step's own retry scope.
-                        .pipeBatch(createTrackAndGateStep(sessionTracker, sessionFilter), {
+                        .pipeChunk(createTrackAndGateStep(sessionTracker, sessionFilter), {
                             retry: { tries: 3, sleepMs: 100 },
                         })
                         // Resolve each session's encryption key once per session (grouped), concurrently across
@@ -99,7 +99,7 @@ export function createMlMirrorReplayPipeline(config: SessionReplayPipelineConfig
                         // in a single Redis write and as the barrier that guarantees every key is resolved first.
                         .gather()
                         // Mark the surviving new sessions seen, now that every key is durably resolved.
-                        .pipeBatch(createMarkSeenStep(sessionTracker))
+                        .pipeChunk(createMarkSeenStep(sessionTracker))
                         .filterMap(
                             (element) => ({
                                 result: element.result,

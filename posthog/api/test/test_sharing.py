@@ -30,6 +30,7 @@ from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 
+from products.dashboards.backend.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
@@ -47,8 +48,7 @@ def mock_exporter_template(test_func):
     """
 
     @wraps(test_func)
-    @patch("posthog.api.sharing.render_template")
-    def wrapper(self, mock_render_template, *args, **kwargs):
+    def wrapper(self, *args, **kwargs):
         def mock_render_side_effect(template_name, request, context, **kwargs):
             from django.http import HttpResponse
 
@@ -80,8 +80,9 @@ def mock_exporter_template(test_func):
                 # For non-exporter templates, return a simple response
                 return HttpResponse('<html><body>{"dashboard": "content"}</body></html>')
 
-        mock_render_template.side_effect = mock_render_side_effect
-        return test_func(self, *args, **kwargs)
+        with patch("posthog.api.sharing.render_template") as mock_render_template:
+            mock_render_template.side_effect = mock_render_side_effect
+            return test_func(self, *args, **kwargs)
 
     return wrapper
 
@@ -149,6 +150,28 @@ class TestSharing(APIBaseTest):
             "settings": None,
             "share_passwords": [],
         }
+
+    @parameterized.expand(
+        [
+            ("shared", "/shared/{token}", DashboardAccessMethod.SHARED),
+            ("embedded", "/embedded/{token}", DashboardAccessMethod.EMBEDDED),
+        ]
+    )
+    @patch("products.dashboards.backend.access.record_dashboard_access")
+    @mock_exporter_template
+    def test_shared_dashboard_records_access_method(
+        self,
+        _name: str,
+        path: str,
+        expected_access_method: DashboardAccessMethod,
+        mock_record_access: Mock,
+    ) -> None:
+        config = SharingConfiguration.objects.create(team=self.team, dashboard=self.dashboard, enabled=True)
+
+        response = self.client.get(path.format(token=config.access_token))
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_record_access.assert_called_once_with(expected_access_method)
 
     @freeze_time("2022-01-01")
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
@@ -1412,7 +1435,7 @@ class TestExportCacheKeyFlow(APIBaseTest):
         cls.insight = Insight.objects.create(
             team=cls.team,
             name="Test Insight",
-            query={"kind": "TrendsQuery", "series": [{"event": "$pageview"}]},
+            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
         )
         cls.sharing_config = SharingConfiguration.objects.create(
             team=cls.team,

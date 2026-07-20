@@ -6,6 +6,7 @@ import pytest
 from unittest.mock import MagicMock
 
 import pymysql
+from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.schema import SourceFieldInputConfig
 
@@ -24,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysq
     MySQLImplementation,
     _build_query,
     _is_bad_plan_error,
+    _is_transient_connect_dns_failure,
     _is_transient_connect_drop,
     _is_transient_connect_timeout,
     _is_transient_packet_sequence_error,
@@ -886,17 +888,21 @@ class TestIsTransientConnectDrop:
             )
         )
 
-    def test_matches_ssl_unexpected_eof_on_connect(self):
-        # The peer aborted the TLS handshake with an unexpected EOF, wrapped by pymysql as the
-        # 2003 connect failure. A transient drop (overloaded server, proxy idle cull, failover) —
-        # the in-process retry must catch it instead of letting the first blip surface as noise.
-        assert _is_transient_connect_drop(
-            pymysql.err.OperationalError(
-                2003,
-                "Can't connect to MySQL server on 'db.example.com' "
-                "([SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1032))",
-            )
-        )
+    @pytest.mark.parametrize(
+        "message",
+        [
+            # The peer aborted the TLS handshake with an unexpected read EOF.
+            "Can't connect to MySQL server on 'db.example.com' "
+            "([SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1032))",
+            # The `SSLZeroReturnError` rendering of the same peer-closed-the-TLS-connection drop.
+            "Can't connect to MySQL server on 'db.example.com' (TLS/SSL connection has been closed (EOF) (_ssl.c:1032))",
+        ],
+    )
+    def test_matches_ssl_peer_close_on_connect(self, message):
+        # pymysql wraps an SSL peer-close mid-handshake as the 2003 connect failure. A transient
+        # drop (overloaded server, proxy idle cull, failover) — the in-process retry must catch it
+        # instead of letting the first blip surface as the non-retryable "Can't connect" config error.
+        assert _is_transient_connect_drop(pymysql.err.OperationalError(2003, message))
 
     @pytest.mark.parametrize(
         "code,message",
@@ -949,6 +955,43 @@ class TestIsTransientConnectTimeout:
 
     def test_does_not_match_error_without_args(self):
         assert not _is_transient_connect_timeout(pymysql.err.OperationalError())
+
+
+class TestIsTransientConnectDnsFailure:
+    def test_matches_temporary_name_resolution_failure(self):
+        # glibc EAI_AGAIN — a transient resolver blip that a fresh attempt recovers from, so it must
+        # be retried in-process rather than surfacing as the non-retryable "Can't connect" config error.
+        assert _is_transient_connect_dns_failure(
+            pymysql.err.OperationalError(
+                2003,
+                "Can't connect to MySQL server on 'db.example.com' ([Errno -3] Temporary failure in name resolution)",
+            )
+        )
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            # EAI_NONAME — the host genuinely doesn't resolve; a deterministic config error that must
+            # stay non-retryable rather than being absorbed as a transient blip here.
+            "Can't connect to MySQL server on 'nope.example.com' ([Errno -2] Name or service not known)",
+            "Can't connect to MySQL server on 'db.example.com' ([Errno 111] Connection refused)",
+        ],
+    )
+    def test_does_not_match_permanent_connect_errors(self, message):
+        assert not _is_transient_connect_dns_failure(pymysql.err.OperationalError(2003, message))
+
+    @pytest.mark.parametrize(
+        "code,message",
+        [
+            (2013, "Lost connection to MySQL server during query"),
+            (1045, "Access denied for user"),
+        ],
+    )
+    def test_does_not_match_other_error_codes(self, code, message):
+        assert not _is_transient_connect_dns_failure(pymysql.err.OperationalError(code, message))
+
+    def test_does_not_match_error_without_args(self):
+        assert not _is_transient_connect_dns_failure(pymysql.err.OperationalError())
 
 
 class TestIsTransientPacketSequenceError:
@@ -1067,6 +1110,28 @@ class TestConnectTransientRetry:
             "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
             side_effect=[
                 pymysql.err.OperationalError(2003, "Can't connect to MySQL server on 'host' (timed out)"),
+                conn,
+            ],
+        )
+
+        with MySQLImplementation().connect(_make_config()) as yielded:
+            assert yielded is conn
+
+        assert mock_connect.call_count == 2
+        sleep.assert_called_once_with(2)
+
+    def test_retries_dns_temporary_failure_then_succeeds(self, mocker):
+        sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        conn = MagicMock()
+        conn.__enter__.return_value = conn
+        mock_connect = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            side_effect=[
+                pymysql.err.OperationalError(
+                    2003,
+                    "Can't connect to MySQL server on 'db.example.com' "
+                    "([Errno -3] Temporary failure in name resolution)",
+                ),
                 conn,
             ],
         )
@@ -1778,6 +1843,18 @@ class TestMySQLSourceValidateCredentials:
         assert valid is False
         assert error is not None
         capture.assert_called_once()
+
+    def test_ssh_tunnel_error_is_mapped_not_leaked(self, source, mocker):
+        # sshtunnel's raw "Could not establish session to SSH gateway" must be replaced with the
+        # friendly guidance, not surfaced verbatim to the wizard.
+        raw = "Could not establish session to SSH gateway"
+        mocker.patch.object(source, "get_schemas", side_effect=BaseSSHTunnelForwarderError(raw))
+
+        valid, error = source.validate_credentials(_make_config(), team_id=1)
+
+        assert valid is False
+        assert error != raw
+        assert error == source.get_non_retryable_errors()[raw]
 
 
 class _RaisingTunnel:

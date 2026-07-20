@@ -362,13 +362,18 @@ class FileDownloadBatchExportInputs(BaseBatchExportInputs):
 
 @dataclass(kw_only=True)
 class SnowflakeBatchExportInputs(BaseBatchExportInputs):
-    """Inputs for Snowflake export workflow."""
+    """Inputs for Snowflake export workflow.
 
-    account: str
-    user: str
+    account, user, authentication_type and the credential fields are optional here:
+    integration-backed exports resolve them from the linked Integration at run time (see
+    `integration_id`), while legacy exports carry them inline.
+    """
+
     database: str
     warehouse: str
     schema: str
+    account: str | None = None
+    user: str | None = None
     table_name: str = "events"
     authentication_type: str = "password"
     password: str | None = None
@@ -399,6 +404,7 @@ IAMRole = str
 class AWSCredentials:
     aws_access_key_id: str
     aws_secret_access_key: str
+    aws_session_token: str | None = None
 
 
 @dataclass

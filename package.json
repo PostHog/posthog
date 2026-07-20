@@ -93,7 +93,7 @@
             "bin/hogli format:js",
             "sh -c 'pnpm build:products && git add frontend/src/products.tsx frontend/src/productScenes.tsx frontend/src/products.json'"
         ],
-        "!(**/.sqlx/**)*.{json,yaml,yml}": "bin/hogli format:yaml",
+        "!(**/.sqlx/**|products/review_hog/backend/reviewer/prompts/*/schema.json)*.{json,yaml,yml}": "bin/hogli format:yaml",
         "*.{css,scss}": "bin/hogli format:css",
         "frontend/src/lib/constants.tsx": [
             "bin/hogli lint:feature-flags:fix",
@@ -105,9 +105,10 @@
         "!(posthog/hogql/grammar/*|posthog/personhog_client/proto/generated/*|products/*/skills/*/scripts/*)*.{py,pyi}": [
             "bin/hogli lint:python:fix",
             "bin/hogli format:python",
-            "uv run ty check"
+            "uv run --no-sync ty check"
         ],
-        "*.{md,mdx}": "bin/hogli format:markdown"
+        "*.{md,mdx}": "bin/hogli format:markdown",
+        "products/agent_platform/**/*.{ts,py}": "products/agent_platform/bin/coherence-precommit"
     },
     "browserslist": {
         "development": [
@@ -147,6 +148,7 @@
             "jest-playwright-preset>playwright-core": "1.60.0",
             "@smithy/node-http-handler": "4.4.9",
             "@smithy/core": "3.24.6",
+            "rolldown": "1.1.4",
             "@tiptap/core": "3.20.6",
             "@tiptap/extensions": "3.20.6",
             "@tiptap/html": "3.20.6",

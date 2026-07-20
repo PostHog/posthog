@@ -531,31 +531,47 @@ const CANVAS_CHART_DISPLAY_TYPES = new Set<ChartDisplayType>([
     ChartDisplayType.TwoDimensionalHeatmap,
 ])
 
-/**
- * Whether an insight's viz paints to a <canvas>. Canvas viz redraws on every resize frame, so a dashboard tile
- * throttles its redraws while resizing; DOM/SVG viz (tables, bold numbers, world maps, retention, paths) is cheap
- * and stays fully live. Unrecognised node types default to true so we never regress resize perf for unknown viz.
- */
-export function queryVizRendersToCanvas(query?: Node | null): boolean {
+type QueryVizCanvasClassification = 'canvas' | 'non-canvas' | 'unknown'
+
+function classifyQueryVizCanvas(query?: Node | null): QueryVizCanvasClassification {
     if (isDataTableNode(query)) {
-        return false
+        return 'non-canvas'
     }
     if (isDataVisualizationNode(query)) {
-        return !!query.display && CANVAS_CHART_DISPLAY_TYPES.has(query.display)
+        if (!query.display) {
+            return 'non-canvas'
+        }
+        if (query.display === ChartDisplayType.Auto) {
+            return 'unknown'
+        }
+        return CANVAS_CHART_DISPLAY_TYPES.has(query.display) ? 'canvas' : 'non-canvas'
     }
     if (isInsightVizNode(query)) {
         const source = query.source
         if (isRetentionQuery(source) || isPathsQuery(source)) {
-            return false
+            return 'non-canvas'
         }
         if (isFunnelsQuery(source)) {
             // Steps (default) and Trends paint to canvas; Flow (Sankey) is SVG and TimeToConvert is a DOM table.
             const vizType = source.funnelsFilter?.funnelVizType
-            return vizType !== FunnelVizType.Flow && vizType !== FunnelVizType.TimeToConvert
+            return vizType !== FunnelVizType.Flow && vizType !== FunnelVizType.TimeToConvert ? 'canvas' : 'non-canvas'
         }
-        return CANVAS_CHART_DISPLAY_TYPES.has(getDisplay(source) ?? ChartDisplayType.Auto)
+        return CANVAS_CHART_DISPLAY_TYPES.has(getDisplay(source) ?? ChartDisplayType.Auto) ? 'canvas' : 'non-canvas'
     }
-    return true
+    return 'unknown'
+}
+
+/**
+ * Whether an insight's viz may paint to a <canvas>. Unknown visualizations count as canvas so resize throttling
+ * remains conservative.
+ */
+export function queryVizRendersToCanvas(query?: Node | null): boolean {
+    return classifyQueryVizCanvas(query) !== 'non-canvas'
+}
+
+/** Whether an insight's viz is definitely canvas-backed and safe to unmount when the page is hidden. */
+export function queryVizDefinitelyRendersToCanvas(query?: Node | null): boolean {
+    return classifyQueryVizCanvas(query) === 'canvas'
 }
 
 export const getFormula = (query: InsightQueryNode | null): string | undefined => {
@@ -1091,7 +1107,7 @@ export function setLatestVersionsOnQuery<T = any>(node: T, options?: { recursion
     return cloned as T
 }
 
-/** Checks wether a given query node satisfies all latest versions of the query schema. */
+/** Checks whether a given query node satisfies all latest versions of the query schema. */
 export function checkLatestVersionsOnQuery(node: any): boolean {
     if (node === null || typeof node !== 'object') {
         return true

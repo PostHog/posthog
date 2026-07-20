@@ -49,6 +49,7 @@ from posthog.utils import get_ip_address, render_template
 from posthog.views import preflight_check
 
 from products.cohorts.backend.models.cohort import Cohort
+from products.dashboards.backend.access import dashboard_access_method, record_dashboard_view
 from products.dashboards.backend.api.dashboard import DashboardSerializer
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.exports.backend.api.exports import ExportedAssetSerializer
@@ -722,7 +723,11 @@ def _compute_inline_query_results_for_shared_notebook(
     if not inline_nodes:
         return results_by_node_id
 
-    execution_mode = shared_insights_execution_mode(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+    # cache_age_seconds is deliberately unused: blocking-if-stale passes through the whitelist
+    # without a throttle override, so there is nothing to thread into process_query_dict here.
+    execution_mode = shared_insights_execution_mode(
+        ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+    ).execution_mode
     for node_id, query in inline_nodes:
         serialized: dict | None = None
         try:
@@ -946,6 +951,10 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             "insight_variables": InsightVariable.objects.filter(team=resource.team).all(),
             "export_cache_keys": export_cache_keys,
             "shared_link_user": shared_link_user,
+            # exported_data is embedded into the page with stdlib json.dumps, which cannot
+            # serialize raw cached result bytes (orjson.Fragment)
+            "require_parsed_results": True,
+            "dashboard_access_method": dashboard_access_method(request, is_shared=True, is_embedded=embedded),
         }
         exported_data: dict[str, Any] = {"type": "embed" if embedded else "scene"}
 
@@ -1053,8 +1062,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         elif resource.dashboard and not resource.dashboard.deleted:
             asset_title = resource.dashboard.name
             asset_description = resource.dashboard.description or ""
-            resource.dashboard.last_accessed_at = now()
-            resource.dashboard.save(update_fields=["last_accessed_at"])
+            record_dashboard_view(resource.dashboard, context["dashboard_access_method"])
 
             with task_chain_context():
                 dashboard_data = DashboardSerializer(resource.dashboard, context=context).data

@@ -1613,6 +1613,32 @@ Repeated block`),
         nowSpy.mockRestore()
     })
 
+    it('undoes an accidental Tab indent without also reverting the preceding typing', () => {
+        // A Tab indent produces a text op on the list block, indistinguishable to the differ
+        // from typing — so without a discrete undo step it folds into the typing run and one
+        // Cmd+Z reverts the typed text too. The frozen clock keeps both edits in the same
+        // coalescing window, which is exactly when the regression bites.
+        const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(10_000)
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('- one\n- t'), onChange })
+        )
+
+        const secondItem = getEditableListItems(container)[1]
+        secondItem.focus()
+        secondItem.textContent = 'two'
+        fireEvent.input(secondItem)
+        pressTabInListItem(getEditableListItems(container)[1], 0)
+        expect(onChange).toHaveBeenLastCalledWith(withNotebookTitle('- one\n  - two'))
+
+        fireEvent.keyDown(getEditableListItems(container)[1], { key: 'z', metaKey: true })
+
+        // Only the indent is undone; "two" survives as its own separate undo step.
+        expect(onChange).toHaveBeenLastCalledWith(withNotebookTitle('- one\n- two'))
+
+        nowSpy.mockRestore()
+    })
+
     it('reports a block-level caret when a component block is focused', () => {
         const onCaretChange = jest.fn()
         const { container } = render(
@@ -2491,6 +2517,18 @@ Intro paragraph
         fireEvent.keyDown(textBlock as HTMLElement, { key: 'Enter' })
 
         expect(container.querySelectorAll('[data-placeholder="Start writing..."]')).toHaveLength(0)
+    })
+
+    it('hides the synthetic empty title row in view mode', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: '<Query query={{"kind":"DataTableNode"}} />',
+                mode: 'view',
+            })
+        )
+
+        expect(container.querySelectorAll('[data-placeholder="Untitled notebook"]')).toHaveLength(0)
+        expect(container.querySelectorAll('.MarkdownNotebook__text-block--title')).toHaveLength(0)
     })
 
     it('records keystrokes, mouse events, and commits into a downloadable debug log', async () => {

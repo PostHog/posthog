@@ -647,7 +647,7 @@ export interface PatchedLogsAlertConfigurationApi {
 }
 
 export interface LogsAlertCreateDestinationApi {
-    /** Destination type — slack, webhook, or teams.
+    /** Notification destination type.
      *
      * * `slack` - slack
      * * `webhook` - webhook
@@ -659,7 +659,7 @@ export interface LogsAlertCreateDestinationApi {
     slack_channel_id?: string
     /** Human-readable channel name for display. */
     slack_channel_name?: string
-    /** HTTPS endpoint to POST to. Required when type=webhook, or the Teams webhook URL when type=teams. */
+    /** HTTPS endpoint to post to. Required for webhook and teams. */
     webhook_url?: string
 }
 
@@ -671,6 +671,7 @@ export interface LogsAlertDeleteDestinationApi {
     /**
      * HogFunction IDs to delete as one atomic destination group.
      * @minItems 1
+     * @maxItems 4
      */
     hog_function_ids: string[]
 }
@@ -1146,6 +1147,87 @@ export interface _LogsGroupByResponseApi {
     total_logs: number
     /** True when more groups matched than were returned (total_groups > groups length). */
     truncated: boolean
+}
+
+export interface LogsMetricRuleApi {
+    /** Unique identifier for this metric rule. */
+    readonly id: string
+    /**
+     * User-visible label for this rule.
+     * @maxLength 255
+     */
+    name: string
+    /**
+     * Name of the generated metric as it appears in the Metrics product. Must start with a letter and contain only letters, digits, dots, underscores, and dashes. Unique per project and immutable after creation — create a new rule to emit under a different name.
+     * @maxLength 200
+     */
+    metric_name: string
+    /** When true, ingestion evaluates this rule against every log record. At most 10 rules can be enabled per project. */
+    enabled?: boolean
+    /** PropertyGroupFilter JSON (AND/OR tree of property predicates) selecting which log records feed the metric, e.g. `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api","type":"log_attribute"}]}]}`. Null matches every ingested log record. Every group must contain at least one filter — empty groups never match. */
+    filter_group?: unknown
+    /**
+     * Log attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`. Omit to count matching log records instead. Immutable after creation — it determines the emitted metric type.
+     * @maxLength 512
+     * @nullable
+     */
+    value_attribute?: string | null
+    /**
+     * Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` / `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.
+     * @items.maxLength 512
+     */
+    group_by?: string[]
+    /** Incremented on each update for worker cache coherency. */
+    readonly version: number
+    readonly created_by: number
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedLogsMetricRuleListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: LogsMetricRuleApi[]
+}
+
+export interface PatchedLogsMetricRuleApi {
+    /** Unique identifier for this metric rule. */
+    readonly id?: string
+    /**
+     * User-visible label for this rule.
+     * @maxLength 255
+     */
+    name?: string
+    /**
+     * Name of the generated metric as it appears in the Metrics product. Must start with a letter and contain only letters, digits, dots, underscores, and dashes. Unique per project and immutable after creation — create a new rule to emit under a different name.
+     * @maxLength 200
+     */
+    metric_name?: string
+    /** When true, ingestion evaluates this rule against every log record. At most 10 rules can be enabled per project. */
+    enabled?: boolean
+    /** PropertyGroupFilter JSON (AND/OR tree of property predicates) selecting which log records feed the metric, e.g. `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api","type":"log_attribute"}]}]}`. Null matches every ingested log record. Every group must contain at least one filter — empty groups never match. */
+    filter_group?: unknown
+    /**
+     * Log attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`. Omit to count matching log records instead. Immutable after creation — it determines the emitted metric type.
+     * @maxLength 512
+     * @nullable
+     */
+    value_attribute?: string | null
+    /**
+     * Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` / `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.
+     * @items.maxLength 512
+     */
+    group_by?: string[]
+    /** Incremented on each update for worker cache coherency. */
+    readonly version?: number
+    readonly created_by?: number
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
 }
 
 export interface _LogsPatternsBodyApi {
@@ -1688,6 +1770,52 @@ export interface _LogsValuesResponseApi {
 }
 
 /**
+ * * `timestamp` - timestamp
+ * * `level` - level
+ * * `source` - source
+ * * `trace_id` - trace_id
+ * * `span_id` - span_id
+ * * `message` - message
+ * * `custom` - custom
+ */
+export type LogsViewColumnTypeEnumApi = (typeof LogsViewColumnTypeEnumApi)[keyof typeof LogsViewColumnTypeEnumApi]
+
+export const LogsViewColumnTypeEnumApi = {
+    Timestamp: 'timestamp',
+    Level: 'level',
+    Source: 'source',
+    TraceId: 'trace_id',
+    SpanId: 'span_id',
+    Message: 'message',
+    Custom: 'custom',
+} as const
+
+export interface LogsViewColumnApi {
+    /** Client-generated stable identity for list operations (React keys, reorder). Never interpreted by the server. */
+    id: string
+    /** Column type. Built-in types resolve client-side from log row fields; `custom` columns are computed server-side from `expression`.
+     *
+     * * `timestamp` - timestamp
+     * * `level` - level
+     * * `source` - source
+     * * `trace_id` - trace_id
+     * * `span_id` - span_id
+     * * `message` - message
+     * * `custom` - custom */
+    type: LogsViewColumnTypeEnumApi
+    /** Header label override. Defaults to the built-in type's label, or to the expression for custom columns. */
+    name?: string
+    /** Only meaningful for `type: custom`: a source-prefixed shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar HogQL expression, sent verbatim in the logs query's `customColumns`. */
+    expression?: string
+    /**
+     * Column width in pixels (1–2000). Omitted for the default width; ignored for the flex message column.
+     * @minimum 1
+     * @maximum 2000
+     */
+    width?: number
+}
+
+/**
  * Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.
  */
 export type LogsViewApiFilters = { [key: string]: unknown }
@@ -1699,6 +1827,11 @@ export interface LogsViewApi {
     name: string
     /** Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys. */
     filters?: LogsViewApiFilters
+    /**
+     * Ordered column configuration for the logs table (LogsColumnConfig[]). Order is array index. Null means the view has no column preference and the client renders its default column set. Omitting the field on update leaves the saved configuration unchanged; send null to clear it.
+     * @nullable
+     */
+    columns?: LogsViewColumnApi[] | null
     pinned?: boolean
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -1727,6 +1860,11 @@ export interface PatchedLogsViewApi {
     name?: string
     /** Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys. */
     filters?: PatchedLogsViewApiFilters
+    /**
+     * Ordered column configuration for the logs table (LogsColumnConfig[]). Order is array index. Null means the view has no column preference and the client renders its default column set. Omitting the field on update leaves the saved configuration unchanged; send null to clear it.
+     * @nullable
+     */
+    columns?: LogsViewColumnApi[] | null
     pinned?: boolean
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -1810,6 +1948,17 @@ export const LogsAttributesRetrieveAttributeType = {
 export type LogsExportCreate201 = { [key: string]: unknown }
 
 export type LogsHasLogsRetrieve200 = { [key: string]: unknown }
+
+export type LogsMetricRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
 
 export type LogsSamplingRulesListParams = {
     /**

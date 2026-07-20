@@ -1,160 +1,162 @@
-import pytest
-from unittest import mock
+from typing import Any
+
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MetorialSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.metorial.metorial import MetorialResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.metorial.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.metorial.source import MetorialSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
-INCREMENTAL_ENDPOINTS = (
-    "sessions",
-    "session_messages",
-    "session_errors",
-    "tool_calls",
-    "provider_runs",
-    "provider_deployments",
-)
+_SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.metorial.source"
 
 
-class TestMetorialSource:
-    def setup_method(self) -> None:
-        self.source = MetorialSource()
-        self.team_id = 123
-        self.config = MetorialSourceConfig(api_key="metorial_sk_test")
+def _config() -> MetorialSourceConfig:
+    return MetorialSourceConfig.from_dict({"api_key": "metorial_sk_test"})
 
+
+class TestSourceConfig:
     def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.METORIAL
+        assert MetorialSource().source_type.value == "Metorial"
 
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "Metorial"
-        assert config.label == "Metorial"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/metorial"
+    def test_api_key_is_a_required_secret_field(self) -> None:
+        # A non-secret key field would be stored unencrypted; a non-required one would let a source be
+        # created with no credentials.
+        fields = MetorialSource().get_source_config.fields
+        api_key = next(f for f in fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
+        assert api_key.type == SourceFieldInputConfigType.PASSWORD
+        assert api_key.required is True
+        assert api_key.secret is True
 
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_key"]
 
-    def test_api_key_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
+class TestSchemas:
+    @parameterized.expand(
+        [
+            # Mutable resources (carry updated_at) must merge, never append — append duplicates a row
+            # every time its status/usage changes.
+            ("sessions", True, False),
+            ("provider_runs", True, False),
+            ("provider_deployments", True, False),
+            # tool_calls mutate status but expose no updated_at, so incremental-merge on created_at.
+            ("tool_calls", True, False),
+            # Immutable event streams keyed on created_at: append is safe.
+            ("session_messages", True, True),
+            ("session_errors", True, True),
+            # No server-side timestamp filter: full refresh only.
+            ("providers", False, False),
+        ]
+    )
+    def test_incremental_and_append_support(self, endpoint: str, incremental: bool, append: bool) -> None:
+        schemas = {s.name: s for s in MetorialSource().get_schemas(_config(), team_id=1)}
+        assert schemas[endpoint].supports_incremental is incremental
+        assert schemas[endpoint].supports_append is append
 
-    def test_no_connection_host_fields(self) -> None:
-        # The only field is the secret API key; the base URL is hardcoded, so there is no non-secret
-        # field an editor could retarget to reuse a preserved key against another project.
-        assert self.source.connection_host_fields == []
+    def test_providers_is_off_by_default(self) -> None:
+        # providers is a global catalog, not project data — syncing it every time by default would
+        # burn the tight rate limit for little value.
+        schemas = {s.name: s for s in MetorialSource().get_schemas(_config(), team_id=1)}
+        assert schemas["providers"].should_sync_default is False
 
-    def test_lists_tables_without_credentials(self) -> None:
-        assert self.source.lists_tables_without_credentials is True
+    def test_names_filter(self) -> None:
+        schemas = MetorialSource().get_schemas(_config(), team_id=1, names=["sessions"])
+        assert [s.name for s in schemas] == ["sessions"]
 
-    def test_get_schemas_covers_all_endpoints(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
+    def test_lists_documented_tables_without_credentials(self) -> None:
+        # The static catalog powers the public docs "Supported tables" section.
+        source = MetorialSource()
+        assert source.lists_tables_without_credentials is True
+        assert {t["name"] for t in source.get_documented_tables()} == {
+            s.name for s in source.get_schemas(_config(), team_id=1)
+        }
 
-    @parameterized.expand([(e,) for e in INCREMENTAL_ENDPOINTS])
-    def test_incremental_endpoints_advertise_incremental(self, endpoint: str) -> None:
-        schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
-        assert schema.supports_incremental is True
-        assert schema.supports_append is True
-        assert {f["field"] for f in schema.incremental_fields} <= {"created_at", "updated_at"}
 
-    def test_providers_is_full_refresh_only(self) -> None:
-        schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == "providers")
-        assert schema.supports_incremental is False
-        assert schema.supports_append is False
-        assert schema.incremental_fields == []
+class TestValidateCredentials:
+    @parameterized.expand([("valid", True), ("invalid", False)])
+    def test_maps_probe_result(self, _name: str, probe_ok: bool) -> None:
+        with patch(f"{_SOURCE_MODULE}.validate_metorial_credentials", return_value=probe_ok):
+            ok, error = MetorialSource().validate_credentials(_config(), team_id=1)
+        assert ok is probe_ok
+        assert (error is None) is probe_ok
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["sessions"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "sessions"
 
-    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
-    def test_documented_tables_render_for_public_docs(self) -> None:
-        tables = self.source.get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
-        sessions = next(t for t in tables if t["name"] == "sessions")
-        assert "Incremental" in sessions["sync_methods"]
+class TestNonRetryableErrors:
+    @parameterized.expand(
+        [
+            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.metorial.com/sessions?limit=1"),
+            ("forbidden", "403 Client Error: Forbidden for url: https://api.metorial.com/provider-runs"),
+        ]
+    )
+    def test_credential_errors_are_non_retryable(self, _name: str, observed: str) -> None:
+        keys = MetorialSource().get_non_retryable_errors()
+        assert any(key in observed for key in keys)
 
     @parameterized.expand(
         [
-            ("401 Client Error: Unauthorized for url: https://api.metorial.com/sessions",),
-            ("403 Client Error: Forbidden for url: https://api.metorial.com/tool-calls",),
+            ("read_timeout", "HTTPSConnectionPool(host='api.metorial.com', port=443): Read timed out."),
+            ("server_error", "500 Server Error: Internal Server Error for url: https://api.metorial.com/sessions"),
+            ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.metorial.com/tool-calls"),
         ]
     )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
+    def test_transient_errors_stay_retryable(self, _name: str, observed: str) -> None:
+        keys = MetorialSource().get_non_retryable_errors()
+        assert not any(key in observed for key in keys)
 
-    @parameterized.expand(
-        [
-            ("500 Server Error: Internal Server Error for url: https://api.metorial.com/sessions",),
-            ("429 Client Error: Too Many Requests for url: https://api.metorial.com/sessions",),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.metorial.source.validate_metorial_credentials"
-    )
-    def test_validate_credentials_delegates_to_shared_helper(self, mock_validate: mock.MagicMock) -> None:
-        mock_validate.return_value = (False, "Invalid Metorial API key")
-        result = self.source.validate_credentials(self.config, self.team_id)
-        assert result == (False, "Invalid Metorial API key")
-        mock_validate.assert_called_once_with(api_key="metorial_sk_test")
+class TestSourceForPipeline:
+    def test_threads_incremental_inputs_into_transport(self) -> None:
+        # Guards the wiring: the user's chosen endpoint, cursor field, and watermark must reach the
+        # transport, and the watermark must be suppressed when incremental sync is off.
+        inputs = SourceInputs(
+            schema_name="sessions",
+            schema_id="sid",
+            source_id="src",
+            team_id=1,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2026-03-04T00:00:00.000Z",
+            db_incremental_field_earliest_value=None,
+            incremental_field="updated_at",
+            incremental_field_type=None,
+            job_id="job",
+            logger=MagicMock(),
+            reset_pipeline=False,
+        )
+        manager = MagicMock()
+        with patch(f"{_SOURCE_MODULE}.metorial_source") as mock_source:
+            MetorialSource().source_for_pipeline(_config(), manager, inputs)
 
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is MetorialResumeConfig
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.metorial.source.metorial_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "sessions"
-        inputs.should_use_incremental_field = True
-        inputs.incremental_field = "updated_at"
-        inputs.db_incremental_field_last_value = "2025-06-01T00:00:00Z"
-        manager = mock.MagicMock()
-
-        self.source.source_for_pipeline(self.config, manager, inputs)
-
-        mock_source.assert_called_once()
         kwargs = mock_source.call_args.kwargs
         assert kwargs["api_key"] == "metorial_sk_test"
         assert kwargs["endpoint"] == "sessions"
-        assert kwargs["resumable_source_manager"] is manager
         assert kwargs["incremental_field"] == "updated_at"
-        assert kwargs["db_incremental_field_last_value"] == "2025-06-01T00:00:00Z"
+        assert kwargs["db_incremental_field_last_value"] == "2026-03-04T00:00:00.000Z"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.metorial.source.metorial_source")
-    def test_source_for_pipeline_drops_watermark_on_full_refresh(self, mock_source: mock.MagicMock) -> None:
-        # A stale watermark left on the schema must not leak into a full-refresh sync as a filter.
-        inputs = mock.MagicMock()
-        inputs.schema_name = "sessions"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2025-06-01T00:00:00Z"
-
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
+    def test_suppresses_watermark_when_not_incremental(self) -> None:
+        inputs = SourceInputs(
+            schema_name="providers",
+            schema_id="sid",
+            source_id="src",
+            team_id=1,
+            should_use_incremental_field=False,
+            db_incremental_field_last_value="should-be-ignored",
+            db_incremental_field_earliest_value=None,
+            incremental_field=None,
+            incremental_field_type=None,
+            job_id="job",
+            logger=MagicMock(),
+            reset_pipeline=False,
+        )
+        with patch(f"{_SOURCE_MODULE}.metorial_source") as mock_source:
+            MetorialSource().source_for_pipeline(_config(), MagicMock(), inputs)
         assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
 
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        inputs.should_use_incremental_field = False
-        with pytest.raises(KeyError):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+
+class TestResumableManager:
+    def test_manager_is_bound_to_resume_config(self) -> None:
+        inputs: Any = MagicMock()
+        manager = MetorialSource().get_resumable_source_manager(inputs)
+        assert isinstance(manager, ResumableSourceManager)
+        assert manager._data_class is MetorialResumeConfig
