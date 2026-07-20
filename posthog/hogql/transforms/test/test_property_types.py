@@ -394,7 +394,10 @@ class TestPropertyTypes(BaseTest):
             has_minmax_index=True,
         )
 
-        with patch("posthog.hogql.property_planner.get_materialized_column_for_property", return_value=fake_column):
+        with patch(
+            "posthog.clickhouse.materialized_columns.get_enabled_materialized_columns_by_table",
+            return_value={"events": {("$screen_width", "properties"): fake_column}},
+        ):
             plan = self._plan_where_comparison("select count() from events where properties.$screen_width < 5")
 
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
@@ -465,7 +468,10 @@ class TestPropertyTypes(BaseTest):
             has_minmax_index=True,
         )
 
-        with patch("posthog.hogql.property_planner.get_materialized_column_for_property", return_value=fake_column):
+        with patch(
+            "posthog.clickhouse.materialized_columns.get_enabled_materialized_columns_by_table",
+            return_value={"events": {("event_time_prop", "properties"): fake_column}},
+        ):
             plan = self._plan_where_comparison(
                 "select count() from events where properties.event_time_prop < '2024-01-01'"
             )

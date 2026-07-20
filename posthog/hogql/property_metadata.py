@@ -5,8 +5,16 @@ Django-side loader. The ORM reads stay behind the function call (the `Database.c
 pattern), so this module imports without booting Django (no settings or app registry).
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
+
+from posthog.clickhouse.materialized_column_types import (
+    MATERIALIZATION_VALID_TABLES,
+    MaterializedColumn,
+    TablesWithMaterializedColumns,
+)
+from posthog.property_columns import PropertyName, TableColumn
 
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
@@ -14,15 +22,29 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class PropertyMetadata:
-    """Property-definition types for the properties a query touches.
+    """Property-definition types for the properties a query touches, plus the enabled
+    materialized-column map.
 
-    Values are `{"type": <PropertyType value>}` dicts, plus a `"dmat"` key when a READY
+    Property values are `{"type": <PropertyType value>}` dicts, plus a `"dmat"` key when a READY
     materialized-column slot backs an event property. Group keys are `"{group_type_index}_{name}"`.
+    `materialized_columns` is the instance-wide enabled-column snapshot, keyed by table name then
+    `(property_name, table_column)` — one fetch per query, so engine lookups are pure map reads.
     """
 
     event_properties: dict[str, dict[str, str | None]] = field(default_factory=dict)
     person_properties: dict[str, dict[str, str | None]] = field(default_factory=dict)
     group_properties: dict[str, dict[str, str | None]] = field(default_factory=dict)
+    materialized_columns: Mapping[
+        TablesWithMaterializedColumns, Mapping[tuple[PropertyName, TableColumn], MaterializedColumn]
+    ] = field(default_factory=dict)
+
+    def materialized_column(self, table_name: str, table_column: str, property_name: str) -> MaterializedColumn | None:
+        if table_name not in MATERIALIZATION_VALID_TABLES:
+            return None
+        columns = self.materialized_columns.get(cast(TablesWithMaterializedColumns, table_name))
+        if columns is None:
+            return None
+        return columns.get((property_name, cast(TableColumn, table_column)))
 
 
 def load_property_metadata(
@@ -42,7 +64,10 @@ def load_property_metadata(
     from django.db import models  # noqa: PLC0415
     from django.db.models.functions.comparison import Coalesce  # noqa: PLC0415
 
-    from posthog.clickhouse.materialized_columns import DMAT_STRING_COLUMN_NAME_PREFIX  # noqa: PLC0415
+    from posthog.clickhouse.materialized_columns import (  # noqa: PLC0415
+        DMAT_STRING_COLUMN_NAME_PREFIX,
+        get_enabled_materialized_columns_by_table,
+    )
     from posthog.models import PropertyDefinition, Team  # noqa: PLC0415
     from posthog.models.materialized_column_slots import (  # noqa: PLC0415
         MaterializedColumnSlot,
@@ -138,4 +163,5 @@ def load_property_metadata(
         event_properties=event_properties,
         person_properties=person_properties,
         group_properties=group_properties,
+        materialized_columns=get_enabled_materialized_columns_by_table(),
     )
