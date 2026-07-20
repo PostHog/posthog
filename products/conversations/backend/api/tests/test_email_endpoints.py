@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 from io import BytesIO
 
@@ -1973,3 +1974,109 @@ class TestEmailDefaultChannel(BaseTest):
 
         other.refresh_from_db()
         assert other.is_default is True
+
+
+class TestEmailDeliveryEventsWebhook(BaseTest):
+    """Mailgun's send returns 2xx on 'accepted', not 'delivered'. These lock in that a later
+    delivery-event webhook downgrades a bounced reply so it stops showing as 'sent'."""
+
+    def setUp(self):
+        super().setUp()
+        self.client = Client()
+        self.team.conversations_settings = {"email_enabled": True}
+        self.team.save()
+        config = EmailChannel.objects.create(
+            team=self.team,
+            inbound_token="aaa111",
+            from_email="support@example.com",
+            from_name="Test",
+            domain="example.com",
+            domain_verified=True,
+        )
+        self.ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source="email",
+            email_config=config,
+            widget_session_id="",
+            distinct_id="customer@test.com",
+            email_from="customer@test.com",
+        )
+
+    def _create_sent_outbox(self, message_id: str) -> tuple[Comment, EmailOutboxMessage]:
+        comment = Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Reply from agent",
+            created_by=self.user,
+            item_context={"author_type": "support"},
+        )
+        outbox = EmailOutboxMessage.objects.filter(comment=comment).first()
+        if outbox is None:
+            outbox = EmailOutboxMessage.objects.create(
+                team=self.team, ticket=self.ticket, comment=comment, message_id=message_id
+            )
+        else:
+            outbox.message_id = message_id
+        outbox.status = EmailOutboxMessage.Status.SENT
+        outbox.save(update_fields=["message_id", "status"])
+        return comment, outbox
+
+    def _post_event(self, event_message_id: str, *, event: str, severity: str = "", reason: str = "bounce"):
+        payload = {
+            "signature": {"token": "t", "timestamp": "123", "signature": "s"},
+            "event-data": {
+                "event": event,
+                "severity": severity,
+                "reason": reason,
+                "message": {"headers": {"message-id": event_message_id}},
+            },
+        }
+        return self.client.post(
+            "/api/conversations/v1/email/events",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+    @parameterized.expand(
+        [
+            ("permanent_failure", "failed", "permanent"),
+            ("complained", "complained", ""),
+        ]
+    )
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_terminal_delivery_failure_marks_bounced(self, _name: str, event: str, severity: str, _mock_sig: MagicMock):
+        # Stored Message-ID is bracketed (make_msgid), Mailgun reports it without brackets —
+        # the match must still land, otherwise the whole feature silently no-ops.
+        comment, outbox = self._create_sent_outbox("<msg-1@example.com>")
+
+        response = self._post_event("msg-1@example.com", event=event, severity=severity)
+        assert response.status_code == 200
+
+        outbox.refresh_from_db()
+        comment.refresh_from_db()
+        assert outbox.status == EmailOutboxMessage.Status.BOUNCED
+        assert comment.item_context["email_delivery_status"] == "bounced"
+
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_temporary_failure_does_not_downgrade(self, _mock_sig: MagicMock):
+        # Mailgun retries temporary failures itself; downgrading here would be a false alarm.
+        comment, outbox = self._create_sent_outbox("<msg-2@example.com>")
+
+        response = self._post_event("msg-2@example.com", event="failed", severity="temporary")
+        assert response.status_code == 200
+
+        outbox.refresh_from_db()
+        comment.refresh_from_db()
+        assert outbox.status == EmailOutboxMessage.Status.SENT
+        assert comment.item_context.get("email_delivery_status") != "bounced"
+
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=False)
+    def test_invalid_signature_rejected(self, _mock_sig: MagicMock):
+        _, outbox = self._create_sent_outbox("<msg-3@example.com>")
+
+        response = self._post_event("msg-3@example.com", event="failed", severity="permanent")
+        assert response.status_code == 403
+
+        outbox.refresh_from_db()
+        assert outbox.status == EmailOutboxMessage.Status.SENT

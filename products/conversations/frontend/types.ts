@@ -214,7 +214,7 @@ export interface MessageAuthor {
 }
 
 /** Delivery state of an outbound email reply, denormalized from the backend outbox. */
-export type EmailDeliveryStatus = 'sending' | 'sent' | 'failed'
+export type EmailDeliveryStatus = 'sending' | 'sent' | 'failed' | 'bounced'
 
 export interface ChatMessage {
     id: string

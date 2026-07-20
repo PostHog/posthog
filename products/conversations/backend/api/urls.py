@@ -2,7 +2,7 @@
 
 from django.urls import path, re_path
 
-from .email_events import email_inbound_handler
+from .email_events import email_delivery_events_handler, email_inbound_handler
 from .email_settings import (
     EmailConnectView,
     EmailDisconnectView,
@@ -55,6 +55,7 @@ urlpatterns = [
     re_path(r"^v1/teams/select-channel/?$", TeamsSelectChannelView.as_view(), name="teams-select-channel"),
     # Email channel
     re_path(r"^v1/email/inbound/?$", email_inbound_handler, name="email-inbound"),
+    re_path(r"^v1/email/events/?$", email_delivery_events_handler, name="email-delivery-events"),
     re_path(r"^v1/email/status/?$", EmailStatusView.as_view(), name="email-status"),
     re_path(r"^v1/email/connect/?$", EmailConnectView.as_view(), name="email-connect"),
     re_path(r"^v1/email/disconnect/?$", EmailDisconnectView.as_view(), name="email-disconnect"),

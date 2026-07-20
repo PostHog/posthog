@@ -1,6 +1,7 @@
 """Inbound email webhook endpoint for Mailgun routes."""
 
 import re
+import json
 from email.utils import getaddresses, parseaddr
 from typing import Any, cast
 
@@ -18,13 +19,14 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.conversations.backend.mailgun import validate_webhook_signature
-from products.conversations.backend.models import Channel, EmailChannel, EmailMessageMapping, Status
+from products.conversations.backend.models import Channel, EmailChannel, EmailMessageMapping, EmailOutboxMessage, Status
 from products.conversations.backend.models.ticket import Ticket
 from products.conversations.backend.services.attachments import (
     sanitize_attachment_filename,
     save_file_to_uploaded_media,
 )
 from products.conversations.backend.services.region_routing import is_primary_region, proxy_to_secondary_region
+from products.conversations.backend.tasks import mark_outbox_bounced
 
 logger = structlog.get_logger(__name__)
 
@@ -486,4 +488,95 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
         is_reply=existing_ticket is not None,
     )
 
+    return HttpResponse(status=200)
+
+
+def _normalize_message_id(raw: str) -> set[str]:
+    """Return the candidate Message-ID forms to match against stored outbox rows.
+
+    We generate outbound Message-IDs with `email.utils.make_msgid`, which wraps them in
+    angle brackets (`<id@domain>`), but Mailgun's delivery-event payload reports the id
+    without brackets. Match both so a bounce lands on the row regardless of form.
+    """
+    stripped = raw.strip().strip("<>").strip()
+    if not stripped:
+        return set()
+    return {raw.strip(), stripped, f"<{stripped}>"}
+
+
+@csrf_exempt
+def email_delivery_events_handler(request: HttpRequest) -> HttpResponse:
+    """Handle Mailgun delivery-event webhooks so bounced replies stop looking "sent".
+
+    A Mailgun send returns 2xx on "accepted for delivery", not "delivered". When a reply
+    later hard-bounces or draws a spam complaint, Mailgun reports it here asynchronously.
+    We downgrade the matching outbox row (and its agent-facing comment badge) to "bounced"
+    so the support team can see the reply never arrived and follow up.
+
+    Temporary failures are acknowledged but left alone: Mailgun retries them on its own,
+    and only a later permanent failure (or a successful delivery) is authoritative.
+
+    Always answers 2xx once the signature is valid — a non-2xx makes Mailgun redeliver,
+    and there is nothing to retry for an unknown or already-handled message.
+    """
+    if request.method != "POST":
+        return HttpResponse(status=405)
+
+    # Mailgun posts delivery events as JSON (signature + event-data), unlike the
+    # multipart inbound route.
+    try:
+        payload = json.loads(request.body or b"{}")
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        logger.warning("email_delivery_event_invalid_json")
+        return HttpResponse("Invalid payload", status=400)
+
+    signature = payload.get("signature") or {}
+    if not validate_webhook_signature(
+        signature.get("token", ""),
+        signature.get("timestamp", ""),
+        signature.get("signature", ""),
+    ):
+        logger.warning("email_delivery_event_invalid_signature")
+        return HttpResponse("Invalid signature", status=403)
+
+    event_data = payload.get("event-data") or {}
+    event = (event_data.get("event") or "").lower()
+    severity = (event_data.get("severity") or "").lower()
+
+    # permanent_failure (hard bounce) and complained (spam report) are terminal: the
+    # message will not reach the recipient. temporary_failure is Mailgun retrying.
+    is_terminal_failure = (event == "failed" and severity == "permanent") or event == "complained"
+    if not is_terminal_failure:
+        logger.info("email_delivery_event_ignored", event=event, severity=severity)
+        return HttpResponse(status=200)
+
+    headers = (event_data.get("message") or {}).get("headers") or {}
+    candidates = _normalize_message_id(str(headers.get("message-id") or ""))
+    if not candidates:
+        logger.warning("email_delivery_event_no_message_id", event=event)
+        return HttpResponse(status=200)
+
+    outbox = EmailOutboxMessage.objects.filter(message_id__in=candidates).first()
+    if not outbox:
+        # The reply may have been sent from the other region; forward once so the row
+        # is found where it actually lives (mirrors the inbound-route fallback).
+        if is_primary_region(request):
+            proxy_to_secondary_region(request, log_prefix="email_delivery_event", timeout=10)
+        else:
+            logger.warning("email_delivery_event_unknown_message_id", event=event)
+        return HttpResponse(status=200)
+
+    if outbox.status == EmailOutboxMessage.Status.BOUNCED:
+        # Mailgun can redeliver a webhook; the downgrade already happened.
+        return HttpResponse(status=200)
+
+    reason = event_data.get("reason") or event
+    mark_outbox_bounced(outbox, f"mailgun {event}: {reason}")
+    logger.info(
+        "email_delivery_event_bounced",
+        team_id=outbox.team_id,
+        outbox_id=str(outbox.id),
+        event=event,
+        severity=severity,
+    )
     return HttpResponse(status=200)
