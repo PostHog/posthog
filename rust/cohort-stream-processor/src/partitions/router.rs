@@ -18,7 +18,7 @@ use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
 use tracing::warn;
 
-use super::intake::{count_events, Admission, MeteredReceiver, PartitionIntake};
+use super::intake::{count_intake, Admission, MeteredReceiver, PartitionIntake};
 use super::shuffle_message::ShuffleMessage;
 use crate::observability::metrics::{
     PARTITIONS_ACTIVE, PARTITION_CHANNEL_DEPTH, PARTITION_CHANNEL_FULL_TOTAL,
@@ -247,8 +247,8 @@ impl PartitionRouter {
         // Refuse (→ hold → pause) once the partition holds its event ceiling, before the batch reaches
         // the mpsc slot. Count events only, so an event-less batch reserves 0 and stays balanced with
         // the receiver's release.
-        let events = count_events(&batch);
-        if channel.intake.try_admit(events) == Admission::Rejected {
+        let counted = count_intake(&batch);
+        if channel.intake.try_admit(counted) == Admission::Rejected {
             counter!(PARTITION_CHANNEL_FULL_TOTAL, "partition" => partition.to_string())
                 .increment(batch.len() as u64);
             return SendOutcome::Full(batch);
@@ -260,13 +260,13 @@ impl PartitionRouter {
             }
             Err(TrySendError::Full(returned)) => {
                 // Reserved above but the slot is full: release so the counter tracks only what landed.
-                channel.intake.release(events);
+                channel.intake.release(counted);
                 counter!(PARTITION_CHANNEL_FULL_TOTAL, "partition" => partition.to_string())
                     .increment(returned.len() as u64);
                 SendOutcome::Full(returned)
             }
             Err(TrySendError::Closed(returned)) => {
-                channel.intake.release(events);
+                channel.intake.release(counted);
                 self.record_drop(partition, returned.len(), REASON_CHANNEL_CLOSED);
                 SendOutcome::ChannelClosed
             }
@@ -335,6 +335,7 @@ mod tests {
                 redirect_hops: 0,
             }),
             cse_offset: 0,
+            broker_ts_ms: None,
         }
     }
 
@@ -348,7 +349,8 @@ mod tests {
                 | ShuffleMessage::Transfer { .. }
                 | ShuffleMessage::Cascade { .. }
                 | ShuffleMessage::RedrivePendingTransfers
-                | ShuffleMessage::MergeCfGc { .. } => {
+                | ShuffleMessage::MergeCfGc { .. }
+                | ShuffleMessage::Seed { .. } => {
                     unreachable!("router tests route only events")
                 }
             })
@@ -531,7 +533,11 @@ mod tests {
     /// assertions line up.
     fn event_off(cse_offset: i64) -> ShuffleMessage {
         match event(cse_offset) {
-            ShuffleMessage::Event { event, .. } => ShuffleMessage::Event { event, cse_offset },
+            ShuffleMessage::Event { event, .. } => ShuffleMessage::Event {
+                event,
+                cse_offset,
+                broker_ts_ms: None,
+            },
             other => other,
         }
     }

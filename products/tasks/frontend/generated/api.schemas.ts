@@ -912,6 +912,16 @@ export interface TaskCreateApi {
      * @nullable
      */
     channel?: string | null
+    /**
+     * Sandbox environment selected for matching a pre-warmed cloud run. Not persisted on the task.
+     * @nullable
+     */
+    sandbox_environment_id?: string | null
+    /**
+     * Custom image selected for matching a pre-warmed cloud run. Not persisted on the task.
+     * @nullable
+     */
+    custom_image_id?: string | null
     /** Agent protocol and harness used for this task's runs. Defaults to ACP when omitted.
      *
      * * `acp` - ACP
@@ -2163,6 +2173,12 @@ export interface TaskRunRelayMessageRequestApi {
      */
     text: string
     /**
+     * Id of the user message this turn answers, when the agent-server echoes it.
+     * @maxLength 128
+     * @nullable
+     */
+    message_id?: string | null
+    /**
      * Ordered assistant text blocks. When present, the last non-empty entry is posted instead of text.
      * @items.maxLength 10000
      */
@@ -2857,6 +2873,16 @@ export interface WarmTaskRequestApi {
      * * `xhigh` - xhigh
      * * `max` - max */
     reasoning_effort?: ReasoningEffortEnumApi | null
+    /**
+     * Optional sandbox environment to provision before the task is submitted.
+     * @nullable
+     */
+    sandbox_environment_id?: string | null
+    /**
+     * Optional custom base image to provision before the task is submitted; takes precedence over the environment's image.
+     * @nullable
+     */
+    custom_image_id?: string | null
 }
 
 /**

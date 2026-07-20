@@ -707,7 +707,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         # actually advertises xmin support — otherwise a raw PATCH would persist an xmin schema that
         # silently degrades to full_refresh.
         if sync_type == ExternalDataSchema.SyncType.XMIN:
-            if instance.source.source_type != ExternalDataSourceType.POSTGRES:
+            if not SourceRegistry.get_source(ExternalDataSourceType(instance.source.source_type)).supports_xmin:
                 raise ValidationError("xmin replication is only available for Postgres sources.")
             if not self._xmin_available_for_schema(instance):
                 raise ValidationError(
@@ -1584,8 +1584,12 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # strings, so bool(...) would treat "False" as truthy. str_to_bool decodes both.
         source_cdc_enabled = str_to_bool(source.job_inputs.get("cdc_enabled"))
         cdc_available = schema.supports_cdc if is_cdc_enabled_for_team(self.team) and source_cdc_enabled else None
-        # xmin is Postgres-only, mirroring the database_schema endpoint.
-        xmin_available = schema.supports_xmin if source.source_type == ExternalDataSourceType.POSTGRES else None
+        # xmin is source-capability-gated, mirroring the database_schema endpoint.
+        xmin_available = (
+            schema.supports_xmin
+            if SourceRegistry.get_source(ExternalDataSourceType(source.source_type)).supports_xmin
+            else None
+        )
 
         data = {
             "incremental_fields": schema.incremental_fields,
