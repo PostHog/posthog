@@ -10,6 +10,7 @@ import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientNonRetryableError,
     RESTClientRetryableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.elasticemail import elasticemail
@@ -318,13 +319,14 @@ class TestErrorClassification:
             _rows(_source("contacts", _make_manager()))
         assert AUTH_ERROR_MARKER not in str(exc.value)
 
-    @mock.patch("time.sleep", return_value=None)
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_json_body_raises_retryable(self, MockSession: Any, _sleep: Any) -> None:
-        # A 200 with an HTML/proxy body must not propagate a raw JSONDecodeError; it is retried.
+    def test_non_json_body_raises_non_retryable(self, MockSession: Any) -> None:
+        # A 200 with an HTML/proxy body can't be turned into rows by retrying (a re-fetch returns
+        # the same non-JSON body), so it fails fast and non-retryably rather than propagating a raw
+        # JSONDecodeError.
         session = MockSession.return_value
-        _wire_repeating(session, _make_response(200, text="<html>gateway timeout</html>"))
-        with pytest.raises(RESTClientRetryableError):
+        _wire(session, [_make_response(200, text="<html>gateway timeout</html>")])
+        with pytest.raises(RESTClientNonRetryableError):
             _rows(_source("contacts", _make_manager()))
 
 
