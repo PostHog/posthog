@@ -124,6 +124,7 @@ hogli build:openapi
 
 ## Further reading
 
+- [`docs/architecture.md`](docs/architecture.md): control plane, runtime architecture, data model, and revision lifecycle.
 - [`docs/identity-and-tools.md`](docs/identity-and-tools.md): identity, credentials, approvals, and tool dispatch.
 - [`docs/custom-tools.md`](docs/custom-tools.md): custom-tool contract and sandbox boundary.
 - [`docs/coherence-overview.md`](docs/coherence-overview.md): cross-language contract generation and validation.
