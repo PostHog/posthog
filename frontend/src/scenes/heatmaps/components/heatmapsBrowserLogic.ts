@@ -25,7 +25,9 @@ import {
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { CommonFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import { PostHogAppToolbarEvent, calculateViewportRange } from 'lib/components/IframedToolbarBrowser/utils'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { removeReplayIframeDataFromLocalStorage } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
@@ -94,6 +96,7 @@ export interface heatmapsBrowserLogicValues {
     hrefMatchType: HrefMatchType // heatmapDataLogic
     isHeightCapped: boolean // heatmapDataLogic
     widthOverride: number // heatmapDataLogic
+    featureFlags: FeatureFlagsSet // featureFlagLogic
     browserSearchResults: string[] | null
     browserSearchResultsLoading: boolean
     browserSearchTerm: string
@@ -305,6 +308,8 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 'heatmapFixedPositionMode',
                 'heatmapColorPalette',
             ],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             heatmapDataLogic({ context: 'in-app' }),
@@ -612,7 +617,11 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
 
         setDataUrl: ({ url }) => {
             actions.maybeLoadTopUrls()
-            if (router.values.location.pathname === '/heatmaps/new') {
+            // the creation wizard drives its own preview, so it must not push the data URL into the shared href
+            if (
+                values.featureFlags[FEATURE_FLAGS.HEATMAPS_CREATION_FLOW] &&
+                router.values.location.pathname === '/heatmaps/new'
+            ) {
                 return
             }
             const normalized = normalizeHeatmapDataUrl(url)

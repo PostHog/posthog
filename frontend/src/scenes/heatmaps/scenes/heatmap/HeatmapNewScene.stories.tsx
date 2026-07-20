@@ -2,7 +2,7 @@ import { Meta, StoryObj } from '@storybook/react'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { App } from 'scenes/App'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -111,6 +111,7 @@ const meta: Meta<typeof HeatmapNewStory> = {
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
+        featureFlags: [FEATURE_FLAGS.HEATMAPS_CREATION_FLOW],
         pageUrl: urls.heatmapNew ? urls.heatmapNew() : urls.heatmap('new'),
         testOptions: {
             waitForLoadersToDisappear: true,

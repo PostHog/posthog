@@ -3,8 +3,10 @@ import { useActions, useValues } from 'kea'
 import { IconCheckCircle, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCard, LemonLabel, Spinner } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { HeatmapAdvancedSettings } from 'scenes/heatmaps/components/HeatmapAdvancedSettings'
 import { HeatmapRecording } from 'scenes/heatmaps/components/HeatmapRecording'
@@ -21,6 +23,7 @@ import { HeatmapType } from '~/types'
 
 import { HeatmapCreationStep, heatmapCreationLogic } from './heatmapCreationLogic'
 import { heatmapLogic } from './heatmapLogic'
+import { HeatmapNewSceneLegacy } from './HeatmapNewSceneLegacy'
 
 const CREATION_STEPS: { key: HeatmapCreationStep; label: string }[] = [
     { key: 'page', label: 'Choose page' },
@@ -545,6 +548,12 @@ function RecordingHeatmapStep(): JSX.Element {
 }
 
 export function HeatmapNewScene(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    return featureFlags[FEATURE_FLAGS.HEATMAPS_CREATION_FLOW] ? <HeatmapCreationWizard /> : <HeatmapNewSceneLegacy />
+}
+
+function HeatmapCreationWizard(): JSX.Element {
     const logic = heatmapLogic({ id: 'new' })
     const { name } = useValues(logic)
     const { setName } = useActions(logic)
