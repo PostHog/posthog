@@ -141,11 +141,13 @@ class PostHogConfig(AppConfig):
         from posthog.api.file_system import registrations as file_system_registrations
 
         from products.cdp.backend.tasks.hog_functions import queue_sync_hog_function_templates
+        from products.mcp_store.backend.tasks.tasks import queue_sync_mcp_server_templates
 
         # Skip during tests since we handle this in conftest.py
         # Skip during collectstatic (STATIC_COLLECTION=1 in Dockerfile) — no Redis available at build time
         if not settings.TEST and not settings.STATIC_COLLECTION:
             queue_sync_hog_function_templates()
+            queue_sync_mcp_server_templates()
 
         file_system_registrations.register_core_file_system_types()
 
