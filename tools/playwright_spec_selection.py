@@ -21,13 +21,20 @@ Emits a single JSON object to stdout:
 
     {
       "mode": "selected" | "full",
-      "spec_files": [...],          # [] when mode == "full"
-      "full_run_reasons": [...],    # why a full run was chosen (empty when selected)
+      "spec_files": [...],              # [] when mode == "full"
+      "full_run_reasons": [...],        # why a full run was chosen (empty when selected)
+      "full_run_reason_category": "",   # low-cardinality category (empty when selected)
+      "full_run_reason_detail": "",     # low-cardinality trigger (the pattern/scene/product/dir)
       "changed_files": [...],
       "changed_file_count": N,
       "selected_count": M,
       "total_spec_count": T
     }
+
+`full_run_reason_detail` names the specific thing that forced the full run, normalized
+to stay low-cardinality so it groups cleanly in analytics: the matched `force_full`
+pattern, the unmapped scene/product name, or the offending file's directory prefix
+(for `unmapped_path`). It's what tells you which map gap to close next.
 """
 
 from __future__ import annotations
@@ -50,6 +57,18 @@ SPEC_GLOBS = ("playwright/e2e/**/*.spec.ts", "products/*/frontend/e2e/**/*.spec.
 
 _PRODUCT_FRONTEND_RE = re.compile(r"^products/([^/]+)/frontend/")
 _SCENE_RE = re.compile(r"^frontend/src/scenes/([^/]+)/")
+
+# How many leading path segments to keep when normalizing an unmapped file to a
+# directory prefix — enough to point at the area to map, bounded so cardinality stays low.
+_DETAIL_PREFIX_SEGMENTS = 3
+
+
+def _dir_prefix(path: str) -> str:
+    """The file's directory, capped to the first few segments, as a low-cardinality label."""
+    parts = path.split("/")[:-1]
+    if not parts:
+        return path
+    return "/".join(parts[:_DETAIL_PREFIX_SEGMENTS]) + "/"
 
 
 class MapError(Exception):
@@ -112,13 +131,15 @@ def _result(
     changed_files: list[str],
     total_spec_count: int,
     reason_category: str = "",
+    reason_detail: str = "",
 ) -> dict:
     return {
         "mode": mode,
         "spec_files": spec_files,
         "full_run_reasons": reasons,
-        # Low-cardinality label for analytics grouping (the reasons carry file paths).
+        # Low-cardinality labels for analytics grouping (the reasons carry file paths).
         "full_run_reason_category": reason_category,
+        "full_run_reason_detail": reason_detail,
         "changed_files": changed_files,
         "changed_file_count": len(changed_files),
         "selected_count": len(spec_files),
@@ -130,8 +151,8 @@ def select(changed_files: list[str], area_map: dict, all_specs: set[str]) -> dic
     """Pure selection: changed files + map + on-disk specs -> a full/selected decision."""
     total = len(all_specs)
 
-    def full(reason: str, category: str) -> dict:
-        return _result("full", [], [reason], changed_files, total, category)
+    def full(reason: str, category: str, detail: str = "") -> dict:
+        return _result("full", [], [reason], changed_files, total, category, detail)
 
     if not changed_files:
         return full("empty diff (defensive full run)", "empty_diff")
@@ -156,7 +177,7 @@ def select(changed_files: list[str], area_map: dict, all_specs: set[str]) -> dic
         # 1. Shared infra / backend / unattributable code -> full (highest priority).
         for pat, rx in force_full:
             if rx.match(f):
-                return full(f"{f} matches force-full pattern '{pat}'", "force_full")
+                return full(f"{f} matches force-full pattern '{pat}'", "force_full", pat)
 
         # 2. Product-owned frontend -> that product's specs (or an explicit rule for
         #    products whose behavior is exercised by top-level specs).
@@ -169,7 +190,7 @@ def select(changed_files: list[str], area_map: dict, all_specs: set[str]) -> dic
                 continue
             if explicit_match(f, selected):
                 continue
-            return full(f"{f}: product '{name}' has no spec mapping", "unmapped_product")
+            return full(f"{f}: product '{name}' has no spec mapping", "unmapped_product", name)
 
         # 3. Frontend scene -> mapped specs.
         sm = _SCENE_RE.match(f)
@@ -179,7 +200,7 @@ def select(changed_files: list[str], area_map: dict, all_specs: set[str]) -> dic
                 for t in scenes[area]:
                     selected |= expand_target(t, all_specs)
                 continue
-            return full(f"{f}: scene '{area}' has no spec mapping", "unmapped_scene")
+            return full(f"{f}: scene '{area}' has no spec mapping", "unmapped_scene", area)
 
         # 4. Explicit path rules.
         if explicit_match(f, selected):
@@ -191,7 +212,7 @@ def select(changed_files: list[str], area_map: dict, all_specs: set[str]) -> dic
             continue
 
         # 6. Anything unrecognized -> full (fail closed).
-        return full(f"{f}: unmapped path", "unmapped_path")
+        return full(f"{f}: unmapped path", "unmapped_path", _dir_prefix(f))
 
     # Belt-and-suspenders: a directly-edited spec always runs even if its area also mapped.
     selected |= {f for f in changed_files if f in all_specs}

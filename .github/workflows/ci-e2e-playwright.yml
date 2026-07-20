@@ -335,6 +335,7 @@ jobs:
             skipped_count: ${{ steps.classify.outputs.skipped_count }}
             changed_file_count: ${{ steps.classify.outputs.changed_file_count }}
             full_run_reason_category: ${{ steps.classify.outputs.full_run_reason_category }}
+            full_run_reason_detail: ${{ steps.classify.outputs.full_run_reason_detail }}
         steps:
             # Full checkout at PR head so the selector can glob specs on disk and read
             # the map/script from the branch under test. Bounded depth + blob:none keeps
@@ -385,6 +386,7 @@ jobs:
                   SKIPPED_COUNT=""
                   CHANGED_COUNT=""
                   REASON_CATEGORY=""
+                  REASON_DETAIL=""
 
                   if [[ "$SELECT_OUTCOME" != "success" ]] || [[ ! -s /tmp/spec-selection.json ]]; then
                       echo "::warning::spec selector produced no output — running the FULL suite"
@@ -396,6 +398,7 @@ jobs:
                       TOTAL_COUNT=$(jq -r '.total_spec_count' /tmp/spec-selection.json)
                       CHANGED_COUNT=$(jq -r '.changed_file_count' /tmp/spec-selection.json)
                       REASON_CATEGORY=$(jq -r '.full_run_reason_category' /tmp/spec-selection.json)
+                      REASON_DETAIL=$(jq -r '.full_run_reason_detail // ""' /tmp/spec-selection.json)
                       SKIPPED_COUNT=$((TOTAL_COUNT - SELECTED_COUNT))
                       if [[ "$MODE" == "selected" ]]; then
                           SPECS=$(jq -r '.spec_files | join(" ")' /tmp/spec-selection.json)
@@ -423,6 +426,7 @@ jobs:
                       echo "skipped_count=$SKIPPED_COUNT"
                       echo "changed_file_count=$CHANGED_COUNT"
                       echo "full_run_reason_category=$REASON_CATEGORY"
+                      echo "full_run_reason_detail=$REASON_DETAIL"
                   } >> "$GITHUB_OUTPUT"
                   echo "mode=$MODE category=${REASON_CATEGORY:-none} selected=${SELECTED_COUNT:-?}/${TOTAL_COUNT:-?}"
 
@@ -1090,6 +1094,7 @@ jobs:
                         "skipped_count": ${{ needs.select-specs.outputs.skipped_count || 'null' }},
                         "changed_file_count": ${{ needs.select-specs.outputs.changed_file_count || 'null' }},
                         "full_run_reason_category": ${{ toJSON(needs.select-specs.outputs.full_run_reason_category || '') }},
+                        "full_run_reason_detail": ${{ toJSON(needs.select-specs.outputs.full_run_reason_detail || '') }},
                         "playwright_test_seconds": ${{ needs.playwright.outputs.test_seconds || 'null' }},
                         "playwright_result": ${{ toJSON(needs.playwright.result) }},
                         "runner_billing_multiplier": 4,
