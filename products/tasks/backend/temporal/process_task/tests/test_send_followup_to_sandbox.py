@@ -391,6 +391,7 @@ class TestSendFollowupActivityRefreshOrdering:
 
         def _record_refresh(*a, **kw):
             call_order.append("refresh")
+            return True  # refresh confirmed the session is safe; gate lets the turn proceed
 
         def _record_user_msg(*a, **kw):
             call_order.append("user_message")
