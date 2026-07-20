@@ -378,6 +378,7 @@ async fn async_main(config: Config) -> Result<()> {
                             dispatcher: load.dispatcher,
                             peer_index: load.peer_index,
                             peer_count: load.peer_count,
+                            routing: load.routing,
                             events: recorder.backlog(),
                         }))
                     };
@@ -571,5 +572,6 @@ fn build_debug_load(
         dispatcher: dispatcher_load,
         peer_index,
         peer_count,
+        routing: dispatcher.debug_routing(),
     }
 }
