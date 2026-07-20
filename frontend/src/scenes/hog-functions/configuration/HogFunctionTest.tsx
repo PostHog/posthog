@@ -24,6 +24,7 @@ import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 import { hogFunctionTestLogic } from './hogFunctionTestLogic'
+import { DEFAULT_SAMPLE_GLOBALS_COPY, SAMPLE_GLOBALS_CONTEXTS } from './sampleGlobalsContexts'
 
 export function HogFunctionTestPlaceholder({
     title,
@@ -155,6 +156,7 @@ export const HogFunctionTestEditor = ({
 export function HogFunctionTest(): JSX.Element {
     const { logicProps, canLoadSampleGlobals, contextId, hogFunction, template, configuration } =
         useValues(hogFunctionConfigurationLogic)
+    const sampleGlobalsCopy = SAMPLE_GLOBALS_CONTEXTS[contextId] ?? DEFAULT_SAMPLE_GLOBALS_COPY
     const isDataWarehouse = configuration?.filters?.source === 'data-warehouse-table'
     const {
         isTestInvocationSubmitting,
@@ -324,18 +326,12 @@ export function HogFunctionTest(): JSX.Element {
                                                     loadSampleGlobals()
                                                 }
                                             }}
-                                            tooltip={
-                                                contextId === 'error-tracking'
-                                                    ? 'Load a recent issue from this project, and use it to populate the globals below.'
-                                                    : 'Find the last event matching filters, and use it to populate the globals below.'
-                                            }
+                                            tooltip={sampleGlobalsCopy.loadButtonTooltip}
                                             icon={sampleGlobalsLoadingAndNotCancelled ? <Spinner /> : undefined}
                                         >
                                             {sampleGlobalsLoadingAndNotCancelled
                                                 ? 'Cancel loading'
-                                                : contextId === 'error-tracking'
-                                                  ? 'Load real issue'
-                                                  : 'Load new event'}
+                                                : sampleGlobalsCopy.loadButtonLabel}
                                         </LemonButton>
                                     ) : null}
                                     <LemonButton
