@@ -27,7 +27,9 @@ from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 
 from products.data_modeling.backend.facade.api import (
+    HasDependentsError,
     delete_node_from_dag,
+    get_dependent_saved_queries,
     saved_query_materialized_at,
     sync_saved_query_to_dag,
 )
@@ -278,6 +280,17 @@ class EndpointMaterializationService:
             saved_query_name = version.saved_query.name
             try:
                 delete_node_from_dag(version.saved_query)
+            except HasDependentsError:
+                # Other saved queries reference this endpoint's materialized view. Soft-deleting
+                # the backing query anyway would orphan the DAG node and break the dependents, so
+                # block the disable and tell the user what to repoint first.
+                ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="disable", status="error").inc()
+                dependents = get_dependent_saved_queries(version.saved_query)
+                names = ", ".join(sorted(dependent.name for dependent in dependents))
+                raise ValidationError(
+                    f"Can't disable materialization: other saved queries depend on this endpoint's "
+                    f"materialized view ({names}). Remove or repoint them before disabling."
+                )
             except Exception as e:
                 logger.exception(
                     "Failed to remove endpoint node from DAG",

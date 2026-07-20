@@ -1526,6 +1526,52 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertFalse(Node.objects.filter(team=self.team, saved_query_id=saved_query_id).exists())
 
+    def test_disable_materialization_blocked_when_view_has_dependents(self):
+        endpoint = create_endpoint_with_version(
+            name="depended_on_endpoint",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_materialized": True, "data_freshness_seconds": 86400},
+            format="json",
+        )
+
+        version = endpoint.versions.first()
+        version.refresh_from_db()
+        assert version.saved_query is not None
+        saved_query_id = version.saved_query.id
+
+        from products.data_modeling.backend.facade.api import sync_saved_query_to_dag
+        from products.data_modeling.backend.facade.models import Node
+
+        # A separate saved query reads from the endpoint's materialized view, wiring a DAG edge.
+        dependent = DataWarehouseSavedQuery.objects.create(
+            name="dependent_view",
+            team=self.team,
+            query={"query": f"SELECT * FROM {version.materialized_view_name}", "kind": "HogQLQuery"},
+        )
+        sync_saved_query_to_dag(dependent)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_materialized": False},
+            format="json",
+        )
+
+        # Blocked with a 400 that names the dependent — the node and backing query must survive.
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertIn("dependent_view", str(response.json()))
+        self.assertTrue(Node.objects.filter(team=self.team, saved_query_id=saved_query_id).exists())
+        version.refresh_from_db()
+        self.assertEqual(version.saved_query_id, saved_query_id)
+        version.saved_query.refresh_from_db()
+        self.assertFalse(version.saved_query.deleted)
+
     def test_delete_endpoint_removes_dag_node(self):
         endpoint = create_endpoint_with_version(
             name="delete_dag_endpoint",
