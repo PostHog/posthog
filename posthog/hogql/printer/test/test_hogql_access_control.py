@@ -11,6 +11,7 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.schema.system import SystemTables
+from posthog.hogql.errors import QueryError, TableAccessDeniedError
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.printer.access_control import build_access_control_guard
 
@@ -326,8 +327,6 @@ class TestDeniedTableError(BaseTest):
 
     def test_denied_table_shows_access_error(self):
         """When a table is denied, error should say 'no access' not 'unknown'."""
-        from posthog.hogql.errors import QueryError
-
         from posthog.constants import AvailableFeature
 
         from ee.models import AccessControl
@@ -355,7 +354,7 @@ class TestDeniedTableError(BaseTest):
         assert "system.dashboards" in database._denied_tables
 
         # Try to get the table and verify error message
-        with self.assertRaises(QueryError) as cm:
+        with self.assertRaises(TableAccessDeniedError) as cm:
             database.get_table("system.dashboards")
 
         assert "don't have access" in str(cm.exception)
@@ -363,8 +362,6 @@ class TestDeniedTableError(BaseTest):
 
     def test_unknown_table_still_shows_unknown_error(self):
         """Tables that don't exist should still show 'unknown' error."""
-        from posthog.hogql.errors import QueryError
-
         database = Database.create_for(team=self.team, user=self.user)
 
         with self.assertRaises(QueryError) as cm:
@@ -406,8 +403,6 @@ class TestAccessControlIntegration(BaseTest):
 
     def test_query_without_user_fails_on_scoped_table(self):
         """Querying a scoped system table without user should fail with access error."""
-        from posthog.hogql.errors import QueryError
-
         context = HogQLContext(
             team_id=self.team.pk,
             team=self.team,
@@ -415,7 +410,7 @@ class TestAccessControlIntegration(BaseTest):
             enable_select_queries=True,
         )
 
-        with self.assertRaises(QueryError) as cm:
+        with self.assertRaises(TableAccessDeniedError) as cm:
             self._compile_select("SELECT id, name FROM system.dashboards", context)
         assert "don't have access" in str(cm.exception)
 
@@ -584,7 +579,6 @@ class TestWarehouseTableAccessControl(BaseTest):
         # Guards the fail-closed fix: query runners print the response HogQL userless right after the
         # user-scoped execute. Without the bypass, that print fails closed on a warehouse table; the param
         # must reach the database so warehouse-backed insights don't 500 on the print.
-        from posthog.hogql.errors import QueryError
         from posthog.hogql.parser import parse_select
         from posthog.hogql.printer import to_printed_hogql
 
@@ -595,8 +589,6 @@ class TestWarehouseTableAccessControl(BaseTest):
         assert "allowed_table" in printed
 
     def test_denied_table_lookup_raises_access_error(self):
-        from posthog.hogql.errors import QueryError
-
         self._create_ac(
             resource="warehouse_table",
             resource_id=str(self.denied_table.id),
@@ -606,7 +598,7 @@ class TestWarehouseTableAccessControl(BaseTest):
 
         database = Database.create_for(team=self.team, user=self.user)
 
-        with self.assertRaises(QueryError) as cm:
+        with self.assertRaises(TableAccessDeniedError) as cm:
             database.get_table("denied_table")
         assert "don't have access" in str(cm.exception)
         assert "Unknown" not in str(cm.exception)
@@ -688,7 +680,6 @@ class TestWarehouseAccessControlEndToEnd(BaseTest):
         )
 
     def test_execute_hogql_query_raises_on_denied_warehouse_table(self):
-        from posthog.hogql.errors import QueryError
         from posthog.hogql.query import execute_hogql_query
 
         from ee.models.rbac.access_control import AccessControl
@@ -706,7 +697,7 @@ class TestWarehouseAccessControlEndToEnd(BaseTest):
         database = Database.create_for(team=self.team, user=self.user)
         assert "denied_warehouse_table" in database._denied_tables
 
-        with self.assertRaises(QueryError) as cm:
+        with self.assertRaises(TableAccessDeniedError) as cm:
             execute_hogql_query(
                 query="SELECT id FROM denied_warehouse_table",
                 team=self.team,
@@ -720,7 +711,6 @@ class TestWarehouseAccessControlEndToEnd(BaseTest):
         (downstream may still fail because there's no real S3 data, but the
         gate must not block it)."""
         from posthog.hogql.context import HogQLContext
-        from posthog.hogql.errors import QueryError
         from posthog.hogql.query import execute_hogql_query
 
         from ee.models.rbac.access_control import AccessControl
@@ -942,9 +932,7 @@ class TestWarehouseViewAccessControl(BaseTest):
         assert not database.has_table("denied_view")
         assert backing_table.name == "denied_view"
 
-        from posthog.hogql.errors import QueryError
-
-        with self.assertRaises(QueryError) as cm:
+        with self.assertRaises(TableAccessDeniedError) as cm:
             database.get_table("denied_view")
         assert "don't have access" in str(cm.exception)
         assert "Unknown" not in str(cm.exception)
