@@ -40,8 +40,8 @@ export const LogsDisplayBar = ({
     showFacetRailToggle = false,
     totalLogsCount,
 }: LogsDisplayBarProps): JSX.Element => {
-    const { facetRailCollapsed, viewMode, groupBy } = useValues(logsViewerConfigLogic)
-    const { setFacetRailCollapsed, setViewMode, setGroupBy } = useActions(logsViewerConfigLogic)
+    const { facetRailCollapsed, viewMode, groupBys } = useValues(logsViewerConfigLogic)
+    const { setFacetRailCollapsed, setViewMode, setGroupBys } = useActions(logsViewerConfigLogic)
     const showPatternsView = useFeatureFlag('LOGS_PATTERNS_VIEW')
     const showGroupBy = useFeatureFlag('LOGS_GROUP_BY')
 
@@ -96,13 +96,13 @@ export const LogsDisplayBar = ({
                             [TaxonomicFilterGroupType.Logs]: ['message'],
                             [TaxonomicFilterGroupType.LogAttributes]: ['message'],
                         }}
-                        value={groupBy?.key}
+                        value={groupBys[0]?.key}
                         onChange={(value, groupType) =>
                             // Clearing the key keeps you in the Group view (empty state) — leaving
                             // the view is the segmented bar's job, not the picker's. The source is
                             // resolved from the key so a recent (recorded under LogAttributes) still
                             // groups by the right top-level column instead of a missing attribute.
-                            setGroupBy(value ? { key: value, source: resolveGroupBySource(value, groupType) } : null)
+                            setGroupBys(value ? [{ key: value, source: resolveGroupBySource(value, groupType) }] : [])
                         }
                         allowClear
                         placeholder="Group by"

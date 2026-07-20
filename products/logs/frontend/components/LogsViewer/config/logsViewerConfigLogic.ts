@@ -59,7 +59,7 @@ export interface logsViewerConfigLogicValues {
     customColumns: string[] | undefined
     facetRailCollapsed: boolean
     filters: LogsViewerFilters
-    groupBy: LogsViewerGroupBy | null
+    groupBys: LogsViewerGroupBy[]
     orderBy: LogsOrderBy
     sparklineBreakdownBy: LogsSparklineBreakdownBy
     sparklineCollapsed: boolean
@@ -110,8 +110,8 @@ export interface logsViewerConfigLogicActions {
     setFilters: (filters: LogsViewerFilters) => {
         filters: LogsViewerFilters
     }
-    setGroupBy: (groupBy: LogsViewerGroupBy | null) => {
-        groupBy: LogsViewerGroupBy | null
+    setGroupBys: (groupBys: LogsViewerGroupBy[]) => {
+        groupBys: LogsViewerGroupBy[]
     }
     setOrderBy: (
         orderBy: LogsOrderBy,
@@ -163,7 +163,7 @@ export const logsViewerConfigLogic = kea<logsViewerConfigLogicType>([
         toggleSparklineCollapsed: true,
         setFacetRailCollapsed: (facetRailCollapsed: boolean) => ({ facetRailCollapsed }),
         setViewMode: (viewMode: LogsViewerViewMode) => ({ viewMode }),
-        setGroupBy: (groupBy: LogsViewerGroupBy | null) => ({ groupBy }),
+        setGroupBys: (groupBys: LogsViewerGroupBy[]) => ({ groupBys }),
         setCompareEnabled: (enabled: boolean) => ({ enabled }),
         setBaselineMode: (mode: PatternsBaselineMode) => ({ mode }),
 
@@ -222,7 +222,7 @@ export const logsViewerConfigLogic = kea<logsViewerConfigLogicType>([
         ],
         // Compare state lives here (not in logsPatternsLogic) so the choice survives
         // Logs↔Patterns switches within a visit — the patterns logic unmounts when leaving
-        // the lens. Not persisted, like viewMode and groupBy.
+        // the lens. Not persisted, like viewMode and groupBys.
         compareEnabled: [
             false,
             {
@@ -256,14 +256,15 @@ export const logsViewerConfigLogic = kea<logsViewerConfigLogicType>([
                 },
             },
         ],
-        // The Group view's configuration: which key to group by (behind the logs-group-by flag).
-        // Kept separate from viewMode so the key survives switching lenses within a visit —
-        // Logs and back returns to the same grouping. null = no key chosen yet (empty state).
-        // Not persisted across visits — grouping is an explicit, per-visit exploration like Patterns.
-        groupBy: [
-            null as LogsViewerGroupBy | null,
+        // The Group view's configuration: the ordered dimensions to group by (behind the
+        // logs-group-by flag). Kept separate from viewMode so the choice survives switching
+        // lenses within a visit — Logs and back returns to the same grouping. Empty = no key
+        // chosen yet (empty state). Not persisted across visits — grouping is an explicit,
+        // per-visit exploration like Patterns.
+        groupBys: [
+            [] as LogsViewerGroupBy[],
             {
-                setGroupBy: (_, { groupBy }) => groupBy,
+                setGroupBys: (_, { groupBys }) => groupBys,
             },
         ],
     }),
