@@ -3,8 +3,10 @@
 logo.dev meters usage per account token, and each PostHog instance holds exactly one
 (``settings.LOGO_DEV_TOKEN``), so the whole instance draws from a single shared budget under a
 constant scope. logo.dev publishes no hard rate-limit numbers, so the defaults are deliberately
-modest operator ceilings — icon responses are cached for a day by the consumer
-(:mod:`posthog.cdp.services.icons`), so steady-state traffic sits far below them.
+modest operator ceilings. Icon bytes are never stored server-side (logo.dev gates that behind a
+data-caching license), so upstream volume is deduped only per user, by the browser caching that
+:mod:`posthog.cdp.services.icons` directs — steady-state traffic tracks unique (user, icon) first
+views per day. Raise the settings below if that outgrows the defaults.
 
 Importing this module registers the policy as a side effect — import it (directly or via
 ``consume_logodev_sync``) before using a ``logodev:...`` limiter key.
