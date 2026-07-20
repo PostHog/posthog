@@ -66,9 +66,9 @@ export function AlertWizard({
                                     className={cn(
                                         'flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors',
                                         isCurrent
-                                            ? 'bg-primary text-primary-highlight'
+                                            ? 'bg-accent-primary text-accent-primary-highlight'
                                             : isComplete
-                                              ? 'bg-primary-highlight text-primary'
+                                              ? 'bg-success-highlight text-success'
                                               : 'text-muted hover:bg-border'
                                     )}
                                     aria-current={isCurrent ? 'step' : undefined}
@@ -77,10 +77,10 @@ export function AlertWizard({
                                         className={cn(
                                             'inline-flex size-4 shrink-0 items-center justify-center rounded-full text-[10px]',
                                             isCurrent
-                                                ? 'bg-primary-highlight text-primary'
+                                                ? 'bg-accent-primary-highlight text-accent-primary'
                                                 : isComplete
-                                                  ? 'bg-primary text-primary-highlight'
-                                                  : 'border border-current/40'
+                                                  ? 'bg-success text-success-highlight'
+                                                  : 'border border-border'
                                         )}
                                     >
                                         {isComplete ? '✓' : i + 1}
@@ -96,12 +96,6 @@ export function AlertWizard({
                         )
                     })}
                 </ol>
-                <div className="mt-2 h-1 w-full rounded-full bg-border overflow-hidden">
-                    <div
-                        className="h-full rounded-full bg-primary transition-all duration-300"
-                        style={{ width: `${((current + 1) / steps.length) * 100}%` }}
-                    />
-                </div>
             </header>
             <section className="p-4 min-h-0 flex-1 overflow-y-auto">
                 <div className="space-y-1 mb-3">
