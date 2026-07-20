@@ -85,6 +85,13 @@ export function HogFlowFunctionMappings({
         }
     }
 
+    const toggleDisabled = (mapping: HogFunctionMappingType): void => {
+        const index = mappingsValue.findIndex((m) => m === mapping)
+        if (index !== -1) {
+            onChange(mappingsValue.map((m, i) => (i === index ? { ...m, disabled: !m.disabled } : m)))
+        }
+    }
+
     const renameMapping = (mapping: HogFunctionMappingType): void => {
         LemonDialog.openForm({
             title: 'Rename mapping',
@@ -149,6 +156,9 @@ export function HogFlowFunctionMappings({
                                             dropdown: {
                                                 overlay: (
                                                     <div className="deprecated-space-y-px">
+                                                        <LemonButton onClick={() => toggleDisabled(mapping)}>
+                                                            {mapping.disabled ? 'Enable' : 'Disable'}
+                                                        </LemonButton>
                                                         <LemonButton onClick={() => renameMapping(mapping)}>
                                                             Rename
                                                         </LemonButton>

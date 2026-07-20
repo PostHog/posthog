@@ -448,6 +448,7 @@ export type HogFunctionTypeType =
     | 'site_destination'
 
 export interface HogFunctionMappingType {
+    disabled?: boolean
     inputs_schema?: HogFunctionInputSchemaType[]
     inputs?: Record<string, CyclotronInputType> | null
     filters?: HogFunctionFilters | null

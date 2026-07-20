@@ -7099,6 +7099,7 @@ export type CyclotronJobInputType = CyclotronInputType
 
 export interface HogFunctionMappingType {
     name: string
+    disabled?: boolean
     inputs_schema?: CyclotronJobInputSchemaType[]
     inputs?: Record<string, CyclotronInputType> | null
     filters?: CyclotronJobFiltersType | null
