@@ -88,6 +88,16 @@ def test_expected_reference_pulled_self_skips_when_not_requested() -> None:
         ([_exec("zero", "learn -s xyz", ZERO_HIT), _exec("recover", "learn skills", "posthog:s")], 1.0),
         ([_exec("zero", "learn -s xyz", ZERO_HIT), _exec("recover", "learn -s broader", "posthog:s")], 1.0),
         ([_exec("zero", "learn -s xyz", ZERO_HIT), _exec("give-up", "call execute-sql {}", "[]")], 0.0),
+        # A gate-rejected (errored) product call is still the agent jumping to product
+        # tools — a later learn must not hide it from the ordering.
+        (
+            [
+                _exec("zero", "learn -s xyz", ZERO_HIT),
+                _exec("gated", "call execute-sql {}", "No skills loaded this session.", failed=True),
+                _exec("recover", "learn skills", "posthog:s"),
+            ],
+            0.0,
+        ),
         ([_exec("zero", "learn -s xyz", ZERO_HIT)], 0.0),
         ([_exec("zero", "learn -s xyz", ZERO_HIT, failed=True)], None),
         (

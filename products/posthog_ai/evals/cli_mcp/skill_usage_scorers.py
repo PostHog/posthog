@@ -19,7 +19,7 @@ from braintrust import Score
 from braintrust_core.score import Scorer
 
 from products.posthog_ai.eval_harness.harness.cli import SkillDelivery
-from products.posthog_ai.eval_harness.log_parser import LogParser
+from products.posthog_ai.eval_harness.log_parser import EXEC_TOOL_NAME, LogParser, ToolCall, normalize_tool_name
 from products.posthog_ai.eval_harness.scorers import BINARY_CHOICE_SCORES, JUDGE_MODEL, JudgedScorer
 from products.posthog_ai.evals.cli_mcp.skill_distribution_scorers import (
     _exec_command,
@@ -33,6 +33,10 @@ from products.posthog_ai.evals.cli_mcp.skill_distribution_scorers import (
 )
 
 _ZERO_HIT_PREFIX = 'No skills matched "'
+
+
+def _exec_calls(parser: LogParser) -> list[ToolCall]:
+    return [call for call in parser.get_tool_calls() if normalize_tool_name(call.raw_name) == EXEC_TOOL_NAME]
 
 
 class ExpectedReferencePulled(Scorer):
@@ -157,7 +161,10 @@ class SearchRecoveryAfterZeroHit(Scorer):
         if not zero_hits:
             return Score(name=self._name(), score=None, metadata={"reason": "No zero-hit search occurred"})
 
-        exec_calls = _successful_exec_calls(parser)
+        # Ordering must see errored calls too: a gate-rejected product call after a
+        # zero-hit search is still the agent jumping to product tools, even though
+        # the agent may run `learn` right after the rejection.
+        exec_calls = _exec_calls(parser)
         for zero_hit in zero_hits:
             following = [call for call in exec_calls if call.position > zero_hit.position]
             if not following:
