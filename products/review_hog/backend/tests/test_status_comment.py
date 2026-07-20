@@ -92,7 +92,7 @@ class TestRenderFinalBody:
                 0,
                 IssuePriority.SHOULD_FIX,
                 None,
-                ["No issues found, so you're all clear.", "calming gif", "https://media.tenor.com/"],
+                ["Nothing worth raising this time."],
                 ["Published", "stayed below"],
             ),
             # Posted on a prior crashed attempt (marker skip): published, but no link to render.
