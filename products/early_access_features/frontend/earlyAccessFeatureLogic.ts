@@ -311,9 +311,12 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
     forms(({ actions, props, values }) => ({
         earlyAccessFeature: {
             defaults: { ...NEW_EARLY_ACCESS_FEATURE } as NewEarlyAccessFeatureType | EarlyAccessFeatureType,
-            errors: ({ name, payload }) =>
+            errors: ({ name, description, payload }) =>
                 ({
                     name: !name ? 'Feature name must be set' : undefined,
+                    // PostHog's own project (id 2) requires a description — mirrors the backend POSTHOG_TEAM_ID rule.
+                    description:
+                        values.currentTeamId === 2 && !description?.trim() ? 'A description is required' : undefined,
                     // payload is edited as a JSON string in the form, but typed as Record<string, any>
                     payload:
                         payload && typeof payload === 'string'

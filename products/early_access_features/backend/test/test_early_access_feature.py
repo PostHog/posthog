@@ -114,6 +114,76 @@ class TestEarlyAccessFeature(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("omitted", None),
+            ("blank", ""),
+            ("whitespace_only", "   "),
+        ]
+    )
+    def test_posthog_team_requires_description_on_cloud(self, _name, description):
+        with (
+            patch("products.early_access_features.backend.api.is_cloud", return_value=True),
+            patch("products.early_access_features.backend.api.POSTHOG_TEAM_ID", self.team.id),
+        ):
+            data: dict = {"name": "Hick bondoogling", "stage": "concept"}
+            if description is not None:
+                data["description"] = description
+
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/early_access_feature/",
+                data=data,
+                format="json",
+            )
+            response_data = response.json()
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert response_data["attr"] == "description"
+        assert not EarlyAccessFeature.objects.filter(name="Hick bondoogling").exists()
+
+    def test_posthog_team_allows_creation_with_description_on_cloud(self):
+        with (
+            patch("products.early_access_features.backend.api.is_cloud", return_value=True),
+            patch("products.early_access_features.backend.api.POSTHOG_TEAM_ID", self.team.id),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/early_access_feature/",
+                data={"name": "Hick bondoogling", "description": "A real description", "stage": "concept"},
+                format="json",
+            )
+            response_data = response.json()
+
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert response_data["description"] == "A real description"
+
+    def test_other_team_does_not_require_description_on_cloud(self):
+        with (
+            patch("products.early_access_features.backend.api.is_cloud", return_value=True),
+            patch("products.early_access_features.backend.api.POSTHOG_TEAM_ID", self.team.id + 1000),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/early_access_feature/",
+                data={"name": "Hick bondoogling", "stage": "concept"},
+                format="json",
+            )
+            response_data = response.json()
+
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+
+    def test_posthog_team_does_not_require_description_off_cloud(self):
+        with (
+            patch("products.early_access_features.backend.api.is_cloud", return_value=False),
+            patch("products.early_access_features.backend.api.POSTHOG_TEAM_ID", self.team.id),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/early_access_feature/",
+                data={"name": "Hick bondoogling", "stage": "concept"},
+                format="json",
+            )
+            response_data = response.json()
+
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+
+    @parameterized.expand(
+        [
             (EarlyAccessFeature.Stage.ALPHA,),
             (EarlyAccessFeature.Stage.BETA,),
             (EarlyAccessFeature.Stage.GENERAL_AVAILABILITY,),
