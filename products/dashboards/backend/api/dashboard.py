@@ -144,6 +144,7 @@ from products.notifications.backend.facade.api import (
 from products.product_analytics.backend.api.insight import (
     INCLUDE_DASHBOARDS_PARAMETER,
     DashboardTileBasicSerializer,
+    InsightBasicSerializer,
     InsightSerializer,
     InsightViewSet,
     _get_insight_type,
@@ -330,13 +331,10 @@ def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, d
     try:
         tile_data = DashboardTileSerializer(tile, many=False, context=tile_context).data
         return order, tile_data
-    except pydantic_core.ValidationError as e:
+    except Exception as e:
         if not tile.insight:
             raise
-        query = tile.insight.query
-        tile.insight.query = None
-        tile_data = DashboardTileSerializer(tile, context=tile_context).data
-        tile_data["insight"]["query"] = query
+        tile_data = DashboardTileErrorSerializer(tile, context=tile_context).data
         tile_data["error"] = {"type": type(e).__name__, "message": str(e)}
         return order, tile_data
 
@@ -836,6 +834,10 @@ class DashboardTileSerializer(serializers.ModelSerializer):
         representation["is_cached"] = insight_representation.get("is_cached", False)
 
         return representation
+
+
+class DashboardTileErrorSerializer(DashboardTileSerializer):
+    insight = InsightBasicSerializer()
 
 
 class InsightResultSerializer(InsightSerializer):
