@@ -28,6 +28,7 @@ export const CAPABILITIES_CDP_WORKFLOWS: PluginServerCapabilities = {
     cdpCyclotronWorkerHogFlow: true,
     cdpCyclotronWorkerEmail: true,
     cdpCyclotronV2Janitor: isDevEnv(),
+    cdpCyclotronV2PoisonPillAutodrain: isDevEnv(),
     cdpHogflowScheduler: isDevEnv(),
     cdpHogflowSubscriptionMatcher: isDevEnv(),
 }
