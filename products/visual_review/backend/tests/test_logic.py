@@ -4,9 +4,14 @@ from datetime import timedelta
 
 import pytest
 
+from django.db import connections
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from products.visual_review.backend import logic
+from products.visual_review.backend.db import WRITER_DB
 from products.visual_review.backend.facade.enums import ReviewDecision, ReviewState, RunStatus, RunType, SnapshotResult
 from products.visual_review.backend.models import Repo, Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
@@ -2430,6 +2435,69 @@ class TestVerifyUploadsAndCreateArtifacts:
         assert artifact is not None
         assert artifact.content_hash == server_hash
         assert artifact.size_bytes == len(png)
+        snapshot = RunSnapshot.objects.get(run=run)
+        assert snapshot.current_artifact_id == artifact.id
+
+    def test_verification_query_count_does_not_grow_per_hash(self, repo, mocker):
+        from products.visual_review.backend.hashing import hash_image
+
+        def create_run_with_images(count: int, color_offset: int) -> tuple[Run, dict[str, bytes]]:
+            images: dict[str, bytes] = {}
+            snapshots: list[dict[str, str]] = []
+            for index in range(count):
+                png = self._png((color_offset + index, 20, 30, 255))
+                content_hash = hash_image(png)
+                images[content_hash] = png
+                snapshots.append({"identifier": f"Card-{color_offset}-{index}", "content_hash": content_hash})
+
+            run, _ = logic.create_run(
+                repo_id=repo.id,
+                team_id=repo.team_id,
+                run_type=RunType.STORYBOOK,
+                commit_sha=f"sha-{count}-{color_offset}",
+                branch="main",
+                pr_number=None,
+                snapshots=snapshots,
+            )
+            return run, images
+
+        single_run, single_images = create_run_with_images(1, 10)
+        mock_read = mocker.patch(
+            "products.visual_review.backend.storage.ArtifactStorage.read",
+            side_effect=lambda content_hash: single_images.get(content_hash),
+        )
+        with CaptureQueriesContext(connections[WRITER_DB]) as single_queries:
+            logic.verify_uploads_and_create_artifacts(single_run.id)
+
+        scaled_run, scaled_images = create_run_with_images(5, 100)
+        mock_read.side_effect = lambda content_hash: scaled_images.get(content_hash)
+        with CaptureQueriesContext(connections[WRITER_DB]) as scaled_queries:
+            logic.verify_uploads_and_create_artifacts(scaled_run.id)
+
+        assert len(scaled_queries) <= len(single_queries)
+
+    def test_verification_relinks_existing_artifacts_across_hash_batches(self, repo, mocker):
+        from products.visual_review.backend.hashing import hash_image
+
+        mocker.patch.object(logic, "ARTIFACT_HASH_BATCH_SIZE", 2)
+        snapshots: list[dict[str, str]] = []
+        for index, color in enumerate([(10, 20, 30, 255), (40, 50, 60, 255), (70, 80, 90, 255)]):
+            content_hash = hash_image(self._png(color))
+            logic.get_or_create_artifact(repo.id, content_hash, f"visual_review/{content_hash}")
+            snapshots.append({"identifier": f"Card-{index}", "content_hash": content_hash})
+
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="sha-retry",
+            branch="main",
+            pr_number=None,
+            snapshots=snapshots,
+        )
+
+        assert logic.verify_uploads_and_create_artifacts(run.id) == 0
+        assert RunSnapshot.objects.filter(run=run, current_artifact__isnull=False).count() == 3
 
     def test_hash_mismatch_raises_and_persists_no_artifacts(self, repo, mocker):
         # Two snapshots: first verifies cleanly, second has a mismatched claim.
@@ -2941,14 +3009,13 @@ class TestApprovalComment:
         cell = logic._image_cell("https://cdn.example/full", "after")
         assert cell == f'<img src="https://cdn.example/full" width="{logic._COMMENT_IMAGE_WIDTH}" alt="after">'
 
-    @pytest.mark.parametrize(
-        "identifier,expected",
+    @parameterized.expand(
         [
-            ("a|b", "`a\\|b`"),  # pipes escaped so the cell stays intact
-            ("a`b", "`ab`"),  # backticks stripped so the code span isn't closed early
+            ("pipe", "a|b", "`a\\|b`"),  # pipes escaped so the cell stays intact
+            ("backtick", "a`b", "`ab`"),  # backticks stripped so the code span isn't closed early
         ],
     )
-    def test_snapshot_name_cell_escapes_markdown(self, identifier, expected):
+    def test_snapshot_name_cell_escapes_markdown(self, _name, identifier, expected):
         assert logic._snapshot_name_cell(identifier) == expected
 
     def test_snapshot_name_cell_collapses_control_characters(self):
