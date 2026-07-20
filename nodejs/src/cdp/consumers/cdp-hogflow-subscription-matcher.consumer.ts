@@ -828,7 +828,9 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 // Parsing repoints is synchronous, so wrap in a resolved promise to satisfy instrumentFn's
                 // promise-returning callback without a no-op async body.
                 return await instrumentFn('cdpHogflowSubscriptionMatcher.handlePersonDistinctIdBatch', () =>
-                    Promise.resolve({ backgroundTask: this.processMoveBatch(this._parsePersonDistinctIdBatch(messages)) })
+                    Promise.resolve({
+                        backgroundTask: this.processMoveBatch(this._parsePersonDistinctIdBatch(messages)),
+                    })
                 )
             }),
         ])
