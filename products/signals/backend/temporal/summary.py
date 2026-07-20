@@ -66,8 +66,13 @@ def _capture_report_event(
     source_products: list[str],
     result: str | None = None,
     failure_reason: str | None = None,
+    error_type: str | None = None,
+    error_message: str | None = None,
 ) -> None:
     properties: dict = {
+        # team_id is emitted as a property (not just as distinct_id/groups) so failures can be
+        # sliced by team directly in the event stream without joining through the group.
+        "team_id": team.id,
         "report_id": report_id,
         "signal_count": signal_count,
         "run_count": run_count,
@@ -77,6 +82,10 @@ def _capture_report_event(
         properties["result"] = result
     if failure_reason is not None:
         properties["failure_reason"] = failure_reason
+    if error_type is not None:
+        properties["error_type"] = error_type
+    if error_message is not None:
+        properties["error_message"] = error_message
 
     if event == "signal_report_completed" and result is not None:
         metrics.increment_report_completed(result)
@@ -388,6 +397,10 @@ class SignalReportSummaryWorkflow:
                     report_id=inputs.report_id,
                     error=str(e),
                     failure_reason="agentic_activity_error",
+                    # Capture the exception class so the agentic_activity_error catch-all can be
+                    # split into distinct failure modes (LLM rate-limit, sandbox, timeout, …)
+                    # from event data alone, without narrowing the except itself.
+                    error_type=type(e).__name__,
                     signal_count=signal_count,
                     source_products=source_products,
                 ),
@@ -537,6 +550,7 @@ class MarkReportFailedInput:
     report_id: str
     error: str
     failure_reason: str | None = None
+    error_type: str | None = None
     signal_count: int = 0
     source_products: list[str] = field(default_factory=list)
 
@@ -583,6 +597,8 @@ async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
         source_products=input.source_products,
         result="failed",
         failure_reason=input.failure_reason,
+        error_type=input.error_type,
+        error_message=input.error,
     )
     logger.debug(
         f"Marked report {input.report_id} as failed",
