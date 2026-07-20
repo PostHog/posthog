@@ -124,7 +124,6 @@ def rasterize_activity_timeout(activity_input: RasterizationActivityInput) -> dt
         return RASTERIZE_MAX_TIMEOUT
     clip_seconds = end - start
     estimated = (
-        dt.timedelta(seconds=clip_seconds * RASTERIZE_WALL_SECONDS_PER_RECORDING_SECOND)
-        + RASTERIZE_TIMEOUT_OVERHEAD
+        dt.timedelta(seconds=clip_seconds * RASTERIZE_WALL_SECONDS_PER_RECORDING_SECOND) + RASTERIZE_TIMEOUT_OVERHEAD
     )
     return max(RASTERIZE_MIN_TIMEOUT, min(RASTERIZE_MAX_TIMEOUT, estimated))
