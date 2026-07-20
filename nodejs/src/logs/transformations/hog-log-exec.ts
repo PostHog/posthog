@@ -279,13 +279,19 @@ export function applyTransformResult(record: LogRecord, execResult: unknown): 'm
     // Cap the complete transformed output — body, severity, and attribute map
     // totals together — so no combination of writable fields can inflate a
     // stored record past the boundary.
+    // Retained fields count too: a partial result (e.g. {body}) must not slip the
+    // record past the cap by riding on large fields it left untouched.
     let totalBytes = 0
-    for (const text of [body, severityText]) {
+    const finalBody = body !== undefined ? body : record.body
+    const finalSeverity = severityText !== undefined ? severityText : record.severity_text
+    for (const text of [finalBody, finalSeverity]) {
         if (typeof text === 'string') {
             totalBytes += Buffer.byteLength(text)
         }
     }
-    for (const map of [attributes, resourceAttributes]) {
+    const finalAttributes = attributes !== undefined ? attributes : record.attributes
+    const finalResourceAttributes = resourceAttributes !== undefined ? resourceAttributes : record.resource_attributes
+    for (const map of [finalAttributes, finalResourceAttributes]) {
         if (map) {
             for (const [key, value] of Object.entries(map)) {
                 totalBytes += Buffer.byteLength(key) + Buffer.byteLength(value)

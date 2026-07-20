@@ -333,6 +333,30 @@ describe('hog-log-exec', () => {
             expect(record.severity_text).toBe(originalSeverity)
         })
 
+        it('counts retained fields toward the record size cap', async () => {
+            // A transformation that touches only body must not slip the record past
+            // the cap by riding on large fields it left untouched.
+            const bigAttr = JSON.stringify('y'.repeat(600 * 1024))
+            const record = createRecord({ attributes: { big: bigAttr } })
+            const originalBody = record.body
+            const outcome = await run(
+                `
+                let rec := record
+                let s := 'xxxxxxxxxxxxxxxx'
+                for (let i := 0; i < 15; i := i + 1) {
+                    s := concat(s, s)
+                }
+                return {'body': s}
+                `,
+                record,
+                {},
+                { timeoutMs: 1000 }
+            )
+
+            expect(outcome.status).toBe('failed')
+            expect(record.body).toBe(originalBody)
+        })
+
         it('contains a cyclic returned record instead of throwing out of the executor', async () => {
             // A transformation can build a cycle; the redaction traversal must not
             // recurse forever — an uncaught throw here escapes the per-function
