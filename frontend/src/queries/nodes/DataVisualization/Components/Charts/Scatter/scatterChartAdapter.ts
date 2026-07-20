@@ -1,4 +1,3 @@
-import { getSeriesColor } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 
 import { ScatterSettings } from '~/queries/schema/schema-general'
@@ -9,7 +8,6 @@ import { Column } from '../../../dataVisualizationLogic'
  *  handles smoothly - cap and surface the truncation instead of freezing the tab. */
 export const SCATTER_MAX_POINTS = 10000
 export const SCATTER_MAX_SERIES = 10
-export const SCATTER_OTHER_SERIES_LABEL = 'Other'
 
 export interface ScatterPoint {
     x: number
@@ -20,7 +18,6 @@ export interface ScatterPoint {
 
 export interface ScatterSeries {
     label: string
-    color: string
     points: ScatterPoint[]
 }
 
@@ -40,7 +37,7 @@ const parseNumeric = (value: unknown): number | null => {
     if (typeof value !== 'number' && typeof value !== 'string') {
         return null
     }
-    if (value === '') {
+    if (typeof value === 'string' && value.trim() === '') {
         return null
     }
     const numericValue = Number(value)
@@ -81,6 +78,13 @@ export const buildScatterChartData = (
     let truncated = false
 
     for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+        // Stop before examining the row: hiddenPointCount must only reflect examined rows,
+        // so the truncation note and the hidden-rows note never double-count the tail.
+        if (plottedCount >= SCATTER_MAX_POINTS) {
+            truncated = true
+            break
+        }
+
         const row = rows[rowIndex]
         const x = parseX(row[xColumn.dataIndex], xIsDate)
         const y = parseNumeric(row[yColumn.dataIndex])
@@ -88,11 +92,6 @@ export const buildScatterChartData = (
         if (x === null || y === null || (logY && y <= 0)) {
             hiddenPointCount += 1
             continue
-        }
-
-        if (plottedCount >= SCATTER_MAX_POINTS) {
-            truncated = true
-            break
         }
         plottedCount += 1
 
@@ -115,14 +114,14 @@ export const buildScatterChartData = (
     let keptGroups = groups
     if (groups.length > SCATTER_MAX_SERIES) {
         keptGroups = groups.slice(0, SCATTER_MAX_SERIES - 1)
-        const otherPoints = groups.slice(SCATTER_MAX_SERIES - 1).flatMap(([, points]) => points)
-        keptGroups.push([SCATTER_OTHER_SERIES_LABEL, otherPoints])
+        const foldedGroups = groups.slice(SCATTER_MAX_SERIES - 1)
+        // The fold count in the label also keeps it distinct from a real column value of "Other".
+        keptGroups.push([`Other (${foldedGroups.length} values)`, foldedGroups.flatMap(([, points]) => points)])
     }
 
     return {
-        series: keptGroups.map(([label, points], index) => ({
+        series: keptGroups.map(([label, points]) => ({
             label,
-            color: getSeriesColor(index),
             points,
         })),
         hiddenPointCount,

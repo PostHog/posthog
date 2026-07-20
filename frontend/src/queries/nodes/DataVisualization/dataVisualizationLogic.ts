@@ -368,9 +368,9 @@ const getScatterAutoSettings = (columns: Column[], scatterSettings: ScatterSetti
     }
 
     if (!scatterSettings.yAxisColumn) {
-        // Fall back to sharing the x column rather than leaving y unfillable when
-        // the only numeric column was already taken as x.
-        const yAxisColumn = numericalColumns.find((column) => column.name !== xAxisColumn) ?? numericalColumns[0]
+        // No same-column fallback: a y=x diagonal looks like real data while carrying none;
+        // leaving y unset shows the guided empty state instead.
+        const yAxisColumn = numericalColumns.find((column) => column.name !== xAxisColumn)
         if (yAxisColumn) {
             nextSettings.yAxisColumn = yAxisColumn.name
         }

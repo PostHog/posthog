@@ -67,6 +67,7 @@ export const ScatterSeriesTab = (): JSX.Element => {
                 <LemonSwitch
                     className="mt-2"
                     label="Logarithmic y-axis"
+                    disabledReason={disabledReason}
                     checked={scatterSettings.yAxisScale === 'logarithmic'}
                     onChange={(checked) => updateScatterSettings({ yAxisScale: checked ? 'logarithmic' : 'linear' })}
                 />
@@ -90,7 +91,7 @@ export const ScatterSeriesTab = (): JSX.Element => {
             <div>
                 <LemonLabel
                     className="mb-1"
-                    info="When you click a dot, this column's value links to the person's profile in the row details."
+                    info="A column holding person distinct IDs. When you click a dot, its value links to the person's profile in the row details."
                 >
                     Person column
                 </LemonLabel>

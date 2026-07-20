@@ -2416,11 +2416,19 @@ class ScatterSettings(BaseModel):
     )
     colorByColumn: str | None = Field(
         default=None,
-        description="Column whose values color the dots and build the legend.",
+        description=(
+            "Column whose values color the dots and build the legend. An empty string"
+            " means explicitly cleared; distinct from unset so reloads don't re-apply"
+            " defaults."
+        ),
     )
     personColumn: str | None = Field(
         default=None,
-        description=("Column holding a person distinct_id, linking each dot to a person profile."),
+        description=(
+            "Column holding a person distinct_id, linking each dot to a person profile."
+            " An empty string means explicitly cleared; distinct from unset so"
+            " auto-detection doesn't re-apply."
+        ),
     )
     xAxisColumn: str | None = Field(
         default=None,

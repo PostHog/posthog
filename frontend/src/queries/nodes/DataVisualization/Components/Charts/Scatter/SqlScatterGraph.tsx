@@ -4,7 +4,7 @@ import { useMemo, useRef, useState } from 'react'
 import { LemonBanner, LemonModal, Link } from '@posthog/lemon-ui'
 
 import { Color, GridLineOptions, TickOptions } from 'lib/Chart'
-import { getGraphColors } from 'lib/colors'
+import { getGraphColors, getSeriesColor } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { useChart } from 'lib/hooks/useChart'
 import { hexToRGBA } from 'lib/utils/colors'
@@ -15,7 +15,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { ScatterSettings } from '~/queries/schema/schema-general'
 
 import { Column, dataVisualizationLogic } from '../../../dataVisualizationLogic'
-import { SCATTER_MAX_POINTS, ScatterPoint, buildScatterChartData } from './scatterChartAdapter'
+import { SCATTER_MAX_POINTS, ScatterChartData, ScatterPoint, buildScatterChartData } from './scatterChartAdapter'
 
 // The full row lives in the click modal; the canvas tooltip is neither scrollable nor
 // selectable, so cap it before a `SELECT *` row overflows the chart.
@@ -38,27 +38,30 @@ const formatCellValue = (value: unknown): string => {
     return String(value)
 }
 
-function ScatterRowModal({
-    row,
-    columns,
-    personColumn,
-    onClose,
-}: {
-    row: any[] | null
+export interface ScatterRowSnapshot {
+    row: any[]
     columns: Column[]
     personColumn: string | null | undefined
+}
+
+function ScatterRowModal({
+    snapshot,
+    onClose,
+}: {
+    snapshot: ScatterRowSnapshot | null
     onClose: () => void
 }): JSX.Element {
     return (
-        <LemonModal isOpen={row !== null} onClose={onClose} title="Row details" width={480}>
-            {row && (
+        <LemonModal isOpen={snapshot !== null} onClose={onClose} title="Row details" width={480}>
+            {snapshot && (
                 <div className="flex flex-col gap-2">
-                    {columns.map((column) => {
-                        const value = row[column.dataIndex]
-                        const isPersonLink = personColumn === column.name && value !== null && value !== undefined
+                    {snapshot.columns.map((column) => {
+                        const value = snapshot.row[column.dataIndex]
+                        const isPersonLink =
+                            snapshot.personColumn === column.name && value !== null && value !== undefined
                         return (
-                            <div key={column.name} className="flex justify-between gap-4">
-                                <span className="text-secondary shrink-0">{column.name}</span>
+                            <div key={column.dataIndex} className="flex justify-between gap-4">
+                                <span className="text-secondary break-all">{column.name}</span>
                                 {isPersonLink ? (
                                     <Link to={urls.personByDistinctId(String(value))}>{String(value)}</Link>
                                 ) : (
@@ -76,23 +79,44 @@ function ScatterRowModal({
 export function SqlScatterGraph({ className }: { className?: string }): JSX.Element {
     const { response, columns, chartSettings } = useValues(dataVisualizationLogic)
     const { isDarkModeOn } = useValues(themeLogic)
-    // Snapshot of the clicked row, not an index: a query re-run must not silently swap
-    // the modal's contents to whatever row now sits at the same position.
-    const [selectedRow, setSelectedRow] = useState<any[] | null>(null)
+    // Snapshot of the clicked row AND its column layout: a query re-run while the modal is
+    // open must not swap its contents or relabel old values with new column names.
+    const [selectedRow, setSelectedRow] = useState<ScatterRowSnapshot | null>(null)
 
     const scatterSettings: ScatterSettings = chartSettings.scatter ?? {}
     const rows: any[][] =
         response && 'results' in response ? response.results : response && 'result' in response ? response.result : []
 
+    // Depend only on the plotting-relevant settings so e.g. a personColumn change doesn't
+    // rebuild a 10k-point chart.
     const chartData = useMemo(
-        () => buildScatterChartData(rows ?? [], columns, scatterSettings),
-        [rows, columns, scatterSettings]
+        () =>
+            buildScatterChartData(rows ?? [], columns, {
+                xAxisColumn: scatterSettings.xAxisColumn,
+                yAxisColumn: scatterSettings.yAxisColumn,
+                colorByColumn: scatterSettings.colorByColumn,
+                yAxisScale: scatterSettings.yAxisScale,
+            }),
+        // oxlint-disable-next-line react-hooks/exhaustive-deps
+        [
+            rows,
+            columns,
+            scatterSettings.xAxisColumn,
+            scatterSettings.yAxisColumn,
+            scatterSettings.colorByColumn,
+            scatterSettings.yAxisScale,
+        ]
     )
 
     // useChart JSON-stringifies its deps each render; a revision number stands in for the
     // (up to 10k-point) chartData so re-renders don't pay for serializing the point arrays.
-    const chartRevisionRef = useRef(0)
-    const chartRevision = useMemo(() => ++chartRevisionRef.current, [chartData])
+    // Idempotent under render replay (unlike a ref bump in useMemo, whose side effect would
+    // force a chart rebuild every time React re-invokes the memo).
+    const chartRevisionRef = useRef<{ data: ScatterChartData | null; revision: number }>({ data: null, revision: 0 })
+    if (chartRevisionRef.current.data !== chartData) {
+        chartRevisionRef.current = { data: chartData, revision: chartRevisionRef.current.revision + 1 }
+    }
+    const chartRevision = chartRevisionRef.current.revision
 
     const { canvasRef } = useChart<'scatter'>({
         getConfig: () => {
@@ -116,13 +140,15 @@ export function SqlScatterGraph({ className }: { className?: string }): JSX.Elem
                 data: {
                     // Translucent borderless fills so overlapping dots compound into darker areas,
                     // reading as density; the hovered dot goes opaque to stand out.
-                    datasets: chartData.series.map((series) => ({
+                    // Colors resolve here, not in the adapter: getSeriesColor reads theme CSS
+                    // variables, and this config rebuilds on theme change while chartData doesn't.
+                    datasets: chartData.series.map((series, index) => ({
                         label: series.label,
                         data: series.points,
-                        backgroundColor: hexToRGBA(series.color, 0.45),
-                        borderColor: series.color,
+                        backgroundColor: hexToRGBA(getSeriesColor(index), 0.45),
+                        borderColor: getSeriesColor(index),
                         borderWidth: 0,
-                        hoverBackgroundColor: series.color,
+                        hoverBackgroundColor: getSeriesColor(index),
                         pointRadius: 3,
                         pointHoverRadius: 5,
                         // Forgiving hover/click target: near a dot counts, not just its 3px core.
@@ -139,8 +165,9 @@ export function SqlScatterGraph({ className }: { className?: string }): JSX.Elem
                             return
                         }
                         const point = chartData.series[element.datasetIndex]?.points[element.index]
-                        if (point) {
-                            setSelectedRow(rows[point.rowIndex] ?? null)
+                        const row = point ? rows[point.rowIndex] : undefined
+                        if (row) {
+                            setSelectedRow({ row, columns, personColumn: scatterSettings.personColumn })
                         }
                     },
                     onHover: (event, elements) => {
@@ -241,13 +268,24 @@ export function SqlScatterGraph({ className }: { className?: string }): JSX.Elem
             <div className="flex items-center justify-center h-full">
                 <InsightEmptyState
                     heading="The selected columns aren't in the query results"
-                    detail="The query no longer returns the configured columns. Pick different columns in the chart settings."
+                    detail="The query no longer returns the configured columns. Pick different columns in the Series tab of the chart settings."
                 />
             </div>
         )
     }
 
-    const logScaleClause = scatterSettings.yAxisScale === 'logarithmic' ? ', or non-positive values on a log scale' : ''
+    if (rows.length === 0) {
+        return (
+            <div className="flex items-center justify-center h-full">
+                <InsightEmptyState heading="This query returned no rows" detail="" />
+            </div>
+        )
+    }
+
+    const logScaleClause =
+        scatterSettings.yAxisScale === 'logarithmic'
+            ? ', or values of zero or less, which the logarithmic y-axis cannot show'
+            : ''
 
     if (chartData.series.length === 0) {
         return (
@@ -280,12 +318,7 @@ export function SqlScatterGraph({ className }: { className?: string }): JSX.Elem
                     aria-label={`Scatter plot of ${scatterSettings.yAxisColumn} by ${scatterSettings.xAxisColumn}`}
                 />
             </div>
-            <ScatterRowModal
-                row={selectedRow}
-                columns={columns}
-                personColumn={scatterSettings.personColumn}
-                onClose={() => setSelectedRow(null)}
-            />
+            <ScatterRowModal snapshot={selectedRow} onClose={() => setSelectedRow(null)} />
         </div>
     )
 }

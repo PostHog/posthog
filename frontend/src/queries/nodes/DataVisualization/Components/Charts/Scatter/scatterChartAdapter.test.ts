@@ -1,10 +1,5 @@
 import { Column } from '../../../dataVisualizationLogic'
-import {
-    SCATTER_MAX_POINTS,
-    SCATTER_MAX_SERIES,
-    SCATTER_OTHER_SERIES_LABEL,
-    buildScatterChartData,
-} from './scatterChartAdapter'
+import { SCATTER_MAX_POINTS, SCATTER_MAX_SERIES, buildScatterChartData } from './scatterChartAdapter'
 
 const column = (name: string, typeName: Column['type']['name'], dataIndex: number, isNumerical = false): Column => ({
     name,
@@ -49,10 +44,11 @@ describe('buildScatterChartData', () => {
                 ['2026-07-17 10:00:00', 1.5, 'a'],
                 [null, 2.5, 'a'],
                 ['2026-07-17 11:00:00', null, 'a'],
+                ['2026-07-17 12:00:00', '   ', 'a'],
                 ['not a date', 3.5, 'a'],
             ],
             expectedYs: [1.5],
-            expectedHidden: 3,
+            expectedHidden: 4,
         },
         {
             name: 'non-finite and non-scalar y values',
@@ -102,18 +98,20 @@ describe('buildScatterChartData', () => {
         expect(data?.series).toHaveLength(SCATTER_MAX_SERIES)
         expect(data?.series[0].label).toEqual('group-0')
         const otherSeries = data?.series[data.series.length - 1]
-        expect(otherSeries?.label).toEqual(SCATTER_OTHER_SERIES_LABEL)
+        expect(otherSeries?.label).toEqual('Other (3 values)')
         expect(otherSeries?.points).toHaveLength(3)
     })
 
-    it('caps plotted points and flags truncation', () => {
-        const rows = Array.from({ length: SCATTER_MAX_POINTS + 5 }, (_, index) => [index, index, 'a'])
+    it('caps plotted points, flags truncation, and stops counting hidden rows past the cap', () => {
+        const rows: any[][] = Array.from({ length: SCATTER_MAX_POINTS + 5 }, (_, index) => [index, index, 'a'])
+        rows.push([SCATTER_MAX_POINTS + 6, null, 'a'])
         const numericColumns = [column('x', 'INTEGER', 0, true), column('y', 'INTEGER', 1, true)]
 
         const data = buildScatterChartData(rows, numericColumns, { xAxisColumn: 'x', yAxisColumn: 'y' })
 
         expect(data?.truncated).toBe(true)
         expect(data?.series.reduce((count, series) => count + series.points.length, 0)).toEqual(SCATTER_MAX_POINTS)
+        expect(data?.hiddenPointCount).toEqual(0)
     })
 
     it('returns null when the configured columns are not in the result', () => {
