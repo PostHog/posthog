@@ -10,6 +10,7 @@ import {
     IconEye,
     IconPlus,
     IconSearch,
+    IconSparkles,
     IconTarget,
     IconThumbsUp,
     IconWarning,
@@ -18,8 +19,12 @@ import {
 import { LemonButton, LemonTag, LemonTagType, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+
+import { useOpenAi } from '~/scenes/max/useOpenAi'
 
 import { EvaluationTemplate, defaultEvaluationTemplates } from './templates'
 
@@ -136,6 +141,40 @@ function TemplateRow({ template }: TemplateRowProps): JSX.Element {
     )
 }
 
+function StartWithAiRow(): JSX.Element {
+    const { openAi } = useOpenAi()
+
+    const handleClick = (): void => {
+        posthog.capture('llm evaluation template selected', { template_key: 'start_with_ai' })
+        openAi(
+            'Create an online evaluation for me. First explore my recent AI traces to find failure modes worth evaluating, then set one up to catch the most important one.'
+        )
+    }
+
+    return (
+        <button
+            className="flex items-center gap-4 w-full text-left px-4 py-3 hover:bg-fill-highlight-50 focus:bg-fill-highlight-50 focus:outline-none transition-colors cursor-pointer"
+            data-attr="start-with-ai-evaluation-template"
+            onClick={handleClick}
+        >
+            <div className="bg-primary-3000/10 rounded-lg flex-shrink-0 size-10 flex items-center justify-center">
+                <IconSparkles className="w-5 h-5 text-primary-3000" />
+            </div>
+            <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                    <h3 className="text-base font-semibold text-default mb-0">Start with AI</h3>
+                    <LemonTag type="completion" size="small">
+                        Beta
+                    </LemonTag>
+                </div>
+                <p className="text-sm text-secondary mb-0">
+                    Let PostHog AI explore your traces and build an evaluation for you
+                </p>
+            </div>
+        </button>
+    )
+}
+
 interface TemplateGridProps {
     title: string
     description: string
@@ -152,6 +191,8 @@ function TemplateGrid({
     minHeight = '60vh',
 }: TemplateGridProps): JSX.Element {
     const { searchParams } = useValues(router)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const showStartWithAi = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_START_WITH_AI]
 
     return (
         <div className="flex flex-col items-center justify-center py-8" style={{ minHeight }}>
@@ -190,6 +231,7 @@ function TemplateGrid({
                     </div>
 
                     <div className="flex flex-col border border-border rounded-lg divide-y divide-border overflow-hidden bg-bg-light">
+                        {showStartWithAi && <StartWithAiRow />}
                         <TemplateRow template="blank" />
                         {orderedTemplates.map((template) => (
                             <TemplateRow key={template.key} template={template} />
