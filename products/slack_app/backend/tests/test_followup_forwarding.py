@@ -939,6 +939,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert mock_signal.call_args.args == (self.task_run.id, self.task.id, self.team.id)
         signal_kwargs = mock_signal.call_args.kwargs
         assert signal_kwargs["content"] == "Bob: please retry the build"
+        assert signal_kwargs["actor_user_id"] == bob.id
         assert signal_kwargs["message_id"] is not None
         # No "Only the person who started" denial; the message went through.
         post_calls = [
@@ -963,6 +964,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_signal.assert_called_once()
         signal_kwargs = mock_signal.call_args.kwargs
         assert signal_kwargs["content"] == "bob@test.com: ping"
+        assert signal_kwargs["actor_user_id"] == bob.id
         assert signal_kwargs["message_id"] is not None
 
     @patch("products.slack_app.backend.api.resolve_slack_user", return_value=None)
@@ -1048,6 +1050,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         signal_kwargs = mock_signal.call_args.kwargs
         assert signal_kwargs["content"] == "do something"
         assert signal_kwargs["artifact_ids"] == []
+        assert signal_kwargs["actor_user_id"] == self.user.id
         assert signal_kwargs["message_id"] is not None
         # The message is queued on the workflow, so the :eyes: reaction stays up — it
         # is not swapped to :hedgehog: until the task genuinely completes.
@@ -1106,6 +1109,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         content = first_call.kwargs["content"]
         assert content.startswith("Attached Slack file(s).")
         assert "Slack attachment(s) available to the agent as task files: only-log.txt." in content
+        assert first_call.kwargs["actor_user_id"] == self.user.id
         assert mock_write.call_count == 2
         assert mock_write.call_args_list[0].args[0] == mock_write.call_args_list[1].args[0]
         self.task_run.refresh_from_db()
