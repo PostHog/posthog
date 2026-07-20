@@ -15,6 +15,7 @@ from posthog.test.base import (
 )
 from unittest.mock import ANY, MagicMock, patch
 
+from django.apps import apps
 from django.test import override_settings
 
 from nanoid import generate
@@ -28,7 +29,6 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.test.persons import create_person
 
 from products.actions.backend.models.action import Action
-from products.approvals.backend.models import ApprovalPolicy
 from products.cohorts.backend.models.cohort import Cohort
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.models.insight import Insight
@@ -7343,9 +7343,12 @@ class TestSurveyTargetingFlagApprovalGate(APIBaseTest):
     # Survey-internal targeting flags are an implementation detail (creation_context "surveys").
     # They must not be caught by the feature-flag approval gate — otherwise the gate raises
     # ApprovalRequired, which SurveyViewSet does not handle and would surface as a 500.
-    TARGETING_FILTERS = {"groups": [{"variant": None, "rollout_percentage": 100, "properties": []}]}
+    # Resolve ApprovalPolicy via the app registry rather than a static import: products.surveys
+    # is not allowed to import products.approvals (tach boundary), and its production code doesn't.
+    TARGETING_FILTERS: dict[str, Any] = {"groups": [{"variant": None, "rollout_percentage": 100, "properties": []}]}
 
     def _enable_policy(self, action_key: str, conditions: Optional[dict[str, Any]] = None) -> None:
+        ApprovalPolicy = apps.get_model("approvals", "ApprovalPolicy")
         ApprovalPolicy.objects.create(
             organization=self.organization,
             team=self.team,
