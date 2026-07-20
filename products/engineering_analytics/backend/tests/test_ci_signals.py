@@ -411,6 +411,23 @@ class TestCISignalEmissionLedger(BaseTest):
         assert result["emitted"] == 0
         assert not SignalEmissionRecord.objects.filter(team=self.team).exists()
 
+    def test_finding_of_a_disabled_source_type_is_not_emitted_or_recorded(self) -> None:
+        # emit_signal silently drops a signal whose source_type is disabled (e.g. one type turned off
+        # via the generic config endpoint). Recording it would suppress the finding forever, so the
+        # coordinator skips it and leaves the ledger clean — a later re-enable then emits it fresh.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        target = CISignalTarget(team_id=self.team.id, source_id="gh-1", authorized_by_user_id=self.user.id)
+        with (
+            mock.patch(f"{_COORDINATOR}._detect_for_target", return_value=([self._finding("x")], self.team)),
+            mock.patch(f"{_COORDINATOR}.is_signal_source_enabled", return_value=False),
+            mock.patch(f"{_COORDINATOR}.emit_signal") as emit,
+        ):
+            result = async_to_sync(detect_and_emit_ci_signals_activity)(target)
+        emit.assert_not_called()
+        assert result["emitted"] == 0
+        assert not SignalEmissionRecord.objects.filter(team=self.team).exists()
+
     def test_dry_run_reads_the_config_flag(self) -> None:
         update_ci_signals_config(team=self.team, enabled=True, created_by_id=self.user.id)
         assert is_dry_run(team=self.team) is False

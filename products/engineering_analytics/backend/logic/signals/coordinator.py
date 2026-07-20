@@ -32,7 +32,11 @@ from products.engineering_analytics.backend.logic.ci_signals_config import (
 )
 from products.engineering_analytics.backend.logic.signals.contracts import SOURCE_PRODUCT, CISignalFinding
 from products.engineering_analytics.backend.logic.signals.detect import detect_for_source
-from products.signals.backend.facade.api import emit_signal, team_ids_with_source_product_enabled
+from products.signals.backend.facade.api import (
+    emit_signal,
+    is_signal_source_enabled,
+    team_ids_with_source_product_enabled,
+)
 from products.signals.backend.models import SignalEmissionRecord
 
 logger = structlog.get_logger(__name__)
@@ -192,8 +196,20 @@ async def detect_and_emit_ci_signals_activity(target: CISignalTarget) -> dict[st
     fresh = await database_sync_to_async(_unemitted, thread_sensitive=False)(team, findings)
     if not fresh:
         return {"team_id": target.team_id, "source_id": target.source_id, "findings": len(findings), "emitted": 0}
+    # emit_signal silently drops a signal whose source_type is disabled, returning without raising.
+    # Skip those before emit rather than ledgering them — recording a phantom emission would suppress
+    # the finding on every future sweep, so a later re-enable of the type would never emit it.
+    enabled_types = {
+        source_type
+        for source_type in {finding.source_type for finding in fresh}
+        if await database_sync_to_async(is_signal_source_enabled, thread_sensitive=False)(
+            team.id, SOURCE_PRODUCT, source_type
+        )
+    }
     emitted = 0
     for finding in fresh:
+        if finding.source_type not in enabled_types:
+            continue
         try:
             await emit_signal(
                 team=team,
