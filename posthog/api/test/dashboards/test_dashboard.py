@@ -3443,8 +3443,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertNotIn("secret_customer_property", json.dumps(streamed_tile))
 
     def test_streamed_tile_error_redacts_insight_metadata_for_restricted_user(self):
-        # A user who can view the dashboard but is explicitly denied the insight must not receive
-        # the restricted insight's query/filters/name via the serialization-error fallback.
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
         ]
@@ -3500,15 +3498,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(insight_payload["short_id"], insight.short_id)
         self.assertEqual(insight_payload["user_access_level"], "none")
 
-        # No restricted insight metadata may leak through the error fallback.
         self.assertNotIn("name", insight_payload)
         self.assertNotIn("query", insight_payload)
         self.assertNotIn("filters", insight_payload)
 
     def test_non_streamed_dashboard_degrades_to_error_tile_on_insight_failure(self):
-        # The non-streaming DashboardSerializer.get_tiles path must degrade a tile whose insight
-        # fails to serialize (non-ValidationError, e.g. RuntimeError from get_result) to an error
-        # tile, mirroring the streaming path, instead of 500-ing the whole dashboard response.
         dashboard = Dashboard.objects.create(
             team=self.team,
             name="Test Dashboard",
@@ -3563,9 +3557,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertNotIn("boom", json.dumps(dashboard_data))
 
     def test_streamed_tile_error_falls_back_to_minimal_tile_when_fallback_serializer_fails(self):
-        # If the DashboardTileErrorSerializer fallback itself raises (e.g. upgrade() re-raising on
-        # the same corrupt query), serialize_tile_with_context must still return a minimal error
-        # tile rather than propagating — and must not include any insight metadata.
         dashboard = Dashboard.objects.create(
             team=self.team,
             name="Test Dashboard",
@@ -3615,7 +3606,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             streamed_tile["error"],
             {"type": "DashboardTileError", "message": "There is a problem loading this dashboard tile."},
         )
-        # No insight metadata leaks when the fallback serializer itself fails.
         self.assertNotIn("insight", streamed_tile)
         self.assertNotIn("Confidential usage", json.dumps(streamed_tile))
 

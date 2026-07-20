@@ -345,9 +345,6 @@ def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, d
         try:
             tile_data = DashboardTileErrorSerializer(tile, context=tile_context).data
         except Exception:
-            # The fallback serializer itself failed (e.g. upgrade() re-raising on the same corrupt
-            # query). Fall back to the minimal tile shape so callers still emit an error tile instead
-            # of propagating. No insight metadata is included, so the redaction contract holds.
             logger.exception("Error serializing dashboard tile error fallback", tile_id=tile.id)
             tile_data = {"id": tile.id}
         tile_data["error"] = {"type": DASHBOARD_TILE_ERROR_TYPE, "message": DASHBOARD_TILE_ERROR_MESSAGE}
@@ -857,9 +854,8 @@ class DashboardTileErrorSerializer(DashboardTileSerializer):
     def to_representation(self, instance: DashboardTile):
         representation = super().to_representation(instance)
 
-        # Mirror InsightSerializer.to_representation's dashboard-context redaction: a user who
-        # can view the dashboard but is denied this insight (access below viewer) must not receive
-        # the restricted insight's name/query/filters via the error fallback either.
+        # Mirror InsightSerializer.to_representation's dashboard-context access redaction so a user
+        # denied the insight can't read its name/query/filters via the error fallback.
         insight = instance.insight
         if insight is not None and self.context.get("dashboard"):
             insight_representation = representation.get("insight") or {}
@@ -2097,10 +2093,9 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 try:
                     tile_data = reused_serializer.to_representation(tile)
                 except Exception:
-                    # Fall back to the fresh-serializer path, which handles the error shape.
-                    # Broadened from ValidationError to match serialize_tile_with_context, so a
-                    # non-validation failure (e.g. RuntimeError from InsightSerializer.get_result)
-                    # degrades to an error tile here too instead of 500-ing the whole dashboard.
+                    # Match serialize_tile_with_context's broad catch so a non-validation failure
+                    # (e.g. RuntimeError from get_result) degrades to an error tile instead of
+                    # 500-ing the whole non-streaming dashboard.
                     order, tile_data = serialize_tile_with_context(tile, order, self.context)
                 serialized_tiles.append(cast(ReturnDict, tile_data))
 
@@ -2492,10 +2487,9 @@ class DashboardsViewSet(
                         tile_json = renderer.render({"type": "tile", "order": order, "tile": tile_data}).decode()
                         yield f"data: {tile_json}\n\n".encode()
                     except Exception:
-                        # Emit a tile-shaped error so the frontend appends it via receiveTileFromStream
-                        # and renders DashboardErrorTileItem (with remove + support affordances),
-                        # rather than routing to onError which only shows a transient toast and drops
-                        # the tile. Matches the initial-tiles error shape above.
+                        # Emit a tile-shaped error (not {type:"error"}) so the frontend appends it via
+                        # receiveTileFromStream and renders the error tile, instead of routing to
+                        # onError which only shows a transient toast and drops the tile.
                         logger.exception("Error serializing dashboard tile", tile_id=tile.id)
                         error_tile_json = renderer.render(
                             {

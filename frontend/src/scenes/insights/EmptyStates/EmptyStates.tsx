@@ -719,8 +719,8 @@ export function InsightErrorState({
                 </div>
             )}
 
-            {/* supportOnly errors have no retry path, so the bug-report link is the only next step.
-                Render it even when excludeDetail hides the retry guidance (e.g. self-hosted). */}
+            {/* supportOnly's only next step is the bug-report link; render it even when excludeDetail
+                hides the retry guidance (e.g. self-hosted), so it doesn't dead-end. */}
             {supportOnly && <div className="mt-4">{bugReportLink}</div>}
 
             {!excludeActions && (
