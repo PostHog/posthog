@@ -23,8 +23,6 @@ from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.utils import UUIDModel
 from posthog.utils import absolute_uri
 
-from products.alerts.backend.scheduling import is_weekend
-
 if TYPE_CHECKING:
     from posthog.event_usage import AnalyticsProps
     from posthog.models.organization import Organization
@@ -87,6 +85,7 @@ RRULE_WEEKDAY_MAP = {
 }
 
 WEEKDAY_SET = {"monday", "tuesday", "wednesday", "thursday", "friday"}
+ALL_DAY_SET = set(RRULE_WEEKDAY_MAP)
 
 
 @dataclass
@@ -134,7 +133,6 @@ class Subscription(ModelActivityMixin, models.Model):
         DAYS_AGO_RANGE = "days_ago_range", "Between X and Y days ago"
 
     RRULE_FIELDS = {"frequency", "count", "interval", "start_date", "until_date", "bysetpos", "byweekday"}
-    SCHEDULE_FIELDS = RRULE_FIELDS | {"skip_weekend"}
 
     _FREQ_MAP: dict[str, int] = {
         SubscriptionFrequency.DAILY: DAILY,
@@ -201,7 +199,6 @@ class Subscription(ModelActivityMixin, models.Model):
 
     # Controlled field - next schedule as helper for
     next_delivery_date = models.DateTimeField(null=True, blank=True)
-    skip_weekend = models.BooleanField(default=False)
 
     # Meta
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
@@ -229,19 +226,13 @@ class Subscription(ModelActivityMixin, models.Model):
         # a new instance with OTHER fields deferred, causing infinite recursion.
         if not (self.get_deferred_fields() & self.RRULE_FIELDS):
             self._rrule = self.rrule
-        if "skip_weekend" not in self.get_deferred_fields():
-            self._initial_skip_weekend = self.skip_weekend
         if "prompt" not in self.get_deferred_fields():
             self._initial_prompt = self.prompt
 
     def save(self, *args, **kwargs) -> None:
         # Only if the schedule has changed do we update the next delivery date
         # _rrule may not be set if object was loaded with deferred fields
-        if (
-            not self.id
-            or str(getattr(self, "_rrule", None)) != str(self.rrule)
-            or self.skip_weekend != getattr(self, "_initial_skip_weekend", self.skip_weekend)
-        ):
+        if not self.id or str(getattr(self, "_rrule", None)) != str(self.rrule):
             self.set_next_delivery_date()
             if "update_fields" in kwargs:
                 kwargs["update_fields"].append("next_delivery_date")
@@ -253,7 +244,6 @@ class Subscription(ModelActivityMixin, models.Model):
                 kwargs["update_fields"] = [*kwargs["update_fields"], "ai_query_plan"]
         super().save(*args, **kwargs)
         self._initial_prompt = self.prompt
-        self._initial_skip_weekend = self.skip_weekend
 
     @classmethod
     def derive_resource_type(cls, insight_id: int | None, dashboard_id: int | None, prompt: str | None) -> str:
@@ -299,20 +289,10 @@ class Subscription(ModelActivityMixin, models.Model):
         )
 
     @staticmethod
-    def _compute_next_delivery_date(
-        *,
-        from_dt: Optional[datetime] = None,
-        skip_weekend: bool = False,
-        timezone_name: str = "UTC",
-        **rrule_fields: Any,
-    ) -> Optional[datetime]:
+    def _compute_next_delivery_date(*, from_dt: Optional[datetime] = None, **rrule_fields: Any) -> Optional[datetime]:
         # Buffer of 15 minutes since we might run a bit early — never schedule into the past.
         now = timezone.now() + timedelta(minutes=15)
-        recurrence = Subscription._build_rrule(**rrule_fields)
-        next_delivery_date = recurrence.after(dt=max(from_dt or now, now), inc=False)
-        while next_delivery_date and skip_weekend and is_weekend(next_delivery_date, timezone_name):
-            next_delivery_date = recurrence.after(dt=next_delivery_date, inc=False)
-        return next_delivery_date
+        return Subscription._build_rrule(**rrule_fields).after(dt=max(from_dt or now, now), inc=False)
 
     @property
     def rrule(self) -> rrule:
@@ -322,10 +302,7 @@ class Subscription(ModelActivityMixin, models.Model):
         # Authoritative schedule — a client-side preview mirror lives in
         # frontend/src/lib/components/Subscriptions/utils.tsx (getNextDeliveryDate).
         self.next_delivery_date = self._compute_next_delivery_date(
-            from_dt=from_dt,
-            skip_weekend=self.skip_weekend,
-            timezone_name=self.team.timezone,
-            **{f: getattr(self, f) for f in self.RRULE_FIELDS},
+            from_dt=from_dt, **{f: getattr(self, f) for f in self.RRULE_FIELDS}
         )
 
     @classmethod
@@ -339,13 +316,7 @@ class Subscription(ModelActivityMixin, models.Model):
         merged = {**base, **{k: v for k, v in overrides.items() if k in cls.RRULE_FIELDS}}
         if "frequency" not in merged or "start_date" not in merged:
             return None  # DRF field validation should reject before we get here.
-        skip_weekend = overrides.get("skip_weekend", instance.skip_weekend if instance is not None else False)
-        timezone_name = overrides.get("timezone_name", instance.team.timezone if instance is not None else "UTC")
-        return cls._compute_next_delivery_date(
-            skip_weekend=skip_weekend,
-            timezone_name=timezone_name,
-            **merged,
-        )
+        return cls._compute_next_delivery_date(**merged)
 
     @classmethod
     def check_subscription_limit(cls, team_id: int, organization: "Organization") -> str | None:
@@ -488,6 +459,15 @@ class Subscription(ModelActivityMixin, models.Model):
                 else:
                     day_label = "day"
                 summary += f" on the {human_bysetpos} {day_label}"
+            elif self.byweekday and set(self.byweekday) != ALL_DAY_SET:
+                if set(self.byweekday) == WEEKDAY_SET:
+                    summary += " on weekdays"
+                else:
+                    day_labels = [day.capitalize() for day in self.byweekday]
+                    if len(day_labels) == 1:
+                        summary += f" on {day_labels[0]}"
+                    else:
+                        summary += f" on {', '.join(day_labels[:-1])} and {day_labels[-1]}"
             return summary
         except KeyError as e:
             capture_exception(e)

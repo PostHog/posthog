@@ -107,7 +107,7 @@ describe('subscriptionLogic', () => {
         await expectLogic(newLogic).toFinishListeners()
         expect(newLogic.values.subscription).toMatchObject({
             frequency: 'weekly',
-            bysetpos: 1,
+            bysetpos: null,
             byweekday: ['monday'],
         })
         // A plain "new subscription" open (no prefill) must not pre-mark the form as changed,
@@ -119,7 +119,15 @@ describe('subscriptionLogic', () => {
         expect(newLogic.values.subscription).toMatchObject({
             frequency: 'daily',
             bysetpos: null,
-            byweekday: null,
+            byweekday: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'],
+        })
+
+        newLogic.actions.setSubscriptionValue('frequency', 'weekly')
+        await expectLogic(newLogic).toFinishListeners()
+        expect(newLogic.values.subscription).toMatchObject({
+            frequency: 'weekly',
+            bysetpos: null,
+            byweekday: ['monday'],
         })
 
         newLogic.actions.setSubscriptionValue('frequency', 'monthly')

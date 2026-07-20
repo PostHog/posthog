@@ -9,7 +9,6 @@ from unittest.mock import patch
 
 from django.conf import settings
 from django.db import IntegrityError
-from django.test import SimpleTestCase
 from django.utils import timezone
 
 import jwt
@@ -30,52 +29,40 @@ from products.exports.backend.models.subscription import (
 from products.product_analytics.backend.models.insight import Insight
 
 
-class TestSubscriptionScheduling(SimpleTestCase):
+class TestSubscriptionScheduling:
     @parameterized.expand(
         [
             (
-                "utc_weekend",
-                "UTC",
-                1,
-                datetime(2024, 1, 1, 9, 0, tzinfo=ZoneInfo("UTC")),
+                "daily_weekdays",
+                "daily",
+                ["monday", "tuesday", "wednesday", "thursday", "friday"],
                 datetime(2024, 1, 5, 9, 0, tzinfo=ZoneInfo("UTC")),
                 datetime(2024, 1, 8, 9, 0, tzinfo=ZoneInfo("UTC")),
             ),
             (
-                "project_timezone_weekend",
-                "Asia/Tokyo",
-                1,
-                datetime(2024, 1, 1, 23, 30, tzinfo=ZoneInfo("UTC")),
-                datetime(2024, 1, 4, 23, 30, tzinfo=ZoneInfo("UTC")),
-                datetime(2024, 1, 7, 23, 30, tzinfo=ZoneInfo("UTC")),
-            ),
-            (
-                "multi_day_cadence",
-                "UTC",
-                2,
-                datetime(2024, 1, 4, 9, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2024, 1, 4, 9, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2024, 1, 8, 9, 0, tzinfo=ZoneInfo("UTC")),
+                "weekly_multiple_days",
+                "weekly",
+                ["wednesday", "friday"],
+                datetime(2024, 1, 1, 9, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2024, 1, 3, 9, 0, tzinfo=ZoneInfo("UTC")),
             ),
         ]
     )
-    @freeze_time("2024-01-04 08:00:00")
-    def test_skip_weekend_advances_to_next_weekday(
+    @freeze_time("2024-01-01 08:00:00")
+    def test_selected_weekdays_control_delivery_dates(
         self,
         _name: str,
-        timezone_name: str,
-        interval: int,
-        start_date: datetime,
+        frequency: str,
+        byweekday: list[str],
         from_dt: datetime,
         expected_next_delivery: datetime,
     ) -> None:
         next_delivery_date = Subscription._compute_next_delivery_date(
-            frequency="daily",
-            interval=interval,
-            start_date=start_date,
+            frequency=frequency,
+            interval=1,
+            start_date=datetime(2024, 1, 1, 9, 0, tzinfo=ZoneInfo("UTC")),
             from_dt=from_dt,
-            skip_weekend=True,
-            timezone_name=timezone_name,
+            byweekday=byweekday,
         )
 
         assert next_delivery_date == expected_next_delivery
@@ -378,7 +365,21 @@ class TestSubscription(BaseTest):
             (
                 "weekly_wednesday_no_bysetpos",
                 {"interval": 1, "frequency": "weekly", "byweekday": ["wednesday"]},
-                "sent every week",
+                "sent every week on Wednesday",
+            ),
+            (
+                "daily_weekdays",
+                {
+                    "interval": 1,
+                    "frequency": "daily",
+                    "byweekday": ["monday", "tuesday", "wednesday", "thursday", "friday"],
+                },
+                "sent every day on weekdays",
+            ),
+            (
+                "weekly_multiple_days",
+                {"interval": 1, "frequency": "weekly", "byweekday": ["monday", "wednesday", "friday"]},
+                "sent every week on Monday, Wednesday and Friday",
             ),
             (
                 "monthly_third_day",

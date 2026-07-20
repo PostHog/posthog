@@ -222,7 +222,7 @@ export interface SubscriptionApi {
      */
     interval: number
     /**
-     * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
+     * Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
      * @nullable
      */
     byweekday?: SubscriptionApiByweekdayItem[] | null
@@ -263,8 +263,6 @@ export interface SubscriptionApi {
     readonly summary: string
     /** @nullable */
     readonly next_delivery_date: string | null
-    /** Whether to skip scheduled deliveries that fall on Saturday or Sunday. Only supported for daily subscriptions. */
-    skip_weekend?: boolean
     /**
      * ID of a connected Slack integration. Required when target_type is slack.
      * @nullable
@@ -372,7 +370,7 @@ export interface PatchedSubscriptionApi {
      */
     interval?: number
     /**
-     * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
+     * Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
      * @nullable
      */
     byweekday?: PatchedSubscriptionApiByweekdayItem[] | null
@@ -413,8 +411,6 @@ export interface PatchedSubscriptionApi {
     readonly summary?: string
     /** @nullable */
     readonly next_delivery_date?: string | null
-    /** Whether to skip scheduled deliveries that fall on Saturday or Sunday. Only supported for daily subscriptions. */
-    skip_weekend?: boolean
     /**
      * ID of a connected Slack integration. Required when target_type is slack.
      * @nullable

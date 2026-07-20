@@ -40502,7 +40502,7 @@ export namespace Schemas {
          */
       interval: number;
       /**
-         * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
+         * Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
          * @nullable
          */
       byweekday?: SubscriptionByweekdayItem[] | null;
@@ -40543,8 +40543,6 @@ export namespace Schemas {
       readonly summary: string;
       /** @nullable */
       readonly next_delivery_date: string | null;
-      /** Whether to skip scheduled deliveries that fall on Saturday or Sunday. Only supported for daily subscriptions. */
-      skip_weekend?: boolean;
       /**
          * ID of a connected Slack integration. Required when target_type is slack.
          * @nullable
@@ -48095,7 +48093,7 @@ export namespace Schemas {
          */
       interval?: number;
       /**
-         * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
+         * Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
          * @nullable
          */
       byweekday?: PatchedSubscriptionByweekdayItem[] | null;
@@ -48136,8 +48134,6 @@ export namespace Schemas {
       readonly summary?: string;
       /** @nullable */
       readonly next_delivery_date?: string | null;
-      /** Whether to skip scheduled deliveries that fall on Saturday or Sunday. Only supported for daily subscriptions. */
-      skip_weekend?: boolean;
       /**
          * ID of a connected Slack integration. Required when target_type is slack.
          * @nullable

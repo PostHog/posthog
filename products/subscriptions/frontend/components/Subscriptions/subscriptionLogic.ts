@@ -23,7 +23,13 @@ import type { SubscriptionResourceType, UserBasicType, WeekdayType } from '../..
 import type { OrganizationType, UserType } from '../../../../../frontend/src/types'
 import type { AIPromptConfigApi } from '../../generated/api.schemas'
 import { subscriptionsLogic } from './subscriptionsLogic'
-import { AI_PROMPT_MAX_LENGTH, SUBSCRIPTION_PREFILL_PARAMS, SubscriptionBaseProps, urlForSubscription } from './utils'
+import {
+    ALL_DAYS,
+    AI_PROMPT_MAX_LENGTH,
+    SUBSCRIPTION_PREFILL_PARAMS,
+    SubscriptionBaseProps,
+    urlForSubscription,
+} from './utils'
 
 function validatePrompt(
     resource_type: SubscriptionType['resource_type'],
@@ -120,11 +126,10 @@ const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
     start_date: dayjs().hour(9).minute(0).second(0).toISOString(),
     target_type: 'email',
     byweekday: ['monday'],
-    bysetpos: 1,
+    bysetpos: null,
     dashboard_export_insights: [],
     integration_id: null,
     enabled: true,
-    skip_weekend: false,
     summary_enabled: false,
     summary_prompt_guide: '',
     ai_prompt_config: { window: { mode: 'since_last_sent' } },
@@ -203,7 +208,6 @@ export interface subscriptionLogicActions {
             resource_name?: string | null | undefined
             resource_type?: SubscriptionResourceType | undefined
             send_test_now?: boolean | undefined
-            skip_weekend?: boolean | undefined
             start_date?: string | undefined
             summary?: string | undefined
             summary_enabled?: boolean | undefined
@@ -236,7 +240,6 @@ export interface subscriptionLogicActions {
             resource_name?: string | null | undefined
             resource_type?: SubscriptionResourceType | undefined
             send_test_now?: boolean | undefined
-            skip_weekend?: boolean | undefined
             start_date?: string | undefined
             summary?: string | undefined
             summary_enabled?: boolean | undefined
@@ -396,8 +399,15 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     const subscription = await api.subscriptions.get(props.id)
                     // Rows created before a window was chosen carry ai_prompt_config: {} — normalise
                     // so the analysis window select renders the effective default instead of empty.
+                    let byweekday = subscription.byweekday
+                    if (!byweekday?.length && subscription.frequency === 'daily') {
+                        byweekday = [...ALL_DAYS]
+                    } else if (!byweekday?.length && subscription.frequency === 'weekly') {
+                        byweekday = [dayjs(subscription.start_date).format('dddd').toLowerCase() as WeekdayType]
+                    }
                     return {
                         ...subscription,
+                        byweekday,
                         // Write-only, so never present on the API response: default the edit form's
                         // "Send a test run now" toggle to on, matching the create flow.
                         send_test_now: true,
@@ -560,13 +570,22 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 if (value === 'daily') {
                     actions.setSubscriptionValues({
                         bysetpos: null,
-                        byweekday: null,
+                        byweekday: [...ALL_DAYS],
+                    })
+                } else if (value === 'weekly') {
+                    actions.setSubscriptionValues({
+                        bysetpos: null,
+                        byweekday: ['monday'],
+                    })
+                } else if (value === 'monthly') {
+                    actions.setSubscriptionValues({
+                        bysetpos: 1,
+                        byweekday: ['monday'],
                     })
                 } else {
                     actions.setSubscriptionValues({
-                        bysetpos: NEW_SUBSCRIPTION.bysetpos,
-                        byweekday: NEW_SUBSCRIPTION.byweekday,
-                        skip_weekend: false,
+                        bysetpos: null,
+                        byweekday: null,
                     })
                 }
             }

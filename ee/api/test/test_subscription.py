@@ -97,22 +97,15 @@ class TestSubscriptionTemporal(APILicensedTest):
 
     @parameterized.expand(
         [
-            ("weekly", "weekly"),
-            ("monthly", "monthly"),
-            ("yearly", "yearly"),
+            ("daily", ["monday", "tuesday", "wednesday", "thursday", "friday"]),
+            ("weekly", ["monday", "wednesday", "friday"]),
         ]
     )
-    def test_rejects_skip_weekend_for_non_daily_subscriptions(self, _name: str, frequency: str) -> None:
-        response = self._create_subscription(frequency=frequency, skip_weekend=True)
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["attr"] == "skip_weekend"
-
-    def test_accepts_skip_weekend_for_daily_subscriptions(self) -> None:
-        response = self._create_subscription(frequency="daily", skip_weekend=True)
+    def test_accepts_multiple_delivery_weekdays(self, frequency: str, byweekday: list[str]) -> None:
+        response = self._create_subscription(frequency=frequency, byweekday=byweekday, bysetpos=None)
 
         assert response.status_code == status.HTTP_201_CREATED
-        assert response.json()["skip_weekend"] is True
+        assert response.json()["byweekday"] == byweekday
 
     def test_can_create_new_subscription(self):
         response = self._create_subscription()
@@ -144,7 +137,6 @@ class TestSubscriptionTemporal(APILicensedTest):
             "enabled": True,
             "title": "My Subscription",
             "next_delivery_date": data["next_delivery_date"],
-            "skip_weekend": False,
             "integration_id": None,
             "invite_message": None,
             "summary": "sent every week",
