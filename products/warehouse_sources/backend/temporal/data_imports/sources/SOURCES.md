@@ -234,6 +234,7 @@ the row lists both.
 | gitbook                          | HTTP                        | requests                                                        | ✅                          |
 | gitea                            | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | github                           | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
+| gitguardian                      | HTTP                        | requests                                                        | ✅                          |
 | giphy                            | HTTP                        | requests                                                        | ✅                          |
 | gitlab                           | HTTP                        | requests                                                        | ✅                          |
 | gladly                           | HTTP                        | requests                                                        | ✅                          |
@@ -670,6 +671,7 @@ doesn't conflict with concurrent PRs.
 - copper
 - cosmosdb
 - couchbase
+- crisp
 - criteo
 - curve
 - databricks
@@ -718,7 +720,6 @@ doesn't conflict with concurrent PRs.
 - gerrit
 - getstream
 - gitea
-- gitguardian
 - glassfrog
 - gmail
 - gnews
@@ -775,6 +776,7 @@ doesn't conflict with concurrent PRs.
 - kissmetrics
 - klarna
 - knock
+- kommo
 - koyeb
 - kyve
 - lambda_labs

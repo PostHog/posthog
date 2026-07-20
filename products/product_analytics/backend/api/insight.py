@@ -141,6 +141,11 @@ from posthog.utils import (
 
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.cohorts.backend.models.cohort import Cohort
+from products.dashboards.backend.access import (
+    DashboardAccessMethod,
+    dashboard_access_method,
+    record_dashboard_cache_outcome,
+)
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.api.insight_metadata import (
@@ -1287,7 +1292,7 @@ class InsightSerializer(InsightBasicSerializer):
                     and not self.context.get("require_parsed_results")
                 )
                 with tags_context(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.INSIGHT, **shared_tags):
-                    return calculate_for_query_based_insight(
+                    insight_result = calculate_for_query_based_insight(
                         insight,
                         team=self.context["get_team"](),
                         dashboard=dashboard,
@@ -1301,6 +1306,21 @@ class InsightSerializer(InsightBasicSerializer):
                         analytics_props=get_request_analytics_properties(self.context["request"]),
                         allow_raw_results=allow_raw_results,
                     )
+                    access_method: DashboardAccessMethod | None = self.context.get("dashboard_access_method")
+                    if (
+                        dashboard is not None
+                        and access_method is not None
+                        and execution_mode
+                        not in {
+                            ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                            ExecutionMode.CALCULATE_ASYNC_ALWAYS,
+                        }
+                    ):
+                        record_dashboard_cache_outcome(
+                            access_method,
+                            is_cached=insight_result.is_cached,
+                        )
+                    return insight_result
             except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
                 raise ValidationError(str(e), getattr(e, "code_name", None))
             except ConcurrencyLimitExceeded as e:
@@ -1313,7 +1333,10 @@ class InsightSerializer(InsightBasicSerializer):
                     is_cached=False,
                     query_status=dict(
                         QueryStatus(
-                            id=self.context["request"].query_params.get("client_query_id"),
+                            # QueryStatus.id is a required str; without a client_query_id this
+                            # fallback used to crash pydantic validation and turn the degraded
+                            # error state into a 500.
+                            id=self.context["request"].query_params.get("client_query_id") or "",
                             team_id=insight.team_id,
                             insight_id=str(insight.id),
                             dashboard_id=str(dashboard.id) if dashboard else None,
@@ -1336,7 +1359,10 @@ class InsightSerializer(InsightBasicSerializer):
                     is_cached=False,
                     query_status=dict(
                         QueryStatus(
-                            id=self.context["request"].query_params.get("client_query_id"),
+                            # QueryStatus.id is a required str; without a client_query_id this
+                            # fallback used to crash pydantic validation and turn the degraded
+                            # error state into a 500.
+                            id=self.context["request"].query_params.get("client_query_id") or "",
                             team_id=insight.team_id,
                             insight_id=str(insight.id),
                             dashboard_id=str(dashboard.id) if dashboard else None,
@@ -2110,7 +2136,14 @@ When set, the specified dashboard's filters and date range override will be appl
 
         if dashboard_tile is not None:
             # context is used in the to_representation method to report filters used
-            serializer_context.update({"dashboard": dashboard_tile.dashboard})
+            serializer_context.update(
+                {
+                    "dashboard": dashboard_tile.dashboard,
+                    "dashboard_access_method": dashboard_access_method(
+                        request, is_shared=serializer_context["is_shared"]
+                    ),
+                }
+            )
 
         try:
             serialized_data = self.get_serializer(instance, context=serializer_context).data
