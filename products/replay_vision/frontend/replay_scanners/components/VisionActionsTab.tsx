@@ -89,9 +89,19 @@ function VisionActionsTable({ scannerId }: { scannerId: string }): JSX.Element {
                 thingName="summary or alert"
                 isEmpty
                 customHog={HedgehogXRay}
-                description="Get scheduled summaries of this scanner's observations — synthesized by AI on the cadence you choose — or alerts that notify you when new matches appear or a threshold is reached. Both can deliver to Slack."
+                description="Get scheduled summaries of this scanner's observations, synthesized by AI on the cadence you choose. Or set alerts that notify you when new matches appear or a threshold is reached. Both can deliver to Slack."
                 actionElementOverride={
                     <div className="flex gap-2">
+                        <EditorGate>
+                            <LemonButton
+                                type="secondary"
+                                icon={<IconPlus />}
+                                to={urls.replayVisionActionNew(scannerId, 'group_summary')}
+                                data-attr="vision-action-new-empty"
+                            >
+                                New summary
+                            </LemonButton>
+                        </EditorGate>
                         <EditorGate>
                             <LemonButton
                                 type="secondary"
@@ -100,16 +110,6 @@ function VisionActionsTable({ scannerId }: { scannerId: string }): JSX.Element {
                                 data-attr="vision-action-new-alert-empty"
                             >
                                 New alert
-                            </LemonButton>
-                        </EditorGate>
-                        <EditorGate>
-                            <LemonButton
-                                type="primary"
-                                icon={<IconPlus />}
-                                to={urls.replayVisionActionNew(scannerId, 'group_summary')}
-                                data-attr="vision-action-new-empty"
-                            >
-                                New summary
                             </LemonButton>
                         </EditorGate>
                     </div>
@@ -234,20 +234,20 @@ function VisionActionsTable({ scannerId }: { scannerId: string }): JSX.Element {
                     <LemonButton
                         type="secondary"
                         icon={<IconPlus />}
-                        to={urls.replayVisionActionNew(scannerId, 'alert')}
-                        data-attr="vision-action-new-alert"
-                    >
-                        New alert
-                    </LemonButton>
-                </EditorGate>
-                <EditorGate>
-                    <LemonButton
-                        type="primary"
-                        icon={<IconPlus />}
                         to={urls.replayVisionActionNew(scannerId, 'group_summary')}
                         data-attr="vision-action-new"
                     >
                         New summary
+                    </LemonButton>
+                </EditorGate>
+                <EditorGate>
+                    <LemonButton
+                        type="secondary"
+                        icon={<IconPlus />}
+                        to={urls.replayVisionActionNew(scannerId, 'alert')}
+                        data-attr="vision-action-new-alert"
+                    >
+                        New alert
                     </LemonButton>
                 </EditorGate>
             </div>
