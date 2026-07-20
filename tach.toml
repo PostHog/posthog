@@ -1040,6 +1040,7 @@ layer = "modules"
 expose = [
     "backend\\.logic\\.placeholder.*",
     "backend\\.models.*",
+    "backend\\.property_type.*",
 ]
 from = [
     "products.event_definitions",
