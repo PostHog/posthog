@@ -8,7 +8,7 @@ import { installAgentsMdSnippet } from './agents-md'
 import { takeOption } from './args'
 import type { CliConfig } from './config'
 import { resolveCliConfig, requireApiKey } from './config'
-import { buildCliContext } from './context'
+import { buildCliContext, flushAnalytics } from './context'
 import { installSkill, listSkills } from './skills'
 import { getCliTools } from './tools'
 
@@ -269,8 +269,11 @@ async function main(): Promise<void> {
     }
 }
 
-main().catch((error: unknown) => {
+main().catch(async (error: unknown) => {
     const message = error instanceof Error ? error.message : String(error)
     process.stderr.write(`Error: ${message}\n`)
+    // process.exit() kills in-flight requests, which silently dropped every
+    // errored $mcp_tool_call event; flush analytics before exiting non-zero.
+    await flushAnalytics()
     process.exit(1)
 })
