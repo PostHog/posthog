@@ -5,7 +5,7 @@ export type {
     ResolvedToolRegistryEntry,
     ToolRegistry,
 } from '../components/tool/toolRegistry'
-export { getPermissionRequestToolInput } from '../utils/toolResolver'
+export { getPermissionRequestToolInput, resolveToolCall } from '../utils/toolResolver'
 export { GenericMcpToolRenderer } from '../components/tool/GenericMcpToolRenderer'
 export { DataToolRow } from '../components/tool/DataToolRow'
 export { ToolActivity } from '../components/tool/ToolActivity'
