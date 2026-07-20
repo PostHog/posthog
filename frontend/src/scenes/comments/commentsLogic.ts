@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { JSONContent, RichContentEditorType } from 'lib/components/RichContentEditor/types'
@@ -679,6 +680,18 @@ export const commentsLogic = kea<commentsLogicType>([
             },
         ],
     }),
+
+    subscriptions(({ actions, values }) => ({
+        commentsWithReplies: (commentsWithReplies: CommentWithRepliesType[]) => {
+            // If the thread being replied to stops rendering (deleted, or dropped on reload),
+            // clear the reply so the footer composer returns instead of no composer at all.
+            // The setReplyingComment listener preserves any typed draft.
+            const target = values.replyingCommentId
+            if (target && !commentsWithReplies.some((thread) => thread.id === target)) {
+                actions.setReplyingComment(null)
+            }
+        },
+    })),
 
     afterMount(({ actions }) => {
         actions.ensureAllMembersLoaded()

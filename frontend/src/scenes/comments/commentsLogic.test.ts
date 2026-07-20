@@ -109,4 +109,40 @@ describe('commentsLogic', () => {
         }).toDispatchActions(['sendComposedContentSuccess', sidePanelDiscussionLogic.actionTypes.scrollToLastComment])
         expect(lastCreateBody?.source_comment).toBeUndefined()
     })
+
+    it('clears reply mode when the reply target stops rendering after a reload', async () => {
+        const rootComment = {
+            id: 'thread-1',
+            content: 'root',
+            rich_content: null,
+            version: 0,
+            created_at: '2025-10-08T10:00:00.000Z',
+            created_by: null,
+            source_comment: null,
+            scope: 'Insight',
+            item_id: '1',
+            item_context: null,
+            is_task: false,
+            completed_at: null,
+            completed_by: null,
+        }
+        useMocks({ get: { '/api/projects/:team_id/comments': { results: [rootComment] } } })
+        await expectLogic(logic, () => {
+            logic.actions.loadComments()
+        }).toDispatchActions(['loadCommentsSuccess'])
+
+        logic.actions.setRichContentEditor(createEditor(DRAFT_CONTENT))
+        logic.actions.setReplyingComment('thread-1')
+        expect(logic.values.replyingCommentId).toBe('thread-1')
+
+        useMocks({ get: { '/api/projects/:team_id/comments': { results: [] } } })
+        // The subscription dispatches the clear nested inside the reload dispatch, so
+        // assert the resulting state rather than action order
+        await expectLogic(logic, () => {
+            logic.actions.loadComments()
+        }).toDispatchActions(['loadCommentsSuccess'])
+
+        expect(logic.values.replyingCommentId).toBeNull()
+        expect(logic.values.composerDraft).toEqual(DRAFT_CONTENT)
+    })
 })
