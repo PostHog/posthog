@@ -11,9 +11,13 @@ export function PendingInviteBanner({ invite, email }: { invite: PendingInvite; 
     return (
         <div className="deprecated-space-y-4 Signup__panel__pending-invite">
             <h2 className="m-0">You've already been invited to PostHog</h2>
+            {/* Bare text is span-wrapped: Chrome's in-page translation replaces text nodes with <font> elements,
+                which crashes React's sibling insert/remove operations (react#11538). */}
             <p className="text-secondary mb-0">
-                <b>{invite.organization_name}</b> sent you an invite to join them on PostHog. Look for it in your inbox,
-                or have us resend it.
+                <b>{invite.organization_name}</b>{' '}
+                <span>
+                    sent you an invite to join them on PostHog. Look for it in your inbox, or have us resend it.
+                </span>
             </p>
             {pendingInviteResent ? (
                 <LemonBanner type="success">

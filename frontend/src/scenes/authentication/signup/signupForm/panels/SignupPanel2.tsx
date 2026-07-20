@@ -73,16 +73,21 @@ export function SignupPanel2(): JSX.Element | null {
                 )}
             </Form>
 
+            {/* Bare text nodes are span-wrapped: Chrome's in-page translation replaces text nodes with
+                <font> elements, which crashes React's sibling insert/remove operations (removeChild/insertBefore
+                NotFoundError, see react#11538). Text inside its own element is safe. */}
             <div className="text-center text-secondary">
-                By {!preflight?.demo ? 'creating an account' : 'entering the demo environment'}, you agree to our{' '}
+                <span>
+                    By {!preflight?.demo ? 'creating an account' : 'entering the demo environment'}, you agree to our
+                </span>{' '}
                 <Link to={`https://posthog.com/terms?${UTM_TAGS}`} target="_blank">
                     Terms of Service
                 </Link>{' '}
-                and{' '}
+                <span>and</span>{' '}
                 <Link to={`https://posthog.com/privacy?${UTM_TAGS}`} target="_blank">
                     Privacy Policy
                 </Link>
-                .
+                <span>.</span>
             </div>
         </div>
     )
