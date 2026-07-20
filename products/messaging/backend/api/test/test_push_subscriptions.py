@@ -40,6 +40,14 @@ class TestPushSubscriptionsAPI(BaseTest):
             content_type="application/json",
         )
 
+    def _delete(self, data: dict, api_key: str | None = None):
+        payload = {**data, "api_key": api_key or self.team.api_token}
+        return self.client.delete(
+            "/api/push_subscriptions/",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
     @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
     def test_register_android_token(self, mock_capture: MagicMock):
         mock_capture.return_value = MagicMock(status_code=200)
@@ -214,6 +222,8 @@ class TestPushSubscriptionsAPI(BaseTest):
         response = self.client.options("/api/push_subscriptions/")
 
         assert response.status_code == status.HTTP_200_OK
+        # The preflight must advertise DELETE, or a browser rejects the unregister call before it runs.
+        assert "DELETE" in response["Access-Control-Allow-Methods"]
 
     @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
     def test_gzip_compressed_body(self, mock_capture: MagicMock):
@@ -253,3 +263,20 @@ class TestPushSubscriptionsAPI(BaseTest):
 
         assert response.status_code == status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
         mock_capture.assert_not_called()
+
+    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    def test_unregister_unsets_the_subscription(self, mock_capture: MagicMock):
+        # DELETE needs only distinct_id + app_id (not device_token/platform) and must $unset the
+        # property, so a logged-out user stops receiving another user's notifications on the device.
+        mock_capture.return_value = MagicMock(status_code=200)
+
+        response = self._delete({"distinct_id": "user-1", "app_id": "my-firebase-project"})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"distinct_id": "user-1"}
+
+        mock_capture.assert_called_once()
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["distinct_id"] == "user-1"
+        assert call_kwargs["process_person_profile"] is True
+        assert call_kwargs["properties"] == {"$unset": ["$device_push_subscription_my-firebase-project"]}

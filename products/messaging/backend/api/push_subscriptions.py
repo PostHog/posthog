@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from typing import Any
 
 from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
@@ -17,7 +18,7 @@ from posthog.exceptions import (
 from posthog.helpers.encrypted_fields import EncryptedFieldMixin
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
-from posthog.utils import load_data_from_request
+from posthog.utils import decompress
 from posthog.utils_cors import cors_response
 
 VALID_PLATFORMS = ("android", "ios")
@@ -46,22 +47,40 @@ def _find_integration(team_id: int, app_id: str) -> Integration | None:
     )
 
 
+# load_data_from_request reads the request body only for POST (other methods read the ?data= query
+# param), but both register (POST) and unregister (DELETE) send a JSON body — so read and decompress
+# the body directly for either method, mirroring that helper's POST branch.
+def _load_json_body(request: Request) -> Any:
+    compression = (
+        request.GET.get("compression") or request.POST.get("compression") or request.headers.get("content-encoding", "")
+    ).lower()
+    return decompress(request.body, compression)
+
+
 @csrf_exempt
 def push_subscriptions(request: Request):
     if request.method == "OPTIONS":
-        return cors_response(request, HttpResponse(""))
+        # cors_response advertises GET, POST, OPTIONS by default; also allow DELETE so a browser
+        # preflight for the unregister call isn't rejected before reaching the DELETE branch.
+        preflight = cors_response(request, HttpResponse(""))
+        preflight["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
+        return preflight
 
-    if request.method != "POST":
+    if request.method not in ("POST", "DELETE"):
         return cors_response(
             request,
             generate_exception_response(
                 "push_subscriptions",
-                "Only POST requests are supported.",
+                "Only POST and DELETE requests are supported.",
                 type="validation_error",
                 code="method_not_allowed",
                 status_code=status.HTTP_405_METHOD_NOT_ALLOWED,
             ),
         )
+
+    # POST registers a device (stores the token); DELETE unregisters it (unsets the property) so a
+    # logged-out user stops receiving another user's notifications on a shared device.
+    is_register = request.method == "POST"
 
     if len(request.body) > MAX_BODY_BYTES:
         return cors_response(
@@ -76,7 +95,7 @@ def push_subscriptions(request: Request):
         )
 
     try:
-        data = load_data_from_request(request)
+        data = _load_json_body(request)
     except (RequestParsingError, UnspecifiedCompressionFallbackParsingError):
         return cors_response(
             request,
@@ -132,16 +151,12 @@ def push_subscriptions(request: Request):
     platform = data.get("platform")
     app_id = data.get("app_id")
 
-    missing_fields = [
-        field_name
-        for field_name, value in [
-            ("distinct_id", distinct_id),
-            ("device_token", device_token),
-            ("platform", platform),
-            ("app_id", app_id),
-        ]
-        if not value or not isinstance(value, str)
-    ]
+    # distinct_id + app_id identify which person property to set or unset, so both methods need them.
+    # device_token + platform describe the device being stored, so they're required only to register.
+    required_fields = [("distinct_id", distinct_id), ("app_id", app_id)]
+    if is_register:
+        required_fields += [("device_token", device_token), ("platform", platform)]
+    missing_fields = [field_name for field_name, value in required_fields if not value or not isinstance(value, str)]
     if missing_fields:
         return cors_response(
             request,
@@ -155,21 +170,21 @@ def push_subscriptions(request: Request):
         )
 
     assert isinstance(distinct_id, str)
-    assert isinstance(device_token, str)
-    assert isinstance(platform, str)
     assert isinstance(app_id, str)
 
-    if platform not in VALID_PLATFORMS:
-        return cors_response(
-            request,
-            generate_exception_response(
-                "push_subscriptions",
-                f"Invalid platform. Must be one of: {', '.join(VALID_PLATFORMS)}.",
-                type="validation_error",
-                code="invalid_platform",
-                status_code=status.HTTP_400_BAD_REQUEST,
-            ),
-        )
+    if is_register:
+        assert isinstance(platform, str)
+        if platform not in VALID_PLATFORMS:
+            return cors_response(
+                request,
+                generate_exception_response(
+                    "push_subscriptions",
+                    f"Invalid platform. Must be one of: {', '.join(VALID_PLATFORMS)}.",
+                    type="validation_error",
+                    code="invalid_platform",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                ),
+            )
 
     integration = _find_integration(team.id, app_id)
     if not integration:
@@ -185,8 +200,15 @@ def push_subscriptions(request: Request):
             ),
         )
 
-    encrypted_token = _encrypted_fields.encrypt(device_token)
     property_key = f"$device_push_subscription_{app_id}"
+    if is_register:
+        assert isinstance(device_token, str)
+        # Store the token encrypted; the send path rejects any value that fails to decrypt.
+        person_properties: dict = {"$set": {property_key: _encrypted_fields.encrypt(device_token)}}
+    else:
+        # Unregister mirrors the send path's dead-token pruning: unset the person property so the
+        # device stops matching. There is one subscription per app per person, so app_id is enough.
+        person_properties = {"$unset": [property_key]}
 
     try:
         capture_internal(
@@ -195,7 +217,7 @@ def push_subscriptions(request: Request):
             event_source="push_subscriptions",
             distinct_id=distinct_id,
             timestamp=datetime.now(UTC),
-            properties={"$set": {property_key: encrypted_token}},
+            properties=person_properties,
             process_person_profile=True,
         )
     except Exception:
@@ -203,20 +225,16 @@ def push_subscriptions(request: Request):
             request,
             generate_exception_response(
                 "push_subscriptions",
-                "Failed to store push subscription.",
+                "Failed to store push subscription." if is_register else "Failed to remove push subscription.",
                 type="server_error",
                 code="capture_failed",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             ),
         )
 
-    return cors_response(
-        request,
-        JsonResponse(
-            {
-                "distinct_id": distinct_id,
-                "platform": platform,
-            },
-            status=status.HTTP_200_OK,
-        ),
-    )
+    if is_register:
+        return cors_response(
+            request,
+            JsonResponse({"distinct_id": distinct_id, "platform": platform}, status=status.HTTP_200_OK),
+        )
+    return cors_response(request, JsonResponse({"distinct_id": distinct_id}, status=status.HTTP_200_OK))
