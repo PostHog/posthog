@@ -256,7 +256,7 @@ jobs:
             matrix:
                 include: ${{ fromJson(needs.changes.outputs.matrix_include || '[]') }}
         if: needs.changes.outputs.dagster == 'true'
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}

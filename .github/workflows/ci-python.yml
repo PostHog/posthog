@@ -81,8 +81,8 @@ jobs:
         if: needs.changes.outputs.python == 'true'
         timeout-minutes: 30
 
-        name: Python code quality (depot-ubuntu-latest)
-        runs-on: depot-ubuntu-latest
+        name: Python code quality (depot-ubuntu-24.04)
+        runs-on: depot-ubuntu-24.04
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
