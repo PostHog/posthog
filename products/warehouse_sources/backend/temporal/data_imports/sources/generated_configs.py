@@ -487,6 +487,11 @@ class AwsCloudTrailSourceConfig(config.Config):
 
 
 @config.config
+class AxiomSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class AzureBlobSourceConfig(config.Config):
     pass
 
@@ -1202,6 +1207,15 @@ class DagsterCloudSourceConfig(config.Config):
     organization: str
     deployment: str
     api_token: str
+
+
+@config.config
+class DataForSEOSourceConfig(config.Config):
+    api_login: str
+    api_password: str
+    targets: str
+    location_name: str | None = None
+    language_name: str | None = None
 
 
 @config.config
@@ -3377,6 +3391,11 @@ class PlausibleSourceConfig(config.Config):
 
 
 @config.config
+class PlivoSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class PlunkSourceConfig(config.Config):
     pass
 
@@ -5029,6 +5048,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.AVIATOR: AviatorSourceConfig,
         ExternalDataSourceType.AWIN: AwinSourceConfig,
         ExternalDataSourceType.AWSCLOUDTRAIL: AwsCloudTrailSourceConfig,
+        ExternalDataSourceType.AXIOM: AxiomSourceConfig,
         ExternalDataSourceType.AZUREBLOB: AzureBlobSourceConfig,
         ExternalDataSourceType.AZUREDEVOPS: AzureDevOpsSourceConfig,
         ExternalDataSourceType.AZURETABLESTORAGE: AzureTableStorageSourceConfig,
@@ -5151,6 +5171,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.DAGSTERCLOUD: DagsterCloudSourceConfig,
         ExternalDataSourceType.DATABRICKS: DatabricksSourceConfig,
         ExternalDataSourceType.DATADOG: DatadogSourceConfig,
+        ExternalDataSourceType.DATAFORSEO: DataForSEOSourceConfig,
         ExternalDataSourceType.DATAHUB: DatahubSourceConfig,
         ExternalDataSourceType.DATASCOPE: DatascopeSourceConfig,
         ExternalDataSourceType.DATORAMA: DatoramaSourceConfig,
@@ -5542,6 +5563,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.PLANHAT: PlanhatSourceConfig,
         ExternalDataSourceType.PLATFORMSH: PlatformShSourceConfig,
         ExternalDataSourceType.PLAUSIBLE: PlausibleSourceConfig,
+        ExternalDataSourceType.PLIVO: PlivoSourceConfig,
         ExternalDataSourceType.PLUNK: PlunkSourceConfig,
         ExternalDataSourceType.POCKET: PocketSourceConfig,
         ExternalDataSourceType.PODIUM: PodiumSourceConfig,
