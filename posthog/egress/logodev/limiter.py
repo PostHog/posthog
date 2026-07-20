@@ -20,8 +20,9 @@ LOGODEV_DOMAIN = "logodev"
 # One account per instance — the constant id for the instance-wide shared budget.
 _ACCOUNT_SCOPE_ID = "default"
 
-# Same reserved-floor ladder as the other egress domains: sheddable lanes are denied first as the
-# budget fills, CRITICAL (user-facing icon renders) may use the full budget.
+# Same reserved-floor ladder as the other egress domains: BATCH is denied first as the budget
+# fills, then NORMAL. All icon traffic runs NORMAL — the icon id is user-controlled, so nothing in
+# this domain should run CRITICAL (a never-shed lane would make the budget advisory).
 _RESERVE: dict[Priority, float] = {Priority.BATCH: 0.30, Priority.NORMAL: 0.10}
 
 # Operator ceilings, not observed provider limits (logo.dev exposes none to observe). The per-minute
