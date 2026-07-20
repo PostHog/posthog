@@ -15,7 +15,6 @@ import {
 } from '@posthog/lemon-ui'
 
 import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
-import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { objectsEqual } from 'lib/utils/objects'
 
 import { BooleanTag } from '../../components/BooleanTag'
@@ -156,6 +155,37 @@ function TagChips({ changes }: { changes: ScannerConfigChange[] }): JSX.Element 
     )
 }
 
+/** Editable tag list that renders the same `option` chips as the current-config column, plus an inline add. */
+function EditableTags({ value, onChange }: { value: string[]; onChange: (tags: string[]) => void }): JSX.Element {
+    const [draft, setDraft] = useState('')
+    const tags = value ?? []
+    const addDraft = (): void => {
+        const tag = draft.trim()
+        if (tag && !tags.includes(tag)) {
+            onChange([...tags, tag])
+        }
+        setDraft('')
+    }
+    return (
+        <div className="flex flex-wrap items-center gap-1">
+            {tags.map((tag) => (
+                <LemonTag key={tag} type="option" closable onClose={() => onChange(tags.filter((t) => t !== tag))}>
+                    {tag}
+                </LemonTag>
+            ))}
+            <LemonInput
+                size="small"
+                value={draft}
+                onChange={setDraft}
+                onPressEnter={addDraft}
+                onBlur={addDraft}
+                placeholder="Add tag…"
+                className="w-28"
+            />
+        </div>
+    )
+}
+
 /** The editable control for a config field, by kind. */
 function FieldValueEditor({
     kind,
@@ -185,17 +215,7 @@ function FieldValueEditor({
         )
     }
     if (kind === 'tags') {
-        const tags = (value as string[]) ?? []
-        return (
-            <LemonInputSelect
-                mode="multiple"
-                allowCustomValues
-                placeholder="Type a tag and press enter..."
-                value={tags}
-                onChange={onChange}
-                options={tags.map((t) => ({ key: t, label: t }))}
-            />
-        )
+        return <EditableTags value={(value as string[]) ?? []} onChange={onChange} />
     }
     if (kind === 'scale') {
         // Mirrors the scale editor in ScannerTypeConfigEditor.
