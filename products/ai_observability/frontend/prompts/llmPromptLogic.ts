@@ -50,6 +50,7 @@ import { llmPromptsLogic } from './llmPromptsLogic'
 import { LLM_PROMPTS_FORCE_RELOAD_PARAM } from './llmPromptsLogic'
 import {
     getApiErrorDetail,
+    openCreateLabelDialog,
     openDiscardChangesDialog,
     openMoveLabelDialog,
     openRemoveLabelDialog,
@@ -1097,7 +1098,13 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                 })
                 return
             }
-            actions.setLabel(labelName, version)
+            // Creation confirms too: code may already fetch by this label (404 → SDK fallback),
+            // in which case creating it is the go-live moment.
+            openCreateLabelDialog({
+                labelName,
+                version,
+                onCreate: () => asyncActions.setLabel(labelName, version),
+            })
         },
 
         // Never throws: kea surfaces a throwing listener as an unhandled rejection. The awaited

@@ -454,6 +454,7 @@ describe('llmPromptLogic', () => {
 
     it('keeps labels unchanged and resyncs after losing a concurrent label write', async () => {
         const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
+        const dialogSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
         const logic = mountWithLabels()
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadPromptSuccess'])
@@ -464,6 +465,10 @@ describe('llmPromptLogic', () => {
             })
         )
         logic.actions.requestSetLabel('staging', 2)
+        // Creating a new label also requires confirmation (code may already fetch by it).
+        expect(dialogSpy).toHaveBeenCalledTimes(1)
+        expect(mockLabelsUpdate).not.toHaveBeenCalled()
+        await dialogSpy.mock.calls[0][0].primaryButton?.onClick?.(undefined as any)
         await expectLogic(logic).toDispatchActions(['setLabel', 'loadPrompt', 'loadPromptSuccess'])
 
         expect(toastSpy).toHaveBeenCalledWith('This label was changed by someone else at the same time. Try again.')

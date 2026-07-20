@@ -50,6 +50,31 @@ export function validatePromptLabelName(name: string): string | undefined {
     return undefined
 }
 
+export function openCreateLabelDialog({
+    labelName,
+    version,
+    onCreate,
+}: {
+    labelName: string
+    version: number
+    onCreate: () => Promise<void>
+}): void {
+    LemonDialog.open({
+        title: 'Create label?',
+        description: `${labelName} → v${version}. Anything fetching this prompt by this label starts resolving v${version} within seconds.`,
+        shouldAwaitSubmit: true,
+        primaryButton: {
+            children: 'Create',
+            type: 'primary',
+            onClick: onCreate,
+        },
+        secondaryButton: {
+            children: 'Cancel',
+            type: 'secondary',
+        },
+    })
+}
+
 export function openMoveLabelDialog({
     labelName,
     fromVersion,
