@@ -311,21 +311,20 @@ class DeltaBatchConsumerAdapter:
             except Exception as e:
                 logger.exception("reconcile_job_status_update_failed", job_id=ref.job_id, run_uuid=ref.run_uuid)
                 capture_exception(e)
-                continue
+                reconciled = False
 
-            if not reconciled:
-                continue  # job was already terminal — nothing to reconcile
+            if reconciled:
+                RUNS_RECONCILED_TOTAL.inc()
+                logger.warning(
+                    "run_reconciled_to_failed",
+                    job_id=ref.job_id,
+                    run_uuid=ref.run_uuid,
+                    team_id=ref.team_id,
+                    external_data_schema_id=ref.schema_id,
+                )
 
-            RUNS_RECONCILED_TOTAL.inc()
-            logger.warning(
-                "run_reconciled_to_failed",
-                job_id=ref.job_id,
-                run_uuid=ref.run_uuid,
-                team_id=ref.team_id,
-                external_data_schema_id=ref.schema_id,
-            )
-
-            # Release the V3 pipeline lock too, otherwise it blocks the schema's next sync until its TTL expires.
+            # Attempted for every ref: this sweep is the retry for a fail_run whose own release
+            # failed silently. Safe to repeat, since the release compare-and-deletes on the token.
             if ref.workflow_run_id:
                 try:
                     await sync_to_async(release_v3_pipeline_lock)(
@@ -341,6 +340,13 @@ class DeltaBatchConsumerAdapter:
                         exc_info=True,
                     )
                     capture_exception(e)
+            else:
+                logger.info(
+                    "v3_pipeline_lock_release_skipped_no_workflow_run_id",
+                    job_id=ref.job_id,
+                    run_uuid=ref.run_uuid,
+                    external_data_schema_id=ref.schema_id,
+                )
 
     async def _observe_queue_freshness(self, conn: psycopg.AsyncConnection[Any]) -> None:
         """Report the age of the oldest batch no consumer has picked up yet.
