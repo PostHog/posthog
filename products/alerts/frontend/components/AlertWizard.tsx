@@ -64,13 +64,16 @@ export function AlertWizard({
                     {steps.map((s, i) => {
                         const isCurrent = i === current
                         const isComplete = i < current
+                        const canAccess = isCurrent || isComplete || s.canAdvance !== false
                         return (
                             <li key={s.key} className="flex items-center gap-1 min-w-0">
                                 <button
                                     type="button"
-                                    onClick={() => setCurrent(i)}
+                                    disabled={!canAccess}
+                                    onClick={() => canAccess && setCurrent(i)}
                                     className={cn(
                                         'flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors',
+                                        !canAccess && 'opacity-40 cursor-not-allowed',
                                         isCurrent
                                             ? 'bg-accent-primary text-accent-primary-highlight'
                                             : isComplete
