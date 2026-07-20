@@ -1,8 +1,10 @@
 import os
 import time
+import random
 import asyncio
 import datetime as dt
 import dataclasses
+from collections.abc import AsyncGenerator
 from typing import Any, Optional
 
 import structlog
@@ -19,7 +21,7 @@ from posthog.kafka_client.topics import (
 )
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.clickhouse import get_client
+from posthog.temporal.common.clickhouse import ClickHouseClient, ClickHouseTooManySimultaneousQueriesError, get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.messaging.backfill_precalculated_events_workflow import flush_kafka_batch_async
@@ -53,6 +55,54 @@ def _positive_int_env(name: str, default: int, logger: structlog.BoundLogger) ->
         logger.warning(f"Non-positive {name}={value}, using default {default}")
         return default
     return value
+
+
+# The shared ClickHouse `default` user has a per-user simultaneous-query cap. When the cluster
+# is busy, a query is rejected with TOO_MANY_SIMULTANEOUS_QUERIES *before* it streams any row,
+# so retrying it in-process with a short backoff turns transient contention into a brief wait
+# instead of a failed activity that Temporal restarts from scratch (re-running every query the
+# activity had already completed). Exponential backoff with full jitter spreads the retries of
+# the concurrent per-team activities so they don't all re-hit the cap in lockstep.
+CLICKHOUSE_QUERY_MAX_ATTEMPTS = 5
+CLICKHOUSE_QUERY_BACKOFF_BASE_SECONDS = 1.0
+CLICKHOUSE_QUERY_BACKOFF_MAX_SECONDS = 30.0
+
+
+async def _stream_query_with_backoff(
+    client: ClickHouseClient,
+    query: str,
+    query_parameters: dict[str, Any],
+    logger: structlog.BoundLogger,
+) -> AsyncGenerator[dict[Any, Any]]:
+    """Stream a query, retrying from the start only while it is rejected over the concurrency cap.
+
+    A TOO_MANY_SIMULTANEOUS_QUERIES rejection lands before any row is streamed, so restarting the
+    query cannot double-process output. We only retry while nothing has been yielded yet; anything
+    that fails mid-stream (which this error is not) propagates untouched.
+    """
+    attempt = 0
+    while True:
+        attempt += 1
+        yielded = False
+        try:
+            async for row in client.stream_query_as_jsonl(query, query_parameters=query_parameters):
+                yielded = True
+                yield row
+            return
+        except ClickHouseTooManySimultaneousQueriesError:
+            if yielded or attempt >= CLICKHOUSE_QUERY_MAX_ATTEMPTS:
+                raise
+            backoff = min(
+                CLICKHOUSE_QUERY_BACKOFF_MAX_SECONDS,
+                CLICKHOUSE_QUERY_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)),
+            )
+            delay = random.uniform(0, backoff)
+            logger.warning(
+                "ClickHouse over simultaneous-query cap, backing off before retry",
+                attempt=attempt,
+                delay_seconds=round(delay, 2),
+            )
+            await asyncio.sleep(delay)
 
 
 # precalculated_events stores the person_id that was resolved for a distinct_id when the row
@@ -260,7 +310,11 @@ async def get_reconciliation_run_config_activity() -> ReconciliationRunConfig:
     """Compute the run-wide lookback boundary and concurrency once, before any team runs."""
     logger = LOGGER.bind()
     overrides_lookback_hours = _positive_int_env("RECONCILE_PRECALCULATED_DATA_OVERRIDES_LOOKBACK_HOURS", 48, logger)
-    team_concurrency = _positive_int_env("RECONCILE_PRECALCULATED_DATA_TEAM_CONCURRENCY", 5, logger)
+    # Each concurrent team now holds a single ClickHouse query at a time (see the batch-buffering
+    # in the reconcile activities), so team_concurrency is roughly the query footprint this run
+    # adds to the shared `default` user. Kept conservative to stay well under that user's per-user
+    # simultaneous-query cap when the cluster is already busy.
+    team_concurrency = _positive_int_env("RECONCILE_PRECALCULATED_DATA_TEAM_CONCURRENCY", 3, logger)
     return ReconciliationRunConfig(
         since=dt.datetime.now(dt.UTC) - dt.timedelta(hours=overrides_lookback_hours),
         team_concurrency=team_concurrency,
@@ -362,12 +416,14 @@ async def reconcile_team_precalculated_person_properties_activity(
                     nonlocal distinct_ids_skipped_absent_person, verdicts_skipped_eval_failed
 
                     existing: dict[tuple[str, str], tuple[bool, str]] = {}
-                    async for row in client.stream_query_as_jsonl(
+                    async for row in _stream_query_with_backoff(
+                        client,
                         EXISTING_PERSON_PROPERTIES_VERDICTS_QUERY,
-                        query_parameters={
+                        {
                             "team_id": inputs.team_id,
                             "distinct_ids": list(batch_overrides.keys()),
                         },
+                        logger,
                     ):
                         existing[(str(row["distinct_id"]), str(row["condition"]))] = (
                             bool(row["matches"]),
@@ -379,9 +435,11 @@ async def reconcile_team_precalculated_person_properties_activity(
 
                     current_person_ids = sorted({batch_overrides[distinct_id] for distinct_id, _ in existing})
                     properties_by_person_id: dict[str, dict[str, Any]] = {}
-                    async for row in client.stream_query_as_jsonl(
+                    async for row in _stream_query_with_backoff(
+                        client,
                         PERSON_PROPERTIES_QUERY,
-                        query_parameters={"team_id": inputs.team_id, "person_ids": current_person_ids},
+                        {"team_id": inputs.team_id, "person_ids": current_person_ids},
+                        logger,
                     ):
                         person_id = str(row["id"])
                         properties_by_person_id[person_id] = parse_person_properties(row.get("properties"), person_id)
@@ -452,21 +510,32 @@ async def reconcile_team_precalculated_person_properties_activity(
                             await flush_kafka_batch_async(kafka_results, kafka_producer, inputs.team_id, logger)
                             kafka_results.clear()
 
+                # Drain the overrides query fully into batches BEFORE reconciling any of them,
+                # so the outer stream (and its ClickHouse query) closes before the per-batch
+                # queries open. Nesting the batch queries inside a live outer stream kept 2+
+                # queries open at once per activity, which multiplied by team_concurrency pushed
+                # the shared `default` user over its simultaneous-query cap. The trade-off is
+                # holding every overridden distinct_id for the window in memory rather than one
+                # batch — far lighter than the events rows, and bounded by merges in the lookback
+                # (a full scan spanning every override is a manual remediation path).
+                override_batches: list[dict[str, str]] = []
                 batch_overrides: dict[str, str] = {}
-                async for row in client.stream_query_as_jsonl(overrides_query, query_parameters=overrides_params):
+                async for row in _stream_query_with_backoff(client, overrides_query, overrides_params, logger):
                     batch_overrides[str(row["distinct_id"])] = str(row["person_id"])
                     overridden_distinct_ids += 1
 
                     if len(batch_overrides) >= distinct_id_batch_size:
-                        await reconcile_batch(batch_overrides)
+                        override_batches.append(batch_overrides)
                         batch_overrides = {}
-                        heartbeater.details = (
-                            f"Checked {verdicts_checked} verdicts, corrected {verdicts_corrected} "
-                            f"({overridden_distinct_ids} distinct_ids so far)",
-                        )
-
                 if batch_overrides:
-                    await reconcile_batch(batch_overrides)
+                    override_batches.append(batch_overrides)
+
+                for batch in override_batches:
+                    await reconcile_batch(batch)
+                    heartbeater.details = (
+                        f"Checked {verdicts_checked} verdicts, corrected {verdicts_corrected} "
+                        f"({overridden_distinct_ids} distinct_ids overridden)",
+                    )
 
                 if kafka_results:
                     await flush_kafka_batch_async(kafka_results, kafka_producer, inputs.team_id, logger)
@@ -532,9 +601,11 @@ async def reconcile_team_precalculated_events_activity(inputs: ReconcileTeamInpu
                     # Scan this team's precalculated_events for this batch of overridden
                     # distinct_ids and re-emit any row still carrying a superseded person_id.
                     nonlocal rows_checked, rows_corrected
-                    async for row in client.stream_query_as_jsonl(
+                    async for row in _stream_query_with_backoff(
+                        client,
                         PRECALCULATED_EVENTS_BATCH_QUERY,
-                        query_parameters={"team_id": inputs.team_id, "distinct_ids": list(batch_overrides.keys())},
+                        {"team_id": inputs.team_id, "distinct_ids": list(batch_overrides.keys())},
+                        logger,
                     ):
                         rows_checked += 1
                         distinct_id = str(row["distinct_id"])
@@ -565,26 +636,32 @@ async def reconcile_team_precalculated_events_activity(inputs: ReconcileTeamInpu
                             await flush_kafka_batch_async(kafka_results, kafka_producer, inputs.team_id, logger)
                             kafka_results.clear()
 
-                # Stream overrides in batches of distinct_id_batch_size and reconcile each
-                # batch immediately, rather than materializing every overridden distinct_id
-                # for the team before doing any reconciliation. Bounds per-activity memory
-                # to O(batch size) regardless of how many distinct_ids a team merged within
-                # the lookback window (or, on a full scan, ever).
+                # Drain the overrides query fully into batches BEFORE reconciling any of them,
+                # so the outer stream (and its ClickHouse query) closes before the per-batch
+                # queries open. Nesting the batch queries inside a live outer stream kept 2+
+                # queries open at once per activity, which multiplied by team_concurrency pushed
+                # the shared `default` user over its simultaneous-query cap. We now hold every
+                # overridden distinct_id for the window in memory rather than one batch — far
+                # lighter than the events rows themselves, and bounded by the merges landing in
+                # the lookback window (a full scan spanning every override is a manual path).
+                override_batches: list[dict[str, str]] = []
                 batch_overrides: dict[str, str] = {}
-                async for row in client.stream_query_as_jsonl(overrides_query, query_parameters=overrides_params):
+                async for row in _stream_query_with_backoff(client, overrides_query, overrides_params, logger):
                     batch_overrides[str(row["distinct_id"])] = str(row["person_id"])
                     overridden_distinct_ids += 1
 
                     if len(batch_overrides) >= distinct_id_batch_size:
-                        await reconcile_batch(batch_overrides)
+                        override_batches.append(batch_overrides)
                         batch_overrides = {}
-                        heartbeater.details = (
-                            f"Checked {rows_checked} rows, corrected {rows_corrected} "
-                            f"({overridden_distinct_ids} distinct_ids so far)",
-                        )
-
                 if batch_overrides:
-                    await reconcile_batch(batch_overrides)
+                    override_batches.append(batch_overrides)
+
+                for batch in override_batches:
+                    await reconcile_batch(batch)
+                    heartbeater.details = (
+                        f"Checked {rows_checked} rows, corrected {rows_corrected} "
+                        f"({overridden_distinct_ids} distinct_ids overridden)",
+                    )
 
                 if not overridden_distinct_ids:
                     return ReconcileTeamResult(
