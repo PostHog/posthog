@@ -139,17 +139,17 @@ export interface teamLogicActions {
         errorObject?: any
     }
     addProductIntentForCrossSellSuccess: (
-        currentTeam: TeamType | null,
+        currentTeam: TeamPublicType | TeamType | null,
         payload?: ProductCrossSellProperties
     ) => {
-        currentTeam: TeamType | null
+        currentTeam: TeamPublicType | TeamType | null
         payload?: ProductCrossSellProperties
     }
     addProductIntentSuccess: (
-        currentTeam: TeamType | null,
+        currentTeam: TeamPublicType | TeamType | null,
         payload?: ProductIntentProperties
     ) => {
-        currentTeam: TeamType | null
+        currentTeam: TeamPublicType | TeamType | null
         payload?: ProductIntentProperties
     }
     createTeam: ({ name, is_demo }: { is_demo: boolean; name: string }) => {
