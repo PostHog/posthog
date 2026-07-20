@@ -8,6 +8,7 @@ import { LemonModal, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
@@ -43,7 +44,7 @@ import { editorSizingLogic } from './editorSizingLogic'
 import { applyExecuteSqlToolOutput, getExecuteSqlToolContext } from './maxSqlTool'
 import { QueryInfo } from './output-pane-tabs/QueryInfo'
 import { OutputPane } from './OutputPane'
-import { outputPaneLogic } from './outputPaneLogic'
+import { EditorMode, outputPaneLogic } from './outputPaneLogic'
 import { QueryHistoryModal } from './QueryHistoryModal'
 import { QueryWindow } from './QueryWindow'
 import { sqlEditorLogic } from './sqlEditorLogic'
@@ -104,11 +105,16 @@ export function SQLEditor({
     const databaseTreeRef = useRef(null)
     const [hasShownDatabaseTree, setHasShownDatabaseTree] = useState(defaultShowDatabaseTree)
 
+    const insightBuilderEnabled = useFeatureFlag('SQL_EDITOR_INSIGHT_BUILDER')
+    const { editorMode } = useValues(outputPaneLogic({ tabId: tabId || '' }))
+    const isBuildMode = insightBuilderEnabled && mode === SQLEditorMode.FullScene && editorMode === EditorMode.Build
+
     const shouldShowDatabaseTree = showDatabaseTree ?? hasShownDatabaseTree
     const showQueryPanel = panel !== SQLEditorPanel.Output
     const showOutputPanel = panel !== SQLEditorPanel.Query
     const showSceneTitle = panel === SQLEditorPanel.Full && mode === SQLEditorMode.FullScene
-    const showDatabaseTreePanel = showQueryPanel && shouldShowDatabaseTree
+    // The insight builder has its own fields panel — the database tree only applies to Data mode
+    const showDatabaseTreePanel = showQueryPanel && shouldShowDatabaseTree && !isBuildMode
     const showFullSceneModals = mode === SQLEditorMode.FullScene
 
     const editorSizingLogicProps = useMemo(

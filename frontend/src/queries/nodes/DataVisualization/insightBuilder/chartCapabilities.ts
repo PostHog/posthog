@@ -73,15 +73,18 @@ export const CHART_CAPABILITIES: ChartCapability[] = [
     {
         display: ChartDisplayType.ActionsBar,
         label: 'Bar chart',
-        ...CHART_SERIES_WELLS,
+        rows: { min: 1, max: 1 },
+        columns: { min: 0, max: 0 },
+        values: { min: 1, max: null },
         requirementHint: 'Needs 1 Row and at least 1 Value',
     },
     {
         display: ChartDisplayType.ActionsStackedBar,
         label: 'Stacked bar chart',
-        ...CHART_SERIES_WELLS,
-        requirementHint: 'Needs 1 Row and at least 1 Value',
-        tip: 'Add a field to Columns to stack by its values',
+        rows: { min: 1, max: 1 },
+        columns: { min: 1, max: 1 },
+        values: { min: 1, max: 1 },
+        requirementHint: 'Needs 1 Row (stacked series), 1 Column (x-axis), and exactly 1 Value',
     },
     {
         display: ChartDisplayType.ActionsAreaGraph,

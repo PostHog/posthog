@@ -3,6 +3,7 @@ import { InsightBuilderConfig } from '~/queries/schema/schema-general'
 import {
     BuilderCompileError,
     compileBuilderQuery,
+    detectSelectAllTarget,
     dimensionExpr,
     isCompilableBase,
     measureExpr,
@@ -190,6 +191,23 @@ describe('compileBuilderQuery', () => {
 
             expect(result.rowAliases).toEqual(['sum_amount'])
             expect(result.valueAliases).toEqual(['sum_amount_2'])
+        })
+    })
+
+    describe('detectSelectAllTarget', () => {
+        it.each([
+            ['SELECT * FROM payments', 'payments'],
+            ['select * from payments limit 100', 'payments'],
+            ['SELECT * FROM payments LIMIT 100;', 'payments'],
+            ['  SELECT  *  FROM  schema.revenue  ', 'schema.revenue'],
+            ['SELECT * FROM "my view" LIMIT 100', 'my view'],
+            ['SELECT * FROM `back``tick` LIMIT 5', 'back`tick'],
+            ['SELECT id FROM payments', null],
+            ['SELECT * FROM payments WHERE id > 1', null],
+            ['SELECT * FROM (SELECT 1)', null],
+            ['SELECT * FROM payments LIMIT 100 OFFSET 5', null],
+        ])('detects %s → %s', (base, expected) => {
+            expect(detectSelectAllTarget(base)).toEqual(expected)
         })
     })
 

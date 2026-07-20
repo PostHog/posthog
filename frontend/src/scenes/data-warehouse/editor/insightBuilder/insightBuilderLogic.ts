@@ -15,6 +15,7 @@ import {
 } from '~/queries/nodes/DataVisualization/insightBuilder/chartCapabilities'
 import {
     compileBuilderQuery,
+    detectSelectAllTarget,
     isCompilableBase,
 } from '~/queries/nodes/DataVisualization/insightBuilder/compileBuilderQuery'
 import { mapWellsToChartSettings } from '~/queries/nodes/DataVisualization/insightBuilder/wellsToVizSettings'
@@ -442,10 +443,10 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
             (s) => [s.isMultiQuery, s.queryInput, s.sourceQuery],
             (isMultiQuery: boolean, queryInput: string | null, sourceQuery: DataVisualizationNode): string | null => {
                 if (sourceQuery.source.sendRawQuery) {
-                    return "Build mode isn't available for raw SQL queries"
+                    return "The insight builder isn't available for raw SQL queries"
                 }
                 if (isMultiQuery) {
-                    return 'Build mode needs a single SELECT statement — remove extra statements in the Data tab'
+                    return 'The insight builder needs a single SELECT statement — remove extra statements in the Data tab'
                 }
                 if (!queryInput?.trim() && !sourceQuery.builder?.enabled) {
                     return 'Write and run a query in the Data tab first'
@@ -464,17 +465,18 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
     }),
     listeners(({ actions, values }) => ({
         addField: ({ well }) => {
-            // First field dropped picks a sensible chart automatically; later drops respect the explicit choice
+            const firstRow = values.baseFields.find((field) => field.name === values.wells.rows[0]?.column)
+            const firstRowIsDate = !!firstRow?.isDate || !!values.wells.rows[0]?.dateGrain
             if (
                 values.builderDisplay === ChartDisplayType.ActionsTable &&
                 values.wells.rows.length + values.wells.columns.length + values.wells.values.length === 1
             ) {
-                const firstRow = values.baseFields.find((field) => field.name === values.wells.rows[0]?.column)
-                actions.setBuilderDisplay(
-                    bestDisplayForWells(values.wells, {
-                        firstRowIsDate: !!firstRow?.isDate || !!values.wells.rows[0]?.dateGrain,
-                    })
-                )
+                // First field dropped picks a sensible chart automatically
+                actions.setBuilderDisplay(bestDisplayForWells(values.wells, { firstRowIsDate }))
+            } else if (values.wellProblems.length > 0) {
+                // The new field pushed the wells beyond what the current chart supports — switch to
+                // a chart that can express the new shape (e.g. bar + Columns becomes stacked bar)
+                actions.setBuilderDisplay(bestDisplayForWells(values.wells, { firstRowIsDate }))
             }
             posthog.capture('sql-editor-builder-field-added', { well })
             actions.applyWells()
@@ -532,8 +534,10 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
                 actions.loadBaseColumns()
             }
         },
-        // Snapshot the Data tab as the builder's base. When the tab is an unmodified saved view,
-        // compile against the view by name so the insight tracks future view updates.
+        // Snapshot the Data tab as the builder's base. When the base is a bare select-all from a
+        // catalog object (view click, table click) or an unmodified saved view, compile against the
+        // object by name — this drops the preview LIMIT so aggregates cover the full data, and
+        // insights built on views track future view updates.
         refreshBase: () => {
             const currentBase = values.queryInput ?? ''
             if (!currentBase.trim()) {
@@ -541,9 +545,10 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
             }
             const editingView = values.editingView
             const viewName =
-                editingView && currentBase.trim() === (editingView.query?.query ?? '').trim()
+                detectSelectAllTarget(currentBase) ??
+                (editingView && currentBase.trim() === (editingView.query?.query ?? '').trim()
                     ? (editingView.name ?? null)
-                    : null
+                    : null)
             actions.setBaseSnapshot(currentBase, viewName)
             actions.loadBaseColumns()
             if (values.hasAnyField) {

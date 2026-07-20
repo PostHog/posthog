@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGear } from '@posthog/icons'
+import { IconPalette } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { SideBar } from '~/queries/nodes/DataVisualization/Components/SideBar'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { getChartCapability } from '~/queries/nodes/DataVisualization/insightBuilder/chartCapabilities'
 
@@ -76,7 +77,7 @@ export function BuilderPreview({ tabId }: { tabId: string }): JSX.Element {
                     context={{}}
                     cachedResults={undefined}
                     editMode
-                    showSettingsPanel={isChartSettingsPanelOpen}
+                    showSettingsPanel={false}
                 />
             </div>
         )
@@ -87,7 +88,7 @@ export function BuilderPreview({ tabId }: { tabId: string }): JSX.Element {
             <div className="flex items-center justify-between border-b px-2 py-1">
                 <span className="text-xs font-semibold uppercase text-tertiary">Preview</span>
                 <LemonButton
-                    icon={<IconGear />}
+                    icon={<IconPalette />}
                     size="small"
                     type="tertiary"
                     active={isChartSettingsPanelOpen}
@@ -96,7 +97,14 @@ export function BuilderPreview({ tabId }: { tabId: string }): JSX.Element {
                     data-attr="sql-builder-format-toggle"
                 />
             </div>
-            {content}
+            <div className="flex min-h-0 flex-1">
+                <div className="flex min-w-0 flex-1 flex-col">{content}</div>
+                {isChartSettingsPanelOpen ? (
+                    <div className="w-72 shrink-0 overflow-y-auto border-l">
+                        <SideBar />
+                    </div>
+                ) : null}
+            </div>
         </div>
     )
 }

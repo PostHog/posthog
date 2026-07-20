@@ -36,6 +36,8 @@ export function ChartTypePicker({ tabId }: { tabId: string }): JSX.Element {
                 {CHART_CAPABILITIES.map((capability) => {
                     const problems = validateWellsForDisplay(wells, capability.display)
                     const isActive = builderDisplay === capability.display
+                    // The active chart stays clickable even when unmet so the preview's guidance owns that state
+                    const disabledReason = !isActive && problems.length > 0 ? problems.join(' · ') : undefined
                     return (
                         <LemonButton
                             key={capability.display}
@@ -44,17 +46,15 @@ export function ChartTypePicker({ tabId }: { tabId: string }): JSX.Element {
                             type={isActive ? 'primary' : 'tertiary'}
                             active={isActive}
                             onClick={() => setBuilderDisplay(capability.display)}
+                            disabledReason={disabledReason}
                             tooltip={
-                                <div>
-                                    <div className="font-semibold">{capability.label}</div>
-                                    <div>{capability.requirementHint}</div>
-                                    {capability.tip ? <div className="text-muted">{capability.tip}</div> : null}
-                                    {!isActive && problems.length > 0 ? (
-                                        <div className="mt-1 text-warning-highlight">
-                                            Current fields don't fit this chart yet
-                                        </div>
-                                    ) : null}
-                                </div>
+                                disabledReason ? undefined : (
+                                    <div>
+                                        <div className="font-semibold">{capability.label}</div>
+                                        <div>{capability.requirementHint}</div>
+                                        {capability.tip ? <div className="text-muted">{capability.tip}</div> : null}
+                                    </div>
+                                )
                             }
                             data-attr={`sql-builder-chart-type-${capability.display}`}
                         />

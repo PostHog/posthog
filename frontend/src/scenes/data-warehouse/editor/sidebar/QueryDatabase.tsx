@@ -153,6 +153,7 @@ export const QueryDatabase = ({
     const addJoinAccessDisabledReason = resourceLevelEditorDisabledReason
     const materializationAccessDisabledReason = resourceLevelEditorDisabledReason
     const warehouseAccessControlEnabled = !!featureFlags[FEATURE_FLAGS.HOGQL_WAREHOUSE_ACCESS_CONTROL]
+    const insightBuilderEnabled = !!featureFlags[FEATURE_FLAGS.SQL_EDITOR_INSIGHT_BUILDER]
     const formatTraversalChain = (chain?: (string | number)[]): string | null => {
         if (!chain || chain.length === 0) {
             return null
@@ -387,6 +388,12 @@ export const QueryDatabase = ({
                 setEditingDraft('')
             }}
             onItemClick={(item) => {
+                // With the insight builder, clicking a view/endpoint pulls it straight in as the
+                // table to query (SELECT * … LIMIT 100); editing stays in the row's dropdown menu
+                if (item && insightBuilderEnabled && isPreviewableViewItem(item)) {
+                    previewItem(item)
+                }
+
                 // Handle draft clicks - focus existing tab or create new one
                 if (item && item.record?.type === 'draft') {
                     router.actions.push(urls.sqlEditor({ draftId: item.record.draft.id }))

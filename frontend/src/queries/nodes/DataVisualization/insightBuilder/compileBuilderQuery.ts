@@ -212,6 +212,29 @@ export function isCompilableBase(baseQuery: string): boolean {
     return splitQueries(baseQuery).length === 1
 }
 
+const SELECT_ALL_TARGET_REGEX =
+    /^\s*SELECT\s+\*\s+FROM\s+(`(?:[^`]|``)+`|"[^"]+"|[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*)\s*(?:LIMIT\s+\d+)?\s*;?\s*$/i
+
+/**
+ * When the base is a bare `SELECT * FROM <object> [LIMIT n]`, return the (unquoted) object name.
+ * The builder then compiles FROM the object directly, dropping the preview LIMIT so aggregates
+ * cover the full table/view rather than the previewed sample.
+ */
+export function detectSelectAllTarget(baseQuery: string): string | null {
+    const match = SELECT_ALL_TARGET_REGEX.exec(baseQuery)
+    if (!match) {
+        return null
+    }
+    const raw = match[1]
+    if (raw.startsWith('`')) {
+        return raw.slice(1, -1).replaceAll('``', '`')
+    }
+    if (raw.startsWith('"')) {
+        return raw.slice(1, -1)
+    }
+    return raw
+}
+
 export function compileBuilderQuery(config: InsightBuilderConfig): CompiledBuilderQuery {
     if (config.rows.length + config.columns.length + config.values.length === 0) {
         throw new BuilderCompileError('Add at least one field to Rows, Columns, or Values')

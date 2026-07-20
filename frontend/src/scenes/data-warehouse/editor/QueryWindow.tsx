@@ -106,6 +106,7 @@ export function QueryWindow({
         setSendRawQuery,
         openMaterializationModal,
         setSourceQuery,
+        saveAsView,
     } = useActions(logic)
 
     const { setSuggestedQueryInput, reportAIQueryPromptOpen } = useActions(logic)
@@ -297,6 +298,16 @@ export function QueryWindow({
                         </div>
 
                         <div className="ml-auto flex items-center gap-2">
+                            {showBuilderTabs && !editingView ? (
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    onClick={() => saveAsView()}
+                                    data-attr="sql-editor-save-as-view-button"
+                                >
+                                    Save as view
+                                </LemonButton>
+                            ) : null}
                             <FixErrorButton type="secondary" size="small" source="action-bar" />
                             {editorSettingsItems.length > 0 ? (
                                 <LemonMenu

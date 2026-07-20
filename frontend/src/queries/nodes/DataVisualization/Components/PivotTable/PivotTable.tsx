@@ -75,8 +75,8 @@ export function PivotTable(): JSX.Element {
         return (
             <div className="flex items-center justify-center h-full">
                 <InsightEmptyState
-                    heading="Pivot tables are configured in Build mode"
-                    detail="Add at least one Row and one Value in the SQL editor's Build mode."
+                    heading="Pivot tables are configured in the insight builder"
+                    detail="Add at least one Row and one Value in the SQL editor's insight builder."
                 />
             </div>
         )

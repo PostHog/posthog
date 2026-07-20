@@ -2,7 +2,7 @@ import { useDraggable } from '@dnd-kit/core'
 import { useActions, useValues } from 'kea'
 
 import { IconCalendar } from '@posthog/icons'
-import { LemonBanner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTag } from '@posthog/lemon-ui'
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -16,6 +16,7 @@ import {
 import { Icon123, IconTextSize } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { Link } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
 
 import {
@@ -141,7 +142,7 @@ function FieldRow({ tabId, field }: { tabId: string; field: BuilderField }): JSX
 }
 
 export function FieldsPanel({ tabId }: { tabId: string }): JSX.Element {
-    const { baseFields, baseFieldsLoading, baseOutOfSync } = useValues(insightBuilderLogic({ tabId }))
+    const { baseFields, baseFieldsLoading, baseOutOfSync, baseViewName } = useValues(insightBuilderLogic({ tabId }))
     const { loadBaseColumns, refreshBase } = useActions(insightBuilderLogic({ tabId }))
     const { setEditorMode } = useActions(insightBuilderLogic({ tabId }))
 
@@ -150,6 +151,21 @@ export function FieldsPanel({ tabId }: { tabId: string }): JSX.Element {
 
     return (
         <div className="flex h-full w-60 shrink-0 flex-col overflow-y-auto border-r bg-surface-primary p-2">
+            <div className="flex items-center justify-between gap-2 px-2 pb-2">
+                <span className="text-xs font-semibold uppercase text-tertiary">Source</span>
+                {baseViewName ? (
+                    <LemonTag type="highlight" className="max-w-40 truncate" title={baseViewName}>
+                        {baseViewName}
+                    </LemonTag>
+                ) : (
+                    <span className="truncate text-xs text-secondary">
+                        Custom query{' '}
+                        <Link onClick={() => setEditorMode(EditorMode.Data)} data-attr="sql-builder-source-edit">
+                            (Edit)
+                        </Link>
+                    </span>
+                )}
+            </div>
             {baseOutOfSync ? (
                 <LemonBanner
                     type="warning"

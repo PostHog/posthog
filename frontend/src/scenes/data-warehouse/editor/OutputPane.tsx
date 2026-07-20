@@ -29,6 +29,7 @@ import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { type ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconTableChart } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
@@ -586,7 +587,8 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
 
-    const { sourceQuery, exportContext, insightLoading, hasQueryInput, isEmbeddedMode } = useValues(sqlEditorLogic)
+    const { sourceQuery, exportContext, insightLoading, hasQueryInput, isEmbeddedMode, editingInsight } =
+        useValues(sqlEditorLogic)
     const { setSourceQuery } = useActions(sqlEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const {
@@ -598,10 +600,16 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
     } = useValues(dataNodeLogic)
     const { queryCancelled, isChartSettingsPanelOpen } = useValues(dataVisualizationLogic)
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
+    const insightBuilderEnabled = useFeatureFlag('SQL_EDITOR_INSIGHT_BUILDER')
+
+    // With the insight builder, Data mode is results-only — visualization lives in the builder.
+    // Legacy SQL insights (saved without a builder config) keep the classic Visualization tab.
+    const resultsOnly = insightBuilderEnabled && !isEmbeddedMode && !(editingInsight && !sourceQuery.builder?.enabled)
+    const effectiveTab = resultsOnly ? OutputTab.Results : activeTab
 
     const response = dataNodeResponse as HogQLQueryResponse | undefined
     const splitPaneRef = useRef<HTMLDivElement>(null)
-    const splitView = activeTab === OutputTab.Both
+    const splitView = effectiveTab === OutputTab.Both
     const splitResizerProps = useMemo<ResizerLogicProps>(
         () => ({
             containerRef: splitPaneRef,
@@ -852,23 +860,23 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
             {showToolbar ? (
                 <div className="flex flex-row justify-between align-center w-full min-h-[41px] overflow-y-auto">
                     <div className="flex min-h-[41px] gap-2 ml-4">
-                        {splitToggle}
-                        {outputTabs.map((tab) => (
+                        {resultsOnly ? null : splitToggle}
+                        {(resultsOnly ? outputTabs.slice(0, 1) : outputTabs).map((tab) => (
                             <OutputTabLabel
                                 key={tab.key}
                                 tab={tab}
-                                active={tab.key === activeTab}
+                                active={tab.key === effectiveTab}
                                 onClick={() => setActiveTab(tab.key)}
                             />
                         ))}
                     </div>
                     <div className="flex gap-2 py-1 px-4 flex-shrink-0">
-                        <OutputActions activeTab={activeTab} {...sharedActionsProps} />
+                        <OutputActions activeTab={effectiveTab} {...sharedActionsProps} />
                     </div>
                 </div>
             ) : null}
             <div className="flex flex-1 min-h-0 relative bg-dark">
-                <Content activeTab={activeTab} {...sharedContentProps} />
+                <Content activeTab={effectiveTab} {...sharedContentProps} />
             </div>
         </>
     )

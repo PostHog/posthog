@@ -112,6 +112,41 @@ describe('insightBuilderLogic', () => {
         await expectLogic(builderLogic).toNotHaveDispatchedActions(['applyWells'])
     })
 
+    it('switches to a chart that fits when a new field exceeds the current chart', async () => {
+        sqlLogic.actions.setQueryInput(BASE_QUERY)
+        builderLogic.actions.setBaseSnapshot(BASE_QUERY, null)
+        builderLogic.actions.addField('rows', 'event')
+        builderLogic.actions.addField('values', 'amount', { aggregation: 'sum' })
+        builderLogic.actions.setBuilderDisplay(ChartDisplayType.ActionsBar)
+
+        await expectLogic(builderLogic, () => {
+            builderLogic.actions.addField('columns', 'region')
+        })
+            .toMatchValues({ builderDisplay: ChartDisplayType.ActionsStackedBar })
+            .toDispatchActions(sqlLogic, ['setSourceQuery'])
+
+        // Stacked bar reads the wells inverted: Columns drives the x-axis, Rows the stacks
+        const settings = sqlLogic.values.sourceQuery.chartSettings
+        expect(settings?.xAxis?.column).toEqual('region')
+        expect(settings?.seriesBreakdownColumn).toEqual('event')
+    })
+
+    it('compiles a bare select-all base against the object itself, dropping the preview LIMIT', async () => {
+        sqlLogic.actions.setQueryInput('SELECT * FROM payments LIMIT 100')
+        builderLogic.actions.refreshBase()
+
+        await expectLogic(builderLogic, () => {
+            builderLogic.actions.addField('rows', 'plan')
+            builderLogic.actions.addField('values', 'amount', { aggregation: 'sum' })
+        }).toDispatchActions(sqlLogic, ['setSourceQuery'])
+
+        expect(builderLogic.values.baseViewName).toEqual('payments')
+        const node = sqlLogic.values.sourceQuery
+        expect(node.builder?.baseView).toEqual('payments')
+        expect(node.source.query).toContain('FROM payments')
+        expect(node.source.query).not.toContain('LIMIT 100')
+    })
+
     it('does not hydrate again when an identical node round-trips through setSourceQuery', async () => {
         await expectLogic(builderLogic, () => {
             sqlLogic.actions.setSourceQuery(BUILDER_NODE)

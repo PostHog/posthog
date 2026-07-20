@@ -58,7 +58,15 @@ export const SideBar = (): JSX.Element => {
     // The stored tab can be hidden for the current chart/query (e.g. Series for builder insights)
     const visibleActiveTab = tabs.some((tab) => tab.key === activeSideBarTab)
         ? activeSideBarTab
-        : ((tabs[0]?.key as SideBarTab | undefined) ?? activeSideBarTab)
+        : (tabs[0]?.key as SideBarTab | undefined)
+
+    if (!visibleActiveTab) {
+        return (
+            <div className="bg-surface-primary w-[18rem] flex flex-col p-4">
+                <span className="text-sm text-secondary">No format options for this chart type.</span>
+            </div>
+        )
+    }
 
     return (
         <div className="bg-surface-primary w-[18rem] flex flex-col">

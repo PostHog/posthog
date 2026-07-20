@@ -20,7 +20,7 @@ export function BuilderModeTabs({ tabId }: { tabId: string }): JSX.Element {
                 { key: EditorMode.Data, label: 'Data' },
                 {
                     key: EditorMode.Build,
-                    label: 'Build',
+                    label: 'Insight builder',
                     disabledReason: buildModeDisabledReason ?? undefined,
                     tooltip: buildModeDisabledReason ? undefined : 'Build an insight visually from your query results',
                 },
