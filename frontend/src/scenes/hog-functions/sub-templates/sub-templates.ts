@@ -66,7 +66,7 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
                         {
                             key: '$mcp_is_error',
                             type: PropertyFilterType.Event,
-                            value: ['true'],
+                            value: ['true', true, 1],
                             operator: PropertyOperator.Exact,
                         },
                     ],
@@ -305,6 +305,17 @@ const MCP_MISSING_CAPABILITY_MESSAGE =
     'An agent using *{event.properties.$mcp_client_name}* looked for a capability your MCP server ' +
     "*{event.properties.$mcp_server_name}* doesn't have: _{event.properties.$mcp_intent}_"
 
+function slackEscapeExpr(expression: string): string {
+    // concat, not toString: concat(null) renders '' (matching bare {} interpolation), toString(null) prints 'null'
+    return `replaceAll(replaceAll(replaceAll(concat(${expression}), '&', '&amp;'), '<', '&lt;'), '>', '&gt;')`
+}
+
+const MCP_MISSING_CAPABILITY_SLACK_MESSAGE =
+    `An agent using *{${slackEscapeExpr('event.properties.$mcp_client_name')}}* looked for a capability your MCP server ` +
+    `*{${slackEscapeExpr('event.properties.$mcp_server_name')}}* doesn't have: _{${slackEscapeExpr('event.properties.$mcp_intent')}}_`
+
+const MCP_MISSING_CAPABILITY_LINK = '{project.url}/mcp-analytics/activity'
+
 // In single-exec mode $mcp_tool_name is always the 'exec' dispatcher; the inner tool the agent
 // actually invoked rides on $mcp_exec_tool_call_name, so fall back the same way the backend does.
 const MCP_EFFECTIVE_TOOL_EXPR =
@@ -313,6 +324,14 @@ const MCP_EFFECTIVE_TOOL_EXPR =
 const MCP_TOOL_ERROR_MESSAGE =
     `*{${MCP_EFFECTIVE_TOOL_EXPR}}* failed on your MCP server *{event.properties.$mcp_server_name}* ` +
     '(client: {event.properties.$mcp_client_name}). Agent intent: _{event.properties.$mcp_intent}_'
+
+const MCP_TOOL_ERROR_SLACK_MESSAGE =
+    `*{${slackEscapeExpr(MCP_EFFECTIVE_TOOL_EXPR)}}* failed on your MCP server ` +
+    `*{${slackEscapeExpr('event.properties.$mcp_server_name')}}* ` +
+    `(client: {${slackEscapeExpr('event.properties.$mcp_client_name')}}). ` +
+    `Agent intent: _{${slackEscapeExpr('event.properties.$mcp_intent')}}_`
+
+const MCP_TOOL_ERROR_LINK = `{project.url}/mcp-analytics/tool-quality/{encodeURLComponent(${MCP_EFFECTIVE_TOOL_EXPR})}`
 
 export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, HogFunctionSubTemplateType[]> = {
     'mcp-missing-capability': [
@@ -324,12 +343,12 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             inputs: {
                 blocks: {
                     value: [
-                        { type: 'section', text: { type: 'mrkdwn', text: MCP_MISSING_CAPABILITY_MESSAGE } },
+                        { type: 'section', text: { type: 'mrkdwn', text: MCP_MISSING_CAPABILITY_SLACK_MESSAGE } },
                         {
                             type: 'actions',
                             elements: [
                                 {
-                                    url: '{project.url}/mcp-analytics/activity',
+                                    url: MCP_MISSING_CAPABILITY_LINK,
                                     text: { text: 'View MCP activity', type: 'plain_text' },
                                     type: 'button',
                                 },
@@ -345,14 +364,22 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             template_id: 'template-microsoft-teams',
             name: 'Post to Microsoft Teams when agents ask for a missing capability',
             description: 'Agents report what they searched for and could not find, delivered as your MCP roadmap',
-            inputs: { text: { value: MCP_MISSING_CAPABILITY_MESSAGE.replaceAll('*', '**') } },
+            inputs: {
+                text: {
+                    value: `${MCP_MISSING_CAPABILITY_MESSAGE.replaceAll('*', '**')}\n\n${MCP_MISSING_CAPABILITY_LINK}`,
+                },
+            },
         },
         {
             ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['mcp-missing-capability'],
             template_id: 'template-discord',
             name: 'Post to Discord when agents ask for a missing capability',
             description: 'Agents report what they searched for and could not find, delivered as your MCP roadmap',
-            inputs: { content: { value: MCP_MISSING_CAPABILITY_MESSAGE.replaceAll('*', '**') } },
+            inputs: {
+                content: {
+                    value: `${MCP_MISSING_CAPABILITY_MESSAGE.replaceAll('*', '**')}\n\n${MCP_MISSING_CAPABILITY_LINK}`,
+                },
+            },
         },
         {
             ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['mcp-missing-capability'],
@@ -370,12 +397,12 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             inputs: {
                 blocks: {
                     value: [
-                        { type: 'section', text: { type: 'mrkdwn', text: MCP_TOOL_ERROR_MESSAGE } },
+                        { type: 'section', text: { type: 'mrkdwn', text: MCP_TOOL_ERROR_SLACK_MESSAGE } },
                         {
                             type: 'actions',
                             elements: [
                                 {
-                                    url: `{project.url}/mcp-analytics/tool-quality/{encodeURLComponent(${MCP_EFFECTIVE_TOOL_EXPR})}`,
+                                    url: MCP_TOOL_ERROR_LINK,
                                     text: { text: 'View tool detail', type: 'plain_text' },
                                     type: 'button',
                                 },
@@ -391,14 +418,18 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             template_id: 'template-microsoft-teams',
             name: 'Post to Microsoft Teams when an MCP tool call fails',
             description: 'Know the moment agents hit an error on one of your tools',
-            inputs: { text: { value: MCP_TOOL_ERROR_MESSAGE.replaceAll('*', '**') } },
+            inputs: {
+                text: { value: `${MCP_TOOL_ERROR_MESSAGE.replaceAll('*', '**')}\n\n${MCP_TOOL_ERROR_LINK}` },
+            },
         },
         {
             ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['mcp-tool-error'],
             template_id: 'template-discord',
             name: 'Post to Discord when an MCP tool call fails',
             description: 'Know the moment agents hit an error on one of your tools',
-            inputs: { content: { value: MCP_TOOL_ERROR_MESSAGE.replaceAll('*', '**') } },
+            inputs: {
+                content: { value: `${MCP_TOOL_ERROR_MESSAGE.replaceAll('*', '**')}\n\n${MCP_TOOL_ERROR_LINK}` },
+            },
         },
         {
             ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['mcp-tool-error'],

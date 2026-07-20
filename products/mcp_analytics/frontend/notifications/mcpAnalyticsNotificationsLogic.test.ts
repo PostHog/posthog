@@ -1,6 +1,65 @@
-import { getMCPNotificationUseCase } from './mcpAnalyticsNotificationsLogic'
+import { expectLogic } from 'kea-test-utils'
 
-describe('getMCPNotificationUseCase', () => {
+import api from 'lib/api'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+
+import { initKeaTests } from '~/test/init'
+import { HogFunctionType } from '~/types'
+
+import { getMCPNotificationUseCase, mcpAnalyticsNotificationsLogic } from './mcpAnalyticsNotificationsLogic'
+
+jest.mock('lib/utils/deleteWithUndo', () => ({
+    deleteWithUndo: jest.fn(),
+}))
+
+const mockedDeleteWithUndo = jest.mocked(deleteWithUndo)
+
+function makeNotification(id: string, overrides: Partial<HogFunctionType> = {}): HogFunctionType {
+    return {
+        id,
+        name: `Notification ${id}`,
+        enabled: false,
+        deleted: false,
+        filters: { events: [{ id: '$mcp_tool_call', type: 'events' }] },
+        inputs: {},
+        icon_url: null,
+        ...overrides,
+    } as HogFunctionType
+}
+
+function createDeferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+    let resolve!: (value: T) => void
+    const promise = new Promise<T>((promiseResolve) => {
+        resolve = promiseResolve
+    })
+    return { promise, resolve }
+}
+
+describe('mcpAnalyticsNotificationsLogic', () => {
+    let logic: ReturnType<typeof mcpAnalyticsNotificationsLogic.build>
+    let listSpy: jest.SpyInstance
+
+    beforeEach(async () => {
+        initKeaTests()
+        listSpy = jest.spyOn(api.hogFunctions, 'list').mockResolvedValue({
+            count: 2,
+            next: null,
+            previous: null,
+            results: [],
+        })
+        jest.spyOn(api.hogFunctions, 'update').mockResolvedValue(makeNotification('updated'))
+        mockedDeleteWithUndo.mockReset().mockResolvedValue()
+
+        logic = mcpAnalyticsNotificationsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+        jest.restoreAllMocks()
+    })
+
     test.each([
         ['$mcp_missing_capability', 'missing-capability'],
         ['$mcp_tool_call', 'tool-error'],
@@ -11,5 +70,98 @@ describe('getMCPNotificationUseCase', () => {
                 filters: { events: [{ id: eventId, type: 'events' }] },
             })
         ).toBe(expected)
+    })
+
+    it('loads only a lightweight count when mounted', () => {
+        expect(logic.values.notificationCount).toBe(2)
+        expect(listSpy).toHaveBeenCalledTimes(1)
+        expect(listSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                limit: 1,
+                types: ['destination'],
+            })
+        )
+        expect(listSpy.mock.calls[0][0]).not.toHaveProperty('full')
+    })
+
+    it('loads every notification page when the full list is requested', async () => {
+        const firstPage = Array.from({ length: 200 }, (_, index) => makeNotification(`page-1-${index}`))
+        const lastNotification = makeNotification('page-2-0')
+        listSpy.mockReset()
+        listSpy
+            .mockResolvedValueOnce({
+                count: 201,
+                next: 'http://localhost/api/projects/1/hog_functions/?limit=200&offset=200',
+                previous: null,
+                results: firstPage,
+            })
+            .mockResolvedValueOnce({
+                count: 201,
+                next: null,
+                previous: 'http://localhost/api/projects/1/hog_functions/?limit=200',
+                results: [lastNotification],
+            })
+
+        await expectLogic(logic, () => logic.actions.loadNotifications())
+            .toFinishAllListeners()
+            .toMatchValues({
+                notificationCount: 201,
+                notifications: [...firstPage, lastNotification],
+            })
+
+        expect(listSpy).toHaveBeenNthCalledWith(1, expect.objectContaining({ full: true, limit: 200, offset: 0 }))
+        expect(listSpy).toHaveBeenNthCalledWith(2, expect.objectContaining({ full: true, limit: 200, offset: 200 }))
+    })
+
+    it('blocks a second toggle and reconciles the first with the server response', async () => {
+        const notification = makeNotification('toggle')
+        const serverNotification = makeNotification('toggle', { enabled: false, name: 'Server name' })
+        const updateDeferred = createDeferred<HogFunctionType>()
+        const updateSpy = jest.spyOn(api.hogFunctions, 'update').mockReturnValue(updateDeferred.promise)
+        logic.actions.loadNotificationsSuccess([notification])
+
+        logic.actions.toggleNotificationEnabled(notification.id, true)
+
+        expect(logic.values.pendingToggleIds).toEqual({ [notification.id]: true })
+        expect(logic.values.notifications[0].enabled).toBe(true)
+
+        logic.actions.toggleNotificationEnabled(notification.id, false)
+        expect(updateSpy).toHaveBeenCalledTimes(1)
+
+        updateDeferred.resolve(serverNotification)
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({
+                notifications: [serverNotification],
+                pendingToggleIds: {},
+            })
+    })
+
+    it('reloads server truth when an optimistic delete fails', async () => {
+        const deletedNotification = makeNotification('delete')
+        const concurrentlyUpdatedNotification = makeNotification('keep', { enabled: true })
+        const serverNotification = makeNotification('server')
+        const deleteDeferred = createDeferred<void>()
+        mockedDeleteWithUndo.mockReturnValue(deleteDeferred.promise)
+        listSpy.mockReset().mockResolvedValue({
+            count: 2,
+            next: null,
+            previous: null,
+            results: [concurrentlyUpdatedNotification, serverNotification],
+        })
+        logic.actions.loadNotificationsSuccess([deletedNotification, makeNotification('keep')])
+
+        logic.actions.deleteNotification(deletedNotification)
+        expect(logic.values.notifications).toEqual([makeNotification('keep')])
+
+        logic.actions.loadNotificationsSuccess([concurrentlyUpdatedNotification])
+        deleteDeferred.resolve()
+
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({
+                notifications: [concurrentlyUpdatedNotification, serverNotification],
+            })
+        expect(listSpy).toHaveBeenCalledWith(expect.objectContaining({ full: true, offset: 0 }))
     })
 })
