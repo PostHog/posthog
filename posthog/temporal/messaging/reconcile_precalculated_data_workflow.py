@@ -225,6 +225,12 @@ class ReconcilePersonPropertiesResult:
     verdicts_checked: int
     verdicts_corrected: int
     duration_seconds: float
+    # distinct_ids skipped because their surviving person wasn't yet queryable in the
+    # persons table (replication lag or a deleted survivor) — retried on a later run.
+    distinct_ids_skipped_absent_person: int = 0
+    # verdicts left untouched because the condition's bytecode failed to evaluate this
+    # run, so we couldn't tell "matches=false" from "couldn't evaluate".
+    verdicts_skipped_eval_failed: int = 0
 
 
 @dataclasses.dataclass
@@ -349,6 +355,7 @@ async def reconcile_team_precalculated_person_properties_activity(
             duration_seconds=time.time() - start_time,
         )
     combined_bytecode = combine_filter_bytecodes(filters)
+    active_condition_hashes = {f.condition_hash for f in filters}
 
     distinct_id_batch_size = _positive_int_env("RECONCILE_EVENTS_DISTINCT_ID_BATCH_SIZE", 1000, logger)
     kafka_flush_batch_size = _positive_int_env("RECONCILE_EVENTS_KAFKA_FLUSH_BATCH_SIZE", 1000, logger)
@@ -375,9 +382,12 @@ async def reconcile_team_precalculated_person_properties_activity(
                 verdicts_checked = 0
                 verdicts_corrected = 0
                 overridden_distinct_ids = 0
+                distinct_ids_skipped_absent_person = 0
+                verdicts_skipped_eval_failed = 0
 
                 async def reconcile_batch(batch_overrides: dict[str, str]) -> None:
                     nonlocal verdicts_checked, verdicts_corrected
+                    nonlocal distinct_ids_skipped_absent_person, verdicts_skipped_eval_failed
 
                     existing: dict[tuple[str, str], tuple[bool, str]] = {}
                     async for row in client.stream_query_as_jsonl(
@@ -415,7 +425,16 @@ async def reconcile_team_precalculated_person_properties_activity(
 
                     for distinct_id, condition_verdicts in verdicts_by_distinct_id.items():
                         current_person_id = batch_overrides[distinct_id]
-                        current_properties = properties_by_person_id.get(current_person_id, {})
+                        if current_person_id not in properties_by_person_id:
+                            # The surviving person isn't queryable yet (replication lag after
+                            # the merge, or a deleted survivor excluded by the query's HAVING).
+                            # Don't evaluate against empty properties and emit a guessed verdict
+                            # — that could flip a real matches=true to false and evict a member.
+                            # The override stays in the lookback window, so a later run retries
+                            # once the person row lands.
+                            distinct_ids_skipped_absent_person += 1
+                            continue
+                        current_properties = properties_by_person_id[current_person_id]
                         hog_globals = {"person": {"properties": current_properties}}
                         filter_results = await asyncio.to_thread(
                             evaluate_combined_filters_with_fallback_sync,
@@ -426,8 +445,18 @@ async def reconcile_team_precalculated_person_properties_activity(
                         )
 
                         for condition_hash, (stored_matches, stored_person_id) in condition_verdicts.items():
+                            # A condition_hash absent from filter_results has no fresh verdict
+                            # to compare against, so leave the stored one untouched rather than
+                            # overwrite it with a guessed false. Two ways this happens: the
+                            # condition is no longer one of the team's active realtime filters
+                            # (stale — the reader already ignores it), or its bytecode failed to
+                            # evaluate this run (surface that as it can hide a real member).
+                            if condition_hash not in filter_results:
+                                if condition_hash in active_condition_hashes:
+                                    verdicts_skipped_eval_failed += 1
+                                continue
                             verdicts_checked += 1
-                            fresh_matches = bool(filter_results.get(condition_hash, False))
+                            fresh_matches = bool(filter_results[condition_hash])
 
                             if fresh_matches == stored_matches and current_person_id == stored_person_id:
                                 continue
@@ -477,6 +506,8 @@ async def reconcile_team_precalculated_person_properties_activity(
         overridden_distinct_ids=overridden_distinct_ids,
         verdicts_checked=verdicts_checked,
         verdicts_corrected=verdicts_corrected,
+        distinct_ids_skipped_absent_person=distinct_ids_skipped_absent_person,
+        verdicts_skipped_eval_failed=verdicts_skipped_eval_failed,
     )
 
     return ReconcilePersonPropertiesResult(
@@ -484,6 +515,8 @@ async def reconcile_team_precalculated_person_properties_activity(
         verdicts_checked=verdicts_checked,
         verdicts_corrected=verdicts_corrected,
         duration_seconds=duration_seconds,
+        distinct_ids_skipped_absent_person=distinct_ids_skipped_absent_person,
+        verdicts_skipped_eval_failed=verdicts_skipped_eval_failed,
     )
 
 

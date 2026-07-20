@@ -485,3 +485,88 @@ class TestReconcileTeamPrecalculatedPersonPropertiesActivity:
         assert result.verdicts_checked == 0
         assert result.verdicts_corrected == 0
         mock_producer.produce.assert_not_called()
+
+    async def test_missing_person_is_skipped_not_guessed(self, team):
+        # After a merge the surviving person may not be queryable in the persons table yet
+        # (replication lag) or be a deleted survivor excluded by the query's HAVING. Evaluating
+        # its conditions against empty properties would flip a real matches=True to False and
+        # evict the member. The verdict must be left untouched until the person is visible.
+        condition_hash = "browser-set"
+        await sync_to_async(Cohort.objects.create)(
+            team=team,
+            name="rt-browser",
+            cohort_type=CohortType.REALTIME,
+            filters={
+                "properties": {
+                    "type": "person",
+                    "key": "$browser",
+                    "conditionHash": condition_hash,
+                    "bytecode": _is_set_bytecode("$browser"),
+                }
+            },
+        )
+
+        old_person = await sync_to_async(create_person)(team=team, distinct_ids=[], properties={"$browser": "Chrome"})
+        absent_survivor = uuid.uuid4()  # never created → not present in the persons table
+        _insert_person_properties_verdict(team.pk, "did-merged", old_person.uuid, condition_hash, matches=True)
+        _insert_override(team.pk, "did-merged", absent_survivor)
+
+        mock_producer = MagicMock()
+        with patch(
+            "posthog.temporal.messaging.reconcile_precalculated_data_workflow.get_producer",
+            return_value=mock_producer,
+        ):
+            result = await ActivityEnvironment().run(
+                reconcile_team_precalculated_person_properties_activity, ReconcileTeamInputs(team_id=team.pk)
+            )
+
+        assert result.distinct_ids_skipped_absent_person == 1
+        assert result.verdicts_checked == 0
+        assert result.verdicts_corrected == 0
+        mock_producer.produce.assert_not_called()
+
+    async def test_eval_failure_leaves_verdict_untouched(self, team):
+        # When a condition's bytecode fails to evaluate, its hash is omitted from the evaluator's
+        # result. Treating that omission as matches=False would overwrite a real matches=True and
+        # permanently evict the member with no self-heal path. The stored verdict must be left alone.
+        condition_hash = "browser-set"
+        await sync_to_async(Cohort.objects.create)(
+            team=team,
+            name="rt-browser",
+            cohort_type=CohortType.REALTIME,
+            filters={
+                "properties": {
+                    "type": "person",
+                    "key": "$browser",
+                    "conditionHash": condition_hash,
+                    "bytecode": _is_set_bytecode("$browser"),
+                }
+            },
+        )
+
+        old_person = await sync_to_async(create_person)(team=team, distinct_ids=[], properties={"$browser": "Chrome"})
+        new_person = await sync_to_async(create_person)(
+            team=team, distinct_ids=["did-merged"], properties={"$browser": "Chrome"}
+        )
+        _insert_person_properties_verdict(team.pk, "did-merged", old_person.uuid, condition_hash, matches=True)
+        _insert_override(team.pk, "did-merged", new_person.uuid)
+
+        mock_producer = MagicMock()
+        with (
+            patch(
+                "posthog.temporal.messaging.reconcile_precalculated_data_workflow.get_producer",
+                return_value=mock_producer,
+            ),
+            # Simulate the evaluator omitting the (active) condition because its bytecode threw.
+            patch(
+                "posthog.temporal.messaging.reconcile_precalculated_data_workflow.evaluate_combined_filters_with_fallback_sync",
+                return_value={},
+            ),
+        ):
+            result = await ActivityEnvironment().run(
+                reconcile_team_precalculated_person_properties_activity, ReconcileTeamInputs(team_id=team.pk)
+            )
+
+        assert result.verdicts_skipped_eval_failed == 1
+        assert result.verdicts_corrected == 0
+        mock_producer.produce.assert_not_called()

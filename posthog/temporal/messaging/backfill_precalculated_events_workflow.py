@@ -276,6 +276,7 @@ async def backfill_precalculated_events_activity(
                 WHERE team_id = %(team_id)s
                 GROUP BY distinct_id
                 HAVING argMax(is_deleted, version) = 0
+                SETTINGS optimize_aggregation_in_order = 1
             ) AS o ON e.distinct_id = o.distinct_id
             WHERE e.team_id = %(team_id)s
               AND e.event IN %(event_names)s
