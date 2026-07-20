@@ -406,8 +406,8 @@
                 },
                 "feedback_type": {
                     "type": "string",
-                    "enum": ["product", "mcp", "docs", "other"],
-                    "description": "What this feedback is about. \"product\" = any PostHog product or feature (insights, session replay, feature flags, the data warehouse, web analytics, error tracking, etc.). \"mcp\" = this MCP server itself — a tool, its input schema, response format, an error, or these instructions. \"docs\" = PostHog documentation. \"other\" = anything that doesn't fit the above."
+                    "enum": ["product", "mcp", "docs", "scout", "other"],
+                    "description": "What this feedback is about. \"product\" = any PostHog product or feature (insights, session replay, feature flags, the data warehouse, web analytics, error tracking, etc.). \"mcp\" = this MCP server itself — a tool, its input schema, response format, an error, or these instructions. \"docs\" = PostHog documentation. \"scout\" = a canonical PostHog scout skill's content — reserved for scheduled scout runs reporting an improvement opportunity in their own PostHog-authored skill (set `scout_skill_name`, `scout_skill_version`, and `scout_category`). \"other\" = anything that doesn't fit the above."
                 },
                 "sentiment": {
                     "type": "string",
@@ -430,6 +430,28 @@
                         "instructions_clarity",
                         "performance",
                         "error_message",
+                        "other"
+                    ]
+                },
+                "scout_skill_name": {
+                    "description": "For scout feedback (`feedback_type: \"scout\"`) only: the canonical scout skill the feedback is about (e.g. \"signals-scout-web-analytics\"), exactly as named in the run identity. Required for scout feedback — without it the feedback cannot be aggregated per skill.",
+                    "type": "string"
+                },
+                "scout_skill_version": {
+                    "description": "For scout feedback (`feedback_type: \"scout\"`) only: the skill version the run executed (from the run identity). Feedback is only actionable against the version that produced it — the skill may have moved since.",
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                },
+                "scout_category": {
+                    "description": "For scout feedback (`feedback_type: \"scout\"`) only: the single category that best describes the skill gap. \"false_positive\" = the skill's detection rules surfaced something that wasn't real; \"missed_detection\" = a real issue the skill's instructions steered you past; \"discriminator_gap\" = the skill's signal-vs-baseline discriminator doesn't hold for a class of projects; \"wasted_investigation\" = an investigation pattern the skill mandates burned budget without payoff; \"instruction_ambiguity\" = an instruction that is ambiguous in practice. Omit for non-scout feedback.",
+                    "type": "string",
+                    "enum": [
+                        "false_positive",
+                        "missed_detection",
+                        "discriminator_gap",
+                        "wasted_investigation",
+                        "instruction_ambiguity",
                         "other"
                     ]
                 },
@@ -530,6 +552,36 @@
                         }
                     },
                     "required": ["id"]
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "organizationId": {
+                            "type": "string",
+                            "description": "Alias for `orgId`. Accepts the `id` returned by `organizations-list` / `organization-get`."
+                        }
+                    },
+                    "required": ["organizationId"]
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "organization_id": {
+                            "type": "string",
+                            "description": "Alias for `orgId`. Accepts the `id` returned by `organizations-list` / `organization-get`."
+                        }
+                    },
+                    "required": ["organization_id"]
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "org_id": {
+                            "type": "string",
+                            "description": "Alias for `orgId`. Accepts the `id` returned by `organizations-list` / `organization-get`."
+                        }
+                    },
+                    "required": ["org_id"]
                 }
             ]
         },

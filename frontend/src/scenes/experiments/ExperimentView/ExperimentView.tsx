@@ -91,11 +91,7 @@ const MetricsTab = (): JSX.Element => {
                 <MultiVariantBiasWarning />
             </div>
 
-            {showRecalculationStatus && (
-                <div className="mb-2">
-                    <RecalculationStatus experiment={experiment} />
-                </div>
-            )}
+            {showRecalculationStatus && <RecalculationStatus experiment={experiment} />}
 
             {/* Modern metrics view */}
             {!hasMetrics ? (

@@ -31,6 +31,7 @@ import { HogFunctionTemplateManagerService } from './services/managers/hog-funct
 import { IntegrationManagerService } from './services/managers/integration-manager.service'
 import { RecipientsManagerService } from './services/managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
+import { EmailSuppressionService } from './services/messaging/email-suppression.service'
 import { EmailValidationService } from './services/messaging/email-validation.service'
 import { EmailService } from './services/messaging/email.service'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
@@ -89,6 +90,7 @@ export interface CdpCoreServices {
     hogFlowFunctionsService: HogFlowFunctionsService
     recipientsManager: RecipientsManagerService
     recipientPreferencesService: RecipientPreferencesService
+    emailSuppressionService: EmailSuppressionService
     teamWorkflowsConfigService: TeamWorkflowsConfigService
     hogFlowExecutor: HogFlowExecutorService
     hogFunctionMonitoringService: HogFunctionMonitoringService
@@ -144,6 +146,9 @@ export type CdpCoreServicesConfig = Pick<
         | 'SES_SECRET_ACCESS_KEY'
         | 'SES_REGION'
         | 'SES_ENDPOINT'
+        | 'EMAIL_SUPPRESSION_WRITE_ENABLED'
+        | 'EMAIL_SUPPRESSION_ENFORCE_ENABLED'
+        | 'EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD'
         | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
         | 'CDP_FETCH_RETRIES'
         | 'CDP_FETCH_BACKOFF_BASE_MS'
@@ -392,6 +397,14 @@ export function createCdpCoreServices(
     const teamWorkflowsConfigService = new TeamWorkflowsConfigService(deps.postgres)
     const outputs = createCdpOutputsRegistry().build(deps.cdpProducerRegistry, config)
     const messageAssetsService = new MessageAssetsService(outputs)
+    // Constructed here (rather than below with the other messaging services) so it can be threaded
+    // into EmailService — the pre-send suppression check lives there so every send path shares one
+    // choke point regardless of whether the invocation came from a workflow action or a hog function.
+    const emailSuppressionService = new EmailSuppressionService(deps.postgres, {
+        writeEnabled: config.EMAIL_SUPPRESSION_WRITE_ENABLED,
+        enforceEnabled: config.EMAIL_SUPPRESSION_ENFORCE_ENABLED,
+        transientBounceThreshold: config.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD,
+    })
     const emailService = new EmailService(
         {
             sesAccessKeyId: config.SES_ACCESS_KEY_ID,
@@ -404,6 +417,7 @@ export function createCdpCoreServices(
         config.ENCRYPTION_SALT_KEYS,
         config.SITE_URL,
         trackingCodeSigner,
+        emailSuppressionService,
         messageAssetsService
     )
     const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
@@ -444,7 +458,7 @@ export function createCdpCoreServices(
     )
 
     const recipientsManager = new RecipientsManagerService(deps.postgres)
-    const recipientPreferencesService = new RecipientPreferencesService(recipientsManager)
+    const recipientPreferencesService = new RecipientPreferencesService(recipientsManager, emailSuppressionService)
     // MX verdicts live on the dedicated SES Valkey (same instance as the SES rate
     // limiter, separate pool). The pool is created by the server only on pods
     // whose capabilities execute email actions; everywhere else this is null
@@ -487,6 +501,7 @@ export function createCdpCoreServices(
         hogFlowFunctionsService,
         recipientsManager,
         recipientPreferencesService,
+        emailSuppressionService,
         teamWorkflowsConfigService,
         hogFlowExecutor,
         hogFunctionMonitoringService,

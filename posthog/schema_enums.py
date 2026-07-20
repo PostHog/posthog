@@ -58,6 +58,7 @@ class AggregationAxisFormat(StrEnum):
     NUMERIC = "numeric"
     DURATION = "duration"
     DURATION_MS = "duration_ms"
+    DURATION_NS = "duration_ns"
     PERCENTAGE = "percentage"
     PERCENTAGE_SCALED = "percentage_scaled"
     CURRENCY = "currency"

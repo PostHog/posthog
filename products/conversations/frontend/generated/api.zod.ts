@@ -122,7 +122,9 @@ export const ConversationsOpenCreateBody = /* @__PURE__ */ zod
                             .describe('Optional human-readable label rendered in the context block.'),
                         value: zod.string().optional().describe('Free-text content. Only for `text` attachments.'),
                     })
-                    .describe('One typed attachment carried by a sandbox message.')
+                    .describe(
+                        'One typed attachment carried by a sandbox message.\n\nDEPRECATED PATH — do not extend. This structured `attached_context` (and its server-side wrap in\n`context_wrapper.py`) exists only for the legacy Max conversations bridge and is removed with it;\nthe live path wraps context client-side (`products\/posthog_ai\/frontend\/utils\/posthogContextBlock.ts`).'
+                    )
             )
             .optional()
             .describe('Typed PostHog entities (and free text) attached to this message.'),

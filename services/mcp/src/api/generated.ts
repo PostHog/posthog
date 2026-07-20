@@ -2556,6 +2556,7 @@ export namespace Schemas {
       Numeric: 'numeric',
       Duration: 'duration',
       DurationMs: 'duration_ms',
+      DurationNs: 'duration_ns',
       Percentage: 'percentage',
       PercentageScaled: 'percentage_scaled',
       Currency: 'currency',
@@ -8036,6 +8037,14 @@ export namespace Schemas {
       uploads: UploadTarget[];
     }
 
+    export interface AddSuppressionRequest {
+      /**
+         * The email address to suppress. Will not receive any messages until removed.
+         * @maxLength 512
+         */
+      identifier: string;
+    }
+
     /**
      * Body of POST /vision/scanners/:id/affected_cohort/. Same qualifiers as the impact GET.
      */
@@ -12281,6 +12290,254 @@ export namespace Schemas {
       readonly import_config: unknown;
     }
 
+    export interface BatchImportPartsProgress {
+      /** Number of finished parts (a part is done when its committed byte offset has reached its known total size). */
+      done: number;
+      /** Total number of parts the worker has planned for this import. */
+      total: number;
+      /**
+         * Key (file/date-range identifier) of the first unfinished part - the one in flight or next up. Null when all parts are done or the worker has not started. URL keys (url_list sources) have their query string and userinfo redacted, since those can carry presigned tokens or credentials.
+         * @nullable
+         */
+      inflight_key: string | null;
+      /**
+         * Committed byte offset (decompressed) within the in-flight part. Null when there is no in-flight part.
+         * @nullable
+         */
+      inflight_offset: number | null;
+      /**
+         * Total decompressed size in bytes of the in-flight part, or null if the worker has not measured it yet.
+         * @nullable
+         */
+      inflight_total_size: number | null;
+    }
+
+    /**
+     * Raw worker progress blob: {'parts': [{'key', 'current_offset', 'total_size'}]}. A part is done when current_offset >= total_size; parts are processed in order. URL part keys (url_list sources) have their query string and userinfo redacted, since those can carry presigned tokens or credentials.
+     * @nullable
+     */
+    export type BatchImportSupportDetailState = { [key: string]: unknown } | null;
+
+    /**
+     * Source/format/sink configuration of the job. References secrets by key name only; secret values are never returned. Embedded URLs (e.g. a custom S3 endpoint_url) have their query string and userinfo redacted.
+     * @nullable
+     */
+    export type BatchImportSupportDetailImportConfig = { [key: string]: unknown } | null;
+
+    export type DisplayStatusEnum = typeof DisplayStatusEnum[keyof typeof DisplayStatusEnum];
+
+
+    export const DisplayStatusEnum = {
+      WaitingToStart: 'waiting_to_start',
+      Running: 'running',
+      Paused: 'paused',
+      Failed: 'failed',
+      Completed: 'completed',
+    } as const;
+
+    /**
+     * Full diagnostics view: adds the raw worker `state` and `import_config` blobs.
+     *
+     * `import_config` holds secret key *names* only - secret values live exclusively in the
+     * encrypted `secrets` column, which no support serializer exposes.
+     */
+    export interface BatchImportSupportDetail {
+      /** UUID of the batch import job. */
+      readonly id: string;
+      /** ID of the team (project) the import belongs to. */
+      team_id: number;
+      /** Name of the team the import belongs to. */
+      team_name: string;
+      /** Raw persisted status of the job.
+       *
+       * * `completed` - Completed
+       * * `failed` - Failed
+       * * `paused` - Paused
+       * * `running` - Running */
+      status?: BatchImportStatusEnum;
+      /** Effective status: 'waiting_to_start' when the job is running but no worker has claimed it yet (lease_id is null), otherwise the raw status. */
+      readonly display_status: DisplayStatusEnum;
+      /**
+         * Developer-facing status message written by the worker or an operator - the primary debugging signal. Not shown to the customer. Embedded URLs have their query string and userinfo redacted, since url_list part keys can carry presigned tokens or credentials.
+         * @nullable
+         */
+      readonly status_message: string | null;
+      /**
+         * Customer-facing status message shown in the PostHog UI. Embedded URLs are redacted the same way as status_message.
+         * @nullable
+         */
+      readonly display_status_message: string | null;
+      /** Worker part progress summary derived from the raw state blob. */
+      readonly parts_progress: BatchImportPartsProgress;
+      /** Source the job imports from (e.g. s3, mixpanel, amplitude, urls, folder), or 'unknown' if unset. */
+      readonly source_type: string;
+      /** Format of the source events (e.g. mixpanel, amplitude, captured), or 'unknown' if unset. */
+      readonly content_type: string;
+      /**
+         * Start of the source date range for date-range sources (Mixpanel/Amplitude), else null.
+         * @nullable
+         */
+      readonly source_start_date: string | null;
+      /**
+         * End of the source date range for date-range sources (Mixpanel/Amplitude), else null.
+         * @nullable
+         */
+      readonly source_end_date: string | null;
+      /**
+         * Where imported events are written (normally 'capture'; 'kafka'/'noop' for internal use), or null if unset.
+         * @nullable
+         */
+      readonly sink_type: string | null;
+      /**
+         * Configured sink send rate in events per second, or null if unset.
+         * @nullable
+         */
+      readonly sink_send_rate: number | null;
+      /**
+         * Lease token of the worker currently holding the job, or null when unclaimed. Claims lease for 30 minutes; the running heartbeat renews for 5 minutes.
+         * @nullable
+         */
+      lease_id?: string | null;
+      /**
+         * When the current worker lease expires.
+         * @nullable
+         */
+      leased_until?: string | null;
+      /** True when the job holds a lease whose expiry is in the past. On a running job this means the worker died or the row is claimable again; the next poll can re-claim it. */
+      readonly lease_expired: boolean;
+      /**
+         * Consecutive transient-failure retries so far (0 = healthy).
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      backoff_attempt?: number;
+      /**
+         * When the worker will retry after a transient failure. A future value means the job is in a retry loop, not stuck.
+         * @nullable
+         */
+      backoff_until?: string | null;
+      /**
+         * ID of the user who created the import, if any.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
+      created_by_id?: number | null;
+      /** When the import was created. */
+      readonly created_at: string;
+      /** Last write to the row - the worker heartbeats this while processing. */
+      readonly updated_at: string;
+      /**
+         * Raw worker progress blob: {'parts': [{'key', 'current_offset', 'total_size'}]}. A part is done when current_offset >= total_size; parts are processed in order. URL part keys (url_list sources) have their query string and userinfo redacted, since those can carry presigned tokens or credentials.
+         * @nullable
+         */
+      readonly state: BatchImportSupportDetailState;
+      /**
+         * Source/format/sink configuration of the job. References secrets by key name only; secret values are never returned. Embedded URLs (e.g. a custom S3 endpoint_url) have their query string and userinfo redacted.
+         * @nullable
+         */
+      readonly import_config: BatchImportSupportDetailImportConfig;
+      /**
+         * Email of the user who created the import, if known.
+         * @nullable
+         */
+      readonly created_by_email: string | null;
+    }
+
+    /**
+     * Compact cross-team diagnostics view of a batch import job for PostHog support staff.
+     *
+     * Excludes the raw `state` / `import_config` blobs (see the detail serializer) and never
+     * exposes the encrypted `secrets` column.
+     */
+    export interface BatchImportSupportList {
+      /** UUID of the batch import job. */
+      readonly id: string;
+      /** ID of the team (project) the import belongs to. */
+      team_id: number;
+      /** Name of the team the import belongs to. */
+      team_name: string;
+      /** Raw persisted status of the job.
+       *
+       * * `completed` - Completed
+       * * `failed` - Failed
+       * * `paused` - Paused
+       * * `running` - Running */
+      status?: BatchImportStatusEnum;
+      /** Effective status: 'waiting_to_start' when the job is running but no worker has claimed it yet (lease_id is null), otherwise the raw status. */
+      readonly display_status: DisplayStatusEnum;
+      /**
+         * Developer-facing status message written by the worker or an operator - the primary debugging signal. Not shown to the customer. Embedded URLs have their query string and userinfo redacted, since url_list part keys can carry presigned tokens or credentials.
+         * @nullable
+         */
+      readonly status_message: string | null;
+      /**
+         * Customer-facing status message shown in the PostHog UI. Embedded URLs are redacted the same way as status_message.
+         * @nullable
+         */
+      readonly display_status_message: string | null;
+      /** Worker part progress summary derived from the raw state blob. */
+      readonly parts_progress: BatchImportPartsProgress;
+      /** Source the job imports from (e.g. s3, mixpanel, amplitude, urls, folder), or 'unknown' if unset. */
+      readonly source_type: string;
+      /** Format of the source events (e.g. mixpanel, amplitude, captured), or 'unknown' if unset. */
+      readonly content_type: string;
+      /**
+         * Start of the source date range for date-range sources (Mixpanel/Amplitude), else null.
+         * @nullable
+         */
+      readonly source_start_date: string | null;
+      /**
+         * End of the source date range for date-range sources (Mixpanel/Amplitude), else null.
+         * @nullable
+         */
+      readonly source_end_date: string | null;
+      /**
+         * Where imported events are written (normally 'capture'; 'kafka'/'noop' for internal use), or null if unset.
+         * @nullable
+         */
+      readonly sink_type: string | null;
+      /**
+         * Configured sink send rate in events per second, or null if unset.
+         * @nullable
+         */
+      readonly sink_send_rate: number | null;
+      /**
+         * Lease token of the worker currently holding the job, or null when unclaimed. Claims lease for 30 minutes; the running heartbeat renews for 5 minutes.
+         * @nullable
+         */
+      lease_id?: string | null;
+      /**
+         * When the current worker lease expires.
+         * @nullable
+         */
+      leased_until?: string | null;
+      /** True when the job holds a lease whose expiry is in the past. On a running job this means the worker died or the row is claimable again; the next poll can re-claim it. */
+      readonly lease_expired: boolean;
+      /**
+         * Consecutive transient-failure retries so far (0 = healthy).
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      backoff_attempt?: number;
+      /**
+         * When the worker will retry after a transient failure. A future value means the job is in a retry loop, not stuck.
+         * @nullable
+         */
+      backoff_until?: string | null;
+      /**
+         * ID of the user who created the import, if any.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
+      created_by_id?: number | null;
+      /** When the import was created. */
+      readonly created_at: string;
+      /** Last write to the row - the worker heartbeats this while processing. */
+      readonly updated_at: string;
+    }
+
     export type EventPropFilterTypeEnum = typeof EventPropFilterTypeEnum[keyof typeof EventPropFilterTypeEnum];
 
 
@@ -14749,7 +15006,7 @@ export namespace Schemas {
     /**
      * @nullable
      */
-    export type TaskDetailDTOJsonSchema = { [key: string]: unknown } | null;
+    export type ConversationTaskJsonSchema = { [key: string]: unknown } | null;
 
     /**
      * Conversation envelope variant: ``latest_run`` is just the latest run's id, not the nested
@@ -14759,7 +15016,7 @@ export namespace Schemas {
      * Read access here follows the conversation (the share-by-link unit), not per-creator task
      * visibility — write/send stays creator-gated. See ``tasks_facade.get_conversation_task_dtos``.
      */
-    export interface TaskDetailDTO {
+    export interface ConversationTask {
       id: string;
       /** @nullable */
       task_number: number | null;
@@ -14782,7 +15039,7 @@ export namespace Schemas {
       /** @nullable */
       signal_report: string | null;
       /** @nullable */
-      json_schema: TaskDetailDTOJsonSchema;
+      json_schema: ConversationTaskJsonSchema;
       internal: boolean;
       archived: boolean;
       /** @nullable */
@@ -14857,7 +15114,7 @@ export namespace Schemas {
        * Combines metadata from conversation.approval_decisions with payload from checkpoint
        * interrupts (single source of truth for payload data). */
       readonly pending_approvals: readonly ConversationPendingApprovalsItem[];
-      readonly task: TaskDetailDTO | null;
+      readonly task: ConversationTask | null;
     }
 
     export interface ConversationMinimal {
@@ -14901,7 +15158,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly slack_workspace_domain: string | null;
-      readonly task: TaskDetailDTO | null;
+      readonly task: ConversationTask | null;
     }
 
     export interface ConversationsTicketSignalExtra {
@@ -20308,7 +20565,7 @@ export namespace Schemas {
     export interface DigestChannel {
       readonly id: string;
       /**
-         * Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'.
+         * Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'. Immutable after creation — it anchors the audience and its opt-out tombstone.
          * @maxLength 255
          */
       audience_key: string;
@@ -20787,6 +21044,12 @@ export namespace Schemas {
       github_login?: string;
       /** PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here. */
       user_uuid?: string;
+      /**
+         * One sentence of evidence for WHY this person: what ties them to the affected surface (e.g. 'authored 4 of the last 10 commits touching products/tracing/mcp/', 'human correction routed the prior tracing report to them'). Persisted on the report so the routing is auditable — always set it when you can name the evidence; 'precedent' alone is weak, prefer code-derived ownership.
+         * @maxLength 500
+         * @nullable
+         */
+      reason?: string | null;
     }
 
     /**
@@ -22122,9 +22385,13 @@ export namespace Schemas {
     }
 
     export interface ErrorTrackingFingerprint {
+      /** Unique ID of the fingerprint record. */
       readonly id: string;
+      /** The fingerprint value. */
       readonly fingerprint: string;
+      /** ID of the issue this fingerprint currently belongs to. */
       readonly issue_id: string;
+      /** When the fingerprint record was created. */
       readonly created_at: string;
     }
 
@@ -25877,6 +26144,8 @@ export namespace Schemas {
          * @nullable
          */
       row_filters?: ExternalDataSourceBulkUpdateSchemaRowFiltersItem[] | null;
+      /** When true and the schema has no sync method configured yet (and this update does not set one), discover the table on the source and fill in default sync settings: incremental sync with an auto-selected tracking column where supported, otherwise append, otherwise full refresh. Ignored for schemas that already have a sync method. */
+      apply_sync_defaults?: boolean;
     }
 
     export interface ExternalDataSourceConnectionOption {
@@ -27763,6 +28032,15 @@ export namespace Schemas {
       readonly access_method: AccessMethodEnum;
       /** Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources. */
       direct_query_enabled?: boolean;
+      /** Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources. */
+      auto_sync_new_schemas?: boolean;
+      /**
+         * Optional fnmatch-style globs (`*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.
+         * @maxItems 100
+         * @nullable
+         * @items.maxLength 250
+         */
+      auto_sync_schema_patterns?: string[] | null;
       /** Backend engine detected for the direct connection.
        *
        * * `duckdb` - duckdb
@@ -28860,12 +29138,14 @@ export namespace Schemas {
     }
 
     export interface GitHubSource {
-      /** Source id — pass as `source_id` to the other endpoints to read this source. */
+      /** Source id — pass back as `source_id` (with `repo`) to read this repository. */
       id: string;
-      /** Connected repository as 'owner/name', or '' if unknown. */
+      /** Repository as 'owner/name' — pass back as `repo` to scope to it. One entry per repository a source syncs; '' if unknown. */
       repo: string;
       /** User-chosen warehouse table-name prefix for this source, or '' when none. */
       prefix: string;
+      /** Whether this repo has both pull_requests and workflow_runs synced (readable now). Default the picker to the first synced entry so its label matches the resolved repo. */
+      synced?: boolean;
     }
 
     export interface GitHubTeam {
@@ -34223,6 +34503,42 @@ export namespace Schemas {
       config?: LogsListWidgetConfig;
     }
 
+    export interface LogsMetricRule {
+      /** Unique identifier for this metric rule. */
+      readonly id: string;
+      /**
+         * User-visible label for this rule.
+         * @maxLength 255
+         */
+      name: string;
+      /**
+         * Name of the generated metric as it appears in the Metrics product. Must start with a letter and contain only letters, digits, dots, underscores, and dashes. Unique per project and immutable after creation — create a new rule to emit under a different name.
+         * @maxLength 200
+         */
+      metric_name: string;
+      /** When true, ingestion evaluates this rule against every log record. At most 10 rules can be enabled per project. */
+      enabled?: boolean;
+      /** PropertyGroupFilter JSON (AND/OR tree of property predicates) selecting which log records feed the metric, e.g. `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api","type":"log_attribute"}]}]}`. Null matches every ingested log record. Every group must contain at least one filter — empty groups never match. */
+      filter_group?: unknown;
+      /**
+         * Log attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`. Omit to count matching log records instead. Immutable after creation — it determines the emitted metric type.
+         * @maxLength 512
+         * @nullable
+         */
+      value_attribute?: string | null;
+      /**
+         * Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` / `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.
+         * @items.maxLength 512
+         */
+      group_by?: string[];
+      /** Incremented on each update for worker cache coherency. */
+      readonly version: number;
+      readonly created_by: number;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
     export type LogsSamplingRuleScopeAttributeFiltersItem = { [key: string]: unknown };
 
     /**
@@ -34915,10 +35231,8 @@ export namespace Schemas {
      * * `not_configured` - not_configured
      * * `waiting` - waiting
      * * `backfilling` - backfilling
-     * * `catching_up` - catching_up
      * * `up_to_date` - up_to_date
      * * `needs_attention` - needs_attention
-     * * `unknown` - unknown
      * * `sync_paused` - sync_paused
      */
     export type ManagedWarehouseReadinessStateEnum = typeof ManagedWarehouseReadinessStateEnum[keyof typeof ManagedWarehouseReadinessStateEnum];
@@ -34928,10 +35242,8 @@ export namespace Schemas {
       NotConfigured: 'not_configured',
       Waiting: 'waiting',
       Backfilling: 'backfilling',
-      CatchingUp: 'catching_up',
       UpToDate: 'up_to_date',
       NeedsAttention: 'needs_attention',
-      Unknown: 'unknown',
       SyncPaused: 'sync_paused',
     } as const;
 
@@ -34946,10 +35258,8 @@ export namespace Schemas {
        * * `not_configured` - not_configured
        * * `waiting` - waiting
        * * `backfilling` - backfilling
-       * * `catching_up` - catching_up
        * * `up_to_date` - up_to_date
        * * `needs_attention` - needs_attention
-       * * `unknown` - unknown
        * * `sync_paused` - sync_paused */
       readiness_state: ManagedWarehouseReadinessStateEnum;
       /** Human-readable explanation of the current readiness state. */
@@ -34985,10 +35295,8 @@ export namespace Schemas {
        * * `not_configured` - not_configured
        * * `waiting` - waiting
        * * `backfilling` - backfilling
-       * * `catching_up` - catching_up
        * * `up_to_date` - up_to_date
        * * `needs_attention` - needs_attention
-       * * `unknown` - unknown
        * * `sync_paused` - sync_paused */
       readiness_state: ManagedWarehouseReadinessStateEnum;
       /** Human-readable explanation of this source's readiness state. */
@@ -34998,10 +35306,10 @@ export namespace Schemas {
       /** Number of schemas whose one-time historical copy into the warehouse has completed. */
       backfilled_schemas: number;
       /**
-         * Imported batches waiting to be applied across this source's schemas, or null when queue status is unavailable.
+         * Most recent time an imported batch was applied to the warehouse across this source's schemas, or null if no apply has been recorded.
          * @nullable
          */
-      pending_batches: number | null;
+      last_applied_at: string | null;
       /**
          * Most recent upstream source import completion across this source's schemas.
          * @nullable
@@ -35015,10 +35323,8 @@ export namespace Schemas {
        * * `not_configured` - not_configured
        * * `waiting` - waiting
        * * `backfilling` - backfilling
-       * * `catching_up` - catching_up
        * * `up_to_date` - up_to_date
        * * `needs_attention` - needs_attention
-       * * `unknown` - unknown
        * * `sync_paused` - sync_paused */
       readiness_state: ManagedWarehouseReadinessStateEnum;
       /** Human-readable explanation of imported source readiness. */
@@ -35033,10 +35339,8 @@ export namespace Schemas {
        * * `not_configured` - not_configured
        * * `waiting` - waiting
        * * `backfilling` - backfilling
-       * * `catching_up` - catching_up
        * * `up_to_date` - up_to_date
        * * `needs_attention` - needs_attention
-       * * `unknown` - unknown
        * * `sync_paused` - sync_paused */
       overall_readiness_state: ManagedWarehouseReadinessStateEnum;
       /** Events backfill readiness. */
@@ -35065,10 +35369,8 @@ export namespace Schemas {
        * * `not_configured` - not_configured
        * * `waiting` - waiting
        * * `backfilling` - backfilling
-       * * `catching_up` - catching_up
        * * `up_to_date` - up_to_date
        * * `needs_attention` - needs_attention
-       * * `unknown` - unknown
        * * `sync_paused` - sync_paused */
       readiness_state: ManagedWarehouseReadinessStateEnum;
       /** Human-readable explanation of the table's readiness state. */
@@ -35083,17 +35385,7 @@ export namespace Schemas {
          */
       total_chunks: number | null;
       /**
-         * Imported batches waiting to be applied, or null when queue status is unavailable.
-         * @nullable
-         */
-      pending_batches: number | null;
-      /**
-         * Creation time of the oldest unapplied imported batch.
-         * @nullable
-         */
-      oldest_pending_at: string | null;
-      /**
-         * When an imported batch was most recently applied to the warehouse.
+         * When an imported batch was most recently applied to the warehouse, or null if no apply has been recorded for this table.
          * @nullable
          */
       last_applied_at: string | null;
@@ -35339,6 +35631,58 @@ export namespace Schemas {
       updated_at: string;
       /** Map of category ID to preference status. */
       preferences: unknown;
+    }
+
+    /**
+     * * `BOUNCE` - Bounce
+     * * `MANUAL` - Manual
+     */
+    export type MessageSuppressionSourceEnum = typeof MessageSuppressionSourceEnum[keyof typeof MessageSuppressionSourceEnum];
+
+
+    export const MessageSuppressionSourceEnum = {
+      Bounce: 'BOUNCE',
+      Manual: 'MANUAL',
+    } as const;
+
+    export interface MessageSuppression {
+      /** Server-assigned UUID for this suppression entry. */
+      readonly id: string;
+      /** Normalized recipient email address. Suppression is keyed on this value, per team. */
+      readonly identifier: string;
+      /** How the entry landed on the list: `BOUNCE` for automatic (bounce-driven), `MANUAL` for user-added via the UI/API.
+       *
+       * * `BOUNCE` - Bounce
+       * * `MANUAL` - Manual */
+      readonly source: MessageSuppressionSourceEnum;
+      /**
+         * Human-readable reason for the suppression (e.g. 'Auto-suppressed after 5 consecutive soft bounces').
+         * @nullable
+         */
+      readonly reason: string | null;
+      /** Rolling count of consecutive soft bounces with no successful delivery in between. Reset to 0 on any successful delivery. Ignored for MANUAL entries. */
+      readonly transient_bounce_count: number;
+      /**
+         * Timestamp of the most recent bounce, if any.
+         * @nullable
+         */
+      readonly last_bounce_at: string | null;
+      /**
+         * SMTP diagnostic string from the most recent bounce (e.g. '550 5.1.1 user unknown'), kept for visibility.
+         * @nullable
+         */
+      readonly last_bounce_diagnostic: string | null;
+      /** Whether the address is actively suppressed. A BOUNCE row can exist while still only counting bounces (suppressed=false) before it crosses the threshold. */
+      readonly suppressed: boolean;
+      /**
+         * Timestamp when the address was first suppressed.
+         * @nullable
+         */
+      readonly suppressed_at: string | null;
+      /** When the row was first created (first bounce or manual add). */
+      readonly created_at: string;
+      /** When the row was last touched by any write. */
+      readonly updated_at: string;
     }
 
     /**
@@ -36938,6 +37282,15 @@ export namespace Schemas {
       results: BatchImport[];
     }
 
+    export interface PaginatedBatchImportSupportListList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: BatchImportSupportList[];
+    }
+
     export interface PaginatedBriefConfigList {
       count: number;
       /** @nullable */
@@ -37726,6 +38079,15 @@ export namespace Schemas {
       results: LogsAlertEvent[];
     }
 
+    export interface PaginatedLogsMetricRuleList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: LogsMetricRule[];
+    }
+
     export interface PaginatedLogsSamplingRuleList {
       count: number;
       /** @nullable */
@@ -37817,6 +38179,27 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: MessageCategory[];
+    }
+
+    /**
+     * OpenAPI shape for the paginated suppressions response. Declared so drf-spectacular emits
+     * the {count, next, previous, results} envelope on the generated client, rather than a bare
+     * array — which the frontend actually receives at runtime.
+     */
+    export interface PaginatedMessageSuppression {
+      /** Total number of suppressed recipients for the team. */
+      count: number;
+      /**
+         * URL for the next page, or null on the last page.
+         * @nullable
+         */
+      next: string | null;
+      /**
+         * URL for the previous page, or null on the first page.
+         * @nullable
+         */
+      previous: string | null;
+      results: MessageSuppression[];
     }
 
     export interface PaginatedMessageTemplateList {
@@ -39329,6 +39712,7 @@ export namespace Schemas {
      * * `title_change` - Title Change
      * * `summary_change` - Summary Change
      * * `code_review` - Code Review
+     * * `related_to` - Related To
      */
     export type SignalReportArtefactTypeEnum = typeof SignalReportArtefactTypeEnum[keyof typeof SignalReportArtefactTypeEnum];
 
@@ -39349,6 +39733,7 @@ export namespace Schemas {
       TitleChange: 'title_change',
       SummaryChange: 'summary_change',
       CodeReview: 'code_review',
+      RelatedTo: 'related_to',
     } as const;
 
     export interface _User {
@@ -40622,41 +41007,6 @@ export namespace Schemas {
       results: TaskAutomationDTO[];
     }
 
-    export interface PaginatedTaskDetailDTOList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: TaskDetailDTO[];
-    }
-
-    /**
-     * Response shape for one @-mention of the requester in a task's thread.
-     */
-    export interface TaskMentionDTO {
-      id: string;
-      message_id: string;
-      task_id: string;
-      task_title: string;
-      /** @nullable */
-      channel_id: string | null;
-      /** @nullable */
-      channel_name: string | null;
-      author?: TaskUserBasicInfo | null;
-      content: string;
-      created_at: string;
-    }
-
-    export interface PaginatedTaskMentionDTOList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: TaskMentionDTO[];
-    }
-
     /**
      * * `claude` - claude
      * * `codex` - codex
@@ -40812,6 +41162,94 @@ export namespace Schemas {
       updated_at?: string | null;
       /** @nullable */
       completed_at?: string | null;
+    }
+
+    /**
+     * @nullable
+     */
+    export type TaskDetailDTOJsonSchema = { [key: string]: unknown } | null;
+
+    /**
+     * Detail response for a task.
+     *
+     * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+     * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+     * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+     */
+    export interface TaskDetailDTO {
+      id: string;
+      /** @nullable */
+      task_number: number | null;
+      slug: string;
+      title: string;
+      title_manually_set: boolean;
+      description: string;
+      origin_product: string;
+      /** Agent protocol and harness used for this task's runs.
+       *
+       * * `acp` - ACP
+       * * `pi` - Pi */
+      readonly runtime: RuntimeEnum;
+      /** @nullable */
+      repository: string | null;
+      /** @nullable */
+      github_integration: number | null;
+      /** @nullable */
+      github_user_integration: string | null;
+      /** @nullable */
+      signal_report: string | null;
+      /** @nullable */
+      json_schema: TaskDetailDTOJsonSchema;
+      internal: boolean;
+      archived: boolean;
+      /** @nullable */
+      archived_at: string | null;
+      /** Latest run details for this task */
+      latest_run?: TaskRunDetailDTO | null;
+      /** @nullable */
+      created_at?: string | null;
+      /** @nullable */
+      updated_at?: string | null;
+      created_by?: TaskUserBasicInfo | null;
+      /** @nullable */
+      ci_prompt: string | null;
+      /** @nullable */
+      channel?: string | null;
+    }
+
+    export interface PaginatedTaskDetailDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TaskDetailDTO[];
+    }
+
+    /**
+     * Response shape for one @-mention of the requester in a task's thread.
+     */
+    export interface TaskMentionDTO {
+      id: string;
+      message_id: string;
+      task_id: string;
+      task_title: string;
+      /** @nullable */
+      channel_id: string | null;
+      /** @nullable */
+      channel_name: string | null;
+      author?: TaskUserBasicInfo | null;
+      content: string;
+      created_at: string;
+    }
+
+    export interface PaginatedTaskMentionDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TaskMentionDTO[];
     }
 
     export interface PaginatedTaskRunDetailDTOList {
@@ -42807,7 +43245,7 @@ export namespace Schemas {
        * Combines metadata from conversation.approval_decisions with payload from checkpoint
        * interrupts (single source of truth for payload data). */
       readonly pending_approvals?: readonly PatchedConversationPendingApprovalsItem[];
-      readonly task?: TaskDetailDTO | null;
+      readonly task?: ConversationTask | null;
     }
 
     export interface PatchedCoreEvent {
@@ -43329,7 +43767,7 @@ export namespace Schemas {
     export interface PatchedDigestChannel {
       readonly id?: string;
       /**
-         * Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'.
+         * Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'. Immutable after creation — it anchors the audience and its opt-out tombstone.
          * @maxLength 255
          */
       audience_key?: string;
@@ -44327,6 +44765,15 @@ export namespace Schemas {
       readonly access_method?: AccessMethodEnum;
       /** Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources. */
       direct_query_enabled?: boolean;
+      /** Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources. */
+      auto_sync_new_schemas?: boolean;
+      /**
+         * Optional fnmatch-style globs (`*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.
+         * @maxItems 100
+         * @nullable
+         * @items.maxLength 250
+         */
+      auto_sync_schema_patterns?: string[] | null;
       /** Backend engine detected for the direct connection.
        *
        * * `duckdb` - duckdb
@@ -45338,6 +45785,42 @@ export namespace Schemas {
          * When the alert was last modified.
          * @nullable
          */
+      readonly updated_at?: string | null;
+    }
+
+    export interface PatchedLogsMetricRule {
+      /** Unique identifier for this metric rule. */
+      readonly id?: string;
+      /**
+         * User-visible label for this rule.
+         * @maxLength 255
+         */
+      name?: string;
+      /**
+         * Name of the generated metric as it appears in the Metrics product. Must start with a letter and contain only letters, digits, dots, underscores, and dashes. Unique per project and immutable after creation — create a new rule to emit under a different name.
+         * @maxLength 200
+         */
+      metric_name?: string;
+      /** When true, ingestion evaluates this rule against every log record. At most 10 rules can be enabled per project. */
+      enabled?: boolean;
+      /** PropertyGroupFilter JSON (AND/OR tree of property predicates) selecting which log records feed the metric, e.g. `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api","type":"log_attribute"}]}]}`. Null matches every ingested log record. Every group must contain at least one filter — empty groups never match. */
+      filter_group?: unknown;
+      /**
+         * Log attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`. Omit to count matching log records instead. Immutable after creation — it determines the emitted metric type.
+         * @maxLength 512
+         * @nullable
+         */
+      value_attribute?: string | null;
+      /**
+         * Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` / `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.
+         * @items.maxLength 512
+         */
+      group_by?: string[];
+      /** Incremented on each update for worker cache coherency. */
+      readonly version?: number;
+      readonly created_by?: number;
+      readonly created_at?: string;
+      /** @nullable */
       readonly updated_at?: string | null;
     }
 
@@ -55453,6 +55936,10 @@ export namespace Schemas {
 
     /**
      * One typed attachment carried by a sandbox message.
+     *
+     * DEPRECATED PATH — do not extend. This structured `attached_context` (and its server-side wrap in
+     * `context_wrapper.py`) exists only for the legacy Max conversations bridge and is removed with it;
+     * the live path wraps context client-side (`products/posthog_ai/frontend/utils/posthogContextBlock.ts`).
      */
     export interface SandboxAttachedContextItem {
       /** Attachment kind. Entity types carry `id` (+ optional `name`); `text` carries `value`.
@@ -56181,7 +56668,7 @@ export namespace Schemas {
      * against the type's schema (see `products/signals/backend/artefact_schemas.py`).
      */
     export interface SignalReportArtefactLogCreate {
-      /** The artefact type. One of: actionability_judgment, code_reference, commit, dismissal, note, priority_judgment, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
+      /** The artefact type. One of: actionability_judgment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
       artefact_type: string;
       /** The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema. */
       content: unknown;
@@ -59827,25 +60314,39 @@ export namespace Schemas {
     }
 
     /**
+     * One installation of the App the authorizing user can reach, offered for an explicit pick.
+     */
+    export interface StamphogDiscoveredInstallation {
+      /** GitHub installation id, as a string. */
+      readonly id: string;
+      /** Login of the org or user account the installation lives on. */
+      readonly account_login: string;
+    }
+
+    /**
      * Static info the frontend needs to render the 'Connect a repository' button.
      */
     export interface StamphogInstallInfo {
       /** URL-friendly slug of the dedicated Stamphog GitHub App, or blank if unconfigured. */
       readonly app_slug: string;
-      /** GitHub install URL (github.com/apps/<slug>/installations/new) the user opens to install the App, or blank if the App slug is unconfigured. */
+      /** GitHub install URL (github.com/apps/<slug>/installations/new) the user opens to install the App, or blank if the App slug is unconfigured. Used for the genuinely-not-installed case; the primary 'Connect' button uses authorize_url instead. */
       readonly install_url: string;
+      /** GitHub authorize URL (github.com/login/oauth/authorize) the 'Connect' button opens. Authorize-first: an already-installed user is redirected straight back with an OAuth code (no installation_id), and sync_installation then discovers their installations server-side. Blank if the App client id is unconfigured. */
+      readonly authorize_url: string;
     }
 
     /**
-     * Request body for binding a completed GitHub App installation to the current team.
+     * Request body for binding a GitHub App installation to the current team.
      *
-     * Requires both the ``installation_id`` and the user-to-server OAuth ``code`` from the post-install
-     * redirect: the code proves the caller actually owns the installation, without which any caller could
-     * bind another org's installation to their own team.
+     * Always requires the user-to-server OAuth ``code`` (the ownership proof) and the ``state`` token.
+     * ``installation_id`` is optional: when present (the fresh-install redirect) exactly that installation
+     * is verified and synced; when absent or blank (the authorize-first redirect) the caller's accessible
+     * installations are discovered server-side from the code, so the client never has to supply a
+     * forgeable id.
      */
     export interface StamphogSyncInstallationRequest {
-      /** GitHub App installation ID returned on the post-install Setup URL redirect. */
-      installation_id: string;
+      /** GitHub App installation ID from the fresh-install Setup URL redirect. Optional: absent or blank means discover the caller's installations from the OAuth code instead (authorize-first flow). The id is not trusted on its own — ownership is always proven via the code. */
+      installation_id?: string;
       /** GitHub user-to-server OAuth code from the post-install redirect (present when the App has 'Request user authorization during installation' enabled). Exchanged server-side to prove the caller owns the installation before its repos are bound. */
       code: string;
       /** Signed state token minted by install_info and round-tripped through GitHub's install redirect. Binds the callback to the team and user that started the flow, so a stolen installation_id + code can't be replayed against another team's session. */
@@ -59860,6 +60361,10 @@ export namespace Schemas {
       readonly synced: readonly StamphogRepoConfig[];
       /** Repository full names skipped because another team already owns them under this installation. */
       readonly skipped: readonly string[];
+      /** True only on the discovery path (no installation_id) when the caller can reach no installation of this App — it isn't installed anywhere they can see. The frontend should route the user to the GitHub install page (install_url). Always false on the explicit installation_id path. */
+      readonly app_not_installed: boolean;
+      /** Populated only on the discovery path when the caller can reach MORE than one installation of this App: nothing was bound, and the user must pick which installation to connect. The frontend re-runs the authorize flow and calls back with the chosen installation_id, which the explicit path verifies. Empty whenever a bind happened (or nothing was found). */
+      readonly installations: readonly StamphogDiscoveredInstallation[];
     }
 
     /**
@@ -64882,6 +65387,25 @@ export namespace Schemas {
       query: _TracingDurationHistogramQueryBody;
     }
 
+    export interface _TracingLatencyHeatmapCell {
+      /** ISO 8601 UTC start of the time bucket. */
+      time: string;
+      /** Lower edge of the 1-2-5 series duration bucket in nanoseconds (1ms, 2ms, 5ms, 10ms, ...). 0 on the sentinel row that enumerates a time bucket with no matching spans. */
+      bucket_ns: number;
+      /** Spans (or traces when rootSpans is true) in this cell. 0 only on sentinel rows. */
+      count: number;
+    }
+
+    export interface _TracingLatencyHeatmapRequest {
+      /** The latency-heatmap query to execute. */
+      query: _TracingDurationHistogramQueryBody;
+    }
+
+    export interface _TracingLatencyHeatmapResponse {
+      /** Sparse heatmap cells ordered by time then duration bucket. Every time bucket in the window appears in at least one row, so the full x axis can be derived from the response. */
+      results: _TracingLatencyHeatmapCell[];
+    }
+
     /**
      * * `timestamp` - timestamp
      * * `duration` - duration
@@ -65983,6 +66507,13 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsErrorTrackingFingerprintsResolveRetrieveParams = {
+    /**
+     * Fingerprint value to resolve to the issue it currently belongs to.
+     */
+    fingerprint: string;
+    };
+
     export type EnvironmentsErrorTrackingGitProviderFileLinksResolveGithubRetrieveParams = {
     /**
      * Code snippet to search for in repository files.
@@ -66382,6 +66913,10 @@ export namespace Schemas {
     export type EnvironmentsExternalDataSourcesRepairCdcCreate200 = {
       success?: boolean;
       schemas_reset?: number;
+    };
+
+    export type EnvironmentsExternalDataSourcesResumeCdcCreate200 = {
+      success?: boolean;
     };
 
     export type EnvironmentsExternalDataSourcesCheckCdcPrerequisitesCreate200 = {
@@ -70061,6 +70596,43 @@ export namespace Schemas {
       Number60: 60,
     } as const;
 
+    export type ManagedMigrationsSupportListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Which field to use when ordering the results.
+     */
+    ordering?: string;
+    /**
+     * A search term.
+     */
+    search?: string;
+    /**
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `paused` - Paused
+     * * `running` - Running
+     */
+    status?: ManagedMigrationsSupportListStatus;
+    team_id?: number;
+    };
+
+    export type ManagedMigrationsSupportListStatus = typeof ManagedMigrationsSupportListStatus[keyof typeof ManagedMigrationsSupportListStatus];
+
+
+    export const ManagedMigrationsSupportListStatus = {
+      Completed: 'completed',
+      Failed: 'failed',
+      Paused: 'paused',
+      Running: 'running',
+    } as const;
+
     export type ListParams = {
     /**
      * Number of results to return per page.
@@ -71856,6 +72428,10 @@ export namespace Schemas {
      * Optional. `global`: official templates only. `team`: this project's saved templates only (`scope=team` rows for the current project). `organization`: templates shared across all projects in this organization. `feature_flag`: feature-flag dashboard templates only. Omit for official, organization, and this project's templates (default dashboard template picker behavior).
      */
     scope?: DashboardTemplatesListScope;
+    /**
+     * Optional. Full-text search across template name, tags, and description, ranked by relevance. Use it to find templates for a topic (e.g. `retention`, `revenue`, `product analytics`).
+     */
+    search?: string;
     };
 
     export type DashboardTemplatesListScope = typeof DashboardTemplatesListScope[keyof typeof DashboardTemplatesListScope];
@@ -72622,6 +73198,10 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string;
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string;
@@ -72629,12 +73209,20 @@ export namespace Schemas {
 
     export type EngineeringAnalyticsBrokenTestsParams = {
     /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string;
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string;
     };
 
     export type EngineeringAnalyticsCiCardsParams = {
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string;
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
@@ -72657,6 +73245,10 @@ export namespace Schemas {
     };
 
     export type EngineeringAnalyticsCurrentBranchHealthParams = {
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string;
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
@@ -72685,6 +73277,10 @@ export namespace Schemas {
      */
     min_rerun_passes?: number;
     /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string;
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string;
@@ -72703,6 +73299,10 @@ export namespace Schemas {
      * Window end: relative or ISO8601. Defaults to now.
      */
     date_to?: string;
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string;
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
@@ -72726,6 +73326,10 @@ export namespace Schemas {
      * Window end: relative or ISO8601. Defaults to now.
      */
     date_to?: string;
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string;
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
@@ -72787,6 +73391,10 @@ export namespace Schemas {
      */
     date_from?: string;
     /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string;
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string;
@@ -72817,6 +73425,10 @@ export namespace Schemas {
      */
     include_series?: boolean;
     /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string;
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string;
@@ -72835,6 +73447,10 @@ export namespace Schemas {
      * Window end: relative or ISO8601. Defaults to now.
      */
     date_to?: string;
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string;
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
@@ -72861,6 +73477,10 @@ export namespace Schemas {
     };
 
     export type EngineeringAnalyticsRunFailureLogsParams = {
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string;
     /**
      * Workflow run id whose failure logs to fetch.
      */
@@ -72954,6 +73574,10 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string;
+    /**
      * Run scope for workflow health: 'all' (default) includes every run; 'pull_request' includes runs attributed to pull requests, excluding default-branch (master/main) runs. Fork PRs carry no PR attribution (a GitHub limitation), so 'pull_request' covers same-repo PRs only. Any other value is a 400.
      */
     run_scope?: EngineeringAnalyticsWorkflowHealthRunScope;
@@ -72973,6 +73597,10 @@ export namespace Schemas {
 
     export type EngineeringAnalyticsWorkflowJobsParams = {
     /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string;
+    /**
      * Which re-run attempt to scope jobs to. Omit to use the run's latest attempt; pass an explicit attempt to avoid mixing jobs across a re-run's attempts.
      */
     run_attempt?: number;
@@ -72987,6 +73615,10 @@ export namespace Schemas {
     };
 
     export type EngineeringAnalyticsWorkflowRunParams = {
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string;
     /**
      * GitHub Actions run id to inspect.
      */
@@ -73138,6 +73770,13 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type ErrorTrackingFingerprintsResolveRetrieveParams = {
+    /**
+     * Fingerprint value to resolve to the issue it currently belongs to.
+     */
+    fingerprint: string;
     };
 
     export type ErrorTrackingGitProviderFileLinksResolveGithubRetrieveParams = {
@@ -73693,6 +74332,10 @@ export namespace Schemas {
     export type ExternalDataSourcesRepairCdcCreate200 = {
       success?: boolean;
       schemas_reset?: number;
+    };
+
+    export type ExternalDataSourcesResumeCdcCreate200 = {
+      success?: boolean;
     };
 
     export type ExternalDataSourcesCheckCdcPrerequisitesCreate200 = {
@@ -76110,6 +76753,17 @@ export namespace Schemas {
 
     export type LogsHasLogsRetrieve200 = { [key: string]: unknown };
 
+    export type LogsMetricRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type LogsSamplingRulesListParams = {
     /**
      * Number of results to return per page.
@@ -76446,6 +77100,11 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type MessagingSuppressionsSuppressionsRetrieveParams = {
+    page?: number;
+    page_size?: number;
     };
 
     export type MessagingTemplatesListParams = {
@@ -77204,6 +77863,25 @@ export namespace Schemas {
 
 
     export const ReviewHogReviewsListScope = {
+      Mine: 'mine',
+      Everyone: 'everyone',
+    } as const;
+
+    export type ReviewHogReviewsPerspectiveStatsRetrieveParams = {
+    /**
+     * Whose reviews to aggregate: `mine` for reviews of the requesting user's pull requests (the default), `everyone` for every review on this project.
+     *
+     * * `mine` - mine
+     * * `everyone` - everyone
+     * @minLength 1
+     */
+    scope?: ReviewHogReviewsPerspectiveStatsRetrieveScope;
+    };
+
+    export type ReviewHogReviewsPerspectiveStatsRetrieveScope = typeof ReviewHogReviewsPerspectiveStatsRetrieveScope[keyof typeof ReviewHogReviewsPerspectiveStatsRetrieveScope];
+
+
+    export const ReviewHogReviewsPerspectiveStatsRetrieveScope = {
       Mine: 'mine',
       Everyone: 'everyone',
     } as const;

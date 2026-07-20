@@ -5,6 +5,7 @@ import { IconSidebarClose } from '@posthog/icons'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
 import { ConnectionSelector } from 'scenes/data-warehouse/editor/ConnectionSelector'
@@ -19,9 +20,12 @@ import { SyncMoreNotice } from './SyncMoreNotice'
 export const DatabaseTree = memo(function DatabaseTree({
     databaseTreeRef,
     tabId,
+    extraTreeSections,
 }: {
     databaseTreeRef: React.RefObject<HTMLDivElement>
     tabId: string
+    /** Extra top-level tree sections owned by the embedding surface — see QueryDatabase. */
+    extraTreeSections?: TreeDataItem[]
 }): JSX.Element | null {
     const scrollContainerRef = useRef<HTMLDivElement | null>(null)
     const { databaseTreeWidth, databaseTreeResizerProps, isDatabaseTreeCollapsed, databaseTreeWillCollapse } =
@@ -73,7 +77,10 @@ export const DatabaseTree = memo(function DatabaseTree({
                 styledScrollbars
             >
                 <div className="grow w-full">
-                    <QueryDatabase virtualizationScrollContainerRef={scrollContainerRef} />
+                    <QueryDatabase
+                        virtualizationScrollContainerRef={scrollContainerRef}
+                        extraTreeSections={extraTreeSections}
+                    />
                 </div>
                 <SyncMoreNotice />
                 <ViewLinkModal />

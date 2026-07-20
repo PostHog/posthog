@@ -10,6 +10,7 @@ import { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { attachedContextLogic } from '../../api/logics'
 import { composerSeedLogic } from '../../logics/composerSeedLogic'
+import { toolStreamEventsLogic } from '../../logics/toolStreamEventsLogic'
 import { OriginProduct, Task, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
 import { taskTrackerSceneLogic } from './taskTrackerSceneLogic'
 
@@ -37,6 +38,7 @@ describe('taskTrackerSceneLogic', () => {
     let logic: ReturnType<typeof taskTrackerSceneLogic.build>
     let createBody: Record<string, any> | null
     let runBody: Record<string, any> | null
+    let toolEvents: ReturnType<typeof toolStreamEventsLogic.build>
 
     beforeEach(() => {
         createBody = null
@@ -54,16 +56,24 @@ describe('taskTrackerSceneLogic', () => {
                 },
                 '/api/projects/:team/tasks/:id/run/': async ({ request }) => {
                     runBody = (await request.json()) as Record<string, any>
-                    return [200, { id: 'new-task' }]
+                    return [200, { id: 'new-task', latest_run: 'run-1' }]
                 },
             },
         })
         initKeaTests()
+        toolEvents = toolStreamEventsLogic()
+        toolEvents.mount()
+        toolEvents.actions.registerToolListener('editor', {
+            tools: ['create_insight'],
+            applyBackTargetId: 'insight-1:activation-1',
+            onEvent: jest.fn(),
+        })
         logic = taskTrackerSceneLogic()
     })
 
     afterEach(() => {
         logic?.unmount()
+        toolEvents?.unmount()
     })
 
     // PostHog AI can run without a repo: a description-only submit must still create and run the task with a
@@ -86,8 +96,14 @@ describe('taskTrackerSceneLogic', () => {
         // state). Dropping either regresses follow-up streaming / loses the first prompt.
         expect(runBody).toMatchObject({
             mode: 'interactive',
+            initial_permission_mode: 'bypassPermissions',
             pending_user_message: 'do the thing',
         })
+        const streamKey = logic.values.activeCreation?.streamKey
+        expect(streamKey).not.toBeUndefined()
+        expect(toolEvents.values.applyBackTargetClaims[streamKey!]).toEqual([
+            { targetId: 'insight-1:activation-1', tools: ['create_insight'] },
+        ])
         expect(router.values.location.pathname).toContain('/tasks/new-task')
     })
 
@@ -106,7 +122,7 @@ describe('taskTrackerSceneLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         // The message sent to the agent is wrapped; the task description stays raw.
-        expect(runBody?.pending_user_message).toContain('<posthog_context>')
+        expect(runBody?.pending_user_message).toContain('<posthog_untrusted_context>')
         expect(runBody?.pending_user_message).toContain('- insight sig ("Signups")')
         expect(createBody?.description).toBe('why the drop?')
         // Only the entity ref is marked sent (text items always resend), under the created task's id.

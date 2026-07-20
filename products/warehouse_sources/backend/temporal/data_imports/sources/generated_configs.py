@@ -931,7 +931,8 @@ class ClickUpSourceConfig(config.Config):
 
 @config.config
 class ClickhouseCloudSourceConfig(config.Config):
-    pass
+    key_id: str
+    key_secret: str
 
 
 @config.config
@@ -1193,7 +1194,9 @@ class CustomerlySourceConfig(config.Config):
 
 @config.config
 class DagsterCloudSourceConfig(config.Config):
-    pass
+    organization: str
+    deployment: str
+    api_token: str
 
 
 @config.config
@@ -1470,7 +1473,8 @@ class EnchargeSourceConfig(config.Config):
 
 @config.config
 class Env0SourceConfig(config.Config):
-    pass
+    api_key_id: str
+    api_key_secret: str
 
 
 @config.config
@@ -1608,7 +1612,8 @@ class FireworksAISourceConfig(config.Config):
 
 @config.config
 class FlagsmithSourceConfig(config.Config):
-    pass
+    api_key: str
+    base_url: str | None = None
 
 
 @config.config
@@ -1674,7 +1679,8 @@ class FreshcallerSourceConfig(config.Config):
 
 @config.config
 class FreshchatSourceConfig(config.Config):
-    pass
+    domain: str
+    api_key: str
 
 
 @config.config
@@ -1771,7 +1777,8 @@ class GiteaSourceConfig(config.Config):
 
 @config.config
 class GitguardianSourceConfig(config.Config):
-    pass
+    api_key: str
+    base_url: str | None = None
 
 
 @config.config
@@ -2247,12 +2254,15 @@ class JellyfishSourceConfig(config.Config):
 
 @config.config
 class JenkinsSourceConfig(config.Config):
-    pass
+    host: str
+    username: str
+    api_token: str
 
 
 @config.config
 class JfrogArtifactorySourceConfig(config.Config):
-    pass
+    base_url: str
+    access_token: str
 
 
 @config.config
@@ -2431,7 +2441,8 @@ class LambdaLabsSourceConfig(config.Config):
 
 @config.config
 class LangSmithSourceConfig(config.Config):
-    pass
+    api_key: str
+    host: str | None = None
 
 
 @config.config
@@ -2708,7 +2719,7 @@ class MetabaseSourceConfig(config.Config):
 
 @config.config
 class MetaplaneSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2938,7 +2949,7 @@ class NotionSourceConfig(config.Config):
 
 @config.config
 class NugetSourceConfig(config.Config):
-    pass
+    package_ids: str
 
 
 @config.config
@@ -2963,7 +2974,8 @@ class OctolensSourceConfig(config.Config):
 
 @config.config
 class OctopusDeploySourceConfig(config.Config):
-    pass
+    host: str
+    api_key: str
 
 
 @config.config
@@ -4086,12 +4098,15 @@ class SonarqubeSourceConfig(config.Config):
 
 @config.config
 class SonatypeNexusSourceConfig(config.Config):
-    pass
+    host: str
+    username: str
+    password: str
 
 
 @config.config
 class SourcegraphSourceConfig(config.Config):
-    pass
+    host: str
+    access_token: str
 
 
 @config.config
@@ -4153,7 +4168,7 @@ class StatsigSourceConfig(config.Config):
 
 @config.config
 class StatuscakeSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -4194,7 +4209,8 @@ class StripeSourceConfig(config.Config):
 
 @config.config
 class StytchSourceConfig(config.Config):
-    pass
+    project_id: str
+    secret: str
 
 
 @config.config
@@ -4575,7 +4591,8 @@ class UptimerobotSourceConfig(config.Config):
 
 @config.config
 class UsersnapSourceConfig(config.Config):
-    pass
+    jwt_secret: str
+    jwt_id: str
 
 
 @config.config
