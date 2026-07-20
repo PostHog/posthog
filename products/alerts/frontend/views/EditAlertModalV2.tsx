@@ -240,7 +240,7 @@ export function EditAlertModalV2({
 
     const enabledToggle = (
         <LemonField name="enabled" className="m-0">
-            <LemonSwitch checked={alertForm.enabled} data-attr="alertForm-enabled" label="Enabled" size="small" />
+            <LemonSwitch checked={alertForm.enabled} data-attr="alertForm-enabled" label="Enabled" />
         </LemonField>
     )
 
