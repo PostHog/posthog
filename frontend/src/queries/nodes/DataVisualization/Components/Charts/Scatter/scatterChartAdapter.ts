@@ -99,7 +99,7 @@ export const buildScatterChartData = (
         const groupValue = colorByColumn ? row[colorByColumn.dataIndex] : undefined
         const groupLabel = colorByColumn
             ? groupValue === null || groupValue === undefined
-                ? 'null'
+                ? '(null)'
                 : String(groupValue)
             : yColumn.name
         const group = pointsByGroup.get(groupLabel)

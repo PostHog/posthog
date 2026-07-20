@@ -25,6 +25,7 @@ describe('buildScatterChartData', () => {
                 ['2026-07-17 10:00:00', 1.5, 'single'],
                 ['2026-07-17 11:00:00', 2.5, 'two-arm'],
                 ['2026-07-17 12:00:00', 3.5, 'single'],
+                ['2026-07-17 13:00:00', 4.5, null],
             ],
             columns,
             { xAxisColumn: 'timestamp', yAxisColumn: 'duration', colorByColumn: 'scan_type' }
@@ -34,6 +35,7 @@ describe('buildScatterChartData', () => {
         expect(data?.series.map((series) => [series.label, series.points.length])).toEqual([
             ['single', 2],
             ['two-arm', 1],
+            ['(null)', 1],
         ])
         expect(data?.series[0].points.map((point) => point.rowIndex)).toEqual([0, 2])
         expect(data?.series[0].points[0].x).toEqual(new Date('2026-07-17T10:00:00').valueOf())
