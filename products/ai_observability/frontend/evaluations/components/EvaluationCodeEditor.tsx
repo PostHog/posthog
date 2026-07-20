@@ -297,33 +297,53 @@ export function EvaluationCodeEditor(): JSX.Element {
                     ))}
                 </div>
                 <h4 className="text-sm font-semibold mb-2">Available globals</h4>
-                <div className="text-sm text-muted space-y-1">
-                    <div>
-                        <code>evaluation_events</code>: one event for a generation evaluation, or every event in a
-                        trace. Each item has raw <code>input</code> and <code>output</code>, best-effort readable{' '}
-                        <code>input_text</code> and <code>output_text</code>, and <code>properties</code>. Use the raw
-                        fields when the exact captured structure matters.
-                    </div>
-                    <div>
-                        <code>target</code>: details about the generation or trace, including its ID, total cost, and
-                        total latency.
-                    </div>
+                <dl className="grid grid-cols-[max-content_minmax(0,1fr)] items-baseline gap-x-3 gap-y-1 text-sm text-muted">
+                    <dt>
+                        <code>evaluation_events</code>
+                    </dt>
+                    <dd className="m-0">
+                        The generation event, or every trace event, with raw and readable input and output fields.
+                    </dd>
+                    <dt>
+                        <code>target</code>
+                    </dt>
+                    <dd className="m-0">The generation or trace ID, total cost, and total latency.</dd>
                     {evaluation.target === 'generation' ? (
-                        <div>
-                            For compatibility with saved generation code, this target also exposes <code>input</code>,{' '}
-                            <code>output</code>, <code>properties</code>, and <code>event</code>.
-                        </div>
+                        <>
+                            <dt>
+                                <code>input</code>
+                            </dt>
+                            <dd className="m-0">The captured generation input.</dd>
+                            <dt>
+                                <code>output</code>
+                            </dt>
+                            <dd className="m-0">The captured generation output.</dd>
+                            <dt>
+                                <code>properties</code>
+                            </dt>
+                            <dd className="m-0">The captured generation properties.</dd>
+                            <dt>
+                                <code>event</code>
+                            </dt>
+                            <dd className="m-0">The generation event metadata.</dd>
+                        </>
                     ) : (
-                        <div>
-                            For compatibility with saved trace code, this target also exposes the original{' '}
-                            <code>events</code> shape, <code>trace.id</code>, and <code>trace.event_count</code>.
-                        </div>
+                        <>
+                            <dt>
+                                <code>events</code>
+                            </dt>
+                            <dd className="m-0">The trace events in their original format.</dd>
+                            <dt>
+                                <code>trace</code>
+                            </dt>
+                            <dd className="m-0">The trace ID and event count.</dd>
+                        </>
                     )}
-                    <div>
-                        New code should use <code>evaluation_events</code> and <code>target</code> when it needs to work
-                        with either target.
-                    </div>
-                </div>
+                </dl>
+                <p className="text-sm text-muted mt-2 mb-0">
+                    Use <code>evaluation_events</code> and <code>target</code> for code that works with either target.{' '}
+                    The other globals are kept for saved code.
+                </p>
                 <h4 className="text-sm font-semibold mt-3 mb-2">Tips</h4>
                 <ul className="text-sm text-muted space-y-1 list-disc list-inside">
                     <li>
