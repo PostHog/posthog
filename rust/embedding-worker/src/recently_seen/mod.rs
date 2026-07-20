@@ -56,8 +56,8 @@ pub async fn build_store(config: &Config) -> Result<Arc<dyn RecentlySeenStore>> 
             config.recent_ids_ttl_seconds,
         )))),
         other => {
-            error!("Unknown RECENT_IDS_BACKEND '{other}', defaulting to in-memory");
-            Err(anyhow::anyhow!("Unknown RECENT_IDS_BACKEND '{other}'"))
+            error!("Unknown RECENT_IDS_STORE '{other}'");
+            Err(anyhow::anyhow!("Unknown RECENT_IDS_STORE '{other}'"))
         }
     }
 }
