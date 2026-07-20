@@ -834,14 +834,15 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                                               (restoreCountsByType.get(entry.type) ?? 0) + 1
                                                           )
                                                       }
-                                                      const restoreParts = Array.from(restoreCountsByType.entries()).map(
-                                                          ([type, count]) =>
-                                                              pluralize(
-                                                                  count,
-                                                                  humanizeFileSystemEntryType(type),
-                                                                  undefined,
-                                                                  count !== 1
-                                                              )
+                                                      const restoreParts = Array.from(
+                                                          restoreCountsByType.entries()
+                                                      ).map(([type, count]) =>
+                                                          pluralize(
+                                                              count,
+                                                              humanizeFileSystemEntryType(type),
+                                                              undefined,
+                                                              count !== 1
+                                                          )
                                                       )
                                                       const restoreMessage =
                                                           restoreParts.length > 0
