@@ -29,13 +29,14 @@ from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_
 from products.tasks.backend.temporal.process_task.utils import (
     get_actor_distinct_id,
     get_imported_mcp_server_configs,
+    get_sandbox_mcp_session_user,
     get_sandbox_ph_mcp_configs,
     get_task_run_credential_user,
     get_user_mcp_server_configs,
     is_slack_interaction_state,
-    mark_mcp_token_issued,
+    mark_sandbox_mcp_session,
     record_message_actor,
-    should_refresh_mcp_token,
+    sandbox_identity_scope,
 )
 
 from ee.hogai.sandbox import STOP_REASON_END_TURN, TURN_COMPLETE_METHOD
@@ -158,10 +159,13 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> None:
             task_run, user_id=actor_user.id, distinct_id=get_actor_distinct_id(actor_user)
         )
 
-    # Push a fresh MCP config before the turn so the agent-server rebinds its
-    # ACP session to a non-stale OAuth token. Non-fatal: if refresh fails we
-    # still deliver the follow-up with the existing (possibly stale) creds.
-    _refresh_sandbox_mcp(task_run, input.posthog_mcp_scopes, auth_token, actor_user=actor_user, state=state)
+    # Rebind the sandbox's MCP session to this actor before the turn. On an
+    # actor transition this must rebind or clear the prior session; if it can't,
+    # fail closed rather than run the turn under the previous actor's creds.
+    # Same-actor and first-bind refreshes stay best-effort.
+    if not _refresh_sandbox_mcp(task_run, input.posthog_mcp_scopes, auth_token, actor_user=actor_user, state=state):
+        error_msg = "Could not rebind sandbox MCP credentials for the follow-up actor"
+        raise RuntimeError(f"send_followup failed: {error_msg}")
     artifacts = None
     artifact_ids = input.artifact_ids or []
     if artifact_ids:
@@ -256,28 +260,43 @@ def _refresh_sandbox_mcp(
     *,
     actor_user: Any,
     state: dict[str, Any] | None,
-) -> None:
-    """Mint a fresh OAuth token for the actor and push updated MCP configs to
-    the sandbox.
+) -> bool:
+    """Rebind the sandbox's MCP session to this message's actor.
 
-    Best-effort: retries once on failure, then logs and returns — a failed
-    refresh must not block an otherwise-valid follow-up. Skipped when a token
-    was already issued for this run within MCP_TOKEN_REFRESH_INTERVAL_SECONDS.
+    Returns ``True`` when the session is safe to use (unchanged actor or a
+    successful rebind) and ``False`` when a rebind could not be confirmed — the
+    caller then fails the follow-up closed. A rebind is unconfirmed whenever the
+    mint or refresh fails and the binding is not known to be this actor's,
+    including an *unknown* binding: the marker self-expires at half the token
+    lifetime, so an absent marker can mean the previous actor's session is still
+    live, not that the sandbox is fresh. Retries the refresh once before giving
+    up.
     """
     run_id = str(task_run.id)
-    if not should_refresh_mcp_token(run_id):
-        logger.info("refresh_mcp_skipped_within_interval", run_id=run_id)
-        return
     if actor_user is None:
         # Without a credential user the mint is guaranteed to fail; skip
         # quietly rather than warn on every message.
-        return
+        return True
+
+    scope = sandbox_identity_scope(run_id, state)
+    bound_user_id = get_sandbox_mcp_session_user(scope)
+    if bound_user_id == actor_user.id:
+        logger.info("refresh_mcp_skipped_within_interval", run_id=run_id, user_id=actor_user.id)
+        return True
+    is_transition = bound_user_id is not None
+    if is_transition:
+        logger.info(
+            "refresh_mcp_identity_transition",
+            run_id=run_id,
+            previous_user_id=bound_user_id,
+            user_id=actor_user.id,
+        )
 
     try:
         access_token = create_oauth_access_token_for_run(task_run.task, state, scopes=scopes)
     except Exception as e:
         logger.warning("refresh_mcp_token_mint_failed", run_id=run_id, error=str(e))
-        return
+        return False  # rebind unconfirmed → fail closed (unknown binding may hide a live session)
 
     mcp_configs = get_sandbox_ph_mcp_configs(
         token=access_token,
@@ -302,8 +321,22 @@ def _refresh_sandbox_mcp(
         mcp_configs = mcp_configs + imported_mcp_configs
 
     if not mcp_configs:
+        if is_transition:
+            # A prior actor holds the live session and this actor resolves no MCP
+            # configs, so an empty-list refresh (a no-op on the agent-server)
+            # can neither rebind it nor tear it down. Fail closed rather than run
+            # the turn against the previous actor's retained session.
+            logger.info(
+                "refresh_mcp_no_configs_on_transition_fail_closed", run_id=run_id, previous_user_id=bound_user_id
+            )
+            return False
+        # No recorded prior actor and no MCP configs to establish a session:
+        # there is nothing to leak, so let the turn run rather than block the
+        # agent just because MCP is unavailable. Record the binding so a later
+        # actor transition is still detected.
+        mark_sandbox_mcp_session(scope, actor_user.id)
         logger.info("refresh_mcp_skipped_no_configs", run_id=run_id)
-        return
+        return True
 
     mcp_servers = [config.to_dict() for config in mcp_configs]
 
@@ -314,9 +347,9 @@ def _refresh_sandbox_mcp(
         timeout=REFRESH_TIMEOUT_SECONDS,
     )
     if result.success:
-        mark_mcp_token_issued(run_id)
+        mark_sandbox_mcp_session(scope, actor_user.id)
         logger.info("refresh_mcp_delivered", run_id=run_id, attempts=1)
-        return
+        return True
 
     logger.info(
         "refresh_mcp_retrying",
@@ -332,9 +365,9 @@ def _refresh_sandbox_mcp(
         timeout=REFRESH_TIMEOUT_SECONDS,
     )
     if retry.success:
-        mark_mcp_token_issued(run_id)
+        mark_sandbox_mcp_session(scope, actor_user.id)
         logger.info("refresh_mcp_delivered", run_id=run_id, attempts=2)
-        return
+        return True
 
     logger.warning(
         "refresh_mcp_failed",
@@ -342,6 +375,7 @@ def _refresh_sandbox_mcp(
         error=retry.error,
         status_code=retry.status_code,
     )
+    return False  # rebind never confirmed → fail closed (unknown binding may hide a live session)
 
 
 def _get_stop_reason(result_data: dict[str, Any] | None) -> str:

@@ -741,6 +741,7 @@
           ExternalDataSourceType.SKYVERN: SkyvernSourceConfig,
           ExternalDataSourceType.SLACK: SlackSourceConfig,
           ExternalDataSourceType.SLASH: SlashSourceConfig,
+          ExternalDataSourceType.SLEEKPLAN: SleekplanSourceConfig,
           ExternalDataSourceType.SMAILY: SmailySourceConfig,
           ExternalDataSourceType.SMARTENGAGE: SmartEngageSourceConfig,
           ExternalDataSourceType.SMARTREACH: SmartreachSourceConfig,
