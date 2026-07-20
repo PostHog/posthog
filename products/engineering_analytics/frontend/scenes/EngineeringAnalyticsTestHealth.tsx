@@ -42,6 +42,10 @@ import {
     flakyEvidenceReason,
 } from './engineeringAnalyticsLogic'
 
+// Runners with an enforcement adapter; mirrors ADAPTED_RUNNERS in the quarantine
+// contract (tools/hogli-commands/hogli_commands/quarantine/core.py), which the frontend can't import.
+const ENFORCED_RUNNERS = ['pytest', 'jest']
+
 function relativeExpiry(daysUntilExpiry: number): string {
     if (daysUntilExpiry === 0) {
         return 'today'
@@ -656,8 +660,17 @@ function QuarantineRegister(): JSX.Element {
                             {row.selectorKind}
                         </LemonTag>
                         {row.runner !== 'pytest' && (
-                            <Tooltip title="No enforcement adapter yet. This entry is informational.">
-                                <LemonTag type="muted" size="small">
+                            <Tooltip
+                                title={
+                                    ENFORCED_RUNNERS.includes(row.runner)
+                                        ? 'Enforced by the Jest adapter.'
+                                        : 'No enforcement adapter yet. This entry is informational.'
+                                }
+                            >
+                                <LemonTag
+                                    type={ENFORCED_RUNNERS.includes(row.runner) ? 'option' : 'muted'}
+                                    size="small"
+                                >
                                     {row.runner}
                                 </LemonTag>
                             </Tooltip>
