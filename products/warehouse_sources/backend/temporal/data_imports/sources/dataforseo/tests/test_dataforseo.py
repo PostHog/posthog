@@ -152,7 +152,7 @@ class TestPostTask:
     def _post(self, response: Any) -> list[dict[str, Any]]:
         session = MagicMock()
         session.post.return_value = response
-        return _post_task.__wrapped__(
+        return _post_task.__wrapped__(  # type: ignore[attr-defined]
             session, "/dataforseo_labs/google/ranked_keywords/live", {"target": "example.com"}, MagicMock()
         )
 
@@ -182,7 +182,7 @@ class TestPostTask:
     def test_wraps_payload_in_array(self) -> None:
         session = MagicMock()
         session.post.return_value = _resp(_body([]))
-        _post_task.__wrapped__(session, "/path", {"target": "example.com"}, MagicMock())
+        _post_task.__wrapped__(session, "/path", {"target": "example.com"}, MagicMock())  # type: ignore[attr-defined]
         _, kwargs = session.post.call_args
         assert kwargs["json"] == [{"target": "example.com"}]
 
@@ -245,7 +245,7 @@ class TestGetRows:
 
     def test_ranked_keywords_skips_items_without_keyword(self) -> None:
         manager = _manager()
-        items = [{"keyword_data": {}}, {"keyword_data": {"keyword": "ok"}}]
+        items: list[dict[str, Any]] = [{"keyword_data": {}}, {"keyword_data": {"keyword": "ok"}}]
         _, batches = _drive("ranked_keywords", manager, [_resp(_body([_items_result(items, total_count=2)]))])
 
         assert [row["keyword"] for row in batches[0]] == ["ok"]

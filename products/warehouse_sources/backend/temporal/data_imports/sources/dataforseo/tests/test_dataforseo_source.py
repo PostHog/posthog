@@ -48,17 +48,22 @@ class TestDataForSEOSource:
             "language_name",
         ]
         fields = {f.name: f for f in config.fields}
-        password_field = fields["api_password"]
-        assert isinstance(password_field, SourceFieldInputConfig)
+
+        def input_field(name: str) -> SourceFieldInputConfig:
+            field = fields[name]
+            assert isinstance(field, SourceFieldInputConfig)
+            return field
+
+        password_field = input_field("api_password")
         # The API password is a secret credential, so it must render as a password input.
         assert password_field.type == "password"
         assert password_field.secret is True
         assert password_field.required is True
-        assert fields["api_login"].required is True
-        assert fields["targets"].required is True
+        assert input_field("api_login").required is True
+        assert input_field("targets").required is True
         # Location and language fall back to defaults in the transport when left blank.
-        assert fields["location_name"].required is False
-        assert fields["language_name"].required is False
+        assert input_field("location_name").required is False
+        assert input_field("language_name").required is False
 
     def test_source_config_is_released_alpha(self) -> None:
         config = DataForSEOSource().get_source_config
