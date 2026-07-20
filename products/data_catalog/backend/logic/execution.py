@@ -100,8 +100,16 @@ def run_metric(
     except ValidationError:
         raise
     except Exception as e:
+        # Any other query-execution failure (a non-exposed engine error, a warehouse/system-table
+        # join that blows up) would otherwise render as an opaque 500. Keep capturing it for
+        # observability, but hand the caller — usually an agent or MCP tool — something actionable.
         capture_exception(e)
-        raise
+        raise ValidationError(
+            {
+                "definition": f"This metric could not run: {e} "
+                "A table or column it references may no longer exist. Check system.information_schema.tables."
+            }
+        )
 
     payload = raw.model_dump(mode="json") if isinstance(raw, BaseModel) else raw
     payload = payload if isinstance(payload, dict) else {}
