@@ -79,10 +79,18 @@ export interface ExecToolOptions {
 const SKILLS_GATE_MESSAGE =
     'No skills loaded this session. Run `learn -s "<task keywords>"` and load the matching skills first — they carry the thresholds, schemas, and query patterns this task needs. If no skill applies, re-run this exact command as `call --no-skills ...`.'
 
-/** True when a `learn` input loads content (guides, skills, or files) rather than listing or searching. */
-function isLearnLoad(rest: string): boolean {
-    const first = rest.trim().split(/\s+/)[0]
-    return Boolean(first) && first !== 'skills' && first !== '-s' && first !== '-d'
+/**
+ * True when a `learn` input loads skill content (a qualified `source:skill` read,
+ * including file reads within a skill). Generic guide reads, listings, searches,
+ * and describes don't count — a guide is not a skill, and opening the gate on
+ * `learn analytics` would restore exactly the bypass the gate exists to catch.
+ */
+function isSkillLoad(rest: string): boolean {
+    const tokens = rest.trim().split(/\s+/)
+    if (tokens[0] === 'skills' || tokens[0] === '-s' || tokens[0] === '-d') {
+        return false
+    }
+    return tokens.some((token) => token.startsWith('posthog:') || token.startsWith('project:'))
 }
 
 /**
@@ -321,9 +329,9 @@ export function createExecTool(
                         throw new Error('The learn command is not available for this client.')
                     }
                     const learnResult = await learnCatalog.execute(rest)
-                    // Only loads count as "learned" — a search whose results are then
-                    // ignored is exactly the bypass the gate exists to catch.
-                    if (options.skillsSession && isLearnLoad(rest)) {
+                    // Only skill loads count as "learned" — a search whose results are
+                    // then ignored is exactly the bypass the gate exists to catch.
+                    if (options.skillsSession && isSkillLoad(rest)) {
                         await options.skillsSession.markLearned().catch(() => undefined)
                     }
                     return learnResult

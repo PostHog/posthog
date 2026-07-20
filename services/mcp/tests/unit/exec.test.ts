@@ -8,6 +8,7 @@ import { estimateTokens } from '@/lib/estimate-tokens'
 import { buildQueryToolsBlock, buildToolDomainsCompact } from '@/lib/instructions'
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { SessionManager } from '@/lib/SessionManager'
+import { makeSkillFile, SkillCatalog } from '@/skills/skill-catalog'
 import { getToolsFromContext } from '@/tools'
 import {
     createExecTool,
@@ -135,7 +136,15 @@ describe('exec tool', () => {
         const guideCatalog = (): ExecLearnCatalog =>
             new ExecLearnCatalog(
                 [{ id: 'analytics', title: 'Analytics', description: 'Guidance.', content: 'Use the tools.' }],
-                { posthog: undefined }
+                {
+                    posthog: new SkillCatalog([
+                        {
+                            name: 'bot-traffic',
+                            description: 'Filtering bot traffic.',
+                            files: [makeSkillFile('SKILL.md', '# Bot traffic\n\nFilter bots.')],
+                        },
+                    ]),
+                }
             )
 
         function makeSkillsSession(): {
@@ -158,7 +167,7 @@ describe('exec tool', () => {
             }
         }
 
-        it('rejects an un-learned call and passes it after a learn load', async () => {
+        it('rejects an un-learned call and passes it after a skill load', async () => {
             const { session } = makeSkillsSession()
             const exec = createExec(undefined, undefined, { learnCatalog: guideCatalog(), skillsSession: session })
 
@@ -166,8 +175,19 @@ describe('exec tool', () => {
                 'No skills loaded this session'
             )
 
-            await exec.handler(mockContext, { command: 'learn analytics' })
+            await exec.handler(mockContext, { command: 'learn posthog:bot-traffic' })
             await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).resolves.toBeDefined()
+        })
+
+        it('does not open the gate for a generic guide read', async () => {
+            const { session } = makeSkillsSession()
+            const exec = createExec(undefined, undefined, { learnCatalog: guideCatalog(), skillsSession: session })
+
+            await exec.handler(mockContext, { command: 'learn analytics' })
+
+            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).rejects.toThrow(
+                'No skills loaded this session'
+            )
         })
 
         it('does not open the gate for a bare search', async () => {
@@ -206,7 +226,9 @@ describe('exec tool', () => {
             }
             const exec = createExec(undefined, undefined, { learnCatalog: guideCatalog(), skillsSession: failing })
 
-            await expect(exec.handler(mockContext, { command: 'learn analytics' })).resolves.toBe('Use the tools.')
+            await expect(exec.handler(mockContext, { command: 'learn posthog:bot-traffic' })).resolves.toContain(
+                'Bot traffic'
+            )
             await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).resolves.toBeDefined()
         })
     })

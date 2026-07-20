@@ -224,12 +224,17 @@ export async function trackToolsList(toolNames: string[], state: ResolvedState):
 }
 
 /**
- * Captures `llma skill invoked` per successful skill content read through exec
- * `learn` — the consumption counterpart of the authoring `llma skill *` events
- * emitted by `products/skills`. Keep property keys additive: they feed the same
- * LLMA skills adoption dashboards.
+ * Captures `skill invoked` per successful full skill load through exec `learn` —
+ * the consumption counterpart of the authoring `llma skill *` events emitted by
+ * `products/skills`. Keep property keys additive: they feed the same LLMA skills
+ * adoption dashboards.
  */
 export async function trackSkillInvoked(state: ResolvedState, invocation: SkillInvocation): Promise<void> {
+    // Nested file reads are follow-ups within an already-loaded skill — tracking
+    // them would multiply-count a single logical invocation.
+    if (invocation.readKind !== 'skill') {
+        return
+    }
     try {
         const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
         const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
@@ -237,7 +242,7 @@ export async function trackSkillInvoked(state: ResolvedState, invocation: SkillI
 
         getPostHogClient().capture({
             distinctId: state.distinctId,
-            event: 'llma skill invoked',
+            event: 'skill invoked',
             groups,
             properties: {
                 ...properties,
@@ -245,8 +250,6 @@ export async function trackSkillInvoked(state: ResolvedState, invocation: SkillI
                 skill_source: invocation.source,
                 skill_name: invocation.skill,
                 skill_identifier: `${invocation.source}:${invocation.skill}`,
-                skill_read_kind: invocation.readKind,
-                ...(invocation.path ? { skill_file_path: invocation.path } : {}),
             },
         })
     } catch {
