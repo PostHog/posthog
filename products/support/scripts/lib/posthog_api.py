@@ -39,6 +39,7 @@ def request_with_retries(
             time.sleep(BACKOFF_BASE_SECONDS * 2**attempt)
             continue
         if response.status_code == 429:
+            last_error = f"HTTP {response.status_code}: {response.text[:200]}"
             default_wait = BACKOFF_BASE_SECONDS * 2**attempt
             raw_retry_after = response.headers.get("Retry-After")
             try:
