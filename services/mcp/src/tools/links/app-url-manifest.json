@@ -509,6 +509,11 @@
         "params": [],
         "scope": "project"
     },
+    "errorTrackingFingerprint": {
+        "template": "/error_tracking/fingerprint/{fingerprint}",
+        "params": ["fingerprint"],
+        "scope": "project"
+    },
     "errorTrackingIssue": {
         "template": "/error_tracking/{id}",
         "params": ["id"],

@@ -198,7 +198,6 @@ __all__ = [
     "run_task_automation_now",
     "save_code_workflow_bindings",
     "send_cancel",
-    "send_user_message",
     "select_repository_for_message",
     "set_task_run_output",
     "set_task_title",
@@ -2546,12 +2545,23 @@ def validate_task_run_artifact_ids(
 
 
 def signal_task_run_user_message(
-    run_id: str | UUID, task_id: str | UUID, team_id: int, *, content: str | None, artifact_ids: list[str]
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    content: str | None,
+    artifact_ids: list[str],
+    message_id: str | None = None,
 ) -> bool | None:
     """Queue a user_message follow-up signal on the run's workflow.
 
-    Returns ``True`` on success, ``False`` if signalling failed, ``None`` if the run isn't found.
+    Returns ``True`` on success, ``False`` when the target workflow is gone
+    (completed or evicted — a terminal outcome), ``None`` when the run isn't
+    found. Transient signalling failures propagate so a calling Temporal
+    activity retries rather than reporting a dead end to the user.
     """
+    from temporalio.service import RPCError, RPCStatusCode  # noqa: PLC0415 — keep temporalio off the api import path
+
     from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
         signal_task_followup_message,
     )
@@ -2560,10 +2570,12 @@ def signal_task_run_user_message(
     if run is None:
         return None
     try:
-        signal_task_followup_message(run.workflow_id, content, artifact_ids)
-    except Exception:
-        logger.exception("Failed to signal follow-up message for task run %s", run.id)
-        return False
+        signal_task_followup_message(run.workflow_id, content, artifact_ids, message_id)
+    except RPCError as e:
+        if e.status == RPCStatusCode.NOT_FOUND:
+            logger.warning("Follow-up signal target workflow gone for task run %s", run.id)
+            return False
+        raise
     return True
 
 
@@ -4721,36 +4733,6 @@ def create_sandbox_connection_token(run_id: str | UUID, user_id: int, distinct_i
 
     run = TaskRun.objects.select_related("task").get(id=run_id)
     return _create(run, user_id, distinct_id)
-
-
-def send_user_message(
-    run_id: str | UUID,
-    message: str | None = None,
-    *,
-    artifacts: list[dict] | None = None,
-    auth_token: str | None = None,
-    timeout: int | None = None,
-    message_id: str | None = None,
-):
-    """Push a follow-up user message (and/or artifacts) into a run's live sandbox.
-
-    ``message_id`` is the agent-server idempotency key — pass a deterministic id when the
-    caller may retry delivery so a redelivered message isn't applied twice.
-    """
-    from products.tasks.backend.logic.services.agent_command import (  # noqa: PLC0415 — keep sandbox deps off the api import path
-        send_user_message as _send,
-    )
-
-    run = TaskRun.objects.select_related("task").get(id=run_id)
-    # Forward only explicitly-provided optionals so the underlying call shape is unchanged.
-    extra: dict = {}
-    if artifacts is not None:
-        extra["artifacts"] = artifacts
-    if timeout is not None:
-        extra["timeout"] = timeout
-    if message_id is not None:
-        extra["message_id"] = message_id
-    return _send(run, message, auth_token=auth_token, **extra)
 
 
 def send_cancel(run_id: str | UUID, *, auth_token: str | None = None):

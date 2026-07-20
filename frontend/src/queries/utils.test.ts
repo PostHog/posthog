@@ -17,6 +17,7 @@ import {
     escapePropertyAsHogQLIdentifier,
     hogql,
     queryUsesDataWarehouse,
+    queryVizDefinitelyRendersToCanvas,
     queryVizRendersToCanvas,
     supportsBarValueStacking,
 } from './utils'
@@ -261,26 +262,65 @@ describe('queryVizRendersToCanvas', () => {
         ({ kind: NodeKind.TrendsQuery, series: [], trendsFilter: display ? { display } : {} }) as InsightQueryNode
 
     it.each([
-        { name: 'HogQL data table', query: { kind: NodeKind.DataTableNode } as any, expected: false },
+        {
+            name: 'HogQL data table',
+            query: { kind: NodeKind.DataTableNode } as any,
+            expectedMayRenderToCanvas: false,
+            expectedDefinitelyRendersToCanvas: false,
+        },
         {
             name: 'SQL viz as chart',
             query: { kind: NodeKind.DataVisualizationNode, display: ChartDisplayType.ActionsLineGraph } as any,
-            expected: true,
+            expectedMayRenderToCanvas: true,
+            expectedDefinitelyRendersToCanvas: true,
         },
         {
             name: 'SQL viz as table (no display)',
             query: { kind: NodeKind.DataVisualizationNode } as any,
-            expected: false,
+            expectedMayRenderToCanvas: false,
+            expectedDefinitelyRendersToCanvas: false,
         },
-        { name: 'trends line chart', query: insightViz(trends(ChartDisplayType.ActionsLineGraph)), expected: true },
-        { name: 'trends default display', query: insightViz(trends()), expected: true },
-        { name: 'trends bold number', query: insightViz(trends(ChartDisplayType.BoldNumber)), expected: false },
-        { name: 'trends table', query: insightViz(trends(ChartDisplayType.ActionsTable)), expected: false },
-        { name: 'trends world map', query: insightViz(trends(ChartDisplayType.WorldMap)), expected: false },
+        {
+            name: 'SQL viz with auto display',
+            query: { kind: NodeKind.DataVisualizationNode, display: ChartDisplayType.Auto } as any,
+            expectedMayRenderToCanvas: true,
+            expectedDefinitelyRendersToCanvas: false,
+        },
+        {
+            name: 'trends line chart',
+            query: insightViz(trends(ChartDisplayType.ActionsLineGraph)),
+            expectedMayRenderToCanvas: true,
+            expectedDefinitelyRendersToCanvas: true,
+        },
+        {
+            name: 'trends default display',
+            query: insightViz(trends()),
+            expectedMayRenderToCanvas: true,
+            expectedDefinitelyRendersToCanvas: true,
+        },
+        {
+            name: 'trends bold number',
+            query: insightViz(trends(ChartDisplayType.BoldNumber)),
+            expectedMayRenderToCanvas: false,
+            expectedDefinitelyRendersToCanvas: false,
+        },
+        {
+            name: 'trends table',
+            query: insightViz(trends(ChartDisplayType.ActionsTable)),
+            expectedMayRenderToCanvas: false,
+            expectedDefinitelyRendersToCanvas: false,
+        },
+        {
+            name: 'trends world map',
+            query: insightViz(trends(ChartDisplayType.WorldMap)),
+            expectedMayRenderToCanvas: false,
+            expectedDefinitelyRendersToCanvas: false,
+        },
         {
             name: 'funnel steps (default)',
             query: insightViz({ kind: NodeKind.FunnelsQuery, series: [] } as InsightQueryNode),
-            expected: true,
+            expectedMayRenderToCanvas: true,
+            expectedDefinitelyRendersToCanvas: true,
         },
         {
             name: 'funnel flow (Sankey)',
@@ -289,7 +329,8 @@ describe('queryVizRendersToCanvas', () => {
                 series: [],
                 funnelsFilter: { funnelVizType: FunnelVizType.Flow },
             } as InsightQueryNode),
-            expected: false,
+            expectedMayRenderToCanvas: false,
+            expectedDefinitelyRendersToCanvas: false,
         },
         {
             name: 'funnel time to convert (table)',
@@ -298,7 +339,8 @@ describe('queryVizRendersToCanvas', () => {
                 series: [],
                 funnelsFilter: { funnelVizType: FunnelVizType.TimeToConvert },
             } as InsightQueryNode),
-            expected: false,
+            expectedMayRenderToCanvas: false,
+            expectedDefinitelyRendersToCanvas: false,
         },
         {
             name: 'funnel trends (line chart)',
@@ -307,17 +349,30 @@ describe('queryVizRendersToCanvas', () => {
                 series: [],
                 funnelsFilter: { funnelVizType: FunnelVizType.Trends },
             } as InsightQueryNode),
-            expected: true,
+            expectedMayRenderToCanvas: true,
+            expectedDefinitelyRendersToCanvas: true,
         },
         {
             name: 'retention',
             query: insightViz({ kind: NodeKind.RetentionQuery } as InsightQueryNode),
-            expected: false,
+            expectedMayRenderToCanvas: false,
+            expectedDefinitelyRendersToCanvas: false,
         },
-        { name: 'paths', query: insightViz({ kind: NodeKind.PathsQuery } as InsightQueryNode), expected: false },
-        { name: 'null query', query: null, expected: true },
-    ])('returns $expected for $name', ({ query, expected }) => {
-        expect(queryVizRendersToCanvas(query)).toBe(expected)
+        {
+            name: 'paths',
+            query: insightViz({ kind: NodeKind.PathsQuery } as InsightQueryNode),
+            expectedMayRenderToCanvas: false,
+            expectedDefinitelyRendersToCanvas: false,
+        },
+        {
+            name: 'null query',
+            query: null,
+            expectedMayRenderToCanvas: true,
+            expectedDefinitelyRendersToCanvas: false,
+        },
+    ])('classifies $name', ({ query, expectedMayRenderToCanvas, expectedDefinitelyRendersToCanvas }) => {
+        expect(queryVizRendersToCanvas(query)).toBe(expectedMayRenderToCanvas)
+        expect(queryVizDefinitelyRendersToCanvas(query)).toBe(expectedDefinitelyRendersToCanvas)
     })
 })
 

@@ -674,7 +674,16 @@
             "type": "object"
         },
         "AggregationAxisFormat": {
-            "enum": ["numeric", "duration", "duration_ms", "percentage", "percentage_scaled", "currency", "short"],
+            "enum": [
+                "numeric",
+                "duration",
+                "duration_ms",
+                "duration_ns",
+                "percentage",
+                "percentage_scaled",
+                "currency",
+                "short"
+            ],
             "type": "string"
         },
         "AlertCalculationInterval": {
@@ -24161,7 +24170,9 @@
                 "Kajabi",
                 "Shopware",
                 "Dubsado",
-                "Campfire"
+                "Campfire",
+                "Crisp",
+                "Kommo"
             ],
             "type": "string"
         },
@@ -34381,6 +34392,7 @@
                 "data warehouse sources table",
                 "experiment created",
                 "experiment analyzed",
+                "experiment view recordings",
                 "feature flag created",
                 "session_replay_set_filters",
                 "session_replay_experiment_link_clicked",

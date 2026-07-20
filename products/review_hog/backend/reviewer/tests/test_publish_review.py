@@ -377,21 +377,25 @@ class TestFormatIssueComment:
         # Alt text is the raw enum value, so the priority still reads when the badge image can't load.
         assert f"![{alt}]" in body
 
-    def test_layout_is_title_then_badges_then_unchanged_collapsed_sections(self) -> None:
-        # The change only swapped the text meta for badges and dropped the line ref: title leads, badges
-        # tag it just beneath, and all four sections stay folded. Catches a badge/title reorder, a
-        # re-added `Priority | Lines` meta, or a section being surfaced inline instead of collapsed.
+    def test_layout_is_title_then_badges_then_collapsed_sections_validation_first(self) -> None:
+        # Title leads, badges tag it just beneath, and all four sections stay folded — with the
+        # validator's verdict first (the deliberate reading order: claim → why it's real → detail).
+        # Catches a badge/title reorder, a re-added `Priority | Lines` meta, a section surfaced inline
+        # instead of collapsed, or a template refactor flipping the order back to description-first.
         finding = _finding()
         body = _format_issue_comment(finding, _verdict())
 
         assert body.index(f"### {finding.title}") < body.index("![should_fix]") < body.index("<details>")
-        for label in (
-            "Issue description",
-            "Suggested fix",
-            "Why we think it's a valid issue",
-            "Prompt to fix with AI (copy-paste)",
-        ):
-            assert f"<summary><strong>{label}</strong></summary>" in body
+        positions = [
+            body.index(f"<summary><strong>{label}</strong></summary>")
+            for label in (
+                "Why we think it's a valid issue",
+                "Issue description",
+                "Suggested fix",
+                "Prompt to fix with AI (copy-paste)",
+            )
+        ]
+        assert positions == sorted(positions)
         # Problem and fix stay inside <details>, not surfaced above the first one.
         assert finding.body not in body[: body.index("<details>")]
         assert "**Priority:**" not in body and "**Lines:**" not in body
