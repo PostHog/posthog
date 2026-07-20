@@ -87,9 +87,22 @@ You can create an API key in [LlamaCloud](https://cloud.llamaindex.ai) under **S
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         # Both regional hosts share the https://api.cloud. prefix, so one key per status
         # covers NA and EU without matching unrelated hosts.
+        usage_metrics_400 = (
+            "LlamaCloud rejected the request for the usage metrics table with a 400 error. This beta "
+            "endpoint isn't available for every LlamaCloud organization, so we've stopped syncing "
+            "usage_metrics; your other LlamaCloud tables keep syncing. If you need usage metrics, check "
+            "with LlamaCloud that your organization has access to the beta usage-metrics API."
+        )
         return {
             "401 Client Error: Unauthorized for url: https://api.cloud.": "Your LlamaCloud API key is invalid, revoked, or from a different region. Create a new API key in LlamaCloud, check the region, and reconnect.",
             "403 Client Error: Forbidden for url: https://api.cloud.": "Your LlamaCloud API key does not have access to this data. Check the key's project in LlamaCloud and reconnect.",
+            # The beta usage-metrics endpoint deterministically returns 400 for organizations it isn't
+            # available to; our request is otherwise valid (organization_id resolved, page_size in range),
+            # so retrying can't help. Scope the key to this endpoint's path — status and path, not the
+            # variable query string — so genuine 400s on other endpoints still surface. The host differs
+            # per region, so one key each keeps the match off unrelated 401/403 responses.
+            "400 Client Error: Bad Request for url: https://api.cloud.llamaindex.ai/api/v1/beta/usage-metrics": usage_metrics_400,
+            "400 Client Error: Bad Request for url: https://api.cloud.eu.llamaindex.ai/api/v1/beta/usage-metrics": usage_metrics_400,
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

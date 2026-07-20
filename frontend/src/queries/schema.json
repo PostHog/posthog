@@ -653,7 +653,16 @@
             "type": "object"
         },
         "AggregationAxisFormat": {
-            "enum": ["numeric", "duration", "duration_ms", "percentage", "percentage_scaled", "currency", "short"],
+            "enum": [
+                "numeric",
+                "duration",
+                "duration_ms",
+                "duration_ns",
+                "percentage",
+                "percentage_scaled",
+                "currency",
+                "short"
+            ],
             "type": "string"
         },
         "AlertCalculationInterval": {
@@ -23243,6 +23252,7 @@
                 "Pinecone",
                 "PlatformSh",
                 "PromptingCompany",
+                "PromptWatch",
                 "Qdrant",
                 "Render",
                 "Replicate",
@@ -33624,6 +33634,7 @@
                 "platform_and_support",
                 "product_analytics",
                 "product_tours",
+                "pulse",
                 "revenue_analytics",
                 "review_hog",
                 "session_replay",

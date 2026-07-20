@@ -5605,6 +5605,7 @@ export interface HeatmapExportContext {
     heatmap_fixed_position_mode?: HeatmapFixedPositionMode
     common_filters?: CommonFilters
     width?: number
+    height?: number
 }
 
 export type ExportContext = (
@@ -5681,6 +5682,7 @@ export const API_SCOPE_OBJECTS = [
     'approvals',
     'batch_export',
     'batch_import',
+    'batch_import_support',
     'business_knowledge',
     'clickhouse_test_cluster_perf',
     'cohort',
@@ -6184,6 +6186,8 @@ export interface ExternalDataSource {
     description: string | null
     access_method?: 'warehouse' | 'direct'
     direct_query_enabled?: boolean
+    auto_sync_new_schemas?: boolean
+    auto_sync_schema_patterns?: string[] | null
     created_via: 'web' | 'api' | 'mcp' | 'wizard' | null
     engine?: 'duckdb' | 'postgres' | 'mysql' | 'snowflake' | 'redshift' | null
     latest_error: string | null
