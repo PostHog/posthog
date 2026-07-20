@@ -62,7 +62,7 @@ interface InlineEditableTextProps {
 }
 
 /** Port of `/code`'s `InlineEditableText` — the borderless autosizing textarea that IS the reject row. */
-function InlineEditableText({
+export function InlineEditableText({
     value,
     placeholder,
     active,
