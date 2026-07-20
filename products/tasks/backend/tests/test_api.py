@@ -4801,6 +4801,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             run_id=str(run.id),
             text="Which license should I use?",
             delete_progress=True,
+            message_id=None,
         )
 
     @parameterized.expand(
@@ -4853,6 +4854,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             run_id=str(run.id),
             text=expected_posted_text,
             delete_progress=True,
+            message_id=None,
         )
 
     @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
@@ -7829,7 +7831,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(data["jsonrpc"], "2.0")
         self.assertTrue(data["result"]["queued"])
 
-        mock_signal_followup.assert_called_once_with(run.workflow_id, "Hello agent", [], None)
+        mock_signal_followup.assert_called_once_with(run.workflow_id, "Hello agent", [], None, self.user.id, None)
 
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
     def test_command_user_message_requires_code_access(self, mock_signal_followup):
@@ -7865,7 +7867,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.json()["result"]["queued"])
-        mock_signal_followup.assert_called_once_with(run.workflow_id, "Hello agent", [], None)
+        mock_signal_followup.assert_called_once_with(run.workflow_id, "Hello agent", [], None, self.user.id, None)
 
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
     def test_command_signals_user_message_artifact_ids(self, mock_signal_followup):
@@ -7897,7 +7899,9 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.json()["result"]["queued"])
-        mock_signal_followup.assert_called_once_with(run.workflow_id, "See attached", ["artifact-123"], None)
+        mock_signal_followup.assert_called_once_with(
+            run.workflow_id, "See attached", ["artifact-123"], None, self.user.id, None
+        )
 
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
     def test_command_returns_502_when_user_message_signal_fails(self, mock_signal_followup):

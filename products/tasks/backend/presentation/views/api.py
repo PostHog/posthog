@@ -1175,6 +1175,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self.team_id,
             text=request.validated_data["text"],
             text_parts=request.validated_data.get("text_parts"),
+            message_id=request.validated_data.get("message_id"),
         )
         if relay_status == "failed":
             return Response(
@@ -1534,7 +1535,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
             try:
                 signal_result = tasks_facade.signal_task_run_user_message(
-                    pk, task_id, self.team_id, content=command_params.get("content"), artifact_ids=artifact_ids
+                    pk,
+                    task_id,
+                    self.team_id,
+                    content=command_params.get("content"),
+                    artifact_ids=artifact_ids,
+                    actor_user_id=request.user.id,
                 )
             except Exception:
                 # A synchronous web request can't retry the way the Temporal

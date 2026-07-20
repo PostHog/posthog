@@ -20,6 +20,7 @@ from products.tasks.backend.logic.services.agent_command import (
     send_user_message,
 )
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
+from products.tasks.backend.logic.services.run_actor import slack_actor_state_updates
 from products.tasks.backend.logic.services.staged_artifacts import get_task_run_artifacts_by_id
 from products.tasks.backend.logic.stream.redis_stream import get_task_run_stream_key
 from products.tasks.backend.models import TaskRun
@@ -33,6 +34,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_user_mcp_server_configs,
     is_slack_interaction_state,
     mark_mcp_token_issued,
+    record_message_actor,
     should_refresh_mcp_token,
 )
 
@@ -55,9 +57,14 @@ class SendFollowupToSandboxInput:
     message: str | None = None
     posthog_mcp_scopes: PosthogMcpScopes = "read_only"
     artifact_ids: list[str] | None = None
-    # Workflow-generated idempotency key. Stable across activity retries, so
-    # the agent-server can drop a redelivery of a message it already accepted.
+    # Idempotency key, stable across retries and redeliveries; the
+    # agent-server drops a duplicate it already accepted.
     message_id: str | None = None
+    # Sender of this message; None (older senders, pre-rollout histories)
+    # falls back to the run-state actor.
+    actor_user_id: int | None = None
+    # Signal context, passed through from PendingFollowup.
+    context: dict[str, Any] | None = None
 
 
 @activity.defn
@@ -118,9 +125,31 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> None:
         # background-mode runs hang until the inactivity timeout because
         raise ApplicationError(f"send_followup failed: {error_msg}", non_retryable=True)
 
+    # Resolve credentials against this message's sender, not the run-state
+    # actor a concurrent follow-up may have overwritten since queueing. Local
+    # overlay; the resolver still enforces team access (see run_actor.py).
+    raw_actor_slack_user_id = (input.context or {}).get("actor_slack_user_id")
+    actor_slack_user_id = raw_actor_slack_user_id if isinstance(raw_actor_slack_user_id, str) else None
+
+    state = task_run.state
+    if input.actor_user_id is not None:
+        state = {**(state or {}), "slack_actor_user_id": input.actor_user_id}
+        if is_slack_interaction_state(state):
+            # Deliveries are serialized by the workflow, so stamping here
+            # moves the durable actor at turn boundaries — between-turn
+            # consumers (reply tagging, permission broker) see the executing
+            # turn's actor. Skipped when already current.
+            updates = slack_actor_state_updates(user_id=input.actor_user_id, slack_user_id=actor_slack_user_id)
+            current = task_run.state or {}
+            if any(current.get(key) != value for key, value in updates.items()):
+                try:
+                    TaskRun.update_state_atomic(task_run.id, updates=updates)
+                except Exception:
+                    logger.warning("send_followup_actor_stamp_failed", run_id=input.run_id, exc_info=True)
+
     auth_token = None
-    actor_user = get_task_run_credential_user(task_run.task, task_run.state)
-    if is_slack_interaction_state(task_run.state) and actor_user is None:
+    actor_user = get_task_run_credential_user(task_run.task, state)
+    if is_slack_interaction_state(state) and actor_user is None:
         error_msg = "Slack actor unavailable for this run"
         _write_error_and_complete(input.run_id, error_msg, run_uses_dedicated_stream(task_run.state))
         raise RuntimeError(f"send_followup failed: {error_msg}")
@@ -132,7 +161,7 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> None:
     # Push a fresh MCP config before the turn so the agent-server rebinds its
     # ACP session to a non-stale OAuth token. Non-fatal: if refresh fails we
     # still deliver the follow-up with the existing (possibly stale) creds.
-    _refresh_sandbox_mcp(task_run, input.posthog_mcp_scopes, auth_token)
+    _refresh_sandbox_mcp(task_run, input.posthog_mcp_scopes, auth_token, actor_user=actor_user, state=state)
     artifacts = None
     artifact_ids = input.artifact_ids or []
     if artifact_ids:
@@ -141,6 +170,9 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> None:
             error_msg = f"Artifacts not found on this run: {', '.join(missing_artifact_ids)}"
             _write_error_and_complete(input.run_id, error_msg, run_uses_dedicated_stream(task_run.state))
             raise ApplicationError(f"send_followup failed: {error_msg}", non_retryable=True)
+
+    if input.message_id and actor_slack_user_id:
+        record_message_actor(input.run_id, input.message_id, actor_slack_user_id)
 
     result = send_user_message(
         task_run,
@@ -221,24 +253,28 @@ def _refresh_sandbox_mcp(
     task_run: TaskRun,
     scopes: PosthogMcpScopes,
     auth_token: str | None,
+    *,
+    actor_user: Any,
+    state: dict[str, Any] | None,
 ) -> None:
-    """Mint a fresh OAuth token and push updated MCP configs to the sandbox.
+    """Mint a fresh OAuth token for the actor and push updated MCP configs to
+    the sandbox.
 
-    Best-effort: retries once on failure, then logs and returns. Never raises
-    — a failed refresh should not block an otherwise-valid follow-up.
-
-    Skipped entirely if a token was issued for this run within the last
-    MCP_TOKEN_REFRESH_INTERVAL_SECONDS — the in-sandbox token is still fresh.
+    Best-effort: retries once on failure, then logs and returns — a failed
+    refresh must not block an otherwise-valid follow-up. Skipped when a token
+    was already issued for this run within MCP_TOKEN_REFRESH_INTERVAL_SECONDS.
     """
     run_id = str(task_run.id)
     if not should_refresh_mcp_token(run_id):
         logger.info("refresh_mcp_skipped_within_interval", run_id=run_id)
         return
+    if actor_user is None:
+        # Without a credential user the mint is guaranteed to fail; skip
+        # quietly rather than warn on every message.
+        return
 
-    task = task_run.task
     try:
-        actor_user = get_task_run_credential_user(task, task_run.state)
-        access_token = create_oauth_access_token_for_run(task, task_run.state, scopes=scopes)
+        access_token = create_oauth_access_token_for_run(task_run.task, state, scopes=scopes)
     except Exception as e:
         logger.warning("refresh_mcp_token_mint_failed", run_id=run_id, error=str(e))
         return
@@ -247,18 +283,17 @@ def _refresh_sandbox_mcp(
         token=access_token,
         project_id=task_run.team_id,
         scopes=scopes,
-        interaction_origin=(task_run.state or {}).get("interaction_origin"),
+        interaction_origin=(state or {}).get("interaction_origin"),
         task_id=str(task_run.task_id),
     )
-    if actor_user and actor_user.id:
-        user_mcp_configs = get_user_mcp_server_configs(
-            token=access_token,
-            team_id=task_run.team_id,
-            user_id=actor_user.id,
-            interaction_origin=(task_run.state or {}).get("interaction_origin"),
-        )
-        if user_mcp_configs:
-            mcp_configs = mcp_configs + user_mcp_configs
+    user_mcp_configs = get_user_mcp_server_configs(
+        token=access_token,
+        team_id=task_run.team_id,
+        user_id=actor_user.id,
+        interaction_origin=(state or {}).get("interaction_origin"),
+    )
+    if user_mcp_configs:
+        mcp_configs = mcp_configs + user_mcp_configs
 
     # refresh_session replaces the session's server list wholesale, so the
     # run's imported servers must ride along or they vanish mid-run.
