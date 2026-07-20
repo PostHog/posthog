@@ -47,6 +47,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog import settings
 from posthog.api.test.dashboards import DashboardAPI
+from posthog.caching.fetch_from_cache import InsightResult
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import SHARED_FORCE_BLOCKING_STALENESS_WINDOW, ExecutionMode
 from posthog.models import Filter, OrganizationMembership, SharingConfiguration, Team, User
@@ -56,6 +57,7 @@ from posthog.test.persons import create_person
 
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from products.cohorts.backend.models.cohort import Cohort
+from products.dashboards.backend.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
@@ -494,6 +496,50 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertNotEqual(insight_in_isolation["filters_hash"], insight_on_dashboard["filters_hash"])
 
+    @parameterized.expand(
+        [
+            ("hit", True, None, True),
+            ("miss", False, None, True),
+            ("forced_refresh", False, "force_blocking", False),
+        ]
+    )
+    @patch("products.product_analytics.backend.api.insight.record_dashboard_cache_outcome")
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_dashboard_insight_records_cache_outcome(
+        self,
+        _name: str,
+        is_cached: bool,
+        refresh: str | None,
+        expect_recorded: bool,
+        mock_calculate: mock.MagicMock,
+        mock_record_outcome: mock.MagicMock,
+    ) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Dashboard", created_by=self.user)
+        insight = Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        mock_calculate.return_value = InsightResult(
+            result=[],
+            last_refresh=timezone.now(),
+            cache_key="cache-key",
+            is_cached=is_cached,
+            timezone=self.team.timezone,
+        )
+
+        query_params = {"from_dashboard": str(dashboard.id)}
+        if refresh is not None:
+            query_params["refresh"] = refresh
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight.id}/", query_params)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        if expect_recorded:
+            mock_record_outcome.assert_called_once_with(DashboardAccessMethod.HUMAN, is_cached=is_cached)
+        else:
+            mock_record_outcome.assert_not_called()
+
     def test_get_insight_in_shared_context(self) -> None:
         filter_dict = {
             "events": [{"id": "$pageview"}],
@@ -511,9 +557,12 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         valid_url = f"{settings.SITE_URL}/shared/{sharing_config.access_token}"
 
-        with patch(
-            "posthog.caching.calculate_results.calculate_for_query_based_insight"
-        ) as calculate_for_query_based_insight:
+        with (
+            patch(
+                "posthog.caching.calculate_results.calculate_for_query_based_insight"
+            ) as calculate_for_query_based_insight,
+            patch("products.product_analytics.backend.api.insight.record_dashboard_cache_outcome") as record_outcome,
+        ):
             self.client.get(valid_url)
             calculate_for_query_based_insight.assert_called_once_with(
                 mock.ANY,
@@ -529,6 +578,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 analytics_props=ANY,
                 allow_raw_results=False,
             )
+            record_outcome.assert_not_called()
 
         with patch(
             "posthog.caching.calculate_results.calculate_for_query_based_insight"

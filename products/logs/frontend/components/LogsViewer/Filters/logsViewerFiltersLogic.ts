@@ -15,7 +15,7 @@ import {
 import posthog from 'posthog-js'
 
 import { zoomDateRange } from 'lib/components/DateFilter/DateRangePicker'
-import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
+import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/constants'
 import { dayjs } from 'lib/dayjs'
 
 import { DateRange, LogSeverityLevel, LogsQuery } from '~/queries/schema/schema-general'

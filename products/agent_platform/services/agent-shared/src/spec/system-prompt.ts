@@ -37,6 +37,10 @@ export interface UnavailableMcp {
 }
 
 export interface BuildSystemPromptOpts {
+    /** MCP refs that opened successfully for this session. Positive runtime
+     *  state keeps the model from guessing connection status from its own
+     *  imperfect recollection of the tool declarations. */
+    availableMcps?: readonly string[]
     /**
      * MCP refs that failed to open for this session. Rendered as a brief
      * "unavailable capabilities" section so the model can shape its reply
@@ -91,6 +95,21 @@ export async function buildSystemPrompt(
             const desc = skill.description?.trim() || '(no description)'
             lines.push(`- \`${skill.id}\`: ${desc}`)
         }
+        parts.push(lines.join('\n'))
+    }
+
+    const available = opts.availableMcps ?? []
+    if (available.length > 0) {
+        const lines = ['\n\n---\n\n## Connected MCP servers', '']
+        lines.push('These MCP servers opened successfully for this session:')
+        lines.push('')
+        for (const id of available) {
+            lines.push(`- \`${id}\``)
+        }
+        lines.push('')
+        lines.push(
+            'Their tools allowed by the agent spec are callable. Do not claim one of these servers is disconnected based on whether you can enumerate or recall every tool declaration. Only a server listed under an unavailable-capabilities section failed to open.'
+        )
         parts.push(lines.join('\n'))
     }
 
