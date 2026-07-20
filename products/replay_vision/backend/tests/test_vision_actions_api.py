@@ -1,7 +1,10 @@
 from typing import Any
 
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
+
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -11,6 +14,7 @@ from posthog.models import Organization, Team
 from posthog.models.integration import Integration
 
 from products.replay_vision.backend.api.vision_actions import MAX_ENABLED_ALERTS_PER_SCANNER
+from products.replay_vision.backend.digest import provision_scanner_digest
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun, VisionActionRunStatus
@@ -519,3 +523,80 @@ class TestVisionActionRunCrossTeamIDOR(_VisionActionAPITestCase):
         # The action belongs to another team, so the nested route must 404 rather than leak its runs.
         resp = self.client.get(f"/api/projects/{self.team.id}/vision/actions/{self.other_action.id}/runs/")
         self.assertEqual(resp.status_code, 404)
+
+
+# A schedule that fires at 08:00, so at the frozen noon the next tick is tomorrow morning — clearly in
+# the future, which is what makes the "run immediately on setup" seed observable.
+_FUTURE_RRULE = {"rrule": "FREQ=DAILY;BYHOUR=8;BYMINUTE=0", "timezone": "UTC"}
+_FROZEN_NOON = "2026-07-20 12:00:00"
+
+
+class TestVisionActionImmediateFirstRun(_VisionActionAPITestCase):
+    """A newly set-up summary should produce its first run on the next sweep, not wait for the first
+    scheduled tick — the sweep claims any enabled schedule action whose next_run_at is due, so
+    seeding next_run_at to "now" is what makes the first summary land within minutes."""
+
+    def test_new_summary_runs_immediately_then_keeps_the_schedule(self) -> None:
+        with freeze_time(_FROZEN_NOON):
+            resp = self.client.post(
+                self.actions_url, data=self._create_payload(trigger_config=_FUTURE_RRULE), format="json"
+            )
+            self.assertEqual(resp.status_code, 201, resp.content)
+            action = VisionAction.all_teams.get(id=resp.json()["id"])
+            # Due now (seeded), not tomorrow's 08:00 tick — the next sweep will claim and run it.
+            self.assertEqual(action.next_run_at, timezone.now())
+
+    def test_new_alert_is_not_seeded(self) -> None:
+        # Alerts already check every sweep (every_match) or hourly, so they must keep their cursor
+        # rather than being pulled to "now".
+        with freeze_time(_FROZEN_NOON):
+            resp = self.client.post(
+                self.actions_url,
+                data=self._create_payload(
+                    name="my-alert",
+                    mode="alert",
+                    alert_config={"frequency": "every_match", "metric": "count"},
+                    selection={},
+                    trigger_config=_FUTURE_RRULE,
+                ),
+                format="json",
+            )
+            self.assertEqual(resp.status_code, 201, resp.content)
+            action = VisionAction.all_teams.get(id=resp.json()["id"])
+            self.assertGreater(action.next_run_at, timezone.now())
+
+    def test_resuming_a_paused_summary_runs_immediately(self) -> None:
+        created = self.client.post(
+            self.actions_url, data=self._create_payload(trigger_config=_FUTURE_RRULE), format="json"
+        ).json()
+        # Simulate a paused summary whose cursor already sits at a future scheduled tick.
+        future = timezone.now() + timezone.timedelta(days=1)
+        VisionAction.all_teams.filter(id=created["id"]).update(enabled=False, next_run_at=future)
+
+        with freeze_time(_FROZEN_NOON):
+            resp = self.client.patch(f"{self.actions_url}{created['id']}/", data={"enabled": True}, format="json")
+            self.assertEqual(resp.status_code, 200, resp.content)
+            action = VisionAction.all_teams.get(id=created["id"])
+            self.assertEqual(action.next_run_at, timezone.now())
+
+    def test_editing_an_enabled_summary_does_not_reseed(self) -> None:
+        # Only the disabled→enabled transition (and creation) seeds an immediate run; an unrelated
+        # edit on an already-enabled summary must leave its cursor alone.
+        created = self.client.post(
+            self.actions_url, data=self._create_payload(trigger_config=_FUTURE_RRULE), format="json"
+        ).json()
+        future = timezone.now() + timezone.timedelta(days=1)
+        VisionAction.all_teams.filter(id=created["id"]).update(next_run_at=future)
+
+        resp = self.client.patch(f"{self.actions_url}{created['id']}/", data={"name": "renamed"}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        action = VisionAction.all_teams.get(id=created["id"])
+        self.assertEqual(action.next_run_at, future)
+
+    def test_auto_provisioned_digest_keeps_its_schedule(self) -> None:
+        # The digest auto-created with a scanner (via digest.py, not this viewset) has nothing to
+        # summarize yet, so it stays on its 08:00 schedule rather than firing an empty first run.
+        with freeze_time(_FROZEN_NOON):
+            digest = provision_scanner_digest(self._create_scanner(name="fresh-scanner"), self.user)
+            assert digest is not None
+            self.assertGreater(digest.next_run_at, timezone.now())

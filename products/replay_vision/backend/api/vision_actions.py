@@ -3,6 +3,7 @@ from typing import Any, NoReturn, cast, get_args
 
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
+from django.utils import timezone
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
@@ -191,6 +192,19 @@ class DeliveryTargetSerializer(serializers.Serializer):
 # Alerts ride the scanner's sweep, so each enabled alert adds evaluation work to every sweep tick —
 # cap the fan-out one scanner can accumulate.
 MAX_ENABLED_ALERTS_PER_SCANNER = 10
+
+
+def _seed_immediate_first_run(action: VisionAction) -> None:
+    """Make a summary fire its first run on the next scanner sweep instead of waiting for the first
+    scheduled tick — a daily digest set up at 3pm would otherwise stay empty until 8am tomorrow.
+
+    The sweep claims any enabled schedule action whose next_run_at is due, then advances next_run_at
+    to the real rrule cadence, so seeding "now" gives an immediate first summary while leaving the
+    recurring schedule intact. The first run has no prior completed run, so it looks back 24h.
+    Written via .update() (not save()) so the model's rrule recompute can't overwrite the seed.
+    """
+    now = timezone.now()
+    VisionAction.objects.for_team(action.team_id).filter(pk=action.id).update(next_run_at=now, updated_at=now)
 
 
 class VisionActionSerializer(serializers.ModelSerializer):
@@ -511,6 +525,16 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         with transaction.atomic():
             action = serializer.save()
             provision_delivery(action, request=self.request, team=self.team)
+            # A newly created summary shouldn't wait for its first scheduled tick — fire the first run
+            # on the next sweep. Alerts already check every sweep (every_match) or hourly, so they
+            # don't need this; the auto-provisioned digest (via digest.py, not this viewset) is left
+            # to its schedule since a brand-new scanner has nothing to summarize yet.
+            if (
+                action.enabled
+                and action.mode == ActionMode.GROUP_SUMMARY
+                and action.trigger_type == TriggerType.SCHEDULE
+            ):
+                _seed_immediate_first_run(action)
 
     def perform_update(self, serializer: BaseSerializer) -> None:
         instance = cast(VisionAction, serializer.instance)
@@ -527,6 +551,15 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # edits don't touch the destinations, so they must not churn them.
             if action.delivery_config != old_delivery or action.enabled != old_enabled or action.name != old_name:
                 provision_delivery(action, request=self.request, team=self.team)
+            # Resuming a paused summary fires its next run immediately, same as first setup — the user
+            # turned it back on to get a summary, not to wait for the next tick.
+            if (
+                action.enabled
+                and not old_enabled
+                and action.mode == ActionMode.GROUP_SUMMARY
+                and action.trigger_type == TriggerType.SCHEDULE
+            ):
+                _seed_immediate_first_run(action)
 
     def perform_destroy(self, instance: VisionAction) -> None:
         archive_delivery(instance, team=self.team)
