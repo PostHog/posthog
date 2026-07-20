@@ -8,7 +8,7 @@ from django.core.management import call_command
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
 
-from products.growth.backend.models import OrganizationEnrichment, OrganizationEnrichmentFetch
+from products.growth.backend.models import EnrichmentSignupSnapshot, OrganizationEnrichment, OrganizationEnrichmentFetch
 
 _COMMAND_MODULE = "products.growth.backend.management.commands.backfill_signup_enrichment"
 
@@ -21,19 +21,33 @@ def _window() -> dict[str, str]:
 
 
 class TestBackfillSignupEnrichment(BaseTest):
-    def _org(self, *, email: str, work_email: bool = True, fetched: bool = False) -> Organization:
+    def _org(
+        self,
+        *,
+        email: str,
+        work_email: bool = True,
+        fetched: bool = False,
+        snapshotted: bool = False,
+        joined_after: dt.timedelta | None = None,
+    ) -> Organization:
         org = Organization.objects.create(name=email)
         user = User.objects.create_user(email=email, password=None, first_name="t")
-        OrganizationMembership.objects.create(organization=org, user=user)
+        membership = OrganizationMembership.objects.create(organization=org, user=user)
+        if joined_after is not None:
+            OrganizationMembership.objects.filter(id=membership.id).update(joined_at=org.created_at + joined_after)
         OrganizationEnrichment.objects.create(organization=org, data={"work_email": work_email})
         if fetched:
             OrganizationEnrichmentFetch.objects.create(organization=org, provider="harmonic", payload={})
+        if snapshotted:
+            EnrichmentSignupSnapshot.objects.create(organization=org)
         return org
 
     def test_dispatches_only_eligible_orgs_without_a_fetch(self):
         target = self._org(email="a@stripe.com")
         self._org(email="b@vercel.com", fetched=True)
         self._org(email="c@gmail.com", work_email=False)
+        self._org(email="d@sentry.io", snapshotted=True)
+        self._org(email="e@linear.app", joined_after=dt.timedelta(days=2))
 
         with (
             patch(f"{_COMMAND_MODULE}.get_instance_region", return_value="US"),

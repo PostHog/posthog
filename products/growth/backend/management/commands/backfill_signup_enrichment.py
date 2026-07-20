@@ -19,6 +19,11 @@ from posthog.utils import GenericEmails, get_instance_region
 
 _generic_emails = GenericEmails()
 
+# The signup creator's membership is written in the signup transaction, so it lands within
+# seconds of the org row. An earliest membership older than this window means the signup
+# user has left and the remaining members can't stand in for the signup identity.
+_SIGNUP_MEMBERSHIP_WINDOW = dt.timedelta(minutes=5)
+
 
 class Command(BaseCommand):
     help = (
@@ -51,6 +56,9 @@ class Command(BaseCommand):
                 enrichment_record__data__work_email=True,
             )
             .exclude(enrichment_fetches__isnull=False)
+            # The write-once snapshot guard row marks a completed first attempt, so a run whose
+            # archive write was swallowed (archive_provider_fetch never raises) is still excluded.
+            .exclude(enrichment_signup_snapshot__isnull=False)
             .order_by("created_at")
             .iterator()
         )
@@ -65,9 +73,14 @@ class Command(BaseCommand):
                 .order_by("joined_at")
                 .first()
             )
+            if membership is not None and membership.joined_at - org.created_at > _SIGNUP_MEMBERSHIP_WINDOW:
+                skipped += 1
+                self.stdout.write(f"skip {org.id} ({org.created_at:%Y-%m-%d %H:%M}) (signup user no longer a member)")
+                continue
+
             user = membership.user if membership else None
             domain = domain_from_email(user.email) if user else None
-            # The earliest member's email can have drifted since signup, so re-check it's a work email.
+            # The signup user's email can have changed since signup, so re-check it's a work email.
             if user is None or not user.distinct_id or not domain or _generic_emails.is_generic(user.email):
                 skipped += 1
                 self.stdout.write(f"skip {org.id} ({org.created_at:%Y-%m-%d %H:%M}) (no usable signup member)")
