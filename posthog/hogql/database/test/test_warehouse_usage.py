@@ -7,10 +7,13 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.visitor import clone_expr
 
-from products.warehouse_sources.backend.models import DataWarehouseCredential, DataWarehouseTable
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 class TestWarehouseUsage(BaseTest):
