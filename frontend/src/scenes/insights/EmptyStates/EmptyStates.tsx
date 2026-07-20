@@ -678,6 +678,11 @@ export function InsightErrorState({
         excludeDetail = true // We don't provide support for self-hosted instances
     }
 
+    // A support-only error has no retry guidance, so the retry/debug buttons are pointless too.
+    if (supportOnly) {
+        excludeActions = true
+    }
+
     const bugReportLink = (
         <Link
             data-attr="insight-error-bug-report"

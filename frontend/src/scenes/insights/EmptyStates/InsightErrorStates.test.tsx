@@ -72,7 +72,7 @@ describe('insight error states', () => {
     it('shows support without retry guidance for persistent errors', () => {
         preflightLogic.actions.loadPreflightSuccess({ cloud: true } as any)
 
-        render(<InsightErrorState title="There is a persistent problem." supportOnly excludeActions />)
+        render(<InsightErrorState title="There is a persistent problem." supportOnly />)
 
         expect(screen.getByText('If this persists, submit a bug report.')).toBeTruthy()
         expect(screen.queryByText(/try again/i)).toBeNull()

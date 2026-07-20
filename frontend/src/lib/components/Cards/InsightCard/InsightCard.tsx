@@ -371,13 +371,7 @@ function InsightCardInternal(
                 )
             } else if (apiError instanceof ApiError) {
                 const isDashboardTileError = apiError.code === 'dashboard_tile_error'
-                return (
-                    <InsightErrorState
-                        title={apiError.detail}
-                        excludeActions={isDashboardTileError}
-                        supportOnly={isDashboardTileError}
-                    />
-                )
+                return <InsightErrorState title={apiError.detail} supportOnly={isDashboardTileError} />
             }
             return <InsightErrorState />
         }
