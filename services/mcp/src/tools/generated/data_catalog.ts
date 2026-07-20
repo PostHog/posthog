@@ -12,6 +12,7 @@ import {
     DataCatalogMetricsPartialUpdateParams,
     DataCatalogMetricsRunCreateBody,
     DataCatalogMetricsRunCreateParams,
+    DataCatalogMetricsRunCreateQueryParams,
     DataCatalogRelationshipProposalsAcceptCreateParams,
     DataCatalogRelationshipProposalsCreateBody,
     DataCatalogRelationshipProposalsRejectCreateBody,
@@ -289,9 +290,9 @@ const dataCatalogMetricCreate = (): ToolBase<typeof DataCatalogMetricCreateSchem
     },
 })
 
-const DataCatalogMetricRunSchema = DataCatalogMetricsRunCreateParams.omit({ project_id: true }).extend(
-    DataCatalogMetricsRunCreateBody.shape
-)
+const DataCatalogMetricRunSchema = DataCatalogMetricsRunCreateParams.omit({ project_id: true })
+    .extend(DataCatalogMetricsRunCreateQueryParams.shape)
+    .extend(DataCatalogMetricsRunCreateBody.shape)
 
 const dataCatalogMetricRun = (): ToolBase<typeof DataCatalogMetricRunSchema, Schemas.DataCatalogMetricRun> => ({
     name: 'data-catalog-metric-run',
@@ -315,6 +316,9 @@ const dataCatalogMetricRun = (): ToolBase<typeof DataCatalogMetricRunSchema, Sch
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/${encodeURIComponent(String(params.name))}/run/`,
             body,
+            query: {
+                refresh: params.refresh,
+            },
         })
         return result
     },

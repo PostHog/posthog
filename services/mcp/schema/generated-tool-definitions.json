@@ -2378,7 +2378,7 @@
         "feature_flag": "data-catalog"
     },
     "data-catalog-metric-run": {
-        "description": "Run a metric's definition. For an executable metric, returns the results plus a deep link (posthog_url). For an agent-calculated markdown metric, returns the calculation steps in 'instructions' (with 'results' null) for you to follow. Prefer running the canonical metric over re-deriving the number yourself. The response 'status' tells you whether the metric is approved - never present a 'proposed' metric's result as canonical.",
+        "description": "Run a metric's definition. For an executable metric, returns the results plus a deep link (posthog_url). For an agent-calculated markdown metric, returns the calculation steps in 'instructions' (with 'results' null) for you to follow. Prefer running the canonical metric over re-deriving the number yourself. A result is canonical only when the response has status 'approved' AND is_drifted false - never present a 'proposed' or drifted metric's result as canonical.",
         "category": "Data catalog",
         "feature": "data_catalog",
         "summary": "Run a catalog metric",
