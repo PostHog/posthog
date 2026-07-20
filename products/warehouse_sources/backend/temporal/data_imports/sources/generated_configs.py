@@ -4049,6 +4049,11 @@ class SlashSourceConfig(config.Config):
 
 
 @config.config
+class SleekplanSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class SmailySourceConfig(config.Config):
     subdomain: str
     username: str
@@ -5685,6 +5690,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.SKYVERN: SkyvernSourceConfig,
         ExternalDataSourceType.SLACK: SlackSourceConfig,
         ExternalDataSourceType.SLASH: SlashSourceConfig,
+        ExternalDataSourceType.SLEEKPLAN: SleekplanSourceConfig,
         ExternalDataSourceType.SMAILY: SmailySourceConfig,
         ExternalDataSourceType.SMARTENGAGE: SmartEngageSourceConfig,
         ExternalDataSourceType.SMARTREACH: SmartreachSourceConfig,
