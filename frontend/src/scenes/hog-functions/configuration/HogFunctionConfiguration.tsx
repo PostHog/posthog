@@ -3,7 +3,7 @@
 import './registerHogFunctionToolPreviews'
 
 import clsx from 'clsx'
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import {
@@ -24,7 +24,7 @@ import { HogFunctionMappings } from 'scenes/hog-functions/mapping/HogFunctionMap
 import { HogFunctionEventEstimates } from 'scenes/hog-functions/metrics/HogFunctionEventEstimates'
 import { SurveyResponseKeysReference } from 'scenes/surveys/components/SurveyResponseKeysReference'
 
-import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 
 import { humanizeHogFunctionType } from '../hog-function-utils'
 import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
@@ -69,6 +69,7 @@ export function HogFunctionConfiguration({
         showTesting,
         survey,
     } = useValues(logic)
+    const { loadHogFunction } = useActions(logic)
 
     // The section components attach the config blobs (code, inputs, filters) as unkeyed values; only a
     // keyed item renders its id into the context line, and the agent needs the id for cdp-functions-partial-update.
@@ -83,6 +84,25 @@ export function HogFunctionConfiguration({
               ]
             : null
     )
+
+    // An approved `cdp-functions-partial-update` mutates the function server-side while this form keeps
+    // pre-update state, so the approval-card diff would compare every later proposal (e.g. a revert)
+    // against stale values. Refetch on completion — `loadHogFunctionSuccess` resets the form, which also
+    // discards unsaved manual edits; that's the apply-back contract (tool results land in the open scene).
+    useMcpToolApplyBack({
+        tools: ['cdp-functions-partial-update'],
+        targetKey: `hog-function:${hogFunction?.id ?? 'none'}`,
+        active: !!hogFunction?.id,
+        onApply: (_event, { innerInput }) => {
+            // A parseable payload targeting a different function is not ours to absorb; an unparseable
+            // one may still be ours, and a same-data refetch is harmless, so reload in that case.
+            const targetId = typeof innerInput?.id === 'string' ? innerInput.id : null
+            if (targetId && hogFunction?.id && targetId !== hogFunction.id) {
+                return
+            }
+            loadHogFunction()
+        },
+    })
 
     if (loading && !loaded) {
         return <SpinnerOverlay />
