@@ -1932,44 +1932,6 @@ export interface ExperimentMetricsRecalculationApi {
     estimated_rows_total?: number | null
 }
 
-/**
- * Request body for resolving which of an experiment's metrics fired in a batch of sessions.
- */
-export interface SessionMetricHitsRequestApi {
-    /**
-     * Session recording IDs to scan for the experiment's metric events. At most 100 per request.
-     * @maxItems 100
-     */
-    session_ids: string[]
-}
-
-/**
- * One experiment metric with at least one matching event in a session recording.
- */
-export interface ExperimentSessionMetricHitApi {
-    /** UUID of the experiment metric (inline primary/secondary or saved) whose events fired. */
-    metric_uuid: string
-    /** Display name of the metric, or a stable fallback derived from its UUID when the metric is unnamed. */
-    metric_name: string
-    /** Number of events in the session matching any of the metric's event/action sources. */
-    event_count: number
-    /** Timestamp of the first event in the session matching the metric. */
-    first_timestamp: string
-}
-
-/**
- * Map of session recording ID to the experiment's metrics with at least one matching event in that session, sorted by first occurrence. Sessions with no metric hits are omitted from the map.
- */
-export type SessionMetricHitsResponseApiResults = { [key: string]: ExperimentSessionMetricHitApi[] }
-
-/**
- * Which of an experiment's metrics fired in each of the requested sessions.
- */
-export interface SessionMetricHitsResponseApi {
-    /** Map of session recording ID to the experiment's metrics with at least one matching event in that session, sorted by first occurrence. Sessions with no metric hits are omitted from the map. */
-    results: SessionMetricHitsResponseApiResults
-}
-
 export interface ShipVariantApi {
     /** The conclusion of the experiment.
      *
@@ -2148,6 +2110,20 @@ export interface CreateFromPromptInputApi {
     feature_flag_key?: string
     /** Optional experiment description. */
     description?: string
+}
+
+/**
+ * One experiment metric with at least one matching event in a session recording.
+ */
+export interface ExperimentSessionMetricHitApi {
+    /** UUID of the experiment metric (inline primary/secondary or saved) whose events fired. */
+    metric_uuid: string
+    /** Display name of the metric, or a stable fallback derived from its UUID when the metric is unnamed. */
+    metric_name: string
+    /** Number of events in the session matching any of the metric's event/action sources. */
+    event_count: number
+    /** Timestamp of the first event in the session matching the metric. */
+    first_timestamp: string
 }
 
 /**

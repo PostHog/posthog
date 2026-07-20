@@ -56527,30 +56527,6 @@ export namespace Schemas {
       readonly team: number;
     }
 
-    /**
-     * Request body for resolving which of an experiment's metrics fired in a batch of sessions.
-     */
-    export interface SessionMetricHitsRequest {
-      /**
-         * Session recording IDs to scan for the experiment's metric events. At most 100 per request.
-         * @maxItems 100
-         */
-      session_ids: string[];
-    }
-
-    /**
-     * Map of session recording ID to the experiment's metrics with at least one matching event in that session, sorted by first occurrence. Sessions with no metric hits are omitted from the map.
-     */
-    export type SessionMetricHitsResponseResults = {[key: string]: ExperimentSessionMetricHit[]};
-
-    /**
-     * Which of an experiment's metrics fired in each of the requested sessions.
-     */
-    export interface SessionMetricHitsResponse {
-      /** Map of session recording ID to the experiment's metrics with at least one matching event in that session, sorted by first occurrence. Sessions with no metric hits are omitted from the map. */
-      results: SessionMetricHitsResponseResults;
-    }
-
     export interface SessionRecordingBulkDeleteRequest {
       /**
          * Session IDs of the recordings to delete (max 100 per call).
