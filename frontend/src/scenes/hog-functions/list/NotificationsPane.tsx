@@ -21,16 +21,10 @@ export interface NotificationsPaneProps {
     description: string
     /** Title for the new notification dialog */
     dialogTitle?: string
-    /** The billing feature required to use notifications. Defaults to AUDIT_LOGS; null renders ungated. */
-    requiredFeature?: AvailableFeature | null
+    /** The billing feature required to use notifications. Defaults to AUDIT_LOGS. */
+    requiredFeature?: AvailableFeature
     /** Where the back arrow on a notification's configuration page should return to */
     returnTo?: string
-    /**
-     * Hog function type of the sub-template. Internal-event triggers (activity log,
-     * feature flag changes) are internal destinations; real captured events (e.g.
-     * $mcp_* triggers) are plain destinations. Must match the sub-template's `type`.
-     */
-    type?: 'destination' | 'internal_destination'
 }
 
 export function NotificationsPane({
@@ -39,7 +33,6 @@ export function NotificationsPane({
     dialogTitle,
     requiredFeature = AvailableFeature.AUDIT_LOGS,
     returnTo,
-    type = 'internal_destination',
 }: NotificationsPaneProps): JSX.Element {
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
@@ -50,7 +43,7 @@ export function NotificationsPane({
         (f): f is CyclotronJobFiltersType => !!f
     )
 
-    const listLogicProps = { forceFilterGroups: hogFunctionFilterList, type }
+    const listLogicProps = { forceFilterGroups: hogFunctionFilterList, type: 'internal_destination' as const }
     const { loadHogFunctions } = useActions(hogFunctionsListLogic(listLogicProps))
     const onCreated = (): void => {
         loadHogFunctions()
@@ -59,27 +52,27 @@ export function NotificationsPane({
     const logicProps = { subTemplateId, onCreated }
     const { openDialog } = useActions(newNotificationDialogLogic(logicProps))
 
-    const pane = (
-        <div>
-            <p>{description}</p>
-            <HogFunctionList
-                forceFilterGroups={hogFunctionFilterList}
-                type={type}
-                returnTo={returnTo}
-                extraControls={
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        disabledReason={restrictedReason ?? undefined}
-                        onClick={openDialog}
-                    >
-                        New notification
-                    </LemonButton>
-                }
-            />
-            <NewNotificationDialog subTemplateId={subTemplateId} onCreated={onCreated} title={dialogTitle} />
-        </div>
+    return (
+        <PayGateMini feature={requiredFeature}>
+            <div>
+                <p>{description}</p>
+                <HogFunctionList
+                    forceFilterGroups={hogFunctionFilterList}
+                    type="internal_destination"
+                    returnTo={returnTo}
+                    extraControls={
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            disabledReason={restrictedReason ?? undefined}
+                            onClick={openDialog}
+                        >
+                            New notification
+                        </LemonButton>
+                    }
+                />
+                <NewNotificationDialog subTemplateId={subTemplateId} onCreated={onCreated} title={dialogTitle} />
+            </div>
+        </PayGateMini>
     )
-
-    return requiredFeature === null ? pane : <PayGateMini feature={requiredFeature}>{pane}</PayGateMini>
 }

@@ -3,41 +3,19 @@ import { useActions, useValues } from 'kea'
 import { IconCopy, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 
+import { ConfirmDeleteButton } from 'lib/components/ConfirmDeleteButton'
 import { MailHog } from 'lib/components/hedgehogs'
 import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { HogFunctionIcon } from 'scenes/hog-functions/configuration/HogFunctionIcon'
-import { ConfirmDeleteButton } from 'scenes/surveys/components/ConfirmDeleteButton'
+import { getNotificationDescription } from 'scenes/hog-functions/list/notificationDescription'
 import { NEW_SURVEY } from 'scenes/surveys/constants'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { surveyNotificationModalLogic } from 'scenes/surveys/surveyNotificationModalLogic'
-
-import { HogFunctionType } from '~/types'
 
 interface SurveyNotificationsProps {
     surveyId: string
     description?: string
     buttonFullWidth?: boolean
-}
-
-function getNotificationDescription(fn: HogFunctionType): string | null {
-    const inputs = fn.inputs
-    if (!inputs) {
-        return null
-    }
-    if (inputs.url?.value) {
-        try {
-            return new URL(String(inputs.url.value)).hostname
-        } catch {
-            return String(inputs.url.value)
-        }
-    }
-    if (inputs.channel?.value) {
-        return String(inputs.channel.value)
-    }
-    if (inputs.email?.value) {
-        return String(inputs.email.value)
-    }
-    return null
 }
 
 export function SurveyNotifications({

@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { router, combineUrl } from 'kea-router'
 
 import { IconSparkles } from '@posthog/icons'
-import { LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
+import { LemonButton, LemonTab, LemonTabs, LemonTag } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -22,6 +22,7 @@ import { MCPAnalyticsTab, TAB_AI_PROMPTS, TAB_DESCRIPTIONS, mcpAnalyticsSceneLog
 import { MCPAnalyticsSceneMenuBar } from './MCPAnalyticsSceneMenuBar'
 import { MCPAnalyticsToolQuality } from './MCPAnalyticsToolQuality'
 import { MCPAnalyticsNotifications } from './notifications/MCPAnalyticsNotifications'
+import { mcpAnalyticsNotificationsLogic } from './notifications/mcpAnalyticsNotificationsLogic'
 import { MCPSessionsPlaylist } from './sessions/MCPSessionsPlaylist'
 
 export const scene: SceneExport = {
@@ -43,6 +44,7 @@ function MCPAnalyticsSceneContent(): JSX.Element {
     const { searchParams } = useValues(router)
     const { activeTab } = useValues(mcpAnalyticsSceneLogic)
     const { onboardingState, signals, dashboardStage } = useValues(mcpAnalyticsOnboardingLogic)
+    const { notifications } = useValues(mcpAnalyticsNotificationsLogic)
 
     // search is Sessions-only — drop it when leaving the tab; the date range stays shared.
     const { search: _search, ...sharedParams } = searchParams
@@ -90,7 +92,16 @@ function MCPAnalyticsSceneContent(): JSX.Element {
         },
         {
             key: 'notifications',
-            label: 'Notifications',
+            label: (
+                <span className="flex items-center gap-1.5">
+                    Notifications
+                    {notifications.length > 0 && (
+                        <LemonTag type="completion" size="small">
+                            {notifications.length}
+                        </LemonTag>
+                    )}
+                </span>
+            ),
             content: <MCPAnalyticsNotifications />,
             link: combineUrl(urls.mcpAnalyticsNotifications(), sharedParams).url,
             'data-attr': 'mcp-analytics-notifications-tab',
