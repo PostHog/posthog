@@ -80,6 +80,7 @@ export const MetricHeader = ({
     isPrimaryMetric,
     experiment,
     onDuplicateMetricClick,
+    onDuplicateAsSingleUseMetricClick,
     onBreakdownChange,
     onDeleteMetricClick,
     readOnly,
@@ -90,6 +91,7 @@ export const MetricHeader = ({
     isPrimaryMetric: boolean
     experiment: Experiment
     onDuplicateMetricClick: (metric: ExperimentMetric) => void
+    onDuplicateAsSingleUseMetricClick?: (metric: ExperimentMetric) => void
     onBreakdownChange: (breakdown: Breakdown) => void
     onDeleteMetricClick?: (metric: ExperimentMetric) => void
     readOnly?: boolean
@@ -252,6 +254,15 @@ export const MetricHeader = ({
                                                         handleDuplicate()
                                                     },
                                                 },
+                                                isSharedMetric &&
+                                                    onDuplicateAsSingleUseMetricClick && {
+                                                        label: 'Duplicate as single-use metric',
+                                                        icon: <IconCopy />,
+                                                        onClick: () => {
+                                                            closeMenu()
+                                                            onDuplicateAsSingleUseMetricClick(metric)
+                                                        },
+                                                    },
                                             ].filter(Boolean) as any,
                                         },
                                         onDeleteMetricClick && {

@@ -503,6 +503,7 @@ interface MetricRowGroupProps {
     isLastMetric: boolean
     isAlternatingRow: boolean
     onDuplicateMetric?: () => void
+    onDuplicateAsSingleUseMetric?: () => void
     onDeleteMetric?: () => void
     onBreakdownChange: (breakdown: Breakdown) => void
     onRemoveBreakdown: (index: number) => void
@@ -524,6 +525,7 @@ export function MetricRowGroup({
     isLastMetric,
     isAlternatingRow,
     onDuplicateMetric,
+    onDuplicateAsSingleUseMetric,
     onDeleteMetric,
     onBreakdownChange,
     onRemoveBreakdown,
@@ -746,6 +748,9 @@ export function MetricRowGroup({
                             isPrimaryMetric={!isSecondary}
                             experiment={experiment}
                             onDuplicateMetricClick={() => onDuplicateMetric?.()}
+                            onDuplicateAsSingleUseMetricClick={
+                                onDuplicateAsSingleUseMetric ? () => onDuplicateAsSingleUseMetric() : undefined
+                            }
                             onDeleteMetricClick={onDeleteMetric ? () => onDeleteMetric() : undefined}
                             onBreakdownChange={onBreakdownChange}
                         />
@@ -812,6 +817,9 @@ export function MetricRowGroup({
                             isPrimaryMetric={!isSecondary}
                             experiment={experiment}
                             onDuplicateMetricClick={() => onDuplicateMetric?.()}
+                            onDuplicateAsSingleUseMetricClick={
+                                onDuplicateAsSingleUseMetric ? () => onDuplicateAsSingleUseMetric() : undefined
+                            }
                             onDeleteMetricClick={onDeleteMetric ? () => onDeleteMetric() : undefined}
                             onBreakdownChange={onBreakdownChange}
                         />
