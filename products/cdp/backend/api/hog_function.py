@@ -45,6 +45,7 @@ from posthog.helpers.trigram_search import (
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.plugins.plugin_server_api import create_hog_invocation_test, rerun_hog_invocations
+from posthog.tasks.email import send_hog_function_enabled
 
 from products.cdp.backend.api.hog_function_template import HogFunctionTemplateSerializer
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
@@ -468,6 +469,10 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
         if res.enabled and res.status.get("state", 0) == HogFunctionState.DISABLED.value:
             res.set_function_status(HogFunctionState.DEGRADED.value)
+            # The destination was auto-disabled and is now sending again, so notify owners rather
+            # than let a silent resume go unnoticed. Dispatch after commit so a rollback can't email.
+            function_id = str(res.id)
+            transaction.on_commit(lambda: send_hog_function_enabled.delay(function_id))
 
         return res
 

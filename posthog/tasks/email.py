@@ -559,6 +559,30 @@ def send_hog_function_disabled(hog_function_id: str) -> None:
     message.send()
 
 
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_hog_function_enabled(hog_function_id: str) -> None:
+    if not is_email_available(with_absolute_urls=True):
+        return
+    hog_function: HogFunction = HogFunction.objects.prefetch_related("team").get(id=hog_function_id)
+    team = hog_function.team
+
+    pipeline_id = f"hog_function:{hog_function_id}"
+    memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate=1.0, pipeline_id=pipeline_id)
+    if not memberships_to_email:
+        return
+
+    campaign_key: str = f"hog_function_enabled_{hog_function_id}_updated_at_{hog_function.updated_at.timestamp()}"
+    message = EmailMessage(
+        campaign_key=campaign_key,
+        subject=f"Destination '{hog_function.name}' has resumed sending in project '{team}'",
+        template_name="hog_function_enabled",
+        template_context={"hog_function": hog_function, "team": team},
+    )
+    for membership in memberships_to_email:
+        message.add_user_recipient(membership.user)
+    message.send()
+
+
 def send_batch_export_run_failure(
     batch_export_run_id: str | UUIDT,
     failure_rate: float = 1.0,
