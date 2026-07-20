@@ -58,10 +58,22 @@ def _extract_hog_output_text(output: Any) -> str:
             if isinstance(message, dict):
                 choice = message
             if "content" in choice or "refusal" in choice or "text" in choice or "tool_calls" in choice:
-                content = choice.get("content") or choice.get("refusal") or choice.get("text")
-                if not content and not choice.get("tool_calls"):
+                content = next(
+                    (
+                        value
+                        for key in ("content", "refusal", "text")
+                        if (value := choice.get(key)) is not None
+                        and (not isinstance(value, str | list | dict) or bool(value))
+                    ),
+                    None,
+                )
+                if content is None and not choice.get("tool_calls"):
                     continue
+                if content is not None and not isinstance(content, str | list | dict):
+                    content = coerce_hog_io_value(content)
                 choice = {"content": content, "tool_calls": choice.get("tool_calls")}
+        elif not isinstance(choice, str):
+            choice = coerce_hog_io_value(choice)
         messages.append(choice)
     return _extract_hog_message_text(messages)
 

@@ -197,6 +197,21 @@ class TestHogEvalExamplesBehavior:
 
         assert result["verdict"] is False
 
+    @parameterized.expand(
+        [
+            ("scalar", 42),
+            ("boolean_choice", [False]),
+            ("zero_content", [{"message": {"role": "assistant", "content": 0}}]),
+        ]
+    )
+    def test_output_not_empty_passes_on_non_string_output(self, _name: str, output_choices: Any) -> None:
+        bytecode = compile_hog(_get_source("Output not empty"), "destination")
+        event = _make_event(ai_output_choices=output_choices)
+
+        result = run_hog_eval(bytecode, event)
+
+        assert result["verdict"] is True
+
     def test_refusal_detection_handles_openai_refusal_field(self):
         bytecode = compile_hog(_get_source("Refusal detection"), "destination")
         event = _make_event(
