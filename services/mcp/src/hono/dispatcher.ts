@@ -20,6 +20,7 @@ import type {
 import GUIDELINES from '@shared/guidelines.md'
 import { randomUUID } from 'node:crypto'
 
+import { mapErrorToAuthResponse } from '@/lib/auth-errors'
 import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import type { RequestProperties } from '@/lib/request-properties'
 
@@ -149,9 +150,12 @@ class McpDispatcher {
         } catch (error) {
             // A failed resolution still fails the handshake for the client, so count
             // it in mcp_init_total — otherwise MCPServerHighInitErrorRate only sees
-            // failures past this point. The rethrow surfaces as a 500 upstream.
+            // failures past this point. Auth failures (expired tokens, missing scopes)
+            // are client-side and dominate resolution errors, so they get their own
+            // status to keep the alert on `status="error"` meaningful. The rethrow
+            // surfaces as a 401/403/500 upstream via handleCatchError.
             if (hasInit) {
-                initTotal.inc({ status: 'error' })
+                initTotal.inc({ status: mapErrorToAuthResponse(error) ? 'auth_error' : 'error' })
             }
             throw error
         }
@@ -234,7 +238,7 @@ class McpDispatcher {
                 ...(instructions ? { instructions } : {}),
             }
         } catch (error) {
-            initTotal.inc({ status: 'error' })
+            initTotal.inc({ status: mapErrorToAuthResponse(error) ? 'auth_error' : 'error' })
             throw error
         }
     }
