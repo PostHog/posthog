@@ -1714,7 +1714,7 @@ class IntegrationViewSet(
             if not integration_id:
                 raise ValidationError("integration_id is required for email context")
             try:
-                domain, service_id, variables = resolve_email_context(integration_id, self.team_id)
+                domain, service_id, host, variables = resolve_email_context(integration_id, self.team_id)
             except ValueError as e:
                 capture_exception(e, {"integration_id": integration_id, "team_id": self.team_id, "context": context})
                 raise ValidationError(

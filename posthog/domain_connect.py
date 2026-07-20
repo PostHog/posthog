@@ -198,11 +198,18 @@ def get_available_providers() -> list[dict[str, str]]:
 # Each resolver returns (domain, service_id, variables) for a specific use case.
 
 
-def resolve_email_context(integration_id: int, team_id: int) -> tuple[str, str, dict[str, str]]:
+def resolve_email_context(integration_id: int, team_id: int) -> tuple[str, str, str, dict[str, str]]:
     """Resolve Domain Connect parameters for an email integration.
 
     Triggers SES verification to get current tokens, then extracts the
     template variables needed for the email-verification template.
+
+    Splits the configured sending domain into its root domain and host so the
+    apply URL targets the provider's DNS zone (e.g. example.com) with the
+    subdomain passed as the protocol-level `host` — mirroring resolve_proxy_context.
+    Providers like Cloudflare reject apply/discovery when `domain` is a subdomain
+    (e.g. feedback.example.com) rather than a registered zone.
+    Returns (root_domain, service_id, host, variables).
     """
     from posthog.models.integration import EmailIntegration, Integration
 
@@ -234,6 +241,8 @@ def resolve_email_context(integration_id: int, team_id: int) -> tuple[str, str, 
     if not verify_token or len(dkim_tokens) < 3:
         raise ValueError("Could not extract all required SES tokens. Please retry domain verification first.")
 
+    root_domain, host = extract_root_domain_and_host(domain)
+
     service_id = get_service_id_for_region("email-verification")
     variables = {
         "verifyToken": verify_token,
@@ -243,7 +252,7 @@ def resolve_email_context(integration_id: int, team_id: int) -> tuple[str, str, 
         "mailFromSub": mail_from_subdomain,
         "sesRegion": ses_region,
     }
-    return (domain, service_id, variables)
+    return (root_domain, service_id, host, variables)
 
 
 def resolve_proxy_context(proxy_record_id: str, organization_id: str) -> tuple[str, str, str, dict[str, str]]:

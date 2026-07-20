@@ -369,7 +369,54 @@ class TestTemplateResolverAlignment(BaseTest):
         mock_email_cls.return_value = mock_email
 
         with self.settings(CLOUD_DEPLOYMENT=region, SES_REGION="us-east-1"):
-            domain, service_id, variables = resolve_email_context(1, 1)
+            domain, service_id, host, variables = resolve_email_context(1, 1)
 
         self.assertEqual(set(variables.keys()), expected_vars)
         self.assertEqual(service_id, template["serviceId"])
+
+    @parameterized.expand(
+        [
+            # (configured sending domain, expected apply-URL domain, expected host)
+            ("root domain", "example.com", "example.com", ""),
+            ("subdomain", "feedback.example.com", "example.com", "feedback"),
+            ("deep subdomain", "feedback.notify.example.com", "example.com", "feedback.notify"),
+        ]
+    )
+    @patch("posthog.models.integration.EmailIntegration")
+    @patch("posthog.models.integration.Integration")
+    def test_email_resolver_splits_root_domain_and_host(
+        self,
+        _name: str,
+        configured_domain: str,
+        expected_domain: str,
+        expected_host: str,
+        mock_integration_cls: MagicMock,
+        mock_email_cls: MagicMock,
+    ) -> None:
+        # Cloudflare's Domain Connect apply URL must target the registered zone with the
+        # subdomain in `host`; passing a subdomain as `domain` is rejected as "not verified".
+        mock_instance = MagicMock()
+        mock_instance.kind = "email"
+        mock_instance.config = {"domain": configured_domain, "mail_from_subdomain": "feedback"}
+        mock_integration_cls.objects.get.return_value = mock_instance
+
+        mock_email = MagicMock()
+        mock_email.verify.return_value = {
+            "dnsRecords": [
+                {
+                    "type": "verification",
+                    "recordType": "TXT",
+                    "recordHostname": f"_amazonses.{configured_domain}",
+                    "recordValue": "verify-token-123",
+                },
+                {"type": "dkim", "recordHostname": f"aaa._domainkey.{configured_domain}"},
+                {"type": "dkim", "recordHostname": f"bbb._domainkey.{configured_domain}"},
+                {"type": "dkim", "recordHostname": f"ccc._domainkey.{configured_domain}"},
+            ]
+        }
+        mock_email_cls.return_value = mock_email
+
+        domain, _service_id, host, _variables = resolve_email_context(1, 1)
+
+        self.assertEqual(domain, expected_domain)
+        self.assertEqual(host, expected_host)

@@ -34,7 +34,7 @@ function ProviderLogo({ name }: { name: DomainConnectProviderName }): JSX.Elemen
  */
 export function DomainConnectBanner(props: DomainConnectLogicProps & { className?: string }): JSX.Element | null {
     const logic = domainConnectLogic(props)
-    const { autoDetected, providerName, domainConnectInfoLoading } = useValues(logic)
+    const { autoDetected, providerName, domainConnectInfoLoading, isApplying } = useValues(logic)
     const { openDomainConnect } = useActions(logic)
 
     if (domainConnectInfoLoading) {
@@ -57,6 +57,8 @@ export function DomainConnectBanner(props: DomainConnectLogicProps & { className
                         size="small"
                         onClick={() => openDomainConnect()}
                         icon={<IconExternal />}
+                        loading={isApplying}
+                        disabledReason={isApplying ? 'Opening your DNS provider…' : undefined}
                         targetBlank
                     >
                         Configure automatically
