@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useCallback, useMemo } from 'react'
 
-import { LemonCheckbox, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonDialog, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { dayjs } from 'lib/dayjs'
@@ -248,7 +248,23 @@ export function EditAlertModalV2({
     const leadingActions = (
         <div className="flex items-center gap-2">
             {!creatingNewAlert ? (
-                <LemonButton type="secondary" status="danger" onClick={deleteAlert}>
+                <LemonButton
+                    type="secondary"
+                    status="danger"
+                    onClick={() => {
+                        LemonDialog.open({
+                            title: `Delete "${alertForm.name || 'this alert'}"?`,
+                            description: 'This alert will be permanently deleted. This action cannot be undone.',
+                            primaryButton: {
+                                children: 'Delete',
+                                type: 'primary',
+                                status: 'danger',
+                                onClick: deleteAlert,
+                                'data-attr': 'alert-delete-confirm',
+                            },
+                        })
+                    }}
+                >
                     Delete alert
                 </LemonButton>
             ) : null}
