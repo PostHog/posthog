@@ -37,7 +37,7 @@ from .evaluation_errors import (
     status_reason_detail_for_terminal_user_error,
     terminal_user_error_result_from_application_error,
 )
-from .evaluation_llm_judge import JUDGE_EVENT_MAX_CHARS
+from .evaluation_llm_judge import JUDGE_EVENT_MAX_CHARS, MAX_JUDGE_PARSE_ATTEMPTS
 from .run_evaluation import (
     BooleanEvalResult,
     BooleanWithNAEvalResult,
@@ -308,6 +308,83 @@ class TestRunEvaluationWorkflow:
         assert result.get("terminal_user_error") is not True
         assert "model" not in result
         mock_client.complete.assert_called_once()
+
+    @pytest.mark.django_db(transaction=True)
+    def test_execute_llm_judge_activity_retries_and_recovers_on_parse_failure(self, setup_data, grandfathered):
+        """A stochastic bad generation should be resampled, not silently skipped."""
+        team = setup_data["team"]
+        evaluation_obj = setup_data["evaluation"]
+
+        evaluation = {
+            "id": str(evaluation_obj.id),
+            "name": "Test Evaluation",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this response factually accurate?"},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+        }
+        event_data = create_mock_event_data(
+            team.id,
+            properties={
+                "$ai_input": [{"role": "user", "content": "What is 2+2?"}],
+                "$ai_output_choices": [{"role": "assistant", "content": "4"}],
+            },
+        )
+
+        good_response = MagicMock()
+        good_response.parsed = BooleanEvalResult(verdict=True, reasoning="The answer is correct")
+        good_response.usage = MagicMock(input_tokens=10, output_tokens=5, total_tokens=15)
+
+        with patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            mock_client.complete.side_effect = [
+                StructuredOutputParseError("Failed to parse structured output: verdict is required"),
+                good_response,
+            ]
+
+            result = execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+
+        assert result["verdict"] is True
+        assert result.get("skipped") is not True
+        assert mock_client.complete.call_count == 2
+
+    @pytest.mark.django_db(transaction=True)
+    def test_execute_llm_judge_activity_raises_parse_error_after_exhausting_retries(self, setup_data, grandfathered):
+        """Persistent parse failures still surface as a non-retryable parse_error after all attempts."""
+        team = setup_data["team"]
+        evaluation_obj = setup_data["evaluation"]
+
+        evaluation = {
+            "id": str(evaluation_obj.id),
+            "name": "Test Evaluation",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this response factually accurate?"},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+        }
+        event_data = create_mock_event_data(
+            team.id,
+            properties={
+                "$ai_input": [{"role": "user", "content": "What is 2+2?"}],
+                "$ai_output_choices": [{"role": "assistant", "content": "4"}],
+            },
+        )
+
+        with patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            mock_client.complete.side_effect = StructuredOutputParseError(
+                "Failed to parse structured output: verdict is required"
+            )
+
+            with pytest.raises(ApplicationError) as exc_info:
+                execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+
+        assert exc_info.value.details[0]["error_type"] == "parse_error"
+        assert mock_client.complete.call_count == MAX_JUDGE_PARSE_ATTEMPTS
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
