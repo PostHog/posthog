@@ -827,7 +827,12 @@ class ClickHousePrinter(BasePrinter):
 
         # Can we compare constants?
         if isinstance(node.left, ast.Constant) and isinstance(node.right, ast.Constant) and constant_lambda is not None:
-            return "1" if constant_lambda(node.left.value, node.right.value) else "0"
+            try:
+                return "1" if constant_lambda(node.left.value, node.right.value) else "0"
+            except TypeError:
+                # The two literals aren't comparable in Python (e.g. a string vs an int), but
+                # ClickHouse can still evaluate the comparison — skip the fold and emit SQL.
+                pass
 
         # Special cases when we should not add any null checks
         if in_join_constraint or not_nullable or in_index_hint:

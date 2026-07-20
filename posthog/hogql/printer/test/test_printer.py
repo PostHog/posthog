@@ -2749,6 +2749,20 @@ class TestPrinter(BaseTest):
         assert "2026" not in printed, printed
         assert "BestEffort" not in printed, printed
 
+    @parameterized.expand(
+        [
+            (">", "greater"),
+            (">=", "greaterOrEquals"),
+            ("<", "less"),
+            ("<=", "lessOrEquals"),
+        ]
+    )
+    def test_ordering_compare_of_mismatched_type_constants_falls_through_to_sql(self, op: str, func: str):
+        # Comparing a string literal to an int literal isn't Python-comparable, so the constant-folding
+        # shortcut must skip the fold and let ClickHouse evaluate it instead of raising TypeError.
+        printed = self._expr(f"'a' {op} 1")
+        assert func in printed, printed
+
     def test_print_timezone_gibberish(self):
         self.team.timezone = "Europe/PostHogLandia"
         self.team.save()
