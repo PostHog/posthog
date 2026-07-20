@@ -169,10 +169,12 @@ describe('Sandbox approval input area', () => {
             })
         })
 
-        // Plan approval keeps only the product's Auto and Accept edits continuation modes. Plan and the
-        // agent server's raw default mode are deliberately ignored even if the wire offers them.
+        // Plan approval keeps only the product's Auto and Full auto continuation modes. Plan, the retired
+        // acceptEdits mode, and the agent server's raw default mode are deliberately ignored even if the
+        // wire offers them.
         const planWireOptions = [
             { optionId: 'bypassPermissions', name: 'Yes, and bypass permissions', kind: 'allow_always' },
+            { optionId: 'auto', name: 'Yes, and use "auto" mode', kind: 'allow_always' },
             { optionId: 'acceptEdits', name: 'Yes, and auto-accept edits', kind: 'allow_always' },
             { optionId: 'plan', name: 'Stay in plan mode', kind: 'allow_always' },
             { optionId: 'default', name: 'Yes, and manually approve edits', kind: 'allow_once' },
@@ -213,34 +215,43 @@ describe('Sandbox approval input area', () => {
             expect(screen.getByText('Approve this plan to proceed?')).toBeInTheDocument()
         })
 
-        it('keeps the supported plan modes and approves with Auto as bypassPermissions', () => {
+        it('keeps the supported plan modes and approves with the default Auto as the auto wire option', () => {
             render(<PermissionInput streamKey="conv-1" request={makePlanRequest()} />)
 
-            // Auto is the user-facing label for the bypassPermissions wire option.
             expect(screen.getByText('Auto')).toBeInTheDocument()
             fireEvent.click(screen.getByText('Approve and proceed'))
 
             expect(respondToPermission).toHaveBeenCalledWith({
                 requestId: 'req-1',
-                optionId: 'bypassPermissions',
+                optionId: 'auto',
             })
         })
 
         it('pre-selects the remembered last-approved mode over Auto', () => {
+            window.localStorage.setItem('posthog-ai.lastPlanApprovalMode', 'bypassPermissions')
+            render(<PermissionInput streamKey="conv-1" request={makePlanRequest()} />)
+
+            fireEvent.click(screen.getByText('Approve and proceed'))
+
+            expect(respondToPermission).toHaveBeenCalledWith({ requestId: 'req-1', optionId: 'bypassPermissions' })
+        })
+
+        it('falls back to Auto when the remembered mode is retired', () => {
             window.localStorage.setItem('posthog-ai.lastPlanApprovalMode', 'acceptEdits')
             render(<PermissionInput streamKey="conv-1" request={makePlanRequest()} />)
 
             fireEvent.click(screen.getByText('Approve and proceed'))
 
-            expect(respondToPermission).toHaveBeenCalledWith({ requestId: 'req-1', optionId: 'acceptEdits' })
+            expect(respondToPermission).toHaveBeenCalledWith({ requestId: 'req-1', optionId: 'auto' })
         })
 
-        it('opens the mode picker with only Auto and Accept edits', () => {
+        it('opens the mode picker with only Auto and Full auto', () => {
             render(<PermissionInput streamKey="conv-1" request={makePlanRequest()} />)
 
             fireEvent.click(screen.getByLabelText('Mode'))
 
-            expect(screen.getByText('Accept edits')).toBeInTheDocument()
+            expect(screen.getByText('Full auto')).toBeInTheDocument()
+            expect(screen.queryByText('Accept edits')).not.toBeInTheDocument()
             expect(screen.queryByText('Default')).not.toBeInTheDocument()
             expect(screen.queryByText('Plan')).not.toBeInTheDocument()
             expect(screen.queryByText('Bypass permissions')).not.toBeInTheDocument()
@@ -276,7 +287,7 @@ describe('Sandbox approval input area', () => {
             fireEvent.keyDown(document.body, { key: '1' })
             expect(respondToPermission).toHaveBeenCalledWith({
                 requestId: 'req-1',
-                optionId: 'bypassPermissions',
+                optionId: 'auto',
             })
         })
 

@@ -12,7 +12,7 @@ import { ComposerModePicker } from './composer/ComposerModePicker'
 
 const PLAN_APPROVAL_MODES: PermissionMode[] = [
     InitialPermissionModeEnumApi.BypassPermissions,
-    InitialPermissionModeEnumApi.AcceptEdits,
+    InitialPermissionModeEnumApi.Auto,
 ]
 
 export function isPlanApprovalModeOptionId(optionId: string): optionId is PermissionMode {
@@ -184,15 +184,13 @@ export function PlanApprovalSelector({
         return PLAN_APPROVAL_MODES.filter((mode) => offeredModeIds.has(mode))
     }, [approveOptions])
 
-    // Prefer the remembered offered mode, then Auto, then Accept edits.
+    // Prefer the remembered offered mode, then Auto (the product default), then Full auto.
     const initialMode = useMemo(() => {
         const has = (id: string): boolean => modes.includes(id as PermissionMode)
         const remembered = readLastApprovalMode()
         return (
             (remembered && has(remembered) ? (remembered as PermissionMode) : undefined) ??
-            (has(InitialPermissionModeEnumApi.BypassPermissions)
-                ? InitialPermissionModeEnumApi.BypassPermissions
-                : undefined) ??
+            (has(InitialPermissionModeEnumApi.Auto) ? InitialPermissionModeEnumApi.Auto : undefined) ??
             modes[0]
         )
     }, [modes])

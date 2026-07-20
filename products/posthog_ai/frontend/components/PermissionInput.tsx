@@ -54,7 +54,7 @@ export function PermissionInput({ streamKey, request }: PermissionInputProps): J
     const { respondToPermission, cancelRun } = useActions(boundLogic)
     const { respondingToPermission } = useValues(boundLogic)
 
-    // A plan approval keeps the product's Auto and Accept edits wire options. If neither is offered,
+    // A plan approval keeps the product's Auto and Full auto wire options. If neither is offered,
     // fall through to the generic card so the request stays actionable.
     const planOptions = isPlanPermissionRequest(request) ? mapPermissionOptions(request.options, true) : []
     const planApproveOptions = planOptions.filter(

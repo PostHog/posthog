@@ -65,6 +65,22 @@ ClaudePermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissi
 CodexPermissionMode = Literal["plan", "auto", "read-only", "full-access"]
 InitialPermissionMode = ClaudePermissionMode | CodexPermissionMode
 
+# PostHog `exec` sub-tools that must be approved by the user before they run, passed to the
+# agent-server as `--posthogExecPermissionRegex`. A matching sub-tool is relayed to the connected
+# client in every non-background run regardless of permission mode (the client then decides:
+# destructive sub-tools always prompt, persist/publish sub-tools prompt only on foreground streams,
+# full-auto runs answer everything). Two alternatives: destructive verbs as `-`-bounded segments,
+# and the exact persist/publish tool names from the apply-back product families. Must stay in sync
+# with `POSTHOG_DESTRUCTIVE_SUBTOOL_RE` and `PERSIST_PROMPT_SUB_TOOLS` in
+# `products/posthog_ai/frontend/policy/toolPolicy.ts`.
+POSTHOG_EXEC_PERMISSION_REGEX = (
+    r"(^|-)(partial-update|update|patch|delete|destroy)(-|$)"
+    r"|^(dashboard-create|dashboard-create-text-tile|dashboard-tile-copy|dashboard-widgets-batch-add"
+    r"|create-feature-flag|feature-flags-copy-flags-create|scheduled-changes-create"
+    r"|survey-create|survey-launch|survey-stop"
+    r"|cdp-functions-create|workflows-create|workflows-create-email-template)$"
+)
+
 INITIAL_PERMISSION_MODE_CHOICES: list[str] = list(get_args(ClaudePermissionMode))
 CODEX_INITIAL_PERMISSION_MODE_CHOICES: list[str] = list(get_args(CodexPermissionMode))
 ALL_INITIAL_PERMISSION_MODE_CHOICES: list[str] = [
