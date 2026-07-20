@@ -774,6 +774,7 @@ export const experimentsCreateBodyExposureCriteriaOneExposureConfigOneProperties
 export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnesevenTypeDefault = `error_tracking_issue`
 export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnenineTypeDefault = `metric_attribute`
 export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault = `revenue_analytics`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemAccountCustomPropertyTypeDefault = `account_custom_property`
 export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault = `workflow_variable`
 export const experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
@@ -2148,6 +2149,65 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     .literal('revenue_analytics')
                                                     .default(
                                                         experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('account_custom_property')
+                                                    .default(
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemAccountCustomPropertyTypeDefault
+                                                    )
+                                                    .describe(
+                                                        'Customer analytics account custom property — the key is the property definition id'
                                                     ),
                                                 value: zod
                                                     .union([
@@ -4330,6 +4390,7 @@ export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePro
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnesevenTypeDefault = `error_tracking_issue`
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnenineTypeDefault = `metric_attribute`
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault = `revenue_analytics`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemAccountCustomPropertyTypeDefault = `account_custom_property`
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault = `workflow_variable`
 export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
@@ -5701,6 +5762,65 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     .literal('revenue_analytics')
                                                     .default(
                                                         experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('account_custom_property')
+                                                    .default(
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemAccountCustomPropertyTypeDefault
+                                                    )
+                                                    .describe(
+                                                        'Customer analytics account custom property — the key is the property definition id'
                                                     ),
                                                 value: zod
                                                     .union([
@@ -7935,6 +8055,7 @@ export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOneP
 export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnesevenTypeDefault = `error_tracking_issue`
 export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnenineTypeDefault = `metric_attribute`
 export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault = `revenue_analytics`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemAccountCustomPropertyTypeDefault = `account_custom_property`
 export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault = `workflow_variable`
 export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
@@ -9205,6 +9326,65 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     .literal('revenue_analytics')
                                                     .default(
                                                         experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('account_custom_property')
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemAccountCustomPropertyTypeDefault
+                                                    )
+                                                    .describe(
+                                                        'Customer analytics account custom property — the key is the property definition id'
                                                     ),
                                                 value: zod
                                                     .union([

@@ -317,6 +317,7 @@ export const endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemOnesixType
 export const endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemOnesevenTypeDefault = `error_tracking_issue`
 export const endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemOnenineTypeDefault = `metric_attribute`
 export const endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemTwooneTypeDefault = `revenue_analytics`
+export const endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemAccountCustomPropertyTypeDefault = `account_custom_property`
 export const endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemTwotwoTypeDefault = `workflow_variable`
 export const endpointsRunCreateBodyRefreshDefault = `cache`
 
@@ -1447,6 +1448,63 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                                         .literal('revenue_analytics')
                                         .default(
                                             endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemTwooneTypeDefault
+                                        ),
+                                    value: zod
+                                        .union([
+                                            zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                            zod.string(),
+                                            zod.number(),
+                                            zod.boolean(),
+                                            zod.null(),
+                                        ])
+                                        .optional(),
+                                }),
+                                zod.object({
+                                    key: zod.string(),
+                                    label: zod.union([zod.string(), zod.null()]).optional(),
+                                    operator: zod.enum([
+                                        'exact',
+                                        'is_not',
+                                        'icontains',
+                                        'not_icontains',
+                                        'regex',
+                                        'not_regex',
+                                        'gt',
+                                        'gte',
+                                        'lt',
+                                        'lte',
+                                        'is_set',
+                                        'is_not_set',
+                                        'is_date_exact',
+                                        'is_date_before',
+                                        'is_date_after',
+                                        'between',
+                                        'not_between',
+                                        'min',
+                                        'max',
+                                        'in',
+                                        'not_in',
+                                        'is_cleaned_path_exact',
+                                        'flag_evaluates_to',
+                                        'semver_eq',
+                                        'semver_neq',
+                                        'semver_gt',
+                                        'semver_gte',
+                                        'semver_lt',
+                                        'semver_lte',
+                                        'semver_tilde',
+                                        'semver_caret',
+                                        'semver_wildcard',
+                                        'icontains_multi',
+                                        'not_icontains_multi',
+                                    ]),
+                                    type: zod
+                                        .literal('account_custom_property')
+                                        .default(
+                                            endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemAccountCustomPropertyTypeDefault
+                                        )
+                                        .describe(
+                                            'Customer analytics account custom property — the key is the property definition id'
                                         ),
                                     value: zod
                                         .union([

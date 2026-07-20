@@ -52,6 +52,7 @@ export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnesevenT
 export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOneeightTypeDefault = `error_tracking_issue`
 export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwozeroTypeDefault = `metric_attribute`
 export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwotwoTypeDefault = `revenue_analytics`
+export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault = `account_custom_property`
 export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault = `workflow_variable`
 export const errorTrackingAssignmentRulesCreateBodyOrderKeyDefault = 0
 
@@ -1081,6 +1082,61 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                             'not_icontains_multi',
                         ]),
                         type: zod
+                            .literal('account_custom_property')
+                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault)
+                            .describe(
+                                'Customer analytics account custom property — the key is the property definition id'
+                            ),
+                        value: zod
+                            .union([
+                                zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                zod.string(),
+                                zod.number(),
+                                zod.boolean(),
+                                zod.null(),
+                            ])
+                            .optional(),
+                    }),
+                    zod.object({
+                        key: zod.string(),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
+                        operator: zod.enum([
+                            'exact',
+                            'is_not',
+                            'icontains',
+                            'not_icontains',
+                            'regex',
+                            'not_regex',
+                            'gt',
+                            'gte',
+                            'lt',
+                            'lte',
+                            'is_set',
+                            'is_not_set',
+                            'is_date_exact',
+                            'is_date_before',
+                            'is_date_after',
+                            'between',
+                            'not_between',
+                            'min',
+                            'max',
+                            'in',
+                            'not_in',
+                            'is_cleaned_path_exact',
+                            'flag_evaluates_to',
+                            'semver_eq',
+                            'semver_neq',
+                            'semver_gt',
+                            'semver_gte',
+                            'semver_lt',
+                            'semver_lte',
+                            'semver_tilde',
+                            'semver_caret',
+                            'semver_wildcard',
+                            'icontains_multi',
+                            'not_icontains_multi',
+                        ]),
+                        type: zod
                             .literal('workflow_variable')
                             .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault),
                         value: zod
@@ -1162,6 +1218,7 @@ export const errorTrackingBypassRulesCreateBodyFiltersOneValuesItemOnesevenTypeD
 export const errorTrackingBypassRulesCreateBodyFiltersOneValuesItemOneeightTypeDefault = `error_tracking_issue`
 export const errorTrackingBypassRulesCreateBodyFiltersOneValuesItemTwozeroTypeDefault = `metric_attribute`
 export const errorTrackingBypassRulesCreateBodyFiltersOneValuesItemTwotwoTypeDefault = `revenue_analytics`
+export const errorTrackingBypassRulesCreateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault = `account_custom_property`
 export const errorTrackingBypassRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault = `workflow_variable`
 
 export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
@@ -2190,6 +2247,61 @@ export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
                             'not_icontains_multi',
                         ]),
                         type: zod
+                            .literal('account_custom_property')
+                            .default(errorTrackingBypassRulesCreateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault)
+                            .describe(
+                                'Customer analytics account custom property — the key is the property definition id'
+                            ),
+                        value: zod
+                            .union([
+                                zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                zod.string(),
+                                zod.number(),
+                                zod.boolean(),
+                                zod.null(),
+                            ])
+                            .optional(),
+                    }),
+                    zod.object({
+                        key: zod.string(),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
+                        operator: zod.enum([
+                            'exact',
+                            'is_not',
+                            'icontains',
+                            'not_icontains',
+                            'regex',
+                            'not_regex',
+                            'gt',
+                            'gte',
+                            'lt',
+                            'lte',
+                            'is_set',
+                            'is_not_set',
+                            'is_date_exact',
+                            'is_date_before',
+                            'is_date_after',
+                            'between',
+                            'not_between',
+                            'min',
+                            'max',
+                            'in',
+                            'not_in',
+                            'is_cleaned_path_exact',
+                            'flag_evaluates_to',
+                            'semver_eq',
+                            'semver_neq',
+                            'semver_gt',
+                            'semver_gte',
+                            'semver_lt',
+                            'semver_lte',
+                            'semver_tilde',
+                            'semver_caret',
+                            'semver_wildcard',
+                            'icontains_multi',
+                            'not_icontains_multi',
+                        ]),
+                        type: zod
                             .literal('workflow_variable')
                             .default(errorTrackingBypassRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault),
                         value: zod
@@ -2242,6 +2354,7 @@ export const errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemOnesevenTypeD
 export const errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemOneeightTypeDefault = `error_tracking_issue`
 export const errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemTwozeroTypeDefault = `metric_attribute`
 export const errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemTwotwoTypeDefault = `revenue_analytics`
+export const errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault = `account_custom_property`
 export const errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault = `workflow_variable`
 
 export const ErrorTrackingBypassRulesUpdateBody = /* @__PURE__ */ zod.object({
@@ -3270,6 +3383,61 @@ export const ErrorTrackingBypassRulesUpdateBody = /* @__PURE__ */ zod.object({
                             'not_icontains_multi',
                         ]),
                         type: zod
+                            .literal('account_custom_property')
+                            .default(errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault)
+                            .describe(
+                                'Customer analytics account custom property — the key is the property definition id'
+                            ),
+                        value: zod
+                            .union([
+                                zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                zod.string(),
+                                zod.number(),
+                                zod.boolean(),
+                                zod.null(),
+                            ])
+                            .optional(),
+                    }),
+                    zod.object({
+                        key: zod.string(),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
+                        operator: zod.enum([
+                            'exact',
+                            'is_not',
+                            'icontains',
+                            'not_icontains',
+                            'regex',
+                            'not_regex',
+                            'gt',
+                            'gte',
+                            'lt',
+                            'lte',
+                            'is_set',
+                            'is_not_set',
+                            'is_date_exact',
+                            'is_date_before',
+                            'is_date_after',
+                            'between',
+                            'not_between',
+                            'min',
+                            'max',
+                            'in',
+                            'not_in',
+                            'is_cleaned_path_exact',
+                            'flag_evaluates_to',
+                            'semver_eq',
+                            'semver_neq',
+                            'semver_gt',
+                            'semver_gte',
+                            'semver_lt',
+                            'semver_lte',
+                            'semver_tilde',
+                            'semver_caret',
+                            'semver_wildcard',
+                            'icontains_multi',
+                            'not_icontains_multi',
+                        ]),
+                        type: zod
                             .literal('workflow_variable')
                             .default(errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault),
                         value: zod
@@ -3352,6 +3520,7 @@ export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnesevenTyp
 export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOneeightTypeDefault = `error_tracking_issue`
 export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwozeroTypeDefault = `metric_attribute`
 export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwotwoTypeDefault = `revenue_analytics`
+export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault = `account_custom_property`
 export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault = `workflow_variable`
 
 export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
@@ -4380,6 +4549,61 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                             'not_icontains_multi',
                         ]),
                         type: zod
+                            .literal('account_custom_property')
+                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault)
+                            .describe(
+                                'Customer analytics account custom property — the key is the property definition id'
+                            ),
+                        value: zod
+                            .union([
+                                zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                zod.string(),
+                                zod.number(),
+                                zod.boolean(),
+                                zod.null(),
+                            ])
+                            .optional(),
+                    }),
+                    zod.object({
+                        key: zod.string(),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
+                        operator: zod.enum([
+                            'exact',
+                            'is_not',
+                            'icontains',
+                            'not_icontains',
+                            'regex',
+                            'not_regex',
+                            'gt',
+                            'gte',
+                            'lt',
+                            'lte',
+                            'is_set',
+                            'is_not_set',
+                            'is_date_exact',
+                            'is_date_before',
+                            'is_date_after',
+                            'between',
+                            'not_between',
+                            'min',
+                            'max',
+                            'in',
+                            'not_in',
+                            'is_cleaned_path_exact',
+                            'flag_evaluates_to',
+                            'semver_eq',
+                            'semver_neq',
+                            'semver_gt',
+                            'semver_gte',
+                            'semver_lt',
+                            'semver_lte',
+                            'semver_tilde',
+                            'semver_caret',
+                            'semver_wildcard',
+                            'icontains_multi',
+                            'not_icontains_multi',
+                        ]),
+                        type: zod
                             .literal('workflow_variable')
                             .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault),
                         value: zod
@@ -4451,6 +4675,7 @@ export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnesevenTyp
 export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOneeightTypeDefault = `error_tracking_issue`
 export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwozeroTypeDefault = `metric_attribute`
 export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwotwoTypeDefault = `revenue_analytics`
+export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault = `account_custom_property`
 export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault = `workflow_variable`
 
 export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
@@ -5487,6 +5712,61 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                                 'not_icontains_multi',
                             ]),
                             type: zod
+                                .literal('account_custom_property')
+                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault)
+                                .describe(
+                                    'Customer analytics account custom property — the key is the property definition id'
+                                ),
+                            value: zod
+                                .union([
+                                    zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                    zod.string(),
+                                    zod.number(),
+                                    zod.boolean(),
+                                    zod.null(),
+                                ])
+                                .optional(),
+                        }),
+                        zod.object({
+                            key: zod.string(),
+                            label: zod.union([zod.string(), zod.null()]).optional(),
+                            operator: zod.enum([
+                                'exact',
+                                'is_not',
+                                'icontains',
+                                'not_icontains',
+                                'regex',
+                                'not_regex',
+                                'gt',
+                                'gte',
+                                'lt',
+                                'lte',
+                                'is_set',
+                                'is_not_set',
+                                'is_date_exact',
+                                'is_date_before',
+                                'is_date_after',
+                                'between',
+                                'not_between',
+                                'min',
+                                'max',
+                                'in',
+                                'not_in',
+                                'is_cleaned_path_exact',
+                                'flag_evaluates_to',
+                                'semver_eq',
+                                'semver_neq',
+                                'semver_gt',
+                                'semver_gte',
+                                'semver_lt',
+                                'semver_lte',
+                                'semver_tilde',
+                                'semver_caret',
+                                'semver_wildcard',
+                                'icontains_multi',
+                                'not_icontains_multi',
+                            ]),
+                            type: zod
                                 .literal('workflow_variable')
                                 .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault),
                             value: zod
@@ -6140,6 +6420,7 @@ export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOneseven
 export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOneeightTypeDefault = `error_tracking_issue`
 export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwozeroTypeDefault = `metric_attribute`
 export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwotwoTypeDefault = `revenue_analytics`
+export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault = `account_custom_property`
 export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault = `workflow_variable`
 export const errorTrackingSuppressionRulesCreateBodySamplingRateDefault = 1
 export const errorTrackingSuppressionRulesCreateBodySamplingRateMin = 0
@@ -7171,6 +7452,61 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                             'not_icontains_multi',
                         ]),
                         type: zod
+                            .literal('account_custom_property')
+                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault)
+                            .describe(
+                                'Customer analytics account custom property — the key is the property definition id'
+                            ),
+                        value: zod
+                            .union([
+                                zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                zod.string(),
+                                zod.number(),
+                                zod.boolean(),
+                                zod.null(),
+                            ])
+                            .optional(),
+                    }),
+                    zod.object({
+                        key: zod.string(),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
+                        operator: zod.enum([
+                            'exact',
+                            'is_not',
+                            'icontains',
+                            'not_icontains',
+                            'regex',
+                            'not_regex',
+                            'gt',
+                            'gte',
+                            'lt',
+                            'lte',
+                            'is_set',
+                            'is_not_set',
+                            'is_date_exact',
+                            'is_date_before',
+                            'is_date_after',
+                            'between',
+                            'not_between',
+                            'min',
+                            'max',
+                            'in',
+                            'not_in',
+                            'is_cleaned_path_exact',
+                            'flag_evaluates_to',
+                            'semver_eq',
+                            'semver_neq',
+                            'semver_gt',
+                            'semver_gte',
+                            'semver_lt',
+                            'semver_lte',
+                            'semver_tilde',
+                            'semver_caret',
+                            'semver_wildcard',
+                            'icontains_multi',
+                            'not_icontains_multi',
+                        ]),
+                        type: zod
                             .literal('workflow_variable')
                             .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault),
                         value: zod
@@ -7232,6 +7568,7 @@ export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOneseven
 export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOneeightTypeDefault = `error_tracking_issue`
 export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwozeroTypeDefault = `metric_attribute`
 export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwotwoTypeDefault = `revenue_analytics`
+export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault = `account_custom_property`
 export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault = `workflow_variable`
 export const errorTrackingSuppressionRulesUpdateBodySamplingRateMin = 0
 export const errorTrackingSuppressionRulesUpdateBodySamplingRateMax = 1
@@ -8212,6 +8549,61 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                         type: zod
                             .literal('revenue_analytics')
                             .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwotwoTypeDefault),
+                        value: zod
+                            .union([
+                                zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                zod.string(),
+                                zod.number(),
+                                zod.boolean(),
+                                zod.null(),
+                            ])
+                            .optional(),
+                    }),
+                    zod.object({
+                        key: zod.string(),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
+                        operator: zod.enum([
+                            'exact',
+                            'is_not',
+                            'icontains',
+                            'not_icontains',
+                            'regex',
+                            'not_regex',
+                            'gt',
+                            'gte',
+                            'lt',
+                            'lte',
+                            'is_set',
+                            'is_not_set',
+                            'is_date_exact',
+                            'is_date_before',
+                            'is_date_after',
+                            'between',
+                            'not_between',
+                            'min',
+                            'max',
+                            'in',
+                            'not_in',
+                            'is_cleaned_path_exact',
+                            'flag_evaluates_to',
+                            'semver_eq',
+                            'semver_neq',
+                            'semver_gt',
+                            'semver_gte',
+                            'semver_lt',
+                            'semver_lte',
+                            'semver_tilde',
+                            'semver_caret',
+                            'semver_wildcard',
+                            'icontains_multi',
+                            'not_icontains_multi',
+                        ]),
+                        type: zod
+                            .literal('account_custom_property')
+                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault)
+                            .describe(
+                                'Customer analytics account custom property — the key is the property definition id'
+                            ),
                         value: zod
                             .union([
                                 zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),

@@ -1436,6 +1436,15 @@ export interface RevenueAnalyticsPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+export interface AccountCustomPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Customer analytics account custom property — the key is the property definition id */
+    type?: 'account_custom_property'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
 export interface WorkflowVariablePropertyFilterApi {
     key: string
     label?: string | null
@@ -1469,6 +1478,7 @@ export interface PropertyGroupFilterValueApi {
         | MetricPropertyFilterApi
         | SpanPropertyFilterApi
         | RevenueAnalyticsPropertyFilterApi
+        | AccountCustomPropertyFilterApi
         | WorkflowVariablePropertyFilterApi
     )[]
 }
@@ -1859,6 +1869,7 @@ export interface EventsNodeApi {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -1908,6 +1919,7 @@ export interface EventsNodeApi {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -1944,6 +1956,7 @@ export interface ActionsNodeApi {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -1991,6 +2004,7 @@ export interface ActionsNodeApi {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -2029,6 +2043,7 @@ export interface DataWarehouseNodeApi {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -2077,6 +2092,7 @@ export interface DataWarehouseNodeApi {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -2115,6 +2131,7 @@ export interface GroupNodeApi {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -2168,6 +2185,7 @@ export interface GroupNodeApi {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -2455,6 +2473,7 @@ export interface TrendsQueryApi {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | PropertyGroupFilterApi
@@ -2511,6 +2530,7 @@ export interface FunnelExclusionEventsNodeApi {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -2562,6 +2582,7 @@ export interface FunnelExclusionEventsNodeApi {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -2598,6 +2619,7 @@ export interface FunnelExclusionActionsNodeApi {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -2647,6 +2669,7 @@ export interface FunnelExclusionActionsNodeApi {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -2795,6 +2818,7 @@ export interface FunnelsDataWarehouseNodeApi {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -2843,6 +2867,7 @@ export interface FunnelsDataWarehouseNodeApi {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -2897,6 +2922,7 @@ export interface FunnelsQueryApi {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | PropertyGroupFilterApi
@@ -3052,6 +3078,7 @@ export interface RetentionEntityApi {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -3144,6 +3171,7 @@ export interface RetentionQueryApi {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | PropertyGroupFilterApi
@@ -3277,6 +3305,7 @@ export interface PathsQueryApi {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | PropertyGroupFilterApi
@@ -3400,6 +3429,7 @@ export interface StickinessQueryApi {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | PropertyGroupFilterApi
@@ -3489,6 +3519,7 @@ export interface LifecycleDataWarehouseNodeApi {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -3536,6 +3567,7 @@ export interface LifecycleDataWarehouseNodeApi {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -3588,6 +3620,7 @@ export interface LifecycleQueryApi {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | PropertyGroupFilterApi
@@ -4937,6 +4970,7 @@ export const TaxonomicFilterGroupTypeApi = {
     Replay: 'replay',
     ReplaySavedFilters: 'replay_saved_filters',
     RevenueAnalyticsProperties: 'revenue_analytics_properties',
+    AccountCustomProperties: 'account_custom_properties',
     Resources: 'resources',
     ErrorTrackingProperties: 'error_tracking_properties',
     ActivityLogProperties: 'activity_log_properties',
@@ -5000,6 +5034,7 @@ export interface EventsQueryActionStepApi {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -5139,6 +5174,7 @@ export interface EventsQueryApi {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -5177,6 +5213,7 @@ export interface EventsQueryApi {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -5221,6 +5258,7 @@ export interface PersonsNodeApi {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -5253,6 +5291,7 @@ export interface PersonsNodeApi {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -5386,6 +5425,7 @@ export interface FunnelCorrelationActorsQueryApi {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -5427,6 +5467,7 @@ export interface ExperimentEventExposureConfigApi {
         | MetricPropertyFilterApi
         | SpanPropertyFilterApi
         | RevenueAnalyticsPropertyFilterApi
+        | AccountCustomPropertyFilterApi
         | WorkflowVariablePropertyFilterApi
     )[]
     response?: ExperimentEventExposureConfigApiResponse
@@ -5478,6 +5519,7 @@ export interface ExperimentDataWarehouseNodeApi {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -5524,6 +5566,7 @@ export interface ExperimentDataWarehouseNodeApi {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -5849,6 +5892,7 @@ export interface HogQLFiltersApi {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -6381,6 +6425,7 @@ export interface SessionsQueryApi {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -6412,6 +6457,7 @@ export interface SessionsQueryApi {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -6450,6 +6496,7 @@ export interface SessionsQueryApi {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -6762,6 +6809,7 @@ export interface ConversionGoalFilter1Api {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -6811,6 +6859,7 @@ export interface ConversionGoalFilter1Api {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -6852,6 +6901,7 @@ export interface ConversionGoalFilter2Api {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -6899,6 +6949,7 @@ export interface ConversionGoalFilter2Api {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -6942,6 +6993,7 @@ export interface ConversionGoalFilter3Api {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -6990,6 +7042,7 @@ export interface ConversionGoalFilter3Api {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -7502,6 +7555,7 @@ export interface TracesQueryApi {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -7570,6 +7624,7 @@ export interface TraceQueryApi {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
