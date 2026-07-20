@@ -481,4 +481,130 @@ describe('dataTableLogic', () => {
             dataTableRows: [{ result: results[0] }, { label: 'December 23, 2022' }, { result: results[1] }],
         })
     })
+
+    describe('stable expansion identity', () => {
+        const event = (uuid: string, timestamp: string): any[] => [
+            { uuid, event: 'pageview', properties: {}, team_id: 1, distinct_id: 'x', timestamp },
+            'pageview',
+            timestamp,
+        ]
+        const responseFor = (results: any[][]): Record<string, any> => ({
+            columns: ['*', 'event', 'timestamp'],
+            types: [
+                "Tuple(UUID, String, String, DateTime64(6, 'UTC'), Int64, String, String, DateTime64(6, 'UTC'), UUID, DateTime64(3), String)",
+                'String',
+                "DateTime64(6, 'UTC')",
+            ],
+            results,
+            hasMore: false,
+        })
+
+        const mountWith = (results: any[][]): DataTableNode => {
+            ;(performQuery as any).mockResolvedValueOnce(responseFor(results))
+            const dataTableQuery = getDataTableQuery()
+            logic = dataTableLogic({
+                dataKey: testUniqueKey,
+                vizKey: testUniqueKey,
+                query: dataTableQuery,
+            })
+            logic.mount()
+            return dataTableQuery
+        }
+
+        const reload = (dataTableQuery: DataTableNode, results: any[][]): void => {
+            const builtDataNodeLogic = dataNodeLogic({ key: testUniqueKey, query: dataTableQuery.source })
+            ;(performQuery as any).mockResolvedValueOnce(responseFor(results))
+            builtDataNodeLogic.actions.loadData('force_blocking')
+        }
+
+        it('keys expansion on event uuid, so an inserted row does not inherit expansion', async () => {
+            // Regression: positional keys meant a refresh that inserted a row before the expanded
+            // one transferred expansion to the wrong event. UUID keys keep it on the same event.
+            const uuidA = '01853a90-ba94-0000-8776-e8df5617c3ec'
+            const dataTableQuery = mountWith([event(uuidA, '2022-12-24T17:00:41.165000Z')])
+            await expectLogic(logic).delay(0).toMatchValues({ responseLoading: false })
+
+            const { getExpandedRowKey } = logic.values
+            const keyA = getExpandedRowKey({ result: event(uuidA, '2022-12-24T17:00:41.165000Z') }, 0)
+            expect(keyA).toBe(uuidA)
+            logic.actions.toggleRowExpanded(keyA)
+            expect(logic.values.expandedRowKeys).toEqual([uuidA])
+
+            // A new event arrives before A in the result set.
+            const uuidB = '01853a90-ba94-0000-8776-e8df5617c3eb'
+            reload(dataTableQuery, [
+                event(uuidB, '2022-12-24T18:00:41.165000Z'),
+                event(uuidA, '2022-12-24T17:00:41.165000Z'),
+            ])
+            await expectLogic(logic).delay(0).toMatchValues({ responseLoading: false })
+
+            // A stays expanded; B (now at index 0, where A used to be) does not inherit.
+            expect(logic.values.expandedRowKeys).toEqual([uuidA])
+            const keyB = logic.values.getExpandedRowKey({ result: event(uuidB, '2022-12-24T18:00:41.165000Z') }, 0)
+            expect(logic.values.expandedRowKeys).not.toContain(keyB)
+        })
+
+        it('drops expansion keys for events that leave the result set on refresh', async () => {
+            // Regression: without reconciliation, expanded UUIDs accumulated unbounded as users
+            // paginated or changed queries. Stale keys must be removed when the event disappears.
+            const uuidA = '01853a90-ba94-0000-8776-e8df5617c3ec'
+            const uuidB = '01853a90-ba94-0000-8776-e8df5617c3ed'
+            const dataTableQuery = mountWith([
+                event(uuidA, '2022-12-24T17:00:41.165000Z'),
+                event(uuidB, '2022-12-24T16:00:41.165000Z'),
+            ])
+            await expectLogic(logic).delay(0).toMatchValues({ responseLoading: false })
+
+            logic.actions.toggleRowExpanded(uuidA)
+            logic.actions.toggleRowExpanded(uuidB)
+            expect(logic.values.expandedRowKeys).toEqual([uuidA, uuidB])
+
+            // Refresh returns only B — A has fallen out of the window.
+            reload(dataTableQuery, [event(uuidB, '2022-12-24T16:00:41.165000Z')])
+            await expectLogic(logic).delay(0).toMatchValues({ responseLoading: false })
+
+            expect(logic.values.expandedRowKeys).toEqual([uuidB])
+        })
+
+        it('toggles and supports multiple expanded events by uuid', async () => {
+            const uuidA = '01853a90-ba94-0000-8776-e8df5617c3ec'
+            const uuidB = '01853a90-ba94-0000-8776-e8df5617c3ed'
+            mountWith([event(uuidA, '2022-12-24T17:00:41.165000Z'), event(uuidB, '2022-12-24T16:00:41.165000Z')])
+            await expectLogic(logic).delay(0).toMatchValues({ responseLoading: false })
+
+            logic.actions.toggleRowExpanded(uuidA)
+            logic.actions.toggleRowExpanded(uuidB)
+            expect(logic.values.expandedRowKeys).toEqual([uuidA, uuidB])
+
+            // Collapsing one leaves the other intact.
+            logic.actions.toggleRowExpanded(uuidA)
+            expect(logic.values.expandedRowKeys).toEqual([uuidB])
+        })
+
+        it('falls back to positional index for rows without an event uuid', async () => {
+            // Non-event tables and events lacking both uuid and id keep working positionally.
+            const ts = '2022-12-24T17:00:41.165000Z'
+            const dataTableQuery = {
+                kind: NodeKind.DataTableNode,
+                source: { kind: NodeKind.EventsQuery, select: ['event', 'timestamp'] },
+            } as any
+            ;(performQuery as any).mockResolvedValueOnce({
+                columns: ['event', 'timestamp'],
+                types: ['String', "DateTime64(6, 'UTC')"],
+                results: [
+                    ['pageview', ts],
+                    ['pageview', ts],
+                ],
+                hasMore: false,
+            })
+            logic = dataTableLogic({ dataKey: testUniqueKey, vizKey: testUniqueKey, query: dataTableQuery })
+            logic.mount()
+            await expectLogic(logic).delay(0).toMatchValues({ responseLoading: false })
+
+            // No `*` column, so the key is the row index.
+            expect(logic.values.getExpandedRowKey({ result: ['pageview', ts] }, 1)).toBe(1)
+            logic.actions.toggleRowExpanded(1)
+            expect(logic.values.expandedRowKeys).toEqual([1])
+        })
+    })
 })
