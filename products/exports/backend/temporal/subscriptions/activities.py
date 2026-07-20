@@ -86,6 +86,33 @@ async def _persist_content_snapshot(
     return snapshot_bytes
 
 
+async def _stamp_snapshot_cache_keys(
+    assets: list[ExportedAsset],
+    insight_snapshots: list[dict[str, typing.Any]],
+) -> None:
+    """Record each snapshot's query cache key on its ExportedAsset.
+
+    The image exporter reads ``export_context["subscription_snapshot_cache_key"]`` and renders
+    from that cache entry rather than recalculating, so the chart and the summary text stay on
+    one query execution. Snapshots without a cache key (query failed, cache miss) are left
+    unstamped — the exporter falls back to its normal calculate-and-render path for those.
+    """
+
+    @database_sync_to_async(thread_sensitive=False)
+    def _stamp() -> None:
+        to_update: list[ExportedAsset] = []
+        for asset, snapshot in zip(assets, insight_snapshots):
+            cache_key = snapshot.get("cache_key")
+            if not cache_key:
+                continue
+            asset.export_context = {**(asset.export_context or {}), "subscription_snapshot_cache_key": cache_key}
+            to_update.append(asset)
+        if to_update:
+            ExportedAsset.objects.bulk_update(to_update, ["export_context"])
+
+    await _stamp()
+
+
 @temporalio.activity.defn
 async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivityInputs) -> list[SubscriptionInfo]:
     now_with_buffer = dt.datetime.now(dt.UTC) + dt.timedelta(minutes=inputs.buffer_minutes)
@@ -257,6 +284,14 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
         ]
 
     insight_snapshots = await build_insight_snapshots()
+
+    # Stamp each asset with the cache key of the query execution that produced its snapshot,
+    # so the image exporter renders from that exact cache entry instead of running the query
+    # again. Without this the chart is a second, later execution than the summary text reads,
+    # and the two can show different numbers within one delivery. `assets` and
+    # `insight_snapshots` are both built from `export_pairs` in the same order, so they align
+    # by index.
+    await _stamp_snapshot_cache_keys(assets, insight_snapshots)
 
     # Persist insight snapshots directly on SubscriptionDelivery.content_snapshot
     # instead of returning them across the Temporal activity boundary — per-insight

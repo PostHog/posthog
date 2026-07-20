@@ -504,45 +504,43 @@ def export_image(
                     dashboard_id=exported_asset.dashboard.id if exported_asset.dashboard else None,
                 )
 
-                # When export_context contains a source query, use it as the query for cache warming.
-                # This captures the user's full current state (variables, filters, date ranges, etc.).
-                # Falls back to the saved insight query for subscriptions and other server-initiated exports.
                 export_context = exported_asset.export_context or {}
-                query_override = export_context.get("source")
 
-                dashboard_variables = None
-                tile_filters_override = None
-                if exported_asset.dashboard:
-                    if exported_asset.dashboard.variables:
-                        variables = list(InsightVariable.objects.filter(team=exported_asset.team).all())
-                        dashboard_variables = map_stale_to_latest(exported_asset.dashboard.variables, variables)
-                    tile = DashboardTile.objects.filter(
-                        dashboard=exported_asset.dashboard,
-                        insight=exported_asset.insight,
-                    ).first()
-                    if tile:
-                        tile_filters_override = tile.filters_overrides
-
-                if query_override:
-                    # query_override is upgraded inside calculate_for_query_based_insight,
-                    # so we skip upgrade_query (which only upgrades insight.query we won't use).
-                    # variables_override is None because query_override already encodes the
-                    # user's full current state — applying saved dashboard variables on top
-                    # would clobber unsaved variable selections.
-                    result = calculate_for_query_based_insight(
-                        exported_asset.insight,
-                        team=exported_asset.team,
-                        dashboard=exported_asset.dashboard,
-                        execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                        # Background render (no request user); attribute the read to the export owner.
-                        user=exported_asset.created_by,
-                        variables_override=None,
-                        tile_filters_override=tile_filters_override,
-                        query_override=query_override,
-                        analytics_props=export_analytics_props,
-                    )
+                # Subscription deliveries already execute this insight's query when building the
+                # content snapshot that feeds the AI summary text, and stamp its cache key onto the
+                # asset. Reuse that exact cache entry for the render instead of recalculating: a fresh
+                # CALCULATE_BLOCKING_ALWAYS run would overwrite the snapshot's cache row with a second,
+                # later execution, so the chart image and the summary text could show different numbers
+                # within one message (and two near-simultaneous sends could disagree). Pinning both to
+                # the one execution the snapshot already ran keeps them consistent.
+                snapshot_cache_key = export_context.get("subscription_snapshot_cache_key")
+                if snapshot_cache_key:
+                    insight_cache_keys[exported_asset.insight.id] = snapshot_cache_key
                 else:
-                    with upgrade_query(exported_asset.insight):
+                    # When export_context contains a source query, use it as the query for cache warming.
+                    # This captures the user's full current state (variables, filters, date ranges, etc.).
+                    # Falls back to the saved insight query for subscriptions and other server-initiated exports.
+                    query_override = export_context.get("source")
+
+                    dashboard_variables = None
+                    tile_filters_override = None
+                    if exported_asset.dashboard:
+                        if exported_asset.dashboard.variables:
+                            variables = list(InsightVariable.objects.filter(team=exported_asset.team).all())
+                            dashboard_variables = map_stale_to_latest(exported_asset.dashboard.variables, variables)
+                        tile = DashboardTile.objects.filter(
+                            dashboard=exported_asset.dashboard,
+                            insight=exported_asset.insight,
+                        ).first()
+                        if tile:
+                            tile_filters_override = tile.filters_overrides
+
+                    if query_override:
+                        # query_override is upgraded inside calculate_for_query_based_insight,
+                        # so we skip upgrade_query (which only upgrades insight.query we won't use).
+                        # variables_override is None because query_override already encodes the
+                        # user's full current state — applying saved dashboard variables on top
+                        # would clobber unsaved variable selections.
                         result = calculate_for_query_based_insight(
                             exported_asset.insight,
                             team=exported_asset.team,
@@ -550,12 +548,26 @@ def export_image(
                             execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
                             # Background render (no request user); attribute the read to the export owner.
                             user=exported_asset.created_by,
-                            variables_override=dashboard_variables,
+                            variables_override=None,
                             tile_filters_override=tile_filters_override,
+                            query_override=query_override,
                             analytics_props=export_analytics_props,
                         )
-                if result.cache_key:
-                    insight_cache_keys[exported_asset.insight.id] = result.cache_key
+                    else:
+                        with upgrade_query(exported_asset.insight):
+                            result = calculate_for_query_based_insight(
+                                exported_asset.insight,
+                                team=exported_asset.team,
+                                dashboard=exported_asset.dashboard,
+                                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                                # Background render (no request user); attribute the read to the export owner.
+                                user=exported_asset.created_by,
+                                variables_override=dashboard_variables,
+                                tile_filters_override=tile_filters_override,
+                                analytics_props=export_analytics_props,
+                            )
+                    if result.cache_key:
+                        insight_cache_keys[exported_asset.insight.id] = result.cache_key
             elif exported_asset.dashboard:
                 logger.info(
                     "export_image.calculate_dashboard_insights",

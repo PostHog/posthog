@@ -225,6 +225,40 @@ class TestImageExporter(APIBaseTest):
         assert "test_cache_key_123" in url_to_render, f"URL should contain the cache key: {url_to_render}"
 
     @patch("products.exports.backend.tasks.image_exporter.calculate_for_query_based_insight")
+    def test_subscription_snapshot_cache_key_is_reused_without_recalculating(
+        self,
+        mock_calculate: Any,
+        mock_remove: Any,
+        mock_open: Any,
+        mock_screenshot_asset: Any,
+    ) -> None:
+        # A subscription delivery already ran this insight's query when building the content
+        # snapshot that feeds the AI summary, and stamped its cache key onto the asset. The
+        # exporter must render from that exact cache entry rather than executing the query again —
+        # a second CALCULATE_BLOCKING_ALWAYS run would overwrite the snapshot's cache row, so the
+        # chart image and the summary text could show different numbers within one message.
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Test Insight",
+            query={"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "SELECT 1 as value"}},
+        )
+        exported_asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            insight=insight,
+            export_context={"subscription_snapshot_cache_key": "snapshot_key_abc"},
+        )
+
+        with self.settings(OBJECT_STORAGE_ENABLED=False):
+            image_exporter.export_image(exported_asset)
+
+        assert not mock_calculate.called, "exporter must not re-run the query when a snapshot cache key is present"
+
+        assert mock_screenshot_asset.called
+        url_to_render = mock_screenshot_asset.call_args[0][1]
+        assert "snapshot_key_abc" in url_to_render, f"render URL should pin to the snapshot cache key: {url_to_render}"
+
+    @patch("products.exports.backend.tasks.image_exporter.calculate_for_query_based_insight")
     def test_dashboard_export_captures_all_cache_keys(
         self,
         mock_calculate: Any,
