@@ -78,6 +78,31 @@ export function AssigneeDropdown({ assignee, onChange }: AssigneeDropdownProps):
     )
 }
 
+const AssigneeItem = ({
+    item,
+    type,
+    onSelect,
+    activeId,
+}: {
+    item: Assignee
+    type: 'user' | 'role'
+    onSelect: (value: TicketAssignee) => void
+    activeId?: string | number
+}): JSX.Element => {
+    return (
+        <LemonButton
+            fullWidth
+            role="menuitem"
+            size="small"
+            icon={<AssigneeIconDisplay assignee={item} />}
+            onClick={() => item?.id && onSelect(String(activeId) === String(item.id) ? null : { type, id: item.id })}
+            active={String(activeId) === String(item?.id)}
+        >
+            <AssigneeLabelDisplay assignee={item} />
+        </LemonButton>
+    )
+}
+
 const Section = ({
     loading,
     search,
@@ -103,19 +128,7 @@ const Section = ({
                 <h5 className="mx-2 my-0.5">{title}</h5>
                 {items.map((item) => (
                     <li key={item?.id || 'unassigned'}>
-                        <LemonButton
-                            fullWidth
-                            role="menuitem"
-                            size="small"
-                            icon={<AssigneeIconDisplay assignee={item} />}
-                            onClick={() =>
-                                item?.id &&
-                                onSelect(String(activeId) === String(item.id) ? null : { type, id: item.id })
-                            }
-                            active={String(activeId) === String(item?.id)}
-                        >
-                            <AssigneeLabelDisplay assignee={item} />
-                        </LemonButton>
+                        <AssigneeItem item={item} type={type} onSelect={onSelect} activeId={activeId} />
                     </li>
                 ))}
 
