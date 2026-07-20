@@ -32,6 +32,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     FlakyTestList,
     GitHubSource,
     MasterFailureGroup,
+    MergedPullRequest,
     PRCostSummary,
     PRLifecycle,
     PullRequestList,
@@ -284,6 +285,25 @@ def list_pull_requests(
 ) -> PullRequestList:
     return logic.build_pull_request_list(
         curated=_authorized_source(team, source_id, user_access_control, repo=repo), date_from=date_from, author=author
+    )
+
+
+def list_recently_merged_pull_requests(
+    *,
+    team: Team,
+    repository: str,
+    since: "datetime",
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> list[MergedPullRequest]:
+    """Pull requests in ``repository`` ('owner/name') merged at or after ``since``, newest first, each
+    with its branch-tip ``head_sha`` — the discovery seam for ReviewHog telemetry. Raises
+    ``GitHubSourceNotConnectedError`` (propagated to the caller) when no GitHub source is connected.
+    """
+    return logic.build_merged_pull_requests(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repository),
+        repo=repository,
+        since=since,
     )
 
 

@@ -96,6 +96,7 @@ from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
     create_replay_vision_gemini_cleanup_sweep_schedule,
 )
 from products.replay_vision.backend.temporal.reconciler import create_replay_vision_reconciler_schedule
+from products.review_hog.backend.temporal.outcomes_schedule import create_review_hog_finding_outcomes_schedule
 from products.signals.backend.emission.conversations_schedule import create_conversations_signals_coordinator_schedule
 from products.signals.backend.temporal.agentic.schedule import create_signals_scout_coordinator_schedule
 from products.tasks.backend.facade.temporal import create_evaluate_code_workstreams_schedule
@@ -833,6 +834,7 @@ schedules = [
     create_replay_vision_estimates_schedule,
     create_evaluate_code_workstreams_schedule,
     create_github_job_logs_coordinator_schedule,
+    create_review_hog_finding_outcomes_schedule,
 ]
 
 if settings.CLOUD_DEPLOYMENT:

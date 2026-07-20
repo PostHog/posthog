@@ -1924,6 +1924,41 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         assert (by_repo[("PostHog", "posthog.com")].pushes, by_repo[("PostHog", "posthog.com")].rerun_cycles) == (2, 1)
 
 
+class TestRecentlyMergedPullRequests(_WarehouseMixin, BaseTest):
+    """The recently-merged discovery seam over real warehouse tables: only PRs merged at or after
+    `since` in the scoped repo surface, each with its branch-tip head SHA. Skips when object storage
+    is unreachable."""
+
+    def test_returns_merged_prs_since_cutoff_scoped_to_repo(self) -> None:
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [
+                # merged within the window -> returned, carrying its branch-tip head SHA
+                _pr_row(20, "alice", "closed", 0, _ago(7), merged_at=_ago(5), head_sha="sha20"),
+                # open / never merged -> excluded by merged_at IS NOT NULL
+                _pr_row(21, "bob", "open", 0, _ago(3), head_sha="sha21"),
+                # merged before the cutoff -> excluded by merged_at >= since
+                _pr_row(22, "carol", "closed", 0, _ago(40), merged_at=_ago(30), head_sha="sha22"),
+                # merged in-window but a different repo -> excluded by the repo scope
+                _pr_row(
+                    23, "dave", "closed", 0, _ago(4), merged_at=_ago(3), head_sha="sha23", full_name="PostHog/other"
+                ),
+            ],
+        )
+        # workflow_runs is required for the source to resolve, though this read only touches PRs.
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [_run_row(3001, "CI", "sha20", "completed", "success", _ago(5), _ago(5), pr_number=20)],
+        )
+
+        since = timezone.now() - timedelta(days=10)
+        merged = api.list_recently_merged_pull_requests(team=self.team, repository="PostHog/posthog", since=since)
+
+        assert [(pr.number, pr.head_sha) for pr in merged] == [(20, "sha20")]
+
+
 class TestPRLLMSpendWarehouse(_WarehouseMixin, BaseTest):
     """LLM token spend attributed to a PR by git branch, over a real warehouse PR row plus
     $ai_generation events. Skips when object storage is unreachable."""

@@ -5,6 +5,7 @@ from posthog.models.utils import UUIDModel
 
 from products.review_hog.backend.reviewer.artefact_content import (
     ArtefactContentValidationError,
+    FindingOutcomeArtefact,
     ReviewArtefactContent,
     ReviewIssueFinding,
     ReviewLogArtefactContent,
@@ -108,6 +109,9 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
     class ArtefactType(models.TextChoices):
         ISSUE_FINDING = "issue_finding"
         VALIDATION_VERDICT = "validation_verdict"
+        # The classified fate of a published finding, written by the outcome-telemetry batch after
+        # the PR merged (one per finding); its presence marks the finding already classified.
+        FINDING_OUTCOME = "finding_outcome"
         TASK_RUN = "task_run"
         COMMIT = "commit"
         CODE_REFERENCE = "code_reference"
@@ -204,6 +208,13 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
         cls, *, team_id: int, report_id: str, content: ValidationVerdict, attribution: ArtefactAttribution
     ) -> "ReviewReportArtefact":
         """Append a `validation_verdict` (latest verdict per `issue_key` wins at read time)."""
+        return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
+
+    @classmethod
+    def add_finding_outcome(
+        cls, *, team_id: int, report_id: str, content: FindingOutcomeArtefact, attribution: ArtefactAttribution
+    ) -> "ReviewReportArtefact":
+        """Append a `finding_outcome` (one per published finding; its presence marks it classified)."""
         return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
 
     @classmethod

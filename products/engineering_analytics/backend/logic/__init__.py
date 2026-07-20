@@ -59,6 +59,9 @@ from products.engineering_analytics.backend.logic.queries.flaky_tests import que
 from products.engineering_analytics.backend.logic.queries.job_aggregates import query_job_aggregates
 from products.engineering_analytics.backend.logic.queries.llm_spend import query_pr_llm_spend
 from products.engineering_analytics.backend.logic.queries.master_failures import query_master_failures
+from products.engineering_analytics.backend.logic.queries.merged_pull_requests import (
+    build_merged_pull_requests as build_merged_pull_requests,
+)
 from products.engineering_analytics.backend.logic.queries.pr_cost import (
     query_author_workflow_costs,
     query_pr_cost,

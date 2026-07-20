@@ -226,6 +226,19 @@ class PullRequest:
 
 
 @dataclass(frozen=True)
+class MergedPullRequest:
+    """A merged pull request reduced to its branch-tip head SHA — the discovery seam for ReviewHog
+    telemetry ("which PRs merged recently, and the commit at each branch tip"). ``head_sha`` is the
+    run / branch-tip SHA (``head.sha``), never the ephemeral ``refs/pull/N/merge`` commit (SPEC §7).
+    ``merged_at`` is non-null by construction: the read keeps only PRs that actually merged.
+    """
+
+    number: int
+    head_sha: str
+    merged_at: datetime
+
+
+@dataclass(frozen=True)
 class WorkflowRun:
     id: int
     workflow_name: str

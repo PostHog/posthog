@@ -435,6 +435,21 @@ class TurnFindingsBundle:
         verdicts = self._verdicts.get(report_id, {})
         return [(finding, verdicts.get(issue_key)) for issue_key, finding in findings.items()]
 
+    def all_valid(self, report_id: str) -> list[tuple[ReviewIssueFinding, ValidationVerdict]]:
+        """Every valid finding of a report across all turns, paired with its verdict.
+
+        Not turn-scoped like `turn`: `issue_key` is `run_index`-prefixed so keys never collide across
+        turns, and outcome telemetry classifies whatever was published regardless of which turn posted
+        it. Latest-wins per key is already applied by `load_findings_bundle`.
+        """
+        verdicts = self._verdicts.get(report_id, {})
+        return [
+            (finding, verdict)
+            for run_findings in self._findings.get(report_id, {}).values()
+            for issue_key, finding in run_findings.items()
+            if (verdict := verdicts.get(issue_key)) is not None and verdict.is_valid
+        ]
+
 
 def load_findings_bundle(*, team_id: int, report_ids: Sequence[str]) -> TurnFindingsBundle:
     """All reports' finding/verdict artefacts in ONE query — the batch behind `load_turn_findings`.
