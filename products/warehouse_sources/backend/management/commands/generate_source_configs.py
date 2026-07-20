@@ -532,6 +532,17 @@ class Command(BaseCommand):
         for stale in set(os.listdir(output_dir)) - expected:
             if stale.endswith(".py"):
                 os.remove(os.path.join(output_dir, stale))
+                self._remove_pycache(output_dir, stale.removesuffix(".py"))
                 logger.info(f"Removed stale generated module: {stale}")
 
         logger.info(f"Generated {len(modules)} source config modules in: {output_dir}")
+
+    @staticmethod
+    def _remove_pycache(output_dir: str, module_name: str) -> None:
+        # Drop the removed module's compiled bytecode so a stale `.pyc` can't keep importing.
+        pycache_dir = os.path.join(output_dir, "__pycache__")
+        if not os.path.isdir(pycache_dir):
+            return
+        for cached in os.listdir(pycache_dir):
+            if cached.startswith(f"{module_name}.") and cached.endswith(".pyc"):
+                os.remove(os.path.join(pycache_dir, cached))
