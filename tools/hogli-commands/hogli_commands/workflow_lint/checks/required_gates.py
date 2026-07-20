@@ -137,9 +137,13 @@ class RequiredGateCheck(WorkflowCheck):
     def run(self, workflows: list[Workflow]) -> CheckResult:
         result = CheckResult()
         for wf in workflows:
+            gates = [job for job in wf.jobs if not job.is_reusable_call and _is_gate(job)]
+            if not gates:
+                continue
+            # Only worth re-reading the file once we know there's a gate to exempt.
             exempt = _exempt_jobs(str(wf.path), frozenset(job.name for job in wf.jobs))
-            for job in wf.jobs:
-                if job.is_reusable_call or job.name in exempt or not _is_gate(job):
+            for job in gates:
+                if job.name in exempt:
                     continue
                 for message in _problems(job):
                     result.issues.append(Issue(workflow=wf.path.name, job=job.name, message=message, file=str(wf.path)))

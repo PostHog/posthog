@@ -976,6 +976,14 @@ ENV_LOOP_GATE = """
 """
 
 
+def _off_convention_gate(marker: str = "") -> str:
+    """A gate whose display name doesn't end in "Pass", so only structural detection finds it."""
+    yaml_ = _gate(MIXED_BODY).replace("Thing Tests Pass", "Thing decision")
+    if marker:
+        yaml_ = yaml_.replace("      thing_tests:", f"      # {marker}\n      thing_tests:")
+    return yaml_
+
+
 class TestRequiredGateCheck:
     @pytest.mark.parametrize(
         "content",
@@ -1031,27 +1039,24 @@ class TestRequiredGateCheck:
         )
         assert RequiredGateCheck().run(_read_all(tmp_path)).issues == []
 
-    # A gate named off-convention is still a gate: two shipped that way and went
-    # unchecked while the rule keyed on the name alone.
+    # A gate named off-convention is still a gate, so detection can't key on the
+    # name alone.
     def test_finds_gate_not_named_pass(self, tmp_path: Path) -> None:
-        _write(tmp_path, "ci-thing.yml", _gate(MIXED_BODY).replace("Thing Tests Pass", "Thing code quality"))
+        _write(tmp_path, "ci-thing.yml", _off_convention_gate())
         issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
         assert [i.message.split("'")[1] for i in issues] == ["changes"]
 
-    def test_allow_marker_exempts_a_non_gate_job(self, tmp_path: Path) -> None:
-        marked = _gate(MIXED_BODY).replace(
-            "      thing_tests:",
-            "      # hogli-lint: not-a-required-gate — decides a side effect, emits no check\n      thing_tests:",
-        )
-        _write(tmp_path, "ci-thing.yml", marked.replace("Thing Tests Pass", "Thing decision"))
-        assert RequiredGateCheck().run(_read_all(tmp_path)).issues == []
-
-    def test_allow_marker_requires_a_reason(self, tmp_path: Path) -> None:
-        marked = _gate(MIXED_BODY).replace(
-            "      thing_tests:", "      # hogli-lint: not-a-required-gate\n      thing_tests:"
-        )
-        _write(tmp_path, "ci-thing.yml", marked.replace("Thing Tests Pass", "Thing decision"))
-        assert RequiredGateCheck().run(_read_all(tmp_path)).issues != []
+    @pytest.mark.parametrize(
+        "marker,exempted",
+        [
+            ("hogli-lint: not-a-required-gate", False),
+            ("hogli-lint: not-a-required-gate — decides a side effect, emits no check", True),
+        ],
+        ids=["without-reason", "with-reason"],
+    )
+    def test_allow_marker_needs_a_reason_to_exempt(self, tmp_path: Path, marker: str, exempted: bool) -> None:
+        _write(tmp_path, "ci-thing.yml", _off_convention_gate(marker))
+        assert (RequiredGateCheck().run(_read_all(tmp_path)).issues == []) is exempted
 
 
 class TestLiveTreeSmoke:
