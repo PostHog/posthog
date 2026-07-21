@@ -33,6 +33,8 @@ from products.data_catalog.evals.constants import (
     APPROVED_METRIC_NAME,
     CERTIFIED_SOURCE_NAME,
     DECOY_INSIGHT_NAMES,
+    DECOY_REVENUE_TABLE_COLUMNS,
+    DECOY_REVENUE_TABLE_NAME,
     DEPRECATED_SOURCE_NAME,
     DRIFTED_INSIGHT_MUTATED_QUERY,
     DRIFTED_INSIGHT_ORIGINAL_QUERY,
@@ -45,6 +47,9 @@ from products.data_catalog.evals.constants import (
     PROPOSED_METRIC_DEFINITION,
     PROPOSED_METRIC_DESCRIPTION,
     PROPOSED_METRIC_NAME,
+    RANKED_METRIC_DEFINITION,
+    RANKED_METRIC_DESCRIPTION,
+    RANKED_METRIC_NAME,
     RELATIONSHIP_DECOY_TARGET_NAME,
     RELATIONSHIP_SOURCE_KEY,
     RELATIONSHIP_SOURCE_NAME,
@@ -65,6 +70,7 @@ __all__ = [
     "seed_instruction_like_relationship_context",
     "seed_metric_listing_catalog",
     "seed_proposed_metric",
+    "seed_ranked_metric_with_decoy_table",
 ]
 
 _STRING_COLUMN = {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}
@@ -148,6 +154,26 @@ def seed_metric_listing_catalog(context: CustomPromptSandboxContext) -> dict[str
             "approved": APPROVED_METRIC_NAME,
             "proposed": PROPOSED_METRIC_NAME,
             "decoy_insights": list(DECOY_INSIGHT_NAMES),
+        }
+    }
+
+
+def seed_ranked_metric_with_decoy_table(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    team, user = _team_and_user(context)
+    metric = upsert_metric(
+        team=team,
+        user=user,
+        name=RANKED_METRIC_NAME,
+        description=RANKED_METRIC_DESCRIPTION,
+        unit="usd",
+        definition=RANKED_METRIC_DEFINITION,
+    )
+    approve_metric(metric, user)
+    _warehouse_table(team, DECOY_REVENUE_TABLE_NAME, DECOY_REVENUE_TABLE_COLUMNS)
+    return {
+        "discovery_first": {
+            "metric": RANKED_METRIC_NAME,
+            "decoy_table": DECOY_REVENUE_TABLE_NAME,
         }
     }
 

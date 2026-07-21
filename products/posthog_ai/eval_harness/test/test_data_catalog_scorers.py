@@ -4,7 +4,7 @@ import json
 
 from parameterized import parameterized
 
-from products.data_catalog.evals.scorers import SemanticMetadataQueried
+from products.data_catalog.evals.scorers import MetricsCatalogBeforeAnswer, SemanticMetadataQueried
 
 
 def _session_update(sequence: int, update: dict) -> str:
@@ -21,40 +21,49 @@ def _session_update(sequence: int, update: dict) -> str:
     )
 
 
+def _sql_call_updates(call_id: str, query: str, sequence: int, *, status: str = "completed") -> list[str]:
+    return [
+        _session_update(
+            sequence,
+            {
+                "sessionUpdate": "tool_call",
+                "toolCallId": call_id,
+                "status": "pending",
+                "rawInput": {},
+                "title": "execute-sql",
+                "_meta": {"claudeCode": {"toolName": "execute-sql"}},
+            },
+        ),
+        _session_update(
+            sequence + 1,
+            {
+                "sessionUpdate": "tool_call_update",
+                "toolCallId": call_id,
+                "status": None,
+                "rawInput": {"query": query},
+            },
+        ),
+        _session_update(
+            sequence + 2,
+            {
+                "sessionUpdate": "tool_call_update",
+                "toolCallId": call_id,
+                "status": status,
+                "rawOutput": "ok",
+            },
+        ),
+    ]
+
+
 def _sql_log(query: str, *, status: str = "completed") -> str:
-    return "\n".join(
-        [
-            _session_update(
-                1,
-                {
-                    "sessionUpdate": "tool_call",
-                    "toolCallId": "call-1",
-                    "status": "pending",
-                    "rawInput": {},
-                    "title": "execute-sql",
-                    "_meta": {"claudeCode": {"toolName": "execute-sql"}},
-                },
-            ),
-            _session_update(
-                2,
-                {
-                    "sessionUpdate": "tool_call_update",
-                    "toolCallId": "call-1",
-                    "status": None,
-                    "rawInput": {"query": query},
-                },
-            ),
-            _session_update(
-                3,
-                {
-                    "sessionUpdate": "tool_call_update",
-                    "toolCallId": "call-1",
-                    "status": status,
-                    "rawOutput": "ok",
-                },
-            ),
-        ]
-    )
+    return "\n".join(_sql_call_updates("call-1", query, 1, status=status))
+
+
+def _multi_sql_log(queries: list[str]) -> str:
+    lines: list[str] = []
+    for index, query in enumerate(queries):
+        lines.extend(_sql_call_updates(f"call-{index + 1}", query, index * 3 + 1))
+    return "\n".join(lines)
 
 
 @parameterized.expand(
@@ -112,6 +121,28 @@ def test_semantic_metadata_queried(
     score = SemanticMetadataQueried()._run_eval_sync(
         {"raw_log": _sql_log(query, status=status)},
         {"semantic_metadata_queried": {"surface": surface, "required_columns": required_columns}},
+    )
+
+    assert score.score == expected_score
+
+
+_CATALOG_LOOKUP = "SELECT name, status, is_drifted FROM system.information_schema.metrics"
+_ANSWER_QUERY = "SELECT sum(toFloat(properties.amount_usd)) FROM events WHERE event = 'paid_bill'"
+_SCHEMA_DISCOVERY = "SELECT table_name FROM system.information_schema.tables"
+
+
+@parameterized.expand(
+    [
+        ("catalog_first", [_CATALOG_LOOKUP, _ANSWER_QUERY], 1.0),
+        ("answer_before_catalog", [_ANSWER_QUERY, _CATALOG_LOOKUP], 0.0),
+        ("discovery_does_not_count_as_answer", [_SCHEMA_DISCOVERY, _CATALOG_LOOKUP, _ANSWER_QUERY], 1.0),
+        ("no_catalog_at_all", [_ANSWER_QUERY], 0.0),
+    ]
+)
+def test_metrics_catalog_before_answer_ordering(_name: str, queries: list[str], expected_score: float) -> None:
+    score = MetricsCatalogBeforeAnswer()._run_eval_sync(
+        {"raw_log": _multi_sql_log(queries)},
+        {"metrics_catalog_before_answer": {}},
     )
 
     assert score.score == expected_score

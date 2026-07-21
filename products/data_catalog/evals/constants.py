@@ -60,6 +60,34 @@ DRIFTED_INSIGHT_MUTATED_QUERY: dict = {
     "query": "SELECT count(DISTINCT person_id) FROM events WHERE timestamp >= now() - INTERVAL 14 DAY",
 }
 
+# Discovery-first arm: a governed ranking metric plus a tempting raw warehouse table over
+# the same domain — the incident shape this arm guards against is answering a revenue
+# ranking from a plausible uncertified table while a matching governed metric exists.
+RANKED_METRIC_NAME = "top_customers_by_mrr"
+RANKED_METRIC_DESCRIPTION = (
+    "Canonical top-customer ranking. Ranks paying accounts by trailing-30-day paid_bill totals, "
+    "excluding bills on the personal/free plan."
+)
+RANKED_METRIC_DEFINITION: dict = {
+    "kind": "HogQLQuery",
+    "query": (
+        "SELECT person_id, sum(toFloat(properties.amount_usd)) AS mrr\n"
+        "FROM events\n"
+        "WHERE event = 'paid_bill'\n"
+        "  AND properties.plan != 'personal/free'\n"
+        "  AND timestamp >= now() - INTERVAL 30 DAY\n"
+        "GROUP BY person_id\n"
+        "ORDER BY mrr DESC\n"
+        "LIMIT 10"
+    ),
+}
+DECOY_REVENUE_TABLE_NAME = "eval_customer_revenue_rollup"
+DECOY_REVENUE_TABLE_COLUMNS = ("customer_id", "business_model", "mrr_usd")
+
+# Search-control arm: a flag task whose keywords collide with the seeded metric names —
+# governed metrics surfacing in discovery must not derail an ordinary tool task.
+CONTROL_FLAG_KEY = "mrr-banner-rollout"
+
 CERTIFIED_SOURCE_NAME = "eval_catalog_billing_ledger"
 DEPRECATED_SOURCE_NAME = "eval_catalog_billing_ledger_legacy"
 

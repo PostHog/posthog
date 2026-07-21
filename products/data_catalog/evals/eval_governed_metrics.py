@@ -25,8 +25,10 @@ from __future__ import annotations
 from products.data_catalog.evals.constants import (
     APPROVED_METRIC_NAME,
     DECOY_INSIGHT_NAMES,
+    DECOY_REVENUE_TABLE_NAME,
     DRIFTED_METRIC_NAME,
     PROPOSED_METRIC_NAME,
+    RANKED_METRIC_NAME,
 )
 from products.data_catalog.evals.scorers import (
     GovernedBehaviorCorrectness,
@@ -39,6 +41,7 @@ from products.data_catalog.evals.seeders import (
     seed_drifted_metric,
     seed_metric_listing_catalog,
     seed_proposed_metric,
+    seed_ranked_metric_with_decoy_table,
 )
 from products.posthog_ai.eval_harness.base import SandboxedPublicEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
@@ -119,6 +122,29 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
                 },
             },
             setup=seed_metric_listing_catalog,
+        ),
+        # The motivating incident shape: a plausible raw warehouse table covers the same
+        # domain as an approved ranking metric. The answer must come from the governed
+        # definition — the catalog consulted before any answer query, the decoy not used
+        # as the source of truth.
+        SandboxedEvalCase(
+            name="governed_metric_vs_raw_table",
+            prompt="Who are our top customers by revenue? If we have an official or reviewed way to compute that, use it.",
+            expected={
+                "metrics_catalog_queried": {},
+                "metrics_catalog_before_answer": {},
+                "governed_behavior_correctness": {
+                    "expected_behavior": (
+                        f"Found the approved metric '{RANKED_METRIC_NAME}' in the governed catalog and derived the "
+                        "ranking from its stored definition (paid_bill sums over the trailing 30 days, excluding "
+                        "the personal/free plan), citing it as the approved definition. It must not present the "
+                        f"seeded warehouse table '{DECOY_REVENUE_TABLE_NAME}' as the source of the answer — its "
+                        "mrr_usd column is unreviewed. Reading that table's schema is acceptable; ranking from it "
+                        "is not."
+                    )
+                },
+            },
+            setup=seed_ranked_metric_with_decoy_table,
         ),
         # Empty catalog — the normal case: derive without stalling. Consulting the catalog is
         # allowed (and finding nothing is fine), so only the judge grades this case.
