@@ -165,6 +165,23 @@ export function safeClickhouseString(str: string): string {
     })
 }
 
+// ClickHouse's `DateTime64` parser only accepts 'YYYY-MM-DD HH:MM:SS[.fff]'. Our
+// internal `scheduled_at` representation (and the Django rerun serializer) uses
+// ISO 8601 with `T` and `Z`. Convert an ISO string to the CH form before binding
+// it to a query param; a value already in CH form (no `T`) is passed through.
+export function toClickhouseDateTime(value: string): string {
+    if (!value) {
+        return value
+    }
+    if (!value.includes('T')) {
+        return value
+    }
+    return value
+        .replace('T', ' ')
+        .replace(/Z$/, '')
+        .replace(/([+-]\d{2}):?(\d{2})$/, '')
+}
+
 // JSONB columns may not contain null bytes, so we replace them with the Unicode replacement
 // character. This should be called before passing a parameter to a parameterized query. It is
 // designed to safely ignore other types, since we have some functions that operate on generic

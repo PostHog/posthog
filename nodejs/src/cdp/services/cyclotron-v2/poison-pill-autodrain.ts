@@ -1,6 +1,7 @@
 import { ClickHouseClient } from '@clickhouse/client'
 import { Counter } from 'prom-client'
 
+import { toClickhouseDateTime } from '~/common/utils/db/utils'
 import { logger } from '~/common/utils/logger'
 
 import { RerunJobManager } from '../../rerun/rerun-job.manager'
@@ -21,22 +22,6 @@ const autodrainErrorsCounter = new Counter({
     name: 'cdp_cyclotron_v2_autodrain_errors_total',
     help: 'Groups the autodrain service failed to enqueue a rerun for',
 })
-
-// ClickHouse's `DateTime64` parser only accepts 'YYYY-MM-DD HH:MM:SS[.fff]'. Our
-// window bounds are produced as ISO 8601 (with `T` and `Z`), so strip those
-// before binding to query params — same conversion the rerun paginator does.
-const toClickhouseDateTime = (value: string): string => {
-    if (!value) {
-        return value
-    }
-    if (!value.includes('T')) {
-        return value
-    }
-    return value
-        .replace('T', ' ')
-        .replace(/Z$/, '')
-        .replace(/([+-]\d{2}):?(\d{2})$/, '')
-}
 
 export interface CyclotronPoisonPillAutodrainConfig {
     intervalMs: number

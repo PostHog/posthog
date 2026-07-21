@@ -2,6 +2,7 @@ import { ClickHouseClient } from '@clickhouse/client'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
+import { toClickhouseDateTime } from '~/common/utils/db/utils'
 import { logger } from '~/common/utils/logger'
 
 import { CyclotronJobConflictError } from '../services/cyclotron-v2'
@@ -46,23 +47,6 @@ const counterRerunInvocationsSkipped = new Counter({
     help: 'Invocations matched by rerun filters but skipped (over max_attempts, missing function, malformed payload).',
     labelNames: ['function_kind', 'reason'],
 })
-
-// ClickHouse's `DateTime64` parser only accepts 'YYYY-MM-DD HH:MM:SS[.fff]'.
-// The Django serializer (and our internal `scheduled_at` column representation)
-// uses ISO 8601 with `T` and `Z`. Convert before binding to query params.
-const toClickhouseDateTime = (value: string): string => {
-    if (!value) {
-        return value
-    }
-    // Already in CH form? Leave it alone.
-    if (!value.includes('T')) {
-        return value
-    }
-    return value
-        .replace('T', ' ')
-        .replace(/Z$/, '')
-        .replace(/([+-]\d{2}):?(\d{2})$/, '')
-}
 
 interface InvocationRow {
     invocation_id: string
