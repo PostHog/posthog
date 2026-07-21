@@ -600,9 +600,14 @@ class DataWarehouseSavedQuerySerializer(
                 try:
                     # Validates inside the transaction (a rejected frequency rolls the whole
                     # update back) and queues the schedule reconcile for after commit.
-                    apply_saved_query_frequency_target(view, target)
+                    nodes_written = apply_saved_query_frequency_target(view, target)
                 except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as e:
                     raise serializers.ValidationError(str(e))
+                if target is not None and nodes_written == 0:
+                    raise serializers.ValidationError(
+                        "Cannot set a materialization frequency: this view is not wired into the data "
+                        "modeling DAG yet. Re-save the view to create its node, then set the frequency."
+                    )
 
             if has_description:
                 self._write_view_description(view, description)

@@ -140,7 +140,7 @@ def _warn_on_invalid_targets(dag: DAG, graph: FrequencyGraph | None = None) -> N
 
 def apply_saved_query_frequency_target(
     saved_query: "DataWarehouseSavedQuery", target: timedelta | None, *, reconcile: bool = True
-) -> None:
+) -> int:
     """Write a frequency target through to the DAG node(s) carrying this saved query.
 
     On tiered v2 the node target is the only durable store of frequency intent. `target=None`
@@ -149,7 +149,10 @@ def apply_saved_query_frequency_target(
     are validated against the node's [floor, ceiling] bounds (raising for the caller to
     surface) before writing, then each affected DAG is queued for reconcile (skippable for
     callers batching many writes into one reconcile).
+
+    Returns the number of nodes written (0 = no DAG node, so a non-None target was stored nowhere).
     """
+    written = 0
     for node in Node.objects.filter(team=saved_query.team, saved_query=saved_query).select_related("dag", "dag__team"):
         if target is None:
             set_declared_target(node, None)
@@ -163,8 +166,10 @@ def apply_saved_query_frequency_target(
                 source_intervals=graph.source_intervals,
             )
             set_declared_target(node, target)
+        written += 1
         if reconcile:
             maybe_reconcile_dag(node.dag)
+    return written
 
 
 def reconcile_dag_schedules(dag: DAG, *, require_tiered: bool = False, graph: FrequencyGraph | None = None) -> None:

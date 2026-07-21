@@ -738,6 +738,32 @@ class TestSavedQuery(APIBaseTest):
         # a stale v1 schedule from a half-finished migration must not be revived by the PATCH
         v1_exists.assert_not_called()
 
+    def test_update_sync_frequency_on_tiered_v2_without_node_is_rejected(self):
+        from products.data_modeling.backend.models import Node
+
+        saved_query = self._create_saved_query_for_frequency_tests()
+        Node.objects.filter(saved_query_id=saved_query["id"]).delete()
+        reconcile_module = "products.data_modeling.backend.logic.schedule_reconcile"
+
+        with (
+            patch(
+                "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
+                side_effect=self._v2_flag_only,
+            ),
+            patch(f"{reconcile_module}.tiered_schedules_enabled", return_value=True),
+            patch(f"{reconcile_module}.maybe_reconcile_dag"),
+            patch("products.data_warehouse.backend.presentation.views.saved_query.saved_query_workflow_exists"),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {"sync_frequency": "24hour"},
+            )
+
+        self.assertEqual(response.status_code, 400, response.json())
+        self.assertIn("not wired into the data modeling DAG", str(response.json()))
+        updated = DataWarehouseSavedQuery.objects.get(id=saved_query["id"])
+        self.assertIsNone(updated.sync_frequency_interval)
+
     def test_update_sync_frequency_on_tiered_v2_rolls_back_invalid_target(self):
         from products.data_modeling.backend.logic.freshness import UnsatisfiableFrequencyError
 

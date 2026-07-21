@@ -8,12 +8,14 @@ import structlog
 
 from posthog.models.team import Team
 
+from products.data_modeling.backend.logic.node_frequency import schedulable_nodes
 from products.data_modeling.backend.logic.schedule_reconcile import (
     convert_dag_to_tiers,
     null_saved_query_intervals,
     tiered_schedules_enabled,
 )
 from products.data_modeling.backend.models.dag import DAG
+from products.data_warehouse.backend.facade.api import saved_query_workflow_exists
 
 logger = structlog.get_logger(__name__)
 
@@ -51,6 +53,11 @@ class Command(BaseCommand):
             raise CommandError(f"No team with id {options['team_id']}")
 
         if options["dry_run"]:
+            if options["default_interval_seconds"] is not None:
+                raise CommandError(
+                    "--default-interval-seconds has no effect under --dry-run: the preview does not seed "
+                    "defaults, so it would report the very nodes the real run schedules as unscheduled"
+                )
             preview_args = ["--team-id", str(team.pk), "--seed"]
             if options["dag_id"]:
                 preview_args += ["--dag-id", options["dag_id"]]
@@ -73,13 +80,24 @@ class Command(BaseCommand):
         if not dag_list:
             raise CommandError("No matching DAGs")
 
+        # Refuse v1 teams: converting alongside live v1 schedules causes permanent double-scheduling.
+        for dag in dag_list:
+            for node in schedulable_nodes(dag).select_related("saved_query"):
+                if node.saved_query is not None and saved_query_workflow_exists(node.saved_query):
+                    raise CommandError(
+                        f"DAG {dag.name} ({dag.id}) still has a live v1 per-query schedule for saved query "
+                        f"{node.saved_query.id}; run migrate_teams_to_dag_schedules first"
+                    )
+
         default = (
             timedelta(seconds=options["default_interval_seconds"])
             if options["default_interval_seconds"] is not None
             else None
         )
-        for dag in dag_list:
-            seeded = convert_dag_to_tiers(dag, default=default)
+        # Seed every DAG before nulling any interval: a query in two DAGs seeds from the shared
+        # interval, so nulling mid-loop would corrupt the other DAG's seed.
+        seeded_by_dag = [(dag, convert_dag_to_tiers(dag, default=default)) for dag in dag_list]
+        for dag, seeded in seeded_by_dag:
             cleared = null_saved_query_intervals(dag)
             self.stdout.write(
                 f"DAG {dag.name} ({dag.id}): seeded {seeded} target(s), reconciled, "
