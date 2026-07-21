@@ -39,6 +39,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hu
     _get_properties_str,
     get_rows,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.settings import HUBSPOT_API_VERSION_V3
 from products.warehouse_sources.backend.temporal.data_imports.tests.e2e.conftest import run_external_data_job_workflow
 
 pytestmark = pytest.mark.usefixtures("minio_client")
@@ -255,6 +256,7 @@ def test_get_rows_with_selected_properties_backfills_missing_columns():
                 logger=logger,
                 resumable_source_manager=mock_rsm,
                 selected_properties=["email", "firstname"],
+                api_version=HUBSPOT_API_VERSION_V3,
             )
         )
 
@@ -306,6 +308,7 @@ def test_get_rows_with_selected_properties_filters_invalid():
                 logger=logger,
                 resumable_source_manager=mock_rsm,
                 selected_properties=["email", "nonexistent_prop"],
+                api_version=HUBSPOT_API_VERSION_V3,
             )
         )
 
@@ -356,6 +359,7 @@ def test_get_rows_all_invalid_properties_falls_back_to_defaults():
                 logger=logger,
                 resumable_source_manager=mock_rsm,
                 selected_properties=["totally_fake_1", "totally_fake_2"],
+                api_version=HUBSPOT_API_VERSION_V3,
             )
         )
 
@@ -402,6 +406,7 @@ def test_get_rows_without_selected_properties_uses_defaults():
                 logger=logger,
                 resumable_source_manager=mock_rsm,
                 selected_properties=None,
+                api_version=HUBSPOT_API_VERSION_V3,
             )
         )
 
@@ -536,6 +541,7 @@ def test_get_rows_backfills_missing_properties():
                 logger=logger,
                 resumable_source_manager=mock_resumable_manager,
                 include_custom_props=True,
+                api_version=HUBSPOT_API_VERSION_V3,
             )
         )
 

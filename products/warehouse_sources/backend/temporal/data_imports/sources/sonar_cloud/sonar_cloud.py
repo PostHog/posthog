@@ -1,15 +1,23 @@
 import dataclasses
-from collections.abc import Iterator
-from typing import Any
+from typing import Any, Optional
 from urllib.parse import urlencode
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+import structlog
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    PageNumberPaginator,
+    SinglePagePaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonar_cloud.settings import (
     MAX_PAGE_SIZE,
     REGION_HOSTS,
@@ -17,9 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sonar_clou
     SONAR_CLOUD_ENDPOINTS,
 )
 
-
-class SonarCloudRetryableError(Exception):
-    pass
+logger = structlog.get_logger(__name__)
 
 
 @dataclasses.dataclass
@@ -31,40 +37,6 @@ class SonarCloudResumeConfig:
 
 def _base_url(region: str) -> str:
     return REGION_HOSTS.get((region or "eu").lower(), REGION_HOSTS["eu"])
-
-
-def _headers(token: str) -> dict[str, str]:
-    return {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/json",
-    }
-
-
-@retry(
-    retry=retry_if_exception_type(
-        (
-            SonarCloudRetryableError,
-            requests.ReadTimeout,
-            requests.ConnectionError,
-            requests.exceptions.ChunkedEncodingError,
-        )
-    ),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch(session: requests.Session, url: str, logger: FilteringBoundLogger) -> dict[str, Any]:
-    response = session.get(url, timeout=60)
-
-    # SonarQube Cloud returns 429 with no documented quota on rate limiting; back off and retry.
-    if response.status_code == 429 or response.status_code >= 500:
-        raise SonarCloudRetryableError(f"SonarQube Cloud API error (retryable): status={response.status_code}")
-
-    if not response.ok:
-        logger.error(f"SonarQube Cloud API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
-
-    return response.json()
 
 
 def _build_url(base_url: str, path: str, params: dict[str, Any]) -> str:
@@ -82,71 +54,51 @@ def _total(data: dict[str, Any]) -> int | None:
     return None
 
 
-def validate_credentials(token: str, organization: str, region: str, timeout: int = 10) -> int:
-    """Probe the projects endpoint and return the HTTP status code (or 0 on transport failure).
+class SonarCloudPaginator(PageNumberPaginator):
+    """v1 search pagination (`p`/`ps`) with SonarQube Cloud's 10000-row hard cap.
 
-    A single cheap request confirms the token is genuine. The caller decides how to treat 403
-    (valid token, missing scope) depending on whether it's validating a specific schema.
+    Terminates on a short/empty page, once the reported total is reached, or at the cap — matching the
+    hand-rolled loop's behavior exactly (never requesting a page the v1 API would reject). Resume state
+    is the next page number; ``fetched`` is reconstructed from it so the cap check survives a restart.
     """
-    url = _build_url(_base_url(region), "components/search_projects", {"organization": organization, "ps": 1})
-    try:
-        response = make_tracked_session(headers=_headers(token)).get(url, timeout=timeout)
-        return response.status_code
-    except Exception:
-        return 0
 
+    def __init__(self, endpoint: str, page: int = 1) -> None:
+        super().__init__(base_page=1, page=page, page_param="p", stop_after_empty_page=True)
+        self.endpoint = endpoint
+        self.fetched = (self.page - 1) * MAX_PAGE_SIZE
 
-def get_rows(
-    token: str,
-    organization: str,
-    region: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[SonarCloudResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    config = SONAR_CLOUD_ENDPOINTS[endpoint]
-    base_url = _base_url(region)
-    session = make_tracked_session(headers=_headers(token))
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        if data is None or len(data) == 0:
+            self._has_next_page = False
+            return
 
-    base_params: dict[str, Any] = {}
-    if config.requires_organization:
-        base_params["organization"] = organization
+        self.fetched += len(data)
 
-    if not config.paginated:
-        data = _fetch(session, _build_url(base_url, config.path, base_params), logger)
-        rows = data.get(config.data_key, [])
-        if rows:
-            yield rows
-        return
+        try:
+            total = _total(response.json())
+        except Exception:
+            total = None
 
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    page = resume.page if resume is not None else 1
-    fetched = (page - 1) * MAX_PAGE_SIZE
-
-    while True:
-        params = {**base_params, "p": page, "ps": MAX_PAGE_SIZE}
-        data = _fetch(session, _build_url(base_url, config.path, params), logger)
-        rows = data.get(config.data_key, [])
-        if not rows:
-            break
-
-        yield rows
-        fetched += len(rows)
-
-        total = _total(data)
         # v1 hard-caps results at 10000 regardless of the reported total; stop there to avoid
         # requesting pages the API will reject.
-        if len(rows) < MAX_PAGE_SIZE or fetched >= RESULT_CAP or (total is not None and fetched >= total):
-            if fetched >= RESULT_CAP and (total is None or total > RESULT_CAP):
+        if self.fetched >= RESULT_CAP:
+            if total is None or total > RESULT_CAP:
                 logger.warning(
-                    f"SonarQube Cloud endpoint {endpoint} hit the 10000-result cap; rows beyond the cap were not synced"
+                    f"SonarQube Cloud endpoint {self.endpoint} hit the 10000-result cap; rows beyond the cap were not synced"
                 )
-            break
+            self._has_next_page = False
+            return
 
-        page += 1
-        # Save after yielding so a crash re-yields the last page (merge dedupes on the primary key)
-        # rather than skipping it.
-        resumable_source_manager.save_state(SonarCloudResumeConfig(page=page))
+        if len(data) < MAX_PAGE_SIZE or (total is not None and self.fetched >= total):
+            self._has_next_page = False
+            return
+
+        self.page += 1
+        self._has_next_page = True
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        super().set_resume_state(state)
+        self.fetched = (self.page - 1) * MAX_PAGE_SIZE
 
 
 def sonar_cloud_source(
@@ -154,21 +106,70 @@ def sonar_cloud_source(
     organization: str,
     region: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[SonarCloudResumeConfig],
 ) -> SourceResponse:
     config = SONAR_CLOUD_ENDPOINTS[endpoint]
 
+    params: dict[str, Any] = {}
+    if config.requires_organization:
+        params["organization"] = organization
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    paginator: BasePaginator
+    if config.paginated:
+        params["ps"] = MAX_PAGE_SIZE
+        paginator = SonarCloudPaginator(endpoint)
+        if resumable_source_manager.can_resume():
+            resume = resumable_source_manager.load_state()
+            if resume is not None:
+                initial_paginator_state = {"page": resume.page}
+    else:
+        paginator = SinglePagePaginator()
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": _base_url(region),
+            # Auth (Bearer) is supplied via the framework auth config so the token is redacted from
+            # logs and error messages; only the non-secret Accept header is set here.
+            "headers": {"Accept": "application/json"},
+            "auth": {"type": "bearer", "token": token},
+            "paginator": paginator,
+        },
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": params,
+                    # The hand-rolled source read `data.get(data_key, [])` — a missing key yields no
+                    # rows rather than raising, so data_selector_required is intentionally left unset.
+                    "data_selector": config.data_key,
+                },
+            }
+        ],
+    }
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields the
+        # last page (merge dedupes on the primary key) rather than skipping it.
+        if state and state.get("page") is not None:
+            resumable_source_manager.save_state(SonarCloudResumeConfig(page=int(state["page"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        None,  # every SonarQube Cloud endpoint is full refresh
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            token=token,
-            organization=organization,
-            region=region,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
@@ -176,3 +177,19 @@ def sonar_cloud_source(
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
     )
+
+
+def validate_credentials(token: str, organization: str, region: str, timeout: int = 10) -> int:
+    """Probe the projects endpoint and return the HTTP status code (or 0 on transport failure).
+
+    A single cheap request confirms the token is genuine. The caller decides how to treat 403
+    (valid token, missing scope) depending on whether it's validating a specific schema.
+    """
+    url = _build_url(_base_url(region), "components/search_projects", {"organization": organization, "ps": 1})
+    _ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(token,)),
+        url,
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+        timeout=timeout,
+    )
+    return status if status is not None else 0

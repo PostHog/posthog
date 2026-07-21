@@ -1,5 +1,6 @@
 from posthog.temporal.ai_observability.eval_reports.activities import (
     check_count_triggered_eval_report_activity,
+    check_count_triggered_eval_reports_activity,
     deliver_report_activity,
     fetch_count_triggered_eval_report_candidates_activity,
     fetch_due_eval_reports_activity,
@@ -88,9 +89,10 @@ EVAL_WORKFLOWS = [
 
 EVAL_ACTIVITIES = [
     fetch_evaluation_activity,
+    # Trial-eval no-op stubs, kept registered so runs started on the previous release can finish.
     increment_trial_eval_count_activity,
-    disable_evaluation_activity,
     send_trial_usage_email_activity,
+    disable_evaluation_activity,
     send_evaluation_disabled_email_activity,
     update_key_state_activity,
     execute_llm_judge_activity,
@@ -154,6 +156,7 @@ ACTIVITIES = [
     fetch_due_eval_reports_activity,
     fetch_count_triggered_eval_report_candidates_activity,
     check_count_triggered_eval_report_activity,
+    check_count_triggered_eval_reports_activity,
     prepare_report_context_activity,
     run_eval_report_agent_activity,
     store_report_run_activity,
