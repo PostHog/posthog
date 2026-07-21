@@ -11,6 +11,11 @@ import {
     ConcurrentlyGroupingChunkPipeline,
     GroupingFunction,
 } from '~/ingestion/framework/concurrently-grouping-chunk-pipeline'
+import {
+    FanInFunction,
+    FanOutFanInChunkPipeline,
+    FanOutFunction,
+} from '~/ingestion/framework/fan-out-fan-in-chunk-pipeline'
 import { FilterMapChunkPipeline, FilterMapMappingFunction } from '~/ingestion/framework/filter-map-chunk-pipeline'
 import { GatheringChunkPipeline } from '~/ingestion/framework/gathering-chunk-pipeline'
 import { IngestionWarningHandlingChunkPipeline } from '~/ingestion/framework/ingestion-warning-handling-chunk-pipeline'
@@ -135,6 +140,43 @@ export class ChunkPipelineBuilder<TInput, TOutput, CInput, COutput = CInput, R e
                 R,
                 ROut
             >(this.pipeline, mappingFn, subPipeline)
+        )
+    }
+
+    /**
+     * Fan each OK element out into sub-elements, process them through a
+     * subpipeline, and fan the results back into the original element.
+     * Cardinality is preserved at the parent level (N in, N out); parents emit
+     * as they complete (unordered). Non-OK elements pass through unchanged; a
+     * parent whose sub-elements produce a non-OK result adopts the first one.
+     *
+     * Like processing steps, `fanOutFn` and `fanInFn` are named functions
+     * (defined in step files, created by factories where they need config) —
+     * their `.name` is used for error attribution.
+     *
+     * @param fanOutFn - Splits an element into sub-elements (synchronous, cheap)
+     * @param subpipelineCallback - Callback that receives a builder and returns the subpipeline
+     * @param fanInFn - Folds the sub-results back into the element (synchronous, cheap)
+     */
+    fanOutFanIn<TSub, TSubOut, U, RSub extends string = never>(
+        fanOutFn: FanOutFunction<TOutput, TSub>,
+        subpipelineCallback: (
+            builder: ChunkPipelineBuilder<TSub, TSub, COutput, COutput>
+        ) => ChunkPipelineBuilder<TSub, TSubOut, COutput, COutput, RSub>,
+        fanInFn: FanInFunction<TOutput, TSubOut, U>
+    ): ChunkPipelineBuilder<TInput, U, CInput, COutput, R | RSub> {
+        const startBuilder = new ChunkPipelineBuilder<TSub, TSub, COutput, COutput>(
+            new BufferingChunkPipeline<TSub, COutput>()
+        )
+        const subPipeline = subpipelineCallback(startBuilder).build()
+
+        return new ChunkPipelineBuilder(
+            new FanOutFanInChunkPipeline<TInput, TOutput, TSub, TSubOut, U, CInput, COutput, R, RSub>(
+                this.pipeline,
+                fanOutFn,
+                subPipeline,
+                fanInFn
+            )
         )
     }
 
