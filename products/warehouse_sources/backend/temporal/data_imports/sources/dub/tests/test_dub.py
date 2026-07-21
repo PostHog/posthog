@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub import (
     DubCursorPaginator,
     DubResumeConfig,
+    _make_session,
     check_endpoint_access,
     dub_source,
     get_resource,
@@ -151,7 +152,7 @@ class TestDubSourceResumeBehavior:
             return next(response_iter)
 
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+            "products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub.make_tracked_session"
         ) as MockSession:
             mock_session = MockSession.return_value
             mock_session.headers = {}
@@ -239,6 +240,19 @@ class TestDubSourceResumeBehavior:
         sent_params = self._drive("click_events", manager, [_make_http_response(_rows(1)), _make_http_response([])])
 
         assert sent_params[0]["page"] == 7
+
+
+class TestMakeSession:
+    def test_disables_sample_capture(self) -> None:
+        # Every Dub path (sync + both credential probes) builds its session here. Dub payloads
+        # carry imported customer data the name-based scrubbers can't recognise, so capture must
+        # stay off or sampling would leak it into the shared sample bucket.
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub.make_tracked_session"
+        ) as make_session:
+            _make_session("secret-key")
+        assert make_session.call_args.kwargs["capture"] is False
+        assert make_session.call_args.kwargs["redact_values"] == ("secret-key",)
 
 
 class TestCredentialValidation:

@@ -2,6 +2,7 @@ import dataclasses
 from datetime import date, datetime
 from typing import Any, Optional
 
+import requests
 from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -97,6 +98,21 @@ def _build_paginator(config: DubEndpointConfig) -> BasePaginator:
     return PageNumberPaginator(base_page=1, page_param="page", total_path=None)
 
 
+def _make_session(api_key: str) -> requests.Session:
+    """Session for all Dub traffic — imports and credential probes alike.
+
+    Response capture is disabled because Dub payloads carry imported customer data (emails,
+    click location/referrer, destination URLs, arbitrary event metadata) that the name-based
+    sample scrubbers can't reliably recognise, so sampling would leak it into the shared sample
+    bucket outside the warehouse table's access controls. The API key is still redacted from
+    logged URLs and metered telemetry."""
+    return make_tracked_session(
+        headers={"Accept": "application/json"},
+        redact_values=(api_key,),
+        capture=False,
+    )
+
+
 def get_resource(
     endpoint: str,
     should_use_incremental_field: bool,
@@ -156,6 +172,7 @@ def dub_source(
                 "token": api_key,
             },
             "headers": {"Accept": "application/json"},
+            "session": _make_session(api_key),
         },
         "resources": [get_resource(endpoint, should_use_incremental_field, db_incremental_field_last_value)],
     }
@@ -230,7 +247,7 @@ def check_endpoint_access(api_key: str, endpoint: str) -> str | None:
     """
     config = DUB_ENDPOINTS[endpoint]
     try:
-        session = make_tracked_session(redact_values=(api_key,))
+        session = _make_session(api_key)
         res = session.get(
             f"{DUB_BASE_URL}{config.path}",
             params=_probe_params(config),
@@ -247,7 +264,7 @@ def check_endpoint_access(api_key: str, endpoint: str) -> str | None:
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     """Cheap token probe against /links, which every Dub workspace key can read."""
     try:
-        session = make_tracked_session(redact_values=(api_key,))
+        session = _make_session(api_key)
         res = session.get(
             f"{DUB_BASE_URL}/links",
             params={"pageSize": 1},
