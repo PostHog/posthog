@@ -20,10 +20,9 @@ interface ModeStyle {
     className: string
 }
 
-// Auto keeps the former bypass-permissions treatment so its risk is visible even though it is the default.
 const MODE_STYLES: Record<PermissionMode, ModeStyle> = {
+    [InitialPermissionModeEnumApi.Auto]: { icon: <IconShield />, className: 'text-success' },
     [InitialPermissionModeEnumApi.BypassPermissions]: { icon: <IconUnlock />, className: 'text-danger' },
-    [InitialPermissionModeEnumApi.AcceptEdits]: { icon: <IconShield />, className: 'text-success' },
     [InitialPermissionModeEnumApi.Plan]: { icon: <IconPause />, className: 'text-warning' },
 }
 

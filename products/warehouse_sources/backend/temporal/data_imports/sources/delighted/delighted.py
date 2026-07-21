@@ -1,17 +1,23 @@
-import base64
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import parse_qs, urlencode, urlparse, urlsplit, urlunsplit
+from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import HttpBasicAuth
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    SinglePagePaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.delighted.settings import (
     DELIGHTED_ENDPOINTS,
     DelightedEndpointConfig,
@@ -21,34 +27,11 @@ DELIGHTED_HOST = "api.delighted.com"
 DELIGHTED_BASE_URL = f"https://{DELIGHTED_HOST}/v1"
 # Delighted caps list pages at 100 items.
 PAGE_SIZE = 100
-REQUEST_TIMEOUT_SECONDS = 60
-MAX_RETRIES = 5
-# Upper bound on how long we honor a server-provided Retry-After header.
-MAX_RETRY_AFTER_SECONDS = 120
-
-
-class DelightedRetryableError(Exception):
-    def __init__(self, message: str, retry_after: Optional[float] = None):
-        super().__init__(message)
-        self.retry_after = retry_after
-
-
-class DelightedUnexpectedRedirectError(Exception):
-    """Raised when the API host returns a redirect we refuse to follow (SSRF guard)."""
 
 
 @dataclasses.dataclass
 class DelightedResumeConfig:
     next_url: str
-
-
-def _get_headers(api_key: str) -> dict[str, str]:
-    # Delighted uses Basic auth with the API key as the username and a blank password.
-    token = base64.b64encode(f"{api_key}:".encode("ascii")).decode("ascii")
-    return {
-        "Authorization": f"Basic {token}",
-        "Accept": "application/json",
-    }
 
 
 def _to_epoch(value: Any) -> Optional[int]:
@@ -74,26 +57,6 @@ def _to_epoch(value: Any) -> Optional[int]:
         return int(value)
     except (TypeError, ValueError):
         return None
-
-
-def _is_delighted_url(url: str) -> bool:
-    """Whether ``url`` points at the Delighted API host over HTTPS.
-
-    Pagination/resume URLs are server-controlled (Link header / state store), so we pin them to
-    the API host to avoid forwarding the Authorization header to an arbitrary address (SSRF).
-    """
-    try:
-        parsed = urlparse(url)
-        return parsed.scheme == "https" and (parsed.hostname or "").lower() == DELIGHTED_HOST
-    except Exception:
-        return False
-
-
-def _build_url(path: str, params: dict[str, Any]) -> str:
-    clean_params = {key: value for key, value in params.items() if value is not None}
-    if not clean_params:
-        return f"{DELIGHTED_BASE_URL}{path}"
-    return f"{DELIGHTED_BASE_URL}{path}?{urlencode(clean_params)}"
 
 
 def _build_params(
@@ -132,136 +95,69 @@ def _next_page_url(url: str) -> str:
     return urlunsplit((scheme, netloc, path, urlencode(query_params), fragment))
 
 
-def _next_url(
-    response: requests.Response, current_url: str, items_count: int, config: DelightedEndpointConfig
-) -> Optional[str]:
-    # Prefer an explicit Link header cursor (people uses RFC 5988 `rel="next"`); fall back to
-    # page-number increments for page/per_page endpoints. The page-based endpoints signal the
-    # end of results only by returning a short page, so a final empty page may be fetched when
-    # the row count is an exact multiple of the page size.
-    link_next = response.links.get("next", {}).get("url")
-    if link_next and _is_delighted_url(link_next):
-        return link_next
+class DelightedPaginator(BasePaginator):
+    """Reproduces Delighted's mixed list pagination.
 
-    if config.pagination == "page" and items_count == PAGE_SIZE:
-        return _next_page_url(current_url)
+    A server-provided RFC 5988 ``Link`` header ``rel="next"`` cursor takes priority (the
+    ``people`` endpoint paginates this way). Otherwise page/per_page list endpoints advance by
+    incrementing the ``page`` query param while a full page comes back; a short page ends the run.
 
-    return None
+    Off-host ``next`` links are not filtered here — the client's ``allowed_hosts`` pin rejects any
+    request to a host other than the API host before it leaves the process, so a tampered link
+    raises rather than forwarding the Authorization header off-host (SSRF).
+    """
 
+    def __init__(self, page_mode: bool, page_size: int) -> None:
+        super().__init__()
+        self.page_mode = page_mode
+        self.page_size = page_size
+        self._next_url: Optional[str] = None
 
-def _parse_retry_after(response: requests.Response) -> Optional[float]:
-    header = response.headers.get("Retry-After")
-    if header is None:
-        return None
-    try:
-        return max(float(header), 0.0)
-    except (TypeError, ValueError):
-        return None
+    def init_request(self, request: Request) -> None:
+        # Apply a seeded resume URL to the first request so a resumed run starts at the saved
+        # next-page link rather than the base path.
+        if self._next_url is not None:
+            request.url = self._next_url
+            request.params = {}
 
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        link_next = response.links.get("next", {}).get("url") if response.links else None
+        if link_next:
+            self._next_url = link_next
+            self._has_next_page = True
+            return
 
-def _retry_wait(retry_state: RetryCallState) -> float:
-    exception = retry_state.outcome.exception() if retry_state.outcome else None
-    if isinstance(exception, DelightedRetryableError) and exception.retry_after is not None:
-        return min(exception.retry_after, MAX_RETRY_AFTER_SECONDS)
-    return wait_exponential_jitter(initial=1, max=60)(retry_state)
+        # Page-number endpoints signal the end of results only by returning a short page, so a
+        # final empty page may be fetched when the row count is an exact multiple of the page size.
+        self._next_url = None
+        if self.page_mode and data is not None and len(data) == self.page_size:
+            self._next_url = _next_page_url(response.url)
+            self._has_next_page = True
+        else:
+            self._has_next_page = False
 
+    def update_request(self, request: Request) -> None:
+        if self._next_url is not None:
+            request.url = self._next_url
+            # The next-page URL is self-contained; drop the original params so prepare_request
+            # doesn't re-append them each page.
+            request.params = {}
 
-def validate_credentials(api_key: str) -> bool:
-    """Confirm the API key is valid. /v1/metrics.json is a cheap authenticated probe."""
-    try:
-        response = make_tracked_session().get(
-            f"{DELIGHTED_BASE_URL}/metrics.json",
-            headers=_get_headers(api_key),
-            timeout=10,
-        )
-        return response.status_code == 200
-    except Exception:
-        return False
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"next_url": self._next_url} if self._has_next_page and self._next_url is not None else None
 
-
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[DelightedResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-    incremental_field: str | None = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = DELIGHTED_ENDPOINTS[endpoint]
-    headers = _get_headers(api_key)
-
-    since_value = _to_epoch(db_incremental_field_last_value) if should_use_incremental_field else None
-    cursor_field = incremental_field if should_use_incremental_field else None
-
-    @retry(
-        retry=retry_if_exception_type((DelightedRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(MAX_RETRIES),
-        wait=_retry_wait,
-        reraise=True,
-    )
-    def fetch_page(page_url: str) -> requests.Response:
-        # Don't follow redirects: a 3xx from the API host could point at an internal address,
-        # bypassing the host validation done before the request and leaking the API key (SSRF).
-        response = make_tracked_session().get(
-            page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False
-        )
-
-        if response.status_code == 429 or response.status_code >= 500:
-            raise DelightedRetryableError(
-                f"Delighted API error (retryable): status={response.status_code}, url={page_url}",
-                retry_after=_parse_retry_after(response),
-            )
-
-        # A 3xx isn't an error status (`response.ok` is True), so reject it explicitly rather than
-        # silently parsing the redirect body as data.
-        if response.is_redirect or response.is_permanent_redirect:
-            raise DelightedUnexpectedRedirectError(
-                f"Delighted API returned an unexpected redirect (status={response.status_code}); refusing to follow it"
-            )
-
-        if not response.ok:
-            logger.error(f"Delighted API error: status={response.status_code}, body={response.text}, url={page_url}")
-            response.raise_for_status()
-
-        return response
-
-    if config.pagination == "none":
-        data = fetch_page(_build_url(config.path, {})).json()
-        rows = data if isinstance(data, list) else [data]
-        if rows:
-            yield rows
-        return
-
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume_config is not None and _is_delighted_url(resume_config.next_url):
-        url: str = resume_config.next_url
-        logger.debug(f"Delighted: resuming from URL: {url}")
-    else:
-        if resume_config is not None:
-            logger.warning("Delighted: ignoring resume URL whose host does not match the Delighted API host")
-        url = _build_url(config.path, _build_params(config, cursor_field, since_value))
-
-    while True:
-        response = fetch_page(url)
-        data = response.json()
-        items = data if isinstance(data, list) else []
-
-        if items:
-            yield items
-
-        next_url = _next_url(response, url, len(items), config)
-        if not next_url:
-            break
-
-        resumable_source_manager.save_state(DelightedResumeConfig(next_url=next_url))
-        url = next_url
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        next_url = state.get("next_url")
+        if next_url is not None:
+            self._next_url = next_url
+            self._has_next_page = True
 
 
 def delighted_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[DelightedResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
@@ -269,17 +165,66 @@ def delighted_source(
 ) -> SourceResponse:
     config = DELIGHTED_ENDPOINTS[endpoint]
 
+    since_value = _to_epoch(db_incremental_field_last_value) if should_use_incremental_field else None
+    cursor_field = incremental_field if should_use_incremental_field else None
+    params = _build_params(config, cursor_field, since_value)
+
+    paginator: BasePaginator = (
+        SinglePagePaginator()
+        if config.pagination == "none"
+        else DelightedPaginator(page_mode=config.pagination == "page", page_size=PAGE_SIZE)
+    )
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": DELIGHTED_BASE_URL,
+            "headers": {"Accept": "application/json"},
+            # Basic auth: the API key is the username, password is blank. Supplied via the framework
+            # auth config so the credential participates in log redaction.
+            "auth": {"type": "http_basic", "username": api_key, "password": ""},
+            # Pin every request (paginator next links and seeded resume URLs included) to the API
+            # host, and refuse to follow redirects: a server-controlled next/redirect must never
+            # carry the Authorization header to another origin (SSRF). Base host is implicitly
+            # allowed, so an empty list means "the Delighted API host only".
+            "allowed_hosts": [],
+            "allow_redirects": False,
+            "paginator": paginator,
+        },
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": params,
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if config.pagination != "none" and resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"next_url": resume.next_url}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
+        # the last page (merge dedupes) rather than skipping it.
+        if state and state.get("next_url"):
+            resumable_source_manager.save_state(DelightedResumeConfig(next_url=state["next_url"]))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-            incremental_field=incremental_field,
-        ),
+        items=lambda: resource,
         primary_keys=[config.primary_key] if config.primary_key else None,
         sort_mode="asc",
         partition_count=1,
@@ -287,4 +232,15 @@ def delighted_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
+        column_hints=resource.column_hints,
     )
+
+
+def validate_credentials(api_key: str) -> bool:
+    """Confirm the API key is valid. /v1/metrics.json is a cheap authenticated probe."""
+    ok, _status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{DELIGHTED_BASE_URL}/metrics.json",
+        auth=HttpBasicAuth(username=api_key, password=""),
+    )
+    return ok

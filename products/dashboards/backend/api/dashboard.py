@@ -34,7 +34,6 @@ from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 
 import structlog
-import pydantic_core
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
@@ -77,7 +76,11 @@ from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlSerializerMixin
+from posthog.rbac.user_access_control import (
+    UserAccessControl,
+    UserAccessControlSerializerMixin,
+    access_level_satisfied_for_resource,
+)
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.session_recordings.session_recording_api import get_replay_listing_throttle_error
@@ -145,6 +148,7 @@ from products.notifications.backend.facade.api import (
 from products.product_analytics.backend.api.insight import (
     INCLUDE_DASHBOARDS_PARAMETER,
     DashboardTileBasicSerializer,
+    InsightBasicSerializer,
     InsightSerializer,
     InsightViewSet,
     _get_insight_type,
@@ -155,6 +159,10 @@ from products.product_analytics.backend.models.insight_variable import InsightVa
 from ee.hogai.utils.aio import async_to_sync
 
 logger = structlog.get_logger(__name__)
+
+DASHBOARD_TILE_ERROR_TYPE = "DashboardTileError"
+DASHBOARD_TILE_ERROR_MESSAGE = "There is a problem loading this dashboard tile."
+DASHBOARD_STREAM_ERROR_MESSAGE = "Dashboard tiles couldn't be loaded. Refresh the dashboard to try again."
 
 DASHBOARD_SHARED_FIELDS = [
     "id",
@@ -329,16 +337,18 @@ def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, d
         tile.layouts = json.loads(tile.layouts)
 
     try:
-        tile_data = DashboardTileSerializer(tile, many=False, context=tile_context).data
+        tile_data: dict = DashboardTileSerializer(tile, many=False, context=tile_context).data
         return order, tile_data
-    except pydantic_core.ValidationError as e:
+    except Exception:
         if not tile.insight:
             raise
-        query = tile.insight.query
-        tile.insight.query = None
-        tile_data = DashboardTileSerializer(tile, context=tile_context).data
-        tile_data["insight"]["query"] = query
-        tile_data["error"] = {"type": type(e).__name__, "message": str(e)}
+        logger.exception("Error serializing dashboard tile", tile_id=tile.id)
+        try:
+            tile_data = DashboardTileErrorSerializer(tile, context=tile_context).data
+        except Exception:
+            logger.exception("Error serializing dashboard tile error fallback", tile_id=tile.id)
+            tile_data = {"id": tile.id}
+        tile_data["error"] = {"type": DASHBOARD_TILE_ERROR_TYPE, "message": DASHBOARD_TILE_ERROR_MESSAGE}
         return order, tile_data
 
 
@@ -800,7 +810,7 @@ class SharedDashboardWidgetMetadataSerializer(serializers.ModelSerializer):
 
 class DashboardTileSerializer(serializers.ModelSerializer):
     id: serializers.IntegerField = serializers.IntegerField(required=False)
-    insight = InsightSerializer()
+    insight: InsightBasicSerializer = InsightSerializer()
     text = TextSerializer()
     button_tile = ButtonTileSerializer()
     widget = DashboardWidgetSerializer(required=False, allow_null=True)
@@ -835,6 +845,26 @@ class DashboardTileSerializer(serializers.ModelSerializer):
         insight_representation = representation["insight"] or {}  # May be missing for text tiles
         representation["last_refresh"] = insight_representation.get("last_refresh", None)
         representation["is_cached"] = insight_representation.get("is_cached", False)
+
+        return representation
+
+
+class DashboardTileErrorSerializer(DashboardTileSerializer):
+    insight = InsightBasicSerializer()
+
+    def to_representation(self, instance: DashboardTile):
+        representation = super().to_representation(instance)
+
+        insight = instance.insight
+        if insight is not None and self.context.get("dashboard"):
+            insight_representation = representation.get("insight") or {}
+            user_access_level = insight_representation.get("user_access_level")
+            if user_access_level and not access_level_satisfied_for_resource("insight", user_access_level, "viewer"):
+                representation["insight"] = {
+                    "id": insight.id,
+                    "short_id": insight.short_id,
+                    "user_access_level": user_access_level,
+                }
 
         return representation
 
@@ -2077,8 +2107,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
                 try:
                     tile_data = reused_serializer.to_representation(tile)
-                except pydantic_core.ValidationError:
-                    # Fall back to the fresh-serializer path, which handles the error shape
+                except Exception:
                     order, tile_data = serialize_tile_with_context(tile, order, self.context)
                 serialized_tiles.append(cast(ReturnDict, tile_data))
 
@@ -2445,13 +2474,13 @@ class DashboardsViewSet(
                             serialize_tile_with_context, thread_sensitive=True
                         )(tile, order, context)
                         initial_tiles.append(tile_data)
-                    except Exception as e:
-                        logger.exception(f"Error serializing initial tile {tile.id}: {e}")
+                    except Exception:
+                        logger.exception("Error serializing initial dashboard tile", tile_id=tile.id)
                         # Add error tile to initial tiles
                         initial_tiles.append(
                             {
                                 "id": tile.id,
-                                "error": {"type": type(e).__name__, "message": str(e)},
+                                "error": {"type": DASHBOARD_TILE_ERROR_TYPE, "message": DASHBOARD_TILE_ERROR_MESSAGE},
                             }
                         )
 
@@ -2469,18 +2498,32 @@ class DashboardsViewSet(
                         )(tile, order, context)
                         tile_json = renderer.render({"type": "tile", "order": order, "tile": tile_data}).decode()
                         yield f"data: {tile_json}\n\n".encode()
-                    except Exception as e:
-                        logger.exception(f"Error serializing tile {tile.id}: {e}")
-                        error_json = renderer.render({"type": "error", "tile_id": tile.id, "error": str(e)}).decode()
-                        yield f"data: {error_json}\n\n".encode()
+                    except Exception:
+                        # Tile-shaped, not {type:"error"}: the frontend's streamTiles routes
+                        # {type:"error"} to onError (a transient toast) and drops the tile.
+                        logger.exception("Error serializing dashboard tile", tile_id=tile.id)
+                        error_tile_json = renderer.render(
+                            {
+                                "type": "tile",
+                                "order": order,
+                                "tile": {
+                                    "id": tile.id,
+                                    "error": {
+                                        "type": DASHBOARD_TILE_ERROR_TYPE,
+                                        "message": DASHBOARD_TILE_ERROR_MESSAGE,
+                                    },
+                                },
+                            }
+                        ).decode()
+                        yield f"data: {error_tile_json}\n\n".encode()
 
                 # Send completion signal
                 complete_json = renderer.render({"type": "complete"}).decode()
                 yield f"data: {complete_json}\n\n".encode()
 
-            except Exception as e:
-                logger.exception(f"Error in tile streaming: {e}")
-                error_json = renderer.render({"type": "error", "error": str(e)}).decode()
+            except Exception:
+                logger.exception("Error streaming dashboard tiles")
+                error_json = renderer.render({"type": "error", "error": DASHBOARD_STREAM_ERROR_MESSAGE}).decode()
                 yield f"data: {error_json}\n\n".encode()
 
         return sse_streaming_response(
