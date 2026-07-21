@@ -13,8 +13,9 @@
 //!
 //! Every stage carries the pipeline's single output enum `O`: a stage's own outputs are
 //! lifted into `O` via [`IntoOutputs`], so `Then` never has to reconcile output types —
-//! both sides are already `O`. The [`BatchBuilder`] threads `O` and spells the whole
-//! shape out in the built type (see [`crate::pipeline::AnalyticsPipeline`]).
+//! both sides are already `O`. The [`BatchBuilder`] threads `O` through every stage; the
+//! composed [`Built`] type can stay opaque behind `impl BatchPipeline` at the boundary
+//! (see [`crate::pipeline::build_analytics_pipeline`]).
 
 use crate::framework::chain::{Chain, Identity, IntoOutputs};
 use crate::framework::concurrency::{concurrently, concurrently_per_group, AsyncProcessor};

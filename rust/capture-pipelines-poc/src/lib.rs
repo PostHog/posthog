@@ -46,8 +46,9 @@
 //! Async stages are part of the *composition*, not hand-wired afterward:
 //! [`framework::batch`]'s [`batch_builder`] fuses sync segments and async stages
 //! (`.step(..)`, `.stage(..)`, `.grouped_stage(..)`) into one flat, monomorphized
-//! [`Built`] type — the whole shape spelled out (see
-//! [`pipeline::AnalyticsPipeline`](pipeline::AnalyticsPipeline)). The stages run the
+//! [`Built`] type — returned behind an opaque `impl BatchPipeline` (see
+//! [`pipeline::build_analytics_pipeline`](pipeline::build_analytics_pipeline)) so the
+//! builder chain, not a spelled-out `Then<…>` alias, is the pipeline description. The stages run the
 //! Node combinators in [`framework::concurrency`] ([`concurrently`],
 //! [`concurrently_per_group`], [`sequentially`], [`filter_map`], [`Branching`]);
 //! [`framework::retry`] ([`Retry`]/[`RetryExt`]) and [`pipeline::accumulate`] cover the

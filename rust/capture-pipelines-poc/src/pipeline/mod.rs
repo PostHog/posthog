@@ -9,8 +9,11 @@
 //!   → stage(GeoAnnotate)                               (async: per-item concurrent)
 //! ```
 //!
-//! The built type [`AnalyticsPipeline`] spells out every sync chain *and* async stage as
-//! one flat, monomorphized struct (no boxes). Running a batch is `pipeline.run_batch(..)`;
+//! [`build_analytics_pipeline`] returns the composed [`Built`] pipeline behind an
+//! opaque `impl BatchPipeline`: every sync chain *and* async stage is still fused into
+//! one flat, monomorphized struct (no boxes) — the opaque return just spares callers the
+//! spelled-out `Then<Then<…>>` shape, so the builder chain itself is the only pipeline
+//! description. Running a batch is `pipeline.run_batch(..)`;
 //! [`handle_results`](runner::handle_results) then turns the positional verdicts into
 //! produces + outcomes — the only logic outside the composition, and it does no wiring.
 
@@ -25,12 +28,9 @@ use crate::compose_fx;
 use crate::events::capabilities::HasEventName;
 use crate::events::parsed::ParsedEvent;
 use crate::events::wrappers::{Restricted, Validated};
-use crate::framework::batch::{
-    batch_builder, Built, ConcurrentStage, GroupedStage, IdentityBatch, SyncStage, Then,
-};
-use crate::framework::chain::{Chain, Identity};
+use crate::framework::batch::{batch_builder, BatchPipeline, Built};
 use crate::framework::concurrency::Branching;
-use crate::framework::fail_open::{FailOpen, FallibleStepExt};
+use crate::framework::fail_open::FallibleStepExt;
 use crate::framework::fx::WarningSink;
 use crate::framework::result::StepResult;
 use crate::framework::step::Step;
@@ -96,34 +96,22 @@ fn route_branch(
     }
 }
 
-// The sync segment (fused into one pass) preceding the first async stage.
-type SyncSeg =
-    Chain<Chain<Chain<Identity<ParsedEvent>, Validate>, FailOpen<ApplyQuota>>, BranchStep>;
-type Grouped = GroupedStage<GroupKeyFn, OverflowCheck, AnalyticsOutputs>;
-type Concurrent = ConcurrentStage<GeoAnnotate, AnalyticsOutputs>;
-
-/// The fully monomorphized pipeline: sync segment, grouped async stage, and per-item
-/// async stage, all spelled out as one flat struct — the static-dispatch proof, now
-/// covering the async stages too (no `Box`, no `dyn`). The complexity lint is silenced
-/// because the verbosity is the point.
-#[allow(clippy::type_complexity)]
-pub type AnalyticsPipeline = Built<
-    Then<
-        Then<
-            Then<
-                IdentityBatch<ParsedEvent, AnalyticsOutputs>,
-                Then<SyncStage<SyncSeg, AnalyticsOutputs>, Grouped>,
-            >,
-            Then<SyncStage<Identity<Survivor>, AnalyticsOutputs>, Concurrent>,
-        >,
-        SyncStage<Identity<Survivor>, AnalyticsOutputs>,
-    >,
->;
-
-/// Compose the analytics pipeline in one fluent chain. The two async stage processors
-/// are passed in so a caller (a test) can hold a shared probe handle; the composition
-/// itself lives entirely here.
-pub fn build_analytics_pipeline(overflow: OverflowCheck, geo: GeoAnnotate) -> AnalyticsPipeline {
+/// Compose the analytics pipeline in one fluent chain.
+///
+/// The return type is the composed [`Built`] pipeline behind `impl BatchPipeline`:
+/// every sync chain and async stage is still fused into one flat, monomorphized
+/// struct (no `Box`, no `dyn` — the boxless proof is the ZST
+/// `composed_pipeline_with_async_stage_is_a_flat_struct` test in
+/// [`framework::batch`](crate::framework::batch)). The opaque return just spares
+/// callers the spelled-out `Then<Then<…>>` shape — the builder chain below *is*
+/// the pipeline description. The two async stage processors are passed in so a
+/// caller (a test) can hold a shared probe handle before they move into the
+/// composition.
+pub fn build_analytics_pipeline(
+    overflow: OverflowCheck,
+    geo: GeoAnnotate,
+) -> Built<impl BatchPipeline<ParsedEvent, AnalyticsFx, Out = Survivor, Outputs = AnalyticsOutputs>>
+{
     batch_builder::<ParsedEvent, AnalyticsOutputs>()
         .step(Validate)
         .step(
