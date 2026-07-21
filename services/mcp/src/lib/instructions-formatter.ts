@@ -22,7 +22,9 @@ import ENTITY_SCHEMA_DISCOVERY from '@/templates/sections/entity-schema-discover
 import ENV_CONTEXT from '@/templates/sections/env-context.md'
 import EXAMPLES from '@/templates/sections/examples.md'
 import EXEC_LEARN from '@/templates/sections/exec-learn.md'
+import EXEC_READ_LEAD from '@/templates/sections/exec-read-lead.md'
 import EXEC_TOOL_BLURB from '@/templates/sections/exec-tool-blurb.md'
+import EXEC_WRITE_LEAD from '@/templates/sections/exec-write-lead.md'
 import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
 import RETRIEVING_DATA from '@/templates/sections/retrieving-data.md'
 import SCHEMA_WORKFLOW from '@/templates/sections/schema-workflow.md'
@@ -82,6 +84,17 @@ export class InstructionsFormatter {
     /** Build the top-level description of the `posthog:exec` tool. */
     buildExecToolDescription(): string {
         return EXEC_TOOL_BLURB.trim()
+    }
+
+    /** Description for the read-only `exec` dispatcher — the shared blurb prefixed
+     *  with the read/write split guidance so the model routes mutations elsewhere. */
+    buildExecReadToolDescription(): string {
+        return `${EXEC_READ_LEAD.trim()}\n\n${this.buildExecToolDescription()}`
+    }
+
+    /** Description for the write-capable `exec-write` dispatcher. */
+    buildExecWriteToolDescription(): string {
+        return `${EXEC_WRITE_LEAD.trim()}\n\n${this.buildExecToolDescription()}`
     }
 
     /**

@@ -20,6 +20,16 @@ import {
     type ZodObjectAny,
 } from './types'
 
+/** The read-only exec dispatcher. Advertised with `readOnlyHint: true` so a client
+ *  can safely "always allow" it: it runs discovery verbs and read-only `call`s, and
+ *  refuses `call`s to write-capable tools (redirecting them to {@link EXEC_WRITE_TOOL_NAME}). */
+export const EXEC_READ_TOOL_NAME = 'exec'
+
+/** The write-capable exec dispatcher. Advertised with `readOnlyHint: false` so the
+ *  client keeps confirming each call — it's the only dispatcher that can run tools
+ *  that create, update, or delete data. */
+export const EXEC_WRITE_TOOL_NAME = 'exec-write'
+
 /** Upper bound on a `search` regex pattern — keeps a pathological pattern from
  *  forcing catastrophic backtracking against tool metadata. */
 const MAX_SEARCH_PATTERN_LENGTH = 400
@@ -63,6 +73,18 @@ export interface ExecToolOptions {
      * re-homed onto `_meta`. Computed from the client profile at the call site.
      */
     isInlineExecUiHost?: boolean
+    /**
+     * Advertise and enforce a read-only dispatcher. When true, the tool carries
+     * `readOnlyHint: true` and a `call` targeting a write-capable inner tool (one
+     * whose own `readOnlyHint` is false) is refused with a redirect to
+     * {@link EXEC_WRITE_TOOL_NAME}. This keeps the read-only hint truthful, so a
+     * client that "always allows" this tool can never auto-approve a mutation.
+     */
+    readOnly?: boolean
+    /** Advertised tool name. Defaults to {@link EXEC_READ_TOOL_NAME}. */
+    name?: string
+    /** Advertised tool title. */
+    title?: string
 }
 
 function makeExecSchema(commandReference: string): z.ZodObject<{ command: z.ZodString }> {
@@ -285,8 +307,8 @@ export function createExecTool(
     const ExecSchema = makeExecSchema(commandReference)
 
     return {
-        name: 'exec',
-        title: 'PostHog analytics, dashboards, insights, feature flags & more',
+        name: options.name ?? EXEC_READ_TOOL_NAME,
+        title: options.title ?? 'PostHog analytics, dashboards, insights, feature flags & more',
         description: toolDescription,
         schema: ExecSchema,
         scopes: [],
@@ -294,7 +316,7 @@ export function createExecTool(
             destructiveHint: false,
             idempotentHint: false,
             openWorldHint: true,
-            readOnlyHint: false,
+            readOnlyHint: options.readOnly === true,
         },
         handler: async (_context: Context, params: z.infer<ExecSchema>) => {
             const { verb, rest } = parseCommand(params.command)
@@ -503,6 +525,15 @@ export function createExecTool(
                     }
                     const { verb: toolName, rest: jsonBody } = parseCommand(callArgs)
                     const tool = findTool(allTools, toolName)
+                    // Keep the `readOnlyHint: true` advertised on this dispatcher truthful:
+                    // a write-capable tool must go through the write dispatcher, which the
+                    // client confirms — otherwise an "always allow" on this tool would
+                    // silently auto-approve a mutation.
+                    if (options.readOnly && !tool.annotations.readOnlyHint) {
+                        throw new Error(
+                            `Tool "${tool.name}" can create, update, or delete data, so it can't run through the read-only "${EXEC_READ_TOOL_NAME}" tool. Re-run it with the "${EXEC_WRITE_TOOL_NAME}" tool: ${EXEC_WRITE_TOOL_NAME}({ "command": "call ${tool.name} <json_input>" }).`
+                        )
+                    }
                     if (options.requireDestructiveConfirmation && tool.annotations.destructiveHint && !confirmed) {
                         throw new Error(
                             `Tool "${tool.name}" is destructive. Re-run with "call --confirm ${tool.name} ..." after verifying the target IDs. Use "info ${tool.name}" to inspect the tool first.`

@@ -172,7 +172,7 @@ describe('ToolExecutor', () => {
             expect(result.tools).toEqual([])
         })
 
-        it('returns single exec tool entry when useSingleExec is true', async () => {
+        it('returns the read-only and write exec dispatchers when useSingleExec is true', async () => {
             const state = makeState(
                 catalog
                     .getPreBuiltEntries()
@@ -182,8 +182,11 @@ describe('ToolExecutor', () => {
             )
 
             const result = await executor.handleToolsList(state)
-            expect(result.tools).toHaveLength(1)
-            expect(result.tools[0]!.name).toBe('exec')
+            // Two dispatchers so the client can gate on `readOnlyHint`: `exec` is safe to
+            // always-allow, `exec-write` keeps prompting for confirmation on mutations.
+            expect(result.tools.map((t) => t.name)).toEqual(['exec', 'exec-write'])
+            expect(result.tools[0]!.annotations?.readOnlyHint).toBe(true)
+            expect(result.tools[1]!.annotations?.readOnlyHint).toBe(false)
         })
 
         // Env-context (active project metadata + tool-domain index) must reach the model
@@ -285,11 +288,11 @@ describe('ToolExecutor', () => {
             const state = makeState([uiAppTool], { useSingleExec: true, renderUiEnabled: true })
 
             const result = await executor.handleToolsList(state)
-            expect(result.tools.map((t) => t.name)).toEqual(['exec', 'render-ui'])
+            expect(result.tools.map((t) => t.name)).toEqual(['exec', 'exec-write', 'render-ui'])
 
             // The advertised schema is derived from the zod validation schema —
             // pin the contract the agent writes calls against.
-            const renderUiEntry = result.tools[1]!
+            const renderUiEntry = result.tools[2]!
             const properties = renderUiEntry.inputSchema.properties as Record<string, Record<string, unknown>>
             expect(properties.tool_name!.enum).toEqual(['survey-get'])
             expect(properties.tool_name!.description).toBeTruthy()
@@ -301,7 +304,54 @@ describe('ToolExecutor', () => {
             const state = makeState([uiAppTool], { useSingleExec: true, renderUiEnabled: false })
 
             const result = await executor.handleToolsList(state)
-            expect(result.tools.map((t) => t.name)).toEqual(['exec'])
+            expect(result.tools.map((t) => t.name)).toEqual(['exec', 'exec-write'])
+        })
+    })
+
+    // Proves the `exec` vs `exec-write` transport name is wired to the read-only flag:
+    // a write-capable tool must be refused on `exec` (so an always-allow can't
+    // auto-approve a mutation) and pass the gate on `exec-write`.
+    describe('exec read/write dispatch', () => {
+        function fullToolState(): ResolvedState {
+            const tools = catalog.getPreBuiltEntries().map((entry) => {
+                const preBuilt = catalog.getToolByName(entry.name)!
+                return {
+                    ...preBuilt.base,
+                    title: entry.title,
+                    description: entry.description ?? '',
+                    annotations: entry.annotations,
+                    scopes: [],
+                }
+            })
+            return makeState(tools as any, { useSingleExec: true })
+        }
+
+        function firstWriteToolName(): string {
+            const entry = catalog.getPreBuiltEntries().find((e) => e.annotations?.readOnlyHint === false)
+            if (!entry) {
+                throw new Error('expected at least one write-capable tool in the catalog')
+            }
+            return entry.name
+        }
+
+        it('refuses a write-tool call on the read-only exec dispatcher', async () => {
+            const result = (await executor.handleToolCall(
+                { name: 'exec', arguments: { command: `call ${firstWriteToolName()} {}` } },
+                fullToolState()
+            )) as any
+            expect(result.isError).toBe(true)
+            expect(result.content[0].text).toContain('exec-write')
+        })
+
+        it('lets the same write-tool call past the gate on exec-write', async () => {
+            const result = (await executor.handleToolCall(
+                { name: 'exec-write', arguments: { command: `call ${firstWriteToolName()} {}` } },
+                fullToolState()
+            )) as any
+            // Whatever happens after the gate (validation / API error) must not be the
+            // read-only refusal — otherwise exec-write couldn't run mutations at all.
+            const text = result.isError ? result.content[0].text : JSON.stringify(result)
+            expect(text).not.toContain('read-only')
         })
     })
 

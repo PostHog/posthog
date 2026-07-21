@@ -1,0 +1,1 @@
+**Writes data** — creates, updates, and deletes in PostHog, so each call is confirmed. Use this tool only to run a `call` that modifies data (for example creating an insight or updating a feature flag). For read-only queries and all discovery commands (`search`, `info`, `schema`), use the `exec` tool instead — it's read-only and can be always-allowed.

@@ -11,6 +11,7 @@ import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
 import CATALOG_TRUST_DISCOVERY from '@/templates/sections/catalog-trust-discovery.md'
 import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
 import SCHEMA_DISCOVERY from '@/templates/sections/schema-discovery.md'
+import { EXEC_READ_TOOL_NAME, EXEC_WRITE_TOOL_NAME } from '@/tools/exec'
 import { ExecHelpCatalog } from '@/tools/exec-help'
 import {
     getRenderableToolNames,
@@ -70,16 +71,46 @@ export class InstructionsBuilder {
         }
     }
 
-    buildExecToolEntry(state: ResolvedState): McpTool {
+    private buildExecEntry(
+        state: ResolvedState,
+        opts: { name: string; title: string; description: string; readOnly: boolean }
+    ): McpTool {
         const commandReference = this.buildExecCommandReference(state)
         const ExecSchema = { command: { type: 'string', description: commandReference } }
 
         return {
-            name: 'exec',
-            title: 'Execute PostHog command',
-            description: this.formatter.buildExecToolDescription(),
+            name: opts.name,
+            title: opts.title,
+            description: opts.description,
             inputSchema: { type: 'object', properties: ExecSchema, required: ['command'] },
+            // A read/write split at the advertised-tool level is what lets a client
+            // gate on `readOnlyHint`: the read-only dispatcher is safe to always-allow,
+            // while the write dispatcher keeps prompting for confirmation.
+            annotations: {
+                destructiveHint: false,
+                idempotentHint: false,
+                openWorldHint: true,
+                readOnlyHint: opts.readOnly,
+            },
         }
+    }
+
+    buildExecToolEntry(state: ResolvedState): McpTool {
+        return this.buildExecEntry(state, {
+            name: EXEC_READ_TOOL_NAME,
+            title: 'Query PostHog (read-only)',
+            description: this.formatter.buildExecReadToolDescription(),
+            readOnly: true,
+        })
+    }
+
+    buildExecWriteToolEntry(state: ResolvedState): McpTool {
+        return this.buildExecEntry(state, {
+            name: EXEC_WRITE_TOOL_NAME,
+            title: 'Create, update & delete in PostHog',
+            description: this.formatter.buildExecWriteToolDescription(),
+            readOnly: false,
+        })
     }
 
     buildRenderUiToolEntry(state: ResolvedState): McpTool | null {

@@ -18,7 +18,13 @@ import {
 } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { getPostHogClient } from '@/lib/posthog'
-import { createExecTool, formatInputValidationError, type ExecInnerCallTracker } from '@/tools/exec'
+import {
+    createExecTool,
+    EXEC_READ_TOOL_NAME,
+    EXEC_WRITE_TOOL_NAME,
+    formatInputValidationError,
+    type ExecInnerCallTracker,
+} from '@/tools/exec'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { createRenderUiTool } from '@/tools/render-ui'
 import type { Context, ZodObjectAny } from '@/tools/types'
@@ -77,7 +83,11 @@ export class ToolExecutor {
     private buildAdvertisedTools(state: ResolvedState): ListToolsResult['tools'] {
         if (state.useSingleExec) {
             const renderUiEntry = state.renderUiEnabled ? this.instructionsBuilder.buildRenderUiToolEntry(state) : null
-            return [this.instructionsBuilder.buildExecToolEntry(state), ...(renderUiEntry ? [renderUiEntry] : [])]
+            return [
+                this.instructionsBuilder.buildExecToolEntry(state),
+                this.instructionsBuilder.buildExecWriteToolEntry(state),
+                ...(renderUiEntry ? [renderUiEntry] : []),
+            ]
         }
 
         const nameSet = new Set(state.allTools.map((t) => t.name))
@@ -103,8 +113,12 @@ export class ToolExecutor {
         const { intentMeta, args } = this.extractIntent(toolName, (params?.arguments ?? {}) as Record<string, unknown>)
         const callParams = { ...params, arguments: args }
 
-        if (toolName === 'exec') {
-            return this.callExecTool(callParams, state, intentMeta)
+        if (toolName === EXEC_READ_TOOL_NAME) {
+            return this.callExecTool(callParams, state, intentMeta, { readOnly: true })
+        }
+
+        if (toolName === EXEC_WRITE_TOOL_NAME) {
+            return this.callExecTool(callParams, state, intentMeta, { readOnly: false })
         }
 
         if (toolName === 'render-ui') {
@@ -273,15 +287,22 @@ export class ToolExecutor {
     private async callExecTool(
         params: Record<string, unknown> | undefined,
         state: ResolvedState,
-        intentMeta?: ToolCallIntentMeta
+        intentMeta?: ToolCallIntentMeta,
+        opts: { readOnly: boolean } = { readOnly: false }
     ): Promise<unknown> {
+        // The dispatcher's own name (`exec` vs `exec-write`) labels exec-level failures
+        // and validation errors; a `call` still relabels to the inner tool that ran.
+        const dispatcherName = opts.readOnly ? EXEC_READ_TOOL_NAME : EXEC_WRITE_TOOL_NAME
         const execMetrics: ExecMetricState = { innerToolName: undefined }
-        const resolved = this.resolveExecTool(state, execMetrics, intentMeta)
+        const resolved = this.resolveExecTool(state, execMetrics, intentMeta, {
+            readOnly: opts.readOnly,
+            dispatcherName,
+        })
 
         const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>
         const validation = resolved.schema.safeParse(toolArgs, { reportInput: true })
         if (!validation.success) {
-            toolCallsTotal.inc({ tool: 'exec', status: 'validation_error' })
+            toolCallsTotal.inc({ tool: dispatcherName, status: 'validation_error' })
             return {
                 content: [{ type: 'text', text: formatInputValidationError(resolved.name, validation.error) }],
                 isError: true,
@@ -297,8 +318,8 @@ export class ToolExecutor {
         // emits for direct calls, so exec-routed and direct calls share one vocabulary.
         // `$mcp_mode` already distinguishes single-exec from direct for anyone who needs
         // it. Non-`call` verbs (tools/info/search/schema) resolve no inner tool and stay
-        // attributed to `exec`.
-        const execToolName = (): string => execMetrics.innerToolName ?? 'exec'
+        // attributed to the dispatcher (`exec` / `exec-write`).
+        const execToolName = (): string => execMetrics.innerToolName ?? dispatcherName
 
         try {
             const handlerResult = await resolved.handler(state.context, validation.data)
@@ -309,7 +330,7 @@ export class ToolExecutor {
                 : buildToolResultPayload({
                       handlerResult,
                       toolMeta: resolved._meta,
-                      toolName: 'exec',
+                      toolName: dispatcherName,
                       params: validation.data,
                       suppressStructuredContentForFormattedResults: state.clientProfile.isCliModeEnabled(),
                       distinctId: undefined,
@@ -331,7 +352,7 @@ export class ToolExecutor {
         } catch (error: unknown) {
             const metricTool = execToolName()
             if (!execMetrics.innerToolName) {
-                toolCallsTotal.inc({ tool: 'exec', status: 'error' })
+                toolCallsTotal.inc({ tool: dispatcherName, status: 'error' })
             }
             const classification = classifyToolError(error, metricTool)
 
@@ -356,7 +377,8 @@ export class ToolExecutor {
     private resolveExecTool(
         state: ResolvedState,
         execMetrics: ExecMetricState,
-        intentMeta?: ToolCallIntentMeta
+        intentMeta?: ToolCallIntentMeta,
+        opts: { readOnly: boolean; dispatcherName: string } = { readOnly: false, dispatcherName: EXEC_READ_TOOL_NAME }
     ): ResolvedTool {
         const commandReference = this.instructionsBuilder.buildExecCommandReference(state)
 
@@ -414,11 +436,13 @@ export class ToolExecutor {
             {
                 isInlineExecUiHost: state.clientProfile.isInlineExecUiHost(),
                 helpCatalog: this.instructionsBuilder.buildExecHelpCatalog(state),
+                readOnly: opts.readOnly,
+                name: opts.dispatcherName,
             }
         )
 
         return {
-            name: 'exec',
+            name: opts.dispatcherName,
             schema: execTool.schema,
             handler: (ctx, args) => execTool.handler(ctx, args as { command: string }),
             _meta: execTool._meta,
