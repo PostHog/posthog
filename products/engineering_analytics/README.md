@@ -120,11 +120,8 @@ Change one only in a separate PR with a written reason. Engineering-level decisi
 
 ## Glossary
 
-| Term                     | Definition                                                                                |
-| ------------------------ | ----------------------------------------------------------------------------------------- |
-| PR (unit of value)       | An open GitHub pull request, draft or ready-for-review                                    |
-| Draft / ready-for-review | Low-rigor experimentation vs the high-stakes phase DevEx measures aggressively            |
-| Good / bad friction      | Checks that catch real problems (keep, optimize) vs checks engineers ignore (remove)      |
-| Wedge                    | End-to-end code visibility, served via MCP to PostHog Code and engineers driving agents   |
-| The dark middle          | The CI / review / merge / deploy steps between PostHog Code and PostHog product analytics |
-| `open_to_merge_seconds`  | `merged_at - created_at`: draft plus ready time combined, the caveat encoded in the name  |
+| Term                | Definition                                                                                |
+| ------------------- | ----------------------------------------------------------------------------------------- |
+| Good / bad friction | Checks that catch real problems (keep, optimize) vs checks engineers ignore (remove)      |
+| Wedge               | End-to-end code visibility, served via MCP to PostHog Code and engineers driving agents   |
+| The dark middle     | The CI / review / merge / deploy steps between PostHog Code and PostHog product analytics |
