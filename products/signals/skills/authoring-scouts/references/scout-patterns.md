@@ -83,8 +83,10 @@ This is one of the most common genuinely-new shapes users author for themselves,
   - **Automation liveness** — the watched entity is a PostHog automation (a workflow, a CDP destination): configured-active with zero successes _and_ zero failures while the trigger has volume is the silently-dark shape a delivery-failure watcher misses.
   - **Capture / instrumentation liveness (meta-observability)** — the watched surface is the project's own event volume: a cliff means the SDK, a consent flow, or a deploy silently stopped collection, and every other scout is now flying blind.
     Cheap, product-agnostic, and worth considering for any project whose capture is consent-gated.
-  - **Release verification / first exposure** — an exact-once watcher that a rollout actually reached a real user: watch for the first occurrence of the event+property combination that proves the feature landed, report when it appears (or conspicuously doesn't), then retire.
-- **Dedupe + memory:** absence has no row to key on — dedupe on the **entity/control id + window** (`dedupe:<domain>:<control>:{date}`), and record the expected cadence as a `pattern:<domain>:cadence` baseline so the next run knows how long silence must last before it's signal.
+  - **Release verification / first exposure** — an exact-once watcher that a rollout actually reached a real user: watch for the first occurrence of the event+property combination that proves the feature landed.
+    A digest-style exception to "reports are for problems": the scout files **at most one report** — the landing confirmation, or an overdue alarm once the exposure stays conspicuously absent past a soak window — then retires.
+- **Dedupe + memory:** absence has no row to key on — dedupe on the **stable entity/control id** (`dedupe:<domain>:<control>`, with the ongoing-silence window stored in the value), and keep a `report:<domain>:<control>` pointer so a persisting absence **edits the live report** rather than filing a fresh one each run.
+  Record the expected cadence as a `pattern:<domain>:cadence` baseline so the next run knows how long silence must last before it's signal.
 - **Gotchas:**
   - **Give the consequent its natural lag.** Callbacks, webhooks, and settlement events arrive late; score only windows old enough for the pair to have closed, or every run ends in false alarms.
   - **Gate by active hours.** Many expected events only fire during business hours or on weekdays — compare silence against the entity's own schedule, not the wall clock.
