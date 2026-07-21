@@ -87,19 +87,18 @@ graph LR
 
 ## The goal: CI Signals for PostHog Code
 
-Not built yet; everything above is shaped for it.
 Valuable CI conditions ("this check is flaky", "master went red at SHA X", "this PR is wedged on a failing required check") become [Signals](../signals): grouped, researched against the repository, and handed to PostHog Code for autonomous remediation.
 Detection is defined once in `logic/` over the read layer, so the emitter and the MCP tools share one definition.
 Shortening ready-for-review-to-merge is the headline metric this serves.
 
-## v1 vs the destination
+## The data boundary
 
-| Question                                                                     | Status  | Waits on                                                   |
-| ---------------------------------------------------------------------------- | ------- | ---------------------------------------------------------- |
-| CI and job durations, queue time, cost, failure logs, flaky and broken tests | live    |                                                            |
-| Open to merge time (coarse: `open_to_merge_seconds`)                         | live    |                                                            |
-| Draft/ready transitions, time-in-review, approvals                           | not yet | PR lifecycle events (webhooks to events, PR as group type) |
-| Deploys and DORA                                                             | not yet | deploy data                                                |
+| Question                                                                     | Substrate                                                            |
+| ---------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| CI and job durations, queue time, cost, failure logs, flaky and broken tests | Warehouse + Logs + Traces                                            |
+| Open to merge time (coarse: `open_to_merge_seconds`)                         | PR snapshot                                                          |
+| Draft/ready transitions, time-in-review, approvals                           | PR lifecycle events (webhooks to events, PR as group type): deferred |
+| Deploys and DORA                                                             | Deploy data: deferred                                                |
 
 The warehouse snapshots overwrite state on update, so transition timing is unrecoverable from them.
 Immutable lifecycle events are the only thing the deferred events destination is for.
