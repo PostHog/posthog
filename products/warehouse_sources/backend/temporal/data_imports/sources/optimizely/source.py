@@ -117,5 +117,6 @@ An admin can generate a personal access token in Optimizely under Account Settin
         return optimizely_source(
             api_token=config.api_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
         )

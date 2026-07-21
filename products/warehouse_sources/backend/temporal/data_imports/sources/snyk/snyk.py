@@ -1,22 +1,31 @@
 import re
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlparse
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.snyk.settings import (
-    SNYK_ENDPOINTS,
-    SnykEndpointConfig,
-    SnykScope,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+    rest_api_resources,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BaseNextUrlPaginator,
+    SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
+    EndpointResource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.snyk.settings import SNYK_ENDPOINTS, SnykScope
 
 # Snyk regional stacks are independent and don't share data; the region selects which API host
 # the token is sent to. The set is a fixed allow-list, so the host can't be retargeted.
@@ -32,44 +41,43 @@ DEFAULT_REGION = "us"
 # filters. Snyk keeps GA versions available through a long deprecation window.
 SNYK_REST_VERSION = "2024-10-15"
 
-REQUEST_TIMEOUT_SECONDS = 60
-
 # Snyk org ids are UUIDs. The configured org id is interpolated into a URL path, so reject
 # anything that could alter the path shape before it gets near a request.
 _ORG_ID_RE = re.compile(r"^[a-zA-Z0-9-]+$")
 
-
-class SnykRetryableError(Exception):
-    pass
+# The parent resource name used when fanning out per-org endpoints over every org.
+_PARENT_ORGS = "organizations"
+_PARENT_ID_KEY = f"_{_PARENT_ORGS}_id"
 
 
 @dataclasses.dataclass
 class SnykResumeConfig:
-    # Next page URL (from the JSON:API ``links.next``) to fetch on resume.
-    next_url: str
-    # The fan-out org currently being processed. A stable id rather than a positional index so
-    # orgs added/removed between a crash and the retry can't resume into the wrong one. None for
-    # the top-level organizations endpoint.
+    # Next page URL (from the JSON:API ``links.next``) to fetch on resume, for the single-collection
+    # (organizations / single-org) endpoints. Optional so old saved states and the fan-out shape below
+    # both parse under ``dataclass(**saved)``.
+    next_url: str | None = None
+    # The fan-out org a saved single-collection bookmark belonged to. Retained for backward
+    # compatibility with states written before the framework migration; unused on load.
     org_id: str | None = None
+    # The framework's fan-out resume state
+    # (``{"completed": [child_path, ...], "current": child_path | None, "child_state": {...}}``)
+    # for the multi-org fan-out endpoints. ``None`` when only the old-shape fields are set — in that
+    # case the fan-out starts fresh (the merge dedupes any re-pulled rows).
+    fanout_state: dict[str, Any] | None = None
 
 
 def base_url(region: Optional[str]) -> str:
     return SNYK_REGION_HOSTS.get(region or DEFAULT_REGION, SNYK_REGION_HOSTS[DEFAULT_REGION])
 
 
-def _get_headers(api_token: str) -> dict[str, str]:
-    return {
-        "Authorization": f"token {api_token}",
-        "Accept": "application/vnd.api+json",
-    }
+def _format_datetime(value: Any) -> Any:
+    """Format an incremental cursor value as RFC 3339 with a ``Z`` suffix for Snyk filters.
 
-
-def _build_url(host: str, path: str, params: dict[str, Any]) -> str:
-    return f"{host}/rest{path}?{urlencode(params)}"
-
-
-def _format_datetime(value: Any) -> str:
-    """Format an incremental cursor value as RFC 3339 with a ``Z`` suffix for Snyk filters."""
+    Returns ``None`` for a ``None`` value so the framework drops the filter param entirely on the
+    first sync (no watermark yet) rather than sending an empty/``None`` filter.
+    """
+    if value is None:
+        return None
     if isinstance(value, datetime):
         dt = value
     elif isinstance(value, date):
@@ -118,38 +126,6 @@ def _flatten_item(item: dict[str, Any]) -> dict[str, Any]:
     return item
 
 
-@retry(
-    retry=retry_if_exception_type((SnykRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=60),
-    reraise=True,
-)
-def _fetch_page(session: requests.Session, url: str, logger: FilteringBoundLogger) -> Any:
-    response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
-
-    # Snyk rate limits per token and returns 429 (with Retry-After) on exceed; retry those plus
-    # transient 5xx with exponential backoff.
-    if response.status_code == 429 or response.status_code >= 500:
-        raise SnykRetryableError(f"Snyk API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        logger.error(f"Snyk API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
-
-    return response.json()
-
-
-def _fetch_list_page(
-    session: requests.Session, url: str, host: str, logger: FilteringBoundLogger
-) -> tuple[list[dict[str, Any]], str | None]:
-    """Fetch one page of a Snyk REST list endpoint, returning (items, next_page_url)."""
-    payload = _fetch_page(session, url, logger)
-    items = payload.get("data") if isinstance(payload, dict) else None
-    if not isinstance(items, list):
-        return [], None
-    return items, _next_page_url(host, payload)
-
-
 def _validated_org_id(organization_id: str) -> str:
     org_id = organization_id.strip()
     if not _ORG_ID_RE.match(org_id):
@@ -157,164 +133,86 @@ def _validated_org_id(organization_id: str) -> str:
     return org_id
 
 
-def _resolve_org_ids(
-    session: requests.Session, host: str, organization_id: Optional[str], logger: FilteringBoundLogger
-) -> list[str]:
-    """The org ids to fan out over: the configured single org, or every org the token can see.
-
-    The multi-org list is sorted so the fan-out order is deterministic across runs. ``/orgs`` takes
-    no sort param and JSON:API doesn't guarantee response ordering, so without this the positional
-    resume in ``_iter_fan_out`` could skip an org if the API returned the list in a different order
-    after a crash.
+class SnykJSONAPIPaginator(BaseNextUrlPaginator):
+    """Follow the JSON:API ``links.next`` link, resolving relative / ``{"href": ...}`` forms to an
+    absolute same-host URL. An off-host (or otherwise unusable) next link stops pagination — the
+    authenticated request is never pointed at another origin. Resume support (seed / snapshot the
+    next-page URL) is inherited from ``BaseNextUrlPaginator``.
     """
-    if organization_id and organization_id.strip():
-        return [_validated_org_id(organization_id)]
 
-    org_ids: list[str] = []
-    url: str | None = _build_url(host, "/orgs", {"version": SNYK_REST_VERSION, "limit": 100})
-    while url:
-        items, url = _fetch_list_page(session, url, host, logger)
-        org_ids.extend(item["id"] for item in items)
-    return sorted(org_ids)
+    def __init__(self, host: str) -> None:
+        super().__init__()
+        self._host = host
 
-
-def _initial_params(
-    config: SnykEndpointConfig,
-    incremental_field: Optional[str],
-    should_use_incremental_field: bool,
-    db_incremental_field_last_value: Any,
-) -> dict[str, Any]:
-    params: dict[str, Any] = {"version": SNYK_REST_VERSION, "limit": config.page_size}
-
-    # ``links.next`` carries all query params forward, so applying the watermark filter to the
-    # first page keeps every subsequent page bounded too.
-    if should_use_incremental_field and db_incremental_field_last_value is not None:
-        field = incremental_field or config.default_incremental_field
-        filter_param = config.incremental_param_by_field.get(field) if field else None
-        if filter_param:
-            params[filter_param] = _format_datetime(db_incremental_field_last_value)
-
-    return params
-
-
-def _iter_single_org(
-    session: requests.Session,
-    host: str,
-    organization_id: str,
-    logger: FilteringBoundLogger,
-) -> Iterator[list[dict[str, Any]]]:
-    """Emit only the configured organization instead of every org the token can reach.
-
-    ``GET /rest/orgs/{org_id}`` returns that one org as a single JSON:API object. Honoring the
-    configured id here keeps a single-org connection scoped to that org, so a member can't
-    enumerate every organization the token can see via the organizations table.
-    """
-    org_id = _validated_org_id(organization_id)
-    url = _build_url(host, f"/orgs/{org_id}", {"version": SNYK_REST_VERSION})
-    payload = _fetch_page(session, url, logger)
-    item = payload.get("data") if isinstance(payload, dict) else None
-    if isinstance(item, dict):
-        yield [_flatten_item(item)]
-
-
-def _iter_top_level(
-    session: requests.Session,
-    host: str,
-    config: SnykEndpointConfig,
-    params: dict[str, Any],
-    logger: FilteringBoundLogger,
-    manager: ResumableSourceManager[SnykResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    """Paginate a top-level collection (organizations) with resume support."""
-    resume = manager.load_state() if manager.can_resume() else None
-    if resume is not None and resume.next_url:
-        if not _is_same_host(resume.next_url, host):
-            raise ValueError(f"Snyk resume state contains an unexpected URL: {resume.next_url!r}")
-        url = resume.next_url
-        logger.debug(f"Snyk: resuming {config.name} from URL: {url}")
-    else:
-        url = _build_url(host, config.path, params)
-
-    while True:
-        items, next_url = _fetch_list_page(session, url, host, logger)
-        if items:
-            yield [_flatten_item(item) for item in items]
-        if not next_url:
-            break
-        # Save AFTER yielding the batch — a crash before the save re-yields this page (merge
-        # dedupes on primary key) instead of skipping it.
-        manager.save_state(SnykResumeConfig(next_url=next_url))
-        url = next_url
-
-
-def _iter_fan_out(
-    session: requests.Session,
-    host: str,
-    config: SnykEndpointConfig,
-    params: dict[str, Any],
-    organization_id: Optional[str],
-    logger: FilteringBoundLogger,
-    manager: ResumableSourceManager[SnykResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    """Walk every org and emit each org's rows, injecting ``organization_id`` into each row."""
-    org_ids = _resolve_org_ids(session, host, organization_id, logger)
-
-    # Resolve the saved org bookmark to the slice of orgs still to process. ``_resolve_org_ids``
-    # returns a sorted list, so this positional slice is stable even if the API reordered the orgs
-    # between the crash and the retry. If the bookmarked org no longer exists (removed between runs),
-    # start over — merge dedupes the re-pulled rows.
-    resume = manager.load_state() if manager.can_resume() else None
-    start_index = 0
-    resume_url: str | None = None
-    if resume is not None and resume.org_id is not None and resume.org_id in org_ids:
-        if not _is_same_host(resume.next_url, host):
-            raise ValueError(f"Snyk resume state contains an unexpected URL: {resume.next_url!r}")
-        start_index = org_ids.index(resume.org_id)
-        resume_url = resume.next_url
-        logger.debug(f"Snyk: resuming {config.name} fan-out from org={resume.org_id}, url={resume_url}")
-
-    for index in range(start_index, len(org_ids)):
-        org_id = org_ids[index]
-        url = resume_url or _build_url(host, config.path.format(org_id=org_id), params)
-        resume_url = None  # only the resumed-into org uses the saved URL; the rest start fresh
-
-        while True:
-            items, next_url = _fetch_list_page(session, url, host, logger)
-            if items:
-                yield [{**_flatten_item(item), "organization_id": org_id} for item in items]
-            if not next_url:
-                break
-            manager.save_state(SnykResumeConfig(next_url=next_url, org_id=org_id))
-            url = next_url
-
-
-def get_rows(
-    region: Optional[str],
-    api_token: str,
-    organization_id: Optional[str],
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[SnykResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-    incremental_field: Optional[str] = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = SNYK_ENDPOINTS[endpoint]
-    host = base_url(region)
-    # One tracked session reused across every page (and every fan-out org) so urllib3 keeps the
-    # connection alive. Redact the token: it rides in the ``Authorization: token …`` header under
-    # Snyk's custom scheme, which the tracked transport's built-in scrubber doesn't recognise.
-    session = make_tracked_session(headers=_get_headers(api_token), redact_values=(api_token,))
-
-    params = _initial_params(config, incremental_field, should_use_incremental_field, db_incremental_field_last_value)
-
-    if config.scope == SnykScope.ORGANIZATION:
-        if organization_id and organization_id.strip():
-            yield from _iter_single_org(session, host, organization_id, logger)
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        try:
+            payload = response.json()
+        except Exception:
+            payload = None
+        next_url = _next_page_url(self._host, payload) if payload is not None else None
+        if next_url:
+            self._next_url = next_url
+            self._has_next_page = True
         else:
-            yield from _iter_top_level(session, host, config, params, logger, resumable_source_manager)
-    else:
-        yield from _iter_fan_out(session, host, config, params, organization_id, logger, resumable_source_manager)
+            self._has_next_page = False
+
+
+def _flatten_map(item: dict[str, Any]) -> dict[str, Any]:
+    return _flatten_item(item)
+
+
+def _child_flatten_map(item: dict[str, Any]) -> dict[str, Any]:
+    """Flatten a fan-out child row and rename the injected parent id to ``organization_id``."""
+    item = _flatten_item(item)
+    if _PARENT_ID_KEY in item:
+        item["organization_id"] = item.pop(_PARENT_ID_KEY)
+    return item
+
+
+def _single_org_flatten_map(org_id: str) -> Any:
+    def _map(item: dict[str, Any]) -> dict[str, Any]:
+        item = _flatten_item(item)
+        item["organization_id"] = org_id
+        return item
+
+    return _map
+
+
+def _incremental_params(
+    endpoint: str,
+    should_use_incremental_field: bool,
+    incremental_field: Optional[str],
+) -> dict[str, Any]:
+    """Build the server-side incremental filter param marker for an endpoint, if applicable.
+
+    ``links.next`` carries all query params forward, so applying the watermark filter to the first
+    page keeps every subsequent page bounded too. The value is filled in per-run by the framework
+    from ``db_incremental_field_last_value`` via ``_format_datetime`` (which returns ``None`` on the
+    first sync so the filter is dropped).
+    """
+    config = SNYK_ENDPOINTS[endpoint]
+    if not (should_use_incremental_field and config.incremental_param_by_field):
+        return {}
+    field = incremental_field or config.default_incremental_field
+    filter_param = config.incremental_param_by_field.get(field) if field else None
+    if not filter_param:
+        return {}
+    return {filter_param: {"type": "incremental", "cursor_path": field, "convert": _format_datetime}}
+
+
+def _client_config(host: str, api_token: str) -> ClientConfig:
+    return {
+        "base_url": f"{host}/rest",
+        # Only non-secret headers here; the token rides in framework `auth` so it's redacted from
+        # logs and raised error messages.
+        "headers": {"Accept": "application/vnd.api+json"},
+        # Snyk's custom `Authorization: token <token>` scheme, expressed as an api-key header. The
+        # framework redacts the api-key value (`token <token>`) everywhere it can surface.
+        "auth": {"type": "api_key", "api_key": f"token {api_token}", "name": "Authorization", "location": "header"},
+        # Pin every request — including paginator next-page links and seeded resume URLs — to the
+        # resolved Snyk host so a tampered `links.next` or resume URL can't exfiltrate the token.
+        "allowed_hosts": [],
+    }
 
 
 def snyk_source(
@@ -322,7 +220,8 @@ def snyk_source(
     api_token: str,
     organization_id: Optional[str],
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[SnykResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
@@ -330,19 +229,93 @@ def snyk_source(
 ) -> SourceResponse:
     endpoint_config = SNYK_ENDPOINTS[endpoint]
 
+    # Validate a configured single org id up front — it's interpolated into a URL path, so a
+    # path-altering value must be rejected before any request is made.
+    single_org: str | None = None
+    if organization_id and organization_id.strip():
+        single_org = _validated_org_id(organization_id)
+
+    def build_resource() -> Resource:
+        host = base_url(region)
+        client = _client_config(host, api_token)
+        params: dict[str, Any] = {"version": SNYK_REST_VERSION, "limit": endpoint_config.page_size}
+
+        resume: SnykResumeConfig | None = (
+            resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+        )
+
+        if endpoint_config.scope == SnykScope.ORGANIZATION:
+            if single_org is not None:
+                # A single-org connection fetches that one org directly (a single JSON:API object)
+                # instead of enumerating every org the token can reach.
+                simple_endpoint: Endpoint = {
+                    "path": f"/orgs/{single_org}",
+                    "params": {"version": SNYK_REST_VERSION},
+                    "data_selector": "data",
+                    "paginator": SinglePagePaginator(),
+                }
+                return _build_simple(
+                    client,
+                    endpoint,
+                    simple_endpoint,
+                    _flatten_map,
+                    resumable_source_manager,
+                    None,
+                    team_id,
+                    job_id,
+                    None,
+                )
+            # Top-level organizations collection.
+            list_endpoint: Endpoint = {
+                "path": endpoint_config.path,
+                "params": params,
+                "data_selector": "data",
+                "paginator": SnykJSONAPIPaginator(host),
+            }
+            return _build_simple(
+                client, endpoint, list_endpoint, _flatten_map, resumable_source_manager, resume, team_id, job_id, None
+            )
+
+        # PER_ORG endpoints.
+        params.update(_incremental_params(endpoint, should_use_incremental_field, incremental_field))
+
+        if single_org is not None:
+            # Single-org: hit the org's collection directly, skipping the /orgs enumeration.
+            child_endpoint: Endpoint = {
+                "path": endpoint_config.path.format(org_id=single_org),
+                "params": params,
+                "data_selector": "data",
+                "paginator": SnykJSONAPIPaginator(host),
+            }
+            return _build_simple(
+                client,
+                endpoint,
+                child_endpoint,
+                _single_org_flatten_map(single_org),
+                resumable_source_manager,
+                resume,
+                team_id,
+                job_id,
+                db_incremental_field_last_value,
+            )
+
+        # Fan out over every org the token can see.
+        return _build_fanout(
+            client,
+            endpoint,
+            endpoint_config.path,
+            params,
+            resumable_source_manager,
+            resume,
+            host,
+            team_id,
+            job_id,
+            db_incremental_field_last_value,
+        )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            region=region,
-            api_token=api_token,
-            organization_id=organization_id,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-            incremental_field=incremental_field,
-        ),
+        items=build_resource,
         primary_keys=endpoint_config.primary_keys,
         # Snyk documents no sort param on these endpoints and the response order is undefined —
         # and the multi-org fan-out breaks any global ordering anyway. "desc" defers the watermark
@@ -355,6 +328,96 @@ def snyk_source(
         partition_format="month" if endpoint_config.partition_key else None,
         partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
     )
+
+
+def _build_simple(
+    client: ClientConfig,
+    endpoint: str,
+    endpoint_config: Endpoint,
+    data_map: Any,
+    manager: ResumableSourceManager[SnykResumeConfig],
+    resume: SnykResumeConfig | None,
+    team_id: int,
+    job_id: str,
+    db_incremental_field_last_value: Optional[Any],
+) -> Resource:
+    resource: EndpointResource = {"name": endpoint, "endpoint": endpoint_config, "data_map": data_map}
+    config: RESTAPIConfig = {"client": client, "resource_defaults": {}, "resources": [resource]}
+
+    initial_state: Optional[dict[str, Any]] = None
+    if resume is not None and resume.next_url:
+        # A tampered resume URL that points off-host is rejected by the client's host-pinning
+        # (allowed_hosts) before the authenticated request leaves the process.
+        initial_state = {"next_url": resume.next_url}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
+        # the last page (merge dedupes) rather than skipping it.
+        if state and state.get("next_url"):
+            manager.save_state(SnykResumeConfig(next_url=state["next_url"]))
+
+    return rest_api_resource(
+        config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_state,
+    )
+
+
+def _build_fanout(
+    client: ClientConfig,
+    endpoint: str,
+    child_path: str,
+    child_params: dict[str, Any],
+    manager: ResumableSourceManager[SnykResumeConfig],
+    resume: SnykResumeConfig | None,
+    host: str,
+    team_id: int,
+    job_id: str,
+    db_incremental_field_last_value: Optional[Any],
+) -> Resource:
+    parent_resource: EndpointResource = {
+        "name": _PARENT_ORGS,
+        "endpoint": {
+            "path": "/orgs",
+            "params": {"version": SNYK_REST_VERSION, "limit": SNYK_ENDPOINTS[_PARENT_ORGS].page_size},
+            "data_selector": "data",
+            "paginator": SnykJSONAPIPaginator(host),
+        },
+    }
+    child_endpoint: Endpoint = {
+        "path": child_path,
+        "params": {**child_params, "org_id": {"type": "resolve", "resource": _PARENT_ORGS, "field": "id"}},
+        "data_selector": "data",
+        "paginator": SnykJSONAPIPaginator(host),
+    }
+    child_resource: EndpointResource = {
+        "name": endpoint,
+        "endpoint": child_endpoint,
+        "include_from_parent": ["id"],
+        "data_map": _child_flatten_map,
+    }
+    config: RESTAPIConfig = {"client": client, "resource_defaults": {}, "resources": [parent_resource, child_resource]}
+
+    # Only the framework's fan-out resume state round-trips here; an old single-collection bookmark
+    # (next_url/org_id without fanout_state) starts fresh and the merge dedupes any re-pulled rows.
+    initial_state = resume.fanout_state if resume is not None else None
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state is not None:
+            manager.save_state(SnykResumeConfig(fanout_state=state))
+
+    resources = rest_api_resources(
+        config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_state,
+    )
+    return next(r for r in resources if r.name == endpoint)
 
 
 def validate_credentials(
@@ -371,20 +434,21 @@ def validate_credentials(
             org_id = _validated_org_id(organization_id)
         except ValueError:
             return False, "Snyk organization ID is invalid — copy it from your organization settings."
-        url = _build_url(host, f"/orgs/{org_id}", {"version": SNYK_REST_VERSION})
+        url = f"{host}/rest/orgs/{org_id}?version={SNYK_REST_VERSION}"
     else:
-        url = _build_url(host, "/self", {"version": SNYK_REST_VERSION})
+        url = f"{host}/rest/self?version={SNYK_REST_VERSION}"
 
-    try:
-        session = make_tracked_session(redact_values=(api_token,))
-        response = session.get(url, headers=_get_headers(api_token), timeout=10)
-    except requests.exceptions.RequestException as e:
-        return False, str(e)
-
-    if response.status_code == 200:
+    ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_token,)),
+        url,
+        headers={"Authorization": f"token {api_token}", "Accept": "application/vnd.api+json"},
+    )
+    if ok:
         return True, None
-    if response.status_code == 401:
+    if status == 401:
         return False, "Invalid Snyk API token. Check the token and the selected region, then try again."
-    if response.status_code in (403, 404):
+    if status in (403, 404):
         return False, "Your Snyk token can't access this organization. Check the organization ID and region."
-    return False, f"Snyk API error: {response.status_code}"
+    if status is None:
+        return False, "Could not reach the Snyk API. Check the selected region and your network, then try again."
+    return False, f"Snyk API error: {status}"

@@ -98,7 +98,8 @@ class TestHerokuSource:
         mocked_source.assert_called_once_with(
             api_key="key",
             endpoint="releases",
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=manager,
         )
 
