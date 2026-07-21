@@ -40,6 +40,11 @@ export function TestAccountFilter({
                     <LemonButton
                         icon={<IconGear />}
                         to={urls.settings('project-product-analytics', 'internal-user-filtering')}
+                        targetBlank
+                        // Open settings in a new tab so an in-progress (unsaved) view isn't discarded
+                        // by a client-side navigation away
+                        hideExternalLinkIcon
+                        tooltip="Configure internal and test users (opens in a new tab)"
                         size="small"
                         noPadding
                         className="ml-1"

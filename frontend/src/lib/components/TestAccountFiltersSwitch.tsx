@@ -35,6 +35,11 @@ export function TestAccountFilterSwitch({ checked, onChange, ...props }: TestAcc
                         noPadding
                         className="ml-1"
                         to={urls.settings('project-product-analytics', 'internal-user-filtering')}
+                        targetBlank
+                        // Open settings in a new tab so an in-progress (unsaved) insight isn't discarded
+                        // by a client-side navigation away from the builder
+                        hideExternalLinkIcon
+                        tooltip="Configure internal and test users (opens in a new tab)"
                     />
                 </div>
             }
