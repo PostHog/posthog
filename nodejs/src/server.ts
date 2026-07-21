@@ -1,3 +1,4 @@
+import { createIntegrationGatewayService } from '~/cdp/services/managers/integration-gateway.service'
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
 import { initializePrometheusLabels } from '~/common/api/router'
 import { defaultConfig } from '~/common/config/config'
@@ -504,7 +505,12 @@ export class PluginServer implements NodeServer {
         const groupRepository = new PersonHogGroupReadRepository(personhogClient, clientLabel)
 
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
-        const integrationManager = new IntegrationManagerService(this.pubsub!, this.postgres!, encryptedFields)
+        const integrationManager = new IntegrationManagerService(
+            this.pubsub!,
+            this.postgres!,
+            encryptedFields,
+            createIntegrationGatewayService(this.config)
+        )
         const internalCaptureService = new InternalCaptureService(this.config)
 
         return {

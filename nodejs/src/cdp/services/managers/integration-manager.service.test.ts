@@ -5,6 +5,7 @@ import { createTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub } from '~/types'
 
 import { insertIntegration } from '../../_tests/fixtures'
+import { IntegrationGatewayService } from './integration-gateway.service'
 import { IntegrationManagerService } from './integration-manager.service'
 
 describe('IntegrationManager', () => {
@@ -43,7 +44,7 @@ describe('IntegrationManager', () => {
     })
 
     it('returns the integrations', async () => {
-        const items = await manager.getMany([integrations[0].id])
+        const items = await manager.getMany([integrations[0].id], teamId1)
 
         expect(items).toEqual({
             '1': {
@@ -63,7 +64,7 @@ describe('IntegrationManager', () => {
 
     it('updates cached integration data when integration changes', async () => {
         // First check - initial state
-        const item = await manager.get(integrations[0].id)
+        const item = await manager.get(integrations[0].id, teamId1)
         expect(item?.config).toEqual({ team: 'foobar' })
         expect(item?.sensitive_config).toEqual({ access_token: 'token', not_encrypted: 'not-encrypted' })
 
@@ -97,11 +98,44 @@ describe('IntegrationManager', () => {
         // Trigger integration reload
         manager['onIntegrationsReloaded']([integrations[0].id])
         // Check if the cached data was updated
-        const reloadedIntegrations = await manager.get(integrations[0].id)
+        const reloadedIntegrations = await manager.get(integrations[0].id, teamId1)
         expect(reloadedIntegrations?.config).toEqual({ team: 'updated-team' })
         expect(reloadedIntegrations?.sensitive_config).toEqual({
             access_token: 'updated-token',
             not_encrypted: 'not-encrypted',
+        })
+    })
+
+    describe('gateway routing', () => {
+        const stubGateway = (overrides: Partial<IntegrationGatewayService>): IntegrationGatewayService =>
+            ({ enabledForTeam: () => true, fetchMany: jest.fn(), ...overrides }) as unknown as IntegrationGatewayService
+
+        it('routes to the gateway when enabled for the team', async () => {
+            // Sentinel that could only come from the gateway (not the seeded Postgres row).
+            const fromGateway: IntegrationType = {
+                id: integrations[0].id,
+                team_id: teamId1,
+                kind: 'slack',
+                config: {},
+                sensitive_config: { access_token: 'from-gateway' },
+            }
+            const gateway = stubGateway({
+                fetchMany: jest.fn().mockResolvedValue({ [integrations[0].id]: fromGateway }),
+            })
+            const gatewayManager = new IntegrationManagerService(hub.pubSub, hub.postgres, hub.encryptedFields, gateway)
+
+            const item = await gatewayManager.get(integrations[0].id, teamId1)
+            expect(item?.sensitive_config).toEqual({ access_token: 'from-gateway' })
+            expect(gateway.fetchMany).toHaveBeenCalledWith([integrations[0].id], teamId1)
+        })
+
+        it('falls back to Postgres when the gateway errors', async () => {
+            const gateway = stubGateway({ fetchMany: jest.fn().mockRejectedValue(new Error('gateway down')) })
+            const gatewayManager = new IntegrationManagerService(hub.pubSub, hub.postgres, hub.encryptedFields, gateway)
+
+            // Despite the gateway throwing, the real seeded row is served from Postgres.
+            const item = await gatewayManager.get(integrations[0].id, teamId1)
+            expect(item?.sensitive_config).toEqual({ access_token: 'token', not_encrypted: 'not-encrypted' })
         })
     })
 })

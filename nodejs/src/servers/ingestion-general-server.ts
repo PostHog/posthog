@@ -1,3 +1,4 @@
+import { createIntegrationGatewayService } from '~/cdp/services/managers/integration-gateway.service'
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
 import { initializePrometheusLabels } from '~/common/api/router'
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
@@ -234,7 +235,12 @@ export class IngestionGeneralServer implements NodeServer {
         )
 
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
-        const integrationManager = new IntegrationManagerService(this.pubsub, this.postgres, encryptedFields)
+        const integrationManager = new IntegrationManagerService(
+            this.pubsub,
+            this.postgres,
+            encryptedFields,
+            createIntegrationGatewayService(this.config)
+        )
 
         // 3. Ingestion-specific services
         const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)

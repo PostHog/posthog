@@ -2,6 +2,9 @@ import jwt from 'jsonwebtoken'
 
 export enum PosthogJwtAudience {
     SUBSCRIPTION_PREFERENCES = 'posthog:messaging:subscription_preferences',
+    // Must match JWT_AUDIENCE in rust/integration-gateway/src/auth/claims.rs and the Django
+    // mint helper (posthog/integration_gateway_jwt.py).
+    INTEGRATION_GATEWAY = 'posthog:integration_gateway',
 }
 
 export class JWT {
