@@ -177,6 +177,7 @@ The API key (or user) needs read access to the data you want to sync.""",
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             team_id=inputs.team_id,
+            job_id=inputs.job_id,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

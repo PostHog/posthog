@@ -98,6 +98,7 @@ class TestLagoSource:
         inputs = mock.MagicMock()
         inputs.schema_name = "invoices"
         inputs.team_id = 42
+        inputs.job_id = "job-1"
         manager = mock.MagicMock()
 
         self.source.source_for_pipeline(self.config, manager, inputs)
@@ -109,6 +110,7 @@ class TestLagoSource:
         assert kwargs["endpoint"] == "invoices"
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["team_id"] == 42
+        assert kwargs["job_id"] == "job-1"
 
     def test_canonical_descriptions_cover_core_tables(self):
         descriptions = self.source.get_canonical_descriptions()

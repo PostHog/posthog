@@ -45,7 +45,25 @@ const DIFF_EDITOR_OPTIONS: editor.IDiffEditorConstructionOptions = {
     scrollbar: { alwaysConsumeMouseWheel: false, vertical: 'auto', horizontal: 'auto' },
 }
 
-function DiffEditor({ diff, path }: { diff: ToolCallDiffContent; path?: string }): JSX.Element {
+// The permission card's variant: side-by-side when the container affords it, with Monaco's own
+// space-limited fallback collapsing back to the unified view in narrow embeds. Module-level for the
+// same `updateOptions` identity reason as above.
+const SIDE_BY_SIDE_DIFF_EDITOR_OPTIONS: editor.IDiffEditorConstructionOptions = {
+    ...DIFF_EDITOR_OPTIONS,
+    renderSideBySide: true,
+    useInlineViewWhenSpaceIsLimited: true,
+    renderSideBySideInlineBreakpoint: 560,
+}
+
+export function DiffEditor({
+    diff,
+    path,
+    sideBySide,
+}: {
+    diff: ToolCallDiffContent
+    path?: string
+    sideBySide?: boolean
+}): JSX.Element {
     // Lazy-mount: only instantiate the Monaco diff editor once the card scrolls near the viewport.
     const { ref, inView } = useInView({ rootMargin: '500px', triggerOnce: true })
     // Match the surrounding app theme — without this Monaco falls back to its default `vs` (white) theme.
@@ -60,7 +78,7 @@ function DiffEditor({ diff, path }: { diff: ToolCallDiffContent; path?: string }
                     modified={diff.newText ?? ''}
                     language={languageFromPath(path)}
                     theme={isDarkModeOn ? 'vs-dark' : 'vs'}
-                    options={DIFF_EDITOR_OPTIONS}
+                    options={sideBySide ? SIDE_BY_SIDE_DIFF_EDITOR_OPTIONS : DIFF_EDITOR_OPTIONS}
                     loading={<EditorSkeleton />}
                 />
             ) : (
@@ -71,7 +89,7 @@ function DiffEditor({ diff, path }: { diff: ToolCallDiffContent; path?: string }
 }
 
 /** +added / -removed mono stat chip for a diff. */
-function DiffStats({ added, removed }: { added: number; removed: number }): JSX.Element {
+export function DiffStats({ added, removed }: { added: number; removed: number }): JSX.Element {
     return (
         <span className="font-mono text-xs shrink-0">
             <span className="text-success">+{added}</span> <span className="text-danger">-{removed}</span>
