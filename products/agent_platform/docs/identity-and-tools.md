@@ -295,4 +295,5 @@ flowchart LR
   Separately, the **Django authoring REST API** is generated into MCP tools
   (`agent-applications-*`) so an authoring client can create/edit/promote
   agents, plus `agent-applications-invoke` / `agent-applications-send` /
-  `agent-applications-listen` to talk to a live agent (see [local-dev.md](local-dev.md)).
+  `agent-applications-cancel` / `agent-applications-listen` to talk to a live
+  agent (see [local-dev.md](local-dev.md)).
