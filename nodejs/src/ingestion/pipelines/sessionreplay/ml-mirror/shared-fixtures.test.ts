@@ -272,13 +272,7 @@ describeAddon('native image collection', () => {
 
     it('replaces the image with a consumer-parseable ref and returns the original bytes', async () => {
         rustAddon!.initAnonymizer({ text: [], url: [] })
-        const result = await rustAddon!.anonymizeKafkaPayload(
-            imagePayload(),
-            undefined,
-            undefined,
-            PSEUDO_TEAM,
-            CONTENT_KEY
-        )
+        const result = await rustAddon!.anonymizeKafkaPayload(imagePayload(), undefined, PSEUDO_TEAM, CONTENT_KEY)
         expect(result.failed).toBe(false)
 
         const png = Buffer.from(PNG_B64, 'base64')
