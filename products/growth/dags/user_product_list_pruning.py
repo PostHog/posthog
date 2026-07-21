@@ -468,7 +468,10 @@ def prune_unused_user_products(
                 rows_deleted += len(team_ids_to_delete)
                 if not config.dry_run:
                     for delete_batch in _in_batches(team_ids_to_delete):
-                        UserProductList.objects.filter(id__in=delete_batch).delete()
+                        # Re-check enabled at delete time: a row a user disables
+                        # between the read above and here records an intentional
+                        # choice we must not delete.
+                        UserProductList.objects.filter(id__in=delete_batch, enabled=True).delete()
 
             if (team_index + 1) % TEAMS_PER_CONNECTION_CYCLE == 0:
                 context.log.info(
