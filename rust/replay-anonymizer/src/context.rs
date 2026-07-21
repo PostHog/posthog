@@ -18,24 +18,9 @@ use crate::blur::{blur_image_data_uri, pixelate_raw_rgba};
 /// fields can't decompress gigabytes serially. Real messages total under 10 MB.
 const CV_MESSAGE_DECOMPRESSION_BUDGET: usize = 256 * 1024 * 1024;
 
-/// Scrub context: the allow lists, the first-party host patterns, the cv decompression budget,
-/// and the blur memo.
-///
-/// # Production configuration
-///
-/// Ingestion builds one `Ctx` per Kafka message via [`Ctx::with_first_party_hosts`], passing the
-/// registrable domains derived from the team's recording domains (computed TS-side by
-/// `firstPartyHostPatterns` in `ml-mirror/first-party-hosts.ts`: hostname extracted, `*.`
-/// wildcards stripped, reduced to the registrable domain, lowercased). The URL scrub collapses
-/// matching hosts and their subdomains to `example.com`. [`Ctx::new`] — no first-party hosts —
-/// matches production only for teams with no recording domains configured; an offline consumer
-/// that wants production-equivalent URL scrubbing for a team must pass the same registrable
-/// domains.
+/// Scrub context: the allow lists, the cv decompression budget, and the blur memo.
 pub struct Ctx<'a> {
     pub allow: &'a AllowLists,
-    /// Registrable-domain patterns (computed TS-side from the team's recording domains);
-    /// matching hosts and their subdomains collapse to example.com in the URL scrub.
-    pub first_party_hosts: Vec<String>,
     pub cv_budget: Cell<usize>,
     // key: the original data URI (data-image blur), or `raw:{w}x{h}:{base64}` (raw RGBA pixelate).
     // value: the blurred result, or `None` when blurring failed (caller falls back to a blank pixel).
@@ -44,13 +29,8 @@ pub struct Ctx<'a> {
 
 impl<'a> Ctx<'a> {
     pub fn new(allow: &'a AllowLists) -> Self {
-        Self::with_first_party_hosts(allow, Vec::new())
-    }
-
-    pub fn with_first_party_hosts(allow: &'a AllowLists, first_party_hosts: Vec<String>) -> Self {
         Self {
             allow,
-            first_party_hosts,
             cv_budget: Cell::new(CV_MESSAGE_DECOMPRESSION_BUDGET),
             blur_cache: RefCell::new(HashMap::new()),
         }
