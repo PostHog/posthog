@@ -36,13 +36,13 @@ DJANGO_FREE_MODULES = [
     "posthog.hogql.transforms.property_types",
     "posthog.hogql.transforms.lazy_tables",
     "posthog.hogql.transforms.in_cohort",
-    # The printer package init imports every dialect printer plus utils, so this one import guards
-    # the whole printer layer. It must come before clickhouse_property_resolution: that module
-    # imports printer.base/printer.clickhouse (triggering the package init), while printer/utils
-    # imports clickhouse_property_resolution back — a pre-existing cycle that only resolves when
-    # the printer package initializes first.
-    "posthog.hogql.printer",
+    # clickhouse_property_resolution before printer, deliberately in the cold-start order that used
+    # to deadlock: cpr pulls in printer.base/printer.clickhouse (triggering the package init), and
+    # printer/utils defers its cpr import to the call site precisely so this standalone import works.
+    # The printer package init imports every dialect printer plus utils, so that one import then
+    # guards the whole printer layer.
     "posthog.hogql.transforms.clickhouse_property_resolution",
+    "posthog.hogql.printer",
 ]
 
 _CHILD = f"""

@@ -29,7 +29,6 @@ from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.printer.redshift import RedshiftPrinter
 from posthog.hogql.printer.snowflake import SnowflakePrinter
 from posthog.hogql.resolver import ResolverFactory, resolve_types
-from posthog.hogql.transforms.clickhouse_property_resolution import clickhouse_property_resolution
 from posthog.hogql.transforms.events_predicate_pushdown import apply_events_predicate_pushdown, events_pushdown_enabled
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.json_property_pushdown import (
@@ -299,6 +298,13 @@ def prepare_ast_for_printing(
                 node = apply_events_predicate_pushdown(node, context)
 
         with context.timings.measure("clickhouse_property_resolution"):
+            # Deferred to break the module-level cycle cpr → printer.base → printer package init →
+            # utils → cpr, so clickhouse_property_resolution imports standalone in a bare
+            # interpreter (guarded by test_no_django_imports).
+            from posthog.hogql.transforms.clickhouse_property_resolution import (  # noqa: PLC0415
+                clickhouse_property_resolution,
+            )
+
             node = clickhouse_property_resolution(node, context)
 
         # We support global query settings, and local subquery settings.
