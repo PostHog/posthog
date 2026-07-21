@@ -259,13 +259,13 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
     def __str__(self) -> str:
         return f"{self.endpoint.name} v{self.version}"
 
-    def get_columns(self) -> list[dict]:
+    def get_columns(self, user: User | None = None) -> list[dict]:
         """Return columns, lazily populating from ClickHouse if not yet computed."""
         if self.columns is None:
             columns: list[dict] = []
             exc: Exception | None = None
             try:
-                columns = EndpointVersion.extract_columns(self.query, self.endpoint.team_id)
+                columns = EndpointVersion.extract_columns(self.query, self.endpoint.team_id, user=user)
             except Exception as e:
                 exc = e
             # Save before capture_exception (which can hang serializing large AST objects)
@@ -315,7 +315,7 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         return can_materialize_query(self.query)
 
     @staticmethod
-    def extract_columns(query: dict, team_id: int) -> list[dict]:
+    def extract_columns(query: dict, team_id: int, user: User | None = None) -> list[dict]:
         """Extract SELECT column names and types by describing the query against ClickHouse."""
         if query.get("kind") != "HogQLQuery":
             return []
@@ -330,7 +330,9 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         cleaned = _PLACEHOLDER_REPLACER.visit(parsed)
 
         team = Team.objects.get(pk=team_id)
-        executor = HogQLQueryExecutor(query=cleaned, team=team, limit_context=None)
+        # Resolve as the acting user so warehouse access control is enforced against them - a userless
+        # build fails closed and denies every warehouse table, breaking column inference for all users.
+        executor = HogQLQueryExecutor(query=cleaned, team=team, limit_context=None, user=user)
         clickhouse_sql, clickhouse_context = executor.generate_clickhouse_sql()
 
         if not clickhouse_sql:

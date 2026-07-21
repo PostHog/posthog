@@ -316,7 +316,7 @@ class EndpointViewSet(
             "last_executed_at": endpoint.last_executed_at.isoformat() if endpoint.last_executed_at else None,
             "materialization": build_materialization_info(version),
             "bucket_overrides": version.bucket_overrides,
-            "columns": version.get_columns() if version else [],
+            "columns": version.get_columns(user=self.request.user) if version else [],
             "tags": self._get_tag_names(endpoint),
             "optional_breakdown_properties": list(version.optional_breakdown_properties or []),
         }
@@ -669,7 +669,7 @@ class EndpointViewSet(
 
         try:
             result = suggest_materialization_fix(
-                team_id=self.team_id, query=version.query, original_columns=version.get_columns()
+                team_id=self.team_id, query=version.query, original_columns=version.get_columns(user=request.user)
             )
         except APIConnectionError as e:
             capture_exception(e, {"team_id": self.team_id})
