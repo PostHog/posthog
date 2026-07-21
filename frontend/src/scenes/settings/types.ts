@@ -57,6 +57,7 @@ export type SettingSectionId =
     | 'project-product-analytics'
     | 'project-replay'
     | 'project-surveys'
+    | 'project-web-analytics'
     | 'project-danger-zone'
     // Organization
     | 'organization-details'

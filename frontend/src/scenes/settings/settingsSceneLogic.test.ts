@@ -95,6 +95,37 @@ describe('settingsSceneLogic', () => {
         expect(router.values.hashParams).not.toHaveProperty('llm-analytics-byok')
     })
 
+    it('redirects the removed toolbar section to web analytics', async () => {
+        router.actions.push('/settings/project-toolbar')
+
+        await expectLogic(logic).toMatchValues({
+            selectedLevel: 'project',
+            selectedSectionId: 'project-web-analytics',
+        })
+        expect(router.values.location.pathname).toContain('/settings/project-web-analytics')
+
+        router.actions.push('/settings/environment-toolbar')
+
+        await expectLogic(logic).toMatchValues({
+            selectedLevel: 'project',
+            selectedSectionId: 'project-web-analytics',
+        })
+        expect(router.values.location.pathname).toContain('/settings/project-web-analytics')
+    })
+
+    it('rewrites the legacy toolbar authorized-urls deep link to the web analytics setting', async () => {
+        router.actions.push('/settings/project-toolbar', {}, { 'authorized-urls': null })
+
+        await expectLogic(logic).toMatchValues({
+            selectedLevel: 'project',
+            selectedSectionId: 'project-web-analytics',
+        })
+        expect(router.values.location.pathname).toContain('/settings/project-web-analytics')
+        expect(router.values.location.hash).toBe('#web-analytics-authorized-urls')
+        expect(router.values.hashParams).toHaveProperty('web-analytics-authorized-urls')
+        expect(router.values.hashParams).not.toHaveProperty('authorized-urls')
+    })
+
     it('redirects level-only URLs to first section', async () => {
         // Each push switches to a different level, so no section at the target level is
         // selected yet and the redirect to the first section runs.
