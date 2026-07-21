@@ -1,5 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import { IconCornerDownRight } from '@posthog/icons'
 
@@ -47,6 +47,9 @@ export type NotebookNodeSQLV2Attributes = {
 
 // Matches the SQL editor output pane's default so charts land at v1-node size.
 const VIZ_MIN_HEIGHT = 350
+// The default node height only fits a couple of table rows; grow to this once a result lands
+// so the output isn't clipped and the user doesn't have to resize by hand to read it.
+const RESULT_MIN_HEIGHT = 300
 
 // The dataframe name is referenced as a bare SQL table name and becomes a Python variable
 // when a python cell reads the frame, so it must be a plain identifier. Empty is fine —
@@ -58,7 +61,17 @@ const returnVariableValidationError = (returnVariable: string): string | null =>
     }
     const suggestion = returnVariable.replace(/[^A-Za-z0-9_]/g, '_').replace(/^(?=\d)/, '_')
     const hint = VALID_RETURN_VARIABLE.test(suggestion) ? ` Try ${suggestion}.` : ''
-    return `Use letters, numbers, and underscores. The name cannot start with a number.${hint}`
+    // Call out only the rule that was actually broken so a name like `people-df` isn't told it
+    // "can't start with a number" when the real problem is the hyphen.
+    const startsWithDigit = /^\d/.test(returnVariable)
+    const hasInvalidChars = /[^A-Za-z0-9_]/.test(returnVariable)
+    const reason =
+        startsWithDigit && hasInvalidChars
+            ? "Use letters, numbers, and underscores, and don't start with a number."
+            : startsWithDigit
+              ? "The name can't start with a number."
+              : 'Use letters, numbers, and underscores.'
+    return `${reason}${hint}`
 }
 
 const toDataframeResult = (result: NotebookNodeSQLV2Result): NotebookDataframeResult => {
@@ -150,6 +163,22 @@ const Component = ({
         }),
         [attributes.vizQuery, attributes.code]
     )
+
+    // Grow a still-default (too-short) node the first time a result lands so it's readable
+    // without a manual resize. Only grows below the target and only on a fresh result, so a
+    // deliberate resize (or a taller reload) is left untouched.
+    const hadResultRef = useRef(!!result)
+    useEffect(() => {
+        const hasResult = !!dataframeResult
+        if (hasResult && !hadResultRef.current) {
+            const target = activeTab === OutputTab.Visualization ? VIZ_MIN_HEIGHT : RESULT_MIN_HEIGHT
+            if (typeof attributes.height !== 'number' || attributes.height < target) {
+                updateAttributes({ height: target })
+            }
+        }
+        hadResultRef.current = hasResult
+        // oxlint-disable-next-line exhaustive-deps
+    }, [dataframeResult])
 
     if (!expanded) {
         return null
