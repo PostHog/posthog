@@ -2268,7 +2268,7 @@ export interface CredentialApi {
  * * `Fourthwall` - Fourthwall
  * * `Fred` - Fred
  * * `Frontegg` - Frontegg
- * * `Fusionauth` - Fusionauth
+ * * `FusionAuth` - FusionAuth
  * * `G2` - G2
  * * `Gcore` - Gcore
  * * `GcpApigee` - GcpApigee
@@ -2490,6 +2490,8 @@ export interface CredentialApi {
  * * `ZalandoZdirect` - ZalandoZdirect
  * * `Zluri` - Zluri
  * * `Zylo` - Zylo
+ * * `Tally` - Tally
+ * * `Nuntly` - Nuntly
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3515,7 +3517,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Fourthwall: 'Fourthwall',
     Fred: 'Fred',
     Frontegg: 'Frontegg',
-    Fusionauth: 'Fusionauth',
+    FusionAuth: 'FusionAuth',
     G2: 'G2',
     Gcore: 'Gcore',
     GcpApigee: 'GcpApigee',
@@ -3737,6 +3739,8 @@ export const ExternalDataSourceTypeEnumApi = {
     ZalandoZdirect: 'ZalandoZdirect',
     Zluri: 'Zluri',
     Zylo: 'Zylo',
+    Tally: 'Tally',
+    Nuntly: 'Nuntly',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
