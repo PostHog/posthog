@@ -114,4 +114,10 @@ def signup_email_for_organization(organization: Organization) -> str | None:
 
 def latest_fetches_qs() -> QuerySet[OrganizationEnrichmentFetch]:
     """One row per org: its most recent archived fetch."""
-    return OrganizationEnrichmentFetch.objects.order_by("organization_id", "-fetched_at").distinct("organization_id")
+    return OrganizationEnrichmentFetch.objects.order_by("organization_id", "-fetched_at", "-id").distinct(
+        "organization_id"
+    )
+
+
+def get_active_config(label: str) -> EnrichmentPromptConfig | None:
+    return EnrichmentPromptConfig.objects.filter(name=label, is_active=True).first()

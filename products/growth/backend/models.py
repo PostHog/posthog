@@ -3,7 +3,7 @@ import hashlib
 from typing import Any
 
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
 from django.db.models import Q
 
 from posthog.models.utils import UpdatedMetaFields, UUIDModel
@@ -154,6 +154,9 @@ class EnrichmentPromptConfig(UUIDModel):
     creating new rows through Django admin, without a deploy. A version is immutable once any
     EnrichmentLabelResult references it — an in-place edit would silently invalidate every stored
     result stamped with that version, and the idempotent batch runner would never recompute.
+
+    The guard lives in save()/delete(), so queryset update()/bulk_update()/raw SQL bypass it —
+    always mutate configs through instances (admin does).
     """
 
     # Everything that changes the classifier's behavior. An edit to any of these is a new
@@ -197,7 +200,12 @@ class EnrichmentPromptConfig(UUIDModel):
         """Hash of the behavior-defining fields, stamped onto every result so results stay
         self-describing even if this row is later deleted."""
         content = json.dumps(
-            {"prompt_text": self.prompt_text, "model": self.model, "input_fields": self.input_fields},
+            {
+                "prompt_text": self.prompt_text,
+                "model": self.model,
+                "temperature": self.temperature,
+                "input_fields": self.input_fields,
+            },
             sort_keys=True,
         )
         return hashlib.sha256(content.encode()).hexdigest()
@@ -206,8 +214,14 @@ class EnrichmentPromptConfig(UUIDModel):
         return EnrichmentLabelResult.objects.filter(label_name=name, prompt_version=version).exists()
 
     def save(self, *args: Any, **kwargs: Any) -> None:
-        if self.pk:
-            persisted = EnrichmentPromptConfig.objects.filter(pk=self.pk).first()
+        if not self.pk:
+            super().save(*args, **kwargs)
+            return
+        # Row lock so two concurrent edits can't both pass the frozen-field check. A result
+        # inserted between the check and the save can still slip through; edits are admin-driven
+        # and the batch runner re-reads its config per run, so that residual window is accepted.
+        with transaction.atomic():
+            persisted = EnrichmentPromptConfig.objects.select_for_update().filter(pk=self.pk).first()
             if persisted is not None and self._has_results(persisted.name, persisted.version):
                 changed = [f for f in self.FROZEN_FIELDS if getattr(self, f) != getattr(persisted, f)]
                 if changed:
@@ -215,7 +229,7 @@ class EnrichmentPromptConfig(UUIDModel):
                         f"Config {persisted.name} {persisted.version} has stored results; "
                         f"{', '.join(changed)} cannot change. Create a new row with a new version instead."
                     )
-        super().save(*args, **kwargs)
+            super().save(*args, **kwargs)
 
     def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
         if self.pk and self._has_results(self.name, self.version):

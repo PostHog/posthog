@@ -123,6 +123,24 @@ class TestEnrichmentLabelBatch(BaseTest):
         ).order_by("created_at")
         assert [row.fetch_id for row in rows] == [first_fetch.id, second_fetch.id]
 
+    def test_llm_failure_is_captured_and_counted_without_persisting(self):
+        self._config()
+        self._fetch()
+        client = MagicMock()
+        response = MagicMock()
+        response.choices[0].message.content = "not json at all"
+        client.chat.completions.create.return_value = response
+
+        with (
+            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.capture_exception") as capture_mock,
+            patch("tenacity.nap.time.sleep"),
+        ):
+            call_command("enrichment_label_batch", label="test_label", workers=1)
+
+        capture_mock.assert_called_once()
+        assert EnrichmentLabelResult.objects.count() == 0
+
     def test_version_bump_recomputes_and_keeps_old_version_rows_intact(self):
         v1 = self._config(version="ai-pilled-clay-v1")
         self._fetch()
@@ -170,8 +188,11 @@ class TestEnrichmentPromptConfigImmutability(BaseTest):
 
     @parameterized.expand(
         [
+            ("name", "another_label"),
+            ("version", "test-v2"),
             ("prompt_text", "a completely different prompt"),
             ("model", "gpt-5-nano"),
+            ("temperature", 0.5),
             ("input_fields", ["name", "description"]),
         ]
     )

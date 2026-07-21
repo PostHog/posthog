@@ -42,6 +42,8 @@ def seed_config(apps, schema_editor):
 
 def unseed_config(apps, schema_editor):
     EnrichmentPromptConfig = apps.get_model("growth", "EnrichmentPromptConfig")
+    # Historical models carry no custom delete(); reversing skips the has-results guard,
+    # which is fine — results stay self-describing via their stored prompt_hash.
     EnrichmentPromptConfig.objects.filter(name="ai_pilled", version="ai-pilled-clay-v1").delete()
 
 

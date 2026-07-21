@@ -14,10 +14,11 @@ from posthog.llm.gateway_client import get_llm_client
 from products.growth.backend.enrichment.labels import (
     UNKNOWN,
     classify_payload,
+    get_active_config,
     latest_fetches_qs,
     signup_email_for_organization,
 )
-from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichmentFetch
+from products.growth.backend.models import EnrichmentLabelResult, OrganizationEnrichmentFetch
 
 _COMPANY_WIDTH = 30
 _EMAIL_WIDTH = 28
@@ -49,7 +50,7 @@ class Command(BaseCommand):
         prompt_file: str | None = options["prompt_file"]
         compare_version: str | None = options["compare_version"]
 
-        config = EnrichmentPromptConfig.objects.filter(name=label, is_active=True).first()
+        config = get_active_config(label)
         if config is None:
             raise CommandError(f"No active EnrichmentPromptConfig for label {label!r}")
 

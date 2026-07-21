@@ -22,10 +22,11 @@ from posthog.llm.gateway_client import get_llm_client
 from products.growth.backend.enrichment.labels import (
     UNKNOWN,
     classify_payload,
+    get_active_config,
     latest_fetches_qs,
     signup_email_for_organization,
 )
-from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichmentFetch
+from products.growth.backend.models import EnrichmentLabelResult, OrganizationEnrichmentFetch
 
 logger = structlog.get_logger(__name__)
 
@@ -43,40 +44,39 @@ class Command(BaseCommand):
         limit: int | None = options["limit"]
         workers: int = options["workers"]
 
-        config = EnrichmentPromptConfig.objects.filter(name=label, is_active=True).first()
+        config = get_active_config(label)
         if config is None:
             raise CommandError(f"No active EnrichmentPromptConfig for label {label!r}")
 
         client = get_llm_client(product="growth")
-        semaphore = threading.Semaphore(workers)
 
         counts: dict[str, int] = {"attempted": 0, "succeeded": 0, "skipped_existing": 0, "unknown": 0, "failures": 0}
         counts_lock = threading.Lock()
 
+        # In-flight LLM concurrency is bounded by the pool size itself; no extra gate needed.
         def _process(fetch: OrganizationEnrichmentFetch) -> None:
-            with semaphore:
-                try:
-                    email = signup_email_for_organization(fetch.organization)
-                    output = classify_payload(config, fetch.payload, email, client)
-                    EnrichmentLabelResult.objects.get_or_create(
-                        organization_id=fetch.organization_id,
-                        fetch=fetch,
-                        label_name=label,
-                        prompt_version=config.version,
-                        defaults={"prompt_hash": config.content_hash, "model": config.model, "output": output},
-                    )
-                except Exception as e:
-                    capture_exception(
-                        e,
-                        {
-                            "organization_id": str(fetch.organization_id),
-                            "label": label,
-                            "prompt_version": config.version,
-                        },
-                    )
-                    with counts_lock:
-                        counts["failures"] += 1
-                    return
+            try:
+                email = signup_email_for_organization(fetch.organization)
+                output = classify_payload(config, fetch.payload, email, client)
+                EnrichmentLabelResult.objects.get_or_create(
+                    organization_id=fetch.organization_id,
+                    fetch=fetch,
+                    label_name=label,
+                    prompt_version=config.version,
+                    defaults={"prompt_hash": config.content_hash, "model": config.model, "output": output},
+                )
+            except Exception as e:
+                capture_exception(
+                    e,
+                    {
+                        "organization_id": str(fetch.organization_id),
+                        "label": label,
+                        "prompt_version": config.version,
+                    },
+                )
+                with counts_lock:
+                    counts["failures"] += 1
+                return
             with counts_lock:
                 counts["succeeded"] += 1
                 if output.get("ai_pilled") == UNKNOWN:
