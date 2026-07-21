@@ -668,9 +668,18 @@ class AccessControlViewSetMixin(_GenericViewSet):
                 is_org_admin=is_org_admin,
             )
 
-            # When the org restricts member list visibility, project members only see users with access to this project
-            if hide_non_project_members and project_result.effective_access_level in (None, "none"):
-                continue
+            # When the org restricts member list visibility, project members only see users with
+            # project-scoped access (explicit grant, role, or default) — org admins aren't implied in
+            if hide_non_project_members:
+                project_scoped_result = get_effective_access_level_for_member(
+                    resource="project",
+                    default_level=project_default_level,
+                    role_levels=project_role_levels,
+                    member_level=project_member_level,
+                    is_org_admin=False,
+                )
+                if project_scoped_result.effective_access_level in (None, "none"):
+                    continue
 
             resource_entries: dict[str, dict] = {}
             for resource in ACCESS_CONTROL_RESOURCES:

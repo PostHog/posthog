@@ -286,6 +286,57 @@ def get_effective_access_level_for_member(
     )
 
 
+def get_project_scoped_visible_membership_ids(requesting_membership: OrganizationMembership) -> set[str]:
+    """Membership ids a restricted (non-org-admin) member may see: their own, plus members with
+    project-scoped access (explicit grant, role, or project default — no org-admin bypass) to any
+    project the requester has access to."""
+    organization = requesting_membership.organization
+    team_ids = list(organization.teams.values_list("id", flat=True))
+    role_based_access = organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS)
+
+    default_by_team: dict[int, AccessControlLevel] = {}
+    member_overrides: dict[tuple[int, str], AccessControlLevel] = {}
+    role_overrides: dict[tuple[int, str], AccessControlLevel] = {}
+    for ac in AccessControl.objects.filter(team_id__in=team_ids, resource="project"):
+        if ac.organization_member_id is None and ac.role_id is None:
+            default_by_team[ac.team_id] = ac.access_level
+        elif ac.organization_member_id:
+            member_overrides[(ac.team_id, str(ac.organization_member_id))] = ac.access_level
+        elif ac.role_id and role_based_access:
+            role_overrides[(ac.team_id, str(ac.role_id))] = ac.access_level
+
+    memberships = OrganizationMembership.objects.filter(organization=organization).prefetch_related("role_memberships")
+    role_ids_by_membership: dict[str, list[str]] = {
+        str(m.id): [str(rm.role_id) for rm in m.role_memberships.all()] for m in memberships
+    }
+
+    def has_scoped_access(team_id: int, membership_id: str) -> bool:
+        result = get_effective_access_level_for_member(
+            resource="project",
+            default_level=default_by_team.get(team_id, default_access_level("project")),
+            role_levels=[
+                role_overrides[(team_id, rid)]
+                for rid in role_ids_by_membership.get(membership_id, [])
+                if (team_id, rid) in role_overrides
+            ],
+            member_level=member_overrides.get((team_id, membership_id)),
+            is_org_admin=False,
+        )
+        return result.effective_access_level not in (None, "none")
+
+    requester_id = str(requesting_membership.id)
+    accessible_team_ids = [team_id for team_id in team_ids if has_scoped_access(team_id, requester_id)]
+
+    visible = {requester_id}
+    for membership in memberships:
+        mid = str(membership.id)
+        if mid in visible:
+            continue
+        if any(has_scoped_access(team_id, mid) for team_id in accessible_team_ids):
+            visible.add(mid)
+    return visible
+
+
 def model_to_resource(model: Model) -> Optional[APIScopeObject]:
     """
     Given a model, return the resource type it represents

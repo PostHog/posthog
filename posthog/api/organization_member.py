@@ -1,6 +1,6 @@
 from typing import Any, cast
 
-from django.db.models import F, Model, Prefetch, Q, QuerySet
+from django.db.models import F, Model, Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
 
 from django_otp.plugins.otp_totp.models import TOTPDevice
@@ -38,6 +38,7 @@ from posthog.models import OrganizationMembership
 from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import TimeSensitiveActionPermission, extract_organization
+from posthog.rbac.user_access_control import get_project_scoped_visible_membership_ids
 from posthog.utils import posthoganalytics
 
 tracer = trace.get_tracer(__name__)
@@ -227,11 +228,11 @@ class OrganizationMemberViewSet(
             requesting_membership = OrganizationMembership.objects.filter(
                 organization=organization, user_id=cast(User, self.request.user).id
             ).first()
-            if requesting_membership is None or requesting_membership.level < OrganizationMembership.Level.ADMIN:
-                # Restricted members still see admins/owners — the people they'd ask for access
-                queryset = queryset.filter(
-                    Q(user_id=cast(User, self.request.user).id) | Q(level__gte=OrganizationMembership.Level.ADMIN)
-                )
+            if requesting_membership is None:
+                queryset = queryset.filter(user_id=cast(User, self.request.user).id)
+            elif requesting_membership.level < OrganizationMembership.Level.ADMIN:
+                # Restricted members only see themselves and members of their projects
+                queryset = queryset.filter(id__in=get_project_scoped_visible_membership_ids(requesting_membership))
 
         if self.action == "list":
             params = self.request.GET.dict()

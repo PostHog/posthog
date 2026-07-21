@@ -44,17 +44,34 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
 
     #     assert len(response.json()["results"]) == 2
 
-    def test_members_only_see_themselves_and_admins_when_org_restricts_member_list_visibility(self):
-        other_member = User.objects.create_and_join(self.organization, "1@posthog.com", None)
+    def test_members_only_see_project_mates_when_org_restricts_member_list_visibility(self):
+        from ee.models.rbac.access_control import AccessControl
+
+        project_mate = User.objects.create_and_join(self.organization, "mate@posthog.com", None)
+        outsider = User.objects.create_and_join(self.organization, "outsider@posthog.com", None)
         admin = User.objects.create_and_join(
             self.organization, "admin@posthog.com", None, level=OrganizationMembership.Level.ADMIN
+        )
+        # Private project: default "none" with explicit grants for the requester and one project mate
+        AccessControl.objects.create(team=self.team, resource="project", access_level="none")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            organization_member=self.organization_membership,
+            access_level="member",
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            organization_member=project_mate.organization_memberships.get(organization=self.organization),
+            access_level="member",
         )
         self.organization.members_can_see_org_members = False
         self.organization.save()
 
-        # Plain members see themselves and admins, but not other members
+        # Restricted members see themselves and their project mates — not org admins or other members
         response = self.client.get("/api/organizations/@current/members/")
-        assert {m["user"]["email"] for m in response.json()["results"]} == {self.user.email, admin.email}
+        assert {m["user"]["email"] for m in response.json()["results"]} == {self.user.email, project_mate.email}
 
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
@@ -62,7 +79,8 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         response = self.client.get("/api/organizations/@current/members/")
         assert {m["user"]["email"] for m in response.json()["results"]} == {
             self.user.email,
-            other_member.email,
+            project_mate.email,
+            outsider.email,
             admin.email,
         }
 
