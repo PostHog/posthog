@@ -178,7 +178,6 @@ export interface supportTicketSceneLogicValues {
     chatMessages: ChatMessage[]
     chatPanelWidth: (desiredSize: number | null) => number
     draftContent: JSONContent | null
-    pendingComposerInsert: JSONContent | null
     draftIsPrivate: boolean
     draftModeEnabled: boolean
     emailReplyBlockedReason: EmailReplyBlockedReason | null
@@ -195,6 +194,7 @@ export interface supportTicketSceneLogicValues {
     messages: CommentType[]
     messagesLoading: boolean
     olderMessagesLoading: boolean
+    pendingComposerInsert: JSONContent | null
     person: PersonType | null
     personLoading: boolean
     previousTickets: Ticket[]
@@ -215,11 +215,17 @@ export interface supportTicketSceneLogicActions {
     loadTickets: () => {
         value: true
     } // supportTicketsSceneLogic
+    composerInsertConsumed: () => {
+        value: true
+    }
     dismissKnowledgeGap: (suggestionId: string) => {
         suggestionId: string
     }
     incrementUnreadCustomerCount: () => {
         value: true
+    }
+    insertIntoComposer: (content: JSONContent) => {
+        content: JSONContent
     }
     loadKnowledgeGaps: () => {
         value: true
@@ -318,12 +324,6 @@ export interface supportTicketSceneLogicActions {
     }
     setDraftContent: (content: JSONContent | null) => {
         content: JSONContent | null
-    }
-    insertIntoComposer: (content: JSONContent) => {
-        content: JSONContent
-    }
-    composerInsertConsumed: () => {
-        value: true
     }
     setDraftIsPrivate: (isPrivate: boolean) => {
         isPrivate: boolean
