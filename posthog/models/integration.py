@@ -1867,7 +1867,9 @@ class GoogleAdsIntegration:
 
             return accounts
 
-        for account in accessible_accounts["resourceNames"]:
+        # A Google login with no accessible Ads accounts gets a 200 with an empty body, so
+        # `resourceNames` is absent (proto3 omits empty repeated fields) rather than an empty list.
+        for account in accessible_accounts.get("resourceNames", []):
             all_accounts = dfs(account.split("/")[1], all_accounts, account.split("/")[1])
 
         return all_accounts

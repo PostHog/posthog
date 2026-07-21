@@ -3091,6 +3091,19 @@ class TestGoogleAdsIntegrationModel(BaseTest):
         assert client["level"] == "1"
         assert client["parent_id"] == "6501924158"
 
+    @override_settings(GOOGLE_ADS_DEVELOPER_TOKEN="dev_token")
+    @patch("posthog.models.integration.requests.request")
+    def test_accessible_accounts_empty_when_login_has_no_accessible_customers(self, mock_request):
+        # A Google login with no accessible Ads accounts gets a 200 with an empty body, so `resourceNames`
+        # is absent rather than an empty list — this must yield no accounts, not raise KeyError.
+        accessible = MagicMock(status_code=200)
+        accessible.json.return_value = {}
+        mock_request.return_value = accessible
+
+        accounts = GoogleAdsIntegration(self._integration()).list_google_ads_accessible_accounts()
+
+        assert accounts == []
+
 
 class TestPinterestAdsIntegrationDisplayName(BaseTest):
     @parameterized.expand(
