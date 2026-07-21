@@ -390,14 +390,22 @@ export function createExecTool(
                     const governedMetrics: GovernedMetricMatch[] = options.searchGovernedMetrics
                         ? await options.searchGovernedMetrics(rest).catch((): GovernedMetricMatch[] => [])
                         : []
-                    const metricSection =
-                        governedMetrics.length > 0
-                            ? { governed_metrics: governedMetrics, governed_metrics_hint: GOVERNED_METRICS_HINT }
-                            : {}
+                    // Single assembly point: every object-shaped return goes through this,
+                    // so a future branch can't silently drop the metrics section.
+                    const withMetrics = (payload: Record<string, unknown>): string =>
+                        JSON.stringify(
+                            governedMetrics.length > 0
+                                ? {
+                                      ...payload,
+                                      governed_metrics: governedMetrics,
+                                      governed_metrics_hint: GOVERNED_METRICS_HINT,
+                                  }
+                                : payload
+                        )
 
                     if (gatedMatches.length > 0) {
                         const requiredScopes = [...new Set(gatedMatches.flatMap((t) => t.missingScopes))].sort()
-                        return JSON.stringify({
+                        return withMetrics({
                             matches,
                             scope_gated_matches: gatedMatches.map((t) => ({
                                 name: t.name,
@@ -406,7 +414,6 @@ export function createExecTool(
                             hint:
                                 `These tools also match but are hidden because the API key is missing the ` +
                                 `required scope(s): ${requiredScopes.join(', ')}. The user needs to re-authenticate the MCP or connector, if the harness supports OAuth, or add the scopes to the personal API key to use these tools.`,
-                            ...metricSection,
                         })
                     }
                     if (matches.length === 0) {
@@ -414,22 +421,20 @@ export function createExecTool(
                             options.searchGovernedMetrics && governedMetrics.length === 0
                                 ? EMPTY_SEARCH_CATALOG_POINTER
                                 : ''
-                        return JSON.stringify({
+                        return withMetrics({
                             matches: [],
                             hint: `No tools matched "${rest}". Run "tools" to see all available tool names.${catalogPointer}`,
-                            ...metricSection,
                         })
                     }
                     if (truncatedFrom > 0) {
-                        return JSON.stringify({
+                        return withMetrics({
                             matches,
                             truncated: true,
                             hint: `Showing the top ${MAX_RANKED_SEARCH_RESULTS} of ${truncatedFrom} matches, ranked by relevance. Use a more specific query to narrow the results.`,
-                            ...metricSection,
                         })
                     }
                     if (governedMetrics.length > 0) {
-                        return JSON.stringify({ matches, ...metricSection })
+                        return withMetrics({ matches })
                     }
                     return JSON.stringify(matches)
                 }

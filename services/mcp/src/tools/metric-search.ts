@@ -1,6 +1,6 @@
 import type { ApiClient } from '@/api/client'
 import type { Schemas } from '@/api/generated'
-import { PostHogApiError } from '@/lib/errors'
+import { ErrorCode, PostHogApiError, PostHogPermissionError } from '@/lib/errors'
 import type { StateManager } from '@/lib/StateManager'
 
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
@@ -117,7 +117,9 @@ async function fetchMetrics(deps: MetricSearchDeps, signal: AbortSignal): Promis
 
 // The race supplies the typed timeout error the moment the bound elapses;
 // `onTimeout` aborts the outbound request so a hung endpoint doesn't keep
-// paying network cost after the result was already discarded.
+// paying network cost after the result was already discarded. The race (not
+// just the signal) is load-bearing: the client's rate-limit retry sleeps do
+// not observe abort signals, so a signal alone would not bound the wait.
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, onTimeout: () => void): Promise<T> {
     return new Promise<T>((resolve, reject) => {
         const timer = setTimeout(() => {
@@ -131,12 +133,22 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, onTimeout: () =>
     })
 }
 
+// The client does not raise every failure as PostHogApiError: 401 surfaces as a
+// plain Error carrying ErrorCode.INVALID_API_KEY and 403 permission_denied as
+// PostHogPermissionError (extends Error) — the two credential failures this
+// telemetry most needs to distinguish from an empty catalog.
 function classifyFailure(error: unknown): string {
     if (error instanceof MetricFetchTimeoutError) {
         return 'timeout'
     }
     if (error instanceof PostHogApiError) {
         return `http_${error.status}`
+    }
+    if (error instanceof PostHogPermissionError) {
+        return 'permission_denied'
+    }
+    if (error instanceof Error && error.message === ErrorCode.INVALID_API_KEY) {
+        return 'invalid_api_key'
     }
     return error instanceof Error ? error.name : 'unknown'
 }

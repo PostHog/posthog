@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { Schemas } from '@/api/generated'
+import { ErrorCode, PostHogApiError, PostHogPermissionError } from '@/lib/errors'
 import {
     createGovernedMetricsSearcher,
     MAX_METRIC_SEARCH_RESULTS,
@@ -96,18 +97,44 @@ describe('metric-search', () => {
     })
 
     it.each([
-        ['http error', () => Promise.reject(Object.assign(new Error('forbidden'), { status: 403 }))],
-        ['network error', () => Promise.reject(new TypeError('fetch failed'))],
-        ['invalid regex query', async () => envelope([metric({ name: 'mrr_total', description: 'MRR' })])],
-    ])('resolves to an empty array on %s', async (_label, request) => {
+        [
+            'http error',
+            'revenue',
+            (): Promise<never> =>
+                Promise.reject(
+                    new PostHogApiError({ status: 500, statusText: 'Server Error', body: '', url: 'u', method: 'GET' })
+                ),
+            'http_500',
+        ],
+        [
+            'missing data_catalog scope',
+            'revenue',
+            (): Promise<never> =>
+                Promise.reject(new PostHogPermissionError({ detail: 'permission denied', url: 'u', method: 'GET' })),
+            'permission_denied',
+        ],
+        [
+            'invalid API key',
+            'revenue',
+            (): Promise<never> => Promise.reject(new Error(ErrorCode.INVALID_API_KEY)),
+            'invalid_api_key',
+        ],
+        ['network error', 'revenue', (): Promise<never> => Promise.reject(new TypeError('fetch failed')), 'TypeError'],
+        [
+            'invalid regex query',
+            '(unclosed',
+            async (): Promise<unknown> => envelope([metric({ name: 'mrr_total', description: 'MRR' })]),
+            'SyntaxError',
+        ],
+    ])('resolves to an empty array on %s', async (_label, query, request, expectedFailureClass) => {
         const outcomes: MetricSearchOutcome[] = []
         const searcher = createGovernedMetricsSearcher(makeDeps(request as () => Promise<unknown>), {
             onOutcome: (outcome) => outcomes.push(outcome),
         })
 
-        const query = _label === 'invalid regex query' ? '(unclosed' : 'revenue'
         await expect(searcher(query)).resolves.toEqual([])
-        expect(outcomes[0]?.status).not.toBe('ok')
+        expect(outcomes[0]?.status).toBe('error')
+        expect(outcomes[0]?.failureClass).toBe(expectedFailureClass)
     })
 
     it('resolves empty within the bound and aborts the outbound request when it never settles', async () => {
