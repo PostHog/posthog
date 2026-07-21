@@ -134,7 +134,8 @@ Make sure to grant the following read permissions:
                 return (
                     "Maps which profiles belong to which list as {list_id, profile_id, joined_group_at} rows. "
                     "Incremental syncs pick up new joins and re-joins; profiles removed from a list are only "
-                    "reflected on a full refresh"
+                    "reflected on a full refresh. List membership is not the same as email subscription: check "
+                    "the $consent array in the profiles table's properties column to see who is subscribed"
                 )
             return None
 

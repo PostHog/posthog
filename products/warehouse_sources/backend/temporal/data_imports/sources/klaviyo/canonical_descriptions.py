@@ -99,19 +99,33 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "organization": "The organization the profile is associated with.",
             "title": "The profile's job title.",
             "location": "The profile's location details.",
-            "properties": "Custom properties set on the profile.",
+            "properties": (
+                "Custom properties set on the profile. Email subscription status lives here in the `$consent` "
+                "array, not in list membership: a profile can belong to a list without being subscribed. Use "
+                "`$consent` to tell who is subscribed. Do not rely on `$consent_timestamp`, which is not always "
+                "cleared when a profile unsubscribes."
+            ),
             "created": "Time at which the profile was created.",
             "updated": "Time at which the profile was last updated.",
             "last_event_date": "Time of the profile's most recent event.",
         },
     },
     "list_profiles": {
-        "description": "A flat join table mapping which profiles belong to which Klaviyo list. Rows for profiles removed from a list are only pruned by a full refresh.",
+        "description": (
+            "A flat join table mapping which profiles belong to which Klaviyo list. Rows for profiles removed "
+            "from a list are only pruned by a full refresh. List membership is not the same as email "
+            "subscription: a profile can be on a list without being subscribed. To tell who is actually "
+            "subscribed, check the `$consent` array in the profile's `properties` (in the `profiles` table)."
+        ),
         "docs_url": "https://developers.klaviyo.com/en/reference/get_profiles_for_list",
         "columns": {
             "list_id": "Identifier of the list.",
             "profile_id": "Identifier of a profile that is a member of the list.",
-            "joined_group_at": "The datetime when the profile most recently joined the list. Updated if the profile re-joins.",
+            "joined_group_at": (
+                "The datetime when the profile most recently joined the list. Updated if the profile re-joins. "
+                "Joining a list does not mean the profile is subscribed to email: check the `$consent` array in "
+                "the `profiles` table for subscription status."
+            ),
         },
     },
 }
