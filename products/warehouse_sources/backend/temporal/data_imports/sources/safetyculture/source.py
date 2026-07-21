@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SafetyCultureSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.safetyculture import (
+    SafetyCultureSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.safetyculture.safetyculture import (
     SafetyCultureResumeConfig,
     check_access,

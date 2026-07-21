@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OpinionStageSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.opinionstage import (
+    OpinionStageSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.opinion_stage.opinion_stage import (
     OpinionStageResumeConfig,
     opinion_stage_source,

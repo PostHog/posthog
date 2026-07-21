@@ -8,7 +8,7 @@ from parameterized import parameterized
 from requests.exceptions import HTTPError, JSONDecodeError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SentrySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sentry import SentrySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry import (
     SentryPaginator,
     SentryResumeConfig,

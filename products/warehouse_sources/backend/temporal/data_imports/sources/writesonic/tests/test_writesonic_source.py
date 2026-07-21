@@ -10,7 +10,9 @@ from posthog.schema import (
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import WritesonicSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.writesonic import (
+    WritesonicSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.writesonic.settings import (
     ENDPOINTS,
     WRITESONIC_ENDPOINTS,

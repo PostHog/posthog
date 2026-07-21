@@ -7,7 +7,9 @@ from parameterized import parameterized
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import TodoistSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.todoist import (
+    TodoistSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.todoist import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.todoist.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.todoist.source import TodoistSource

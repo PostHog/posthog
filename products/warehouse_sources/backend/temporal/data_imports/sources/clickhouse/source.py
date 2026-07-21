@@ -40,7 +40,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import (
     reconcile_source_schema_metadata,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ClickHouseSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clickhouse import (
+    ClickHouseSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField
 
 if TYPE_CHECKING:
