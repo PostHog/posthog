@@ -49,6 +49,12 @@ use serde::Deserialize;
 use serde_json::Value;
 use tracing::warn;
 
+/// The body varies by `Authorization` at the same URL (decrypted vs redacted), so caches
+/// must revalidate on every reuse (`no-cache`, stronger than the sibling endpoint's
+/// `must-revalidate`) and key entries by credential (`Vary: Authorization`).
+const CACHE_CONTROL: &str = "private, no-cache";
+const VARY: &str = "Authorization";
+
 /// Query params. SDKs pass `?token=phc_...` (the project key) and call this with `@current`
 /// as the URL segment; the token resolves the project, matching Django. `api_key` is Django's
 /// accepted alias for `token` (see `get_token`).
@@ -249,40 +255,33 @@ fn compute_etag(body: &str) -> String {
     common_hypercache::writer::compute_etag(body)
 }
 
-/// The body varies by `Authorization` at the same URL (decrypted vs redacted), so caches
-/// must revalidate on every reuse (`no-cache`, stronger than the sibling endpoint's
-/// `must-revalidate`) and key entries by credential (`Vary: Authorization`).
-const CACHE_CONTROL: &str = "private, no-cache";
-const VARY: &str = "Authorization";
+/// The ETag/Cache-Control/Vary trio every response carries. Shared so the credential
+/// isolation (`no-cache` + `Vary: Authorization`) can't silently drop off one response
+/// path while surviving on the others.
+fn revalidation_headers(etag: &str) -> [(&'static str, String); 3] {
+    [
+        ("etag", flag_definitions::format_weak_etag(etag)),
+        ("cache-control", CACHE_CONTROL.to_string()),
+        ("vary", VARY.to_string()),
+    ]
+}
 
-/// 200 with a pre-serialized JSON body plus ETag, Cache-Control, and Vary headers.
+/// 200 with a pre-serialized JSON body plus the revalidation headers.
 fn json_ok_with_etag(body: String, etag: &str) -> Response {
     (
         StatusCode::OK,
-        [
-            ("content-type", "application/json".to_string()),
-            ("etag", flag_definitions::format_weak_etag(etag)),
-            ("cache-control", CACHE_CONTROL.to_string()),
-            ("vary", VARY.to_string()),
-        ],
+        [("content-type", "application/json")],
+        revalidation_headers(etag),
         body,
     )
         .into_response()
 }
 
-/// 304 carrying the same ETag/Cache-Control/Vary trio as the 200s — not the sibling
-/// endpoint's `not_modified_response`, whose `must-revalidate` would weaken the stored
-/// entry's policy when a cache updates its headers from the 304.
+/// 304 carrying the same revalidation headers as the 200s — not the sibling endpoint's
+/// `not_modified_response`, whose `must-revalidate` would weaken the stored entry's
+/// policy when a cache updates its headers from the 304.
 fn not_modified(etag: &str) -> Response {
-    (
-        StatusCode::NOT_MODIFIED,
-        [
-            ("etag", flag_definitions::format_weak_etag(etag)),
-            ("cache-control", CACHE_CONTROL.to_string()),
-            ("vary", VARY.to_string()),
-        ],
-    )
-        .into_response()
+    (StatusCode::NOT_MODIFIED, revalidation_headers(etag)).into_response()
 }
 
 /// Decrypts the stored ciphertext on the personal-key path. Returns `None` when there is no
@@ -311,17 +310,9 @@ fn resolve_decrypted_payload(
 
 /// 200 with an empty body and no Content-Type (NOT a JSON `null`), matching DRF's `Response(None)`:
 /// the renderer emits no bytes and DRF then deletes the Content-Type header. Still carries the
-/// ETag/Cache-Control pair so a client polling a not-yet-set payload can 304 too.
+/// revalidation headers so a client polling a not-yet-set payload can 304 too.
 fn empty_ok_no_content_type(etag: &str) -> Response {
-    (
-        StatusCode::OK,
-        [
-            ("etag", flag_definitions::format_weak_etag(etag)),
-            ("cache-control", CACHE_CONTROL.to_string()),
-            ("vary", VARY.to_string()),
-        ],
-    )
-        .into_response()
+    (StatusCode::OK, revalidation_headers(etag)).into_response()
 }
 
 /// Mirrors Python truthiness for `payloads.get("true") or None`. In practice the payload

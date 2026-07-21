@@ -847,6 +847,22 @@ async fn test_remote_config_empty_payload_returns_empty_body() {
         .to_str()
         .unwrap()
         .to_string();
+    // The credential-isolation headers must hold on the empty-body path too.
+    assert_eq!(
+        response
+            .headers()
+            .get("cache-control")
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "private, no-cache"
+    );
+    assert_eq!(
+        response.headers().get("vary").unwrap().to_str().unwrap(),
+        "Authorization"
+    );
+    // No Content-Type, matching DRF's `Response(None)`.
+    assert!(response.headers().get("content-type").is_none());
     // Empty body, not the JSON literal "null".
     assert_eq!(response.text().await.unwrap(), "");
 
@@ -889,6 +905,17 @@ async fn test_remote_config_etag_roundtrip() {
         .unwrap()
         .to_string();
     assert!(etag.starts_with("W/\""), "expected weak etag, got {etag}");
+    // The body is written as a pre-serialized String, so the JSON content type is an
+    // explicit override of axum's text/plain default.
+    assert_eq!(
+        response
+            .headers()
+            .get("content-type")
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "application/json"
+    );
     assert_eq!(
         response
             .headers()
