@@ -108,7 +108,8 @@ class TestShipStationSource:
 
         assert is_valid is expected_valid
         assert error_message == expected_message
-        mock_validate.assert_called_once_with(self.config.api_key, self.config.api_secret)
+        # Validation probes the default version's host (new sources are created on v1).
+        mock_validate.assert_called_once_with(self.config.api_key, self.config.api_secret, "v1")
 
     def test_get_resumable_source_manager_binds_resume_config(self):
         inputs = mock.MagicMock()
@@ -139,6 +140,30 @@ class TestShipStationSource:
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2024-01-02T03:04:05.0000000"
         assert kwargs["incremental_field"] == "modifyDate"
+
+    def test_advertises_v1_only_but_honors_explicit_v2_pin(self):
+        # v1 is the only functional version today, so it is the only advertised/default
+        # one. A v2 pin is still honored verbatim (opt-in escape hatch for the transport
+        # groundwork) — the base class never silently remaps a stored pin.
+        assert self.source.supported_versions == ("v1",)
+        assert self.source.default_version == "v1"
+        assert self.source.resolve_api_version(None) == "v1"
+        assert self.source.resolve_api_version("v2") == "v2"
+
+    @pytest.mark.parametrize("pin, expected", [(None, "v1"), ("v1", "v1"), ("v2", "v2")])
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.shipstation.source.shipstation_source"
+    )
+    def test_source_for_pipeline_resolves_api_version(self, mock_shipstation_source, pin, expected):
+        inputs = mock.MagicMock()
+        inputs.schema_name = "orders"
+        inputs.should_use_incremental_field = False
+        inputs.incremental_field = None
+        inputs.api_version = pin
+
+        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+
+        assert mock_shipstation_source.call_args.kwargs["api_version"] == expected
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.shipstation.source.shipstation_source"
