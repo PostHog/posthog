@@ -45,57 +45,60 @@ describe('feature-flag-get-definition', () => {
         })
     })
 
-    it('resolves a key passed in the `key` param, then fetches by resolved id', async () => {
-        const request = vi.fn().mockImplementation((opts: { path: string }) => {
-            if (opts.path.endsWith('/feature_flags/')) {
-                return Promise.resolve({ results: [flag(7, 'new-checkout')] })
-            }
-            return Promise.resolve(flag(7, 'new-checkout'))
-        })
+    it('resolves a key passed in the `key` param from the search result, without a second fetch', async () => {
+        const request = vi.fn().mockResolvedValue({ results: [flag(7, 'new-checkout')] })
 
-        await tool.handler(createMockContext(request), { key: 'new-checkout' })
+        const result = await tool.handler(createMockContext(request), { key: 'new-checkout' })
 
+        // The search result already has the full flag, so it's returned directly instead of
+        // triggering a redundant fetch-by-id round trip.
+        expect(request).toHaveBeenCalledTimes(1)
         expect(request).toHaveBeenCalledWith({
             method: 'GET',
             path: '/api/projects/42/feature_flags/',
-            query: { search: 'new-checkout', limit: 100 },
+            query: { search: 'new-checkout', limit: 1000 },
         })
-        expect(request).toHaveBeenCalledWith({
-            method: 'GET',
-            path: '/api/projects/42/feature_flags/7/',
-        })
+        expect(result).toMatchObject({ id: 7, key: 'new-checkout' })
     })
 
     it('treats a non-numeric string in `id` as a key', async () => {
-        const request = vi.fn().mockImplementation((opts: { path: string }) => {
-            if (opts.path.endsWith('/feature_flags/')) {
-                return Promise.resolve({ results: [flag(7, 'new-checkout')] })
-            }
-            return Promise.resolve(flag(7, 'new-checkout'))
-        })
+        const request = vi.fn().mockResolvedValue({ results: [flag(7, 'new-checkout')] })
 
-        await tool.handler(createMockContext(request), { id: 'new-checkout' })
+        const result = await tool.handler(createMockContext(request), { id: 'new-checkout' })
 
-        expect(request).toHaveBeenCalledWith({
-            method: 'GET',
-            path: '/api/projects/42/feature_flags/7/',
-        })
+        expect(request).toHaveBeenCalledTimes(1)
+        expect(result).toMatchObject({ id: 7, key: 'new-checkout' })
     })
 
     it('picks the exact key when search returns substring matches too', async () => {
+        const request = vi.fn().mockResolvedValue({ results: [flag(7, 'checkout'), flag(8, 'checkout-v2')] })
+
+        const result = await tool.handler(createMockContext(request), { key: 'checkout' })
+
+        expect(result).toMatchObject({ id: 7, key: 'checkout' })
+    })
+
+    it('falls back to key resolution when an all-digit `id` string 404s as a numeric id', async () => {
         const request = vi.fn().mockImplementation((opts: { path: string }) => {
             if (opts.path.endsWith('/feature_flags/')) {
-                return Promise.resolve({ results: [flag(7, 'checkout'), flag(8, 'checkout-v2')] })
+                return Promise.resolve({ results: [flag(7, '123')] })
             }
-            return Promise.resolve(flag(7, 'checkout'))
+            return Promise.reject(
+                new PostHogApiError({
+                    status: 404,
+                    statusText: 'Not Found',
+                    body: 'Not found.',
+                    url: '/api/projects/42/feature_flags/123/',
+                    method: 'GET',
+                })
+            )
         })
 
-        await tool.handler(createMockContext(request), { key: 'checkout' })
+        // A flag keyed "123" can never be reached by numeric id, since it collides with the
+        // numeric-id path — the tool must fall back to key resolution on a 404.
+        const result = await tool.handler(createMockContext(request), { id: '123' })
 
-        expect(request).toHaveBeenCalledWith({
-            method: 'GET',
-            path: '/api/projects/42/feature_flags/7/',
-        })
+        expect(result).toMatchObject({ id: 7, key: '123' })
     })
 
     it('raises a validation error naming the missing key when no flag matches', async () => {

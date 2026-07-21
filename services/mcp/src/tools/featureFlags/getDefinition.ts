@@ -65,13 +65,15 @@ async function fetchById(context: Context, projectId: string, id: number): Promi
     }
 }
 
-async function resolveKeyToId(context: Context, projectId: string, key: string): Promise<number> {
+async function resolveKeyToFlag(context: Context, projectId: string, key: string): Promise<Schemas.FeatureFlag> {
     // The list endpoint's `search` is a case-insensitive substring match over key/name, so it can
-    // return more than the flag we want — narrow to an exact key match before fetching.
+    // return more than the flag we want — narrow to an exact key match before fetching. Request a
+    // high limit (the endpoint has no max_limit) so a project with many substring matches doesn't
+    // paginate the exact match out of the first page and produce a false "not found".
     const list = await context.api.request<Schemas.PaginatedFeatureFlagList>({
         method: 'GET',
         path: `/api/projects/${encodeURIComponent(projectId)}/feature_flags/`,
-        query: { search: key, limit: 100 },
+        query: { search: key, limit: 1000 },
     })
     const results = list.results ?? []
     const exact = results.filter((flag) => flag.key === key)
@@ -89,7 +91,7 @@ async function resolveKeyToId(context: Context, projectId: string, key: string):
             `Multiple feature flags matched key "${key}" (IDs: ${ids}). Pass the numeric \`id\` of the flag you want.`
         )
     }
-    return matches[0]!.id
+    return matches[0]!
 }
 
 const featureFlagGetDefinition = (): ToolBase<typeof schema, Result> => ({
@@ -98,21 +100,32 @@ const featureFlagGetDefinition = (): ToolBase<typeof schema, Result> => ({
     handler: async (context: Context, params: Params) => {
         const projectId = await context.stateManager.getProjectId()
 
-        // An explicit `key` always resolves by key.
+        // An explicit `key` always resolves by key. The search result already has the full flag,
+        // so wrap it directly instead of refetching by id.
         if (params.key !== undefined && params.key.trim() !== '') {
-            const id = await resolveKeyToId(context, projectId, params.key.trim())
-            return await fetchById(context, projectId, id)
+            const flag = await resolveKeyToFlag(context, projectId, params.key.trim())
+            return await withPostHogUrl(context, flag, `/feature_flags/${flag.id}`)
         }
 
         if (params.id !== undefined && params.id !== null && String(params.id).trim() !== '') {
             const raw = typeof params.id === 'string' ? params.id.trim() : params.id
             const asInt = castStringToInt(raw)
             if (typeof asInt === 'number' && Number.isInteger(asInt)) {
-                return await fetchById(context, projectId, asInt)
+                try {
+                    return await fetchById(context, projectId, asInt)
+                } catch (error) {
+                    // An all-digit flag key (e.g. "123") looks numeric but isn't a valid id — fall
+                    // back to key resolution before surfacing the 404, since `id` accepts either.
+                    if (typeof raw === 'string' && error instanceof PostHogApiError && error.status === 404) {
+                        const flag = await resolveKeyToFlag(context, projectId, raw)
+                        return await withPostHogUrl(context, flag, `/feature_flags/${flag.id}`)
+                    }
+                    throw error
+                }
             }
             // A non-numeric string in `id` is almost always the flag key.
-            const id = await resolveKeyToId(context, projectId, String(raw))
-            return await fetchById(context, projectId, id)
+            const flag = await resolveKeyToFlag(context, projectId, String(raw))
+            return await withPostHogUrl(context, flag, `/feature_flags/${flag.id}`)
         }
 
         throw new ToolInputValidationError(
