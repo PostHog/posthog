@@ -769,12 +769,21 @@ class HogQLQueryExecutor:
             hasMore=self.has_more,
             limit=self.limit,
             offset=self.offset,
-            used_data_warehouse_sources=[
-                DataWarehouseSourceUsage(id=s.id, source_type=s.source_type, table_name=s.table_name)
-                for s in self.used_data_warehouse_sources
-            ]
-            or None,
+            used_data_warehouse_sources=self._serialized_warehouse_sources(),
         )
+
+    def _serialized_warehouse_sources(self) -> Optional[list[DataWarehouseSourceUsage]]:
+        """Warehouse source attribution is telemetry for authenticated app users only. It carries
+        connector ids, connector types, and underlying table names, so it must never reach an
+        anonymous/shared-link viewer — resolving a saved view exposes the tables behind it."""
+        if not self.used_data_warehouse_sources:
+            return None
+        if self.user is None or not self.user.is_authenticated:
+            return None
+        return [
+            DataWarehouseSourceUsage(id=s.id, source_type=s.source_type, table_name=s.table_name)
+            for s in self.used_data_warehouse_sources
+        ]
 
 
 def execute_hogql_query(*args, **kwargs) -> HogQLQueryResponse:

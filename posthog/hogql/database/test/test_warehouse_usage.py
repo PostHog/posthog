@@ -1,9 +1,14 @@
 from posthog.test.base import BaseTest
 
+from django.contrib.auth.models import AnonymousUser
+
+from parameterized import parameterized
+
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.warehouse_usage import extract_warehouse_sources
+from posthog.hogql.database.warehouse_usage import WarehouseSourceUsage, extract_warehouse_sources
 from posthog.hogql.parser import parse_select
+from posthog.hogql.query import HogQLQueryExecutor
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.visitor import clone_expr
 
@@ -106,3 +111,30 @@ class TestWarehouseUsage(BaseTest):
         sources = self._sources_for("SELECT a.id FROM stripe_table_1 a JOIN stripe_table_1 b ON a.id = b.id")
 
         assert [s.id for s in sources] == [str(source.id)]
+
+    @parameterized.expand(
+        [
+            ("anonymous_viewer", AnonymousUser()),
+            ("no_user", None),
+        ]
+    )
+    def test_warehouse_sources_withheld_from_unauthenticated_principals(self, _name, user):
+        # Attribution carries connector ids/types and table names — it must not reach a shared-link viewer.
+        executor = HogQLQueryExecutor(query="SELECT 1", team=self.team, user=user)
+        executor.used_data_warehouse_sources = [
+            WarehouseSourceUsage(id="src-1", source_type="Stripe", table_name="stripe_table_1")
+        ]
+
+        assert executor._serialized_warehouse_sources() is None
+
+    def test_warehouse_sources_exposed_to_authenticated_user(self):
+        executor = HogQLQueryExecutor(query="SELECT 1", team=self.team, user=self.user)
+        executor.used_data_warehouse_sources = [
+            WarehouseSourceUsage(id="src-1", source_type="Stripe", table_name="stripe_table_1")
+        ]
+
+        serialized = executor._serialized_warehouse_sources()
+
+        assert serialized is not None
+        assert [s.id for s in serialized] == ["src-1"]
+        assert serialized[0].table_name == "stripe_table_1"
