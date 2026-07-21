@@ -869,3 +869,31 @@ class LoopTriggerPayloadCapAPITest(LoopsAPITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
         self.assertEqual(Task.objects.count(), 0)
+
+
+class LoopTriggerAuthAPITest(LoopsAPITestCase):
+    def test_teammate_cannot_fire_another_members_personal_loop_via_session(self):
+        # The trigger endpoint also accepts session/PAT/OAuth auth, but firing must then respect the
+        # personal/team visibility split — a PSAK's project-wide bypass is only for the service
+        # credential. Without the split, a teammate with a personal loop's UUID could start a run
+        # under its owner's OAuth/GitHub/MCP authority.
+        loop_id = self._create_loop(self.owner_client, visibility="personal", triggers=[{"type": "api", "config": {}}])[
+            "id"
+        ]
+
+        response = self.peer_client.post(f"{self._loop_url(loop_id)}trigger/", {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(Task.objects.count(), 0)
+
+    def test_owner_can_fire_their_own_personal_loop_via_session(self):
+        # Over-block guard: scoping the non-PSAK trigger path must not break the legitimate case of
+        # a user firing a loop they can see.
+        loop_id = self._create_loop(self.owner_client, visibility="personal", triggers=[{"type": "api", "config": {}}])[
+            "id"
+        ]
+
+        response = self.owner_client.post(f"{self._loop_url(loop_id)}trigger/", {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(Task.objects.filter(team=self.team, origin_product=Task.OriginProduct.LOOP).count(), 1)

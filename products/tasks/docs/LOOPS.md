@@ -279,6 +279,8 @@ Follow `/improving-drf-endpoints` and regenerate with `hogli build:openapi`.
 Decision: project secret API keys (`phs_...`) with a `loop:write` scope.
 The scope grammar is `object:read|write` only (`APIScopeActions`), so a literal `loop:trigger` scope is invalid; instead the `trigger` DRF action maps into the write bucket and `("loop", "write")` joins `PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION`.
 This is the first write-capable PSAK scope (the current allowlist is `endpoint:read` and `feature_flag:read`) and PSAKs are project-wide: one leaked key can fire any loop in the project with a chosen payload. That blast radius is accepted and documented; optional per-loop key binding is an open hardening question.
+The project-wide bypass is exclusive to the PSAK service credential.
+A non-PSAK caller (session, PAT or OAuth) hitting the same endpoint is held to the personal/team visibility split — it can only fire loops it can see, so a teammate cannot fire another member's personal loop by UUID.
 Revocable, project-scoped, user-less, throttled per key.
 Alternative considered and rejected: per-trigger bespoke secrets (more objects to manage, new auth code path).
 

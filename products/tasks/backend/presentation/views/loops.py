@@ -325,7 +325,15 @@ class LoopViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         payload_size = len(json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode())
         if payload_size > MAX_LOOP_TRIGGER_PAYLOAD_BYTES:
             return Response({"detail": "Request body exceeds 64 KB."}, status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
-        result = loops_facade.fire_loop_api(pk, self.team_id, payload, idempotency_key=_idempotency_key(request))
+        if is_authenticated_via_project_secret_api_key(request):
+            # A PSAK is a project-wide service credential, so it may fire any of the project's loops.
+            result = loops_facade.fire_loop_api(pk, self.team_id, payload, idempotency_key=_idempotency_key(request))
+        else:
+            # A session/PAT/OAuth caller is a real user: scope firing to loops they can see, so a
+            # teammate can't fire someone else's personal loop by UUID (mirrors the `runs` split).
+            result = loops_facade.fire_loop_api_for_user(
+                pk, self.team_id, request.user, payload, idempotency_key=_idempotency_key(request)
+            )
         if result is None:
             raise NotFound()
         return Response(LoopFireRunSerializer(result).data)

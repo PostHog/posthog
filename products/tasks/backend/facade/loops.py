@@ -943,17 +943,9 @@ def fire_loop_manual(
     return loop_runs.fire_loop(loop=loop, trigger=None, fire_key=fire_key, trigger_context=trigger_context, actor=user)
 
 
-def fire_loop_api(
-    loop_id: str | UUID, team_id: int, payload: dict | None, idempotency_key: str | None = None
-) -> LoopFireResult | None:
-    """External fire (`loops/:id/trigger/`, PSAK auth). PSAK scopes are project-wide by design,
-    so this bypasses the personal/team visibility split entirely (see LOOPS.md "API trigger auth")."""
-    # `internal=False`: internal loops are driven by their backend flow, never externally
-    # firable, even though a PSAK is project-wide (mirrors the read/write API surface).
-    loop = Loop.objects.filter(team_id=team_id, deleted=False, internal=False, pk=loop_id).first()
-    if loop is None:
-        return None
-
+def _fire_api_trigger(
+    loop: Loop, payload: dict | None, idempotency_key: str | None, actor: User | None
+) -> LoopFireResult:
     trigger = (
         LoopTrigger.objects.filter(loop=loop, type=LoopTrigger.TriggerType.API, enabled=True)
         .order_by("created_at")
@@ -965,8 +957,39 @@ def fire_loop_api(
     fire_key = idempotency_key or f"api-{uuid4().hex}"
     trigger_context = loop_runs.render_trigger_context("api", payload, loop)
     return loop_runs.fire_loop(
-        loop=loop, trigger=trigger, fire_key=fire_key, trigger_context=trigger_context, actor=None
+        loop=loop, trigger=trigger, fire_key=fire_key, trigger_context=trigger_context, actor=actor
     )
+
+
+def fire_loop_api(
+    loop_id: str | UUID, team_id: int, payload: dict | None, idempotency_key: str | None = None
+) -> LoopFireResult | None:
+    """External fire (`loops/:id/trigger/`, PSAK auth). A PSAK is a project-scoped service
+    credential, so this is project-wide by design and bypasses the personal/team visibility split
+    (see LOOPS.md "API trigger auth"). Non-PSAK (session/PAT/OAuth) callers of the same endpoint
+    go through `fire_loop_api_for_user` instead, which re-imposes that split."""
+    # `internal=False`: internal loops are driven by their backend flow, never externally
+    # firable, even though a PSAK is project-wide (mirrors the read/write API surface).
+    loop = Loop.objects.filter(team_id=team_id, deleted=False, internal=False, pk=loop_id).first()
+    if loop is None:
+        return None
+    return _fire_api_trigger(loop, payload, idempotency_key, actor=None)
+
+
+def fire_loop_api_for_user(
+    loop_id: str | UUID, team_id: int, user: User | None, payload: dict | None, idempotency_key: str | None = None
+) -> LoopFireResult | None:
+    """API-trigger fire for a non-PSAK caller (a real session/PAT/OAuth user, not a project-wide
+    service credential). Unlike `fire_loop_api`, this scopes the loop lookup to what the user may
+    actually see and fire — owner-only for personal loops, any member for team loops — so a
+    teammate can't fire someone else's personal loop by UUID (which would otherwise run under that
+    owner's OAuth/GitHub/MCP authority). `None` means not found or not visible to the caller."""
+    user_id = getattr(user, "id", None)
+    # `_visible_loop_queryset` already excludes internal loops and enforces the personal/team split.
+    loop = _visible_loop_queryset(team_id, user_id).filter(pk=loop_id).first()
+    if loop is None:
+        return None
+    return _fire_api_trigger(loop, payload, idempotency_key, actor=user)
 
 
 # --- Preview ---
@@ -1105,6 +1128,7 @@ __all__ = [
     "desktop_canvas_exists",
     "desktop_folder_exists",
     "fire_loop_api",
+    "fire_loop_api_for_user",
     "fire_loop_manual",
     "get_internal_loop",
     "get_loop",
