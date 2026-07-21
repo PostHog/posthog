@@ -34,7 +34,6 @@ import { validateDistinctIdPersonIdExclusive } from '@/schema/tool-inputs'
 import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-import { POSTHOG_META_KEY } from '@/tools/types'
 
 const CreateFeatureFlagSchema = FeatureFlagsCreateBody.omit({ archived: true }).extend({
     is_remote_configuration: FeatureFlagsCreateBody.shape['is_remote_configuration'].describe(
@@ -54,7 +53,6 @@ const CreateFeatureFlagSchema = FeatureFlagsCreateBody.omit({ archived: true }).
 const createFeatureFlag = (): ToolBase<typeof CreateFeatureFlagSchema, WithPostHogUrl<Schemas.FeatureFlag>> => ({
     name: 'create-feature-flag',
     schema: CreateFeatureFlagSchema,
-    _meta: { [POSTHOG_META_KEY]: { outputFormat: 'json' } },
     handler: async (context: Context, params: z.infer<typeof CreateFeatureFlagSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}

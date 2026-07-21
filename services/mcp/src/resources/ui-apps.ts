@@ -9,13 +9,9 @@ import { type UiAppKey, UI_APPS, URI_MAP } from './ui-apps.generated'
 /**
  * Wrap a tool definition with UI app metadata.
  * Works with both ToolBase and Tool (full definition with scopes/annotations).
- * Merges into any `_meta` the definition already carries (e.g. an `outputFormat` declaration).
  */
-export function withUiApp<T extends { _meta?: object }>(
-    appKey: UiAppKey,
-    config: Omit<T, '_meta'> & { _meta?: object }
-): T {
-    return { ...config, _meta: { ...config._meta, ui: { resourceUri: URI_MAP[appKey] } } } as T
+export function withUiApp<T extends { _meta?: unknown }>(appKey: UiAppKey, config: Omit<T, '_meta'>): T {
+    return { ...config, _meta: { ui: { resourceUri: URI_MAP[appKey] } } } as T
 }
 
 /**

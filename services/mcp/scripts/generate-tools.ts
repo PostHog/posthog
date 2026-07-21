@@ -1171,12 +1171,6 @@ function generateToolCode(
 
     const appKey = config.ui_app ?? null
 
-    // The confirmed-action factories don't thread `_meta` through, so combining them with
-    // `output_format` would silently drop the format declaration.
-    if (config.output_format && config.confirmed_action) {
-        throw new Error(`${toolName}: output_format cannot be combined with confirmed_action`)
-    }
-
     const enrichUsesParams = !!config.enrich_url && parseEnrichUrl(config.enrich_url).source === 'params'
     // `params` is only referenced when a dynamic body/query/path param reads from it; inject_body
     // alone doesn't touch params, so don't count it here.
@@ -1225,13 +1219,10 @@ function generateToolCode(
         }
     }
 
-    const metaLine = config.output_format
-        ? `_meta: { [POSTHOG_META_KEY]: { outputFormat: '${config.output_format}' } },\n    `
-        : ''
     const toolBody = `{
     name: '${toolName}',
     schema: ${schemaName},
-    ${metaLine}${unusedParamsComment}handler: async (context: Context, params: z.infer<typeof ${schemaName}>) => {
+    ${unusedParamsComment}handler: async (context: Context, params: z.infer<typeof ${schemaName}>) => {
 ${handlerBody}    },
 }`
 
@@ -1766,9 +1757,6 @@ function generateCategoryFile(
     const hasUiMeta = enabledTools.some(([, config]) => config.ui_app)
     const withUiAppImportLine = hasUiMeta ? `import { withUiApp } from '@/resources/ui-apps'\n` : ''
 
-    const hasOutputFormatMeta = enabledTools.some(([, config]) => config.output_format)
-    const posthogMetaKeyImportLine = hasOutputFormatMeta ? `import { POSTHOG_META_KEY } from '@/tools/types'\n` : ''
-
     const toolInputsImportLine =
         allToolInputsImports.size > 0
             ? `import { ${[...allToolInputsImports].sort().join(', ')} } from '@/schema/tool-inputs'\n`
@@ -1822,7 +1810,7 @@ function generateCategoryFile(
 import { z } from 'zod'
 
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-${toolUtilsImportLine ? `${toolUtilsImportLine}` : ''}${posthogMetaKeyImportLine}${schemasImportLine}${withUiAppImportLine}${toolInputsImportLine}${castHelpersImportLine}${wrapperImportLine}${confirmedActionImportLine}${orvalImportLine}${schemaRefCode}${toolCodes.join('')}${wrapperSchemasCode}
+${toolUtilsImportLine ? `${toolUtilsImportLine}` : ''}${schemasImportLine}${withUiAppImportLine}${toolInputsImportLine}${castHelpersImportLine}${wrapperImportLine}${confirmedActionImportLine}${orvalImportLine}${schemaRefCode}${toolCodes.join('')}${wrapperSchemasCode}
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
 ${mapEntries}
 }

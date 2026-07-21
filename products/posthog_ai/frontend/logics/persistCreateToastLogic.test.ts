@@ -40,7 +40,7 @@ describe('persistCreateToastLogic', () => {
         toolStreamEventsLogic.actions.emitToolEvent(completedCreate('dashboard-create', { id: 7, name: 'Growth' }))
         expect(successSpy).not.toHaveBeenCalled()
 
-        foregroundStreamLogic.actions.setForegroundStream('run-1', 'test-provider')
+        foregroundStreamLogic.actions.setForegroundStream('run-1')
         toolStreamEventsLogic.actions.emitToolEvent(completedCreate('dashboard-create', { id: 7, name: 'Growth' }))
 
         expect(successSpy).toHaveBeenCalledTimes(1)
