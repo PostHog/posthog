@@ -235,10 +235,10 @@ export interface mcpAnalyticsToolDetailLogicActions {
     }
     loadFailureOccurrencesSuccess: (
         failureOccurrences: MCPToolFailureOccurrenceItem[],
-        payload?: any
+        payload?: MCPToolFailureItem
     ) => {
         failureOccurrences: MCPToolFailureOccurrenceItem[]
-        payload?: any
+        payload?: MCPToolFailureItem
     }
     loadIntentCoverage: () => any
     loadIntentCoverageFailure: (
