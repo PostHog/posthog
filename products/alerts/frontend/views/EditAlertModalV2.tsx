@@ -159,7 +159,7 @@ export function EditAlertModalV2({
         }
     }, [insightLogicProps, insightId])
 
-    const creatingNewAlert = alertForm.id === undefined
+    const creatingNewAlert = alertId === undefined
     const can_check_ongoing_interval = canCheckOngoingInterval(alertForm, { isTrendsFunnel })
     const alertMode = alertForm.detector_config ? 'detector' : 'threshold'
     const nextPlannedEvaluationStale = useMemo(
