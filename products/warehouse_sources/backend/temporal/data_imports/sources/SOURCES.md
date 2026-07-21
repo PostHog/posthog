@@ -239,6 +239,7 @@ the row lists both.
 | giphy                            | HTTP                        | requests                                                        | ✅                          |
 | gitlab                           | HTTP                        | requests                                                        | ✅                          |
 | gladly                           | HTTP                        | requests                                                        | ✅                          |
+| glassfrog                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | gnews                            | HTTP                        | requests                                                        | ✅                          |
 | gocardless                       | HTTP                        | requests                                                        | ✅                          |
 | goldcast                         | HTTP                        | requests                                                        | ✅                          |
@@ -722,7 +723,6 @@ doesn't conflict with concurrent PRs.
 - gerrit
 - getstream
 - gitea
-- glassfrog
 - gmail
 - gnews
 - gojiberry
