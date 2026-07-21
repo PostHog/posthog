@@ -11,7 +11,9 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import HubplannerSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hubplanner import (
+    HubplannerSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubplanner import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubplanner.hubplanner import (
     HubPlannerResumeConfig,

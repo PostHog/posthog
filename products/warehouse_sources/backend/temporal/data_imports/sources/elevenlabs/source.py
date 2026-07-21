@@ -30,7 +30,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.elevenlabs
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ElevenLabsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.elevenlabs import (
+    ElevenLabsSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

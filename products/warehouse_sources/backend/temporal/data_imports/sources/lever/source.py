@@ -23,7 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LeverSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lever import LeverSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.lever.lever import (
     LeverResumeConfig,
     lever_source,

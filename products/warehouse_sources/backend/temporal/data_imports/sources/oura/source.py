@@ -23,7 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OuraSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.oura import OuraSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.oura.oura import (
     OuraResumeConfig,
     oura_source,

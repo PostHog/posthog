@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SalesflareSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.salesflare import (
+    SalesflareSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.salesflare.salesflare import (
     SalesflareResumeConfig,
     salesflare_source,

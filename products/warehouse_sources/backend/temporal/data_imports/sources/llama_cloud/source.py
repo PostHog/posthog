@@ -22,7 +22,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LlamaCloudSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.llamacloud import (
+    LlamaCloudSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.llama_cloud.llama_cloud import (
     LlamaCloudResumeConfig,
     llama_cloud_source,

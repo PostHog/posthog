@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ReplyIoSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.replyio import (
+    ReplyIoSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.reply_io.reply_io import (
     ReplyIoResumeConfig,
     check_endpoint_permissions,
