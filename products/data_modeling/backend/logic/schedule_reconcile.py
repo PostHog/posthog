@@ -176,10 +176,11 @@ def apply_saved_query_frequency_target(
 def reconcile_dag_schedules(dag: DAG, *, require_tiered: bool = False, graph: FrequencyGraph | None = None) -> None:
     """Make Temporal's schedules for this DAG match its nodes' effective cadences.
 
-    Converging a covered DAG to zero schedules is always refused — an empty tier set on a DAG
-    with live schedules almost always means unseeded targets, not a deliberate wind-down. With
-    `require_tiered`, a DAG that has no tiered schedule yet (legacy single schedule or nothing)
-    is left untouched.
+    Converging a covered DAG to zero schedules is refused only while it still has just legacy
+    (non-tier) schedules — an empty tier set there almost always means unseeded targets. Once tier
+    schedules exist, an empty tier set is a deliberate wind-down (last target reverted/cleared) and
+    those tiers are torn down. With `require_tiered`, a DAG that has no tiered schedule yet (legacy
+    single schedule or nothing) is left untouched.
     """
     team = dag.team
     if graph is None:
@@ -333,9 +334,13 @@ async def _apply_reconciliation(
     if require_tiered and not any(is_tier_schedule_id(schedule_id) for schedule_id in existing_ids):
         logger.debug("DAG not converted to cadence tiers yet, skipping reconcile", dag_id=dag_id)
         return
-    if not desired_tiers and existing_ids:
+    # An empty tier set on a DAG that still has only legacy (non-tier) schedules means an unseeded
+    # conversion — protect it. Once tier schedules exist, empty desired is a deliberate wind-down
+    # (last target reverted/cleared/"never"), so let the teardown sweep the stale tiers instead of
+    # leaving them firing execute-dag on node_ids that no longer materialize.
+    if not desired_tiers and existing_ids and not any(is_tier_schedule_id(schedule_id) for schedule_id in existing_ids):
         logger.warning(
-            "Refusing to unschedule a covered DAG with no cadence tiers (unseeded targets?)",
+            "Refusing to unschedule an unseeded DAG with only legacy schedules",
             dag_id=dag_id,
             existing_schedule_ids=sorted(existing_ids),
         )

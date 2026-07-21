@@ -26,6 +26,8 @@ M45 = timedelta(minutes=45)
 H1 = timedelta(hours=1)
 H6 = timedelta(hours=6)
 DAY = timedelta(days=1)
+DAY30 = timedelta(days=30)
+DAY45 = timedelta(days=45)
 
 
 class TestComputeEffectiveCadences(TestCase):
@@ -192,6 +194,9 @@ class TestClampToSourceFloor(TestCase):
             ("finer_than_floor", {"a": M15}, {"src": H6}, {"a": H6}, H6),
             # floor is not a bucket (45min) -> clamp up to the nearest bucket (1h), never finer
             ("non_bucket_floor_rounds_up", {"a": M15}, {"src": M45}, {"a": H1}, H1),
+            # a rogue source floor coarser than every bucket clamps to the coarsest (30day),
+            # never crashes: the interval column is an unconstrained DurationField
+            ("floor_beyond_coarsest_clamps_to_coarsest", {"a": M15}, {"src": DAY45}, {"a": DAY30}, DAY30),
             # already at the floor -> untouched
             ("at_floor", {"a": H6}, {"src": H6}, {"a": H6}, None),
             # coarser than the floor -> untouched

@@ -192,13 +192,13 @@ def nearest_schedulable_bucket_at_least(floor: timedelta) -> timedelta:
     """The finest schedulable bucket no finer than `floor` — coarsen up to a runnable cadence.
 
     A source delivering every 45min means running finer than 1hour recomputes identical data, so
-    the meaningful cadence is the smallest bucket >= the floor. Source intervals are themselves
-    schedulable buckets, so a real floor is always <= the coarsest bucket; assert that rather than
-    fall back to a bucket finer than the floor (which would silently defeat the clamp).
+    the meaningful cadence is the smallest bucket >= the floor. A floor coarser than every bucket
+    (a rogue >30day source interval — the column is an unconstrained DurationField) clamps to the
+    coarsest bucket: running more often than a source delivers only wastes a run, never breaks
+    freshness. Mirrors nearest_schedulable_bucket_at_most's "fresher is always safe" fallback.
     """
     coarser_or_equal = [bucket for bucket in SCHEDULABLE_BUCKETS if bucket >= floor]
-    assert coarser_or_equal, f"source floor {floor} exceeds every schedulable bucket"
-    return min(coarser_or_equal)
+    return min(coarser_or_equal) if coarser_or_equal else max(SCHEDULABLE_BUCKETS)
 
 
 def nearest_schedulable_bucket_at_most(cadence: timedelta) -> timedelta:

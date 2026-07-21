@@ -114,6 +114,30 @@ class TestMigrateTeamsToDagSchedulesTiered(BaseTest):
         self.assertEqual(nodes["fast"].saved_query.sync_frequency_interval, M15)
         self.assertIsNone(nodes["slow"].saved_query.sync_frequency_interval)
 
+    def test_query_in_two_dags_keeps_its_own_interval(self):
+        # a saved query with nodes in two of the team's DAGs must seed both from its own interval;
+        # nulling the shared interval per DAG mid-migration would leave the second node to re-seed
+        # from the DAG's 1-day default — a silent freshness regression
+        shared = DataWarehouseSavedQuery.objects.create(
+            name="shared",
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+            sync_frequency_interval=M15,
+        )
+        dag_a = DAG.objects.create(team=self.team, name="A", sync_frequency_interval=DAY)
+        dag_b = DAG.objects.create(team=self.team, name="B", sync_frequency_interval=DAY)
+        node_a = Node.objects.create(team=self.team, dag=dag_a, saved_query=shared, type=NodeType.VIEW)
+        node_b = Node.objects.create(team=self.team, dag=dag_b, saved_query=shared, type=NodeType.VIEW)
+
+        self._run(existing_schedule_ids=[])
+
+        node_a.refresh_from_db()
+        node_b.refresh_from_db()
+        self.assertEqual(get_declared_target(node_a), M15)
+        self.assertEqual(get_declared_target(node_b), M15)
+        shared.refresh_from_db()
+        self.assertIsNone(shared.sync_frequency_interval)
+
     def test_flag_off_keeps_single_schedule_migration(self):
         dag, _nodes = self._v1_dag_with_mixed_frequencies()
 

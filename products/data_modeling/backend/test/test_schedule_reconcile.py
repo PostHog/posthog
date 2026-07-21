@@ -186,6 +186,37 @@ class TestReconcileDagSchedules(BaseTest):
         create.assert_not_called()
         delete.assert_not_called()
 
+    def test_winds_down_tier_schedules_when_all_targets_cleared(self):
+        # reverting/clearing the last target leaves empty desired tiers; once tier schedules exist
+        # that is a deliberate wind-down, so the stale tier must be torn down rather than left
+        # firing execute-dag on node_ids that no longer materialize
+        dag = DAG.get_or_create_default(self.team)
+        source = _table_node(self.team, dag, "events", {"origin": "posthog"})
+        endpoint = _saved_query_node(self.team, dag, "ep", NodeType.ENDPOINT)
+        Edge.objects.create(team=self.team, dag=dag, source=source, target=endpoint)
+        # no target on any node -> desired tiers empty, but a tier schedule is still live
+
+        stale_tier = tier_schedule_id(str(dag.id), M15)
+
+        async def fake_list_schedules(*_args, **_kwargs):
+            async def gen():
+                yield _listing(stale_tier)
+
+            return gen()
+
+        temporal = mock.Mock()
+        temporal.list_schedules = fake_list_schedules
+
+        with (
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=temporal)),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
+            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()) as delete,
+        ):
+            reconcile_dag_schedules(dag)
+
+        create.assert_not_called()
+        delete.assert_called_once_with(temporal, schedule_id=stale_tier)
+
     def test_concurrent_create_converges_to_update_without_rollback(self):
         # a concurrent reconcile already created the tier; the loser must converge onto it,
         # not roll it back — rolling back would delete the winner's live schedule
