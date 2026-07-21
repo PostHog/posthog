@@ -736,5 +736,32 @@ describe('CommonIngestionPipelineBuilder', () => {
 
             expect(narrowed).toBeDefined()
         })
+
+        it('rejects an unclosed fan-out stage at compile time', () => {
+            const teamStage = newCommonIngestionPipeline<MessageOnly, MessageOnly>(config)
+                .parseHeaders()
+                .parseMessage()
+                .resolveTeam()
+
+            const opened = teamStage.fanOut(function splitFanOut(input) {
+                return [input.team.id]
+            })
+
+            // @ts-expect-error fanIn is only available after via()
+            const _noEarlyFanIn = opened.fanIn
+            // @ts-expect-error an unclosed fan-out stage cannot be built
+            const _noFanOutBuild = opened.build
+            // @ts-expect-error an unclosed fan-out stage cannot register afterBatch hooks
+            const _noFanOutAfterBatch = opened.afterBatch
+
+            const routed = opened.via((sub) => sub)
+
+            // @ts-expect-error only fanIn can close the stage
+            const _noFanInBuild = routed.build
+            // @ts-expect-error only fanIn can close the stage
+            const _noFanInAfterBatch = routed.afterBatch
+
+            expect(routed).toBeDefined()
+        })
     })
 })
