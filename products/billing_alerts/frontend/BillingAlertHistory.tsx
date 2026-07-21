@@ -12,22 +12,12 @@ import {
     AlertEvaluationThreshold,
 } from 'products/alerts/frontend/components/AlertEvaluationHistoryChart'
 
-import { formatBillingValue } from './billingAlertDisplay'
-import { billingAlertHistoryLogic } from './billingAlertHistoryLogic'
+import { formatBillingValue, thresholdView } from './billingAlertDisplay'
+import { billingAlertHistoryLogic, HISTORY_PAGE_SIZE } from './billingAlertHistoryLogic'
 import type { BillingAlertConfigurationApi, BillingAlertEventApi } from './generated/api.schemas'
 
 export function eventValue(alert: BillingAlertConfigurationApi, event: BillingAlertEventApi): number | null {
-    const value =
-        alert.threshold_type === 'relative_increase'
-            ? event.relative_delta_percentage
-            : alert.threshold_type === 'absolute_increase'
-              ? event.absolute_delta
-              : event.current_value
-    if (value === null || value === undefined) {
-        return null
-    }
-    const parsed = Number(value)
-    return Number.isFinite(parsed) ? parsed : null
+    return thresholdView(alert).pickEventValue(event)
 }
 
 export function wouldFire(alert: BillingAlertConfigurationApi, event: BillingAlertEventApi): boolean {
@@ -39,28 +29,20 @@ export function wouldFire(alert: BillingAlertConfigurationApi, event: BillingAle
     if (!Number.isFinite(current) || current < minimum) {
         return false
     }
-    const value = eventValue(alert, event)
-    if (value === null) {
+    const view = thresholdView(alert)
+    const value = view.pickEventValue(event)
+    if (value === null || view.thresholdValue === null) {
         return false
     }
-    const threshold = Number(
-        alert.threshold_type === 'relative_increase' ? alert.threshold_percentage : alert.threshold_value
-    )
-    return Number.isFinite(threshold) && value >= threshold
+    return value >= view.thresholdValue
 }
 
 function chartThreshold(alert: BillingAlertConfigurationApi): AlertEvaluationThreshold[] {
-    const value = Number(
-        alert.threshold_type === 'relative_increase' ? alert.threshold_percentage : alert.threshold_value
-    )
-    if (!Number.isFinite(value)) {
+    const view = thresholdView(alert)
+    if (view.thresholdValue === null) {
         return []
     }
-    const label =
-        alert.threshold_type === 'relative_increase'
-            ? `${value}% increase`
-            : formatBillingValue(value, alert.metric, alert.currency)
-    return [{ direction: 'upper', value, label }]
+    return [{ direction: 'upper', value: view.thresholdValue, label: view.thresholdLabel }]
 }
 
 export function historyPoint(
@@ -115,17 +97,9 @@ export function BillingAlertHistory({ alert }: { alert: BillingAlertConfiguratio
 function BillingAlertHistoryContent({ alert }: { alert: BillingAlertConfigurationApi }): JSX.Element {
     const { currentPage, eventsPage, eventsPageLoading } = useValues(billingAlertHistoryLogic)
     const { loadMoreEvents, loadPreviousEvents } = useActions(billingAlertHistoryLogic)
-    const points = chartPoints(alert, eventsPage.results.slice(0, 50))
-    const valueLabel =
-        alert.threshold_type === 'relative_increase'
-            ? 'Increase'
-            : alert.threshold_type === 'absolute_increase'
-              ? 'Increase over baseline'
-              : 'Spend'
-    const formatter = (value: number): string =>
-        alert.threshold_type === 'relative_increase'
-            ? `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}%`
-            : formatBillingValue(value, alert.metric, alert.currency)
+    const view = thresholdView(alert)
+    // The chart claims to show the most recent evaluations, so only render it from first-page data.
+    const points = currentPage === 1 ? chartPoints(alert, eventsPage.results) : []
     const columns: LemonTableColumns<BillingAlertEventApi> = [
         {
             title: 'Event',
@@ -154,13 +128,13 @@ function BillingAlertHistoryContent({ alert }: { alert: BillingAlertConfiguratio
                 {points.length > 0 ? (
                     <AlertEvaluationHistoryChart
                         points={points}
-                        valueLabel={valueLabel}
+                        valueLabel={view.valueLabel}
                         thresholds={chartThreshold(alert)}
-                        historyLimit={50}
+                        historyLimit={HISTORY_PAGE_SIZE}
                         evaluationsTotal={eventsPage.count}
                         evaluationNoun="evaluation"
                         tableAvailable
-                        formatValue={formatter}
+                        formatValue={view.format}
                     />
                 ) : null}
                 <LemonTable
@@ -175,7 +149,7 @@ function BillingAlertHistoryContent({ alert }: { alert: BillingAlertConfiguratio
                         controlled: true,
                         hideOnSinglePage: false,
                         currentPage,
-                        pageSize: 50,
+                        pageSize: HISTORY_PAGE_SIZE,
                         entryCount: eventsPage.count,
                         onForward: eventsPage.next ? () => loadMoreEvents(undefined) : undefined,
                         onBackward: eventsPage.previous ? () => loadPreviousEvents(undefined) : undefined,

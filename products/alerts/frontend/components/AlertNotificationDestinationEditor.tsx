@@ -64,6 +64,8 @@ interface AlertNotificationDestinationEditorProps<NotificationType extends strin
         options: LemonSelectOptions<NotificationType>
         value: NotificationType
         onChange: (type: NotificationType) => void
+        /** Where the type dropdown opens. Set 'top-start' when the editor sits near the bottom of the page. */
+        dropdownPlacement?: 'top-start' | 'bottom-start'
     }
     slack: {
         notificationType: NotificationType
@@ -242,7 +244,7 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
             <div className="space-y-3 border rounded p-3">
                 <LemonSelect
                     fullWidth
-                    dropdownPlacement="top-start"
+                    dropdownPlacement={notificationType.dropdownPlacement}
                     options={notificationType.options}
                     value={notificationType.value}
                     onChange={notificationType.onChange}

@@ -14,6 +14,7 @@ import {
     BillingAlertNotificationType,
     billingAlertNotificationLogic,
 } from './billingAlertNotificationLogic'
+import { destinationKey } from './billingAlertUtils'
 
 const DESTINATION_OPTIONS = [
     { value: 'slack' as const, label: 'Slack' },
@@ -26,7 +27,6 @@ export function BillingAlertNotifications(props: BillingAlertNotificationLogicPr
     const {
         pendingDestinations,
         selectedType,
-        selectedIntegrationId,
         selectedSlackIntegration,
         slackChannel,
         webhookUrl,
@@ -45,12 +45,12 @@ export function BillingAlertNotifications(props: BillingAlertNotificationLogicPr
 
     const existingDestinations: AlertNotificationDestinationView[] = (props.alert?.destinations ?? []).map(
         (destination) => ({
-            key: `${destination.type}-${destination.hog_function_ids.join('-')}`,
+            key: destinationKey(destination),
             title: destinationLabel(destination.type),
             detail: 'Firing, resolved, errored, and auto-disabled notifications',
             tags: [{ label: 'Active', type: 'success' }],
             onDelete: () => deleteDestination(destination),
-            deleting: deletingDestinationKeys.has(`${destination.type}-${destination.hog_function_ids.join('-')}`),
+            deleting: deletingDestinationKeys.has(destinationKey(destination)),
         })
     )
     const pendingViews: PendingAlertNotificationDestinationView[] = pendingDestinations.map((destination) => ({
@@ -74,6 +74,7 @@ export function BillingAlertNotifications(props: BillingAlertNotificationLogicPr
                     options: DESTINATION_OPTIONS,
                     value: selectedType,
                     onChange: setSelectedType,
+                    dropdownPlacement: 'top-start',
                 }}
                 slack={{
                     notificationType: 'slack',
@@ -81,7 +82,7 @@ export function BillingAlertNotifications(props: BillingAlertNotificationLogicPr
                     workspaceSelector: selectedSlackIntegration ? (
                         <IntegrationChoice
                             integration="slack"
-                            value={selectedIntegrationId ?? undefined}
+                            value={selectedSlackIntegration.id}
                             onChange={setSelectedIntegrationId}
                         />
                     ) : undefined,
