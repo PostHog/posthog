@@ -1152,6 +1152,24 @@ class TestSupporthogInteractivity(BaseTest):
 
     @patch(f"{TASKS_MODULE}.get_slack_client")
     @patch(f"{TASKS_MODULE}.create_ticket_from_confirmation")
+    def test_open_retries_when_final_prompt_update_fails(self, mock_create, mock_get_client):
+        # If the final confirmation update fails transiently after the progress placeholder
+        # was posted, the task must retry rather than leave the prompt stuck on
+        # "Opening a ticket…" forever — and the funnel event must not fire before the
+        # retry resolves.
+        mock_create.return_value = Mock(ticket_number=42)
+        mock_get_client.return_value.chat_update.side_effect = RuntimeError("slack down")
+
+        with self.assertRaises(Retry):
+            process_supporthog_interactivity(
+                self._payload(TICKET_CONFIRM_ACTION_OPEN, {"channel": "C_CONFIG", "message_ts": "1700000000.000100"}),
+                "T123",
+            )
+
+        self.mock_capture_event.assert_not_called()
+
+    @patch(f"{TASKS_MODULE}.get_slack_client")
+    @patch(f"{TASKS_MODULE}.create_ticket_from_confirmation")
     def test_open_skips_placeholder_when_ticket_already_open(self, mock_create, mock_get_client):
         # A duplicate delivery arriving after a sibling already created the ticket must not
         # post the "opening" placeholder over the sibling's confirmation — only the final
