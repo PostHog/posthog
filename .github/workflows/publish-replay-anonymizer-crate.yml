@@ -126,12 +126,12 @@ jobs:
                       fi
                       echo "posthog-replay-anonymizer $version is already on crates.io; nothing to publish."
                       echo "publish-needed=false" >> $GITHUB_OUTPUT
-                  else
-                      # 404 = needs release; on a persistent registry error assume unpublished and let
-                      # cargo publish decide — it is authoritative, cannot overwrite an existing
-                      # version, and failing beats silently skipping a needed release.
+                  elif [[ "$http_code" == '404' ]]; then
                       echo "Publishing posthog-replay-anonymizer v$version"
                       echo "publish-needed=true" >> $GITHUB_OUTPUT
+                  else
+                      echo "::error::No definitive answer from crates.io (HTTP $http_code) for posthog-replay-anonymizer $version after 3 attempts. Re-run this job once crates.io recovers."
+                      exit 1
                   fi
 
             - name: Install rust
