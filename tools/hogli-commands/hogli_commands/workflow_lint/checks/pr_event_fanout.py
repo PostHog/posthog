@@ -73,7 +73,7 @@ def _unscoped_pr_actions(workflow: Workflow) -> Iterator[str]:
 
 
 class PrEventFanoutCheck(WorkflowCheck):
-    id = "WF007-pr-event-fanout"
+    id = "WF008-pr-event-fanout"
     label = "PR event fanout"
     description = "unscoped PR event subscriptions stay within the repo-wide workflow dispatch budget"
     blocking = False
