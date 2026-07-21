@@ -41,11 +41,7 @@ from posthog.temporal.oauth import create_oauth_access_token_for_user
 from products.stamphog.backend.facade.enums import TERMINAL_STATUSES, ReviewMode, ReviewRunStatus, ReviewVerdict
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.audiences import resolve_audience_key
-from products.stamphog.backend.logic.github_client import (
-    StamphogGitHubClient,
-    StamphogGitHubError,
-    expected_app_bot_login,
-)
+from products.stamphog.backend.logic.github_client import StamphogGitHubClient, expected_app_bot_login
 from products.stamphog.backend.logic.reviewer import (
     ReviewerInvocation,
     ReviewerVerdict,
@@ -770,14 +766,18 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     # workflow (review-hog.yml exempts stamphog[bot] from the bot-labeler-skip that would otherwise
     # strip it). Same verdict condition as the trigger-label strip above, for the same reason — a
     # gate-blocked refusal counts. This is a secondary, cross-product notification that must never
-    # jeopardize the verdict, so it is best-effort: a 404/422 (label/repo unavailable) is swallowed
-    # inside the client, and any other failure is caught here so the refusal still lands. A transient
-    # 5xx still benefits from the activity retry before giving up — the sticky upsert above is
-    # idempotent, so a re-run re-posts it harmlessly.
+    # jeopardize the verdict, so it is single-shot best-effort: the refusal's sticky comment is already
+    # posted and run.verdict is set in-memory above, but the durable terminal save below runs AFTER this
+    # call, so any exception that escaped here would skip it, exhaust the activity retries, and land at
+    # mark_review_failed — a delivered refusal rewritten to FAILED with no persisted verdict. Catching
+    # every exception (not just StamphogGitHubError) closes that: the client raises its own error class
+    # for unexpected statuses, but rate limits raise GitHubRateLimitError and network blips raise
+    # requests.RequestException from the egress layer, neither a subclass of StamphogGitHubError. The
+    # sticky upsert above is idempotent, so a missed handoff is a missed handoff, not corruption.
     if parsed.verdict in (ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE):
         try:
             client.add_pr_label(repo, pull_request.pr_number, STAMPHOG_REVIEWHOG_LABEL)
-        except StamphogGitHubError:
+        except Exception:
             activity.logger.exception(
                 "stamphog: reviewhog handoff failed; verdict still posted",
                 repo=repo,

@@ -9,6 +9,9 @@ from unittest.mock import MagicMock, patch
 from django.test import override_settings
 from django.utils import timezone
 
+import requests
+
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models import OAuthAccessToken, Team
 from posthog.models.integration import Integration
 
@@ -1069,25 +1072,42 @@ def test_refused_verdict_strips_trigger_label_only_in_label_mode(
 
 
 @pytest.mark.parametrize(
-    "add_status,comment",
+    "failure",
     [
-        (422, "label does not exist on the repo (ReviewHog not enabled)"),
-        (500, "transient GitHub error"),
+        # The client swallows a 422 (label missing on the repo) itself; a 500 raises StamphogGitHubError.
+        pytest.param(("response", 422), id="swallows_missing_label"),
+        pytest.param(("response", 500), id="client_raises_on_500"),
+        # The egress layer raises these directly — not subclasses of StamphogGitHubError, so a narrow
+        # except would let them escape post_verdict and skip the durable verdict save below.
+        pytest.param(
+            ("side_effect", GitHubRateLimitError("secondary rate limit")),
+            id="rate_limit_does_not_escape",
+        ),
+        pytest.param(
+            ("side_effect", requests.ConnectionError("network blip")),
+            id="network_error_does_not_escape",
+        ),
     ],
-    ids=["swallows_missing_label", "best_effort_on_transient_error"],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_refused_verdict_lands_even_when_reviewhog_handoff_fails(
-    team, stamphog_chain: StamphogChain, add_status: int, comment: str
+    team, stamphog_chain: StamphogChain, failure: tuple[str, object]
 ) -> None:
-    # The ReviewHog handoff is a secondary, cross-product notification: a failed handoff must never
-    # jeopardize the refusal verdict. A 422 (label missing on the repo — a vendored stamphog in another
-    # repo, or a repo without ReviewHog) is swallowed inside the client; a 500 is caught at the call
-    # site. Either way the run reaches REFUSED, not FAILED.
+    # The ReviewHog handoff is a secondary, cross-product notification that runs BEFORE the durable
+    # terminal save, so any exception it raises must be caught or the refusal is lost (the sticky
+    # comment is already posted, but verdict is only in-memory until the save). A 422 is swallowed
+    # inside the client; a 500 raises StamphogGitHubError; a rate limit raises GitHubRateLimitError and
+    # a network blip raises requests.RequestException from the egress layer. All four must leave the
+    # run COMPLETED + REFUSED, not FAILED. The latter two are the regression: they are not subclasses
+    # of StamphogGitHubError, so only a broad catch at the call site contains them.
     repo_config = _repo_config(team.id)
     head_sha = "sha-refused-handoff"
     stamphog_chain.recorder.register_pr(REPO, 101, _pr_object(101, "devex-dev", head_sha))
-    stamphog_chain.recorder.add_label_response_override = fakes.FakeResponse(add_status, text=comment)
+    kind, value = failure
+    if kind == "response":
+        stamphog_chain.recorder.add_label_response_override = fakes.FakeResponse(int(value), text="handoff failure")
+    else:
+        stamphog_chain.recorder.add_label_side_effect = value  # type: ignore[assignment]
     pull_request = PullRequest.objects.for_team(team.id).create(
         team_id=team.id, repo_config=repo_config, pr_number=101, author_login="devex-dev"
     )

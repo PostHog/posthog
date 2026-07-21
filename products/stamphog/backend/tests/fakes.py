@@ -151,6 +151,9 @@ class GitHubRecorder:
         # Test hook: force every label-add POST to return this response (e.g. a 422 for a label that
         # does not exist on the repo) to exercise the handoff's best-effort swallow path.
         self.add_label_response_override: FakeResponse | None = None
+        # Test hook: raise this exception from the label-add POST (e.g. GitHubRateLimitError) to
+        # exercise the best-effort catch for exception types the client does not raise itself.
+        self.add_label_side_effect: Exception | None = None
         self.teams_by_login: dict[str, list[str]] = {}
         self.policy_files: dict[str, str] = {}
         self.github_writes: list[dict[str, Any]] = []
@@ -310,6 +313,12 @@ class GitHubRecorder:
     def _add_label(self, repo: str, number: int, body: dict | None) -> FakeResponse:
         labels = (body or {}).get("labels", [])
         self.github_writes.append({"kind": "add_label", "repo": repo, "number": number, "labels": labels})
+        # A side effect set by the test simulates the egress layer raising before the response is
+        # returned — a GitHubRateLimitError (the real raise_if_github_rate_limited is stubbed to a
+        # no-op in the chain, so the rate-limit path is otherwise unreachable in tests) or a
+        # requests.RequestException on a network blip. Exercises the handoff's best-effort catch.
+        if self.add_label_side_effect is not None:
+            raise self.add_label_side_effect
         if self.add_label_response_override is not None:
             return self.add_label_response_override
         return FakeResponse(200, json_data=[{"name": n} for n in labels])
