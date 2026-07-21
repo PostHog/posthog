@@ -81,12 +81,12 @@ from typing import Any
 SCHEMA_VERSION = 1
 MAX_QUARANTINE_DAYS = 30
 DEFAULT_GRACE_DAYS = 7
-DEFAULT_RUNNER = "pytest"
+PYTEST_RUNNER = "pytest"  # also the schema default when an entry omits `runner`
 JEST_RUNNER = "jest"
 # Runners with an enforcement adapter that consumes this contract (pytest via
 # ``pytest_support``, jest via ``frontend/jest.quarantine.ts``). Entries for any
 # other runner are kept but only informational; ``check`` warns, never errors.
-ADAPTED_RUNNERS = (DEFAULT_RUNNER, JEST_RUNNER)
+ADAPTED_RUNNERS = (PYTEST_RUNNER, JEST_RUNNER)
 MODES = ("run", "skip")
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -101,7 +101,7 @@ class Entry:
     id: str
     added: date
     expires: date
-    runner: str = DEFAULT_RUNNER
+    runner: str = PYTEST_RUNNER
     reason: str = ""
     owner: str = ""
     issue: str = ""
@@ -197,7 +197,7 @@ def _parse_entry(raw: Any, index: int, result: LoadResult) -> Entry | None:
         id=raw["id"],
         added=dates["added"],
         expires=dates["expires"],
-        runner=raw.get("runner", DEFAULT_RUNNER),
+        runner=raw.get("runner", PYTEST_RUNNER),
         reason=raw.get("reason", ""),
         owner=raw.get("owner", ""),
         issue=raw.get("issue", ""),
