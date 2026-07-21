@@ -107,35 +107,49 @@ describe('numericColumnOptions', () => {
 })
 
 describe('tileMetricExpression', () => {
-    it('produces the right HogQL fragment per metric type', () => {
-        expect(tileMetricExpression({ id: 'x', label: 'l', metric: { type: 'count' } })).toBe('count()')
+    // Each column-aggregation metric type must emit its own HogQL aggregate function
+    // (the type name is the function name); a regression collapsing them to one fn
+    // would silently query the wrong statistic.
+    it.each([
+        [{ type: 'count' as const }, 'count()'],
+        [{ type: 'sum' as const, columnExpression: 'health_score', columnLabel: 'Health score' }, 'sum(health_score)'],
+        [{ type: 'avg' as const, columnExpression: 'health_score', columnLabel: 'Health score' }, 'avg(health_score)'],
+        [{ type: 'min' as const, columnExpression: 'health_score', columnLabel: 'Health score' }, 'min(health_score)'],
+        [{ type: 'max' as const, columnExpression: 'health_score', columnLabel: 'Health score' }, 'max(health_score)'],
+        [
+            { type: 'median' as const, columnExpression: 'health_score', columnLabel: 'Health score' },
+            'median(health_score)',
+        ],
+        [
+            {
+                type: 'count_threshold' as const,
+                columnExpression: 'health_score',
+                columnLabel: 'Health score',
+                operator: '<' as const,
+                value: 6,
+            },
+            'countIf(health_score < 6)',
+        ],
+    ])('produces the right HogQL fragment for %o', (metric, expected) => {
+        expect(tileMetricExpression({ id: 'x', label: 'l', metric })).toBe(expected)
+    })
+
+    // The optional scale multiplier wraps the aggregation; no-op values (1, missing,
+    // non-finite) must not append a stray `* n` that would change or break the query.
+    it.each([
+        [12, 'sum(mrr) * 12'],
+        [0.5, 'sum(mrr) * 0.5'],
+        [1, 'sum(mrr)'],
+        [undefined, 'sum(mrr)'],
+        [NaN, 'sum(mrr)'],
+    ])('applies scale %p to a column aggregation', (scale, expected) => {
         expect(
             tileMetricExpression({
                 id: 'x',
                 label: 'l',
-                metric: { type: 'sum', columnExpression: 'health_score', columnLabel: 'Health score' },
+                metric: { type: 'sum', columnExpression: 'mrr', columnLabel: 'MRR', scale },
             })
-        ).toBe('sum(health_score)')
-        expect(
-            tileMetricExpression({
-                id: 'x',
-                label: 'l',
-                metric: { type: 'avg', columnExpression: 'health_score', columnLabel: 'Health score' },
-            })
-        ).toBe('avg(health_score)')
-        expect(
-            tileMetricExpression({
-                id: 'x',
-                label: 'l',
-                metric: {
-                    type: 'count_threshold',
-                    columnExpression: 'health_score',
-                    columnLabel: 'Health score',
-                    operator: '<',
-                    value: 6,
-                },
-            })
-        ).toBe('countIf(health_score < 6)')
+        ).toBe(expected)
     })
 })
 

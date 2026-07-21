@@ -4,19 +4,23 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { OverviewGrid, OverviewItem } from '~/queries/nodes/OverviewGrid/OverviewGrid'
 
-import { accountsOverviewTilesLogic, AccountsOverviewTile, isTileClickable } from './accountsOverviewTilesLogic'
+import {
+    accountsOverviewTilesLogic,
+    AccountsOverviewTile,
+    isTileClickable,
+    scaleSuffix,
+} from './accountsOverviewTilesLogic'
 
 function tileCaption(tile: AccountsOverviewTile): string | undefined {
     const { metric } = tile
     switch (metric.type) {
         case 'count':
             return undefined
-        case 'sum':
-            return `sum of ${metric.columnLabel}`
-        case 'avg':
-            return `avg of ${metric.columnLabel}`
         case 'count_threshold':
             return `${metric.columnLabel} ${metric.operator} ${metric.value}`
+        default:
+            // sum | avg | min | max | median: the metric type reads as the aggregation verb.
+            return `${metric.type} of ${metric.columnLabel}${scaleSuffix(metric.scale)}`
     }
 }
 

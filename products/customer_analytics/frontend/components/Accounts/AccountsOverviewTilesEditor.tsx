@@ -17,6 +17,8 @@ import {
     AccountsOverviewTile,
     AccountsOverviewTileMetric,
     AccountsOverviewTileMetricType,
+    isColumnAggregateMetric,
+    scaleSuffix,
 } from './accountsOverviewTilesLogic'
 import {
     ACCOUNTS_OVERVIEW_THRESHOLD_OPERATORS,
@@ -28,6 +30,9 @@ const METRIC_TYPE_LABELS: Record<AccountsOverviewTileMetricType, string> = {
     count: 'Count of accounts',
     sum: 'Sum of column',
     avg: 'Average of column',
+    min: 'Minimum of column',
+    max: 'Maximum of column',
+    median: 'Median of column',
     count_threshold: 'Count above/below threshold',
 }
 
@@ -35,16 +40,22 @@ function fallbackColumn(options: AccountColumnOption[]): AccountColumnOption | n
     return options[0] ?? null
 }
 
+const COLUMN_AGGREGATE_LABEL_PREFIX: Record<'sum' | 'avg' | 'min' | 'max' | 'median', string> = {
+    sum: 'Total',
+    avg: 'Average',
+    min: 'Min',
+    max: 'Max',
+    median: 'Median',
+}
+
 function defaultLabelForMetric(metric: AccountsOverviewTileMetric): string {
     switch (metric.type) {
         case 'count':
             return 'Accounts'
-        case 'sum':
-            return `Total ${metric.columnLabel}`
-        case 'avg':
-            return `Average ${metric.columnLabel}`
         case 'count_threshold':
             return `Accounts ${metric.operator} ${metric.value}`
+        default:
+            return `${COLUMN_AGGREGATE_LABEL_PREFIX[metric.type]} ${metric.columnLabel}${scaleSuffix(metric.scale)}`
     }
 }
 
@@ -78,7 +89,9 @@ function metricOfType(
             value: previous.type === 'count_threshold' ? previous.value : 0,
         }
     }
-    return { type, columnExpression, columnLabel }
+    // Preserve the scale multiplier when switching between column aggregations.
+    const scale = isColumnAggregateMetric(previous) ? previous.scale : undefined
+    return { type, columnExpression, columnLabel, scale }
 }
 
 export function AccountsOverviewTilesEditor({
@@ -233,6 +246,20 @@ function TileEditorRow({ tile, numericColumns, onChange, onRemove }: TileEditorR
         })
     }
 
+    // Clearing the input (valueAsNumber → NaN) drops the multiplier back to a no-op.
+    const onScaleChange = (value: number | undefined): void => {
+        if (!isColumnAggregateMetric(tile.metric)) {
+            return
+        }
+        const scale = value === undefined || !Number.isFinite(value) ? undefined : value
+        const previousLabelLooksAuto = tile.label === defaultLabelForMetric(tile.metric)
+        const nextMetric: AccountsOverviewTileMetric = { ...tile.metric, scale }
+        onChange({
+            label: previousLabelLooksAuto ? defaultLabelForMetric(nextMetric) : tile.label,
+            metric: nextMetric,
+        })
+    }
+
     return (
         <div
             ref={setNodeRef}
@@ -307,6 +334,22 @@ function TileEditorRow({ tile, numericColumns, onChange, onRemove }: TileEditorR
                                 data-attr={`accounts-overview-tile-threshold-${tile.id}`}
                             />
                         </>
+                    ) : null}
+                    {isColumnAggregateMetric(tile.metric) ? (
+                        <Tooltip title="Multiply the result, e.g. × 12 to annualize a monthly value">
+                            <div className="flex items-center gap-1">
+                                <span className="text-secondary text-sm">×</span>
+                                <LemonInput
+                                    type="number"
+                                    size="small"
+                                    className="w-20"
+                                    value={tile.metric.scale}
+                                    onChange={onScaleChange}
+                                    placeholder="1"
+                                    data-attr={`accounts-overview-tile-scale-${tile.id}`}
+                                />
+                            </div>
+                        </Tooltip>
                     ) : null}
                 </div>
             </div>

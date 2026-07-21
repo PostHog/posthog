@@ -35,10 +35,15 @@ import {
     NUMERIC_FIELD_TYPES,
 } from './constants'
 
+// Single-column scalar aggregations whose metric-type name is also the HogQL
+// aggregate function name (see tileMetricExpression). They share one shape and
+// support an optional `scale` multiplier, e.g. sum(mrr) * 12 to annualize.
+export const COLUMN_AGGREGATE_TYPES = ['sum', 'avg', 'min', 'max', 'median'] as const
+export type ColumnAggregateType = (typeof COLUMN_AGGREGATE_TYPES)[number]
+
 export type AccountsOverviewTileMetric =
     | { type: 'count' }
-    | { type: 'sum'; columnExpression: string; columnLabel: string }
-    | { type: 'avg'; columnExpression: string; columnLabel: string }
+    | { type: ColumnAggregateType; columnExpression: string; columnLabel: string; scale?: number }
     | {
           type: 'count_threshold'
           columnExpression: string
@@ -48,6 +53,12 @@ export type AccountsOverviewTileMetric =
       }
 
 export type AccountsOverviewTileMetricType = AccountsOverviewTileMetric['type']
+
+export function isColumnAggregateMetric(
+    metric: AccountsOverviewTileMetric
+): metric is Extract<AccountsOverviewTileMetric, { type: ColumnAggregateType }> {
+    return (COLUMN_AGGREGATE_TYPES as readonly string[]).includes(metric.type)
+}
 
 export interface AccountsOverviewTile {
     id: string
@@ -93,23 +104,38 @@ export function numericColumnOptions(groups: AccountColumnGroup[]): AccountColum
         )
 }
 
+// A `scale` of undefined/1 (or anything non-finite) is a no-op; otherwise the
+// aggregation is multiplied by the literal. `scale` is always a finite number
+// from the editor's numeric input, so it is safe to inline into the HogQL.
+export function applyScale(expression: string, scale: number | undefined): string {
+    if (scale === undefined || !Number.isFinite(scale) || scale === 1) {
+        return expression
+    }
+    return `${expression} * ${scale}`
+}
+
+// Human-readable multiplier suffix for tile labels/captions (e.g. " × 12").
+// Empty when the scale is a no-op, mirroring applyScale's guard.
+export function scaleSuffix(scale: number | undefined): string {
+    return scale === undefined || !Number.isFinite(scale) || scale === 1 ? '' : ` × ${scale}`
+}
+
 export function tileMetricExpression(tile: AccountsOverviewTile): string {
     const { metric } = tile
     switch (metric.type) {
         case 'count':
             return 'count()'
-        case 'sum':
-            return `sum(${metric.columnExpression})`
-        case 'avg':
-            return `avg(${metric.columnExpression})`
         case 'count_threshold':
             return `countIf(${metric.columnExpression} ${metric.operator} ${metric.value})`
+        default:
+            // sum | avg | min | max | median: the metric type is the HogQL aggregate fn name.
+            return applyScale(`${metric.type}(${metric.columnExpression})`, metric.scale)
     }
 }
 
 // A tile only acts as a row-level predicate when it represents an
-// inherently row-level condition. `count_threshold` does; `count`/`sum`/`avg`
-// describe the whole set, not a subset.
+// inherently row-level condition. `count_threshold` does; `count` and the
+// column aggregations describe the whole set, not a subset.
 export function tileToRowFilter(tile: AccountsOverviewTile): string | null {
     if (tile.metric.type !== 'count_threshold') {
         return null
