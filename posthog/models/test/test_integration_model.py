@@ -540,6 +540,7 @@ class TestOauthIntegrationModel(BaseTest):
                 "refresh_token": "REFRESH",
             },
             timeout=10,
+            allow_redirects=False,
         )
 
         assert integration.config["expires_in"] == 1000
@@ -1020,6 +1021,47 @@ class TestOauthIntegrationModel(BaseTest):
 
         called_url = mock_post.call_args.args[0]
         assert called_url == f"{sandbox_instance_url}/services/oauth2/token"
+
+    @parameterized.expand(
+        [
+            ("attacker_https", "https://attacker.example.com"),
+            ("attacker_lookalike_suffix", "https://salesforce.com.attacker.example"),
+            ("attacker_lookalike_prefix", "https://acmesalesforce.com"),
+            ("http_scheme_downgrade", "http://acme.my.salesforce.com"),
+            ("with_userinfo", "https://user:pass@acme.my.salesforce.com"),
+            ("with_port", "https://acme.my.salesforce.com:8443"),
+            ("garbage_value", "not a url"),
+            ("empty_value", ""),
+        ]
+    )
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_salesforce_refresh_rejects_untrusted_instance_url(self, _name, bad_instance_url, mock_post, mock_reload):
+        # If a future write path (a partial_update action, an admin tool, a data migration)
+        # lets an attacker set instance_url, the refresh must not POST client_secret +
+        # refresh_token to that origin - the client_secret is fleet-wide and its leak forces
+        # rotation and reconnect for every Salesforce integration. Any instance_url that isn't
+        # an https .salesforce.com host falls back to the hardcoded prod token URL, and the
+        # refresh must not follow redirects that would move the secret to another host.
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "REFRESHED_ACCESS_TOKEN",
+            "expires_in": 3600,
+        }
+
+        integration = self.create_integration(
+            kind="salesforce",
+            config={"instance_url": bad_instance_url},
+        )
+
+        with self.settings(**self.mock_settings):
+            OauthIntegration(integration).refresh_access_token()
+
+        called_url = mock_post.call_args.args[0]
+        assert called_url == "https://login.salesforce.com/services/oauth2/token"
+
+        called_kwargs = mock_post.call_args.kwargs
+        assert called_kwargs["allow_redirects"] is False
 
     @patch("posthog.models.integration.reload_integrations_on_workers")
     @patch("posthog.models.integration.requests.post")
