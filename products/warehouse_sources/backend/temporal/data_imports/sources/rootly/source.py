@@ -23,7 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RootlySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rootly import RootlySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.rootly.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )

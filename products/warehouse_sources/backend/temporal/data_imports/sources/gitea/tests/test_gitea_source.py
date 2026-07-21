@@ -4,7 +4,7 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GiteaSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gitea import GiteaSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitea.gitea import GiteaResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitea.settings import (
     ENDPOINTS,

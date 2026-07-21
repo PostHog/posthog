@@ -27,7 +27,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AlphaVantageSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.alphavantage import (
+    AlphaVantageSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

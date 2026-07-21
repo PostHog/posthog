@@ -4,7 +4,9 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OnfleetSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.onfleet import (
+    OnfleetSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.onfleet.onfleet import OnfleetResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.onfleet.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.onfleet.source import OnfleetSource

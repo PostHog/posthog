@@ -29,7 +29,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RedshiftSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.redshift import (
+    RedshiftSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift import (
     RedshiftImplementation,
     get_connection_metadata as get_connection_metadata_redshift,

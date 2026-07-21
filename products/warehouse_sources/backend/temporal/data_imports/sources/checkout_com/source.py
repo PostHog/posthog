@@ -34,7 +34,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CheckoutComSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.checkoutcom import (
+    CheckoutComSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField, IncrementalFieldType
 
 _DISPUTES_INCREMENTAL_FIELDS: list[IncrementalField] = [

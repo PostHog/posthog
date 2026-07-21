@@ -30,7 +30,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.deepgram.s
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DeepgramSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.deepgram import (
+    DeepgramSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
