@@ -9,8 +9,6 @@ from django.utils import timezone
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
-from products.alerts.backend.destinations import soft_delete_alert_destinations_for_alerts
-from products.billing_alerts.backend.alert_destinations import BILLING_ALERT_EVENT_IDS
 from products.billing_alerts.backend.models import BillingAlertConfiguration
 
 
@@ -37,6 +35,9 @@ def rehome_billing_alerts_before_team_delete(
     table_name = BillingAlertConfiguration._meta.db_table
     if table_name not in connections[using].introspection.table_names():
         return
+
+    from products.alerts.backend.destinations import soft_delete_alert_destinations_for_alerts  # noqa: PLC0415
+    from products.billing_alerts.backend.alert_destinations import BILLING_ALERT_EVENT_IDS  # noqa: PLC0415
 
     deleting_team_ids = _deleting_team_ids(origin=origin, instance=instance, using=using)
     replacement_team_id = (

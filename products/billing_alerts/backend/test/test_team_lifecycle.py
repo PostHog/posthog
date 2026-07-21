@@ -69,7 +69,7 @@ class TestBillingAlertTeamLifecycle(BaseTest):
         )
 
         with patch(
-            "products.billing_alerts.backend.team_lifecycle.soft_delete_alert_destinations_for_alerts",
+            "products.alerts.backend.destinations.soft_delete_alert_destinations_for_alerts",
             wraps=shared_soft_delete_destinations,
         ) as soft_delete_destinations:
             self.team.delete()
