@@ -9,19 +9,22 @@
  * them sequentially or hand-rolls concurrency inside itself, reinventing the
  * `maxConcurrency` and retry machinery the pipeline already has.
  *
- * The `fanOutFanIn()` stage contains sub-element cardinality inside itself:
+ * The fan-out/fan-in stage contains sub-element cardinality inside itself.
+ * It is built in three staged calls — `.fanOut(fn).via(cb).fanIn(fn)` — and
+ * the type system enforces the sequence: an unclosed stage exposes nothing
+ * but the next call, so only `.fanIn()` yields a buildable pipeline.
  *
- * 1. **Fan-out**: a synchronous function splits each OK element into
+ * 1. **`.fanOut(fn)`**: a synchronous function splits each OK element into
  *    sub-elements. Zero sub-elements complete the element immediately.
- * 2. **Subpipeline**: the sub-elements flow through a regular chunk
+ * 2. **`.via(cb)`**: the sub-elements flow through a regular chunk
  *    subpipeline — `concurrently` with `maxConcurrency`, per-step `retry`,
  *    `concurrentlyPerGroup`, anything the builder offers. Sub-elements from
  *    different parents share the subpipeline, so one concurrency cap governs
  *    the whole stage.
- * 3. **Fan-in**: when all of a parent's sub-results are in, a synchronous
- *    function folds them back into the parent, which emits as a single OK
- *    result. Cardinality at the parent level is preserved: N parents in,
- *    N results out.
+ * 3. **`.fanIn(fn)`**: when all of a parent's sub-results are in, a
+ *    synchronous function folds them back into the parent, which emits as a
+ *    single OK result. Cardinality at the parent level is preserved:
+ *    N parents in, N results out.
  *
  * ## Semantics
  *
@@ -101,11 +104,9 @@ describe('Fan-Out / Fan-In', () => {
         }
 
         const pipeline = newChunkPipelineBuilder<EventWithAttachments, { message: Message }>()
-            .fanOutFanIn(
-                attachmentsFanOut,
-                (sub) => sub.concurrently((b) => b.pipe(createUploadStep()), { maxConcurrency: 2 }),
-                collectUrlsFanIn
-            )
+            .fanOut(attachmentsFanOut)
+            .via((sub) => sub.concurrently((b) => b.pipe(createUploadStep()), { maxConcurrency: 2 }))
+            .fanIn(collectUrlsFanIn)
             .build()
 
         pipeline.feed([
@@ -174,7 +175,9 @@ describe('Fan-Out / Fan-In', () => {
         }
 
         const pipeline = newChunkPipelineBuilder<Item, { message: Message }>()
-            .fanOutFanIn(partsFanOut, (sub) => sub.concurrently((b) => b.pipe(createValidatePartStep())), sumFanIn)
+            .fanOut(partsFanOut)
+            .via((sub) => sub.concurrently((b) => b.pipe(createValidatePartStep())))
+            .fanIn(sumFanIn)
             .build()
 
         pipeline.feed([

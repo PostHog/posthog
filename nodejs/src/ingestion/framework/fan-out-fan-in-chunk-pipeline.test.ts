@@ -2,6 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { createTestMessage } from '~/tests/helpers/kafka-message'
 
+import { ChunkPipelineBuilder } from './builders'
 import { ChunkPipeline } from './chunk-pipeline.interface'
 import { createNewChunkPipeline, createOkContext } from './helpers'
 import { PipelineResultWithContext, PipelineWarning } from './pipeline.interface'
@@ -65,7 +66,9 @@ function okValues<T, R extends string>(results: PipelineResultWithContext<T, { m
 describe('FanOutFanInChunkPipeline', () => {
     it('fans out, processes subs, and fans results back in with one result per parent', async () => {
         const pipeline = createNewChunkPipeline<Parent>()
-            .fanOutFanIn(splitSubs, (sub) => sub.concurrently((b) => b.pipe(doubleStep)), sumSubs)
+            .fanOut(splitSubs)
+            .via((sub) => sub.concurrently((b) => b.pipe(doubleStep)))
+            .fanIn(sumSubs)
             .build()
 
         feedParents(pipeline, [
@@ -99,7 +102,9 @@ describe('FanOutFanInChunkPipeline', () => {
 
         const pipeline = createNewChunkPipeline<Parent>()
             .pipeChunk(dlqBadParentsStep)
-            .fanOutFanIn(trackingFanOut, (sub) => sub.concurrently((b) => b.pipe(doubleStep)), sumSubs)
+            .fanOut(trackingFanOut)
+            .via((sub) => sub.concurrently((b) => b.pipe(doubleStep)))
+            .fanIn(sumSubs)
             .build()
 
         feedParents(pipeline, [
@@ -130,15 +135,14 @@ describe('FanOutFanInChunkPipeline', () => {
         // order (not fan-out order) drives parent emission — and each parent
         // must still collect exactly its own sub-results.
         const pipeline = createNewChunkPipeline<Parent>()
-            .fanOutFanIn(
-                splitSubs,
-                (sub) =>
-                    sub.concurrentlyPerGroup(
-                        (item) => item.parentId,
-                        (group) => group.sequentially((b) => b.pipe(gatedStep))
-                    ),
-                sumSubs
+            .fanOut(splitSubs)
+            .via((sub) =>
+                sub.concurrentlyPerGroup(
+                    (item) => item.parentId,
+                    (group) => group.sequentially((b) => b.pipe(gatedStep))
+                )
             )
+            .fanIn(sumSubs)
             .build()
 
         feedParents(pipeline, [
@@ -168,11 +172,9 @@ describe('FanOutFanInChunkPipeline', () => {
         }
 
         const pipeline = createNewChunkPipeline<Parent>()
-            .fanOutFanIn(
-                splitSubs,
-                (sub) => sub.concurrently((b) => b.pipe(trackingStep), { maxConcurrency: 2 }),
-                sumSubs
-            )
+            .fanOut(splitSubs)
+            .via((sub) => sub.concurrently((b) => b.pipe(trackingStep), { maxConcurrency: 2 }))
+            .fanIn(sumSubs)
             .build()
 
         feedParents(pipeline, [
@@ -202,11 +204,9 @@ describe('FanOutFanInChunkPipeline', () => {
         }
 
         const pipeline = createNewChunkPipeline<Parent>()
-            .fanOutFanIn(
-                splitSubs,
-                (sub) => sub.concurrently((b) => b.pipe(flakyStep, { retry: { tries: 3, sleepMs: 1 } })),
-                sumSubs
-            )
+            .fanOut(splitSubs)
+            .via((sub) => sub.concurrently((b) => b.pipe(flakyStep, { retry: { tries: 3, sleepMs: 1 } })))
+            .fanIn(sumSubs)
             .build()
 
         feedParents(pipeline, [{ id: 'a', subs: [7] }])
@@ -234,7 +234,9 @@ describe('FanOutFanInChunkPipeline', () => {
         }
 
         const pipeline = createNewChunkPipeline<Parent>()
-            .fanOutFanIn(splitSubs, (sub) => sub.pipeChunk(failFirstSubStep), sumSubs)
+            .fanOut(splitSubs)
+            .via((sub) => sub.pipeChunk(failFirstSubStep))
+            .fanIn(sumSubs)
             .build()
 
         feedParents(pipeline, [
@@ -268,7 +270,9 @@ describe('FanOutFanInChunkPipeline', () => {
 
         const pipeline = createNewChunkPipeline<Parent>()
             .pipeChunk(attachOuterEffectStep)
-            .fanOutFanIn(splitSubs, (sub) => sub.concurrently((b) => b.pipe(warningStep)), sumSubs)
+            .fanOut(splitSubs)
+            .via((sub) => sub.concurrently((b) => b.pipe(warningStep)))
+            .fanIn(sumSubs)
             .build()
 
         feedParents(pipeline, [{ id: 'a', subs: [1, 2] }])
@@ -294,42 +298,37 @@ describe('FanOutFanInChunkPipeline', () => {
             'fan-out function',
             () =>
                 createNewChunkPipeline<Parent>()
-                    .fanOutFanIn(
-                        function throwingFanOut(): SubItem[] {
-                            throw new Error('boom')
-                        },
-                        (sub) => sub.concurrently((b) => b.pipe(doubleStep)),
-                        sumSubs
-                    )
+                    .fanOut(function throwingFanOut(): SubItem[] {
+                        throw new Error('boom')
+                    })
+                    .via((sub) => sub.concurrently((b) => b.pipe(doubleStep)))
+                    .fanIn(sumSubs)
                     .build(),
         ],
         [
             'fan-in function',
             () =>
                 createNewChunkPipeline<Parent>()
-                    .fanOutFanIn(
-                        splitSubs,
-                        (sub) => sub.concurrently((b) => b.pipe(doubleStep)),
-                        function throwingFanIn(): Merged {
-                            throw new Error('boom')
-                        }
-                    )
+                    .fanOut(splitSubs)
+                    .via((sub) => sub.concurrently((b) => b.pipe(doubleStep)))
+                    .fanIn(function throwingFanIn(): Merged {
+                        throw new Error('boom')
+                    })
                     .build(),
         ],
         [
             'sub step',
             () =>
                 createNewChunkPipeline<Parent>()
-                    .fanOutFanIn(
-                        splitSubs,
-                        (sub) =>
-                            sub.concurrently((b) =>
-                                b.pipe(function throwingStep(): Promise<PipelineResult<SubItem>> {
-                                    return Promise.reject(new Error('boom'))
-                                })
-                            ),
-                        sumSubs
+                    .fanOut(splitSubs)
+                    .via((sub) =>
+                        sub.concurrently((b) =>
+                            b.pipe(function throwingStep(): Promise<PipelineResult<SubItem>> {
+                                return Promise.reject(new Error('boom'))
+                            })
+                        )
                     )
+                    .fanIn(sumSubs)
                     .build(),
         ],
     ])('poisons the stage permanently when the %s throws', async (_name, createPipeline) => {
@@ -351,15 +350,14 @@ describe('FanOutFanInChunkPipeline', () => {
         }
 
         const pipeline = createNewChunkPipeline<Parent>()
-            .fanOutFanIn(
-                splitSubs,
-                (sub) =>
-                    sub.concurrentlyPerGroup(
-                        (item) => item.parentId,
-                        (group) => group.sequentially((b) => b.pipe(gatedStep))
-                    ),
-                sumSubs
+            .fanOut(splitSubs)
+            .via((sub) =>
+                sub.concurrentlyPerGroup(
+                    (item) => item.parentId,
+                    (group) => group.sequentially((b) => b.pipe(gatedStep))
+                )
             )
+            .fanIn(sumSubs)
             .build()
 
         feedParents(pipeline, [{ id: 'parked', subs: [1] }])
@@ -376,3 +374,23 @@ describe('FanOutFanInChunkPipeline', () => {
         expect(okValues(second!)).toEqual([{ id: 'parked', total: 1 }])
     })
 })
+
+// Type-level assertions: the fanOut → via → fanIn sequence is enforced by the
+// type system — an unclosed stage exposes nothing but the next call, so there
+// is no way to build (or leak) a stage that was never closed with fanIn. If a
+// future edit widens the intermediate builders' surface, this stops compiling.
+// Never executed.
+function _stagedFanOutApiMustBeClosed(): void {
+    const staged = createNewChunkPipeline<Parent>().fanOut(splitSubs)
+    // @ts-expect-error fanIn is only available after via()
+    const _noEarlyFanIn = staged.fanIn
+    // @ts-expect-error an unclosed stage cannot be built
+    const _noFanOutBuild = staged.build
+    const routed = staged.via((sub) => sub.concurrently((b) => b.pipe(doubleStep)))
+    // @ts-expect-error only fanIn can close the stage
+    const _noFanInBuild = routed.build
+    // @ts-expect-error the subpipeline surface is not available on the stage
+    const _noPipeChunk = routed.pipeChunk
+    // @ts-expect-error an unclosed stage is not a ChunkPipelineBuilder
+    const _notABuilder: ChunkPipelineBuilder<Parent, SubItem, { message: Message }> = routed
+}
