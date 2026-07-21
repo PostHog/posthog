@@ -26,7 +26,7 @@ import {
 } from '@posthog/openapi-codegen'
 
 import { discoverDefinitions, resolveSchemaPath } from './lib/definitions.mjs'
-import { stripEnumMinLength, stripUuidFormat } from './lib/schema-transforms.mjs'
+import { stripEnumMinLength, stripUuidFormat, useJsonSchemaForUnconstrainedValues } from './lib/schema-transforms.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const mcpRoot = path.resolve(__dirname, '..')
@@ -186,7 +186,7 @@ function postprocessOrvalOutput(outputFile) {
         /^(export const \w+ =) (zod\.)/gm,
         '$1 /* @__PURE__ */ $2'
     )
-    fs.writeFileSync(outputFile, annotated)
+    fs.writeFileSync(outputFile, useJsonSchemaForUnconstrainedValues(annotated))
 }
 
 // ------------------------------------------------------------------
