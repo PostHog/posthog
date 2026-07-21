@@ -31,6 +31,9 @@ tools:
             destructive: false
             idempotent: false
         enrich_url: '{id}'
+        # The frontend parses the created entity's id/name out of the tool result for the
+        # "Open feature flag" toast — TOON text would defeat that parse.
+        output_format: json
         title: Create feature flag
         description: |
             Create a feature flag in the current project.

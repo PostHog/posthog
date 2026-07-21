@@ -124,6 +124,16 @@ export const ToolConfigSchema = z
          * two optional fields).
          */
         validators: z.array(z.string()).optional(),
+        /**
+         * Forces the tool's exec response encoding. `'json'` declares
+         * `_meta['com.posthog.mcp'].outputFormat = 'json'` on the generated tool, so exec `call`s
+         * return `JSON.stringify(result)` regardless of the caller's `--json` flag, instead of the
+         * default TOON text encoding. Set it on tools whose output is machine-consumed (e.g. a
+         * frontend parses the created entity's `id` out of the tool result); leave unset for tools
+         * whose output is only read by the LLM. Not combinable with `confirmed_action` (whose
+         * factories don't thread `_meta` through).
+         */
+        output_format: z.literal('json').optional(),
         /** References a key in ui_apps. */
         ui_app: z.string().optional(),
         /**

@@ -44,12 +44,14 @@ import {
     type WithInformationalResponse,
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import { POSTHOG_META_KEY } from '@/tools/types'
 
 const DashboardCreateSchema = DashboardsCreateQueryParams.omit({ format: true }).extend(DashboardsCreateBody.shape)
 
 const dashboardCreate = (): ToolBase<typeof DashboardCreateSchema, WithPostHogUrl<Schemas.Dashboard>> => ({
     name: 'dashboard-create',
     schema: DashboardCreateSchema,
+    _meta: { [POSTHOG_META_KEY]: { outputFormat: 'json' } },
     handler: async (context: Context, params: z.infer<typeof DashboardCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
