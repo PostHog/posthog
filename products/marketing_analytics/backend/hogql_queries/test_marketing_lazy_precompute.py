@@ -31,6 +31,9 @@ class TestMarketingLazyPrecompute(BaseTest):
         self.query = MarketingAnalyticsTableQuery(dateRange=DateRange(date_from="-7d"), properties=[])
         redis.get_client().delete(f"ma_swr_reval:{self.team.id}:{_query_shape_key(self.query)}")
         reset_query_tags()
+        # Flag on by default here; the flag's own behaviour is covered by test_flag_gates_serve_stale.
+        # Cached on the team instance, so it must be cleared between cases that mock it differently.
+        self.team._ma_serve_stale_flag = True  # type: ignore[attr-defined]
 
     def tearDown(self):
         reset_query_tags()
@@ -62,6 +65,34 @@ class TestMarketingLazyPrecompute(BaseTest):
             assert grace == STALE_WHILE_REVALIDATE_SECONDS
         else:
             assert grace is None, f"refresher {tags} must not be served stale"
+
+    @parameterized.expand([("flag_on", True, STALE_WHILE_REVALIDATE_SECONDS), ("flag_off", False, None)])
+    @mock.patch(f"{_MODULE}.ensure_precomputed")
+    @mock.patch(f"{_MODULE}.feature_enabled_or_false")
+    def test_flag_gates_serve_stale(self, _name, flag, expected_grace, flag_eval, mock_ensure):
+        # The kill switch. Off must hand the executor no grace at all, so the read materializes inline
+        # exactly as it did before serve-stale existed (and, getting no `stale`, enqueues no revalidation).
+        del self.team._ma_serve_stale_flag  # type: ignore[attr-defined]
+        flag_eval.return_value = flag
+        mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[])
+
+        marketing_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
+
+        assert mock_ensure.call_args.kwargs["stale_while_revalidate_seconds"] == expected_grace
+
+    @mock.patch(f"{_MODULE}.ensure_precomputed")
+    @mock.patch(f"{_MODULE}.feature_enabled_or_false")
+    def test_flag_is_evaluated_once_per_team_across_the_reads_ensures(self, flag_eval, mock_ensure):
+        # One load fires this several times (touchpoints, per-goal conversions, costs); each evaluation
+        # would otherwise be a flag call plus a $feature_flag_called event on the read path.
+        del self.team._ma_serve_stale_flag  # type: ignore[attr-defined]
+        flag_eval.return_value = True
+        mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[])
+
+        for _ in range(4):
+            marketing_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
+
+        assert flag_eval.call_count == 1
 
     @mock.patch(_DELAY)
     def test_handle_stale_served_tags_read_and_debounces_same_shape(self, delay):

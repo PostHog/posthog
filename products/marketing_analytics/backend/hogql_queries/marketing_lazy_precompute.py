@@ -30,6 +30,7 @@ from prometheus_client import Counter
 from posthog import redis
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.models import Team
+from posthog.ph_client import feature_enabled_or_false
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
@@ -38,6 +39,12 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 from products.analytics_platform.backend.lazy_computation.stale_policy import resolve_stale_while_revalidate_seconds
 
 logger = structlog.get_logger(__name__)
+
+# Gates the whole mechanism, so it can be rolled out gradually and killed without a deploy. Off means a
+# read materializes inline exactly as it did before this existed — and with no grace the executor never
+# reports `stale`, so no revalidation is enqueued either. Fail-safe: `feature_enabled_or_false` returns
+# False if flag evaluation breaks, which degrades to that same pre-existing behaviour.
+SERVE_STALE_FLAG = "marketing-analytics-serve-stale"
 
 # The trigger the revalidation task runs under. Lives next to the trigger set so the two cannot drift.
 REVALIDATION_TRIGGER = "marketingAnalyticsStaleRevalidation"
@@ -86,16 +93,42 @@ MARKETING_PRECOMPUTE_REVALIDATION_ENQUEUE_FAILED = Counter(
 )
 
 
+def serve_stale_enabled(team: Team) -> bool:
+    """Whether this team may be served stale precomputes, cached on the team instance.
+
+    A single dashboard load calls the ensures several times (touchpoints, per-goal conversions, costs,
+    plus a previous-period runner when comparing), so caching here keeps it to one evaluation per load
+    without leaking across requests — a fresh team is loaded per request. Mirrors the caching the
+    precompute flags already do in `MarketingAnalyticsConfig`.
+
+    Test authors: the cache lives on `team._ma_serve_stale_flag`; clear it if you reuse a team across
+    cases with different flag mocks.
+    """
+    cached = getattr(team, "_ma_serve_stale_flag", None)
+    if cached is not None:
+        return cached
+    enabled = feature_enabled_or_false(
+        SERVE_STALE_FLAG,
+        str(team.uuid),
+        groups={"organization": str(team.organization.id)},
+        group_properties={"organization": {"id": str(team.organization.id)}},
+    )
+    team._ma_serve_stale_flag = enabled  # type: ignore[attr-defined]
+    return enabled
+
+
 def marketing_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputationResult:
     """`ensure_precomputed` for the marketing read path, with the product's serve-stale policy applied.
 
-    User-facing calls get the grace; refreshers get none. Every read-path ensure (touchpoints,
-    conversions, costs) must go through here — one left on the raw call still blocks the request thread
-    on a stale window, which is the whole problem.
+    User-facing calls get the grace; refreshers get none, and so does everyone when the flag is off. Every
+    read-path ensure (touchpoints, conversions, costs) must go through here — one left on the raw call
+    still blocks the request thread on a stale window, which is the whole problem.
     """
     if "stale_while_revalidate_seconds" not in kwargs:
-        kwargs["stale_while_revalidate_seconds"] = resolve_stale_while_revalidate_seconds(
-            STALE_WHILE_REVALIDATE_SECONDS, BACKGROUND_WARMING_TRIGGERS
+        kwargs["stale_while_revalidate_seconds"] = (
+            resolve_stale_while_revalidate_seconds(STALE_WHILE_REVALIDATE_SECONDS, BACKGROUND_WARMING_TRIGGERS)
+            if serve_stale_enabled(team)
+            else None
         )
     return ensure_precomputed(team=team, **kwargs)
 
