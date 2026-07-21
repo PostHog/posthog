@@ -24617,7 +24617,8 @@
                 "Sleekplan",
                 "Tally",
                 "Nuntly",
-                "FusionAuth"
+                "FusionAuth",
+                "Vturb"
             ],
             "type": "string"
         },

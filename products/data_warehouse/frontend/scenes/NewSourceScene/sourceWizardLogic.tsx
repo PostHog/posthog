@@ -1357,6 +1357,7 @@ export interface sourceWizardLogicActions {
             | 'Vespa'
             | 'VismaEconomic'
             | 'Vitally'
+            | 'Vturb'
             | 'Vultr'
             | 'VWO'
             | 'Waiteraid'

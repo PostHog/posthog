@@ -7825,6 +7825,7 @@ export const externalDataSources = [
     'Tally',
     'Nuntly',
     'FusionAuth',
+    'Vturb',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
