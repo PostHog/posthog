@@ -1,4 +1,4 @@
-import { EncryptedFields } from '~/cdp/utils/encryption-utils'
+import { EncryptedFields } from '~/common/utils/encryption-utils'
 import { logger } from '~/common/utils/logger'
 import { fetch } from '~/common/utils/request'
 import { RedisPool } from '~/types'

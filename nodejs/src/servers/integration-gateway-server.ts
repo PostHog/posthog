@@ -1,7 +1,7 @@
-import { EncryptedFields } from '~/cdp/utils/encryption-utils'
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
+import { EncryptedFields } from '~/common/utils/encryption-utils'
 import { logger } from '~/common/utils/logger'
 import { GatewayAuth } from '~/integration-gateway/auth'
 import { CredentialCache } from '~/integration-gateway/cache'

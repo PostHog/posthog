@@ -3,9 +3,9 @@ import supertest from 'supertest'
 import express from 'ultimate-express'
 
 import { insertIntegration } from '~/cdp/_tests/fixtures'
-import { EncryptedFields } from '~/cdp/utils/encryption-utils'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
+import { EncryptedFields } from '~/common/utils/encryption-utils'
 import { createTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub } from '~/types'
 

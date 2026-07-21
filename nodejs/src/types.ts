@@ -23,7 +23,7 @@ import type {
     KafkaWarpstreamIngestionProducerEnvConfig,
 } from './cdp/outputs/producers'
 import { IntegrationManagerService } from './cdp/services/managers/integration-manager.service'
-import { EncryptedFields } from './cdp/utils/encryption-utils'
+import { EncryptedFields } from '~/common/utils/encryption-utils'
 import type { CommonConfig } from './common/config'
 
 export type { Element } from '~/plugin-scaffold' // Re-export Element from scaffolding, for backwards compat.

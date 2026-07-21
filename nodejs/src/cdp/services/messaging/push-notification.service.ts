@@ -8,12 +8,12 @@ import {
 } from '~/cdp/schema/cyclotron'
 import { RedisV2 } from '~/common/redis/redis-v2'
 import { instrumented } from '~/common/tracing/tracing-utils'
+import { EncryptedFields } from '~/common/utils/encryption-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { FetchOptions, FetchResponse } from '~/common/utils/request'
 
 import type { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, IntegrationType } from '../../types'
 import { createAddLogFunction } from '../../utils'
-import { EncryptedFields } from '../../utils/encryption-utils'
 import { createInvocationResult } from '../../utils/invocation-utils'
 import { getDevicePushSubscriptionToken } from '../../utils/push-subscription-utils'
 import { IntegrationManagerService } from '../managers/integration-manager.service'

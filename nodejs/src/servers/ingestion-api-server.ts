@@ -17,6 +17,7 @@ import { PersonHogConfig, buildGroupRepository, buildPersonRepository, createPer
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
+import { EncryptedFields } from '~/common/utils/encryption-utils'
 import { EventIngestionRestrictionManagerComponent } from '~/common/utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
 import { GeoIPService } from '~/common/utils/geoip'
@@ -59,7 +60,6 @@ import {
     HogTransformerServiceDeps,
     createHogTransformerService,
 } from '../cdp/hog-transformations/hog-transformer.service'
-import { EncryptedFields } from '../cdp/utils/encryption-utils'
 import { CommonConfig } from '../common/config'
 import { FeedOrderSentinel } from '../ingestion/api/feed-order-sentinel'
 import { deserializeKafkaMessage } from '../ingestion/api/kafka-message-converter'

@@ -1,7 +1,7 @@
 import crypto from 'crypto'
 import { Fernet } from 'fernet-nodejs'
 
-import { EncryptedFields } from './encryption-utils'
+import { EncryptedFields } from '~/common/utils/encryption-utils'
 
 describe('Encrypted fields', () => {
     jest.setTimeout(1000)
