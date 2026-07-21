@@ -369,7 +369,6 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
     # These models use a plain organization_id and keep Team only as a delivery context.
     # Classify them as organization-scoped so the IDOR Semgrep rules cover their lookups.
     organization_scoped_by_id = {
-        "BillingAlertConfiguration",
         "BillingAlertEvaluationClaim",
         "BillingAlertEvent",
     }

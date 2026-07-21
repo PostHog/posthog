@@ -28,7 +28,15 @@ class Migration(migrations.Migration):
                         serialize=False,
                     ),
                 ),
-                ("organization_id", models.UUIDField(db_index=True)),
+                (
+                    "organization",
+                    models.ForeignKey(
+                        db_constraint=False,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="+",
+                        to="posthog.organization",
+                    ),
+                ),
                 (
                     "team",
                     models.ForeignKey(
@@ -98,9 +106,9 @@ class Migration(migrations.Migration):
             options={
                 "db_table": "billing_alerts_configuration",
                 "indexes": [
-                    models.Index(fields=["organization_id", "-created_at"], name="billing_alert_org_created_idx"),
+                    models.Index(fields=["organization", "-created_at"], name="billing_alert_org_created_idx"),
                     models.Index(fields=["enabled", "next_check_at"], name="billing_alert_scheduler_idx"),
-                    models.Index(fields=["organization_id", "enabled", "state"], name="billing_alert_org_state_idx"),
+                    models.Index(fields=["organization", "enabled", "state"], name="billing_alert_org_state_idx"),
                 ],
                 "constraints": [
                     models.CheckConstraint(
