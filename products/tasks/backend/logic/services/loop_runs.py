@@ -312,9 +312,21 @@ def _fire_loop_committed(loop: Loop, trigger: LoopTrigger | None, fire_key: str,
         # owner's credentials (see loop_lifecycle._pause_loop_and_cancel_runs).
         # `for_team`: fire_loop runs outside request/team scope (Temporal workflow, webhook), so the
         # fail-closed default manager would raise without ambient team context.
-        locked_loop = Loop.objects.for_team(loop.team_id, canonical=True).select_for_update().filter(pk=loop.id).first()
+        locked_loop = (
+            Loop.objects.for_team(loop.team_id, canonical=True)
+            .select_related("created_by")
+            .select_for_update(of=("self",))
+            .filter(pk=loop.id)
+            .first()
+        )
         if locked_loop is None or not locked_loop.enabled or locked_loop.deleted:
             return _FireDecision(reason="disabled", created=False, is_replay=False)
+        # Re-check the owner's active state here, under the loop lock and freshly read, not just at
+        # the pre-lock check in `fire_loop`: a deactivation that commits `is_active=False` between
+        # that check and this transaction would otherwise let the fire create a run (and, post-commit,
+        # mint an OAuth token) for the now-deactivated owner before lifecycle cancellation lands.
+        if locked_loop.created_by_id is None or not locked_loop.created_by.is_active:
+            return _FireDecision(reason="owner_inactive", created=False, is_replay=False)
         loop = locked_loop
 
         existing = _existing_fire(loop, trigger, fire_key)
