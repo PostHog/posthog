@@ -216,24 +216,20 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
                             ? { disabledReason: 'Already scanned' }
                             : true,
                     renderActions: ({ selectedKeys, selectedCount, clearSelection }) => (
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.SessionRecording}
-                            minAccessLevel={AccessControlLevel.Editor}
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            icon={<IconPlay />}
+                            loading={bulkScanning}
+                            disabledReason={editDisabledReason}
+                            onClick={() => {
+                                startBulkScan(selectedKeys as string[])
+                                clearSelection()
+                            }}
+                            data-attr="vision-run-bulk-scan"
                         >
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                icon={<IconPlay />}
-                                loading={bulkScanning}
-                                onClick={() => {
-                                    startBulkScan(selectedKeys as string[])
-                                    clearSelection()
-                                }}
-                                data-attr="vision-run-bulk-scan"
-                            >
-                                Scan {selectedCount} selected
-                            </LemonButton>
-                        </AccessControlAction>
+                            Scan {selectedCount} selected
+                        </LemonButton>
                     ),
                 }}
             />

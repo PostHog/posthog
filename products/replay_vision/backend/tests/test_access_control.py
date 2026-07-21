@@ -1,3 +1,5 @@
+from unittest.mock import MagicMock, patch
+
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, PersonalAPIKey, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -122,6 +124,28 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
             f"{self.scanners_url}{scanner.id}/access_controls/", HTTP_AUTHORIZATION=f"Bearer {ac_key}"
         )
         self.assertEqual(allowed.status_code, 200, allowed.json())
+
+    @patch("products.replay_vision.backend.api.trigger.sync_connect")
+    @patch("products.replay_vision.backend.api.trigger.async_to_sync")
+    def test_bulk_observe_requires_replay_scanner_editor_level(
+        self, mock_async_to_sync: MagicMock, mock_sync_connect: MagicMock
+    ) -> None:
+        # bulk_observe is a newer write action alongside observe/create/update/destroy — this guards
+        # against it silently losing RBAC coverage (e.g. an incomplete scope_object_write_actions entry)
+        # the way observe's object-level check protects that action.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+        scanner = self._create_scanner()
+        self._set_resource_default("replay_scanner", "viewer")
+        bulk_url = f"{self.scanners_url}{scanner.id}/bulk_observe/"
+
+        self.client.force_login(self.other_user)
+        denied = self.client.post(bulk_url, data={"session_ids": ["s1"]}, format="json")
+        self.assertEqual(denied.status_code, 403, denied.json())
+
+        self._grant_object_access(self.other_user, "replay_scanner", str(scanner.id), "editor")
+        allowed = self.client.post(bulk_url, data={"session_ids": ["s1"]}, format="json")
+        self.assertEqual(allowed.status_code, 202, allowed.json())
 
     def test_estimate_treats_denied_scanner_as_not_found(self) -> None:
         # A scanner_id the caller can't view must be rejected the same way as one that doesn't exist —
