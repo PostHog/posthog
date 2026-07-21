@@ -230,7 +230,7 @@ class TestValidateCredentials:
     def test_invalid_site_id_400_does_not_leak_raw_envelope(self) -> None:
         # A malformed Site ID gets a 400 with Webflow's raw "Validation Error: ..." envelope, which
         # must not surface to the user.
-        with patch(TRANSPORT) as MockSession:
+        with patch(WEBFLOW_SESSION_PATCH) as MockSession:
             MockSession.return_value.get.return_value = _make_response(
                 {"message": "Validation Error: Provided IDs are invalid: Site ID"}, status_code=400
             )
