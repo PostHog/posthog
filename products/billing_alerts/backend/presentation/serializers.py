@@ -48,7 +48,7 @@ class BillingAlertEventSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text="Event kind for a check, state transition, or delivery-worthy alert event.",
     )
-    source = serializers.ChoiceField(
+    source = serializers.ChoiceField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
         choices=BillingAlertEvent.Source.choices,
         read_only=True,
         help_text="Whether this evaluation was scheduled or manually requested.",

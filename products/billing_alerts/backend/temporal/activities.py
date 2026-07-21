@@ -24,6 +24,7 @@ from products.billing_alerts.backend.logic.notifications import (
 from products.billing_alerts.backend.logic.state_machine import (
     BillingAlertAlreadyEvaluated,
     BillingAlertEvaluationInProgress,
+    next_billing_alert_check_at,
 )
 from products.billing_alerts.backend.models import BillingAlertConfiguration
 from products.billing_alerts.backend.temporal.types import BillingAlertInfo, EvaluateBillingAlertBatchActivityInputs
@@ -49,6 +50,23 @@ def _group_key(alert: BillingAlertConfiguration) -> tuple[Any, ...]:
         alert.baseline_window_days,
         alert.evaluation_delay_hours,
     )
+
+
+def _reschedule_completed_alert(alert: BillingAlertConfiguration, now: datetime) -> None:
+    next_check_at = next_billing_alert_check_at(alert, now)
+    updated = (
+        BillingAlertConfiguration.objects.filter(
+            id=alert.id,
+            organization_id=alert.organization_id,
+            configuration_revision=alert.configuration_revision,
+        )
+        .filter(Q(next_check_at__lte=now) | Q(next_check_at__isnull=True))
+        .update(next_check_at=next_check_at, pending_evaluation_date=None, retry_attempt_count=0, updated_at=now)
+    )
+    if updated:
+        alert.next_check_at = next_check_at
+        alert.pending_evaluation_date = None
+        alert.retry_attempt_count = 0
 
 
 def _record_group_failure(
@@ -81,7 +99,10 @@ def _record_group_failure(
                     failure_reason=reason,
                 )
             )
-        except (BillingAlertAlreadyEvaluated, BillingAlertEvaluationInProgress):
+        except BillingAlertAlreadyEvaluated:
+            _reschedule_completed_alert(alert, now)
+            continue
+        except BillingAlertEvaluationInProgress:
             continue
         except Exception as dispatch_error:
             capture_exception(dispatch_error, {"alert_id": str(alert.id), "feature": "billing_alerts"})
@@ -144,7 +165,10 @@ def _evaluate_billing_alerts(
                         query_duration_ms=query_duration_ms,
                     )
                 )
-            except (BillingAlertAlreadyEvaluated, BillingAlertEvaluationInProgress):
+            except BillingAlertAlreadyEvaluated:
+                _reschedule_completed_alert(alert, now)
+                continue
+            except BillingAlertEvaluationInProgress:
                 continue
             except Exception as dispatch_error:
                 capture_exception(dispatch_error, {"alert_id": str(alert.id), "feature": "billing_alerts"})
