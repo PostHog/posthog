@@ -158,7 +158,7 @@ Write a scratchpad entry whenever you observe something a future run should know
 
 - key `pattern:conversations:baseline` — _"Normal shape: SLA breach ~15–20% of active-SLA replies, first-response p50 ~60min / p90 ~30h, daily inflow ~50 tickets slightly above resolution, channel mix email > slack > widget ≫ teams. Weekends dip. Score against this."_
 - key `dedupe:conversations:sla-breach-2026-07-17` — _"2026-07-17: breach share hit 27% (baseline ~18%) over 44 active-SLA replies, concentrated on email. If still elevated next run, edit the report; if back to baseline, treat as surfaced."_
-- key `noise:conversations:widget-events` — _"The plural `$conversations_*` events (`$conversations_loaded`, `$conversations_widget_loaded`) are UI/widget telemetry, NOT ticket lifecycle — never mix them into operational metrics."_
+- key `noise:conversations:widget-events` — "The plural `$conversations_`-prefixed events (`$conversations_loaded`, `$conversations_widget_loaded`) are UI/widget telemetry, NOT ticket lifecycle — never mix them into operational metrics."
 - key `report:conversations:sla-breach` — the `report_id` of the SLA-breach report you authored, so the next run edits it instead of duplicating.
 - key `reviewer:conversations:support` — the resolved owner (bare lowercase GitHub login) for the support/inbox area.
 
