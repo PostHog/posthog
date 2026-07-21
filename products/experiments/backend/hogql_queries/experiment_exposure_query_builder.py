@@ -351,8 +351,11 @@ class ExposureQueryBuilder:
         )
         assert isinstance(query, ast.SelectQuery)
 
-        # Filter out users whose conversion window hasn't elapsed yet
-        maturity_having = self._maturity_having(timestamp_expr="t.last_exposure_time")
+        # Filter out users whose conversion window hasn't elapsed yet.
+        # Anchor on first exposure so maturity means "the conversion window since
+        # the user entered the experiment has elapsed", not "the user stopped
+        # being exposed a full window ago".
+        maturity_having = self._maturity_having(timestamp_expr="t.first_exposure_time")
         if maturity_having is not None:
             if query.having is None:
                 query.having = maturity_having

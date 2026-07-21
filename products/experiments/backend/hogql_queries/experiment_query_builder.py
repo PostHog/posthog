@@ -243,6 +243,12 @@ class ExperimentQueryBuilder:
         Returns a HAVING clause expression to filter out users whose conversion window
         hasn't elapsed yet, or None if the feature is not enabled.
 
+        Anchored on each user's first exposure (min of the timestamp expr) so that
+        maturity means "the conversion window since the user entered the experiment
+        has elapsed". Anchoring on the last exposure would instead select users who
+        stopped being exposed a full window ago, badly undercounting conversions for
+        flags that re-evaluate frequently.
+
         Retention metrics handle maturity separately in their own start_events CTE
         via _build_retention_maturity_having_clause; this function intentionally
         returns None for them.
@@ -260,7 +266,7 @@ class ExperimentQueryBuilder:
 
         now = timezone.now().strftime("%Y-%m-%d %H:%M:%S")
         return parse_expr(
-            f"max({timestamp_expr}) + toIntervalSecond({{maturity_seconds}}) <= toDateTime({{now}}, 'UTC')",
+            f"min({timestamp_expr}) + toIntervalSecond({{maturity_seconds}}) <= toDateTime({{now}}, 'UTC')",
             placeholders={
                 "maturity_seconds": ast.Constant(value=maturity_seconds),
                 "now": ast.Constant(value=now),
@@ -789,8 +795,9 @@ class ExperimentQueryBuilder:
     def _build_maturity_having_clause_optimized(self) -> Optional[ast.Expr]:
         """
         Maturity HAVING clause for the optimized path.
-        Uses maxIf to only consider exposure events (step_0 = 1) for maturity,
-        since entity_metrics groups over all events, not just exposures.
+        Uses minIf to anchor maturity on each entity's first exposure event
+        (step_0 = 1), since entity_metrics groups over all events, not just
+        exposures.
         """
         return self._funnel_query_builder().build_maturity_having_clause_optimized()
 

@@ -397,7 +397,7 @@ class FunnelQueryBuilder:
                 base_events_cte.expr.select.extend(step_columns)
 
         # Inject maturity HAVING clause into entity_metrics CTE
-        # Use maxIf to only consider exposure events for maturity
+        # Use minIf to anchor maturity on each entity's first exposure event
         maturity_having = self.build_maturity_having_clause_optimized()
         if maturity_having is not None:
             if query.ctes and "entity_metrics" in query.ctes:
@@ -937,8 +937,12 @@ class FunnelQueryBuilder:
     def build_maturity_having_clause_optimized(self) -> Optional[ast.Expr]:
         """
         Maturity HAVING clause for the optimized path.
-        Uses maxIf to only consider exposure events (step_0 = 1) for maturity,
-        since entity_metrics groups over all events, not just exposures.
+        Uses minIf to anchor maturity on each entity's first exposure event
+        (step_0 = 1), since entity_metrics groups over all events, not just
+        exposures. Anchoring on the first exposure is what makes maturity mean
+        "the conversion window since the user entered the experiment has
+        elapsed"; anchoring on the last exposure would instead select users who
+        stopped being exposed a full window ago (i.e. churned users).
         """
         if self._b.metric is None:
             return None
@@ -951,7 +955,7 @@ class FunnelQueryBuilder:
 
         now = timezone.now().strftime("%Y-%m-%d %H:%M:%S")
         return parse_expr(
-            "maxIf(timestamp, step_0 = 1) + toIntervalSecond({maturity_seconds}) <= toDateTime({now}, 'UTC')",
+            "minIf(timestamp, step_0 = 1) + toIntervalSecond({maturity_seconds}) <= toDateTime({now}, 'UTC')",
             placeholders={
                 "maturity_seconds": ast.Constant(value=maturity_seconds),
                 "now": ast.Constant(value=now),
