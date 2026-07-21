@@ -345,6 +345,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         AI_BLOB_S3_SECRET_ACCESS_KEY: '',
         AI_BLOB_S3_TIMEOUT_MS: 30000,
         AI_BLOB_OFFLOAD_TEAMS: '',
+        // Keep the floor above base64-packed embedding vectors so logged embeddings stay inline as text.
         AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH: 20480,
         AI_BLOB_OFFLOAD_MAX_BLOBS_PER_EVENT: 50,
         AI_BLOB_OFFLOAD_TOUCH_AFTER_HOURS: 20,
