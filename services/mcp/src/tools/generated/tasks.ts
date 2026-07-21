@@ -23,60 +23,16 @@ import {
     TasksRunsSessionLogsRetrieveParams,
     TasksRunsSessionLogsRetrieveQueryParams,
 } from '@/generated/tasks/api'
-import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
-import {
-    executeConfirmedAction,
-    prepareConfirmedAction,
-    type PrepareConfirmedActionResult,
-} from '@/tools/confirmed-action-runtime'
 import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const LoopsCreateSchema = LoopsCreateBody
 
-const LoopsCreateSchemaExecute = z.strictObject({
-    confirmation_hash: z
-        .string()
-        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
-    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
-})
-
-const loopsCreatePrepare = (): ToolBase<typeof LoopsCreateSchema, PrepareConfirmedActionResult> => ({
-    name: 'loops-create-prepare',
+const loopsCreate = (): ToolBase<typeof LoopsCreateSchema, Schemas.LoopDTO> => ({
+    name: 'loops-create',
     schema: LoopsCreateSchema,
     handler: async (context: Context, params: z.infer<typeof LoopsCreateSchema>) => {
-        const __runtime = getConfirmedActionRuntime()
-        const __scopeProjectId = await context.stateManager.getProjectId()
-        return await prepareConfirmedAction(context, {
-            args: params,
-            purpose: 'loops-create',
-            actionLabel: 'create loop',
-            messageTemplate:
-                "About to create the loop '{name}', a persistent automation that will run unattended with your GitHub and connector access whenever its triggers fire. Reply 'confirm' to create it.\n",
-            codec: __runtime.codec,
-            boundScope: { projectId: String(__scopeProjectId) },
-        })
-    },
-})
-
-const loopsCreateExecute = (): ToolBase<typeof LoopsCreateSchemaExecute, Schemas.LoopDTO> => ({
-    name: 'loops-create-execute',
-    schema: LoopsCreateSchemaExecute,
-    handler: async (context: Context, confirmationParams: z.infer<typeof LoopsCreateSchemaExecute>) => {
-        const __runtime = getConfirmedActionRuntime()
-        const __scopeProjectId = await context.stateManager.getProjectId()
-        const __guard = await executeConfirmedAction<z.infer<typeof LoopsCreateSchema>>(context, {
-            incomingArgs: confirmationParams,
-            purpose: 'loops-create',
-            codec: __runtime.codec,
-            ledger: __runtime.ledger,
-            expectedScope: { projectId: String(__scopeProjectId) },
-        })
-        if (!__guard.ok) {
-            return __guard.result as never
-        }
-        const params = __guard.verifiedArgs
-        const projectId = __scopeProjectId
+        const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
             body['name'] = params.name
@@ -557,8 +513,7 @@ const tasksRunsSessionLogsRetrieve = (): ToolBase<typeof TasksRunsSessionLogsRet
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'loops-create-prepare': loopsCreatePrepare,
-    'loops-create-execute': loopsCreateExecute,
+    'loops-create': loopsCreate,
     'loops-destroy': loopsDestroy,
     'loops-list': loopsList,
     'loops-partial-update': loopsPartialUpdate,

@@ -6537,33 +6537,18 @@
             "readOnlyHint": true
         }
     },
-    "loops-create-execute": {
-        "description": "Step 2 of 2 for create loop. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Create a new loop: a named, cloud-executed agent automation that runs on a schedule, a GitHub event, or an authenticated API call. Set `instructions` (the prompt delivered to the agent on every run), `runtime_adapter`/`model`/`reasoning_effort`, `repositories` (at most 1, may be empty for a connector-only loop), `visibility` (`personal` or `team`), `behaviors` (PR creation, CI watch, auto-fix) and `triggers`.",
+    "loops-create": {
+        "description": "Create a new loop: a named, cloud-executed agent automation that runs on a schedule, a GitHub event, or an authenticated API call. Set `instructions` (the prompt delivered to the agent on every run), `runtime_adapter`/`model`/`reasoning_effort`, `repositories` (at most 1, may be empty for a connector-only loop), `visibility` (`personal` or `team`), `behaviors` (PR creation, CI watch, auto-fix) and `triggers`.",
         "category": "Tasks",
         "feature": "tasks",
-        "summary": "Create loop (execute)",
-        "title": "Create loop (execute)",
+        "summary": "Create loop",
+        "title": "Create loop",
         "required_scopes": ["loop:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "loops"
-    },
-    "loops-create-prepare": {
-        "description": "Step 1 of 2 for create loop. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Create a new loop: a named, cloud-executed agent automation that runs on a schedule, a GitHub event, or an authenticated API call. Set `instructions` (the prompt delivered to the agent on every run), `runtime_adapter`/`model`/`reasoning_effort`, `repositories` (at most 1, may be empty for a connector-only loop), `visibility` (`personal` or `team`), `behaviors` (PR creation, CI watch, auto-fix) and `triggers`.",
-        "category": "Tasks",
-        "feature": "tasks",
-        "summary": "Create loop (prepare)",
-        "title": "Create loop (prepare)",
-        "required_scopes": ["loop:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
         },
         "feature_flag": "loops"
     },

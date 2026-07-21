@@ -34,11 +34,6 @@ tools:
             authenticated API call. Set `instructions` (the prompt delivered to the agent on every run),
             `runtime_adapter`/`model`/`reasoning_effort`, `repositories` (at most 1, may be empty for a connector-only
             loop), `visibility` (`personal` or `team`), `behaviors` (PR creation, CI watch, auto-fix) and `triggers`.
-        confirmed_action:
-            message: >
-                About to create the loop '{name}', a persistent automation that will run unattended with your GitHub
-                and connector access whenever its triggers fire. Reply 'confirm' to create it.
-            action_label: create loop
         feature_flag: loops
     loops-destroy:
         operation: loops_destroy
