@@ -1,6 +1,7 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -46,26 +47,28 @@ function ProductEmptyStateGateInner({ emptyState, children }: ProductEmptyStateG
     const setupLogic = productSetupStatusLogic({ productKey: config.productKey })
     const { status, skipped, showEmptyState, mode } = useValues(setupLogic)
     const { unskipEmptyState } = useActions(setupLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     if (skipped) {
         // Skip bypasses the screen, not detection: render the scene, plus a "Set up" reminder
-        // (via the SceneMenuBar) until data lands, so there's always a way back to setup.
+        // until data lands, so there's always a way back to setup.
         const needsSetup = status === 'needs-setup' || status === 'waiting-for-data'
+        const reminder = needsSetup ? (
+            <LemonBanner type="info" action={{ children: `Set up ${config.productName}`, onClick: unskipEmptyState }}>
+                {config.productName} isn't receiving data yet.
+            </LemonBanner>
+        ) : null
+        // With the menu bar on, the reminder renders just below the bar (the scene's
+        // SceneMenuBar consumes the context). With it off there is no consumer, so
+        // render the banner here - otherwise a skipped product has no way back.
+        if (featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]) {
+            return <SetupReminderContext.Provider value={reminder}>{children}</SetupReminderContext.Provider>
+        }
         return (
-            <SetupReminderContext.Provider
-                value={
-                    needsSetup ? (
-                        <LemonBanner
-                            type="info"
-                            action={{ children: `Set up ${config.productName}`, onClick: unskipEmptyState }}
-                        >
-                            {config.productName} isn't receiving data yet.
-                        </LemonBanner>
-                    ) : null
-                }
-            >
+            <>
+                {reminder ? <div className="mb-4">{reminder}</div> : null}
                 {children}
-            </SetupReminderContext.Provider>
+            </>
         )
     }
     if (status === 'loading') {
@@ -90,8 +93,7 @@ function ProductEmptyStateGateInner({ emptyState, children }: ProductEmptyStateG
 
 /**
  * Keeps the product header above the empty state, sourced from the scene's own
- * `SceneConfig` (name, description, iconType from the product manifest) — the
- * same definition the rest of the app uses, so nothing is duplicated here.
+ * `SceneConfig` (name, description, iconType from the product manifest).
  */
 function ProductSceneFrame({
     config,
