@@ -503,6 +503,7 @@ the row lists both.
 | statuscake                       | HTTP                        | requests                                                        | ✅                          |
 | statuspage                       | HTTP                        | requests                                                        | ✅                          |
 | stigg                            | HTTP                        | requests                                                        | ✅                          |
+| stockdata                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | stripe                           | HTTP (vendor SDK) + Webhook | stripe (StripeClient + RequestsClient) + `WebhookSourceManager` | ✅ (pull) / ➖ (webhook)    |
 | stytch                           | HTTP                        | requests                                                        | ✅                          |
 | sumo_logic                       | HTTP                        | requests                                                        | ✅                          |
@@ -940,7 +941,6 @@ doesn't conflict with concurrent PRs.
 - spotify_ads
 - spotlercrm
 - statsig
-- stockdata
 - strava
 - streamelements
 - streamlabs
