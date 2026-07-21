@@ -1,7 +1,7 @@
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from products.tasks.backend.exceptions import SandboxExecutionError
+from products.tasks.backend.exceptions import SandboxExecutionError, SandboxNotFoundError
 from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxConfig
 
@@ -60,3 +60,19 @@ def test_start_agent_server_launch_failure_is_captured(sandbox: DockerSandbox):
 
     # A genuine non-zero launch is a real fault — it still gets captured.
     capture_exception.assert_called_once()
+
+
+def test_get_by_id_missing_container_is_not_captured():
+    # `docker inspect` on a reaped/removed container exits non-zero. That's an expected
+    # sandbox-lifecycle condition, so get_by_id must raise SandboxNotFoundError without a
+    # subprocess cause — guarding against re-adding check=True (which would surface a raw
+    # CalledProcessError) or reattaching the cause (which would capture it to error tracking).
+    gone = MagicMock(stdout="", stderr="Error: No such object: gone", returncode=1)
+    with (
+        patch.object(DockerSandbox, "_run", return_value=gone),
+        patch("products.tasks.backend.exceptions.capture_exception") as capture_exception,
+        pytest.raises(SandboxNotFoundError),
+    ):
+        DockerSandbox.get_by_id("missing-sandbox-id")
+
+    capture_exception.assert_not_called()

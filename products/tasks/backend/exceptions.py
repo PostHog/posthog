@@ -68,9 +68,17 @@ class SandboxProvisionError(ProcessTaskTransientError):
 
 
 class SandboxNotFoundError(ProcessTaskFatalError):
-    """Sandbox does not exist."""
+    """Sandbox does not exist.
 
-    pass
+    Often an expected sandbox-lifecycle condition — the container was reaped, hit its
+    timeout, or was removed between provisioning and lookup — rather than a fault.
+    Callers that can legitimately race a reaped sandbox (e.g. cleanup_sandbox) treat
+    it as benign. Pass cause=None for those expected cases so the underlying subprocess
+    error isn't captured to error tracking and grouped as a scary failure.
+    """
+
+    def __init__(self, message: str, context: dict[str, Any], cause: Exception | None = None, **kwargs):
+        ProcessTaskError.__init__(self, message, context, cause, non_retryable=True, **kwargs)
 
 
 class SandboxExecutionError(ProcessTaskTransientError):
