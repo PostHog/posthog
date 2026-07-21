@@ -13,13 +13,17 @@ const NOTIFICATIONS_HANDLED_TOTAL: &str = "cymbal_notifications_handled_total";
 const NOTIFICATIONS_SKIPPED_TOTAL: &str = "cymbal_notifications_skipped_total";
 const NOTIFICATIONS_KAFKA_ERRORS_TOTAL: &str = "cymbal_notifications_kafka_errors_total";
 const NOTIFICATIONS_HANDLE_ERRORS_TOTAL: &str = "cymbal_notifications_handle_errors_total";
+const NOTIFICATIONS_OFFSET_STORE_ERRORS_TOTAL: &str = "cymbal_notifications_offset_store_errors_total";
 const NOTIFICATIONS_COMMIT_BATCH_SIZE: usize = 100;
 const NOTIFICATIONS_FETCH_BATCH_TIMEOUT: Duration = Duration::from_millis(250);
 
 /// Receive messages until shutdown. Offsets are stored only after successful
 /// handling, then explicitly committed after each fetched batch. Serde and empty
 /// failures are auto-stored as poison pills inside `json_recv_batch`, so this
-/// loop also explicitly commits those stored offsets.
+/// loop also explicitly commits those stored offsets. Storing an offset can fail
+/// transiently when a partition is revoked mid-rebalance (librdkafka reports
+/// "Erroneous state"); that is tolerated by leaving the offset uncommitted so the
+/// notification is redelivered, rather than crashing the consumer.
 pub async fn consume_loop(
     consumer: SingleTopicConsumer,
     context: NotificationsContext,
@@ -65,7 +69,15 @@ async fn handle_notification_batch(
                 ) {
                     Ok(Some(offset)) => offset,
                     Ok(None) => continue,
-                    Err(e) => panic!("failed to store invalid notification offset: {e}"),
+                    // Storing an offset can fail transiently (e.g. the partition was
+                    // revoked mid-rebalance, which librdkafka reports as "Erroneous
+                    // state"). That's not fatal: the offset stays uncommitted and the
+                    // notification is redelivered once the rebalance settles.
+                    Err(e) => {
+                        warn!(error = %e, "failed to store invalid notification offset (will retry)");
+                        metrics::counter!(NOTIFICATIONS_OFFSET_STORE_ERRORS_TOTAL).increment(1);
+                        continue;
+                    }
                 };
 
                 log_notification_summary(&notification);
@@ -74,10 +86,14 @@ async fn handle_notification_batch(
                     Ok(()) => {
                         metrics::counter!(NOTIFICATIONS_HANDLED_TOTAL).increment(1);
                         // `commit_consumer_state` only commits offsets explicitly stored on the consumer.
+                        // A store failure here is transient (see above) rather than fatal, so leave the
+                        // offset uncommitted and let the notification be redelivered.
                         if let Err(e) = offset.store() {
-                            panic!("failed to store notification offset: {e}");
+                            warn!(error = %e, "failed to store notification offset (will retry)");
+                            metrics::counter!(NOTIFICATIONS_OFFSET_STORE_ERRORS_TOTAL).increment(1);
+                        } else {
+                            *pending_offsets += 1;
                         }
-                        *pending_offsets += 1;
                     }
                     Err(e) => {
                         metrics::counter!(NOTIFICATIONS_HANDLE_ERRORS_TOTAL).increment(1);
