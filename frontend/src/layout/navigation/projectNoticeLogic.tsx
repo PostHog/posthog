@@ -246,7 +246,8 @@ export interface projectNoticeLogicMeta {
             noticeDismissedThisSession: boolean,
             activeSceneId: string | null,
             arg: number,
-            hasReverseProxy: boolean | null
+            hasReverseProxy: boolean | null,
+            isProvisionedUser: boolean
         ) => ProjectNoticeVariant | null
         projectNoticeDismissKey: (
             projectNoticeVariant: ProjectNoticeVariant | null,
