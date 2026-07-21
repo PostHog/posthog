@@ -19,6 +19,7 @@ from django.test.client import RequestFactory
 from django.utils.timezone import now
 
 from parameterized import parameterized
+from rest_framework import serializers
 from rest_framework.request import Request
 
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
@@ -1082,6 +1083,13 @@ class TestSharingOverrideProtection(TestCase):
 
         assert result == {"date_from": "-7d"}
 
+    @parameterized.expand([(["invalid"],), ("invalid",)])
+    def test_filters_override_rejects_non_dict_json(self, override):
+        request = self._make_request(None, query_params={"filters_override": json.dumps(override)})
+
+        with self.assertRaises(serializers.ValidationError):
+            filters_override_requested_by_client(request, None)
+
     @parameterized.expand(
         [
             ("access_token_auth",),
@@ -1153,6 +1161,13 @@ class TestSharingOverrideProtection(TestCase):
         result = tile_filters_override_requested_by_client(request, tile)
 
         assert result == {"breakdown": "region"}
+
+    @parameterized.expand([(["invalid"],), ("invalid",)])
+    def test_tile_filters_override_rejects_non_dict_json(self, override):
+        request = self._make_request(None, query_params={"tile_filters_override": json.dumps(override)})
+
+        with self.assertRaises(serializers.ValidationError):
+            tile_filters_override_requested_by_client(request, None)
 
     # The path-based /shared/<token> page load resolves the token from the URL, so no authenticator
     # runs and the successful_authenticator check is blind to it. is_shared must block overrides on

@@ -1759,6 +1759,8 @@ def filters_override_requested_by_client(
         request_filters = json.loads(raw_override)
     except Exception:
         raise serializers.ValidationError({"filters_override": "Invalid JSON passed in filters_override parameter"})
+    if not isinstance(request_filters, dict):
+        raise serializers.ValidationError({"filters_override": "Filters override must be a dictionary"})
 
     return {**dashboard_filters, **request_filters}
 
@@ -1827,6 +1829,8 @@ def tile_filters_override_requested_by_client(
         raise serializers.ValidationError(
             {"tile_filters_override": "Invalid JSON passed in tile_filters_override parameter"}
         )
+    if not isinstance(request_filters, dict):
+        raise serializers.ValidationError({"tile_filters_override": "Tile filters override must be a dictionary"})
 
     return {**tile_filters, **request_filters}
 

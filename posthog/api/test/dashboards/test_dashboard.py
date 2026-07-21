@@ -1,5 +1,6 @@
 import json
 import datetime
+from typing import Any
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
@@ -1646,13 +1647,27 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response["attr"], "use_template")
 
-    def test_use_template_ignores_non_dict_dashboard_filters(self) -> None:
+    @parameterized.expand(
+        [
+            ("non_dict", ["invalid"]),
+            (
+                "unsupported_group",
+                {
+                    "properties": {
+                        "type": "OR",
+                        "values": [{"key": "$browser", "value": "Chrome", "type": "event"}],
+                    }
+                },
+            ),
+        ]
+    )
+    def test_use_template_ignores_invalid_dashboard_filters(self, _name: str, dashboard_filters: Any) -> None:
         template = DashboardTemplate.objects.create(
             team=self.team,
             template_name="invalid-filters",
             scope="team",
             dashboard_description="",
-            dashboard_filters=["invalid"],
+            dashboard_filters=dashboard_filters,
             tiles=[],
         )
 
