@@ -61,7 +61,17 @@ const returnVariableValidationError = (returnVariable: string): string | null =>
     }
     const suggestion = returnVariable.replace(/[^A-Za-z0-9_]/g, '_').replace(/^(?=\d)/, '_')
     const hint = VALID_RETURN_VARIABLE.test(suggestion) ? ` Try ${suggestion}.` : ''
-    return `Use letters, numbers, and underscores. The name cannot start with a number.${hint}`
+    // Call out only the rule that was actually broken so a name like `people-df` isn't told it
+    // "can't start with a number" when the real problem is the hyphen.
+    const startsWithDigit = /^\d/.test(returnVariable)
+    const hasInvalidChars = /[^A-Za-z0-9_]/.test(returnVariable)
+    const reason =
+        startsWithDigit && hasInvalidChars
+            ? "Use letters, numbers, and underscores, and don't start with a number."
+            : startsWithDigit
+              ? "The name can't start with a number."
+              : 'Use letters, numbers, and underscores.'
+    return `${reason}${hint}`
 }
 
 const toDataframeResult = (result: NotebookNodeSQLV2Result): NotebookDataframeResult => {
