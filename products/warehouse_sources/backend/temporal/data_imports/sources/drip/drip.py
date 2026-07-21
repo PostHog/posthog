@@ -1,24 +1,21 @@
-import base64
 import dataclasses
-from collections.abc import Iterator
-from typing import Any
+from typing import Any, Optional
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import HttpBasicAuth
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.drip.settings import DRIP_ENDPOINTS
 
 DRIP_BASE_URL = "https://api.getdrip.com/v2"
-REQUEST_TIMEOUT_SECONDS = 60
-MAX_RETRY_ATTEMPTS = 5
-
-
-class DripRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
@@ -26,28 +23,63 @@ class DripResumeConfig:
     next_page: int
 
 
-def _auth_headers(api_token: str) -> dict[str, str]:
-    # Drip uses HTTP Basic auth with the API token as the username and an empty password.
-    token = base64.b64encode(f"{api_token}:".encode("ascii")).decode("ascii")
-    return {"Authorization": f"Basic {token}", "Accept": "application/json"}
+class DripPaginator(BasePaginator):
+    """Page-number pagination matching Drip's list endpoints.
 
+    Drip returns a ``meta.total_pages`` block on its paginated endpoints; when present it is
+    authoritative (fetch while ``page < total_pages``). For a paginated endpoint that omits ``meta``
+    we fall back to "a full page implies there may be more", and a non-paginated endpoint
+    (``per_page`` is None) always returns everything in a single response. The ``page`` param is sent
+    on every request (including the single request to non-paginated endpoints), mirroring the
+    original hand-rolled source exactly.
+    """
 
-def validate_credentials(api_token: str, account_id: str) -> tuple[bool, str | None]:
-    url = f"{DRIP_BASE_URL}/{account_id}/subscribers"
-    try:
-        response = make_tracked_session().get(
-            url, headers=_auth_headers(api_token), params={"per_page": 1}, timeout=REQUEST_TIMEOUT_SECONDS
-        )
-    except Exception:
-        return False, "Could not connect to the Drip API"
+    def __init__(self, per_page: Optional[int], page: int = 1) -> None:
+        super().__init__()
+        self.per_page = per_page
+        self.page = page
 
-    if response.status_code == 200:
-        return True, None
-    if response.status_code in (401, 403):
-        return False, "Invalid Drip API token"
-    if response.status_code == 404:
-        return False, "Drip account ID not found. Please check your account ID."
-    return False, f"Drip API returned an unexpected status ({response.status_code})"
+    def init_request(self, request: Request) -> None:
+        if request.params is None:
+            request.params = {}
+        request.params["page"] = self.page
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        items = data or []
+        try:
+            meta = response.json().get("meta") or {}
+        except Exception:
+            meta = {}
+        total_pages = meta.get("total_pages")
+
+        if total_pages is not None:
+            has_next = self.page < total_pages
+        elif self.per_page is not None:
+            # No meta block: a full page implies there may be more; a partial/empty page ends it.
+            has_next = len(items) >= self.per_page
+        else:
+            has_next = False
+
+        if has_next:
+            self.page += 1
+            self._has_next_page = True
+        else:
+            self._has_next_page = False
+
+    def update_request(self, request: Request) -> None:
+        if request.params is None:
+            request.params = {}
+        request.params["page"] = self.page
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        # self.page already points at the next page to fetch (update_state incremented it).
+        return {"next_page": self.page} if self._has_next_page else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        next_page = state.get("next_page")
+        if next_page is not None:
+            self.page = int(next_page)
+            self._has_next_page = True
 
 
 def _base_params(endpoint: str) -> dict[str, Any]:
@@ -62,93 +94,85 @@ def _base_params(endpoint: str) -> dict[str, Any]:
     return params
 
 
-def get_rows(
-    api_token: str,
-    account_id: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[DripResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    config = DRIP_ENDPOINTS[endpoint]
-    headers = _auth_headers(api_token)
-    base_params = _base_params(endpoint)
-    url = f"{DRIP_BASE_URL}/{account_id}{config.path}"
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    page = resume.next_page if resume else 1
-    if resume is not None:
-        logger.debug(f"Drip: resuming {endpoint} from page {page}")
-
-    @retry(
-        retry=retry_if_exception_type((DripRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
-        wait=wait_exponential_jitter(initial=1, max=30),
-        reraise=True,
-    )
-    def fetch_page(page_num: int) -> dict[str, Any]:
-        response = make_tracked_session().get(
-            url, headers=headers, params={**base_params, "page": page_num}, timeout=REQUEST_TIMEOUT_SECONDS
-        )
-
-        if response.status_code == 429 or response.status_code >= 500:
-            raise DripRetryableError(f"Drip API error (retryable): status={response.status_code}, url={url}")
-
-        if not response.ok:
-            logger.error(f"Drip API error: status={response.status_code}, body={response.text}, url={url}")
-            response.raise_for_status()
-
-        return response.json()
-
-    while True:
-        data = fetch_page(page)
-        items = data.get(config.data_key) or []
-
-        if items:
-            yield items
-
-        if not _has_next_page(data, items, config.per_page, page):
-            break
-
-        page += 1
-        # Save state AFTER yielding so a crash re-yields the last page rather than skipping it
-        # (merge on the primary key dedupes the overlap).
-        resumable_source_manager.save_state(DripResumeConfig(next_page=page))
-
-
-def _has_next_page(data: dict[str, Any], items: list[Any], per_page: int | None, page: int) -> bool:
-    meta = data.get("meta") or {}
-    total_pages = meta.get("total_pages")
-    if total_pages is not None:
-        return page < total_pages
-    # Fallback for paginated endpoints that don't return a meta block: a full page implies there may be
-    # more. Non-paginated endpoints (per_page is None) always return everything in a single response.
-    if per_page is not None:
-        return len(items) >= per_page
-    return False
-
-
 def drip_source(
     api_token: str,
     account_id: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[DripResumeConfig],
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = DRIP_ENDPOINTS[endpoint]
 
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": f"{DRIP_BASE_URL}/{account_id}",
+            "headers": {"Accept": "application/json"},
+            # Drip uses HTTP Basic auth with the API token as the username and an empty password;
+            # supplying it via the framework auth config keeps the token redacted from logs.
+            "auth": {"type": "http_basic", "username": api_token, "password": ""},
+            "paginator": DripPaginator(per_page=config.per_page),
+        },
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": _base_params(endpoint),
+                    "data_selector": config.data_key,
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"next_page": resume.next_page}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
+        # the last page (merge dedupes on the primary key) rather than skipping it.
+        if state and state.get("next_page") is not None:
+            resumable_source_manager.save_state(DripResumeConfig(next_page=int(state["next_page"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_token=api_token,
-            account_id=account_id,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
+        column_hints=resource.column_hints,
     )
+
+
+def validate_credentials(api_token: str, account_id: str) -> tuple[bool, str | None]:
+    ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_token,)),
+        f"{DRIP_BASE_URL}/{account_id}/subscribers?per_page=1",
+        auth=HttpBasicAuth(username=api_token, password=""),
+    )
+
+    if ok:
+        return True, None
+    if status in (401, 403):
+        return False, "Invalid Drip API token"
+    if status == 404:
+        return False, "Drip account ID not found. Please check your account ID."
+    if status is None:
+        return False, "Could not connect to the Drip API"
+    return False, f"Drip API returned an unexpected status ({status})"

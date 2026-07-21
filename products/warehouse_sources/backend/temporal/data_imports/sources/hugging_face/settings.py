@@ -1,5 +1,7 @@
 from dataclasses import dataclass, field
 
+from products.warehouse_sources.backend.types import IncrementalField
+
 
 @dataclass
 class HuggingFaceEndpointConfig:
@@ -24,3 +26,8 @@ HUGGING_FACE_ENDPOINTS: dict[str, HuggingFaceEndpointConfig] = {
 }
 
 ENDPOINTS = tuple(HUGGING_FACE_ENDPOINTS.keys())
+
+# The Hub has no server-side timestamp range filter (it silently ignores `since`), so every endpoint
+# is full refresh only. Repo metadata (likes, downloads, lastModified) mutates in place, so
+# append-only would drop updates — hence no incremental/append fields for any endpoint.
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}

@@ -5,11 +5,7 @@ from django.db import transaction
 from prometheus_client import Counter
 from structlog.types import FilteringBoundLogger
 
-from products.data_warehouse.backend.tasks import (
-    EXTERNAL_DATA_FAILURE_DIGEST_DELAY_SECONDS,
-    EXTERNAL_DATA_FAILURE_DIGEST_SCHEDULED_COUNTER,
-    send_external_data_failure_digest_task,
-)
+from products.data_warehouse.backend.tasks.tasks import schedule_external_data_failure_digest
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema
 from products.warehouse_sources.backend.facade.pipelines import (
     LOCK_TAKEOVER_LATEST_ERROR,
@@ -81,12 +77,13 @@ def update_external_job_status(
 
         schema = ExternalDataSchema.objects.select_for_update().get(id=model.schema_id, team_id=team_id)
 
-        # The CDC broken state is absorbing: a loader finishing an in-flight batch after
-        # `mark_cdc_broken` must not repaint the schema healthy while the slot is gone.
-        # The marker is cleared by repair_cdc / disable_cdc, after which updates resume.
-        if (schema.sync_type_config or {}).get("cdc_broken"):
+        # The CDC halted states are absorbing: a loader finishing an in-flight batch after the
+        # source broke (or a non-retryable error paused extraction) must not repaint the schema
+        # healthy while syncing is stopped. Which markers halt a schema is the model's business
+        # (cdc_halted) — this generic layer only honors the state.
+        if schema.cdc_halted:
             logger.info(
-                "dwh_schema_status_update_skipped_cdc_broken",
+                "dwh_schema_status_update_skipped_cdc_halted",
                 job_id=job_id,
                 schema_id=str(schema.id),
                 requested_status=schema_status,
@@ -104,10 +101,7 @@ def update_external_job_status(
 
         if status == ExternalDataJob.Status.FAILED:
             try:
-                send_external_data_failure_digest_task.apply_async(
-                    args=[team_id], countdown=EXTERNAL_DATA_FAILURE_DIGEST_DELAY_SECONDS
-                )
-                EXTERNAL_DATA_FAILURE_DIGEST_SCHEDULED_COUNTER.labels(trigger="inline").inc()
+                schedule_external_data_failure_digest(team_id)
             except Exception:
                 logger.exception("Failed to schedule external data failure digest")
 

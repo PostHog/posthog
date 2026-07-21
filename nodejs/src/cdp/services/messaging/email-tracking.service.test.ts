@@ -533,7 +533,7 @@ describe('EmailTrackingService', () => {
             ])
         })
 
-        it('inserts a suppressed row for a Permanent bounce webhook (dual-write with the opt-out path)', async () => {
+        it('inserts a suppressed row for a Permanent bounce webhook', async () => {
             const hogFlow = await insertHogFlow(hub.postgres, new FixtureHogFlowBuilder().withTeamId(team.id).build())
             const email = 'hard-bouncer@example.com'
 
