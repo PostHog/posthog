@@ -8,7 +8,7 @@ import logging
 import functools
 from dataclasses import asdict
 from datetime import datetime, timedelta
-from typing import Any, Optional, cast
+from typing import Any, NoReturn, Optional, cast
 
 from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
@@ -1172,13 +1172,13 @@ class FeatureFlagSerializer(
     def validate_key(self, value):
         instance = cast(Optional[FeatureFlag], self.instance)
 
-        # Editing a flag without changing its key can never introduce a duplicate: the row
-        # already owns this key. Skip the uniqueness read entirely in that case so a sibling
-        # row in another environment (the key check is project-scoped, but a project can span
-        # multiple environments where the same key legitimately exists once per environment) or
-        # a lagging read replica can't produce a false "key already exists" error on an edit
-        # that never touched the key. Genuine collisions on write are still caught by the
-        # "unique key for team" DB constraint inside update()'s locked transaction.
+        # Editing a flag without changing its key can never introduce a duplicate: the row already owns
+        # this key. Skip the uniqueness read entirely in that case, so a sibling row in another
+        # environment or a lagging read replica can't produce a false "key already exists" error on an
+        # edit that never touched the key. (This check is project-scoped, and a project can span
+        # multiple environments where the same key legitimately exists once per environment.) Genuine
+        # collisions on write are still caught by the "unique key for team" DB constraint inside
+        # update()'s locked transaction.
         if instance is None or value != instance.key:
             unique_qs = FeatureFlag.objects.filter(key=value, team__project_id=self.context["project_id"])
             if instance is not None:
@@ -1751,6 +1751,17 @@ class FeatureFlagSerializer(
                 flag.key = flag.tombstoned_key()
                 flag.save(update_fields=["key"])
 
+    def _reraise_duplicate_key_violation(self, exc: IntegrityError) -> NoReturn:
+        # The "unique key for team" DB constraint is the authoritative guard on key
+        # uniqueness. A concurrent create or rename can slip a duplicate in between the
+        # unlocked validate_key read and the write; translate that constraint violation
+        # into the same clean field error instead of surfacing a 500.
+        if "unique key for team" in str(exc):
+            raise serializers.ValidationError(
+                {"key": [exceptions.ErrorDetail("There is already a feature flag with this key.", code="unique")]}
+            ) from exc
+        raise exc
+
     @approval_gate(["feature_flag.enable", "feature_flag.update"])
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
@@ -1781,15 +1792,7 @@ class FeatureFlagSerializer(
             with ImpersonatedContext(request):
                 instance: FeatureFlag = super().create(validated_data)
         except IntegrityError as e:
-            # The "unique key for team" DB constraint is the authoritative guard on key
-            # uniqueness. A concurrent create can slip a duplicate in between the unlocked
-            # validate_key read and this write; translate that constraint violation into
-            # the same clean field error instead of surfacing a 500. Mirrors update().
-            if "unique key for team" in str(e):
-                raise serializers.ValidationError(
-                    {"key": [exceptions.ErrorDetail("There is already a feature flag with this key.", code="unique")]}
-                ) from e
-            raise
+            self._reraise_duplicate_key_violation(e)
 
         self._attempt_set_tags(tags, instance)
         self._attempt_set_evaluation_contexts(evaluation_contexts, instance)
@@ -1998,15 +2001,7 @@ class FeatureFlagSerializer(
                 with ImpersonatedContext(request):
                     instance = super().update(instance, validated_data)
         except IntegrityError as e:
-            # The "unique key for team" DB constraint is the authoritative guard on key
-            # uniqueness. A concurrent create or rename can slip a duplicate in between the
-            # unlocked validate_key read and this locked write; translate that constraint
-            # violation into the same clean field error instead of surfacing a 500.
-            if "unique key for team" in str(e):
-                raise serializers.ValidationError(
-                    {"key": [exceptions.ErrorDetail("There is already a feature flag with this key.", code="unique")]}
-                ) from e
-            raise
+            self._reraise_duplicate_key_violation(e)
 
         # Continue with the update outside of the transaction. This is an intentional choice
         # to avoid deadlocks. Not to mention, before making the concurrency changes, these

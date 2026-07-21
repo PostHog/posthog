@@ -628,6 +628,30 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         flag.refresh_from_db()
         self.assertEqual(flag.name, "Renamed")
 
+    def test_update_flag_translates_concurrent_duplicate_key_integrity_error(self):
+        # Mirrors test_create_flag_translates_concurrent_duplicate_key_integrity_error, but for
+        # the locked update() write: a concurrent rename racing past the unlocked validate_key
+        # pre-check must also surface as a clean 400, not a raw 500.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
+        with patch(
+            "products.feature_flags.backend.api.feature_flag.FeatureFlag.save",
+            side_effect=IntegrityError('duplicate key value violates unique constraint "unique key for team"'),
+        ):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+                {"name": "Beta feature", "key": "green_button"},
+            )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "unique",
+                "detail": "There is already a feature flag with this key.",
+                "attr": "key",
+            },
+        )
+
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_group_type_index_feature_flag(self, mock_report_user_action):
         feature_flag = self.client.post(
