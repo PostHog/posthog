@@ -1,13 +1,6 @@
 import type { ASTNode } from '@posthog/hogql-parser'
 
-import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
-
 import { parseSelect } from './hogqlParserSingleton'
-
-/** Escape a possibly qualified (dot-separated) name, escaping each segment individually. */
-const escapeQualifiedIdentifier = (name: string): string => {
-    return name.split('.').map(escapePropertyAsHogQLIdentifier).join('.')
-}
 
 export const normalizeIdentifier = (identifier: string): string => {
     return identifier.replace(/[`"']/g, '').toLowerCase()
@@ -86,14 +79,6 @@ const tryParseSelect = async (query: string): Promise<ASTNode | null> => {
     }
 }
 
-/** Extract the field name string from a select column AST node, or null for non-Field expressions. */
-const fieldChainToString = (node: ASTNode): string | null => {
-    if (node.node === 'Field') {
-        return (node.chain as string[]).join('.')
-    }
-    return null
-}
-
 /** Collect all table names from a JoinExpr chain. */
 const collectTablesFromJoinExpr = (joinExpr: ASTNode | null): string[] => {
     const tables: string[] = []
@@ -105,76 +90,6 @@ const collectTablesFromJoinExpr = (joinExpr: ASTNode | null): string[] => {
         current = current.next_join ?? null
     }
     return tables
-}
-
-/** Extract the LIMIT/OFFSET clause string from an AST, or null if absent. */
-const extractLimitOffsetFromAST = (ast: ASTNode): string | null => {
-    const parts: string[] = []
-    if (ast.limit != null && ast.limit.node === 'Constant' && ast.limit.value != null) {
-        parts.push(`LIMIT ${ast.limit.value}`)
-    }
-    if (ast.offset != null && ast.offset.node === 'Constant' && ast.offset.value != null) {
-        parts.push(`OFFSET ${ast.offset.value}`)
-    }
-    return parts.length > 0 ? parts.join(' ') : null
-}
-
-export const buildQueryForColumnClick = async (
-    currentQuery: string | null,
-    tableName: string,
-    columnName: string
-): Promise<string> => {
-    const ast = currentQuery ? await tryParseSelect(currentQuery) : null
-    const limitOffsetClause = ast ? extractLimitOffsetFromAST(ast) : null
-    const baseQuery = `SELECT ${escapeQualifiedIdentifier(columnName)} FROM ${escapeQualifiedIdentifier(tableName)} ${limitOffsetClause ?? 'LIMIT 100'}`
-
-    if (!ast || !currentQuery) {
-        return baseQuery
-    }
-
-    const tables = collectTablesFromJoinExpr(ast.select_from)
-    if (tables.length === 0) {
-        return baseQuery
-    }
-
-    const selectedTable = tables[0]
-    if (normalizeIdentifier(selectedTable) !== normalizeIdentifier(tableName)) {
-        return baseQuery
-    }
-
-    const selectNodes: ASTNode[] = ast.select ?? []
-    const fieldNames = selectNodes.map(fieldChainToString)
-    const hasNonFieldExpressions = fieldNames.some((name) => name === null)
-
-    // If the query contains non-Field expressions (e.g. COUNT(*), SUM(x)),
-    // we can't safely rewrite the SELECT list — fall back to a simple query.
-    if (hasNonFieldExpressions) {
-        return baseQuery
-    }
-
-    let columns = fieldNames as string[]
-    const normalizedColumnName = normalizeIdentifier(columnName)
-    const isStarOnly = columns.length === 1 && columns[0] === '*'
-
-    if (isStarOnly) {
-        columns = []
-    } else {
-        columns = columns.filter((column) => column !== '*')
-    }
-
-    const existingIndex = columns.findIndex((column) => normalizeIdentifier(column) === normalizedColumnName)
-
-    if (existingIndex >= 0) {
-        columns.splice(existingIndex, 1)
-    } else {
-        columns.push(columnName)
-    }
-
-    if (columns.length === 0) {
-        columns = ['*']
-    }
-
-    return `SELECT ${columns.map((column) => (column === '*' ? column : escapeQualifiedIdentifier(column))).join(', ')} FROM ${escapeQualifiedIdentifier(tableName)} ${limitOffsetClause ?? 'LIMIT 100'}`
 }
 
 export const parseQueryTablesAndColumns = async (

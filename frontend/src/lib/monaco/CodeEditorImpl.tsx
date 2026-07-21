@@ -290,6 +290,14 @@ export function CodeEditor({
     const disposeEditor = (): void => {
         try {
             if (diffEditorRef.current) {
+                // Detach the models from the DiffEditorWidget before disposing it, so Monaco's
+                // internal onWillDispose listeners don't fire against models that are torn down
+                // right after ("TextModel got disposed before DiffEditorWidget model got reset").
+                try {
+                    diffEditorRef.current.setModel(null)
+                } catch {
+                    // already detached or disposed
+                }
                 diffEditorRef.current.dispose()
             } else {
                 editorRef.current?.dispose()
