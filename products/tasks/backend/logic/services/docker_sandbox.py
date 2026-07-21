@@ -852,16 +852,15 @@ class DockerSandbox(SandboxBase):
             'export NO_PROXY="host.docker.internal,${NO_PROXY:-localhost,127.0.0.1}"; export no_proxy="$NO_PROXY"; '
         )
         inner = f"cd /scripts && {no_proxy_export}{server_cmd} > /tmp/agent-server.log 2>&1"
+        initialize_env_file = f"(test -f {ENV_FILE} || env -0 > {ENV_FILE})"
 
         if allowed_domains is not None:
             return (
-                f"cd /scripts && env -0 > {ENV_FILE} && "
+                f"cd /scripts && {initialize_env_file} && "
                 f"{build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} &"
             )
         else:
-            # Write the env file even without agentsh so BASH_ENV (and the
-            # in-process token resolver) can re-read a backend-refreshed token.
-            return f"cd /scripts && env -0 > {ENV_FILE} && nohup {server_cmd} > /tmp/agent-server.log 2>&1 &"
+            return f"cd /scripts && {initialize_env_file} && nohup {server_cmd} > /tmp/agent-server.log 2>&1 &"
 
     def _launch_and_check(self, command: str) -> bool:
         """Execute the agent-server command and wait for the health check.

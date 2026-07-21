@@ -10,8 +10,13 @@ from temporalio import activity
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.constants import SNAPSHOT_KIND_FILESYSTEM, filter_user_sandbox_env_vars
-from products.tasks.backend.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
-from products.tasks.backend.logic.services.agentsh import ENV_FILE, INFRASTRUCTURE_DOMAINS, _get_debug_only_domains
+from products.tasks.backend.exceptions import (
+    GitHubAuthenticationError,
+    OAuthTokenError,
+    SandboxProvisionError,
+    TaskNotFoundError,
+)
+from products.tasks.backend.logic.services.agentsh import INFRASTRUCTURE_DOMAINS, _get_debug_only_domains
 from products.tasks.backend.logic.services.connection_token import (
     SANDBOX_JWT_STATE_KID_KEY,
     get_primary_sandbox_jwt_kid,
@@ -27,7 +32,11 @@ from products.tasks.backend.temporal.metrics import (
 )
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run, create_wizard_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
-from products.tasks.backend.temporal.process_task.sandbox_credentials import set_git_remote_token
+from products.tasks.backend.temporal.process_task.sandbox_credentials import (
+    initialize_sandbox_env_file,
+    set_git_remote_token,
+    update_sandbox_env_file,
+)
 from products.tasks.backend.temporal.process_task.utils import (
     get_git_identity_env_vars,
     get_readonly_github_token,
@@ -585,6 +594,14 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
 
         increment_sandbox_created("vm" if use_vm_sandbox else "gvisor")
 
+        if not initialize_sandbox_env_file(sandbox, prepared.environment_variables):
+            sandbox.destroy()
+            raise SandboxProvisionError(
+                "Failed to initialize sandbox environment",
+                {"task_id": ctx.task_id, "run_id": ctx.run_id, "sandbox_id": sandbox.id},
+                cause=RuntimeError("sandbox environment file initialization failed"),
+            )
+
         credentials = sandbox.get_connect_credentials()
 
         try:
@@ -759,11 +776,8 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
         if github_token and input.repository:
             set_git_remote_token(sandbox, input.repository, github_token)
 
-        # Pre-seed the agentsh env file so any wrapped command that runs between
-        # resume and start_agent_server (diagnostics, branch checkout) sees the
-        # fresh tokens instead of the stale snapshot values. start_agent_server
-        # re-dumps the full process env over this, so a partial overwrite is fine
-        # here (unlike the mid-run refresh, which must preserve the live env).
+        # Update the initialized env file before any resumed command can observe
+        # credentials persisted in the snapshot.
         fresh_env_vars: dict[str, str] = {}
         if github_token:
             fresh_env_vars["GITHUB_TOKEN"] = github_token
@@ -771,18 +785,7 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
         if access_token:
             fresh_env_vars["POSTHOG_PERSONAL_API_KEY"] = access_token
 
-        if fresh_env_vars:
-            env_payload = b"".join(f"{k}={v}\x00".encode() for k, v in fresh_env_vars.items())
-            overwrite_result = sandbox.write_file(ENV_FILE, env_payload)
-            if overwrite_result.exit_code != 0:
-                logger.warning(
-                    "Failed to refresh agentsh env file on resume",
-                    extra={
-                        "sandbox_id": input.sandbox_id,
-                        "env_file": ENV_FILE,
-                        "stderr": overwrite_result.stderr,
-                    },
-                )
+        update_sandbox_env_file(sandbox, fresh_env_vars)
 
         emit_agent_log(ctx.run_id, "debug", "Refreshed sandbox credentials after resume")
 

@@ -285,9 +285,8 @@ class TestModalSandboxAgentShWrapping(TestCase):
             create_pr=True,
         )
         self.assertNotIn("agentsh exec --client-timeout 2h --timeout 2h", cmd)
-        # The env file is written at launch regardless of agentsh so the
-        # mid-session credential refresh can re-source the token per command.
-        self.assertIn("env -0 > /tmp/agent-env", cmd)
+        # Provisioning initializes the env file synchronously; legacy callers only fill a missing file.
+        self.assertIn("(test -f /tmp/agent-env || env -0 > /tmp/agent-env)", cmd)
         self.assertNotIn(ENV_WRAPPER_SCRIPT, cmd)
         self.assertIn("nohup", cmd)
 
@@ -388,7 +387,7 @@ class TestModalSandboxAgentShWrapping(TestCase):
             allowed_domains=["example.com", "api.example.com"],
         )
         self.assertIn("agentsh exec --client-timeout 2h --timeout 2h", cmd)
-        self.assertIn("env -0 > /tmp/agent-env", cmd)
+        self.assertIn("(test -f /tmp/agent-env || env -0 > /tmp/agent-env)", cmd)
         self.assertIn(ENV_WRAPPER_SCRIPT, cmd)
         self.assertIn("--allowedDomains", cmd)
         self.assertIn("example.com,api.example.com", cmd)

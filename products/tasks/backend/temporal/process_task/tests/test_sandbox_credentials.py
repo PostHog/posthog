@@ -10,6 +10,7 @@ from products.tasks.backend.temporal.process_task.sandbox_credentials import (
     GitHubSandboxCredential,
     build_sandbox_credentials,
     github_refresh_interval_seconds,
+    initialize_sandbox_env_file,
     set_git_remote_token,
     update_sandbox_env_file,
 )
@@ -100,6 +101,29 @@ class TestUpdateSandboxEnvFile:
 
         _, payload = sandbox.write_file.call_args[0]
         assert payload == b"GH_TOKEN=ghs_new\x00"
+
+
+class TestInitializeSandboxEnvFile:
+    def test_captures_container_environment_then_overlays_resolved_credentials(self):
+        sandbox = MagicMock()
+        existing = b"PATH=/usr/bin\x00GITHUB_TOKEN=stale\x00"
+        sandbox.execute.side_effect = [_ok(), _ok(base64.b64encode(existing).decode())]
+        sandbox.write_file.return_value = _ok()
+
+        assert (
+            initialize_sandbox_env_file(
+                sandbox,
+                {"GITHUB_TOKEN": "ghu_fresh", "GH_TOKEN": "ghu_fresh"},
+            )
+            is True
+        )
+
+        assert sandbox.execute.call_args_list[0].args[0] == "env -0 > /tmp/agent-env"
+        _, payload = sandbox.write_file.call_args[0]
+        entries = {entry.split(b"=", 1)[0]: entry.split(b"=", 1)[1] for entry in payload.split(b"\x00") if entry}
+        assert entries[b"PATH"] == b"/usr/bin"
+        assert entries[b"GITHUB_TOKEN"] == b"ghu_fresh"
+        assert entries[b"GH_TOKEN"] == b"ghu_fresh"
 
 
 class TestGitHubSandboxCredential:

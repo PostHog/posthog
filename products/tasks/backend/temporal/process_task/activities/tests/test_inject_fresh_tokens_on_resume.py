@@ -1,3 +1,5 @@
+import base64
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -28,6 +30,11 @@ class TestInjectFreshTokensOnResumeActivity:
         return fake
 
     def test_refreshes_git_remote_url_and_env_file(self, activity_environment, task_context, test_task, sandbox):
+        existing = b"PATH=/usr/bin\x00GITHUB_TOKEN=ghs_old\x00"
+        sandbox.execute.side_effect = [
+            ExecutionResult(stdout="", stderr="", exit_code=0),
+            ExecutionResult(stdout=base64.b64encode(existing).decode(), stderr="", exit_code=0),
+        ]
         with (
             patch(
                 "products.tasks.backend.temporal.process_task.activities.provision_sandbox.Sandbox.get_by_id",
@@ -51,8 +58,8 @@ class TestInjectFreshTokensOnResumeActivity:
                 ),
             )
 
-        assert sandbox.execute.call_count == 1
-        remote_command = sandbox.execute.call_args[0][0]
+        assert sandbox.execute.call_count == 2
+        remote_command = sandbox.execute.call_args_list[0].args[0]
         assert "git remote set-url origin" in remote_command
         assert "x-access-token:ghs_new" in remote_command
         assert task_context.repository in remote_command
@@ -66,6 +73,7 @@ class TestInjectFreshTokensOnResumeActivity:
         assert "GITHUB_TOKEN=ghs_new" in decoded
         assert "GH_TOKEN=ghs_new" in decoded
         assert "POSTHOG_PERSONAL_API_KEY=oauth_new" in decoded
+        assert "PATH=/usr/bin" in decoded
 
     def test_skips_git_remote_when_github_integration_missing(self, activity_environment, test_task, sandbox):
         context = TaskProcessingContext(
@@ -98,7 +106,7 @@ class TestInjectFreshTokensOnResumeActivity:
                 ),
             )
 
-        sandbox.execute.assert_not_called()
+        assert sandbox.execute.call_count == 1
         # OAuth env is still written so POSTHOG_PERSONAL_API_KEY refreshes.
         assert sandbox.write_file.call_count == 1
         _, payload = sandbox.write_file.call_args[0]
@@ -133,7 +141,7 @@ class TestInjectFreshTokensOnResumeActivity:
                 ),
             )
 
-        assert sandbox.execute.call_count == 1
+        assert sandbox.execute.call_count == 2
         assert sandbox.write_file.call_count == 1
 
     def test_prepare_sandbox_injects_user_github_token_without_repository(self, activity_environment, team, user):
