@@ -382,6 +382,7 @@ the row lists both.
 | openai                           | HTTP                        | requests                                                        | ✅                          |
 | openai_ads                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | opinion_stage                    | HTTP                        | requests                                                        | ✅                          |
+| opuswatch                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | orb                              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | orca_security                    | HTTP (POST query DSL)       | requests                                                        | ✅                          |
 | openaq                           | HTTP                        | requests                                                        | ✅                          |
@@ -836,7 +837,6 @@ doesn't conflict with concurrent PRs.
 - onehundredms
 - onesignal
 - open_data_dc
-- opuswatch
 - oracle
 - oracle_ebs
 - oracle_fusion
