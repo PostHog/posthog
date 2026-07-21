@@ -768,7 +768,7 @@ class ReplayObservationViewSet(
             "not start the coding agent."
         ),
     )
-    @action(detail=True, methods=["post"], required_scopes=["replay_scanner:read", "session_recording:read"])
+    @action(detail=True, methods=["post"], required_scopes=["replay_scanner:write", "session_recording:read"])
     def create_task(self, request: Request, **kwargs: Any) -> Response:
         observation = self.get_object()
         # The nested route already resolved the scanner for RBAC; the session route pays one FK fetch.
