@@ -7,11 +7,11 @@ import { IconChevronDown, IconRefresh } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
+    LemonDivider,
     LemonDropdown,
     LemonInput,
     LemonInputSelect,
     LemonSegmentedButton,
-    LemonSelect,
     LemonTable,
     LemonTableColumns,
 } from '@posthog/lemon-ui'
@@ -66,7 +66,7 @@ function SupportTicketsBulkActions(): JSX.Element {
     const { selectedTicketIds, selectedTickets, bulkUpdating, bulkTagsToAdd } = useValues(supportTicketsSceneLogic)
     const { bulkUpdateStatus, bulkAddTags, setBulkTagsToAdd } = useActions(supportTicketsSceneLogic)
     const { tags: tagsAvailable } = useValues(tagsModel)
-    const [tagsDropdownOpen, setTagsDropdownOpen] = useState(false)
+    const [dropdownOpen, setDropdownOpen] = useState(false)
 
     const hasSelection = selectedTicketIds.length > 0
     const selectedStatuses = selectedTickets.map((t) => t.status)
@@ -84,28 +84,41 @@ function SupportTicketsBulkActions(): JSX.Element {
             : 'Add tags'
 
     return (
-        <div className="flex items-center gap-2">
-            <LemonSelect
-                onChange={(value) => {
-                    if (!value || value === currentStatus) {
-                        return
-                    }
-                    bulkUpdateStatus(selectedTicketIds, value as TicketStatus)
-                }}
-                value={null}
-                placeholder="Mark as"
-                loading={bulkUpdating}
-                disabledReason={!hasSelection ? 'Select tickets first' : bulkUpdating ? 'Updating…' : undefined}
-                options={statusOptionsWithoutAll.map((o) => ({ value: o.value, label: o.label }))}
-                size="small"
-            />
-            <LemonDropdown
-                visible={tagsDropdownOpen}
-                onVisibilityChange={setTagsDropdownOpen}
-                closeOnClickInside={false}
-                overlay={
-                    <div className="p-2 min-w-64 flex flex-col gap-2">
-                        <span className="text-muted text-xs">Add tags to {selectedTicketIds.length} selected</span>
+        <LemonDropdown
+            visible={dropdownOpen}
+            onVisibilityChange={setDropdownOpen}
+            closeOnClickInside={false}
+            overlay={
+                <div className="p-2 min-w-64 flex flex-col gap-2">
+                    <span className="text-muted text-xs">
+                        Update {selectedTicketIds.length} selected ticket{selectedTicketIds.length === 1 ? '' : 's'}
+                    </span>
+                    <div className="flex flex-col gap-1">
+                        <span className="text-muted text-xs">Mark as</span>
+                        <div className="flex flex-col gap-px">
+                            {statusOptionsWithoutAll.map((o) => (
+                                <LemonButton
+                                    key={o.value}
+                                    type="tertiary"
+                                    size="small"
+                                    fullWidth
+                                    active={currentStatus === o.value}
+                                    loading={bulkUpdating}
+                                    onClick={() => {
+                                        if (o.value !== currentStatus) {
+                                            bulkUpdateStatus(selectedTicketIds, o.value as TicketStatus)
+                                        }
+                                        setDropdownOpen(false)
+                                    }}
+                                >
+                                    {o.label}
+                                </LemonButton>
+                            ))}
+                        </div>
+                    </div>
+                    <LemonDivider className="my-1" />
+                    <div className="flex flex-col gap-2">
+                        <span className="text-muted text-xs">Add tags</span>
                         <LemonInputSelect
                             mode="multiple"
                             allowCustomValues
@@ -114,7 +127,6 @@ function SupportTicketsBulkActions(): JSX.Element {
                             onChange={setBulkTagsToAdd}
                             placeholder="Select or type tags..."
                             data-attr="bulk-add-tags-input"
-                            autoFocus
                         />
                         <LemonButton
                             type="primary"
@@ -125,24 +137,24 @@ function SupportTicketsBulkActions(): JSX.Element {
                             disabledReason={bulkTagsToAdd.length === 0 ? 'Select at least one tag' : undefined}
                             onClick={() => {
                                 bulkAddTags(selectedTicketIds, bulkTagsToAdd)
-                                setTagsDropdownOpen(false)
+                                setDropdownOpen(false)
                             }}
                         >
                             {addTagsLabel}
                         </LemonButton>
                     </div>
-                }
+                </div>
+            }
+        >
+            <LemonButton
+                type="secondary"
+                size="small"
+                sideIcon={<IconChevronDown />}
+                disabledReason={!hasSelection ? 'Select tickets first' : undefined}
             >
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    sideIcon={<IconChevronDown />}
-                    disabledReason={!hasSelection ? 'Select tickets first' : undefined}
-                >
-                    Add tags
-                </LemonButton>
-            </LemonDropdown>
-        </div>
+                Update tickets
+            </LemonButton>
+        </LemonDropdown>
     )
 }
 
