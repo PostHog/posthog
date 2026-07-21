@@ -16,7 +16,9 @@ def _make_session(api_key: str) -> requests.Session:
     # `redact_values` masks the key in tracked logs/samples. `capture=False` keeps response bodies out
     # of HTTP sample storage — people rows carry names/emails and org-structure data the name-based
     # sample scrubbers can't fully recognise. Requests are still metered and logged (status + url).
-    return make_tracked_session(redact_values=(api_key,), capture=False)
+    # `allow_redirects=False` because the key rides a custom header that `requests` would replay
+    # across a cross-origin redirect.
+    return make_tracked_session(redact_values=(api_key,), capture=False, allow_redirects=False)
 
 
 def validate_credentials(api_key: str) -> bool:

@@ -164,6 +164,9 @@ class TestKeyRedaction:
         assert MockSession.call_args.kwargs["redact_values"] == ("gf_secret",)
         # Response bodies carry people names/emails the scrubbers can't fully recognise.
         assert MockSession.call_args.kwargs["capture"] is False
+        # The key rides a custom header, which `requests` would replay across a cross-origin
+        # redirect — the sync session must never follow redirects.
+        assert MockSession.call_args.kwargs["allow_redirects"] is False
 
     @mock.patch(SESSION_PATCH)
     def test_validate_credentials_redacts_key(self, MockSession) -> None:
@@ -175,6 +178,7 @@ class TestKeyRedaction:
 
         assert MockSession.call_args.kwargs["redact_values"] == ("gf_secret",)
         assert MockSession.call_args.kwargs["capture"] is False
+        assert MockSession.call_args.kwargs["allow_redirects"] is False
 
 
 class TestValidateCredentials:
