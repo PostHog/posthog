@@ -47,6 +47,7 @@ from products.customer_analytics.backend.logic.custom_property_definitions impor
     coerce_is_big_number,
     normalize_options,
 )
+from products.customer_analytics.backend.logic.event_stream_destination import archive_event_stream_destination
 from products.customer_analytics.backend.logic.usage_spike_notifications import (
     notify_managers_of_usage_spike as notify_managers_of_usage_spike,
 )
@@ -2046,9 +2047,15 @@ def update_event_stream(
 
 
 def delete_event_stream(*, team_id: int, stream_id: str | UUID, user: "User") -> bool:
-    """Delete the caller's stream (memberships cascade). Returns False when none matched (→ 404)."""
-    deleted, _ = _own_streams(team_id, user).filter(id=stream_id).delete()
-    return deleted > 0
+    """Delete the caller's stream (memberships cascade) and archive its managed Slack
+    destination so it can't keep delivering. Returns False when none matched (→ 404)."""
+    stream = _own_streams(team_id, user).filter(id=stream_id).first()
+    if stream is None:
+        return False
+    with transaction.atomic():
+        archive_event_stream_destination(stream)
+        stream.delete()
+    return True
 
 
 def set_event_stream_member(

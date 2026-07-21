@@ -1262,8 +1262,6 @@ class EventStreamViewSet(
 
     @extend_schema(parameters=[_EVENT_STREAM_ID_PARAM])
     def destroy(self, request: Request, *args, **kwargs) -> Response:
-        # The EventStream pre_delete signal archives the managed destination inside the
-        # same delete transaction, on this and every other deletion path.
         deleted = api.delete_event_stream(
             team_id=self.team_id, stream_id=self.kwargs["pk"], user=cast(User, request.user)
         )

@@ -209,8 +209,8 @@ def send_test_slack_message(*, team_id: int, stream_id: str, user: "User") -> st
 
 
 def archive_event_stream_destination(stream: EventStream) -> None:
-    """Disable and soft-delete the stream's managed HogFunction. Invoked by the EventStream
-    ``pre_delete`` signal (signals.py), so it runs on every deletion path."""
+    """Disable and soft-delete the stream's managed HogFunction. Invoked by the facade's
+    ``delete_event_stream`` — the single deletion path for event streams."""
     function = _managed_hog_function(stream)
     if function is None:
         return

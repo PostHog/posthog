@@ -78,6 +78,16 @@ Cutover checklist — when done, the sync and this section are deleted:
   in the payload and can be mapped by hand. Follow `next` pages in
   `getOutputMappingSuggestions` (workflows frontend registry) if teams that large show up.
 
+## Event stream
+
+- **Cascade deletions don't archive the Slack destination.** The managed HogFunction is archived
+  in `delete_event_stream` (the facade, the only deliberate deletion path) rather than a
+  `pre_delete` signal, so ORM cascades bypass it. Team deletion is harmless — the HogFunction is
+  team-scoped and dies in the same cascade. Hard-deleting an owner (`created_by` CASCADE) deletes
+  the stream but leaves its HogFunction enabled and delivering to Slack. Accepted because user
+  hard-deletion is rare (members are deactivated or removed from the org, not deleted); if it
+  bites, archive the destinations in the user-deletion flow rather than reintroducing a signal.
+
 ## Tech debt
 
 - **Account property writes have no single choke point.** `Account._properties` is mutated from four
