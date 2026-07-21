@@ -179,7 +179,7 @@ def all_consumer_ceilings(
     while queue:
         node = queue.popleft()
         candidates = [declared_targets[child] for child in children.get(node, []) if child in declared_targets]
-        candidates += [ceiling[child] for child in children.get(node, []) if ceiling.get(child) is not None]
+        candidates += [c for child in children.get(node, []) if (c := ceiling.get(child)) is not None]
         ceiling[node] = min(candidates) if candidates else None
         for parent in parents.get(node, []):
             out_degree[parent] -= 1

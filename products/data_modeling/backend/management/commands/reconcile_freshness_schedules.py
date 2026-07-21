@@ -69,8 +69,8 @@ class Command(BaseCommand):
                 dags = dags.filter(id=uuid.UUID(options["dag_id"]))
             except ValueError:
                 raise CommandError(f"--dag-id must be a UUID, got {options['dag_id']!r}")
-        dags = list(dags)
-        if not dags:
+        dag_list = list(dags)
+        if not dag_list:
             raise CommandError("No matching DAGs")
 
         default = (
@@ -78,7 +78,7 @@ class Command(BaseCommand):
             if options["default_interval_seconds"] is not None
             else None
         )
-        for dag in dags:
+        for dag in dag_list:
             seeded = convert_dag_to_tiers(dag, default=default)
             cleared = null_saved_query_intervals(dag)
             self.stdout.write(

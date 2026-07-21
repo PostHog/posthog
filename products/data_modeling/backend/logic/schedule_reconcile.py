@@ -215,9 +215,9 @@ def null_saved_query_intervals(dag: DAG, *, only_saved_query_ids: Iterable[str] 
     if only_saved_query_ids is not None:
         allowed = {str(sq_id) for sq_id in only_saved_query_ids}
         saved_query_ids = [sq_id for sq_id in saved_query_ids if str(sq_id) in allowed]
-    return DataWarehouseSavedQuery.objects.filter(id__in=saved_query_ids, sync_frequency_interval__isnull=False).update(
-        sync_frequency_interval=None
-    )
+    return DataWarehouseSavedQuery.objects.filter(
+        id__in=saved_query_ids, team_id=dag.team_id, sync_frequency_interval__isnull=False
+    ).update(sync_frequency_interval=None)
 
 
 @dataclasses.dataclass
