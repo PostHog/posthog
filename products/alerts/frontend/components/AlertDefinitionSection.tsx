@@ -137,6 +137,42 @@ export function AlertDefinitionSection({
         (isNonTimeSeriesDisplay && 'This condition is only supported for time series trends') ||
         (isHogQLAnyRow(alertForm) &&
             "Rows in any-row mode aren't a time series — switch to 'the latest value' for relative conditions")
+
+    let definitionFields: JSX.Element | null = null
+    if (isTrendsAlertConfig(alertForm.config)) {
+        definitionFields = (
+            <TrendsDefinitionFields
+                alertSeries={trends.alertSeries}
+                formulaNodes={trends.formulaNodes}
+                isBreakdownValid={trends.isBreakdownValid}
+                alertMode={alertMode}
+            />
+        )
+    } else if (isFunnelAlert) {
+        definitionFields = (
+            <FunnelsDefinitionFields
+                alertForm={alertForm}
+                stepLabels={funnel.stepLabels}
+                funnelPreview={funnel.preview}
+                isTrendsFunnel={funnel.isTrendsFunnel}
+                showInlinePreview={!twoColumnLayout}
+                onSetAlertFormValue={onSetAlertFormValue}
+            />
+        )
+    } else if (isHogQLAlertConfig(alertForm.config)) {
+        definitionFields = (
+            <HogQLDefinitionFields
+                alertForm={alertForm}
+                hogqlPreview={hogql.preview}
+                hogqlColumns={hogql.columns}
+                hogqlValueColumnOptions={hogql.valueColumnOptions}
+                hogqlLabelColumnOptions={hogql.labelColumnOptions}
+                showInlinePreview={!twoColumnLayout}
+                onSetAlertFormValue={onSetAlertFormValue}
+            />
+        )
+    }
+
     return (
         <>
             {/* Trends-specific copy; funnels have their own breakdown messaging in the preview banner. */}
@@ -153,33 +189,7 @@ export function AlertDefinitionSection({
                 }
             >
                 <div className="space-y-3">
-                    {isTrendsAlertConfig(alertForm.config) ? (
-                        <TrendsDefinitionFields
-                            alertSeries={trends.alertSeries}
-                            formulaNodes={trends.formulaNodes}
-                            isBreakdownValid={trends.isBreakdownValid}
-                            alertMode={alertMode}
-                        />
-                    ) : isFunnelAlert ? (
-                        <FunnelsDefinitionFields
-                            alertForm={alertForm}
-                            stepLabels={funnel.stepLabels}
-                            funnelPreview={funnel.preview}
-                            isTrendsFunnel={funnel.isTrendsFunnel}
-                            showInlinePreview={!twoColumnLayout}
-                            onSetAlertFormValue={onSetAlertFormValue}
-                        />
-                    ) : isHogQLAlertConfig(alertForm.config) ? (
-                        <HogQLDefinitionFields
-                            alertForm={alertForm}
-                            hogqlPreview={hogql.preview}
-                            hogqlColumns={hogql.columns}
-                            hogqlValueColumnOptions={hogql.valueColumnOptions}
-                            hogqlLabelColumnOptions={hogql.labelColumnOptions}
-                            showInlinePreview={!twoColumnLayout}
-                            onSetAlertFormValue={onSetAlertFormValue}
-                        />
-                    ) : null}
+                    {definitionFields}
 
                     {supportsAnomalyDetection && (
                         <LemonRadio

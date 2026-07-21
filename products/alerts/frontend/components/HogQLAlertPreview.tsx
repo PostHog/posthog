@@ -93,6 +93,48 @@ export function HogQLAlertPreviewRowsTable({
     )
 }
 
+function getHogQLPreviewBannerCopy(preview: Exclude<HogQLAlertPreview, { status: 'ok' }>): ReactNode {
+    switch (preview.status) {
+        case 'no-rows':
+            return 'The query currently returns no rows. The alert evaluates this as 0, so a lower bound can still fire.'
+        case 'too-many-rows':
+            return (
+                <>
+                    Any-row alerts evaluate at most {HOGQL_ANY_ROW_MAX_ROWS} rows, but the query returns{' '}
+                    {preview.rowCount}. Add a LIMIT or aggregate the query, or the alert will fail to evaluate.
+                </>
+            )
+        case 'last-row-truncated':
+            return (
+                <>
+                    The query returns {preview.rowCount.toLocaleString()} rows and may be truncated, so the last row
+                    isn't reliably the newest. Add a LIMIT, aggregate the query, or switch to evaluating the first row
+                    (newest-first ordering), or the alert will fail to evaluate.
+                </>
+            )
+        case 'bad-shape':
+            return "The query result isn't plain rows of values. The alert requires a query returning rows with a numeric column."
+        case 'ambiguous-columns':
+            return (
+                <>
+                    The value column can't be inferred
+                    {preview.columnNames ? ` (columns: ${preview.columnNames.join(', ')})` : ''}. Pick the column to
+                    evaluate above.
+                </>
+            )
+        case 'missing-column':
+            return (
+                <>
+                    Column "{preview.column}" is no longer returned by the query
+                    {preview.columnNames ? ` (columns: ${preview.columnNames.join(', ')})` : ''}. Pick another column to
+                    evaluate.
+                </>
+            )
+        case 'not-numeric':
+            return `The evaluated value (${preview.value}) isn't a number. Pick a numeric column to evaluate.`
+    }
+}
+
 /** Shows what the SQL alert would evaluate right now, surfacing shape problems before the first check. */
 export function HogQLAlertPreviewBanner({
     preview,
@@ -108,96 +150,48 @@ export function HogQLAlertPreviewBanner({
             </LemonBanner>
         )
     }
-    switch (preview.status) {
-        case 'no-rows':
-            return (
-                <LemonBanner type="info">
-                    The query currently returns no rows. The alert evaluates this as 0, so a lower bound can still fire.
-                </LemonBanner>
-            )
-        case 'too-many-rows':
-            return (
-                <LemonBanner type="warning">
-                    Any-row alerts evaluate at most {HOGQL_ANY_ROW_MAX_ROWS} rows, but the query returns{' '}
-                    {preview.rowCount}. Add a LIMIT or aggregate the query, or the alert will fail to evaluate.
-                </LemonBanner>
-            )
-        case 'last-row-truncated':
-            return (
-                <LemonBanner type="warning">
-                    The query returns {preview.rowCount.toLocaleString()} rows and may be truncated, so the last row
-                    isn't reliably the newest. Add a LIMIT, aggregate the query, or switch to evaluating the first row
-                    (newest-first ordering), or the alert will fail to evaluate.
-                </LemonBanner>
-            )
-        case 'bad-shape':
-            return (
-                <LemonBanner type="warning">
-                    The query result isn't plain rows of values. The alert requires a query returning rows with a
-                    numeric column.
-                </LemonBanner>
-            )
-        case 'ambiguous-columns':
-            return (
-                <LemonBanner type="warning">
-                    The value column can't be inferred
-                    {preview.columnNames ? ` (columns: ${preview.columnNames.join(', ')})` : ''}. Pick the column to
-                    evaluate above.
-                </LemonBanner>
-            )
-        case 'missing-column':
-            return (
-                <LemonBanner type="warning">
-                    Column "{preview.column}" is no longer returned by the query
-                    {preview.columnNames ? ` (columns: ${preview.columnNames.join(', ')})` : ''}. Pick another column to
-                    evaluate.
-                </LemonBanner>
-            )
-        case 'not-numeric':
-            return (
-                <LemonBanner type="warning">
-                    The evaluated value ({preview.value}) isn't a number. Pick a numeric column to evaluate.
-                </LemonBanner>
-            )
-        case 'ok': {
-            const isRelative =
-                conditionType === AlertConditionType.RELATIVE_INCREASE ||
-                conditionType === AlertConditionType.RELATIVE_DECREASE
-            if (preview.mode === 'any_row') {
-                const breaching = preview.breachingRows
-                return (
-                    <HogQLPreviewStatus wouldFire={breaching !== null ? breaching > 0 : null}>
-                        {breaching !== null ? (
-                            <>
-                                <strong>{breaching}</strong> of {preview.rowCount} rows are outside the threshold.
-                            </>
-                        ) : (
-                            <>{preview.rowCount} rows available. Set a threshold to see which would fire.</>
-                        )}
-                    </HogQLPreviewStatus>
-                )
-            }
-            if (isRelative && preview.rowCount < 2) {
-                return (
-                    <LemonBanner type="warning">
-                        Relative conditions compare the two most recent rows, but the query currently returns only one
-                        row.
-                    </LemonBanner>
-                )
-            }
-            const isFirstRow = preview.mode === 'first_row'
-            const evaluatedRow = isFirstRow ? preview.rows[0] : preview.rows[preview.rows.length - 1]
-            const wouldFire = preview.breachingRows !== null ? evaluatedRow?.breaching === true : null
-            return (
-                <HogQLPreviewStatus wouldFire={wouldFire}>
-                    Current value: <strong>{humanFriendlyNumber(preview.currentValue)}</strong>
-                    {isRelative && preview.previousValue !== null ? (
-                        <>
-                            . Previous value: <strong>{humanFriendlyNumber(preview.previousValue)}</strong>
-                        </>
-                    ) : null}
-                </HogQLPreviewStatus>
-            )
-        }
+    if (preview.status !== 'ok') {
+        return (
+            <LemonBanner type={preview.status === 'no-rows' ? 'info' : 'warning'}>
+                {getHogQLPreviewBannerCopy(preview)}
+            </LemonBanner>
+        )
     }
+
+    const isRelative =
+        conditionType === AlertConditionType.RELATIVE_INCREASE || conditionType === AlertConditionType.RELATIVE_DECREASE
+    if (preview.mode === 'any_row') {
+        const breaching = preview.breachingRows
+        return (
+            <HogQLPreviewStatus wouldFire={breaching !== null ? breaching > 0 : null}>
+                {breaching !== null ? (
+                    <>
+                        <strong>{breaching}</strong> of {preview.rowCount} rows are outside the threshold.
+                    </>
+                ) : (
+                    <>{preview.rowCount} rows available. Set a threshold to see which would fire.</>
+                )}
+            </HogQLPreviewStatus>
+        )
+    }
+    if (isRelative && preview.rowCount < 2) {
+        return (
+            <LemonBanner type="warning">
+                Relative conditions compare the two most recent rows, but the query currently returns only one row.
+            </LemonBanner>
+        )
+    }
+    const isFirstRow = preview.mode === 'first_row'
+    const evaluatedRow = isFirstRow ? preview.rows[0] : preview.rows[preview.rows.length - 1]
+    const wouldFire = preview.breachingRows !== null ? evaluatedRow?.breaching === true : null
+    return (
+        <HogQLPreviewStatus wouldFire={wouldFire}>
+            Current value: <strong>{humanFriendlyNumber(preview.currentValue)}</strong>
+            {isRelative && preview.previousValue !== null ? (
+                <>
+                    . Previous value: <strong>{humanFriendlyNumber(preview.previousValue)}</strong>
+                </>
+            ) : null}
+        </HogQLPreviewStatus>
+    )
 }

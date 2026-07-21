@@ -12,7 +12,7 @@ export const THRESHOLD_BOUNDS_FORM_ERROR = 'Enter at least one threshold (less t
 const NAME_REQUIRED_MESSAGE = 'You need to give your alert a name'
 
 function isFiniteThresholdBound(value: number | null | undefined): value is number {
-    return typeof value === 'number' && Number.isFinite(value)
+    return value != null && Number.isFinite(value)
 }
 
 export function thresholdAlertHasBounds(alert: AlertFormType | AlertType): boolean {

@@ -1,18 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { useCallback, useMemo, useState } from 'react'
-
-import { IconBell, IconClock, IconGraph, IconPulse } from '@posthog/icons'
-import { LemonDialog, LemonTabs } from '@posthog/lemon-ui'
-import type { LemonTab } from '@posthog/lemon-ui'
+import { useCallback, useMemo } from 'react'
 
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { formatDate } from 'lib/utils/datetime'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -21,12 +14,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
 
-import {
-    AlertCalculationInterval,
-    AlertConditionType,
-    AlertState,
-    InsightThresholdType,
-} from '~/queries/schema/schema-general'
+import { AlertCalculationInterval, AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isInsightVizNode } from '~/queries/utils'
 import { FunnelVizType } from '~/types'
 
@@ -41,14 +29,12 @@ import {
 import { AlertIntervalRow } from 'products/alerts/frontend/components/AlertIntervalRow'
 import { AlertPreviewCard } from 'products/alerts/frontend/components/AlertPreviewCard'
 import { buildAlertSummary } from 'products/alerts/frontend/components/alertSummary'
-import { AlertSummaryBanner, AlertSummarySection } from 'products/alerts/frontend/components/AlertSummaryBanner'
-import { AlertWizard, AlertWizardStep } from 'products/alerts/frontend/components/AlertWizard'
+import { AlertWizard } from 'products/alerts/frontend/components/AlertWizard'
 import { ThresholdConditionRow } from 'products/alerts/frontend/components/ThresholdConditionRow'
 import { isSubDailyAlertInterval } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 import { deriveAlertCheckPreviewSeries } from 'products/alerts/frontend/logic/trendsAlertPreview'
 import { InsightAlertNotificationSection } from 'products/alerts/frontend/views/InsightAlertNotificationSection'
 
-import { SnoozeButton } from '../components/SnoozeButton'
 import { alertFormLogic, canCheckOngoingInterval, insightAlertKindForQuery } from '../logic/alertFormLogic'
 import { alertLogic } from '../logic/alertLogic'
 import { alertNotificationLogic } from '../logic/alertNotificationLogic'
@@ -57,12 +43,16 @@ import { insightAlertsLogic } from '../logic/insightAlertsLogic'
 import { supportsAnomalyDetection, supportsOngoingInterval } from '../types'
 import type { AlertType } from '../types'
 import { AlertHistorySection } from './AlertHistorySection'
-import type { AlertModalProps } from './EditAlertModal'
+import type { ResolvedAlertModalProps } from './EditAlertModal'
+import { AlertLeadingActions } from './EditAlertModalV2/AlertLeadingActions'
+import { buildWizardSteps } from './EditAlertModalV2/buildWizardSteps'
+import { EditAlertTabs } from './EditAlertModalV2/EditAlertTabs'
 
 /** Redesigned alert edit/create modal. New alerts use a 3-step wizard (Monitor → Schedule & notify
  *  → Review); editing an existing alert skips the wizard and uses a sectioned layout with a one-line
  *  summary and a live preview card. Gated behind the ALERTS_REDESIGNED_EDIT_MODAL feature flag. */
 export function EditAlertModalV2({
+    initialAlert,
     isOpen,
     alertId,
     insightId,
@@ -73,9 +63,10 @@ export function EditAlertModalV2({
     defaultToAnomalyDetection,
     insightName,
     useAlertCheckPreview,
-}: AlertModalProps): JSX.Element {
+}: ResolvedAlertModalProps): JSX.Element {
     const _alertLogic = alertLogic({ alertId })
-    const { alert, alertLoading } = useValues(_alertLogic)
+    const { alert: loadedAlert, alertLoading } = useValues(_alertLogic)
+    const alert = initialAlert ?? loadedAlert
     const { insightLoading } = useValues(insightLogic(insightLogicProps))
 
     const _onEditSuccess = useCallback(
@@ -264,57 +255,14 @@ export function EditAlertModalV2({
         }
     }, [alert, alertForm.condition?.type, alertForm.threshold?.configuration?.type, useAlertCheckPreview])
 
-    const enabledToggle = (
-        <LemonField name="enabled" className="m-0">
-            <LemonSwitch checked={alertForm.enabled} data-attr="alertForm-enabled" label="Enabled" />
-        </LemonField>
-    )
-
     const leadingActions = (
-        <div className="flex items-center gap-2">
-            {!creatingNewAlert ? (
-                <LemonButton
-                    type="secondary"
-                    status="danger"
-                    onClick={() => {
-                        LemonDialog.open({
-                            title: `Delete "${alertForm.name || 'this alert'}"?`,
-                            description: 'This alert will be permanently deleted. This action cannot be undone.',
-                            primaryButton: {
-                                children: 'Delete',
-                                type: 'primary',
-                                status: 'danger',
-                                onClick: deleteAlert,
-                                'data-attr': 'alert-delete-confirm',
-                            },
-                            secondaryButton: { children: 'Cancel' },
-                        })
-                    }}
-                >
-                    Delete alert
-                </LemonButton>
-            ) : null}
-            {!creatingNewAlert ? (
-                <SnoozeButton
-                    onChange={snoozeAlert}
-                    value={alert?.snoozed_until}
-                    disabledReason={
-                        alert?.state === AlertState.FIRING ? undefined : 'Only firing alerts can be snoozed'
-                    }
-                />
-            ) : null}
-            {!creatingNewAlert && alert?.state === AlertState.SNOOZED ? (
-                <LemonButton
-                    type="secondary"
-                    status="default"
-                    onClick={clearSnooze}
-                    tooltip={`Currently snoozed until ${formatDate(dayjs(alert?.snoozed_until), 'MMM D, HH:mm')}`}
-                >
-                    Clear snooze
-                </LemonButton>
-            ) : null}
-            <div className="ml-auto">{enabledToggle}</div>
-        </div>
+        <AlertLeadingActions
+            alertForm={alertForm}
+            alert={alert}
+            onDeleteAlert={deleteAlert}
+            onSnoozeAlert={snoozeAlert}
+            onClearSnooze={clearSnooze}
+        />
     )
 
     const definitionNode = (
@@ -494,187 +442,5 @@ export function EditAlertModalV2({
                 </Form>
             )}
         </LemonModal>
-    )
-}
-
-interface WizardStepInput {
-    nameNode: React.ReactNode
-    definitionNode: React.ReactNode
-    previewNode: React.ReactNode
-    scheduleNode: React.ReactNode
-    notifyNode: React.ReactNode
-    advancedNode: React.ReactNode
-    summary: { fires: string; cadence: string; notifies: string }
-    thresholdBoundsFormError?: string
-    alertFormHasErrors: boolean
-    alertName: string
-}
-
-function buildWizardSteps(input: WizardStepInput): AlertWizardStep[] {
-    const { summary, alertFormHasErrors } = input
-    const reviewFires = summary.fires || 'a configured threshold'
-    const reviewCadence = summary.cadence || 'a cadence'
-    const reviewNotifies = summary.notifies || 'no one yet'
-    const monitorCannotAdvanceReason = !input.alertName
-        ? 'Enter an alert name.'
-        : input.thresholdBoundsFormError || 'Fix the errors above before continuing.'
-
-    return [
-        {
-            key: 'monitor',
-            title: 'Monitor',
-            description: 'Pick what this alert watches and when it should fire.',
-            canAdvance: !alertFormHasErrors,
-            cannotAdvanceReason: alertFormHasErrors ? monitorCannotAdvanceReason : undefined,
-            content: (
-                <div className="space-y-4">
-                    {input.nameNode}
-                    {input.previewNode}
-                    {input.definitionNode}
-                </div>
-            ),
-        },
-        {
-            key: 'schedule',
-            title: 'Schedule',
-            description: 'How often this alert runs.',
-            canAdvance: true,
-            content: (
-                <div className="space-y-3">
-                    {input.scheduleNode}
-                    {input.advancedNode}
-                </div>
-            ),
-        },
-        {
-            key: 'notify',
-            title: 'Notify',
-            description: 'Who gets told when this alert fires.',
-            canAdvance: true,
-            content: <div className="space-y-4">{input.notifyNode}</div>,
-        },
-        {
-            key: 'review',
-            title: 'Review',
-            description: 'Confirm what this alert will do, then create it.',
-            canAdvance: !alertFormHasErrors,
-            cannotAdvanceReason: alertFormHasErrors ? 'Fix the errors in previous steps before creating.' : undefined,
-            content: (
-                <div className="space-y-3">
-                    <div className="rounded border border-border bg-bg-light p-3 space-y-1.5 text-sm">
-                        <div className="flex gap-2">
-                            <span className="text-muted w-20 shrink-0">Fires when</span>
-                            <span className="font-medium">{reviewFires}</span>
-                        </div>
-                        <div className="flex gap-2">
-                            <span className="text-muted w-20 shrink-0">Runs</span>
-                            <span className="font-medium">{reviewCadence}</span>
-                        </div>
-                        <div className="flex gap-2">
-                            <span className="text-muted w-20 shrink-0">Notifies</span>
-                            <span className="font-medium">{reviewNotifies}</span>
-                        </div>
-                    </div>
-                    <p className="text-xs text-muted">
-                        You can adjust any of this later without stepping through the wizard — editing an existing alert
-                        opens straight to its sections.
-                    </p>
-                </div>
-            ),
-        },
-    ]
-}
-
-interface EditAlertTabsProps {
-    summary: { fires: string; cadence: string; notifies: string }
-    summaryHeader?: React.ReactNode
-    nameNode: React.ReactNode
-    previewNode: React.ReactNode
-    definitionNode: React.ReactNode
-    scheduleNode: React.ReactNode
-    advancedNode: React.ReactNode
-    notifyNode: React.ReactNode
-    historyNode: React.ReactNode | null
-}
-
-function EditAlertTabs({
-    summary,
-    summaryHeader,
-    nameNode,
-    previewNode,
-    definitionNode,
-    scheduleNode,
-    advancedNode,
-    notifyNode,
-    historyNode,
-}: EditAlertTabsProps): JSX.Element {
-    const [activeKey, setActiveKey] = useState<string>('monitor')
-
-    const tabs: (LemonTab<string> | null)[] = [
-        {
-            key: 'monitor',
-            label: (
-                <span className="flex items-center gap-1.5">
-                    <IconPulse className="size-4" />
-                    Monitor
-                </span>
-            ),
-            content: (
-                <div className="space-y-3 pt-3">
-                    {nameNode}
-                    {previewNode}
-                    {definitionNode}
-                </div>
-            ),
-        },
-        {
-            key: 'schedule',
-            label: (
-                <span className="flex items-center gap-1.5">
-                    <IconClock className="size-4" />
-                    Schedule
-                </span>
-            ),
-            content: (
-                <div className="space-y-3 pt-3">
-                    {scheduleNode}
-                    {advancedNode}
-                </div>
-            ),
-        },
-        {
-            key: 'notify',
-            label: (
-                <span className="flex items-center gap-1.5">
-                    <IconBell className="size-4" />
-                    Notify
-                </span>
-            ),
-            content: <div className="pt-3">{notifyNode}</div>,
-        },
-        historyNode
-            ? {
-                  key: 'history',
-                  label: (
-                      <span className="flex items-center gap-1.5">
-                          <IconGraph className="size-4" />
-                          History
-                      </span>
-                  ),
-                  content: <div className="pt-3">{historyNode}</div>,
-              }
-            : null,
-    ]
-
-    let activeSummarySection: AlertSummarySection | undefined
-    if (activeKey === 'monitor' || activeKey === 'schedule' || activeKey === 'notify') {
-        activeSummarySection = activeKey
-    }
-
-    return (
-        <div className="space-y-3">
-            <AlertSummaryBanner summary={summary} header={summaryHeader} activeSection={activeSummarySection} />
-            <LemonTabs tabs={tabs} activeKey={activeKey} onChange={setActiveKey} className="flex-1 min-h-0" />
-        </div>
     )
 }

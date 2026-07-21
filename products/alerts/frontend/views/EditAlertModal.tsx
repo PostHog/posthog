@@ -45,30 +45,66 @@ import type { AlertType } from '../types'
 import { AlertHistorySection } from './AlertHistorySection'
 import { EditAlertModalV2 } from './EditAlertModalV2'
 
-export interface AlertModalProps {
+interface AlertModalCommonProps {
     isOpen: boolean | undefined
-    alertId?: AlertType['id']
-    insightId: QueryBasedInsightModel['id']
-    insightShortId: InsightShortId
     onEditSuccess: (alertId?: AlertType['id'] | undefined) => void
     onClose?: () => void
-    insightLogicProps: InsightLogicProps
     defaultToAnomalyDetection?: boolean
     insightName?: string | null
     useAlertCheckPreview?: boolean
+}
+
+export type AlertModalProps = AlertModalCommonProps &
+    (
+        | {
+              alert: AlertType
+              alertId?: never
+              insightId?: never
+              insightShortId?: never
+              insightLogicProps?: never
+          }
+        | {
+              alert?: never
+              alertId?: AlertType['id']
+              insightId: QueryBasedInsightModel['id']
+              insightShortId: InsightShortId
+              insightLogicProps: InsightLogicProps
+          }
+    )
+
+export interface ResolvedAlertModalProps extends AlertModalCommonProps {
+    initialAlert?: AlertType
+    alertId?: AlertType['id']
+    insightId: QueryBasedInsightModel['id']
+    insightShortId: InsightShortId
+    insightLogicProps: InsightLogicProps
 }
 
 export function EditAlertModal(props: AlertModalProps): JSX.Element {
     // Redesigned modal (wizard for new alerts, sectioned layout + live preview for edits). The flag
     // is the single switch: off = legacy modal below, on = V2. Consumers don't change.
     const redesigned = useFeatureFlag('ALERTS_REDESIGNED_EDIT_MODAL')
+    const resolvedProps: ResolvedAlertModalProps = props.alert
+        ? {
+              ...props,
+              initialAlert: props.alert,
+              alertId: props.alert.id,
+              insightId: props.alert.insight.id,
+              insightShortId: props.alert.insight.short_id,
+              insightLogicProps: {
+                  dashboardItemId: props.alert.insight.short_id,
+                  cachedInsight: props.alert.insight,
+              },
+          }
+        : props
     if (redesigned) {
-        return <EditAlertModalV2 {...props} />
+        return <EditAlertModalV2 {...resolvedProps} />
     }
-    return <LegacyEditAlertModal {...props} />
+    return <LegacyEditAlertModal {...resolvedProps} />
 }
 
 function LegacyEditAlertModal({
+    initialAlert,
     isOpen,
     alertId,
     insightId,
@@ -78,9 +114,10 @@ function LegacyEditAlertModal({
     insightLogicProps,
     defaultToAnomalyDetection,
     insightName,
-}: AlertModalProps): JSX.Element {
+}: ResolvedAlertModalProps): JSX.Element {
     const _alertLogic = alertLogic({ alertId })
-    const { alert, alertLoading } = useValues(_alertLogic)
+    const { alert: loadedAlert, alertLoading } = useValues(_alertLogic)
+    const alert = initialAlert ?? loadedAlert
 
     /** Parent callback only (e.g. close modal). `alertLogic` is hydrated from the save response inside `alertFormLogic`. */
     const _onEditSuccess = useCallback(

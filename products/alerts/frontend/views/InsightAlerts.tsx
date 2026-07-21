@@ -223,13 +223,7 @@ export function InsightAlerts({ alertId }: InsightAlertsProps): JSX.Element {
                 <EditAlertModal
                     onClose={() => push(urls.alerts())}
                     isOpen
-                    alertId={alertForEditModal.id}
-                    insightShortId={alertForEditModal.insight.short_id}
-                    insightId={alertForEditModal.insight.id}
-                    insightLogicProps={{
-                        dashboardItemId: alertForEditModal.insight.short_id,
-                        cachedInsight: alertForEditModal.insight,
-                    }}
+                    alert={alertForEditModal}
                     useAlertCheckPreview
                     onEditSuccess={() => {
                         loadAlerts()
