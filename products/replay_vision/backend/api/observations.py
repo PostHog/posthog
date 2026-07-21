@@ -51,6 +51,8 @@ from products.replay_vision.backend.temporal.types import ScannerResult, Scanner
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import has_tasks_access
 
+from ee.hogai.utils.untrusted import as_untrusted_data
+
 logger = structlog.get_logger(__name__)
 
 
@@ -606,11 +608,15 @@ def _observation_task_content(observation: ReplayObservation, scanner: ReplaySca
         json.dumps(model_output, indent=2, ensure_ascii=False)[:4000] if model_output is not None else "(no result)"
     )
     title = f"Replay Vision: {scanner_name}"[:255]
+    # The description becomes a coding agent's prompt when the task is later run, and the finding is
+    # model output derived from recorded sessions. Fence it as untrusted data so agent-directed
+    # instructions planted in a recording can't steer the agent (indirect prompt injection).
+    fenced_finding = as_untrusted_data("scanner_finding", finding.splitlines())
     description = (
         f"Finding from the Replay Vision scanner '{scanner_name}' on session {observation.session_id}.\n\n"
         f"Observation: {observation.id}\n"
         f"Scanner: {scanner.id}\n\n"
-        f"Result:\n{finding}\n"
+        f"{fenced_finding}\n"
     )
     return title, description
 
@@ -768,7 +774,13 @@ class ReplayObservationViewSet(
             "not start the coding agent."
         ),
     )
-    @action(detail=True, methods=["post"], required_scopes=["replay_scanner:write", "session_recording:read"])
+    # task:write on top of the source-resource scopes: this mints a durable Task, so a token deliberately
+    # limited to replay-vision must not bypass the Tasks endpoint's own scope requirement.
+    @action(
+        detail=True,
+        methods=["post"],
+        required_scopes=["replay_scanner:write", "session_recording:read", "task:write"],
+    )
     def create_task(self, request: Request, **kwargs: Any) -> Response:
         observation = self.get_object()
         # The nested route already resolved the scanner for RBAC; the session route pays one FK fetch.
