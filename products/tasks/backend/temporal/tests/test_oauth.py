@@ -106,6 +106,29 @@ def test_loop_run_fails_closed_when_owner_is_not_a_current_org_member(mock_creat
     assert create_oauth_access_token_for_run(task, state) == "token"
 
 
+@pytest.mark.django_db
+@patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
+def test_loop_run_rechecks_owner_active_state_from_the_database(mock_create: MagicMock) -> None:
+    from posthog.models import Organization, Team
+    from posthog.models.organization import OrganizationMembership
+    from posthog.models.user import User
+
+    organization = Organization.objects.create(name="loop-fresh-org")
+    team = Team.objects.create(organization=organization, name="loop-fresh-team")
+    owner = User.objects.create(email="loop-fresh-owner@example.com")
+    OrganizationMembership.objects.create(organization=organization, user=owner)
+    task = Task.objects.create(team=team, title="Loop run", created_by=owner, origin_product=Task.OriginProduct.LOOP)
+    state = {"loop_id": "loop-1"}
+
+    # Deactivate directly in the DB; `task.created_by` stays cached as active. The mint must re-read
+    # the row, not trust the stale in-memory `is_active`.
+    User.objects.filter(id=owner.id).update(is_active=False)
+
+    with pytest.raises(TaskInvalidStateError):
+        create_oauth_access_token_for_run(task, state)
+    mock_create.assert_not_called()
+
+
 @patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
 def test_loop_fired_run_excludes_loop_write_scope(mock_create: MagicMock) -> None:
     """A run whose state carries loop_id must never receive a loop:write-scoped token,
