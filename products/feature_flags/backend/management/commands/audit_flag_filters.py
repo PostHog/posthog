@@ -12,7 +12,7 @@ seconds — it's an offline command.
 
 import re
 import json
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -20,7 +20,11 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 
 from posthog.models import Team
 
-from products.feature_flags.backend.api.filters_schema import is_legacy_unknown_key
+from products.feature_flags.backend.api.filters_schema import (
+    FLAG_ID_CONTEXT_KEY,
+    UNKNOWN_KEYS_SINK_CONTEXT_KEY,
+    is_legacy_unknown_key,
+)
 from products.feature_flags.backend.filters_validation import Violation, collect_filters_violations
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -28,13 +32,33 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 # to keep a pathological prod scan from growing the aggregator without limit.
 MAX_TRACKED_UNKNOWN_KEYS = 1000
 
-# C0/C1 control characters (incl. ESC and OSC): stored filter junk is user-controlled and the
-# console report prints keys and values verbatim, so strip anything a terminal could interpret.
-_CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+# C0/C1 control characters (incl. tab, newline, ESC, OSC): stored filter junk is
+# user-controlled and the console report prints keys and values verbatim, so strip anything
+# a terminal could interpret — a newline in a key could forge a fake report line.
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 
 
 def _sanitize_for_console(text: str) -> str:
     return _CONTROL_CHARS_RE.sub("�", text)
+
+
+def _iter_flag_rows(queryset: Any, *, limit: int, chunk_size: int = 500) -> Iterator[tuple[int, int, Any]]:
+    # Keyset pagination instead of .iterator(): prod runs behind PgBouncer with server-side
+    # cursors disabled, so .iterator() buffers the entire result set client-side on execute
+    # and a full scan would hold every flag's filters JSON in memory at once. Repeated
+    # id-bounded LIMIT queries keep memory bounded on any connection.
+    base = queryset.order_by("id").values_list("id", "team_id", "filters")
+    last_id, yielded = 0, 0
+    while True:
+        page = chunk_size if not limit else min(chunk_size, limit - yielded)
+        if page <= 0:
+            return
+        chunk = list(base.filter(id__gt=last_id)[:page])
+        if not chunk:
+            return
+        yield from chunk
+        yielded += len(chunk)
+        last_id = chunk[-1][0]
 
 
 @dataclass
@@ -118,18 +142,15 @@ class Command(BaseCommand):
         queryset = FeatureFlag.objects_including_soft_deleted.all()
         if team_id is not None:
             queryset = queryset.filter(team_id=team_id)
-        rows = queryset.order_by("id").values_list("id", "team_id", "filters")
-        if limit:
-            rows = rows[:limit]
 
         # collect_filters_violations runs CROSS_FIELD_CHECKS, which deliberately excludes
         # check_groups_non_empty_for_create: non-empty groups is a POST-only rule (#50084) —
         # stored flags with empty groups are valid state and must never show up in this report.
-        for flag_id, flag_team_id, filters in rows.iterator(chunk_size=500):
+        for flag_id, flag_team_id, filters in _iter_flag_rows(queryset, limit=limit):
             scanned += 1
             try:
                 violations = collect_filters_violations(
-                    filters, context={"unknown_keys_sink": sink, "flag_id": flag_id}
+                    filters, context={UNKNOWN_KEYS_SINK_CONTEXT_KEY: sink, FLAG_ID_CONTEXT_KEY: flag_id}
                 )
             except Exception as exc:
                 # The whole point of this command is surviving wild-west data: one flag whose
@@ -171,7 +192,18 @@ class Command(BaseCommand):
             "scanned": scanned,
             "flags_with_violations": flags_with_violations,
             "clean": flags_with_violations == 0,
-            "rules": [report.__dict__ for report in reports],
+            # Enumerate fields explicitly: report.__dict__ would leak any future internal
+            # attribute into the machine-readable contract.
+            "rules": [
+                {
+                    "rule_id": report.rule_id,
+                    "flags_affected": report.flags_affected,
+                    "total_violations": report.total_violations,
+                    "sample_flag_ids": report.sample_flag_ids,
+                    "sample_details": report.sample_details,
+                }
+                for report in reports
+            ],
             "unknown_keys": [
                 {
                     "level": level,

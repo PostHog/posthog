@@ -187,6 +187,45 @@ class TestAuditFlagFilters(BaseTest):
         assert "1 with violations" in output
         assert "cross_field.variant_rollout_sum_not_100" in output
 
+    def test_console_output_reports_clean_scan(self) -> None:
+        self._create_flag("clean", {"groups": []})
+        out = StringIO()
+
+        call_command("audit_flag_filters", "--team-id", str(self.team.id), stdout=out)
+
+        assert "No violations found." in out.getvalue()
+
+    def test_repeated_rule_counts_flag_once_but_all_violations(self) -> None:
+        self._create_flag(
+            "double",
+            {
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "a", "type": "person", "operator": "in", "value": [1]},
+                            {"key": "b", "type": "person", "operator": "in", "value": [2]},
+                        ]
+                    }
+                ]
+            },
+        )
+
+        report = self._run()
+
+        rule = self._rule(report, "cross_field.in_not_in_requires_cohort")
+        assert rule is not None
+        assert rule["flags_affected"] == 1
+        assert rule["total_violations"] == 2
+
+    @patch("products.feature_flags.backend.management.commands.audit_flag_filters.MAX_TRACKED_UNKNOWN_KEYS", 1)
+    def test_console_output_reports_untracked_keys(self) -> None:
+        self._create_flag("many-junk-keys", {"groups": [], "junk_a": 1, "junk_b": 2})
+        out = StringIO()
+
+        call_command("audit_flag_filters", "--team-id", str(self.team.id), stdout=out)
+
+        assert "tracking cap" in out.getvalue()
+
     @parameterized.expand(
         [
             ("negative_limit", ["--limit", "-1"]),

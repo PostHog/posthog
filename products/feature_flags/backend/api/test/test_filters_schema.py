@@ -54,6 +54,7 @@ class TestFiltersSchema(SimpleTestCase):
             ("kitchen_sink", KITCHEN_SINK_FILTERS),
             ("null_optionals", {"groups": [], "multivariate": None, "holdout": None, "early_exit": None}),
             ("null_payloads", {"payloads": None}),
+            ("null_group_properties", {"groups": [{"properties": None, "rollout_percentage": 50}]}),
         ]
     )
     def test_valid_filters_pass(self, _name: str, filters: dict[str, Any]) -> None:
@@ -259,6 +260,11 @@ class TestFiltersSchema(SimpleTestCase):
         serializer = FeatureFlagFiltersSerializer(data={"payloads": {"true": value}})
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data["payloads"] == {"true": expected}
+
+    def test_null_group_properties_normalized_to_empty_list(self) -> None:
+        serializer = FlagConditionGroupSerializer(data={"properties": None})
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["properties"] == []
 
     def test_group_aggregation_absent_vs_null_is_preserved(self) -> None:
         absent = FlagConditionGroupSerializer(data={"properties": []})

@@ -9,9 +9,10 @@ reject: no DRF type coercion (`"true"` is not a bool, `"42"` is not an int, `NaN
 valid rollout percentage).
 
 Modeled on the OpenAPI-only `FeatureFlagFiltersSchemaSerializer` in `posthog/api/documentation.py`
-(which can't validate at runtime — it relies on `PolymorphicProxySerializer`). Not wired into
-`FeatureFlagSerializer` yet: enforcement lands in a later phase, gated on the `audit_flag_filters`
-management command reporting zero violations.
+(which can't validate at runtime — it relies on `PolymorphicProxySerializer`). The two are meant
+to converge: once this serializer is wired into `FeatureFlagSerializer` (phase 3 of #50084), it
+becomes the OpenAPI source of truth and the documentation.py one is retired. Not wired in yet:
+enforcement is gated on the `audit_flag_filters` management command reporting zero violations.
 
 Phase 3 wiring notes:
 - When `feature_flag.py` starts importing this module, move `FEATURE_FLAG_SUPPORTED_OPERATORS`
@@ -54,6 +55,12 @@ I32_MIN, I32_MAX = -(2**31), 2**31 - 1
 I64_MIN, I64_MAX = -(2**63), 2**63 - 1
 
 
+# Serializer-context keys shared with the audit command; constants so a typo on either side
+# fails loudly at import instead of silently under-reporting unknown keys.
+UNKNOWN_KEYS_SINK_CONTEXT_KEY = "unknown_keys_sink"
+FLAG_ID_CONTEXT_KEY = "flag_id"
+
+
 class UnknownKeySink(Protocol):
     def record(self, *, level: str, keys: Sequence[str], flag_id: int | None) -> None: ...
 
@@ -63,8 +70,8 @@ def is_legacy_unknown_key(level: str, key: str) -> bool:
 
 
 def _record_dropped_unknown_keys(level: str, keys: Sequence[str], context: Mapping[str, Any]) -> None:
-    sink: UnknownKeySink | None = context.get("unknown_keys_sink")
-    flag_id: int | None = context.get("flag_id")
+    sink: UnknownKeySink | None = context.get(UNKNOWN_KEYS_SINK_CONTEXT_KEY)
+    flag_id: int | None = context.get(FLAG_ID_CONTEXT_KEY)
     if sink is not None:
         sink.record(level=level, keys=keys, flag_id=flag_id)
         return
@@ -262,9 +269,13 @@ class FlagPropertySerializer(DropsUnknownKeysMixin, serializers.Serializer):
 class FlagConditionGroupSerializer(DropsUnknownKeysMixin, serializers.Serializer):
     unknown_key_level = "group"
 
+    # allow_null: Rust reads properties as Option<Vec<PropertyFilter>> with #[serde(default)],
+    # so an explicit JSON null deserializes fine (treated like absent) and must not audit as
+    # a violation.
     properties = FlagPropertySerializer(
         many=True,
         required=False,
+        allow_null=True,
         default=list,
         help_text="Property conditions for this release condition group.",
     )
@@ -292,6 +303,11 @@ class FlagConditionGroupSerializer(DropsUnknownKeysMixin, serializers.Serializer
         help_text="Group type index for this condition set. Null means person-level aggregation; "
         "absent falls back to the flag-level value.",
     )
+
+    def validate_properties(self, value: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+        # Null means "no properties" (Rust treats it like absent); normalize so cross-field
+        # checks can iterate without a None guard.
+        return value if value is not None else []
 
 
 class FlagMultivariateVariantSerializer(DropsUnknownKeysMixin, serializers.Serializer):

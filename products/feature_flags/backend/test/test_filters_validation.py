@@ -1,3 +1,5 @@
+import copy
+from types import SimpleNamespace
 from typing import Any
 
 from django.test import SimpleTestCase
@@ -6,6 +8,7 @@ from parameterized import parameterized
 from rest_framework import serializers
 from rest_framework.exceptions import ErrorDetail
 
+from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.filters_validation import (
     CROSS_FIELD_CHECKS,
     Violation,
@@ -249,6 +252,117 @@ class TestFiltersValidation(SimpleTestCase):
         detail = ctx.exception.detail
         assert isinstance(detail, list) and isinstance(detail[0], ErrorDetail)
         assert detail[0].code == "cross_field.variant_rollout_sum_not_100"
+
+    # Parity guard for the phases 1-2 window: the cross-field rules mirror logic that still
+    # lives in validate_filters, and both run independently until the phase 3 swap. This
+    # corpus exercises the mirrored rules through both paths and asserts the same
+    # accept/reject verdict, so an edit to either side that changes a shared rule fails here
+    # instead of silently making the audit measure a different rule set than the write path.
+    # Scope: only rules that exist on both sides, with structurally valid input, and no
+    # cohort/flag properties or early_exit (those branches of validate_filters need DB or
+    # org context). Message text and error codes are documented to differ.
+    @parameterized.expand(
+        [
+            ("variant_sum_100_accepted", {"groups": [{}], "multivariate": _multivariate(("a", 50), ("b", 50))}, True),
+            ("variant_sum_50_rejected", {"groups": [{}], "multivariate": _multivariate(("a", 50))}, False),
+            (
+                "variant_override_valid",
+                {"groups": [{"variant": "a"}], "multivariate": _multivariate(("a", 100))},
+                True,
+            ),
+            (
+                "variant_override_dangling",
+                {"groups": [{"variant": "b"}], "multivariate": _multivariate(("a", 100))},
+                False,
+            ),
+            ("in_on_person_rejected", {"groups": [{"properties": [_person_prop(operator="in", value=[1])]}]}, False),
+            (
+                "regex_string_accepted",
+                {"groups": [{"properties": [_person_prop(operator="regex", value="^a+$")]}]},
+                True,
+            ),
+            ("regex_numeric_rejected", {"groups": [{"properties": [_person_prop(operator="regex", value=5)]}]}, False),
+            ("gt_string_accepted", {"groups": [{"properties": [_person_prop(operator="gt", value="5")]}]}, True),
+            ("gt_numeric_rejected", {"groups": [{"properties": [_person_prop(operator="gt", value=5)]}]}, False),
+            (
+                "min_alias_string_accepted",
+                {"groups": [{"properties": [_person_prop(operator="min", value="5")]}]},
+                True,
+            ),
+            (
+                "date_relative_accepted",
+                {"groups": [{"properties": [_person_prop(operator="is_date_after", value="-30d")]}]},
+                True,
+            ),
+            (
+                "date_junk_rejected",
+                {"groups": [{"properties": [_person_prop(operator="is_date_after", value="not a date")]}]},
+                False,
+            ),
+            (
+                "semver_valid_accepted",
+                {"groups": [{"properties": [_person_prop(operator="semver_gt", value="1.2.3")]}]},
+                True,
+            ),
+            (
+                "semver_junk_rejected",
+                {"groups": [{"properties": [_person_prop(operator="semver_gt", value="abc")]}]},
+                False,
+            ),
+            (
+                "multi_contains_list_accepted",
+                {"groups": [{"properties": [_person_prop(operator="icontains_multi", value=["a"])]}]},
+                True,
+            ),
+            (
+                "multi_contains_string_rejected",
+                {"groups": [{"properties": [_person_prop(operator="icontains_multi", value="a")]}]},
+                False,
+            ),
+            (
+                "person_agg_group_property_rejected",
+                {"groups": [{"properties": [{"key": "k", "type": "group", "group_type_index": 0, "value": "x"}]}]},
+                False,
+            ),
+            (
+                "group_agg_matching_index_accepted",
+                {
+                    "groups": [
+                        {
+                            "aggregation_group_type_index": 1,
+                            "properties": [
+                                {"key": "k", "type": "group", "group_type_index": 1, "operator": "exact", "value": "x"}
+                            ],
+                        }
+                    ]
+                },
+                True,
+            ),
+            (
+                "payload_key_not_variant_rejected",
+                {"groups": [{}], "multivariate": _multivariate(("a", 100)), "payloads": {"b": "1"}},
+                False,
+            ),
+            ("boolean_payload_false_key_rejected", {"groups": [{}], "payloads": {"false": "1"}}, False),
+            ("empty_groups_rejected_on_create", {"groups": []}, False),
+        ]
+    )
+    def test_write_path_parity(self, _name: str, filters: dict[str, Any], expected_accept: bool) -> None:
+        live_serializer = FeatureFlagSerializer(
+            data={}, context={"request": SimpleNamespace(method="POST"), "project_id": 1}
+        )
+        try:
+            live_serializer.validate_filters(copy.deepcopy(filters))
+            live_accepts = True
+        except serializers.ValidationError:
+            live_accepts = False
+
+        working = copy.deepcopy(filters)
+        violations = collect_filters_violations(working) or check_groups_non_empty_for_create(working)
+        new_accepts = not violations
+
+        assert live_accepts == expected_accept
+        assert new_accepts == expected_accept, violations
 
     def test_groups_non_empty_is_a_create_only_rule(self) -> None:
         # The POST/PATCH asymmetry is locked on #50084: stored/patched flags may have empty
