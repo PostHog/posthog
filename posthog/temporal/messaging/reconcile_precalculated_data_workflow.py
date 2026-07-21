@@ -27,6 +27,7 @@ from posthog.temporal.messaging.backfill_precalculated_person_properties_workflo
     evaluate_combined_filters_with_fallback_sync,
     parse_person_properties,
 )
+from posthog.temporal.messaging.clickhouse_concurrency import messaging_clickhouse_query_slot
 from posthog.temporal.messaging.filter_storage import combine_filter_bytecodes, extract_person_property_filters
 from posthog.temporal.messaging.types import PersonPropertyFilter
 
@@ -348,7 +349,10 @@ async def reconcile_team_precalculated_person_properties_activity(
             product=Product.MESSAGING,
             query_type="precalculated_person_properties_reconciliation",
         ):
-            async with get_client(team_id=inputs.team_id) as client:
+            # Hold a messaging-wide query slot for the whole streaming context (several batched
+            # queries with Kafka produce / eval between them). Coarse, but only team_concurrency
+            # (<=5) of these run at once, and waiting on the slot is backpressure, not a 202.
+            async with messaging_clickhouse_query_slot, get_client(team_id=inputs.team_id) as client:
                 kafka_producer = get_producer(topic=KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES)
                 kafka_results: list = []
                 verdicts_checked = 0
@@ -521,7 +525,8 @@ async def reconcile_team_precalculated_events_activity(inputs: ReconcileTeamInpu
             product=Product.MESSAGING,
             query_type="precalculated_events_reconciliation",
         ):
-            async with get_client(team_id=inputs.team_id) as client:
+            # See the person-properties activity above: one slot held for the streaming context.
+            async with messaging_clickhouse_query_slot, get_client(team_id=inputs.team_id) as client:
                 kafka_producer = get_producer(topic=KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS)
                 kafka_results: list = []
                 rows_checked = 0
