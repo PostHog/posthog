@@ -1289,7 +1289,10 @@ class DashboardSerializer(DashboardMetadataSerializer):
             )
         if properties is not None and not isinstance(properties, (list, dict)):
             raise serializers.ValidationError({"properties": "Must be a list of filters or a property group"})
-        return normalize_dashboard_filters_properties(request_filters)
+        try:
+            return normalize_dashboard_filters_properties(request_filters)
+        except ValueError as error:
+            raise serializers.ValidationError({"properties": str(error)}) from error
 
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="POST")
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Dashboard:
@@ -1653,8 +1656,8 @@ class DashboardSerializer(DashboardMetadataSerializer):
         # a malformed tile override can't be persisted for the merge/contradiction code to trip on.
         if "filters_overrides" in defaults:
             tile_filters = defaults["filters_overrides"]
-            if isinstance(tile_filters, dict):
-                defaults["filters_overrides"] = normalize_dashboard_filters_properties(tile_filters)
+            if tile_filters is not None:
+                defaults["filters_overrides"] = DashboardSerializer._validated_filters(tile_filters)
         return defaults
 
     @staticmethod

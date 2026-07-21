@@ -1,5 +1,8 @@
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
+from rest_framework import serializers
+
 from products.dashboards.backend.api.dashboard import DashboardSerializer
 
 
@@ -11,8 +14,6 @@ class TestDashboardFiltersValidation(SimpleTestCase):
         return DashboardSerializer._validated_filters(value)
 
     def test_rejects_non_dict(self):
-        import rest_framework.serializers as serializers
-
         try:
             self._validate(["not", "a", "dict"])
         except serializers.ValidationError:
@@ -20,8 +21,6 @@ class TestDashboardFiltersValidation(SimpleTestCase):
         raise AssertionError("expected ValidationError")
 
     def test_rejects_non_list_non_group_properties(self):
-        import rest_framework.serializers as serializers
-
         try:
             self._validate({"properties": "not-a-list-or-group"})
         except serializers.ValidationError:
@@ -52,8 +51,6 @@ class TestDashboardFiltersValidation(SimpleTestCase):
         assert self._validate({"date_from": "-7d"}) == {"date_from": "-7d"}
 
     def test_rejects_or_property_group(self):
-        import rest_framework.serializers as serializers
-
         try:
             self._validate(
                 {"properties": {"type": "OR", "values": [{"key": "$browser", "value": "Chrome", "type": "event"}]}}
@@ -61,6 +58,19 @@ class TestDashboardFiltersValidation(SimpleTestCase):
         except serializers.ValidationError:
             return
         raise AssertionError("expected ValidationError")
+
+    def test_rejects_nested_or_property_group(self):
+        with self.assertRaises(serializers.ValidationError):
+            self._validate(
+                {
+                    "properties": [
+                        {
+                            "type": "OR",
+                            "values": [{"key": "$browser", "value": "Chrome", "type": "event"}],
+                        }
+                    ]
+                }
+            )
 
 
 class TestDashboardTileFiltersOverridesValidation(SimpleTestCase):
@@ -78,6 +88,15 @@ class TestDashboardTileFiltersOverridesValidation(SimpleTestCase):
         prop = {"key": "$browser", "value": "Chrome", "type": "event"}
         result = DashboardSerializer._extract_display_defaults({"filters_overrides": {"properties": [prop]}})
         assert result["filters_overrides"]["properties"] == [prop]
+
+    @parameterized.expand([(["invalid"],), ("invalid",)])
+    def test_rejects_non_dict_tile_filters_overrides(self, filters_overrides):
+        with self.assertRaises(serializers.ValidationError):
+            DashboardSerializer._extract_display_defaults({"filters_overrides": filters_overrides})
+
+    def test_allows_clearing_tile_filters_overrides(self):
+        result = DashboardSerializer._extract_display_defaults({"filters_overrides": None})
+        assert result["filters_overrides"] is None
 
     def test_leaves_non_filters_overrides_display_fields_untouched(self):
         result = DashboardSerializer._extract_display_defaults({"color": "red", "layouts": {}})

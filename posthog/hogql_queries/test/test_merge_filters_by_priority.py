@@ -214,8 +214,7 @@ class TestDashboardFilterFromDict(SimpleTestCase):
 
 
 class TestFlattenPropertyLeaves(SimpleTestCase):
-    def test_drops_or_property_group(self):
-        # OR semantics can't survive flattening to an AND-combined list; drop rather than flip.
+    def test_rejects_or_property_group(self):
         or_group = {
             "type": "OR",
             "values": [
@@ -223,7 +222,8 @@ class TestFlattenPropertyLeaves(SimpleTestCase):
                 {"key": "$country", "value": "CA", "type": "event"},
             ],
         }
-        assert flatten_property_leaves(or_group) == []
+        with self.assertRaisesRegex(ValueError, "Only AND property groups are supported"):
+            flatten_property_leaves(or_group)
 
     def test_and_property_group_is_flattened(self):
         and_group = {
@@ -238,11 +238,16 @@ class TestFlattenPropertyLeaves(SimpleTestCase):
             {"key": "$browser", "value": "Chrome", "type": "event"},
         ]
 
+    def test_property_group_nested_in_list_is_flattened(self):
+        prop = {"key": "$country", "value": "US", "type": "event"}
+        assert flatten_property_leaves([{"type": "AND", "values": [prop]}]) == [prop]
+
     def test_deeply_nested_group_does_not_recurse_past_depth_cap(self):
         nested = {"key": "$browser", "value": "Chrome", "type": "event"}
         for _ in range(100):
             nested = {"type": "AND", "values": [nested]}
-        assert flatten_property_leaves(nested) == []
+        with self.assertRaisesRegex(ValueError, "Property group nesting exceeds the supported depth"):
+            flatten_property_leaves(nested)
 
 
 class TestResolveEffectiveDashboardFilters(SimpleTestCase):

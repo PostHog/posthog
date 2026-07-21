@@ -122,16 +122,16 @@ _MAX_PROPERTY_GROUP_DEPTH = 32
 def flatten_property_leaves(properties: Any, _depth: int = 0) -> list[dict]:
     """Flatten a `properties` value into a flat list of leaf property-filter dicts. The value is either a
     flat list of leaves or a (possibly nested) `PropertyGroupFilter` dict (`{"type": ..., "values": [...]}`),
-    since dashboard/tile filter layers can be stored in either form. OR groups are dropped — the flat-list
-    contract is AND-combined, so flattening an OR group's leaves would silently flip its semantics.
+    since dashboard/tile filter layers can be stored in either form. Unsupported groups raise rather than
+    being dropped because running without a requested filter would expose broader results.
 
     `properties` can arrive from untrusted JSON (`?filters_override=`), so recursion is depth-capped at
     `_MAX_PROPERTY_GROUP_DEPTH` to prevent a deeply-nested payload from stack-overflowing the request."""
     if _depth >= _MAX_PROPERTY_GROUP_DEPTH:
-        return []
+        raise ValueError("Property group nesting exceeds the supported depth")
     if isinstance(properties, dict):
         if properties.get("type") not in (None, "AND"):
-            return []
+            raise ValueError("Only AND property groups are supported")
         properties = properties.get("values")
     if not isinstance(properties, list):
         return []
@@ -151,7 +151,7 @@ def normalize_dashboard_filters_properties(filters: dict) -> dict:
     shape matches, rather than leaving every reader to tolerate both forms. A non-list, non-group-dict
     `properties` is dropped as malformed. Only touches `properties`; other fields pass through."""
     properties = filters.get("properties")
-    if isinstance(properties, list):
+    if properties is None:
         return filters
     flattened = flatten_property_leaves(properties)
     if not flattened:
