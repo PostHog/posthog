@@ -1,4 +1,15 @@
 {
     "version": 1,
-    "entries": []
+    "entries": [
+        {
+            "id": "products/batch_exports/backend/tests/temporal/destinations/s3/test_workflow_with_minio_bucket.py::test_s3_export_workflow_with_minio_bucket_with_various_models",
+            "runner": "pytest",
+            "reason": "Intermittent Temporal activity timeout on model2/model3 variants (9 occurrences in 2 days)",
+            "owner": "@posthog/batch-exports",
+            "issue": "https://app.mendral.com/insights/01KY0V5346X0ZF74EDH6CM6Z77",
+            "added": "2026-07-21",
+            "expires": "2026-08-04",
+            "mode": "run"
+        }
+    ]
 }
