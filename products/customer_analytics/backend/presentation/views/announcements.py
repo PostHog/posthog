@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, status, viewsets
@@ -12,6 +12,7 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
+from posthog.models.user import User
 
 from products.customer_analytics.backend.facade import api
 from products.customer_analytics.backend.facade.constants import MAX_ANNOUNCEMENT_CHANNELS
@@ -174,7 +175,7 @@ class AnnouncementViewSet(
         try:
             announcement = api.create_announcement(
                 team_id=self.team_id,
-                user=request.user,
+                user=cast(User, request.user),
                 message=data.message,
                 channels=data.channels,
             )
