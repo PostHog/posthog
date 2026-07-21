@@ -6429,6 +6429,34 @@
             "readOnlyHint": true
         }
     },
+    "organization-enforce-2fa-execute": {
+        "description": "Step 2 of 2 for change 2FA enforcement. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Enable or disable organization-wide two-factor authentication (2FA) enforcement. When enabled, every member of the organization is required to set up 2FA before they can continue using PostHog. This is an admin-only, security-sensitive change that affects all members at once. Requires human typed confirmation: call the `-prepare` tool, surface its message to the user, and only call `-execute` after the user replies with the literal word \"confirm\". Set `enforce_2fa` to true to require 2FA org-wide, or false to lift the requirement. Requires the 2FA enforcement paid feature; the call fails with a payment-required error otherwise.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "Enforce two-factor authentication org-wide (execute)",
+        "title": "Enforce two-factor authentication org-wide (execute)",
+        "required_scopes": ["organization:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "organization-enforce-2fa-prepare": {
+        "description": "Step 1 of 2 for change 2FA enforcement. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Enable or disable organization-wide two-factor authentication (2FA) enforcement. When enabled, every member of the organization is required to set up 2FA before they can continue using PostHog. This is an admin-only, security-sensitive change that affects all members at once. Requires human typed confirmation: call the `-prepare` tool, surface its message to the user, and only call `-execute` after the user replies with the literal word \"confirm\". Set `enforce_2fa` to true to require 2FA org-wide, or false to lift the requirement. Requires the 2FA enforcement paid feature; the call fails with a payment-required error otherwise.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "Enforce two-factor authentication org-wide (prepare)",
+        "title": "Enforce two-factor authentication org-wide (prepare)",
+        "required_scopes": ["organization:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "organization-get": {
         "description": "Get details of an organization by ID including name, membership level, member count, teams, and projects. If no ID is provided, returns the active organization.",
         "category": "Platform Features",

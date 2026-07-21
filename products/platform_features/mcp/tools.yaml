@@ -317,6 +317,44 @@ tools:
     organizations-partial-update:
         operation: partial_update
         enabled: false
+    organization-enforce-2fa:
+        operation: partial_update
+        enabled: true
+        scopes:
+            - organization:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Enforce two-factor authentication org-wide
+        description: >
+            Enable or disable organization-wide two-factor authentication (2FA) enforcement. When enabled, every member
+            of the organization is required to set up 2FA before they can continue using PostHog. This is an admin-only,
+            security-sensitive change that affects all members at once. Requires human typed confirmation: call the
+            `-prepare` tool, surface its message to the user, and only call `-execute` after the user replies with the
+            literal word "confirm". Set `enforce_2fa` to true to require 2FA org-wide, or false to lift the requirement.
+            Requires the 2FA enforcement paid feature; the call fails with a payment-required error otherwise.
+        include_params:
+            - enforce_2fa
+        confirmed_action:
+            message: >
+                About to set organization-wide two-factor-authentication enforcement to {enforce_2fa}. This immediately
+                affects every member of the organization — when enabled, all members must set up 2FA before they can
+                continue using PostHog. Reply 'confirm' to proceed.
+            action_label: change 2FA enforcement
+        param_overrides:
+            id:
+                description: |
+                    Organization ID. If omitted, targets the active organization.
+                optional: true
+                fallback: orgId
+            enforce_2fa:
+                description: >
+                    Set to true to require every organization member to have 2FA enabled; false to lift the requirement.
+                    Applies org-wide and takes effect immediately.
+        response:
+            include:
+                - enforce_2fa
     organizations-update:
         operation: update
         enabled: false

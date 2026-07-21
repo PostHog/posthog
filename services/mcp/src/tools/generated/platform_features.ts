@@ -14,6 +14,8 @@ import {
     ListQueryParams,
     MembersGithubLoginRetrieveParams,
     MembersListQueryParams,
+    PartialUpdateBody,
+    PartialUpdateParams,
     RetrieveParams,
     RolesListQueryParams,
     RolesRetrieveParams,
@@ -23,6 +25,12 @@ import {
     UserHomeSettingsPartialUpdateParams,
     UserHomeSettingsRetrieveParams,
 } from '@/generated/platform_features/api'
+import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
+import {
+    executeConfirmedAction,
+    prepareConfirmedAction,
+    type PrepareConfirmedActionResult,
+} from '@/tools/confirmed-action-runtime'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -480,6 +488,91 @@ const userHomeSettingsUpdate = (): ToolBase<typeof UserHomeSettingsUpdateSchema,
     },
 })
 
+const OrganizationEnforce2faSchema = PartialUpdateParams.extend(
+    PartialUpdateBody.omit({
+        name: true,
+        logo_media_id: true,
+        members_can_invite: true,
+        members_can_create_projects: true,
+        members_can_use_personal_api_keys: true,
+        allow_publicly_shared_resources: true,
+        is_ai_data_processing_approved: true,
+        is_ai_training_opted_in: true,
+        default_experiment_stats_method: true,
+        default_anonymize_ips: true,
+        default_role_id: true,
+    }).shape
+).extend({
+    id: PartialUpdateParams.shape['id']
+        .describe('Organization ID. If omitted, targets the active organization.')
+        .optional(),
+    enforce_2fa: PartialUpdateBody.shape['enforce_2fa'].describe(
+        'Set to true to require every organization member to have 2FA enabled; false to lift the requirement. Applies org-wide and takes effect immediately.'
+    ),
+})
+
+const OrganizationEnforce2faSchemaExecute = z.strictObject({
+    confirmation_hash: z
+        .string()
+        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
+    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
+})
+
+const organizationEnforce2faPrepare = (): ToolBase<
+    typeof OrganizationEnforce2faSchema,
+    PrepareConfirmedActionResult
+> => ({
+    name: 'organization-enforce-2fa-prepare',
+    schema: OrganizationEnforce2faSchema,
+    handler: async (context: Context, params: z.infer<typeof OrganizationEnforce2faSchema>) => {
+        const __runtime = getConfirmedActionRuntime()
+        return await prepareConfirmedAction(context, {
+            args: params,
+            purpose: 'organization-enforce-2fa',
+            actionLabel: 'change 2FA enforcement',
+            messageTemplate:
+                "About to set organization-wide two-factor-authentication enforcement to {enforce_2fa}. This immediately affects every member of the organization — when enabled, all members must set up 2FA before they can continue using PostHog. Reply 'confirm' to proceed.\n",
+            codec: __runtime.codec,
+        })
+    },
+})
+
+const organizationEnforce2faExecute = (): ToolBase<
+    typeof OrganizationEnforce2faSchemaExecute,
+    Schemas.Organization
+> => ({
+    name: 'organization-enforce-2fa-execute',
+    schema: OrganizationEnforce2faSchemaExecute,
+    handler: async (context: Context, confirmationParams: z.infer<typeof OrganizationEnforce2faSchemaExecute>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __guard = await executeConfirmedAction<z.infer<typeof OrganizationEnforce2faSchema>>(context, {
+            incomingArgs: confirmationParams,
+            purpose: 'organization-enforce-2fa',
+            codec: __runtime.codec,
+            ledger: __runtime.ledger,
+        })
+        if (!__guard.ok) {
+            return __guard.result as never
+        }
+        const params = __guard.verifiedArgs
+        const id = params.id ?? (await context.stateManager.getOrgID())
+        if (!id) {
+            throw new Error('id is required. Provide it explicitly or set an active organization first.')
+        }
+        const body: Record<string, unknown> = {}
+        if (params.enforce_2fa !== undefined) {
+            body['enforce_2fa'] = params.enforce_2fa
+        }
+        const result = await context.api.request<Schemas.Organization>({
+            method: 'PATCH',
+            path: `/api/organizations/${encodeURIComponent(String(id))}/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, ['enforce_2fa']) as typeof result
+        return filtered
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'advanced-activity-logs-filters': advancedActivityLogsFilters,
     'advanced-activity-logs-list': advancedActivityLogsList,
@@ -495,6 +588,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'org-members-list': orgMembersList,
     'organization-get': organizationGet,
     'organizations-list': organizationsList,
+    'organization-enforce-2fa-prepare': organizationEnforce2faPrepare,
+    'organization-enforce-2fa-execute': organizationEnforce2faExecute,
     'role-get': roleGet,
     'role-members-list': roleMembersList,
     'roles-list': rolesList,
