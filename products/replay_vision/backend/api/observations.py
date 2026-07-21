@@ -319,6 +319,12 @@ class ObservationVersionMarkerSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="The prompt text this version ran with, taken from the observation run snapshots.",
     )
+    scanner_config = serializers.JSONField(
+        help_text=(
+            "The full type-specific config this version ran with (prompt plus, depending on scanner type, "
+            "allow_inconclusive, tags, scale, or length), taken from the observation run snapshots."
+        ),
+    )
     up = serializers.IntegerField(help_text="Thumbs-up ratings on this version's observations.")
     down = serializers.IntegerField(help_text="Thumbs-down ratings on this version's observations.")
     total = serializers.IntegerField(help_text="Succeeded (ratable) observations this version produced, rated or not.")
@@ -802,6 +808,9 @@ class ReplayObservationViewSet(
         if not is_replay_vision_quality_enabled(cast(User, request.user), self.team):
             raise NotFound()
         observation = self.get_object()
+        # Label writes are scanner writes; the session route's get_object only object-checks the observation row.
+        scanner = getattr(self, "_scanner_for_url_cache", None) or observation.scanner
+        self.check_object_permissions(self.request, scanner)
         # Editing the shared label needs edit access, not just the viewer access reading needs.
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="editor"):
             raise PermissionDenied("Editing observation labels requires session_recording edit access.")

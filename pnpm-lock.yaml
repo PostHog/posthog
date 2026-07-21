@@ -3945,6 +3945,9 @@ importers:
       '@tanstack/react-virtual':
         specifier: '*'
         version: 3.14.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@toon-format/toon':
+        specifier: ^2.1.0
+        version: 2.1.0
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27

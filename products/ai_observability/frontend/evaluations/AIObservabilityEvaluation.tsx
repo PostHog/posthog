@@ -56,6 +56,7 @@ import { EvaluationTarget, EvaluationType } from './types'
 export function AIObservabilityEvaluation(): JSX.Element {
     const {
         evaluation,
+        evaluationBackTarget,
         evaluationLoading,
         evaluationFormSubmitting,
         hasUnsavedChanges,
@@ -225,7 +226,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
         if (hasUnsavedChanges) {
             resetEvaluation()
         }
-        push(combineUrl(urls.aiObservabilityEvaluations(), searchParams).url)
+        push(evaluationBackTarget.path)
     }
 
     const hogEvaluationMethodOptions: { value: EvaluationType; label: string }[] = [
@@ -458,10 +459,18 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                         <Link to="https://posthog.com/docs/hog" target="_blank">
                                                             Hog code
                                                         </Link>{' '}
-                                                        against each generation. No LLM cost, instant results.
+                                                        against{' '}
+                                                        {evaluation.target === 'trace'
+                                                            ? 'the whole trace'
+                                                            : 'each generation'}
+                                                        . No LLM cost.
                                                     </>
                                                 ) : (
-                                                    'Use an LLM to evaluate each generation against a natural-language prompt.'
+                                                    `Use an LLM to evaluate ${
+                                                        evaluation.target === 'trace'
+                                                            ? 'the whole trace'
+                                                            : 'each generation'
+                                                    } against a natural-language prompt.`
                                                 )}
                                             </p>
 

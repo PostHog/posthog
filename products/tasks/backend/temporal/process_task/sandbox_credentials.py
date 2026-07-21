@@ -1,7 +1,6 @@
 """Refresh long-lived credentials inside a running task sandbox by re-resolving and re-applying tokens in place."""
 
 import shlex
-import base64
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
@@ -13,7 +12,7 @@ from posthog.models.user_integration import ReauthorizationRequired, UserGitHubI
 from posthog.redis import get_client
 
 from products.tasks.backend.exceptions import CredentialUnavailableError
-from products.tasks.backend.logic.services.agentsh import ENV_FILE
+from products.tasks.backend.logic.services.agentsh import GITHUB_ENV_FILE, OAUTH_ENV_FILE
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.process_task.utils import (
     PrAuthorshipMode,
@@ -35,6 +34,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 GITHUB_ENV_KEYS = ("GITHUB_TOKEN", "GH_TOKEN")
+OAUTH_ENV_KEY = "POSTHOG_PERSONAL_API_KEY"
 
 # Refresh at half the token's server-side half-life so the in-sandbox copy never lapses mid-run.
 #   ghs_ = installation token (~1h) → 20 min; ghu_ = user-to-server token (~8h) → 2 h
@@ -52,15 +52,18 @@ def github_refresh_interval_seconds(token: str) -> float:
     return DEFAULT_REFRESH_INTERVAL_SECONDS
 
 
-def set_git_remote_token(sandbox: "SandboxBase", repository: str, github_token: str) -> bool:
-    """Rewrite ``origin``'s remote URL with a fresh ``x-access-token``; git re-reads it on every op. No-ops pre-clone."""
+def set_git_remote_token(sandbox: "SandboxBase", repository: str, github_token: str | None) -> bool:
+    """Rewrite ``origin`` with the current credential state; git re-reads it on every operation."""
     org, repo = repository.lower().split("/")
     repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+    if github_token:
+        remote_url = f"https://x-access-token:{github_token}@github.com/{repository}.git"
+    else:
+        remote_url = f"https://github.com/{repository}.git"
     update_remote = (
         f"if [ -d {shlex.quote(repo_path + '/.git')} ]; then "
         f"cd {shlex.quote(repo_path)} && "
-        f"git remote set-url origin "
-        f"https://x-access-token:{shlex.quote(github_token)}@github.com/{shlex.quote(repository)}.git; "
+        f"git remote set-url origin {shlex.quote(remote_url)}; "
         f"fi"
     )
     result = sandbox.execute(update_remote, timeout_seconds=30)
@@ -73,56 +76,44 @@ def set_git_remote_token(sandbox: "SandboxBase", repository: str, github_token: 
     return True
 
 
-def update_sandbox_env_file(sandbox: "SandboxBase", updates: dict[str, str]) -> bool:
-    """Replace specific keys in the NUL-delimited agentsh env file, preserving all other entries.
-
-    Read-modify-write via base64 to survive NUL bytes. The exec wrapper re-sources the
-    file per command, so updates reach the agent's later ``gh``/``git`` calls without a reboot.
-    """
-    if not updates:
-        return True
-
-    read = sandbox.execute(f"base64 -w0 {shlex.quote(ENV_FILE)} 2>/dev/null || true", timeout_seconds=30)
-    existing: bytes = b""
-    if read.exit_code == 0 and read.stdout.strip():
-        try:
-            existing = base64.b64decode(read.stdout.strip())
-        except Exception:
-            logger.warning("Could not decode existing sandbox env file; rewriting only the updated keys")
-            existing = b""
-
-    ordered_keys: list[str] = []
-    values: dict[str, bytes] = {}
-    for entry in existing.split(b"\x00"):
-        if not entry:
-            continue
-        key_bytes, _, value_bytes = entry.partition(b"=")
-        key = key_bytes.decode("utf-8", "replace")
-        if key not in values:
-            ordered_keys.append(key)
-        values[key] = value_bytes
-
-    for key, value in updates.items():
-        if key not in values:
-            ordered_keys.append(key)
-        values[key] = value.encode("utf-8")
-
-    payload = b"".join(f"{key}=".encode() + values[key] + b"\x00" for key in ordered_keys)
-    write = sandbox.write_file(ENV_FILE, payload)
+def _write_sandbox_credential_file(sandbox: "SandboxBase", path: str, payload: bytes) -> bool:
+    """Atomically replace one credential domain without a cross-key read-modify-write."""
+    write = sandbox.write_file(path, payload)
     if write.exit_code != 0:
         logger.warning(
-            "Failed to refresh agentsh env file",
-            extra={"sandbox_id": sandbox.id, "env_file": ENV_FILE, "stderr": write.stderr},
+            "Failed to refresh sandbox credential file",
+            extra={"sandbox_id": sandbox.id, "credential_file": path, "stderr": write.stderr},
+        )
+        return False
+
+    chmod = sandbox.execute(f"chmod 600 {shlex.quote(path)}", timeout_seconds=30)
+    if chmod.exit_code != 0:
+        logger.warning(
+            "Failed to restrict sandbox credential file permissions",
+            extra={"sandbox_id": sandbox.id, "credential_file": path, "stderr": chmod.stderr},
         )
         return False
     return True
+
+
+def replace_sandbox_credentials(
+    sandbox: "SandboxBase", github_token: str | None, oauth_access_token: str | None
+) -> bool:
+    """Replace every managed credential, including empty values that revoke stale snapshot state."""
+    github_payload = b"".join(f"{key}={github_token}\x00".encode() for key in GITHUB_ENV_KEYS) if github_token else b""
+    oauth_payload = f"{OAUTH_ENV_KEY}={oauth_access_token}\x00".encode() if oauth_access_token else b""
+
+    github_updated = _write_sandbox_credential_file(sandbox, GITHUB_ENV_FILE, github_payload)
+    oauth_updated = _write_sandbox_credential_file(sandbox, OAUTH_ENV_FILE, oauth_payload)
+    return github_updated and oauth_updated
 
 
 def apply_github_credentials_to_sandbox(sandbox: "SandboxBase", repository: str | None, github_token: str) -> None:
     """Re-inject a GitHub token into both places a running sandbox reads it from."""
     if repository:
         set_git_remote_token(sandbox, repository, github_token)
-    update_sandbox_env_file(sandbox, dict.fromkeys(GITHUB_ENV_KEYS, github_token))
+    github_payload = b"".join(f"{key}={github_token}\x00".encode() for key in GITHUB_ENV_KEYS)
+    _write_sandbox_credential_file(sandbox, GITHUB_ENV_FILE, github_payload)
 
 
 USER_TOKEN_REFRESH_INTERVAL_SECONDS: float = _GITHUB_REFRESH_INTERVAL_BY_PREFIX["ghu_"]
