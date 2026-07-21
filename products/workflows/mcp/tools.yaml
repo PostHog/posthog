@@ -342,8 +342,6 @@ tools:
             - hog_flow:write
         annotations:
             readOnly: false
-            # destructive: with overwrite=true this replaces an open draft — same discard effect as
-            # workflows-discard-draft.
             destructive: true
             idempotent: true
         title: Restore workflow revision
