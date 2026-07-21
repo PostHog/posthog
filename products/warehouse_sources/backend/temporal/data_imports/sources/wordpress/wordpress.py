@@ -277,11 +277,22 @@ def validate_credentials(
     if response.status_code == 404:
         return False, "WordPress REST API not found at this URL — confirm the site URL and that the REST API is enabled"
 
+    # A WordPress REST error carries a JSON `message` worth surfacing. Anything else — a WAF,
+    # reverse proxy, or load balancer answering with a bare status line like "Bad Request" — gives
+    # the user nothing to act on, so replace it with an actionable message naming the status code
+    # rather than leaking the raw body.
     try:
         body = response.json()
-        return False, body.get("message", response.text)
+        wp_message = body.get("message") if isinstance(body, dict) else None
     except Exception:
-        return False, response.text
+        wp_message = None
+
+    if wp_message:
+        return False, wp_message
+    return False, (
+        f"WordPress returned an unexpected response (HTTP {response.status_code}). "
+        "Check the site URL is correct and that the REST API is enabled and reachable, then try again."
+    )
 
 
 def _parse_retry_after(response: requests.Response) -> float | None:

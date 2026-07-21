@@ -139,3 +139,5 @@ class TestCampaynSource:
         assert kwargs["subdomain"] == "acme"
         assert kwargs["api_key"] == "campayn-key"
         assert kwargs["endpoint"] == "contacts"
+        assert kwargs["team_id"] is inputs.team_id
+        assert kwargs["job_id"] is inputs.job_id

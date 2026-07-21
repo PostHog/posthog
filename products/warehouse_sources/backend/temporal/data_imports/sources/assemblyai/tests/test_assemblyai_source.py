@@ -142,6 +142,8 @@ class TestAssemblyAISource:
         assert kwargs["api_key"] == "key"
         assert kwargs["region"] == "us"
         assert kwargs["endpoint"] == "transcripts"
+        assert kwargs["team_id"] is inputs.team_id
+        assert kwargs["job_id"] is inputs.job_id
         assert kwargs["resumable_source_manager"] is manager
 
     def test_canonical_descriptions_keyed_by_endpoint(self):

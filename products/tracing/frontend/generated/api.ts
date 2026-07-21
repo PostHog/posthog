@@ -20,6 +20,7 @@ import type {
     _SymbolStatsRequestApi,
     _SymbolStatsResponseApi,
     _TracingAggregationRequestApi,
+    _TracingAggregationResponseApi,
     _TracingAttributeBreakdownRequestApi,
     _TracingAttributeBreakdownResponseApi,
     _TracingAttributesResponseApi,
@@ -59,8 +60,8 @@ export const tracingSpansAggregateCreate = async (
     projectId: string,
     _tracingAggregationRequestApi: _TracingAggregationRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getTracingSpansAggregateCreateUrl(projectId), {
+): Promise<_TracingAggregationResponseApi> => {
+    return apiMutator<_TracingAggregationResponseApi>(getTracingSpansAggregateCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
