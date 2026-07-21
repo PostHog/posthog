@@ -82,10 +82,11 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
     def apply_breakdown(self, base_query: ast.SelectQuery) -> None:
         select_from = base_query.select_from
         if select_from is not None and isinstance(select_from.table, ast.SelectSetQuery):
-            # Variant path: breakdown_value is resolved inside each UNION ALL arm and
-            # surfaced by build_base_query_dwh. The parent implementation appends
-            # events.*-referencing exprs to this outer query, where only the
-            # retention_events union is in scope, so it must not run here.
+            # Two-arm shapes resolve breakdown_value against their UNION ALL arms themselves
+            # (build_base_query_dwh via _dwh_breakdown_value_arm_expr, build_base_query_legacy
+            # against the arms' breakdown_value column). The parent implementation appends
+            # events.properties.*-referencing exprs to this outer query, where only the
+            # arms' columns are in scope, so it must not run here.
             return
 
         super().apply_breakdown(base_query)
@@ -798,11 +799,34 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         if retention_value_expr:
             select_fields.append(ast.Alias(alias="retention_value", expr=retention_value_expr))
 
+        group_by_fields: list[ast.Expr] = [ast.Field(chain=["actor_id"])]
+        if two_arm and has_breakdown_filter(self.query.breakdownFilter):
+            # apply_breakdown appends exprs reading events.properties.*, which the tag-column
+            # arms don't carry; mirror its semantics against the arms' breakdown_value column.
+            if self.is_first_ever_occurrence:
+                # Bucket each actor by the value on their earliest start event. is_start = 1
+                # rows are the unfiltered start stream, so this matches the parent's
+                # argMinIf over start_entity_expr_no_props; the return arm's empty-bucket
+                # rows are excluded by the condition, keeping the start arm the sole authority.
+                select_fields.append(
+                    ast.Alias(
+                        alias="breakdown_value",
+                        expr=parse_expr("argMinIf(events.breakdown_value, events.timestamp, events.is_start = 1)"),
+                    )
+                )
+            else:
+                # Per-row value carried by both arms; grouping by it preserves the per-value
+                # cohort partitioning of the single scan.
+                select_fields.append(
+                    ast.Alias(alias="breakdown_value", expr=ast.Field(chain=["events", "breakdown_value"]))
+                )
+                group_by_fields.append(ast.Field(chain=["breakdown_value"]))
+
         inner_query = ast.SelectQuery(
             select=select_fields,
             select_from=select_from,
             where=where,
-            group_by=[ast.Field(chain=["actor_id"])],
+            group_by=group_by_fields,
             having=ast.And(
                 exprs=[
                     (
@@ -830,12 +854,14 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         return inner_query
 
     def _legacy_first_time_two_arm_scan(self) -> bool:
-        # The tag-column arms carry no event properties, so any per-row property read in the
-        # outer query (value breakdowns, property aggregation) keeps the single scan.
+        # Property aggregation reads per-row property values the tag-column arms don't carry.
+        # Value breakdowns resolve breakdown_value inside each arm, so they can split; cohort
+        # breakdowns filter via the InCohort clause in _event_filters, which the arms don't
+        # apply, so they keep the single scan.
         return (
             self._first_time_split_shrinks_scan()
             and not self.has_property_aggregation
-            and not has_breakdown_filter(self.query.breakdownFilter)
+            and not self.runner.has_cohort_breakdown
         )
 
     def _first_time_split_shrinks_scan(self) -> bool:
@@ -866,17 +892,32 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         if not (isinstance(arm_predicate, ast.Constant) and arm_predicate.value is True):
             filters.append(arm_predicate)
 
+        select_fields: list[ast.Expr] = [
+            ast.Alias(
+                alias=self.aggregation_target_events_column,
+                expr=ast.Field(chain=["events", self.aggregation_target_events_column]),
+            ),
+            ast.Alias(alias="timestamp", expr=ast.Field(chain=["events", "timestamp"])),
+            ast.Alias(alias="is_start", expr=ast.Constant(value=is_start)),
+            ast.Alias(alias="matches_start", expr=matches_start),
+            ast.Alias(alias="is_return", expr=ast.Constant(value=is_return)),
+        ]
+
+        breakdown_extract = self.breakdown_extract_expr_for_query()
+        if breakdown_extract is not None:
+            # First-ever buckets each actor by their earliest start event's value — the outer
+            # argMinIf only reads is_start = 1 rows — so the return arm's values are never
+            # read. Emit the empty bucket there to skip the property read and keep the start
+            # arm the sole authority (mirrors _dwh_breakdown_value_arm_expr).
+            breakdown_value_expr: ast.Expr = (
+                ast.Constant(value="")
+                if query_kind == "return" and self.is_first_ever_occurrence
+                else breakdown_extract
+            )
+            select_fields.append(ast.Alias(alias="breakdown_value", expr=breakdown_value_expr))
+
         return ast.SelectQuery(
-            select=[
-                ast.Alias(
-                    alias=self.aggregation_target_events_column,
-                    expr=ast.Field(chain=["events", self.aggregation_target_events_column]),
-                ),
-                ast.Alias(alias="timestamp", expr=ast.Field(chain=["events", "timestamp"])),
-                ast.Alias(alias="is_start", expr=ast.Constant(value=is_start)),
-                ast.Alias(alias="matches_start", expr=matches_start),
-                ast.Alias(alias="is_return", expr=ast.Constant(value=is_return)),
-            ],
+            select=select_fields,
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.And(exprs=filters) if filters else None,
         )
