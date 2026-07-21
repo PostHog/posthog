@@ -6,6 +6,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import {
     DropdownMenu,
     DropdownMenuContent,
+    DropdownMenuGroup,
     DropdownMenuItem,
     DropdownMenuLabel,
     DropdownMenuSeparator,
@@ -39,18 +40,20 @@ function SavedViewsButtonInner({ id }: TicketViewsLogicProps): JSX.Element {
                     }
                 />
                 <DropdownMenuContent align="start" className="min-w-[220px]">
-                    <DropdownMenuLabel>Favorites</DropdownMenuLabel>
-                    {favoriteViews.length ? (
-                        favoriteViews.map((view) => (
-                            <DropdownMenuItem key={view.short_id} onClick={() => loadView(view)}>
-                                <span className="truncate">{view.name}</span>
+                    <DropdownMenuGroup>
+                        <DropdownMenuLabel>Favorites</DropdownMenuLabel>
+                        {favoriteViews.length ? (
+                            favoriteViews.map((view) => (
+                                <DropdownMenuItem key={view.short_id} onClick={() => loadView(view)}>
+                                    <span className="truncate">{view.name}</span>
+                                </DropdownMenuItem>
+                            ))
+                        ) : (
+                            <DropdownMenuItem disabled>
+                                {viewsLoading ? 'Loading…' : 'No favorite views yet'}
                             </DropdownMenuItem>
-                        ))
-                    ) : (
-                        <DropdownMenuItem disabled>
-                            {viewsLoading ? 'Loading…' : 'No favorite views yet'}
-                        </DropdownMenuItem>
-                    )}
+                        )}
+                    </DropdownMenuGroup>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={openModal}>All saved views</DropdownMenuItem>
                     {activeView && (
