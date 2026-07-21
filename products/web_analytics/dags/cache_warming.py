@@ -109,6 +109,7 @@ def queries_to_keep_fresh(
     # background warmer — out of the demand counts, otherwise a once-warmed shape
     # would keep itself hot forever. LIKE literals are %%-escaped because
     # clickhouse_driver %-formats the query when params are passed.
+    # nosemgrep: clickhouse-fstring-param-audit (interpolations are module-level constants from hardcoded tuples, not user input; everything dynamic is parameterized)
     results = sync_execute(
         f"""
         SELECT
