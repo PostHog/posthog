@@ -8,7 +8,7 @@ This is unrelated to `products/*/mcp/tools.yaml`, which exposes PostHog's own en
 ## How the catalog works
 
 The catalog is **code**: `backend/catalog.py` holds one `CatalogEntry` per server.
-At app startup, every environment queues `sync_mcp_server_templates` (see `backend/tasks/tasks.py` and `posthog/apps.py`), which upserts entries into `MCPServerTemplate` rows:
+At app startup, every environment queues `sync_mcp_server_templates` (see `backend/tasks/tasks.py`, queued from `backend/apps.py`), which upserts entries into `MCPServerTemplate` rows:
 
 - Rows are keyed on `url`. New entries are created; existing rows get **content fields** updated (name, description, auth_type, category, icon_domain, docs_url). The catalog owns content — edit it in code, not admin.
 - **Operational state is never touched by the sync**: `is_active` after creation, `oauth_credentials`, and `oauth_metadata` once set belong to the row and to operators. Rows absent from the catalog (e.g. admin-added) are left alone.
