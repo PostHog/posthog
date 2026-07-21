@@ -23,10 +23,7 @@ from urllib.parse import urlencode, urlparse
 import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
-    make_tracked_adapter,
-    make_tracked_session,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_adapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -63,6 +60,13 @@ _READ_CHUNK_BYTES = 1024 * 1024
 # under it could keep a worker busy indefinitely. This absolute wall-clock deadline caps how long a
 # single body read may take end to end, even while a read is blocked mid-chunk.
 MAX_RESPONSE_SECONDS = 600.0
+
+# The credential probe runs inline in the source-create API request (a Django worker), not a sync
+# worker, so it gets much tighter bounds: its only job is to read a status code and a small JSON
+# error body, so a controlled host must not be able to hold or fatten the worker even briefly.
+VALIDATION_TIMEOUT_SECONDS: tuple[float, float] = (10.0, 10.0)  # (connect, read)
+VALIDATION_MAX_RESPONSE_BYTES = 5 * 1024 * 1024
+VALIDATION_MAX_RESPONSE_SECONDS = 30.0
 
 
 class PlunkHostNotAllowedError(Exception):
@@ -126,8 +130,14 @@ class _BoundedPlunkSession(requests.Session):
     on its own it offers no defense against a customer-controlled host that hangs or returns an
     unbounded body. This pins a default connect/read timeout, streams the body through
     `_read_bounded` under a decoded-byte cap and a wall-clock deadline, then re-buffers it so the
-    rest of the REST client (`.json()`, `.content`) sees an ordinary buffered response.
+    rest of the REST client (`.json()`, `.content`) sees an ordinary buffered response. The probe in
+    `validate_credentials` reuses it with tighter caps.
     """
+
+    def __init__(self, *, max_bytes: int = MAX_RESPONSE_BYTES, max_seconds: float = MAX_RESPONSE_SECONDS) -> None:
+        super().__init__()
+        self._max_bytes = max_bytes
+        self._max_seconds = max_seconds
 
     def send(self, request: requests.PreparedRequest, **kwargs: Any) -> requests.Response:
         # Never follow redirects: a validated host could 3xx to an internal address (SSRF). Pin the
@@ -137,15 +147,17 @@ class _BoundedPlunkSession(requests.Session):
         kwargs["stream"] = True
         response = super().send(request, **kwargs)
         if response.is_redirect or response.is_permanent_redirect:
-            # RESTClient rejects the 3xx itself; don't touch the (unconsumed) body.
+            # The caller rejects the 3xx itself; don't touch the (unconsumed) body.
             return response
-        response._content = _read_bounded(response)
+        response._content = _read_bounded(response, self._max_bytes, self._max_seconds)
         response._content_consumed = True  # type: ignore[attr-defined]
         return response
 
 
-def _make_bounded_session(api_key: str) -> requests.Session:
-    session = _BoundedPlunkSession()
+def _make_bounded_session(
+    api_key: str, *, max_bytes: int = MAX_RESPONSE_BYTES, max_seconds: float = MAX_RESPONSE_SECONDS
+) -> requests.Session:
+    session = _BoundedPlunkSession(max_bytes=max_bytes, max_seconds=max_seconds)
     adapter = make_tracked_adapter(redact_values=(api_key,))
     session.mount("https://", adapter)
     session.mount("http://", adapter)
@@ -245,16 +257,20 @@ def validate_credentials(
 
     url = f"{resolved_base_url}/contacts?{urlencode({'limit': 1})}"
     try:
-        # `redact_values` masks the key from captured HTTP samples. Don't follow redirects: the
-        # validated host could 3xx to an internal address, defeating the host check above (SSRF).
-        session = make_tracked_session(redact_values=(api_key,))
+        # A bounded session (like the sync path, but with tight validation caps) streams the probe
+        # body under a decoded-byte cap and an absolute deadline, so a controlled host can't hold or
+        # fatten this inline API worker. `redact_values` masks the key from captured samples; the
+        # session refuses redirects so the validated host can't 3xx to an internal address (SSRF).
+        session = _make_bounded_session(
+            api_key, max_bytes=VALIDATION_MAX_RESPONSE_BYTES, max_seconds=VALIDATION_MAX_RESPONSE_SECONDS
+        )
         response = session.get(
             url,
             headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
-            timeout=10,
+            timeout=VALIDATION_TIMEOUT_SECONDS,
             allow_redirects=False,
         )
-    except requests.exceptions.RequestException as e:
+    except (requests.exceptions.RequestException, PlunkResponseTooLargeError, PlunkResponseTimeoutError) as e:
         return False, str(e)
 
     if response.is_redirect or response.is_permanent_redirect:

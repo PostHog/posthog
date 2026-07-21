@@ -150,7 +150,7 @@ class TestValidateCredentials:
             session.get.side_effect = raises
         else:
             session.get.return_value = response
-        return mock.patch.object(plunk_module, "make_tracked_session", return_value=session)
+        return mock.patch.object(plunk_module, "_make_bounded_session", return_value=session)
 
     def _resp(self, *, status_code=200, json_data=None):
         response = mock.MagicMock()
@@ -238,8 +238,19 @@ class TestValidateCredentials:
             call = patched.return_value.get.call_args
             assert call.args[0].startswith("https://plunk.example.com/contacts")
             assert call.kwargs["headers"]["Authorization"] == "Bearer sk_test"
-            # The key must be masked out of captured HTTP samples.
-            assert patched.call_args.kwargs["redact_values"] == ("sk_test",)
+            # The key is handed to the session factory (which wires it into sample redaction), and
+            # the probe runs under tight validation caps so a controlled host can't hold the worker.
+            assert patched.call_args.args[0] == "sk_test"
+            assert patched.call_args.kwargs["max_bytes"] == plunk_module.VALIDATION_MAX_RESPONSE_BYTES
+            assert patched.call_args.kwargs["max_seconds"] == plunk_module.VALIDATION_MAX_RESPONSE_SECONDS
+
+    def test_probe_surfaces_oversized_or_stalled_body_as_failure(self):
+        # A controlled host that overruns the validation caps fails source-create rather than
+        # propagating as an unhandled 500 out of the inline probe.
+        with self._patch_session(raises=plunk_module.PlunkResponseTooLargeError("too big")):
+            valid, msg = validate_credentials("https://plunk.example.com", "sk_test")
+            assert valid is False
+            assert "too big" in (msg or "")
 
 
 class TestSourceResponseShape:
