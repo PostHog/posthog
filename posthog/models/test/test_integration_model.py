@@ -1030,6 +1030,7 @@ class TestOauthIntegrationModel(BaseTest):
             ("http_scheme_downgrade", "http://acme.my.salesforce.com"),
             ("with_userinfo", "https://user:pass@acme.my.salesforce.com"),
             ("with_port", "https://acme.my.salesforce.com:8443"),
+            ("invalid_port_raises_valueerror", "https://acme.my.salesforce.com:abc"),
             ("garbage_value", "not a url"),
             ("empty_value", ""),
         ]

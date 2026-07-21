@@ -503,11 +503,15 @@ def _salesforce_instance_host(instance_url: str | None) -> str | None:
         return None
     try:
         parsed = urlparse(instance_url)
+        # port/hostname/username/password are lazily parsed from netloc on access, and
+        # port in particular raises ValueError on a non-numeric or out-of-range value
+        # (e.g. https://host:abc/). Keep every derived-property read inside the try so a
+        # poisoned instance_url can never crash the refresh sweep.
+        if parsed.scheme != "https" or parsed.port is not None or parsed.username or parsed.password:
+            return None
+        host = (parsed.hostname or "").lower()
     except ValueError:
         return None
-    if parsed.scheme != "https" or parsed.port is not None or parsed.username or parsed.password:
-        return None
-    host = (parsed.hostname or "").lower()
     if not host.endswith(".salesforce.com"):
         return None
     return f"https://{host}"
