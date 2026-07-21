@@ -8033,6 +8033,7 @@ dependencies = [
  "serde",
  "serde_json",
  "simd-json",
+ "url",
  "zstd",
 ]
 

@@ -73,6 +73,24 @@
     "expected": "https://[ip_address]:[port]/[redacted]"
   },
   {
+    "name": "hex-encoded ipv4 host is masked",
+    "allow": {
+      "text": [],
+      "url": []
+    },
+    "input": "http://0xc0a80101/admin",
+    "expected": "http://[ip_address]/[redacted]"
+  },
+  {
+    "name": "octal-encoded ipv4 host and port are masked",
+    "allow": {
+      "text": [],
+      "url": []
+    },
+    "input": "http://0300.0250.0.1:8080/admin",
+    "expected": "http://[ip_address]:[port]/[redacted]"
+  },
+  {
     "name": "query param with an allow-listed key and empty value survives",
     "allow": {
       "text": [],

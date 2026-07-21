@@ -13,6 +13,8 @@
 //! - Userinfo (`user:pass@`) is always stripped from the authority.
 //! - A scheme without slashes (`mailto:`, `tel:`) is kept; the rest is scrubbed as a path.
 
+use url::Host;
+
 use crate::allow_lists::AllowLists;
 use crate::context::Ctx;
 
@@ -295,13 +297,15 @@ fn push_host_port(host_port: &str, out: &mut String) -> bool {
     changed
 }
 
-// Bracketed IPv6, or a host made only of digits and dots (IPv4 dotted-quads and lookalikes,
-// which are masked too rather than risking a pass-through on a malformed-but-routable form).
+// The WHATWG host parser (what browsers use) decides what is an IP: bracketed IPv6, plus every
+// IPv4 encoding browsers resolve (`192.168.0.1`, hex `0xc0a80101`, octal `0300.0250.0.1`, decimal
+// `3232235777`). A host it cannot parse at all is an IPv4 lookalike (`1.2.3.4.5`, `foo.123`) —
+// masked too rather than risking a pass-through on a malformed-but-routable form.
 fn is_ip_host(host: &str) -> bool {
-    if host.starts_with('[') {
-        return true;
+    if host.is_empty() {
+        return false;
     }
-    !host.is_empty() && host.bytes().all(|b| b.is_ascii_digit() || b == b'.')
+    !matches!(Host::parse(host), Ok(Host::Domain(_)))
 }
 
 // Host or `[ipv6]`, with an optional `:digits` port.
