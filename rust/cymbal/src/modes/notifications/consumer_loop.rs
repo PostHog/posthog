@@ -14,7 +14,8 @@ const NOTIFICATIONS_HANDLED_TOTAL: &str = "cymbal_notifications_handled_total";
 const NOTIFICATIONS_SKIPPED_TOTAL: &str = "cymbal_notifications_skipped_total";
 const NOTIFICATIONS_KAFKA_ERRORS_TOTAL: &str = "cymbal_notifications_kafka_errors_total";
 const NOTIFICATIONS_HANDLE_ERRORS_TOTAL: &str = "cymbal_notifications_handle_errors_total";
-const NOTIFICATIONS_OFFSET_STORE_ERRORS_TOTAL: &str = "cymbal_notifications_offset_store_errors_total";
+const NOTIFICATIONS_OFFSET_STORE_ERRORS_TOTAL: &str =
+    "cymbal_notifications_offset_store_errors_total";
 const NOTIFICATIONS_COMMIT_BATCH_SIZE: usize = 100;
 const NOTIFICATIONS_FETCH_BATCH_TIMEOUT: Duration = Duration::from_millis(250);
 
