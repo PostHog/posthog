@@ -10,12 +10,15 @@ Each flag costs a DRF serializer instantiation, so a full prod scan takes minute
 seconds — it's an offline command.
 """
 
+import re
 import json
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from django.core.management.base import BaseCommand, CommandParser
+from django.core.management.base import BaseCommand, CommandError, CommandParser
+
+from posthog.models import Team
 
 from products.feature_flags.backend.api.filters_schema import is_legacy_unknown_key
 from products.feature_flags.backend.filters_validation import Violation, collect_filters_violations
@@ -24,6 +27,14 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 # Unknown keys come from user-controlled JSON, so the distinct-key space is unbounded; cap it
 # to keep a pathological prod scan from growing the aggregator without limit.
 MAX_TRACKED_UNKNOWN_KEYS = 1000
+
+# C0/C1 control characters (incl. ESC and OSC): stored filter junk is user-controlled and the
+# console report prints keys and values verbatim, so strip anything a terminal could interpret.
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+
+def _sanitize_for_console(text: str) -> str:
+    return _CONTROL_CHARS_RE.sub("�", text)
 
 
 @dataclass
@@ -83,6 +94,17 @@ class Command(BaseCommand):
         limit: int = options["limit"]
         samples: int = options["samples"]
         team_id: int | None = options["team_id"]
+
+        # A negative limit would silently slice away the newest flags (rows[:-N]) and a
+        # negative samples cap would drop every diagnostic — both would make a bad scan look
+        # authoritative, so fail loudly instead.
+        if limit < 0:
+            raise CommandError("--limit must be >= 0 (0 scans all flags)")
+        if samples < 0:
+            raise CommandError("--samples must be >= 0")
+        # A mistyped --team-id would scan zero rows and report a false "clean".
+        if team_id is not None and not Team.objects.filter(id=team_id).exists():
+            raise CommandError(f"Team {team_id} does not exist")
 
         sink = UnknownKeyAggregator(max_samples=samples)
         rule_reports: dict[str, RuleReport] = {}
@@ -184,7 +206,7 @@ class Command(BaseCommand):
                     )
                 )
                 for detail in report.sample_details:
-                    self.stdout.write(f"      {detail}")
+                    self.stdout.write(f"      {_sanitize_for_console(detail)}")
         else:
             self.stdout.write(self.style.SUCCESS("No violations found."))
 
@@ -194,7 +216,9 @@ class Command(BaseCommand):
             for (level, key), count in sorted(sink.flag_counts.items(), key=lambda item: (-item[1], item[0])):
                 legacy_marker = "  [legacy]" if is_legacy_unknown_key(level, key) else ""
                 ids = ", ".join(str(flag_id) for flag_id in sink.sample_flag_ids.get((level, key), []))
-                self.stdout.write(f"  {level:<9} {key:<40} {count} flags  sample ids: {ids}{legacy_marker}")
+                self.stdout.write(
+                    f"  {level:<9} {_sanitize_for_console(key):<40} {count} flags  sample ids: {ids}{legacy_marker}"
+                )
             if sink.untracked_keys:
                 self.stdout.write(
                     self.style.WARNING(

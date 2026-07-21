@@ -6,6 +6,9 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.core.management import call_command
+from django.core.management.base import CommandError
+
+from parameterized import parameterized
 
 from posthog.models import Team
 
@@ -183,3 +186,39 @@ class TestAuditFlagFilters(BaseTest):
         output = out.getvalue()
         assert "1 with violations" in output
         assert "cross_field.variant_rollout_sum_not_100" in output
+
+    @parameterized.expand(
+        [
+            ("negative_limit", ["--limit", "-1"]),
+            ("negative_samples", ["--samples", "-1"]),
+            ("nonexistent_team", ["--team-id", "999999999"]),
+        ]
+    )
+    def test_invalid_options_rejected(self, _name: str, args: list[str]) -> None:
+        self._create_flag("clean", {"groups": []})
+
+        with self.assertRaises(CommandError):
+            call_command("audit_flag_filters", *args, stdout=StringIO())
+
+    def test_console_output_escapes_control_sequences(self) -> None:
+        self._create_flag(
+            "escape-junk",
+            {"groups": [], "payloads": {"\x1b]0;evil\x07": "1"}, "junk\x1b[31mkey": 1},
+        )
+        out = StringIO()
+
+        call_command("audit_flag_filters", "--team-id", str(self.team.id), stdout=out)
+
+        output = out.getvalue()
+        assert "\x1b" not in output
+        assert "\x07" not in output
+        assert "�" in output
+
+    @patch("products.feature_flags.backend.management.commands.audit_flag_filters.MAX_TRACKED_UNKNOWN_KEYS", 1)
+    def test_unknown_key_tracking_is_capped(self) -> None:
+        self._create_flag("many-junk-keys", {"groups": [], "junk_a": 1, "junk_b": 2})
+
+        report = self._run()
+
+        assert len(report["unknown_keys"]) == 1
+        assert report["untracked_unknown_keys"] == 1

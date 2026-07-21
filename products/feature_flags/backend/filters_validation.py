@@ -64,6 +64,11 @@ def check_variant_rollout_sum(filters: Mapping[str, Any]) -> list[Violation]:
     variant_list = (filters.get("multivariate") or {}).get("variants", [])
     if not variant_list:
         return []
+    # Exact equality is deliberate parity with the live write path, which enforces
+    # `sum != 100`. Float summation is deterministic, so any flag that passed that check at
+    # write time still sums to exactly 100 here; near-100 drift only exists on rows that
+    # predate the check, and those genuinely need cleanup before enforcement because the
+    # write path would reject them on their next update anyway.
     rollout_sum = sum(variant.get("rollout_percentage", 0) for variant in variant_list)
     if rollout_sum != 100:
         return [
