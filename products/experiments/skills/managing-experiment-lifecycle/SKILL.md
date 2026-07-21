@@ -87,7 +87,7 @@ Set expectations with the user, wait for the response, and don't treat a slow ca
 
 When a freeze is rejected, explain which limitation applies rather than retrying — these are structural, not transient.
 
-**Interactions with other actions**: ship-variant and reset strip the freeze (reset also deletes the snapshot cohort); end does NOT touch the flag, so ending a frozen experiment leaves the flag narrowed to the snapshot cohort.
+**Interactions with other actions**: ship-variant and reset strip the freeze (both also delete the snapshot cohort); end does NOT touch the flag, so ending a frozen experiment leaves the flag narrowed to the snapshot cohort.
 SDKs using local evaluation can't resolve static cohorts, so a frozen flag evaluates via the `/decide` endpoint (standard static-cohort behavior).
 Exposures ingested in the final moments before freezing may miss the snapshot (ingestion lag).
 
