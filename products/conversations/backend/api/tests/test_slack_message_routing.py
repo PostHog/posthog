@@ -732,6 +732,15 @@ class TestSlackNudge(BaseTest):
         assert event_props["classifier_verdict"] == expected_verdict
         assert event_props["llm_classifier_used"] is (expected_verdict in ("yes", "no"))
 
+        # The generation must carry the funnel events' Slack keys so it joins to its outcome.
+        create_kwargs = mock_get_llm_client.return_value.chat.completions.create.call_args.kwargs
+        assert create_kwargs["extra_headers"] == {
+            "x-posthog-property-feature": "slack_nudge_classifier",
+            "x-posthog-property-$ai_span_name": "slack_nudge_classifier",
+            "x-posthog-property-slack_channel_id": "C_OTHER",
+            "x-posthog-property-slack_thread_ts": "1700000000.000100",
+        }
+
     @override_settings(TEST=False, LLM_GATEWAY_URL="http://gateway.local", LLM_GATEWAY_API_KEY="test-key")
     @patch(f"{MODULE}.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.llm.gateway_client.get_llm_client")

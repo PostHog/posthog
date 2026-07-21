@@ -22,7 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LinearSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.linear import LinearSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear import (
     LinearResumeConfig,
     linear_source,
@@ -37,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LinearSource(ResumableSource[LinearSourceConfig, LinearResumeConfig], OAuthMixin):
+    api_docs_url = "https://developers.linear.app/docs"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

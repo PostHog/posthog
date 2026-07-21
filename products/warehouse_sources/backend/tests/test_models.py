@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     apply_incremental_lookback,
+    mark_initial_sync_complete,
     process_incremental_value,
     update_sync_type_config_keys,
 )
@@ -234,6 +235,27 @@ class TestExternalDataSchemaOOMEvent(BaseTest):
         assert ExternalDataSchemaOOMEvent.recent_count(schema_a, days=30) == 3
         assert ExternalDataSchemaOOMEvent.recent_count(schema_b, days=7) == 1
 
+    def test_recent_count_ignores_ooms_before_last_repartition(self) -> None:
+        # A repartition fixes the OOMs that preceded it. Without this floor, those OOMs keep counting
+        # and re-trigger a repartition on the same healthy table every cooldown until they age out.
+        schema = self._schema("orders")
+        self._oom(schema, age_days=2)
+        self._oom(schema, age_days=2)
+        self._oom(schema, age_days=2)
+        schema.sync_type_config = {
+            **(schema.sync_type_config or {}),
+            "last_repartition_at": (timezone.now() - timedelta(days=1)).isoformat(),
+        }
+        schema.save()
+
+        # All three OOMs predate the repartition, so none count toward re-triggering it.
+        assert ExternalDataSchemaOOMEvent.recent_count(schema, days=7) == 0
+
+        # An OOM recorded after the repartition still counts: the rewrite did not fix it, so this is a
+        # real escalation the controller should act on.
+        self._oom(schema)
+        assert ExternalDataSchemaOOMEvent.recent_count(schema, days=7) == 1
+
 
 class TestUpdateSyncTypeConfigKeys(BaseTest):
     """The locked-merge helper that keeps the CDC extract activity and concurrent API PATCHes from
@@ -352,6 +374,90 @@ class TestUpdateSyncTypeConfigKeys(BaseTest):
         assert stale.sync_type_config["cdc_last_log_position"] == "0/100"  # the copy really was stale
         schema.refresh_from_db()
         assert schema.sync_type_config["cdc_last_log_position"] == "0/900"
+
+
+class TestMarkInitialSyncComplete(BaseTest):
+    """The shared first-sync-complete transition (V2 pipelines + V3 loader post-load), whose
+    False→True edge is what moves a CDC schema out of snapshot mode into streaming."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type="Postgres",
+        )
+
+    def _create(
+        self, sync_type: str, sync_type_config: dict, *, initial_sync_complete: bool = False
+    ) -> ExternalDataSchema:
+        return ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source=self.source,
+            name="users",
+            sync_type=sync_type,
+            sync_type_config=sync_type_config,
+            initial_sync_complete=initial_sync_complete,
+        )
+
+    @parameterized.expand(
+        [
+            (
+                # First completion of a CDC snapshot flips it to streaming; keys written
+                # concurrently by the CDC extract activity (deferred runs) must survive the flip.
+                "cdc_snapshot_flips_to_streaming_preserving_other_keys",
+                "cdc",
+                {"cdc_mode": "snapshot", "cdc_deferred_runs": [{"run_uuid": "a"}], "dwh_storage_key": "users"},
+                False,
+                True,
+                {"cdc_mode": "streaming", "cdc_deferred_runs": [{"run_uuid": "a"}], "dwh_storage_key": "users"},
+            ),
+            (
+                # Already-streaming CDC schema (re-run after a reset) completes without a config rewrite.
+                "cdc_already_streaming_config_unchanged",
+                "cdc",
+                {"cdc_mode": "streaming"},
+                False,
+                True,
+                {"cdc_mode": "streaming"},
+            ),
+            (
+                # Non-CDC schemas must never get a cdc_mode key injected.
+                "non_cdc_config_untouched",
+                "incremental",
+                {"incremental_field": "id"},
+                False,
+                True,
+                {"incremental_field": "id"},
+            ),
+            (
+                # Only the False→True transition flips: a schema manually put back into snapshot
+                # mode must not be flipped to streaming by a later run's completion.
+                "already_complete_is_noop_even_in_snapshot_mode",
+                "cdc",
+                {"cdc_mode": "snapshot"},
+                True,
+                True,
+                {"cdc_mode": "snapshot"},
+            ),
+        ]
+    )
+    def test_transition(
+        self,
+        _name: str,
+        sync_type: str,
+        config: dict,
+        initial_flag: bool,
+        expected_flag: bool,
+        expected_config: dict,
+    ) -> None:
+        schema = self._create(sync_type, config, initial_sync_complete=initial_flag)
+        mark_initial_sync_complete(schema.id, self.team.pk)
+        schema.refresh_from_db()
+        assert schema.initial_sync_complete == expected_flag
+        assert schema.sync_type_config == expected_config
 
 
 @pytest.mark.parametrize(

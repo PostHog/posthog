@@ -115,6 +115,27 @@ describe('logsSceneLogic', () => {
 
             expect(logic.values.filters.severityLevels).toEqual(expected)
         })
+
+        it('parses a stringified filterGroup from the URL (e.g. a cross-product session link)', async () => {
+            const filterGroup = {
+                type: 'AND',
+                values: [{ type: 'OR', values: [{ key: 'posthogSessionId', value: ['sess-1'], operator: 'exact' }] }],
+            }
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', { filterGroup: JSON.stringify(filterGroup) })
+            }).toFinishAllListeners()
+
+            expect(logic.values.filters.filterGroup).toEqual(filterGroup)
+        })
+
+        it('ignores a malformed filterGroup in the URL', async () => {
+            const before = logic.values.filters.filterGroup
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', { filterGroup: '{not valid json' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.filters.filterGroup).toEqual(before)
+        })
     })
 
     describe('activeTab URL sync', () => {

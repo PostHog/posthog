@@ -210,6 +210,10 @@ from products.notebooks.backend.facade.temporal import (
     ACTIVITIES as NOTEBOOKS_ACTIVITIES,
     WORKFLOWS as NOTEBOOKS_WORKFLOWS,
 )
+from products.pulse.backend.temporal.registry import (
+    ACTIVITIES as PULSE_ACTIVITIES,
+    WORKFLOWS as PULSE_WORKFLOWS,
+)
 from products.replay_vision.backend.temporal import (
     ACTIVITIES as REPLAY_VISION_ACTIVITIES,
     WORKFLOWS as REPLAY_VISION_WORKFLOWS,
@@ -225,6 +229,10 @@ from products.signals.backend.emission.temporal_settings import (
 from products.signals.backend.temporal import (
     ACTIVITIES as SIGNALS_PRODUCT_ACTIVITIES,
     WORKFLOWS as SIGNALS_PRODUCT_WORKFLOWS,
+)
+from products.stamphog.backend.facade.temporal import (
+    ACTIVITIES as STAMPHOG_ACTIVITIES,
+    WORKFLOWS as STAMPHOG_WORKFLOWS,
 )
 from products.tasks.backend.facade.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
@@ -342,8 +350,8 @@ _task_queue_specs = [
     ),
     (
         settings.ANALYTICS_PLATFORM_TASK_QUEUE,
-        EXPORT_WORKFLOWS + SUBSCRIPTION_WORKFLOWS + ALERT_WORKFLOWS,
-        EXPORT_ACTIVITIES + SUBSCRIPTION_ACTIVITIES + ALERT_ACTIVITIES,
+        EXPORT_WORKFLOWS + SUBSCRIPTION_WORKFLOWS + ALERT_WORKFLOWS + PULSE_WORKFLOWS,
+        EXPORT_ACTIVITIES + SUBSCRIPTION_ACTIVITIES + ALERT_ACTIVITIES + PULSE_ACTIVITIES,
     ),
     (
         settings.TASKS_TASK_QUEUE,
@@ -457,6 +465,11 @@ _task_queue_specs = [
         settings.LOGS_ALERTING_TASK_QUEUE,
         LOGS_ALERTING_WORKFLOWS,
         LOGS_ALERTING_ACTIVITIES,
+    ),
+    (
+        settings.STAMPHOG_TASK_QUEUE,
+        STAMPHOG_WORKFLOWS,
+        STAMPHOG_ACTIVITIES,
     ),
 ]
 

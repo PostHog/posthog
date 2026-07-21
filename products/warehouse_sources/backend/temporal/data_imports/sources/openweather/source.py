@@ -19,7 +19,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OpenWeatherSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openweather import (
+    OpenWeatherSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.openweather.openweather import (
     openweather_source,
     validate_credentials as validate_openweather_credentials,
@@ -34,6 +36,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OpenWeatherSource(SimpleSource[OpenWeatherSourceConfig]):
+    supported_versions = ("2.5",)
+    default_version = "2.5"
+    api_docs_url = "https://openweathermap.org/api"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.OPENWEATHER

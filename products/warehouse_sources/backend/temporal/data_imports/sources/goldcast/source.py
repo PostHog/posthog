@@ -19,7 +19,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GoldcastSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.goldcast import (
+    GoldcastSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.goldcast.goldcast import (
     goldcast_source,
     validate_credentials as validate_goldcast_credentials,
@@ -34,6 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class GoldcastSource(SimpleSource[GoldcastSourceConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://customapi.goldcast.io/swagger-ui/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -122,5 +125,6 @@ API access requires a Pro, Premium, or Enterprise plan, and the token feature mu
         return goldcast_source(
             access_key=config.access_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
         )

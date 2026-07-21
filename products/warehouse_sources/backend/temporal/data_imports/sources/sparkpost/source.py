@@ -22,7 +22,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SparkPostSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sparkpost import (
+    SparkPostSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.sparkpost.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -39,6 +41,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SparkPostSource(ResumableSource[SparkPostSourceConfig, SparkPostResumeConfig]):
+    api_docs_url = "https://developers.sparkpost.com/api/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SPARKPOST
@@ -156,7 +160,8 @@ SparkPost runs independent US and EU stacks that do not share data — pick the 
             region=config.region,
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

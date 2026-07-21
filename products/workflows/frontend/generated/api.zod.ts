@@ -389,6 +389,8 @@ export const hogFlowsCreateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsCreateBodyTriggerMaskingOneTtlMax = 94608000
 
 export const hogFlowsCreateBodyConversionOneEventsItemFiltersOneSourceDefault = `events`
+export const hogFlowsCreateBodyActionsItemIdMax = 200
+
 export const hogFlowsCreateBodyActionsItemNameMax = 400
 
 export const hogFlowsCreateBodyActionsItemDescriptionDefault = ``
@@ -532,7 +534,10 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
         actions: zod
             .array(
                 zod.object({
-                    id: zod.string().describe('Unique node ID within the workflow.'),
+                    id: zod
+                        .string()
+                        .max(hogFlowsCreateBodyActionsItemIdMax)
+                        .describe('Unique node ID within the workflow.'),
                     name: zod.string().max(hogFlowsCreateBodyActionsItemNameMax).describe('Display name.'),
                     description: zod
                         .string()
@@ -714,6 +719,8 @@ export const hogFlowsUpdateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsUpdateBodyTriggerMaskingOneTtlMax = 94608000
 
 export const hogFlowsUpdateBodyConversionOneEventsItemFiltersOneSourceDefault = `events`
+export const hogFlowsUpdateBodyActionsItemIdMax = 200
+
 export const hogFlowsUpdateBodyActionsItemNameMax = 400
 
 export const hogFlowsUpdateBodyActionsItemDescriptionDefault = ``
@@ -857,7 +864,10 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
         actions: zod
             .array(
                 zod.object({
-                    id: zod.string().describe('Unique node ID within the workflow.'),
+                    id: zod
+                        .string()
+                        .max(hogFlowsUpdateBodyActionsItemIdMax)
+                        .describe('Unique node ID within the workflow.'),
                     name: zod.string().max(hogFlowsUpdateBodyActionsItemNameMax).describe('Display name.'),
                     description: zod
                         .string()
@@ -1039,6 +1049,8 @@ export const hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMax = 94608000
 
 export const hogFlowsPartialUpdateBodyConversionOneEventsItemFiltersOneSourceDefault = `events`
+export const hogFlowsPartialUpdateBodyActionsItemIdMax = 200
+
 export const hogFlowsPartialUpdateBodyActionsItemNameMax = 400
 
 export const hogFlowsPartialUpdateBodyActionsItemDescriptionDefault = ``
@@ -1187,7 +1199,10 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
         actions: zod
             .array(
                 zod.object({
-                    id: zod.string().describe('Unique node ID within the workflow.'),
+                    id: zod
+                        .string()
+                        .max(hogFlowsPartialUpdateBodyActionsItemIdMax)
+                        .describe('Unique node ID within the workflow.'),
                     name: zod.string().max(hogFlowsPartialUpdateBodyActionsItemNameMax).describe('Display name.'),
                     description: zod
                         .string()
@@ -1481,6 +1496,8 @@ export const hogFlowsInvocationsCreateBodyConfigurationOneTriggerMaskingOneTtlMi
 export const hogFlowsInvocationsCreateBodyConfigurationOneTriggerMaskingOneTtlMax = 94608000
 
 export const hogFlowsInvocationsCreateBodyConfigurationOneConversionOneEventsItemFiltersOneSourceDefault = `events`
+export const hogFlowsInvocationsCreateBodyConfigurationOneActionsItemIdMax = 200
+
 export const hogFlowsInvocationsCreateBodyConfigurationOneActionsItemNameMax = 400
 
 export const hogFlowsInvocationsCreateBodyConfigurationOneActionsItemDescriptionDefault = ``
@@ -1492,6 +1509,7 @@ export const hogFlowsInvocationsCreateBodyConfigurationOneActionsItemConfigTwoEv
 export const hogFlowsInvocationsCreateBodyConfigurationOneSchedulesItemTimezoneMax = 64
 
 export const hogFlowsInvocationsCreateBodyMockAsyncFunctionsDefault = true
+export const hogFlowsInvocationsCreateBodyUseDraftDefault = false
 
 export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
     configuration: zod
@@ -1683,7 +1701,10 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
             actions: zod
                 .array(
                     zod.object({
-                        id: zod.string().describe('Unique node ID within the workflow.'),
+                        id: zod
+                            .string()
+                            .max(hogFlowsInvocationsCreateBodyConfigurationOneActionsItemIdMax)
+                            .describe('Unique node ID within the workflow.'),
                         name: zod
                             .string()
                             .max(hogFlowsInvocationsCreateBodyConfigurationOneActionsItemNameMax)
@@ -1910,6 +1931,23 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .string()
                 .nullable()
                 .describe('The effective access level the user has for this object'),
+            draft: zod
+                .unknown()
+                .describe(
+                    "Staged content changes awaiting publish — a full snapshot of the workflow's actions, edges and settings. Null when there's nothing staged. Test it with a use_draft test run, then promote it with the publish endpoint or throw it away with discard_draft."
+                ),
+            draft_updated_at: zod.iso
+                .datetime({ offset: true })
+                .nullable()
+                .describe(
+                    "When the draft was last written; null when there's no staged draft. Pass this to publish (and as base_updated_at on further draft edits) so a concurrent editor's changes aren't clobbered — a mismatch returns 409."
+                ),
+            action_redirects: zod
+                .record(zod.string(), zod.string())
+                .nullable()
+                .describe(
+                    'Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.'
+                ),
         })
         .describe('Mixin for serializers to add user access control fields')
         .optional()
@@ -1927,6 +1965,29 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'Start execution from this action ID instead of the trigger. Each test run executes a single node and returns the next action id.'
+        ),
+    use_draft: zod
+        .boolean()
+        .default(hogFlowsInvocationsCreateBodyUseDraftDefault)
+        .describe(
+            "Test the workflow's staged draft instead of its live config. Requires an open draft; can't be combined with an explicit configuration override."
+        ),
+})
+
+export const hogFlowsPublishCreateBodyConfirmDefault = false
+
+export const HogFlowsPublishCreateBody = /* @__PURE__ */ zod.object({
+    confirm: zod
+        .boolean()
+        .default(hogFlowsPublishCreateBodyConfirmDefault)
+        .describe(
+            'False (default) previews the publish: returns how many runs are in flight without changing anything. True applies the staged draft to the live workflow.'
+        ),
+    draft_updated_at: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            'The draft_updated_at you loaded — required when confirm=true. A mismatch returns 409, so you never publish a draft someone else has changed since you read it.'
         ),
 })
 
@@ -2046,6 +2107,8 @@ export const hogFlowsBulkDeleteCreateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsBulkDeleteCreateBodyTriggerMaskingOneTtlMax = 94608000
 
 export const hogFlowsBulkDeleteCreateBodyConversionOneEventsItemFiltersOneSourceDefault = `events`
+export const hogFlowsBulkDeleteCreateBodyActionsItemIdMax = 200
+
 export const hogFlowsBulkDeleteCreateBodyActionsItemNameMax = 400
 
 export const hogFlowsBulkDeleteCreateBodyActionsItemDescriptionDefault = ``
@@ -2194,7 +2257,10 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
         actions: zod
             .array(
                 zod.object({
-                    id: zod.string().describe('Unique node ID within the workflow.'),
+                    id: zod
+                        .string()
+                        .max(hogFlowsBulkDeleteCreateBodyActionsItemIdMax)
+                        .describe('Unique node ID within the workflow.'),
                     name: zod.string().max(hogFlowsBulkDeleteCreateBodyActionsItemNameMax).describe('Display name.'),
                     description: zod
                         .string()

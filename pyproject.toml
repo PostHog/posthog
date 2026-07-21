@@ -485,7 +485,7 @@ exclude = [
     "posthog/schema.py",
     "posthog/schema_enums.py",
     "posthog/temporal/proxy_service/proto/**",
-    "products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs.py",
+    "products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs/**",
 ]
 
 # ---------------------------------------------------------------------------
@@ -517,6 +517,8 @@ ignore_imports = [
     # TODO: existing violations — fix by routing through facade
     "products.agent_platform.backend.presentation.serializers -> products.agent_platform.backend.models",
     "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.db",
+    "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.generated",
+    "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.ingress_client",
     "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.internal_jwt",
     "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.janitor_client",
     "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.kernel_skills",
@@ -564,13 +566,13 @@ ignore_imports = [
     "products.logs.backend.presentation.views.alerts_api -> products.logs.backend.alert_destinations",
     "products.logs.backend.presentation.views.alerts_api -> products.logs.backend.alert_state_machine",
     "products.logs.backend.presentation.views.alerts_api -> products.logs.backend.models",
+    "products.logs.backend.presentation.views.metric_rules_api -> products.logs.backend.models",
     "products.logs.backend.presentation.views.sampling_api -> products.logs.backend.models",
     "products.logs.backend.presentation.views.views_api -> products.logs.backend.models",
     # logs presentation isolation (temporary): cross-product imports the moved viewsets
     # still make directly. These resolve once cdp/exports expose the needed facades, so
     # they outlive the in-product cleanup above.
     "products.logs.backend.presentation.views.api -> products.exports.backend.models.exported_asset",
-    "products.logs.backend.presentation.views.alerts_api -> products.cdp.backend.api.hog_function",
     "products.logs.backend.presentation.views.alerts_api -> products.cdp.backend.models.hog_functions.hog_function",
     # TODO: notebooks presentation wave — the moved NotebookViewSet still reaches in-product
     # internals (collab, kernel runtime, query validation, models) and the tasks sandbox

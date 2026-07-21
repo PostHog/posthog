@@ -22,7 +22,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import WebflowSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.webflow import (
+    WebflowSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.webflow.settings import (
     COLLECTION_SCHEMA_PREFIX,
     STATIC_ENDPOINTS,
@@ -40,6 +42,10 @@ logger = structlog.get_logger(__name__)
 
 @SourceRegistry.register
 class WebflowSource(ResumableSource[WebflowSourceConfig, WebflowResumeConfig]):
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://developers.webflow.com"
+
     # Only the static endpoint catalog is credential-free; CMS-collection discovery (a network
     # call) is skipped when credentials are absent, so the public-docs path stays I/O-free.
     lists_tables_without_credentials = True
@@ -132,7 +138,8 @@ class WebflowSource(ResumableSource[WebflowSourceConfig, WebflowResumeConfig]):
             api_token=config.api_token,
             site_id=config.site_id,
             schema_name=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )
 

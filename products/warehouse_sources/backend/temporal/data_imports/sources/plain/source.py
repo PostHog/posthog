@@ -19,7 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PlainSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.plain import PlainSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.plain.plain import (
     plain_source,
     validate_credentials as validate_plain_credentials,
@@ -33,6 +33,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PlainSource(SimpleSource[PlainSourceConfig]):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://www.plain.com/docs"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

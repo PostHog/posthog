@@ -14,7 +14,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.schema.util.revenue_analytics import get_table_kind, is_event_view
 from posthog.hogql.errors import ResolutionError
 
-from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION
+from posthog.exchange_rate_constants import EXCHANGE_RATE_DECIMAL_PRECISION
 from posthog.schema_enums import DatabaseSchemaManagedViewTableKind
 
 ZERO_DECIMAL = ast.Call(

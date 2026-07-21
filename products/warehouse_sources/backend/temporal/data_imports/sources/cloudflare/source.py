@@ -24,13 +24,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CloudflareSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cloudflare import (
+    CloudflareSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class CloudflareSource(SimpleSource[CloudflareSourceConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
+    supported_versions = ("v4",)
+    default_version = "v4"
+    api_docs_url = "https://developers.cloudflare.com/api/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -53,7 +59,7 @@ class CloudflareSource(SimpleSource[CloudflareSourceConfig]):
 Create an API token in the [Cloudflare dashboard](https://dash.cloudflare.com/profile/api-tokens) with read permissions for Account Settings, Zone, and DNS. DNS records are synced from every zone the token can access.""",
             iconPath="/static/services/cloudflare.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/cloudflare",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [
@@ -114,5 +120,6 @@ Create an API token in the [Cloudflare dashboard](https://dash.cloudflare.com/pr
         return cloudflare_source(
             api_token=config.api_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
         )

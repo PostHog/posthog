@@ -54,6 +54,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import 
     CDCErrorCategory,
     CDCErrorInfo,
     CDCSchemaMergeError,
+    CDCSlotNotConfiguredError,
     classify_cdc_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import cdc_qualified_table_name
@@ -710,6 +711,7 @@ class CDCExtractActivity:
             self.log.warning("cdc_orphan_reconcile_unexpected_failed", exc_info=True)
 
         try:
+            self._require_configured_slot()
             self.reader.connect()
 
             self._load_pk_columns()
@@ -1187,6 +1189,19 @@ class CDCExtractActivity:
         except Exception:
             schema_log.warning("failed_to_unpause_schema_schedule", schema_id=str(schema.id), exc_info=True)
 
+    def _pause_cdc_extraction_schedule(self) -> None:
+        """Pause the source's CDC extraction schedule after a non-retryable failure (best-effort)."""
+        assert self.source is not None
+        source_id = str(self.source.id)
+        try:
+            # Deferred: data_load.service participates in the CDC schedule<->workflow import cycle.
+            from products.data_warehouse.backend.facade.api import pause_cdc_extraction_schedule
+
+            pause_cdc_extraction_schedule(source_id)
+            self.log.warning("cdc_extraction_schedule_paused_non_retryable", source_id=source_id)
+        except Exception:
+            self.log.warning("cdc_pause_schedule_failed", source_id=source_id, exc_info=True)
+
     def _handle_no_changes(self, truncated_tables: list[str]) -> None:
         """Early-return path: no DML events were read."""
         if truncated_tables:
@@ -1284,6 +1299,19 @@ class CDCExtractActivity:
                 continue
             self._update_schema_sync_type_config(schema, updates={"cdc_last_log_position": self.last_end_lsn})
 
+    def _require_configured_slot(self) -> None:
+        """Fail fast when a CDC-enabled source has no replication slot name stored.
+
+        Streaming an empty slot name surfaces as ``replication slot "" does not exist``, which
+        the invalidation check reads as a recoverable slot drop — so recovery (and Repair CDC)
+        run, only to dead-end because there is no slot name to recreate. Raise the non-retryable
+        misconfiguration up front instead, with guidance that actually resolves it.
+        """
+        assert self.adapter is not None
+        assert self.source is not None
+        if not self.adapter.parse_cdc_config(self.source).slot_name:
+            raise CDCSlotNotConfiguredError()
+
     # ------------------------------------------------------------------
     # Failure / success finalization
     # ------------------------------------------------------------------
@@ -1358,10 +1386,18 @@ class CDCExtractActivity:
         # the per-schema FAILED state + the cdc_broken marker the UI/health check read and pauses the
         # schedule, so it stops firing hourly against a resource that is gone (the same zombie the lag
         # safety net produces). Any other failure just fails this run's schemas.
-        marked_broken = info.category in (CDCErrorCategory.SLOT_MISSING, CDCErrorCategory.PUBLICATION_MISSING)
+        marked_broken = info.category in (
+            CDCErrorCategory.SLOT_MISSING,
+            CDCErrorCategory.SLOT_NOT_CONFIGURED,
+            CDCErrorCategory.PUBLICATION_MISSING,
+        )
         if marked_broken:
             assert self.source is not None
             mark_cdc_broken(self.source, info.category.value, friendly)
+        elif not info.retryable and self.source is not None:
+            # A non-retryable error re-fails every scheduled run, so pause the schedule instead of
+            # looping it. No cdc_broken marker: the slot is intact, so it stays Repair-CDC-ineligible.
+            self._pause_cdc_extraction_schedule()
         for schema in self.cdc_schemas:
             if not marked_broken:
                 schema.status = ExternalDataSchema.Status.FAILED

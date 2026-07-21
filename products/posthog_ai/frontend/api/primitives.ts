@@ -11,6 +11,10 @@
 // Part of the `products/posthog_ai/frontend/api/<module>` public surface — import from here, not from
 // deep `../components/*` paths. See ../README.md for the tier model and ../AGENTS.md for the coupling rule.
 
+// Render-null wrapper that attaches context for JSX-only call sites (the hook flavor is in api/logics).
+export { AttachedContextProvider } from '../components/AttachedContextProvider'
+export type { AttachedContextProviderProps } from '../components/AttachedContextProvider'
+
 export { Composer } from '../components/composer/Composer'
 export type {
     ComposerRootProps,
@@ -22,6 +26,10 @@ export type {
 // Controlled model + reasoning-effort pickers for a composer footer.
 export { ComposerModelEffortPickers } from '../components/composer/ComposerModelEffortPickers'
 export type { ComposerModelEffortPickersProps } from '../components/composer/ComposerModelEffortPickers'
+
+// The composer's context affordance: @-picker (TaxonomicPopover) + removable chips over the
+// attached-context store. Drop into `Composer.Header`; headless half is in api/logics.
+export { AttachedContextBar } from '../components/composer/AttachedContextBar'
 
 // Welcome header (logomark + headline + subheadline) and its overridable default headlines.
 export { Welcome } from '../components/welcome/Welcome'

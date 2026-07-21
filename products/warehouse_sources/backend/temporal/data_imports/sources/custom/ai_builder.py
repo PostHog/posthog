@@ -38,7 +38,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.custom.sou
     _validate_resource_graph,
     validate_manifest_structure,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CustomSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.custom import CustomSourceConfig
 
 logger = structlog.get_logger(__name__)
 

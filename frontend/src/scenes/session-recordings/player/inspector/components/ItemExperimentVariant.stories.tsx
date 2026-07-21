@@ -3,6 +3,7 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { dayjs } from 'lib/dayjs'
 import {
     ItemExperimentVariant,
+    ItemExperimentVariantDetail,
     ItemExperimentVariantProps,
 } from 'scenes/session-recordings/player/inspector/components/ItemExperimentVariant'
 import { InspectorListItemExperimentVariant } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
@@ -21,7 +22,11 @@ const meta: Meta<ItemExperimentVariantProps> = {
 }
 export default meta
 
-const makeExperimentVariantItem = (experimentName: string, variant: string): InspectorListItemExperimentVariant => {
+const makeExperimentVariantItem = (
+    experimentName: string,
+    variant: string,
+    variantsSeen: string[] = [variant]
+): InspectorListItemExperimentVariant => {
     return {
         type: 'experiment-variant',
         timestamp: dayjs('2023-05-01T14:46:24Z'),
@@ -33,10 +38,18 @@ const makeExperimentVariantItem = (experimentName: string, variant: string): Ins
             experimentName,
             flagKey: 'checkout-cta',
             variant,
+            multipleVariants: variantsSeen.length > 1,
+            variantsSeen,
         },
         key: 'experiment-variant-101',
     }
 }
+
+const renderDetail = (props: ItemExperimentVariantProps): JSX.Element => (
+    <div className="flex flex-col gap-2 min-w-96 max-w-160">
+        <ItemExperimentVariantDetail {...props} />
+    </div>
+)
 
 export const Default: Story = {
     args: {
@@ -51,4 +64,18 @@ export const LongExperimentName: Story = {
             'control-with-a-long-variant-key'
         ),
     },
+}
+
+export const Detail: Story = {
+    args: {
+        item: makeExperimentVariantItem('Checkout CTA copy', 'test'),
+    },
+    render: renderDetail,
+}
+
+export const DetailMultipleVariants: Story = {
+    args: {
+        item: makeExperimentVariantItem('Checkout CTA copy', 'test', ['control', 'test']),
+    },
+    render: renderDetail,
 }

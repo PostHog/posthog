@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import VitallySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vitally import (
+    VitallySourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.vitally.settings import (
     CUSTOM_OBJECT_SCHEMA_PREFIX,
     ENDPOINTS as VITALLY_ENDPOINTS,
@@ -40,6 +42,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class VitallySource(SimpleSource[VitallySourceConfig]):
+    api_docs_url = "https://docs.vitally.io"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

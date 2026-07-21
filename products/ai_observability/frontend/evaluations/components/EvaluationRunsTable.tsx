@@ -8,7 +8,7 @@ import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
 import { EvaluationResultTag, getEvaluationResultSortValue } from '../../components/EvaluationResultTag'
 import { EvaluationRunTargetCell } from '../../components/EvaluationRunTargetCell'
-import { evaluationSupportsReports } from '../evaluationCapabilities'
+import { evaluationSupportsRunSummary } from '../evaluationCapabilities'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import { EvaluationRun, SentimentEvaluationRunsFilter } from '../types'
 import { EvaluationSummaryControls, EvaluationSummaryPanel } from './EvaluationSummaryPanel'
@@ -40,7 +40,7 @@ function SentimentEvaluationRunsFilters(): JSX.Element {
 export function EvaluationRunsTable(): JSX.Element {
     const { filteredEvaluationRuns, evaluation, evaluationRunsLoading, runsLookup } = useValues(llmEvaluationLogic)
     const { refreshEvaluationRuns } = useActions(llmEvaluationLogic)
-    const showSummary = evaluationSupportsReports(evaluation)
+    const showSummary = evaluationSupportsRunSummary(evaluation)
     const showSentimentFilters = evaluation?.evaluation_type === 'sentiment'
 
     const columns: LemonTableColumns<EvaluationRun> = [

@@ -200,6 +200,10 @@ export enum NodeKind {
     MCPToolFailuresQuery = 'MCPToolFailuresQuery',
     MCPToolStatsQuery = 'MCPToolStatsQuery',
     MCPToolDailyStatsQuery = 'MCPToolDailyStatsQuery',
+    MCPToolQualityRowsQuery = 'MCPToolQualityRowsQuery',
+    MCPToolQualityDailyStatsQuery = 'MCPToolQualityDailyStatsQuery',
+    MCPToolCategoryCountsQuery = 'MCPToolCategoryCountsQuery',
+    MCPToolCategoriesQuery = 'MCPToolCategoriesQuery',
     MCPToolDescriptionsQuery = 'MCPToolDescriptionsQuery',
     MCPToolSampleIntentsQuery = 'MCPToolSampleIntentsQuery',
     MCPToolNeighborsQuery = 'MCPToolNeighborsQuery',
@@ -277,6 +281,10 @@ export type AnyDataNode =
     | MCPToolFailuresQuery
     | MCPToolStatsQuery
     | MCPToolDailyStatsQuery
+    | MCPToolQualityRowsQuery
+    | MCPToolQualityDailyStatsQuery
+    | MCPToolCategoryCountsQuery
+    | MCPToolCategoriesQuery
     | MCPToolDescriptionsQuery
     | MCPToolSampleIntentsQuery
     | MCPToolNeighborsQuery
@@ -400,6 +408,10 @@ export type QuerySchema =
     | MCPToolFailuresQuery
     | MCPToolStatsQuery
     | MCPToolDailyStatsQuery
+    | MCPToolQualityRowsQuery
+    | MCPToolQualityDailyStatsQuery
+    | MCPToolCategoryCountsQuery
+    | MCPToolCategoriesQuery
     | MCPToolDescriptionsQuery
     | MCPToolSampleIntentsQuery
     | MCPToolNeighborsQuery
@@ -2302,6 +2314,16 @@ export interface QueryUpgradeResponse {
 /**
  * All analytics query responses must inherit from this.
  */
+/** A connector-synced data warehouse source referenced by a query. */
+export interface DataWarehouseSourceUsage {
+    /** ExternalDataSource id */
+    id: string
+    /** Connector type of the source (e.g. Stripe, Postgres), if known */
+    source_type?: string
+    /** Warehouse table name that was referenced */
+    table_name: string
+}
+
 export interface AnalyticsQueryResponseBase {
     results: any
     /** Measured timings for different parts of the query generation process */
@@ -2326,6 +2348,8 @@ export interface AnalyticsQueryResponseBase {
      * Also carries access control warnings when a system-table query filters out objects the user can't access.
      */
     warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[]
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsage[]
 }
 
 interface CachedQueryResponseMixin {
@@ -2789,15 +2813,110 @@ export interface MCPToolDailyStatsQueryResponse extends AnalyticsQueryResponseBa
     results: MCPToolDailyStatItem[]
 }
 
-/** Per-day activity series for a single MCP tool over the last 30 days. */
+/** Per-bucket activity series for a single MCP tool over the selected window. */
 export interface MCPToolDailyStatsQuery extends DataNode<MCPToolDailyStatsQueryResponse> {
     kind: NodeKind.MCPToolDailyStatsQuery
     /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
     toolName: string
     dateRange?: DateRange
+    /** Bucket granularity for the series. The frontend passes getDefaultInterval so a sub-day window
+     * buckets by hour/minute instead of collapsing to a single day point. Defaults to day. */
+    interval?: IntervalType
 }
 
 export type CachedMCPToolDailyStatsQueryResponse = CachedQueryResponse<MCPToolDailyStatsQueryResponse>
+
+/** Per-tool quality metrics for the Tool quality tab table. */
+export interface MCPToolQualityRowItem {
+    tool: string
+    total_calls: integer
+    errors: integer
+    error_rate_pct: number
+    p50_duration_ms: number
+    p95_duration_ms: number
+    p99_duration_ms: number
+    users: integer
+    sessions: integer
+    first_seen: string
+    last_seen: string
+}
+
+export interface MCPToolQualityRowsQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPToolQualityRowItem[]
+}
+
+/** One row per $mcp_tool_name — call volume, error rate, latency percentiles, and reach — over the window. */
+export interface MCPToolQualityRowsQuery extends DataNode<MCPToolQualityRowsQueryResponse> {
+    kind: NodeKind.MCPToolQualityRowsQuery
+    dateRange?: DateRange
+    /** Restrict to these $mcp_tool_category values; empty or omitted means all categories. */
+    categories?: string[]
+}
+
+export type CachedMCPToolQualityRowsQueryResponse = CachedQueryResponse<MCPToolQualityRowsQueryResponse>
+
+/** One bucket of aggregate activity across tools on the Tool quality tab. */
+export interface MCPToolQualityDailyStatItem {
+    day: string
+    calls: integer
+    errors: integer
+    p50: number
+    p95: number
+    p99: number
+}
+
+export interface MCPToolQualityDailyStatsQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPToolQualityDailyStatItem[]
+}
+
+/** Interval-bucketed activity series for the Tool quality tab (optionally scoped to one tool). */
+export interface MCPToolQualityDailyStatsQuery extends DataNode<MCPToolQualityDailyStatsQueryResponse> {
+    kind: NodeKind.MCPToolQualityDailyStatsQuery
+    dateRange?: DateRange
+    /** Bucket granularity; the frontend passes getDefaultInterval. Defaults to day. */
+    interval?: IntervalType
+    /** Restrict to these $mcp_tool_category values; empty or omitted means all categories. */
+    categories?: string[]
+    /** Restrict to a single $mcp_tool_name; omitted means the aggregate across all tools. */
+    toolName?: string
+}
+
+export type CachedMCPToolQualityDailyStatsQueryResponse = CachedQueryResponse<MCPToolQualityDailyStatsQueryResponse>
+
+/** Call count for one $mcp_tool_category, powering the tab's share-of-usage headline. */
+export interface MCPToolCategoryCountItem {
+    category: string
+    calls: integer
+}
+
+export interface MCPToolCategoryCountsQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPToolCategoryCountItem[]
+}
+
+/** Per-category call counts over the window (empty category = uncategorized traffic). */
+export interface MCPToolCategoryCountsQuery extends DataNode<MCPToolCategoryCountsQueryResponse> {
+    kind: NodeKind.MCPToolCategoryCountsQuery
+    dateRange?: DateRange
+}
+
+export type CachedMCPToolCategoryCountsQueryResponse = CachedQueryResponse<MCPToolCategoryCountsQueryResponse>
+
+/** One distinct $mcp_tool_category value seen in the window. */
+export interface MCPToolCategoryItem {
+    category: string
+}
+
+export interface MCPToolCategoriesQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPToolCategoryItem[]
+}
+
+/** Distinct $mcp_tool_category values seen in the window, sorted — powers the scope selector. */
+export interface MCPToolCategoriesQuery extends DataNode<MCPToolCategoriesQueryResponse> {
+    kind: NodeKind.MCPToolCategoriesQuery
+    dateRange?: DateRange
+}
+
+export type CachedMCPToolCategoriesQueryResponse = CachedQueryResponse<MCPToolCategoriesQueryResponse>
 
 /** One distinct description seen for a single MCP tool, with the last time it was reported. */
 export interface MCPToolDescriptionItem {
@@ -4120,6 +4239,7 @@ export type FileSystemIconType =
     | 'toolbar'
     | 'visual_review'
     | 'code_review'
+    | 'stamphog'
     | 'settings'
     | 'health'
     | 'inbox'
@@ -6695,6 +6815,14 @@ export interface SourceFieldOauthAccountSelectConfig {
     placeholder?: string
     caption?: string
     required?: boolean
+    /** Allow selecting multiple values; the field's payload value becomes string[]. */
+    multiple?: boolean
+    /**
+     * Keep the field in the config tree (so its value parses and survives job_inputs
+     * redaction) without rendering it in the source form. Used for legacy fields that
+     * a newer field supersedes.
+     */
+    hidden?: boolean
 }
 
 export type SourceFieldSelectConfigConverter = 'str_to_int' | 'str_to_bool' | 'str_to_optional_int'
@@ -6713,6 +6841,7 @@ export interface SourceFieldSelectConfig {
     defaultValue: string
     options: SourceFieldSelectConfigOption[]
     converter?: SourceFieldSelectConfigConverter
+    caption?: string
 }
 
 export interface SourceFieldSwitchGroupConfig {
@@ -7556,6 +7685,7 @@ export const externalDataSources = [
     'Pinecone',
     'PlatformSh',
     'PromptingCompany',
+    'PromptWatch',
     'Qdrant',
     'Render',
     'Replicate',
@@ -7589,6 +7719,108 @@ export const externalDataSources = [
     'Kickscale',
     'Zellify',
     'RudderStack',
+    'DodoPayments',
+    'Salestrics',
+    'Doppler',
+    'Usersnap',
+    'Asknicely',
+    'Featurebase',
+    'Frill',
+    'Bettermode',
+    'Dynatrace',
+    'Honeycomb',
+    'SumoLogic',
+    'LogzIO',
+    'Coralogix',
+    'BetterStack',
+    'Raygun',
+    'Honeybadger',
+    'Airbrake',
+    'Appsignal',
+    'Appdynamics',
+    'Instana',
+    'SplunkObservabilityCloud',
+    'Uptimerobot',
+    'Statuscake',
+    'Tailscale',
+    'Flagsmith',
+    'Xmatters',
+    'Squadcast',
+    'Zenduty',
+    'Cronitor',
+    'Jenkins',
+    'Bitbucket',
+    'Gitea',
+    'Teamcity',
+    'TravisCI',
+    'Semaphore',
+    'CircleciInsights',
+    'OctopusDeploy',
+    'Sourcegraph',
+    'Bitrise',
+    'Gerrit',
+    'TerraformCloud',
+    'PulumiCloud',
+    'Spacelift',
+    'Railway',
+    'Argocd',
+    'PrefectCloud',
+    'DagsterCloud',
+    'Env0',
+    'Kubecost',
+    'Snyk',
+    'Semgrep',
+    'Veracode',
+    'Checkmarx',
+    'Gitguardian',
+    'QualysVmdr',
+    'Rapid7Insightvm',
+    'TenableVulnerabilityManagement',
+    'Sentinelone',
+    'Lacework',
+    'OrcaSecurity',
+    'Drata',
+    'Secureframe',
+    'CiscoDuo',
+    'Jumpcloud',
+    'OnePassword',
+    'Stytch',
+    'Sonarqube',
+    'Codecov',
+    'Coveralls',
+    'Codacy',
+    'Deepsource',
+    'Linearb',
+    'Jellyfish',
+    'Swarmia',
+    'Packagist',
+    'Nuget',
+    'CratesIO',
+    'SonatypeNexus',
+    'JfrogArtifactory',
+    'Snowplow',
+    'WeightsAndBiases',
+    'MonteCarlo',
+    'Metaplane',
+    'Datahub',
+    'ClickhouseCloud',
+    'ConfluentCloud',
+    'KongKonnect',
+    'Kandji',
+    'Automox',
+    'Autumn',
+    'GetStream',
+    'Octolens',
+    'Kajabi',
+    'Shopware',
+    'Dubsado',
+    'Campfire',
+    'Crisp',
+    'Kommo',
+    'Axiom',
+    'Plivo',
+    'DataForSEO',
+    'Sleekplan',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -8069,6 +8301,7 @@ export interface ProductsData {
 }
 
 export enum UserProductListReason {
+    DEFAULT = 'default',
     ONBOARDING = 'onboarding',
     PRODUCT_INTENT = 'product_intent',
     USED_BY_COLLEAGUES = 'used_by_colleagues',
@@ -8132,6 +8365,7 @@ export enum ProductKey {
     PLATFORM_AND_SUPPORT = 'platform_and_support',
     PRODUCT_ANALYTICS = 'product_analytics',
     PRODUCT_TOURS = 'product_tours',
+    PULSE = 'pulse',
     REVENUE_ANALYTICS = 'revenue_analytics',
     REVIEW_HOG = 'review_hog',
     SESSION_REPLAY = 'session_replay',
@@ -8166,6 +8400,7 @@ export enum ProductIntentContext {
     // Experiments
     EXPERIMENT_CREATED = 'experiment created',
     EXPERIMENT_ANALYZED = 'experiment analyzed',
+    EXPERIMENT_VIEW_RECORDINGS = 'experiment view recordings',
 
     // Feature Flags
     FEATURE_FLAG_CREATED = 'feature flag created',

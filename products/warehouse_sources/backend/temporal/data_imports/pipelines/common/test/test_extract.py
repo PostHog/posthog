@@ -35,6 +35,10 @@ class TestResolvePrimaryKeys:
             ("id_fallback_when_neither", None, None, {"columns": [{"name": "id"}, {"name": "name"}]}, ["id"]),
             # Nothing to fall back on -> None, so the keyless-table guardrail still fires.
             ("none_when_no_id_and_nothing_else", None, None, {"columns": [{"name": "name"}]}, None),
+            # Snowflake uppercases unquoted identifiers: the fallback must match `ID`
+            # case-insensitively AND return the actual stored casing — the merge indexes batches
+            # by the real column name, so a hardcoded lowercase `id` would fail it just the same.
+            ("uppercase_id_matched_with_actual_casing", None, None, {"columns": [{"name": "ID"}]}, ["ID"]),
         ]
     )
     def test_precedence(
@@ -283,6 +287,11 @@ class TestHandleCorruptedDeltaLog:
         helper.reset_table.assert_awaited_once()
         job.refresh_from_db()
         assert job.billable is False
+        # The in-memory copy must be refreshed too: the pipeline keeps saving this same schema
+        # object for the rest of the run (incremental staging, partition bookkeeping), and a stale
+        # copy writes the marker back — re-arming a non-billable full rebuild on every sync.
+        assert "delta_revive_required" not in schema.sync_type_config
+        schema.stage_incremental_field_value("run-1", 5)
         schema.refresh_from_db()
         assert "delta_revive_required" not in schema.sync_type_config
         assert ph.capture.call_args.kwargs["properties"]["outcome"] == "reset_rebuild"
@@ -292,8 +301,11 @@ class TestHandleCorruptedDeltaLog:
         # rather than reset — the customer's data is recovered without a rebuild, so reset_table never runs
         # and the job stays billable. Guards the salvage-from-temp branch against regressing to a reset.
         schema, job = self._schema_and_job(team)
+        # A hollow-table marker can coexist with the interrupted swap (the repartition scan set it
+        # before the swap crashed) — the salvage must clear it in memory as well as in the DB.
         schema.sync_type_config = {
-            "repartition_swap": {"state": "ready", "temp_uri": "s3://bucket/temp", "live_uri": "s3://bucket/live"}
+            "repartition_swap": {"state": "ready", "temp_uri": "s3://bucket/temp", "live_uri": "s3://bucket/live"},
+            "delta_revive_required": {"reason": "repartition_scan_missing_data_file", "missing_path": "x/p.parquet"},
         }
         schema.save(update_fields=["sync_type_config"])
         helper = MagicMock(
@@ -319,6 +331,12 @@ class TestHandleCorruptedDeltaLog:
         helper.reset_table.assert_not_awaited()
         job.refresh_from_db()
         assert job.billable is True
+        # Same stale-copy guard as the reset path: a later full-config save off this schema object
+        # must not write the cleared marker back.
+        assert "delta_revive_required" not in schema.sync_type_config
+        schema.stage_incremental_field_value("run-1", 5)
+        schema.refresh_from_db()
+        assert "delta_revive_required" not in schema.sync_type_config
         # A salvage must be observable too, tagged as recovered-from-temp with the rebuild left billable.
         assert ph.capture.call_args.kwargs["event"] == "warehouse_delta_revived"
         assert ph.capture.call_args.kwargs["properties"]["outcome"] == "salvaged"

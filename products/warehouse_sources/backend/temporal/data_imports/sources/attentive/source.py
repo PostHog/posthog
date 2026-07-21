@@ -40,7 +40,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AttentiveSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.attentive import (
+    AttentiveSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
@@ -73,6 +75,8 @@ class AttentiveSource(
     SimpleSource[AttentiveSourceConfig],
     WebhookSource[AttentiveSourceConfig],
 ):
+    api_docs_url = "https://docs.attentive.com"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

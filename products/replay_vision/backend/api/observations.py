@@ -1,11 +1,12 @@
 import uuid
 from typing import Any, cast, get_args
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.db.models import Case, CharField, FloatField, Func, IntegerField, Q, QuerySet, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
-from django.http import StreamingHttpResponse
+from django.http.response import HttpResponseBase
 
 import structlog
 import django_filters
@@ -23,6 +24,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.streaming import sse_streaming_response
 from posthog.models.user import User
 from posthog.renderers import ServerSentEventRenderer
+from posthog.utils import relative_date_parse
 
 from products.replay_vision.backend.api.filters import MultiChoiceFilter, OrderByFilter, ordering_enum
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
@@ -485,7 +487,18 @@ class ReplayObservationFilter(django_filters.FilterSet):
     recording_subject = django_filters.CharFilter(
         field_name="recording_subject_email",
         lookup_expr="icontains",
-        help_text="Filter to observations whose recording subject email contains this value (case-insensitive).",
+        help_text="Filter to observations whose person email contains this value (case-insensitive).",
+    )
+    date_from = django_filters.CharFilter(
+        method="_filter_date_from",
+        help_text="Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.",
+    )
+    date_to = django_filters.CharFilter(
+        method="_filter_date_to",
+        help_text=(
+            "Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; "
+            "date-only values include the whole day."
+        ),
     )
     labeled = django_filters.BooleanFilter(
         method="_filter_labeled",
@@ -526,6 +539,20 @@ class ReplayObservationFilter(django_filters.FilterSet):
         self, queryset: QuerySet[ReplayObservation], _name: str, value: bool
     ) -> QuerySet[ReplayObservation]:
         return queryset.filter(label__isnull=not value)
+
+    def _filter_date_from(
+        self, queryset: QuerySet[ReplayObservation], _name: str, value: str
+    ) -> QuerySet[ReplayObservation]:
+        return queryset.filter(created_at__gte=relative_date_parse(value, ZoneInfo("UTC")))
+
+    def _filter_date_to(
+        self, queryset: QuerySet[ReplayObservation], _name: str, value: str
+    ) -> QuerySet[ReplayObservation]:
+        parsed = relative_date_parse(value, ZoneInfo("UTC"))
+        # Date-only values include the whole day; relative values stay exact.
+        if not value.startswith(("-", "+")) and "T" not in value and ":" not in value:
+            parsed = parsed.replace(hour=23, minute=59, second=59, microsecond=999999)
+        return queryset.filter(created_at__lte=parsed)
 
     def _filter_tags(
         self, queryset: QuerySet[ReplayObservation], _name: str, value: str
@@ -847,7 +874,7 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
 
     @extend_schema(exclude=True)
     @action(detail=True, methods=["GET"], url_path="progress", renderer_classes=[ServerSentEventRenderer])
-    def progress(self, request: Request, **kwargs: Any) -> StreamingHttpResponse:
+    def progress(self, request: Request, **kwargs: Any) -> HttpResponseBase:
         """Stream live progress (phase + rendering frame counts) for one in-flight observation as SSE.
 
         `get_object()` applies the same RBAC scoping as retrieve, so this can't leak observations the caller

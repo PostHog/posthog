@@ -40,6 +40,7 @@ Lead with these when the user is unsure what to ask:
 | "What description is tool X registered with?"     | `posthog:query-mcp-tool-descriptions` — distinct descriptions seen                              |
 | "Which harnesses use my MCP, how reliably?"       | `posthog:query-mcp-harness-breakdown` — calls/errors/sessions per client                        |
 | "What are agents trying to do, across all tools?" | `exploring-mcp-intent-clusters` — semantic goal clusters                                        |
+| "Who is connecting, and how active are they?"     | `posthog:mcp-analytics-sessions-list` — one row per session, with client and person             |
 | "What did this one session do?"                   | `exploring-mcp-sessions` — a single agent run's tool sequence                                   |
 
 ## Finding the tool name
@@ -60,16 +61,39 @@ Call it with the tool name and a window, e.g. for the headline numbers of a tool
 posthog:query-mcp-tool-stats  { "toolName": "<tool>", "dateRange": { "date_from": "-7d" } }
 ```
 
-Then offer a natural follow-up from the menu — e.g. after `stats` shows a high
-error rate, reach for `posthog:query-mcp-tool-failures`; after it shows broad reach, reach
-for `posthog:query-mcp-tool-top-users` or `posthog:query-mcp-tool-neighbors`.
+Then offer a natural follow-up from the menu — e.g. after
+`posthog:query-mcp-tool-stats` shows a high error rate, reach for
+`posthog:query-mcp-tool-failures`; after it shows broad reach, reach for
+`posthog:query-mcp-tool-top-users` or `posthog:query-mcp-tool-neighbors`.
 
 ## When to drop to SQL
 
-The tools cover the per-tool drill-downs and the harness cut. For cross-tool
-rankings (the tool-quality matrix), custom breakdowns, session listing, or
-per-session tool calls, query `$mcp_tool_call` directly with `posthog:execute-sql`
-— the schema and recipes are in
+**Covered by a typed tool — don't hand-write SQL for these:**
+
+| Question                           | Tool                                        |
+| ---------------------------------- | ------------------------------------------- |
+| One tool's headline numbers        | `posthog:query-mcp-tool-stats`              |
+| One tool's day-by-day trend        | `posthog:query-mcp-tool-daily-stats`        |
+| One tool's top errors              | `posthog:query-mcp-tool-failures`           |
+| One tool's top callers             | `posthog:query-mcp-tool-top-users`          |
+| Tools called before/after one tool | `posthog:query-mcp-tool-neighbors`          |
+| One tool's recent agent intents    | `posthog:query-mcp-tool-sample-intents`     |
+| One tool's registered descriptions | `posthog:query-mcp-tool-descriptions`       |
+| Usage split by client harness      | `posthog:query-mcp-harness-breakdown`       |
+| List sessions                      | `posthog:mcp-analytics-sessions-list`       |
+| One session's tool calls           | `posthog:mcp-analytics-sessions-tool-calls` |
+
+**Not covered — use `posthog:execute-sql`:**
+
+- Cross-tool rankings (the tool-quality matrix — "which tool errors most?")
+- Errored-session filtering (the session list has no error filter or error count)
+- Effective tool names inside a session (`posthog:mcp-analytics-sessions-tool-calls`
+  returns the raw `$mcp_tool_name`, not the inner tool of a wrapper call)
+- Any custom breakdown
+
+`posthog:execute-sql` is also the fallback when the `mcp-analytics` flag is off —
+every tool in the table above is gated behind it, `execute-sql` is not. Query
+`$mcp_tool_call` directly; the schema and recipes are in
 [`models-mcp.md`](../../../posthog_ai/skills/querying-posthog-data/references/models-mcp.md).
 
 ## Related skills

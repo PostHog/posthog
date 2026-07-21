@@ -1,16 +1,24 @@
+import json
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest import mock
 
+from posthog.clickhouse.client import sync_execute
+
 from products.engineering_analytics.backend.facade.contracts import BROKEN_TEST_SPARKLINE_HOURS, BrokenTestState
+from products.engineering_analytics.backend.logic.job_logs.constants import CI_LOGS_SERVICE_NAME
 from products.engineering_analytics.backend.logic.queries import broken_tests as module
+from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries.broken_tests import (
     _classify,
     _sparklines_by_fingerprint,
     query_broken_tests,
 )
+from products.engineering_analytics.backend.logic.sources import GitHubTables
 
 
 # Ages are seconds-ago-from-now (smaller = more recent). last_master_hit_age is the fingerprint's most
@@ -238,3 +246,60 @@ def test_build_query_embeds_the_failures_view():
     # not the registered warehouse view by name (keeps the product off the global catalog).
     assert "engineering_analytics_ci_failures" not in module._FINGERPRINTS_SELECT
     assert "FAILED" in module.ci_failures.build_query()
+
+
+class TestBrokenTestsQueryOverClickHouse(ClickhouseTestMixin, BaseTest):
+    """The unit tests above mock curated.run, so the fingerprints/hourly SQL never actually runs.
+    This drives query_broken_tests through real HogQL over seeded logs — the only place a SQL fault
+    like an aggregate alias shadowing the WHERE-filtered `repo` column surfaces (it 500'd the endpoint
+    in prod: "Aggregate function ... is found in WHERE")."""
+
+    def _insert_logs(self, rows: list[dict[str, Any]]) -> None:
+        payload = "".join(json.dumps({"team_id": self.team.id, **row}) + "\n" for row in rows)
+        sync_execute(f"INSERT INTO logs FORMAT JSONEachRow\n{payload}")
+
+    def _failure_log(self, *, repo: str, test_id: str) -> dict[str, Any]:
+        # attributes_map_str keys carry the "__str" suffix the logs table strips for the queryable map.
+        return {
+            "timestamp": "2026-07-10 12:00:00.000000",
+            "body": f"FAILED {test_id} - AssertionError: boom",
+            "service_name": CI_LOGS_SERVICE_NAME,
+            "attributes_map_str": {
+                "repo__str": repo,
+                "branch__str": "master",
+                "head_sha__str": "abc123",
+                "workflow_name__str": "Backend CI",
+                "job_name__str": "test (1)",
+                "run_id__str": "100",
+                "conclusion__str": "failure",
+            },
+        }
+
+    def _source(self) -> CuratedGitHubSource:
+        # workflow_jobs=None → jobs_source() is None → the master-status query is skipped, so this
+        # exercises only the logs-backed fingerprints + hourly reads without warehouse setup.
+        return CuratedGitHubSource(
+            team=self.team,
+            tables=GitHubTables(
+                pull_requests="unused", workflow_runs="unused", workflow_jobs=None, repository="PostHog/posthog"
+            ),
+        )
+
+    def test_fingerprints_query_runs_and_filters_by_repo(self) -> None:
+        self._insert_logs(
+            [
+                self._failure_log(repo="PostHog/posthog", test_id="posthog/api/test_foo.py::test_bar"),
+                self._failure_log(repo="other/repo", test_id="other/test_x.py::test_y"),
+            ]
+        )
+        result = query_broken_tests(
+            curated=self._source(),
+            date_from=datetime(2026, 7, 9, tzinfo=UTC),
+            hourly_from=datetime(2026, 7, 9, tzinfo=UTC),
+            window_days=2,
+            limit=200,
+        )
+        # No aggregate-in-WHERE 500, and lower(repo) binds to the column (not the any(repo) alias):
+        # only the selected repo's failure comes back.
+        assert [row.test_id for row in result.rows] == ["posthog/api/test_foo.py::test_bar"]
+        assert result.rows[0].repo == "PostHog/posthog"

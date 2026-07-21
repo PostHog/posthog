@@ -70,7 +70,8 @@ The first three now live in `products/posthog_ai/frontend` (the shared surface) 
 - **A new permission affordance / auto-approval rule** → `products/posthog_ai/frontend/policy/toolPolicy.ts`, then surface it through `PermissionInput`.
 - **New stream telemetry** → a guarded `posthog.capture` in the relevant `runStreamLogic` listener (fire-once, suppressed on replay).
 - **A new product tool renderer** (renders a PostHog entity) → `products/posthog_ai/frontend/components/tool/widgets/*` + register it in `widgets/registerDataToolRenderers` (the surface self-registers; every consumer, including Max's sandbox path, picks it up).
-- **New context the agent should see** → extend `AttachedContext` (not `MaxUIContext`).
+- **New context the agent should see** → register it from the owning product via the surface's context seam: `useAttachedContext` / `AttachedContextProvider` / `attachedContextLogic.registerContext` (see `products/posthog_ai/frontend/AGENTS.md` §3). Not `MaxUIContext`, and no new fields on the legacy stores. Scenes now register their on-screen context natively into that seam, and `maxThreadLogic`'s sandbox send merges the seam's items into `attached_context` — that bridge lives here and is deleted with `scenes/max`.
+- **UI that reacts to the agent calling a tool** (sandbox path) → subscribe via the surface's `useToolStreamListener` / `toolStreamEventsLogic` (resolved tool names, replay suppressed by default). The legacy `useMaxTool` `callback` fires on LangGraph only.
 
 ## 6. Don'ts
 
