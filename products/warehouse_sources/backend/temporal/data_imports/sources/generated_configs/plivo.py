@@ -6,4 +6,5 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class PlivoSourceConfig(config.Config):
-    pass
+    auth_id: str
+    auth_token: str

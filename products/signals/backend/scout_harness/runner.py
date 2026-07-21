@@ -271,6 +271,8 @@ async def arun_signals_scout(
             status=tasks_facade.TaskRunStatus.COMPLETED.value,
             runtime_s=runtime_s,
             emitted_count=emitted_count,
+            model=model,
+            runtime_adapter=runtime_adapter,
         )
         return RunResult(
             run_id=str(run_id),
@@ -319,6 +321,8 @@ async def arun_signals_scout(
             status=tasks_facade.TaskRunStatus.FAILED.value,
             runtime_s=runtime_s,
             emitted_count=emitted_count,
+            model=model,
+            runtime_adapter=runtime_adapter,
             error_type=type(exc).__name__,
             error_message=str(exc)[:300],
         )
@@ -361,6 +365,8 @@ async def arun_signals_scout(
             status=tasks_facade.TaskRunStatus.CANCELLED.value,
             runtime_s=runtime_s,
             emitted_count=None,
+            model=model,
+            runtime_adapter=runtime_adapter,
         )
         raise
 
@@ -489,6 +495,8 @@ async def _spawn_and_run(
             skill=skill,
             run_id=run_id,
             task_run_id=str(task_run.id),
+            model=model,
+            runtime_adapter=runtime_adapter,
         )
 
     session, result = await MultiTurnSession.start(
@@ -697,6 +705,8 @@ def _capture_run_started(
     skill: LoadedSkill,
     run_id: Any,
     task_run_id: str,
+    model: str | None = None,
+    runtime_adapter: str | None = None,
 ) -> None:
     """Emit the scout-owned run-started analytics event.
 
@@ -707,17 +717,19 @@ def _capture_run_started(
     finalize — an event-derived stall signal with no warehouse lag. Best-effort: a capture
     failure must never block the run.
     """
+    properties: dict[str, Any] = {
+        "skill_name": skill.name,
+        "skill_version": skill.version,
+        "scout_config_id": str(config.id),
+        "run_id": str(run_id),
+        "task_run_id": task_run_id,
+    }
+    _attach_model_props(properties, model=model, runtime_adapter=runtime_adapter)
     try:
         posthoganalytics.capture(
             event="signals_scout_run_started",
             distinct_id=str(team.uuid),
-            properties={
-                "skill_name": skill.name,
-                "skill_version": skill.version,
-                "scout_config_id": str(config.id),
-                "run_id": str(run_id),
-                "task_run_id": task_run_id,
-            },
+            properties=properties,
             groups=groups(team.organization, team),
         )
     except Exception:
@@ -766,6 +778,16 @@ def _capture_run_reaped(
         )
 
 
+def _attach_model_props(properties: dict[str, Any], *, model: str | None, runtime_adapter: str | None) -> None:
+    # Only attached when the `scouts-model-selection` gate (or a runtime pin) routed the run —
+    # absence means the agent-server default served it. Makes run outcomes (timeout rate, runtime,
+    # emit volume) sliceable by model without joining through $ai_generation.
+    if model is not None:
+        properties["model"] = model
+    if runtime_adapter is not None:
+        properties["runtime_adapter"] = runtime_adapter
+
+
 def _capture_run_finished(
     *,
     team: Team,
@@ -776,6 +798,8 @@ def _capture_run_finished(
     status: str,
     runtime_s: float,
     emitted_count: int | None,
+    model: str | None = None,
+    runtime_adapter: str | None = None,
     error_type: str | None = None,
     error_message: str | None = None,
 ) -> None:
@@ -803,6 +827,7 @@ def _capture_run_finished(
         "runtime_seconds": round(runtime_s, 1),
         "emitted_count": emitted_count,
     }
+    _attach_model_props(properties, model=model, runtime_adapter=runtime_adapter)
     # Only attach failure context on failed runs — keeps successful / cancelled events clean
     # rather than carrying explicit-null error fields on every event.
     if error_type is not None:
