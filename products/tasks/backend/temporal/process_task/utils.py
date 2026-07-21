@@ -442,6 +442,19 @@ def get_sandbox_api_url() -> str:
     return settings.SANDBOX_API_URL or settings.SITE_URL
 
 
+def loop_mcp_installation_allowlist(state: dict | None) -> list[str] | None:
+    """The connector allowlist a loop run snapshotted at fire time, read back from ``TaskRun.state``.
+
+    Returns ``None`` when there is no snapshot (every non-loop task, or pre-snapshot state) so the
+    caller keeps its current unfiltered behavior; an empty list means the loop selected no
+    connectors, so nothing should mount."""
+    connectors = ((state or {}).get("config_snapshot") or {}).get("connectors")
+    if not isinstance(connectors, dict):
+        return None
+    ids = connectors.get("mcp_installation_ids")
+    return [str(i) for i in ids] if isinstance(ids, list) else None
+
+
 def get_user_mcp_server_configs(
     token: str,
     team_id: int,
@@ -449,12 +462,19 @@ def get_user_mcp_server_configs(
     *,
     include_personal: bool = True,
     interaction_origin: str | None = None,
+    allowed_installation_ids: list[str] | None = None,
 ) -> list[McpServerConfig]:
     """Fetch MCP Store installations for sandbox use and return configs.
 
     Always includes shared (team-wide) installations. When
     ``include_personal`` is True and a ``user_id`` is provided, the user's
     personal installations are included too.
+
+    ``allowed_installation_ids`` restricts the mounted connectors to a snapshotted allowlist (a
+    loop run's selected ``mcp_installation_ids``): ``None`` leaves the set unfiltered (current
+    behavior for regular tasks), an empty list mounts nothing, and a populated list keeps only
+    those installations. Without it, an unattended loop run would mount every shared team connector
+    rather than only the ones its owner chose.
 
     The `x-posthog-mcp-consumer` header is set on every config so the agent's
     identity propagates through the MCP Store proxy to whichever upstream MCP
@@ -469,6 +489,9 @@ def get_user_mcp_server_configs(
         user_id=user_id,
         include_personal=include_personal,
     )
+    if allowed_installation_ids is not None:
+        allowed = {str(i) for i in allowed_installation_ids}
+        installations = [installation for installation in installations if str(installation.id) in allowed]
     api_base = get_sandbox_api_url().rstrip("/")
     consumer = _resolve_mcp_consumer(interaction_origin)
 
