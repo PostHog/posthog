@@ -131,6 +131,20 @@ export interface SandboxCustomImageWriteApi {
 }
 
 /**
+ * Request body for renaming / re-describing a custom sandbox base image.
+ */
+export interface PatchedSandboxCustomImageUpdateApi {
+    /**
+     * New display name for the custom image. Omit to leave unchanged.
+     * @minLength 1
+     * @maxLength 255
+     */
+    name?: string
+    /** New description. Omit to leave unchanged; pass an empty string to clear it. */
+    description?: string
+}
+
+/**
  * Request body for scanning and building a custom sandbox base image.
  */
 export interface SandboxCustomImageBuildApi {

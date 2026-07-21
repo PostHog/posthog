@@ -48090,6 +48090,20 @@ export namespace Schemas {
     }
 
     /**
+     * Request body for renaming / re-describing a custom sandbox base image.
+     */
+    export interface PatchedSandboxCustomImageUpdate {
+      /**
+         * New display name for the custom image. Omit to leave unchanged.
+         * @minLength 1
+         * @maxLength 255
+         */
+      name?: string;
+      /** New description. Omit to leave unchanged; pass an empty string to clear it. */
+      description?: string;
+    }
+
+    /**
      * Request body for creating or updating a sandbox environment.
      */
     export interface PatchedSandboxEnvironmentWrite {
@@ -71228,6 +71242,14 @@ export namespace Schemas {
 
     export type EnvironmentsVisionObservationsRetrieveParams = {
     /**
+     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.
+     */
+    date_from?: string;
+    /**
+     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.
+     */
+    date_to?: string;
+    /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
     labeled?: string;
@@ -71323,6 +71345,14 @@ export namespace Schemas {
 
     export type EnvironmentsVisionScannersObservationsListParams = {
     /**
+     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.
+     */
+    date_from?: string;
+    /**
+     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.
+     */
+    date_to?: string;
+    /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
     labeled?: boolean;
@@ -71366,6 +71396,14 @@ export namespace Schemas {
 
     export type EnvironmentsVisionScannersObservationsRetrieveParams = {
     /**
+     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.
+     */
+    date_from?: string;
+    /**
+     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.
+     */
+    date_to?: string;
+    /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
     labeled?: string;
@@ -71400,6 +71438,14 @@ export namespace Schemas {
     };
 
     export type EnvironmentsVisionScannersObservationsStatsRetrieveParams = {
+    /**
+     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.
+     */
+    date_from?: string;
+    /**
+     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.
+     */
+    date_to?: string;
     /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
@@ -80214,6 +80260,14 @@ export namespace Schemas {
 
     export type VisionObservationsRetrieveParams = {
     /**
+     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.
+     */
+    date_from?: string;
+    /**
+     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.
+     */
+    date_to?: string;
+    /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
     labeled?: string;
@@ -80309,6 +80363,14 @@ export namespace Schemas {
 
     export type VisionScannersObservationsListParams = {
     /**
+     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.
+     */
+    date_from?: string;
+    /**
+     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.
+     */
+    date_to?: string;
+    /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
     labeled?: boolean;
@@ -80352,6 +80414,14 @@ export namespace Schemas {
 
     export type VisionScannersObservationsRetrieveParams = {
     /**
+     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.
+     */
+    date_from?: string;
+    /**
+     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.
+     */
+    date_to?: string;
+    /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
     labeled?: string;
@@ -80386,6 +80456,14 @@ export namespace Schemas {
     };
 
     export type VisionScannersObservationsStatsRetrieveParams = {
+    /**
+     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.
+     */
+    date_from?: string;
+    /**
+     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.
+     */
+    date_to?: string;
     /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
