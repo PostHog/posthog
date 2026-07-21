@@ -120,4 +120,6 @@ class TestOmnisendSource:
         _, kwargs = mock_source.call_args
         assert kwargs["api_key"] == "test-key"
         assert kwargs["endpoint"] == "orders"
+        assert kwargs["team_id"] == 1
+        assert kwargs["job_id"] == "job-1"
         assert kwargs["resumable_source_manager"] is manager

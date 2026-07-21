@@ -83,7 +83,7 @@ You can create an API key in your Northpass admin panel under **Apps → API Acc
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            # An invalid or revoked API key surfaces as an HTTPError when `_fetch_page` calls
+            # An invalid or revoked API key surfaces as an HTTPError when the REST client calls
             # `raise_for_status()`. Retrying can never satisfy a credential problem, so stop the sync.
             "401 Client Error: Unauthorized for url: https://api.northpass.com": "Your Northpass API key is invalid or has been revoked. Create a new key in your Northpass admin panel under Apps → API Access, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.northpass.com": "Your Northpass API key does not have permission to access this data. Check the key's permissions in your Northpass admin panel, then reconnect.",
@@ -139,6 +139,7 @@ You can create an API key in your Northpass admin panel under **Apps → API Acc
         return northpass_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

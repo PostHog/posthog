@@ -174,6 +174,7 @@ Generate a **user token** under **My Account → Security** in SonarQube Cloud, 
             organization=config.organization,
             region=config.region,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )
