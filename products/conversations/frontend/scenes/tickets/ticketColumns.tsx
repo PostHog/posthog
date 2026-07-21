@@ -12,6 +12,7 @@ import { AssigneeDisplay, AssigneeResolver } from '../../components/Assignee'
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { IdentityBadge } from '../../components/IdentityBadge/IdentityBadge'
 import { SlaDisplay } from '../../components/SlaDisplay'
+import { TicketPreviewPopover } from '../../components/TicketPreview/TicketPreviewPopover'
 import {
     type Ticket,
     aiTriageProcessingLabel,
@@ -98,14 +99,16 @@ const TICKET_COLUMNS: Record<TicketColumnKey, TicketColumnDefinition> = {
             render: (_, ticket) => (
                 <div className="flex items-center gap-2">
                     {ticket.last_message_text ? (
-                        <span
-                            className={clsx('text-xs truncate max-w-md', {
-                                'text-muted-alt': ticket.unread_team_count === 0,
-                                'font-medium': ticket.unread_team_count > 0,
-                            })}
-                        >
-                            {stripMarkdown(ticket.last_message_text)}
-                        </span>
+                        <TicketPreviewPopover ticketId={ticket.id}>
+                            <span
+                                className={clsx('text-xs truncate max-w-md', {
+                                    'text-muted-alt': ticket.unread_team_count === 0,
+                                    'font-medium': ticket.unread_team_count > 0,
+                                })}
+                            >
+                                {stripMarkdown(ticket.last_message_text)}
+                            </span>
+                        </TicketPreviewPopover>
                     ) : (
                         <span className="text-muted-alt text-xs">—</span>
                     )}
