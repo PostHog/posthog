@@ -297,6 +297,15 @@ import type { ProductIntentProperties } from './utils/product-intents'
 
 export type CheckboxValueType = string | number | boolean
 
+// A single existing provider issue returned by the error tracking external-issue search endpoint.
+// `external_context` is the exact payload to send back when linking a reference to this issue.
+export interface ExternalIssueSearchResult {
+    id: string
+    title: string
+    url: string
+    external_context: Record<string, string | number>
+}
+
 const PAGINATION_DEFAULT_MAX_PAGES = 10
 
 export interface PaginatedResponse<T> {
@@ -4368,6 +4377,35 @@ const api = {
                     config,
                 },
             })
+        },
+
+        async linkExternalReference(
+            issueId: string,
+            integrationId: number,
+            externalContext: Record<string, string | number>
+        ): Promise<ErrorTrackingExternalReference> {
+            return await new ApiRequest()
+                .errorTrackingExternalReference()
+                .withAction('link_issue')
+                .create({
+                    data: {
+                        integration_id: integrationId,
+                        issue: issueId,
+                        external_context: externalContext,
+                    },
+                })
+        },
+
+        async searchExternalIssues(
+            integrationId: number,
+            search: string,
+            repository?: string
+        ): Promise<{ issues: ExternalIssueSearchResult[] }> {
+            return await new ApiRequest()
+                .errorTrackingExternalReference()
+                .withAction('search_issues')
+                .withQueryString({ integration_id: integrationId, search, repository })
+                .get()
         },
 
         async getSimilarIssues(

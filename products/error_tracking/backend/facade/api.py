@@ -584,13 +584,15 @@ def create_external_reference(
     team_id: int,
     issue_id: UUID,
     integration_id: int,
-    config: dict[str, Any],
+    config: dict[str, Any] | None = None,
+    external_context: dict[str, Any] | None = None,
 ) -> contracts.ErrorTrackingExternalReference:
     reference = logic.create_external_reference(
         team_id=team_id,
         issue_id=issue_id,
         integration_id=integration_id,
         config=config,
+        external_context=external_context,
     )
 
     posthoganalytics.capture(
@@ -599,10 +601,27 @@ def create_external_reference(
         properties={
             "issue_id": reference.issue_id,
             "integration_kind": reference.integration.kind,
+            # Distinguish linking an existing issue from creating a brand-new one.
+            "linked_existing": external_context is not None,
         },
     )
 
     return _to_external_reference(reference)
+
+
+def search_external_issues(
+    *,
+    team_id: int,
+    integration_id: int,
+    search: str,
+    repository: str | None = None,
+) -> list[dict[str, Any]]:
+    return logic.search_external_issues(
+        team_id=team_id,
+        integration_id=integration_id,
+        search=search,
+        repository=repository,
+    )
 
 
 def is_supported_external_issue_provider(kind: str) -> bool:

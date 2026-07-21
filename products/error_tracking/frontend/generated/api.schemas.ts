@@ -493,6 +493,41 @@ export interface PaginatedErrorTrackingExternalReferenceResultListApi {
     results: ErrorTrackingExternalReferenceResultApi[]
 }
 
+/**
+ * Identifier of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}.
+ */
+export type ErrorTrackingExternalReferenceLinkApiExternalContext = { [key: string]: unknown }
+
+export interface ErrorTrackingExternalReferenceLinkApi {
+    /** ID of the connected integration the existing issue lives in (one of 'github', 'gitlab', 'linear', 'jira'). */
+    integration_id: number
+    /** ID of the error tracking issue to link the reference to. */
+    issue: string
+    /** Identifier of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. */
+    external_context: ErrorTrackingExternalReferenceLinkApiExternalContext
+}
+
+/**
+ * Payload to send back as external_context when creating a reference to this issue.
+ */
+export type ErrorTrackingExternalIssueResultApiExternalContext = { [key: string]: unknown }
+
+export interface ErrorTrackingExternalIssueResultApi {
+    /** Provider-native identifier of the issue (e.g. issue key or number). */
+    id: string
+    /** Human-readable issue title, for display in the picker. */
+    title: string
+    /** Link to the issue in the provider's system. */
+    url: string
+    /** Payload to send back as external_context when creating a reference to this issue. */
+    external_context: ErrorTrackingExternalIssueResultApiExternalContext
+}
+
+export interface ErrorTrackingExternalIssueSearchResultApi {
+    /** Matching existing issues. */
+    issues: ErrorTrackingExternalIssueResultApi[]
+}
+
 export interface ErrorTrackingFingerprintApi {
     /** Unique ID of the fingerprint record. */
     readonly id: string
@@ -1790,6 +1825,22 @@ export type ErrorTrackingExternalReferencesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type ErrorTrackingExternalReferencesSearchIssuesRetrieveParams = {
+    /**
+     * ID of the connected integration to search issues in.
+     */
+    integration_id: number
+    /**
+     * Repository to search within. Required for GitHub, ignored by other providers.
+     */
+    repository?: string
+    /**
+     * Text to match against existing issue titles / keys in the provider.
+     * @minLength 1
+     */
+    search: string
 }
 
 export type ErrorTrackingFingerprintsListParams = {
