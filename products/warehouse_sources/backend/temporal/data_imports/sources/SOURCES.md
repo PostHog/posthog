@@ -544,6 +544,7 @@ the row lists both.
 | trello                           | HTTP                        | requests                                                        | ✅                          |
 | tremendous                       | HTTP                        | requests                                                        | ✅                          |
 | trigger_dev                      | HTTP                        | requests                                                        | ✅                          |
+| twelve_data                      | HTTP                        | requests                                                        | ✅                          |
 | twelve_labs                      | HTTP                        | requests                                                        | ✅                          |
 | twilio                           | HTTP                        | requests                                                        | ✅                          |
 | tyntec_sms                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -975,7 +976,6 @@ doesn't conflict with concurrent PRs.
 - trustpilot
 - turso
 - tvmaze
-- twelve_data
 - twenty
 - twitter
 - twitter_ads
