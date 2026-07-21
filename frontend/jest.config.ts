@@ -16,6 +16,8 @@ const esmModules = [
     '@shadcn/react',
     '@react-hook',
     '@medv',
+    // @toon-format/toon ships ESM-only; the posthog_ai widget extractors decode TOON tool output.
+    '@toon-format',
     'monaco-editor',
     '@posthog/hedgehog-mode',
     // @marsidev/react-turnstile ships ESM-only; the auth flow variant registry pulls it
