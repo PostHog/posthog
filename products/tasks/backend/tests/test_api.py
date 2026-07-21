@@ -9545,6 +9545,88 @@ class TestSandboxCustomImageAPI(BaseTaskAPITest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_rename_updates_name(self):
+        image = _make_custom_image(team=self.team, user=self.user, name="Old name")
+        response = self.client.patch(self.detail_url(image.id), {"name": "New name"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["name"], "New name")
+        image.refresh_from_db()
+        self.assertEqual(image.name, "New name")
+
+    def test_rename_updates_description(self):
+        image = _make_custom_image(team=self.team, user=self.user, name="img", description="old")
+        response = self.client.patch(self.detail_url(image.id), {"description": "fresh"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["description"], "fresh")
+        image.refresh_from_db()
+        self.assertEqual(image.description, "fresh")
+
+    @parameterized.expand(
+        [
+            ("blank_name", {"name": "   "}),
+            ("empty_name", {"name": ""}),
+        ]
+    )
+    def test_rename_rejects_blank_name(self, _name, payload):
+        image = _make_custom_image(team=self.team, user=self.user, name="img")
+        response = self.client.patch(self.detail_url(image.id), payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        image.refresh_from_db()
+        self.assertEqual(image.name, "img")
+
+    def test_rename_rejects_name_over_max_length(self):
+        image = _make_custom_image(team=self.team, user=self.user, name="img")
+        response = self.client.patch(self.detail_url(image.id), {"name": "x" * 256}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_rename_not_reachable_for_other_user_private_image(self):
+        # A teammate must not be able to rename (or even see) another user's
+        # private image: the rename surfaces as a 404 and leaves the name intact.
+        other_user = self.create_organization_user("imageowner")
+        image = _make_custom_image(team=self.team, user=other_user, name="private", private=True)
+        response = self.client.patch(self.detail_url(image.id), {"name": "hijack"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        image.refresh_from_db()
+        self.assertEqual(image.name, "private")
+
+    def test_rename_other_team_image_returns_404(self):
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+        other_image = _make_custom_image(team=other_team, user=self.user, name="theirs")
+        response = self.client.patch(self.detail_url(other_image.id), {"name": "mine"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_rename_disabled_without_vm_sandbox_flag(self):
+        image = _make_custom_image(team=self.team, user=self.user, name="img")
+        self.enable_vm_sandbox_flag(False)
+        response = self.client.patch(self.detail_url(image.id), {"name": "renamed"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_rename_empty_body_is_noop_success(self):
+        image = _make_custom_image(team=self.team, user=self.user, name="img")
+        response = self.client.patch(self.detail_url(image.id), {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["name"], "img")
+        image.refresh_from_db()
+        self.assertEqual(image.name, "img")
+
+    def test_rename_returns_404_when_image_deleted_after_update(self):
+        # A concurrent delete between the UPDATE and the reload must surface as a
+        # 404 (the facade's missing-image contract), not a 500 from DoesNotExist.
+        image = _make_custom_image(team=self.team, user=self.user, name="img")
+
+        real_get = tasks_facade.get_sandbox_custom_image
+
+        def get_after_delete(image_id, team_id, user_id):
+            # Simulate another request deleting the row right after our UPDATE lands.
+            SandboxCustomImage.objects.filter(id=image_id).delete()
+            return real_get(image_id, team_id, user_id)
+
+        with patch.object(tasks_facade, "get_sandbox_custom_image", side_effect=get_after_delete):
+            response = self.client.patch(self.detail_url(image.id), {"name": "renamed"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
     @patch("products.tasks.backend.temporal.client.execute_build_sandbox_image_workflow")
     def test_build_with_inline_spec_persists_and_triggers_workflow(self, mock_workflow):
         image = _make_custom_image(team=self.team, user=self.user, name="img")

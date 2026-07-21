@@ -48090,6 +48090,20 @@ export namespace Schemas {
     }
 
     /**
+     * Request body for renaming / re-describing a custom sandbox base image.
+     */
+    export interface PatchedSandboxCustomImageUpdate {
+      /**
+         * New display name for the custom image. Omit to leave unchanged.
+         * @minLength 1
+         * @maxLength 255
+         */
+      name?: string;
+      /** New description. Omit to leave unchanged; pass an empty string to clear it. */
+      description?: string;
+    }
+
+    /**
      * Request body for creating or updating a sandbox environment.
      */
     export interface PatchedSandboxEnvironmentWrite {
