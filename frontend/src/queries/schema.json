@@ -24614,7 +24614,11 @@
                 "Axiom",
                 "Plivo",
                 "DataForSEO",
-                "Sleekplan"
+                "Sleekplan",
+                "Tally",
+                "Nuntly",
+                "FusionAuth",
+                "Vturb"
             ],
             "type": "string"
         },
