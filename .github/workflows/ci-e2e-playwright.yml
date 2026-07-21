@@ -969,8 +969,8 @@ jobs:
             # (needs the secret); cli-version pinned, not 'latest' (skips the release redirect).
             # TRUNK_UPLOAD_ENABLED is the master kill-switch: when it is not 'true' this gate
             # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
-            # splits the two — set it to 'false' to keep uploading flake spans while the verdict step
-            # below stops masking, so any real failure reds the job (quarantining needs upload on too).
+            # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
+            # known flakes; otherwise any real failure reds the job (quarantining needs upload on too).
             - name: Quarantine gate
               id: quarantine_gate
               continue-on-error: true
@@ -986,7 +986,7 @@ jobs:
             # Verdict: red a real failure the gate didn't clear as a quarantined flake. != 'success'
             # also covers the skipped gate on fork/Dependabot.
             - name: Fail on Playwright failure
-              if: ${{ !cancelled() && steps.playwright-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED == 'false' || steps.quarantine_gate.outcome != 'success') }}
+              if: ${{ !cancelled() && steps.playwright-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success') }}
               shell: bash
               run: exit 1
 
