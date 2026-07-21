@@ -68,7 +68,8 @@ class TestBuildQuery:
     )
     def test_query_uses_correct_input_type(self, endpoint, input_type):
         query = _build_query(BRAINTREE_ENDPOINTS[endpoint])
-        assert f"$input: {input_type}" in query
+        # Non-null declaration is required from API version 2026-07-14 on.
+        assert f"$input: {input_type}!" in query
         assert BRAINTREE_ENDPOINTS[endpoint].search_field in query
 
 
@@ -154,14 +155,16 @@ class TestGetRows:
         assert variables["input"] == {"createdAt": {"greaterThanOrEqualTo": "2024-01-02T00:00:00Z"}}
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_full_scan_has_null_input(self, mock_session):
+    def test_full_scan_sends_empty_input_object(self, mock_session):
         mock_session.return_value.post.return_value = _search_response("transactions", [])
 
         manager = _make_manager()
         list(get_rows("production", "pub", "priv", "transactions", _VERSION, mock.MagicMock(), manager))
 
         variables = mock_session.return_value.post.call_args.kwargs["json"]["variables"]
-        assert variables["input"] is None
+        # Must be a concrete `{}` (match everything), never `null` — the non-null
+        # `TransactionSearchInput!` argument rejects null at query validation.
+        assert variables["input"] == {}
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_resumes_from_saved_cursor(self, mock_session):
