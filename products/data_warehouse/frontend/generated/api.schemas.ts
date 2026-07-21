@@ -2111,6 +2111,9 @@ export interface CredentialApi {
  * * `Plivo` - Plivo
  * * `DataForSEO` - DataForSEO
  * * `Sleekplan` - Sleekplan
+ * * `Tally` - Tally
+ * * `Nuntly` - Nuntly
+ * * `FusionAuth` - FusionAuth
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2979,6 +2982,9 @@ export const ExternalDataSourceTypeEnumApi = {
     Plivo: 'Plivo',
     DataForSEO: 'DataForSEO',
     Sleekplan: 'Sleekplan',
+    Tally: 'Tally',
+    Nuntly: 'Nuntly',
+    FusionAuth: 'FusionAuth',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

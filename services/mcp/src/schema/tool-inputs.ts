@@ -371,7 +371,7 @@ export const OrganizationSetActiveSchema = z
                 orgId: z
                     .string()
                     .describe(
-                        'The organization to switch to: the `id` returned by `organizations-list` (a UUID-like string, not the organization name). Use `organizations-list` to resolve a name to its id.'
+                        'The organization to switch to: the `id` returned by `organizations-get` (a UUID-like string, not the organization name). Use `organizations-get` to resolve a name to its id.'
                     ),
             }),
             z.object({ id: z.string().describe(orgIdAliasDescription) }),
@@ -379,7 +379,7 @@ export const OrganizationSetActiveSchema = z
             z.object({ organization_id: z.string().describe(orgIdAliasDescription) }),
             z.object({ org_id: z.string().describe(orgIdAliasDescription) }),
         ],
-        { error: () => 'provide the organization id via "orgId" (get it from organizations-list)' }
+        { error: () => 'provide the organization id via "orgId" (get it from organizations-get)' }
     )
     .transform((data) => ({
         orgId:
@@ -393,6 +393,8 @@ export const OrganizationSetActiveSchema = z
                       ? data.organization_id
                       : data.org_id,
     }))
+
+export const OrganizationGetAllSchema = z.object({})
 
 export const ProjectGetAllSchema = z.object({})
 

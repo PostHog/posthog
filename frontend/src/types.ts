@@ -78,6 +78,11 @@ import type {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
+import type {
+    LLMPromptListApi,
+    LLMPromptResolveResponseApi,
+    LLMPromptVersionSummaryApi,
+} from 'products/ai_observability/frontend/generated/api.schemas'
 import { AlertType } from 'products/alerts/frontend/types'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
@@ -7772,6 +7777,8 @@ export interface LLMPrompt {
     latest_version: number
     version_count: number
     first_version_created_at: string
+    /** All labels on the prompt with the version each points to. Only present on list responses. */
+    all_labels?: LLMPromptListApi['all_labels']
 }
 
 export interface LLMPromptPublic {
@@ -7795,12 +7802,14 @@ export interface LLMPromptVersionSummary {
     created_by: UserBasicType
     created_at: string
     is_latest: boolean
+    labels?: LLMPromptVersionSummaryApi['labels']
 }
 
 export interface LLMPromptResolveResponse {
     prompt: LLMPrompt
     versions: LLMPromptVersionSummary[]
     has_more: boolean
+    labels: LLMPromptResolveResponseApi['labels']
 }
 
 // Managed viewset
