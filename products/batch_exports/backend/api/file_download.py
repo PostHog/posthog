@@ -11,22 +11,29 @@ from django.shortcuts import get_object_or_404
 
 import boto3
 import structlog
+import posthoganalytics
 from botocore.client import Config
 from botocore.exceptions import ClientError
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema
 from rest_framework import mixins, response, serializers, status, viewsets
-from rest_framework.exceptions import APIException, NotFound, ValidationError
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.models import Team
 from posthog.temporal.common.client import sync_connect
 
+from products.batch_exports.backend.hogql_source import (
+    UnsupportedHogQLQueryError,
+    validate_hogql_query_for_batch_export,
+)
 from products.batch_exports.backend.models.batch_export import (
     BatchExportDestination,
     BatchExportFileDownload,
     BatchExportOnDemand,
     BatchExportRun,
+    BatchExportSource,
 )
 from products.batch_exports.backend.service import (
     BatchExportModel,
@@ -93,21 +100,69 @@ class FileDownloadSessionsRequestSerializer(serializers.Serializer):
     data_interval_end = serializers.DateTimeField(default_timezone=dt.UTC)
 
 
+HOGQL_QUERY_HELP_TEXT = (
+    "HogQL SELECT query whose results are exported. Placeholders are not currently supported, "
+    "and every column in the SELECT clause must be a field or have an alias. The query runs as of the"
+    "time the export starts; events ingested moments before may not be included yet."
+)
+
+
+class FileDownloadHogQLRequestSerializer(serializers.Serializer):
+    """Typed configuration for the hogql model."""
+
+    file = FileDownloadDestinationFileConfigSerializer()
+    model = serializers.ChoiceField(choices=["hogql"])
+    hogql_query = serializers.CharField(help_text=HOGQL_QUERY_HELP_TEXT)
+
+
+def check_hogql_batch_exports_enabled(team: Team) -> None:
+    """Raise if HogQL-powered batch exports are not enabled for the team."""
+    if not posthoganalytics.feature_enabled(
+        "hogql-batch-exports",
+        str(team.uuid),
+        groups={"organization": str(team.organization.id)},
+        group_properties={
+            "organization": {
+                "id": str(team.organization.id),
+                "created_at": team.organization.created_at,
+            }
+        },
+        send_feature_flag_events=False,
+    ):
+        raise PermissionDenied("HogQL batch exports are not enabled for this team.")
+
+
 class FileDownloadBatchExportOnDemandSerializer(serializers.Serializer):
     """Request shape for a FileDownload batch export on demand."""
 
     file = FileDownloadDestinationFileConfigSerializer()
-    model = serializers.ChoiceField(choices=["events", "persons", "sessions"])
+    model = serializers.ChoiceField(choices=["events", "persons", "sessions", "hogql"])
 
     # Only specific to events
     include = serializers.ListField(child=serializers.CharField(), required=False)
     exclude = serializers.ListField(child=serializers.CharField(), required=False)
 
-    # Run attributes
-    data_interval_start = serializers.DateTimeField(default_timezone=dt.UTC)
-    data_interval_end = serializers.DateTimeField(default_timezone=dt.UTC)
+    # Only specific to hogql
+    hogql_query = serializers.CharField(required=False, help_text=HOGQL_QUERY_HELP_TEXT)
+
+    # Run attributes; required for all models except hogql, which runs as of now
+    data_interval_start = serializers.DateTimeField(
+        default_timezone=dt.UTC, required=False, help_text="Start of the data interval to export"
+    )
+    data_interval_end = serializers.DateTimeField(
+        default_timezone=dt.UTC, required=False, help_text="End of the data interval to export"
+    )
 
     def validate(self, data):
+        if data["model"] == "hogql":
+            return self._validate_hogql(data)
+
+        if data.get("hogql_query") is not None:
+            raise ValidationError("'hogql_query' is only supported when 'model' is 'hogql'")
+
+        if data.get("data_interval_start") is None or data.get("data_interval_end") is None:
+            raise ValidationError(f"'data_interval_start' and 'data_interval_end' are required for '{data['model']}'")
+
         if data["data_interval_start"] > data["data_interval_end"]:
             raise ValidationError("'data_interval_end' must occur after 'data_interval_start'")
 
@@ -121,6 +176,30 @@ class FileDownloadBatchExportOnDemandSerializer(serializers.Serializer):
 
         return data
 
+    def _validate_hogql(self, data: dict) -> dict:
+        team = self.context["get_team"]()
+        check_hogql_batch_exports_enabled(team)
+
+        if data.get("data_interval_start") is not None or data.get("data_interval_end") is not None:
+            raise ValidationError(
+                "'data_interval_start' and 'data_interval_end' are not supported when 'model' is 'hogql': "
+                "the query runs as of the time the export starts"
+            )
+
+        if data.get("include") is not None or data.get("exclude") is not None:
+            raise ValidationError("'include' and 'exclude' are not supported when 'model' is 'hogql'")
+
+        hogql_query = data.get("hogql_query")
+        if not hogql_query:
+            raise ValidationError("'hogql_query' is required when 'model' is 'hogql'")
+
+        try:
+            validate_hogql_query_for_batch_export(hogql_query, team)
+        except UnsupportedHogQLQueryError as e:
+            raise ValidationError({"hogql_query": str(e)}) from e
+
+        return data
+
     def create(self, validated_data: dict) -> BatchExportRun:
         """Create a `BatchExportRun` based on a `BatchExportOnDemand`.
 
@@ -128,11 +207,19 @@ class FileDownloadBatchExportOnDemandSerializer(serializers.Serializer):
         """
         team_id = self.context["team_id"]
         config = validated_data.pop("file")
-
-        data_interval_start = validated_data.pop("data_interval_start")
-        data_interval_end = validated_data.pop("data_interval_end")
-
         model = validated_data["model"]
+
+        source = None
+        if model == "hogql":
+            source = BatchExportSource(team_id=team_id, hogql_query=validated_data.pop("hogql_query"))
+            # Foe now, HogQL exports have no data interval: the query runs as of now, and a
+            # concrete now/now interval keeps everything downstream that formats the bounds
+            # (workflow ID, staging paths) working unchanged.
+            data_interval_start = data_interval_end = dt.datetime.now(dt.UTC)
+        else:
+            data_interval_start = validated_data.pop("data_interval_start")
+            data_interval_end = validated_data.pop("data_interval_end")
+
         if (include := validated_data.pop("include", None)) is not None and model == "events":
             config["include_events"] = include
 
@@ -140,7 +227,7 @@ class FileDownloadBatchExportOnDemandSerializer(serializers.Serializer):
             config["exclude_events"] = exclude
 
         destination = BatchExportDestination(type=BatchExportDestination.Destination.FILE_DOWNLOAD, config=config)
-        batch_export = BatchExportOnDemand(team_id=team_id, destination=destination, **validated_data)
+        batch_export = BatchExportOnDemand(team_id=team_id, destination=destination, source=source, **validated_data)
         batch_export_run = BatchExportRun(
             status=BatchExportRun.Status.STARTING,
             batch_export_on_demand=batch_export,
@@ -150,6 +237,8 @@ class FileDownloadBatchExportOnDemandSerializer(serializers.Serializer):
 
         with transaction.atomic():
             destination.save()
+            if source is not None:
+                source.save()
             batch_export.save()
             batch_export_run.save()
 
@@ -250,6 +339,7 @@ class FileDownloadBatchExportOnDemandViewSet(
                 "events": FileDownloadEventsRequestSerializer,
                 "persons": FileDownloadPersonsRequestSerializer,
                 "sessions": FileDownloadSessionsRequestSerializer,
+                "hogql": FileDownloadHogQLRequestSerializer,
             },
             resource_type_field_name="model",
         ),
@@ -285,6 +375,7 @@ class FileDownloadBatchExportOnDemandViewSet(
 
             instance = serializer.save()
 
+        source = instance.batch_export_on_demand.source
         try:
             start_file_download_batch_export(
                 instance.batch_export_on_demand,
@@ -292,7 +383,11 @@ class FileDownloadBatchExportOnDemandViewSet(
                 batch_export_run_id=instance.id,
                 data_interval_start=instance.data_interval_start,
                 data_interval_end=instance.data_interval_end,
-                batch_export_model=BatchExportModel(name=instance.batch_export_on_demand.model, schema=None),
+                batch_export_model=BatchExportModel(
+                    name=instance.batch_export_on_demand.model,
+                    schema=None,
+                    hogql_query=source.hogql_query if source is not None else None,
+                ),
                 compression=instance.batch_export_on_demand.destination.config.get("compression", None),
                 format=instance.batch_export_on_demand.destination.config.get("format", "Parquet"),
                 max_size_mb=instance.batch_export_on_demand.destination.config.get("max_size_mb", 0),
