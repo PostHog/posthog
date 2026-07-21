@@ -413,8 +413,19 @@ class HogFlowActionSerializer(serializers.Serializer):
         ),
     )
     output_variable = serializers.JSONField(
-        required=False, allow_null=True, help_text="Output variable definition for downstream actions."
+        required=False,
+        allow_null=True,
+        help_text="Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those.",
     )
+
+    def validate_output_variable(self, value):
+        # The worker only parses {key, ...} objects; a bare key string stored as-is makes the whole
+        # flow row unparseable for the worker, so coerce it to the canonical shape.
+        if isinstance(value, str):
+            return {"key": value}
+        if isinstance(value, list):
+            return [{"key": entry} if isinstance(entry, str) else entry for entry in value]
+        return value
 
     def to_internal_value(self, data):
         # Weirdly nested serializers don't get this set...
@@ -1212,9 +1223,10 @@ class HogFlowGraphOperationSerializer(serializers.Serializer):
         choices=GRAPH_OPERATION_TYPES,
         help_text=(
             "Graph edit. update_action {id, patch}: deep-merge patch into the action's fields (a null leaf "
-            "deletes that key) — the surgical path for tweaking one config value. add_action {action}: append "
-            "a full action node. remove_action {id}: delete a node and reconnect its incoming edges to its "
-            "first outgoer. add_edge {edge} / remove_edge {edge}: add or delete one edge. "
+            "deletes that key) — the surgical path for tweaking one config value. add_action {action, edges?}: "
+            "append a full action node, optionally wiring its edges in the same op. remove_action {id}: delete "
+            "a node and reconnect its incoming edges to its first outgoer. add_edge {edge} / remove_edge "
+            "{edge}: add or delete one edge. "
             "replace_action_edges {id, edges}: replace this action's outgoing edges with the given set "
             "(use when adding/removing branch conditions); incoming edges are left intact."
         ),
@@ -1239,7 +1251,10 @@ class HogFlowGraphOperationSerializer(serializers.Serializer):
     edges = serializers.ListField(
         child=HogFlowEdgeSerializer(),
         required=False,
-        help_text="replace_action_edges only. The complete set of the action's outgoing edges; incoming edges are preserved.",
+        help_text=(
+            "replace_action_edges: the complete set of the action's outgoing edges (incoming edges are "
+            "preserved). add_action: optional edges to wire the new node in the same op."
+        ),
     )
 
     def validate(self, data):
