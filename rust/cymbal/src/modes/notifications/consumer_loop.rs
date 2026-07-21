@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::time::Duration;
 
 use common_kafka::kafka_consumer::{Offset, RecvErr, SingleTopicConsumer};
@@ -58,9 +59,22 @@ async fn handle_notification_batch(
     batch: Vec<Result<(IngestionNotification, Offset), RecvErr>>,
     pending_offsets: &mut usize,
 ) {
+    // Partitions whose offset store failed earlier in this batch. `commit_consumer_state`
+    // commits the latest stored offset per partition, so once we skip storing an offset we
+    // must not store any later offset on the same partition — otherwise that later commit
+    // would jump the gap and permanently skip the failed message instead of redelivering it.
+    let mut poisoned_partitions: HashSet<i32> = HashSet::new();
+
     for result in batch {
         match result {
             Ok((notification, offset)) => {
+                let partition = offset.partition();
+                if poisoned_partitions.contains(&partition) {
+                    metrics::counter!(NOTIFICATIONS_SKIPPED_TOTAL, "reason" => "partition_poisoned")
+                        .increment(1);
+                    continue;
+                }
+
                 let offset = match validate_notification_with_offset(
                     &notification,
                     offset,
@@ -76,6 +90,7 @@ async fn handle_notification_batch(
                     Err(e) => {
                         warn!(error = %e, "failed to store invalid notification offset (will retry)");
                         metrics::counter!(NOTIFICATIONS_OFFSET_STORE_ERRORS_TOTAL).increment(1);
+                        poisoned_partitions.insert(partition);
                         continue;
                     }
                 };
@@ -87,10 +102,12 @@ async fn handle_notification_batch(
                         metrics::counter!(NOTIFICATIONS_HANDLED_TOTAL).increment(1);
                         // `commit_consumer_state` only commits offsets explicitly stored on the consumer.
                         // A store failure here is transient (see above) rather than fatal, so leave the
-                        // offset uncommitted and let the notification be redelivered.
+                        // offset uncommitted and poison the partition so no later offset on it advances
+                        // past this message before redelivery.
                         if let Err(e) = offset.store() {
                             warn!(error = %e, "failed to store notification offset (will retry)");
                             metrics::counter!(NOTIFICATIONS_OFFSET_STORE_ERRORS_TOTAL).increment(1);
+                            poisoned_partitions.insert(partition);
                         } else {
                             *pending_offsets += 1;
                         }
