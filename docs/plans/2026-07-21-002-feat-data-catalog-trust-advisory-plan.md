@@ -51,7 +51,7 @@ An agent asked a business-metric question found a plausible uncertified warehous
 
 - KTD1. **Point-of-use signal over discovery interception.** (session-settled: user-directed — chosen over keeping the MCP `exec search` integration: reviewer altitude objection plus first-principles analysis that the incident's cause was a silent environment at the point of use, not missing search results.)
 - KTD2. **Copy the `build_access_control_warning` pattern verbatim** (`posthog/hogql/printer/access_control.py:16`): context accumulator → `build_*_warning` → appended to `warnings` in `HogQLQueryExecutor.execute()`. Warnings already survive response caching (`posthog/hogql_queries/query_runner.py` warnings merge).
-- KTD3. **Record used tables in the resolver**, at the spot that already handles per-warehouse-table concerns (`posthog/hogql/resolver.py` `visit_join_expr`, beside `_record_warehouse_sync_warnings`) — `table_id` is in hand there and certifications key on resource id, not name.
+- KTD3. **Extract used tables from the resolved query type** via `extract_base_table_types` (`posthog/hogql/resolver_utils.py`), the same mechanism `extract_warehouse_sources` uses — no resolver or context changes needed; the resolved `S3Table` carries the `table_id` certifications key on resource id, not name.
 - KTD4. **Reach agents via the existing warnings formatter** (`ee/hogai/context/insight/format/__init__.py` `_format_warnings` + the prefix in `query_executor.py`) — backend tool layer, not the MCP server.
 
 ### Sequencing
@@ -67,10 +67,10 @@ Schema type → accumulator/resolver → builder + execute() wiring → formatte
 - **Files:** `frontend/src/queries/schema/schema-general.ts` (union alongside `AccessControlFilterWarning`), regenerated `posthog/schema.py`.
 - **Approach:** `{ type: "data_catalog_trust", message, uncertified_tables: string[], approved_metrics: string[] }`; add to both union references. Regenerate via the schema build.
 
-### U2. Context accumulator + resolver recording
+### U2. Used-table extraction
 
-- **Files:** `posthog/hogql/context.py`, `posthog/hogql/resolver.py`.
-- **Approach:** `used_data_warehouse_tables: (table_id, name)` accumulator mirroring the sync-warnings pattern; append in `visit_join_expr` where warehouse tables resolve.
+- **Files:** folded into `posthog/hogql/catalog_trust.py`.
+- **Approach:** `_used_warehouse_tables(select_type)` over `extract_base_table_types` collects `(table_id, name)` for resolved `S3Table`s — including self-managed tables, which are certifiable. No resolver or context changes.
 
 ### U3. Builder + execute() wiring
 
@@ -93,14 +93,14 @@ Schema type → accumulator/resolver → builder + execute() wiring → formatte
 
 ## Verification Contract
 
-| Gate | Command |
-|---|---|
-| Backend tests | `pytest` on new executor/formatter tests |
-| MCP suite (shrinks back) | `hogli test services/mcp` |
-| Types | repo-wide `uv run mypy --cache-fine-grained .` |
-| Schema drift | regen + `git diff` clean |
-| Pre-push | `hogli ci:preflight --fix` |
-| Point-of-use e2e | eval transcript shows the advisory text inside the `execute-sql` result the agent received |
+| Gate                     | Command                                                                                    |
+| ------------------------ | ------------------------------------------------------------------------------------------ |
+| Backend tests            | `pytest` on new executor/formatter tests                                                   |
+| MCP suite (shrinks back) | `hogli test services/mcp`                                                                  |
+| Types                    | repo-wide `uv run mypy --cache-fine-grained .`                                             |
+| Schema drift             | regen + `git diff` clean                                                                   |
+| Pre-push                 | `hogli ci:preflight --fix`                                                                 |
+| Point-of-use e2e         | eval transcript shows the advisory text inside the `execute-sql` result the agent received |
 
 ## Definition of Done
 
