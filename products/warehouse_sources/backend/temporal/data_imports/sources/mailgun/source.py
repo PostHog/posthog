@@ -22,7 +22,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MailgunSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailgun import (
+    MailgunSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun import (
     MailgunResumeConfig,
     mailgun_source,
@@ -38,6 +40,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class MailgunSource(ResumableSource[MailgunSourceConfig, MailgunResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
+    supported_versions = ("v3",)
+    default_version = "v3"
+    api_docs_url = "https://documentation.mailgun.com/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

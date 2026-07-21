@@ -336,4 +336,21 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         scene: Scene.MCPAnalytics,
         setupEffort: 'low',
     },
+    [ProductKey.CONVERSATIONS]: {
+        name: 'Support',
+        description: 'Receive customer questions over web, email, Slack, and Microsoft Teams',
+        userCentricDescription: 'Triage, assign, and automate customer support in PostHog',
+        capabilities: ['In-app chat widget', 'Email, Slack & Teams channels', 'Direct conversations API'],
+        valueProps: [
+            { title: 'In-app widget', problem: 'Let customers reach you without leaving your product' },
+            { title: 'Multi-channel inbox', problem: 'Handle email, Slack, and Teams tickets in one place' },
+            { title: 'Direct API', problem: 'Build your own support UI on top of the conversations API' },
+        ],
+        hedgehog: HedgehogReporter,
+        icon: 'IconMessage',
+        iconColor: 'var(--color-product-support-light)',
+        url: urls.supportTickets(),
+        scene: Scene.SupportTickets,
+        setupEffort: 'low',
+    },
 }

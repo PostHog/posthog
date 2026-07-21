@@ -413,6 +413,64 @@ async def test_update_external_job_activity(activity_environment, team, **kwargs
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
+async def test_update_external_job_activity_resolves_job_by_workflow_run_id_when_job_id_missing(
+    activity_environment, team, **kwargs
+):
+    # A schema can carry several stranded RUNNING rows, so finalizing a zero-batch run (job_id=None)
+    # must resolve this run's job by workflow_run_id, not the newest RUNNING job for the schema.
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=str(uuid.uuid4()),
+        connection_id=str(uuid.uuid4()),
+        destination_id=str(uuid.uuid4()),
+        team=team,
+        status="running",
+        source_type="Slack",
+    )
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name="C09M2GF0M8R",
+        team_id=team.id,
+        source_id=new_source.pk,
+        should_sync=True,
+    )
+
+    # This run's job, created first so it is NOT the newest RUNNING row for the schema.
+    this_run_job = await _create_external_data_job(
+        team_id=team.id,
+        external_data_source_id=new_source.pk,
+        workflow_id=activity_environment.info.workflow_id,
+        workflow_run_id=activity_environment.info.workflow_run_id,
+        external_data_schema_id=schema.id,
+    )
+    # A newer, unrelated RUNNING job for the same schema — what the positional heuristic would pick.
+    other_run_job = await _create_external_data_job(
+        team_id=team.id,
+        external_data_source_id=new_source.pk,
+        workflow_id=str(uuid.uuid4()),
+        workflow_run_id=str(uuid.uuid4()),
+        external_data_schema_id=schema.id,
+    )
+
+    inputs = UpdateExternalDataJobStatusInputs(
+        job_id=None,
+        status=ExternalDataJob.Status.COMPLETED,
+        latest_error=None,
+        internal_error=None,
+        schema_id=str(schema.pk),
+        source_id=str(new_source.pk),
+        team_id=team.id,
+        workflow_run_id=activity_environment.info.workflow_run_id,
+    )
+
+    await activity_environment.run(update_external_data_job_model, inputs)
+    await sync_to_async(this_run_job.refresh_from_db)()
+    await sync_to_async(other_run_job.refresh_from_db)()
+
+    assert this_run_job.status == ExternalDataJob.Status.COMPLETED
+    assert other_run_job.status == ExternalDataJob.Status.RUNNING
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
 async def test_update_external_job_activity_with_retryable_error(activity_environment, team, **kwargs):
     new_source = await sync_to_async(ExternalDataSource.objects.create)(
         source_id=str(uuid.uuid4()),

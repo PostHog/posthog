@@ -23,6 +23,7 @@ import {
     CHECKBOX_WIDTH,
     DEFAULT_ATTRIBUTE_COLUMN_WIDTH,
     EXPAND_WIDTH,
+    MAX_ATTRIBUTE_COLUMN_WIDTH,
     MESSAGE_MIN_WIDTH,
     MIN_ATTRIBUTE_COLUMN_WIDTH,
     RESIZER_HANDLE_WIDTH,
@@ -326,7 +327,7 @@ export function createConfiguredColumn(params: {
             <ResizableElement
                 defaultWidth={totalWidth}
                 minWidth={MIN_ATTRIBUTE_COLUMN_WIDTH + RESIZER_HANDLE_WIDTH}
-                maxWidth={Infinity}
+                maxWidth={MAX_ATTRIBUTE_COLUMN_WIDTH + RESIZER_HANDLE_WIDTH}
                 onResize={(newWidth) => callbacks.onResize?.(config.id, newWidth - RESIZER_HANDLE_WIDTH)}
                 className="flex items-center h-full shrink-0 group/header"
                 innerClassName="h-full"

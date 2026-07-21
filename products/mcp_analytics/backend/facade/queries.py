@@ -6,6 +6,12 @@ mcp_analytics is tach-isolated to expose only `backend.facade.*`, so core's
 """
 
 from products.mcp_analytics.backend.hogql_queries.harness_breakdown import MCPHarnessBreakdownQueryRunner
+from products.mcp_analytics.backend.hogql_queries.tool_quality_tables import (
+    MCPToolCategoriesQueryRunner,
+    MCPToolCategoryCountsQueryRunner,
+    MCPToolQualityDailyStatsQueryRunner,
+    MCPToolQualityRowsQueryRunner,
+)
 from products.mcp_analytics.backend.hogql_queries.tool_tables import (
     MCPToolDailyStatsQueryRunner,
     MCPToolDescriptionsQueryRunner,
@@ -18,10 +24,14 @@ from products.mcp_analytics.backend.hogql_queries.tool_tables import (
 
 __all__ = [
     "MCPHarnessBreakdownQueryRunner",
+    "MCPToolCategoriesQueryRunner",
+    "MCPToolCategoryCountsQueryRunner",
     "MCPToolDailyStatsQueryRunner",
     "MCPToolDescriptionsQueryRunner",
     "MCPToolFailuresQueryRunner",
     "MCPToolNeighborsQueryRunner",
+    "MCPToolQualityDailyStatsQueryRunner",
+    "MCPToolQualityRowsQueryRunner",
     "MCPToolSampleIntentsQueryRunner",
     "MCPToolStatsQueryRunner",
     "MCPToolTopUsersQueryRunner",

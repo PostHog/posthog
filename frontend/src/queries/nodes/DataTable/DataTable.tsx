@@ -1086,7 +1086,8 @@ export function DataTable({
                                 }
                                 footer={
                                     (dataTableRows ?? []).length > 0 &&
-                                    !sourceFeatures.has(QueryFeature.hideLoadNextButton) ? (
+                                    (context?.showLoadNextButton ||
+                                        !sourceFeatures.has(QueryFeature.hideLoadNextButton)) ? (
                                         <LoadNext query={query.source} />
                                     ) : null
                                 }

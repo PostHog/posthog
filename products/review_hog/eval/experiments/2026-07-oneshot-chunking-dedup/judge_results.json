@@ -1,0 +1,168 @@
+{
+    "protocol": "One LLM judge per dump (same as 2026-07-reviewer-topology and 2026-07-reviewer-model-sonnet5): root-cause matching vs the old ReviewHog's 10 findings; every unmatched dump finding classified new_plausible/new_junk against the PR diff (and repo where needed). Statuses: caught_valid (matched + validator VALID), caught_invalidated (matched + validator dismissed), missed. verdict_valid on new findings: true=validator VALID, false=dismissed. Judge calls are UNREVIEWED by a human — spot-check notes before acting on close calls. NOTE: this round changed only the chunking and dedup execution (sandbox -> one-shot gateway calls); review and validation stages were untouched, so old-10 coverage differences vs prior rounds reflect review-pass variance and chunk-structure draws, not the one-shot change itself.",
+    "suppressed": [],
+    "runs": [
+        {
+            "label": "ONESHOT-1",
+            "old_findings": [
+                { "num": 1, "status": "missed" },
+                {
+                    "num": 2,
+                    "status": "caught_valid",
+                    "matched_title": "create_action/update_action name has no max_length validation matching the Action model, unlike the REST serializer (covers only the max_length half of the old root cause; the untrimmed-name/duplicate-bypass half went uncaught)"
+                },
+                {
+                    "num": 3,
+                    "status": "caught_valid",
+                    "matched_title": "Negative limit/offset crashes list_actions with an unhandled exception"
+                },
+                { "num": 4, "status": "missed" },
+                {
+                    "num": 5,
+                    "status": "caught_valid",
+                    "matched_title": "update_action's full step replacement isn't gated as a dangerous operation, unlike the codebase's own precedent for destructive updates"
+                },
+                {
+                    "num": 6,
+                    "status": "caught_valid",
+                    "matched_title": "Compact list_actions output is unbounded per action despite the row cap"
+                },
+                { "num": 7, "status": "missed" },
+                { "num": 8, "status": "missed" },
+                {
+                    "num": 9,
+                    "status": "caught_invalidated",
+                    "matched_title": "New action tools omitted from frontend's default-tool discovery surfaces (modes/DEFAULT_TOOL_KEYS)"
+                },
+                { "num": 10, "status": "missed" }
+            ],
+            "new_findings": [
+                {
+                    "title": "selector/tag_name/text/href step filters are silently ignored unless event is exactly \"$autocapture\", but this constraint isn't documented anywhere the LLM can see it",
+                    "classification": "new_plausible",
+                    "verdict_valid": true,
+                    "rationale": "Verified: steps_to_expr (property.py:1250) only applies these fields under event == '$autocapture'; ActionStepInput descriptions in the diff are unconditional, and the human UI guardrail (ActionStep.tsx:82) is bypassed by the tool. A real silent-misconfiguration data-integrity gap."
+                },
+                {
+                    "title": "list_actions bypasses object-level access control, unlike REST ActionViewSet and sibling MaxTools",
+                    "classification": "new_plausible",
+                    "verdict_valid": true,
+                    "rationale": "Verified: REST list filters via filter_queryset_by_access_level (routing.py:369-393) and entity_search siblings do too, while the diff shows ListActionsTool has no object-level filter though get/update/delete added check_object_access. Genuine access-control gap; distinct root cause from old finding 4 (this is under-restriction on list; old 4 was over-restriction of object-scoped editors on writes)."
+                },
+                {
+                    "title": "list_actions orders by an unindexed column with offset pagination",
+                    "classification": "new_plausible",
+                    "verdict_valid": true,
+                    "rationale": "Verified: Action.Meta.indexes only contains (team_id, -updated_at) and the tool orders by name (confirmed by the PR's own pagination test ordering). Real but minor; validator's consider-tier caveats are accurate."
+                },
+                {
+                    "title": "list_actions loads the unused bytecode JSONField for every row",
+                    "classification": "new_plausible",
+                    "verdict_valid": true,
+                    "rationale": "Verified: bytecode JSONField (action.py:54) is only read/written in refresh_bytecode() during save(), never on the list path; a defer() is a legitimate cheap win."
+                },
+                {
+                    "title": "New action tool icons break the established one-icon-per-entity-type convention used throughout this file",
+                    "classification": "new_plausible",
+                    "verdict_valid": true,
+                    "rationale": "Verified: every other entity group in max-constants.tsx uses one icon (7x iconForType('task'), 6x IconBook, etc.) and iconForType('action') exists at line 303 while the diff uses 5 verb icons. Factually accurate PR-introduced inconsistency, though purely cosmetic; validator correctly downgraded to consider."
+                },
+                {
+                    "title": "get_action/delete_action status labels omit which action is being fetched/deleted, unlike comparable tools in this file",
+                    "classification": "new_plausible",
+                    "verdict_valid": true,
+                    "rationale": "Verified: no nameArgKey on get/delete in the diff, skill_name precedent exists (lines 1291/1328/1341), and the validator's caveat is correct that skillStatusFormatter's typeof-string check (line 175) means the suggested fix wouldn't work for numeric action_id. Accurate minor observability nit."
+                }
+            ],
+            "validated_junk_count": 0,
+            "notes": "The validator performed well: all 10 validated findings are factually accurate (I verified each core claim against the diff and repo), it correctly dismissed the one pre-existing-pattern finding (DEFAULT_TOOL_KEYS — old finding 9, which the old round's validator had passed), and it even caught that finding K's proposed fix wouldn't work. The concern is recall, not precision: 5 of 10 old findings were missed, including the two cross-file security items (subagent exposure of mutating tools via DEFAULT_TOOLS, markdown-injection exfiltration via nameArgKey status rendering), activity-log misattribution, the object-level editor-grant RBAC mismatch, and unbounded step payloads before synchronous bytecode compile — all requiring reasoning beyond the chunk's own files. New findings B (autocapture-only step filters) and E (list_actions object-level access bypass, the run's only must_fix) are high-quality catches absent from the old report; a human should spot-check whether old finding 2's uncaught trim/normalization half ('  Signup  ' bypassing the duplicate check) matters enough to log separately."
+        },
+        {
+            "label": "ONESHOT-2",
+            "old_findings": [
+                { "num": 1, "status": "missed" },
+                {
+                    "num": 2,
+                    "status": "caught_valid",
+                    "matched_title": "create_action/update_action accept unbounded `name` length, unlike the REST serializer, risking an unhandled DB error (length half; trim half caught separately by VALID finding 'Action name is not trimmed before uniqueness-check and save, unlike the REST serializer it replaces' — together they cover the full root cause; a third dismissed duplicate covered the length half again)"
+                },
+                {
+                    "num": 3,
+                    "status": "caught_valid",
+                    "matched_title": "ListActionsTool passes unvalidated limit/offset straight to the ORM slice, causing an unhandled crash on negative values and silently ignoring an explicit limit=0"
+                },
+                { "num": 4, "status": "missed" },
+                { "num": 5, "status": "missed" },
+                { "num": 6, "status": "missed" },
+                { "num": 7, "status": "missed" },
+                { "num": 8, "status": "missed" },
+                { "num": 9, "status": "missed" },
+                { "num": 10, "status": "missed" }
+            ],
+            "new_findings": [
+                {
+                    "title": "DeleteActionTool re-fetches the action and re-checks object access twice on every approved delete",
+                    "classification": "new_plausible",
+                    "verdict_valid": true,
+                    "rationale": "Verified: both format_dangerous_operation_preview and _arun_impl call _fetch_action + check_object_access, the dangerous-op flow re-runs the preview before _arun_impl on resume, and the cited _cached_update_diff precedent exists — marginal perf but factually sound."
+                },
+                {
+                    "title": "ListActionsTool leaks object-level-restricted actions — list_actions bypasses per-object access control",
+                    "classification": "new_plausible",
+                    "verdict_valid": true,
+                    "rationale": "Verified: list_actions builds a bare team-filtered queryset with no filter_queryset_by_access_level while the PR's own get/update/delete tools call check_object_access; 'action' is a supported per-object AccessControl resource and the entity_search two-layer precedent is real. Strongest new finding."
+                },
+                {
+                    "title": "Element-matching step fields (selector/tag_name/text/href) silently degrade to \"matches all events\" unless event is exactly \"$autocapture\"",
+                    "classification": "new_plausible",
+                    "verdict_valid": true,
+                    "rationale": "Verified against posthog/hogql/property.py:1250 — element exprs are gated on event == $autocapture and a zero-expr step becomes Constant(True) in an OR, so the whole action matches everything; ActionStepInput's schema never states the requirement."
+                },
+                {
+                    "title": "Detailed action formatting never surfaces actual property-filter contents, risking silent data loss on partial updates",
+                    "classification": "new_plausible",
+                    "verdict_valid": true,
+                    "rationale": "Verified: _format_step renders only a property-filter count in both compact and detailed modes while update_action fully replaces steps and the tool docs instruct a get-then-update workflow. Adjacent to old finding 5's step-replacement hazard but a distinct defect (insufficient read output, not a missing approval gate)."
+                },
+                {
+                    "title": "list_actions display formatter drops the search term, unlike sibling list tools",
+                    "classification": "new_junk",
+                    "verdict_valid": false,
+                    "rationale": "Cosmetic progress-label polish with no functional impact; the 'sibling pattern' premise is overstated (only 2 of ~91 formatters surface filter args)."
+                },
+                {
+                    "title": "New tool registrations grow an unmemoized full-rebuild lookup on a per-tool-call render hot path",
+                    "classification": "new_plausible",
+                    "verdict_valid": true,
+                    "rationale": "Verified: getToolDefinition rebuilds the flatMap array per call with no memoization and is hit twice per tool call per render — factually accurate and cheaply fixable, though the pattern is pre-existing and this PR only adds 5 entries."
+                },
+                {
+                    "title": "list_actions paginates on order_by(\"name\") with no deterministic tiebreaker, risking skipped/duplicated rows across pages",
+                    "classification": "new_plausible",
+                    "verdict_valid": true,
+                    "rationale": "Verified: order_by('name') then slice, with Action.name nullable and no DB uniqueness constraint — the standard offset-pagination footgun, real for multiple unnamed actions."
+                },
+                {
+                    "title": "New action tools (including delete_action) are unconditionally added to DEFAULT_TOOLS with no feature-flag kill switch, unlike the file's own established pattern",
+                    "classification": "new_junk",
+                    "verdict_valid": false,
+                    "rationale": "Central premise refuted: comparable dangerous/write tools (UpsertDashboardTool, CreateNotebookTool) ship unflagged in default-available toolkits; flags gate new product surfaces, not CRUD tools on shipped products."
+                },
+                {
+                    "title": "New action tool icons ignore the existing iconForType('action') convention used elsewhere in this same file",
+                    "classification": "new_junk",
+                    "verdict_valid": false,
+                    "rationale": "Factually accurate but purely cosmetic icon-consistency taste with zero behavioral difference."
+                },
+                {
+                    "title": "update_action's nameArgKey: 'name' silently shows no context for the tool's primary, documented use case",
+                    "classification": "new_junk",
+                    "verdict_valid": false,
+                    "rationale": "Cosmetic status-label gap; the tool executes correctly regardless of the transient progress text."
+                }
+            ],
+            "validated_junk_count": 0,
+            "notes": "Only 2/10 old findings caught — every security/architecture finding from the old report was missed (activity attribution, object-grant RBAC mismatch on writes, unapproved destructive step replacement, subagent exposure, DEFAULT_TOOL_KEYS, markdown-injection exfil, unbounded list output and step payloads). The run compensates with four genuinely strong new VALIDs (list-tool per-object ACL leak, $autocapture element-field silent degradation, hidden property-filter contents, pagination tiebreaker), all of which I verified against the PR head and repo. Spot-check two judgment calls: I scored old #5 as missed even though the property-filter finding flags the same destructive full-replacement mechanism (different defect/fix), and I counted the marginal double-fetch and getToolDefinition-memoization VALIDs as plausible rather than validated junk since both are factually accurate and actionable."
+        }
+    ]
+}

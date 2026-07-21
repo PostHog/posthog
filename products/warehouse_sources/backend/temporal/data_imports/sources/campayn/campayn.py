@@ -1,27 +1,21 @@
 import re
-from collections.abc import Iterator
 from typing import Any
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
-
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.campayn.settings import (
-    CAMPAYN_ENDPOINTS,
-    CampaynEndpointConfig,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.campayn.settings import CAMPAYN_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+    rest_api_resources,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ApiKeyAuthConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 
 CAMPAYN_API_PATH = "/api/v1"
-REQUEST_TIMEOUT_SECONDS = 60
 # Per-account host: requests go to {subdomain}.campayn.com. The label is validated against this
 # pattern at source-create so a pasted URL or injection can't retarget the credential elsewhere.
 _SUBDOMAIN_PATTERN = re.compile(r"^[a-zA-Z0-9-]+$")
-
-
-class CampaynRetryableError(Exception):
-    pass
 
 
 def normalize_subdomain(subdomain: str) -> str:
@@ -48,121 +42,76 @@ def base_url(subdomain: str) -> str:
     return f"https://{normalize_subdomain(subdomain)}.campayn.com{CAMPAYN_API_PATH}"
 
 
-def _headers(api_key: str) -> dict[str, str]:
-    # Campayn's custom auth scheme: "Authorization: TRUEREST apikey={key}".
-    return {"Authorization": f"TRUEREST apikey={api_key}", "Accept": "application/json"}
+def _auth_config(api_key: str) -> ApiKeyAuthConfig:
+    # Campayn's custom auth scheme: "Authorization: TRUEREST apikey={key}". Sent through the
+    # framework's api_key auth so the whole credential-bearing value is registered for value-based
+    # redaction in tracked HTTP logs — the custom scheme isn't recognised by name-based scrubbers.
+    return {
+        "type": "api_key",
+        "name": "Authorization",
+        "api_key": f"TRUEREST apikey={api_key}",
+        "location": "header",
+    }
 
 
-@retry(
-    retry=retry_if_exception_type((CampaynRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch(session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> Any:
-    response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
-
-    if response.status_code == 429 or response.status_code >= 500:
-        raise CampaynRetryableError(f"Campayn API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        logger.error(f"Campayn API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
-
-    return response.json()
-
-
-def _as_rows(payload: Any) -> list[dict[str, Any]]:
-    """Coerce a Campayn list response into a list of row dicts.
-
-    Every documented list endpoint returns a bare JSON array. We couldn't curl-verify the live API
-    (it needs a per-account subdomain + key), so we also tolerate a single object or a ``{data: [...]}``
-    wrapper defensively rather than crashing the sync if the shape differs from the docs.
-    """
-    if isinstance(payload, list):
-        return [item for item in payload if isinstance(item, dict)]
-    if isinstance(payload, dict):
-        data = payload.get("data")
-        if isinstance(data, list):
-            return [item for item in data if isinstance(item, dict)]
-        return [payload]
-    return []
-
-
-def _iter_list_ids(
-    session: requests.Session, subdomain: str, headers: dict[str, str], logger: FilteringBoundLogger
-) -> Iterator[str]:
-    payload = _fetch(session, f"{base_url(subdomain)}/lists.json", headers, logger)
-    for item in _as_rows(payload):
-        # `id` drives all fan-out, so fail fast on a malformed list record rather than silently
-        # dropping its contacts/forms.
-        yield str(item["id"])
-
-
-def get_rows(
-    subdomain: str,
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-) -> Iterator[list[dict[str, Any]]]:
-    config = CAMPAYN_ENDPOINTS[endpoint]
-    headers = _headers(api_key)
-    # One session reused across every request (and, for fan-out, every list) so urllib3 keeps the
-    # connection alive instead of re-handshaking per request. `redact_values` masks the API key
-    # everywhere the tracked adapter records request headers/URLs/samples — the custom
-    # `TRUEREST apikey=...` header isn't recognised by the name-based scrubbers.
-    session = make_tracked_session(redact_values=(api_key,))
-
-    if config.fan_out_over_lists:
-        yield from _get_fan_out_rows(session, subdomain, headers, logger, config)
-        return
-
-    payload = _fetch(session, f"{base_url(subdomain)}{config.path}", headers, logger)
-    rows = _as_rows(payload)
-    if rows:
-        yield rows
-
-
-def _get_fan_out_rows(
-    session: requests.Session,
-    subdomain: str,
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-    config: CampaynEndpointConfig,
-) -> Iterator[list[dict[str, Any]]]:
-    """Fetch a child resource (contacts/forms) per list, stamping each row with its parent ``list_id``.
-
-    Full refresh only — these endpoints expose no incremental filter. The parent ``list_id`` is part of
-    the composite primary key, so the same contact appearing under multiple lists stays a distinct row.
-    """
-    for list_id in _iter_list_ids(session, subdomain, headers, logger):
-        url = f"{base_url(subdomain)}{config.path.format(list_id=list_id)}"
-        try:
-            payload = _fetch(session, url, headers, logger)
-        except requests.HTTPError as exc:
-            # A list deleted between enumeration and this fetch 404s. Skip it rather than failing the
-            # whole sync; any other HTTP error is re-raised.
-            if exc.response is not None and exc.response.status_code == 404:
-                logger.warning(f"Campayn: list {list_id} not found while fetching {config.name}, skipping")
-                continue
-            raise
-
-        rows = [{**row, "list_id": list_id} for row in _as_rows(payload)]
-        if rows:
-            yield rows
+def _stamp_list_id(row: dict[str, Any]) -> dict[str, Any]:
+    # Keep the legacy row shape: the parent list id is exposed as a string `list_id` column (part
+    # of the composite primary key, so the same contact under multiple lists stays a distinct row)
+    # rather than the framework's `_lists_id` parent-key name.
+    row["list_id"] = str(row.pop("_lists_id"))
+    return row
 
 
 def campayn_source(
     subdomain: str,
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
 ) -> SourceResponse:
     config = CAMPAYN_ENDPOINTS[endpoint]
 
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": base_url(subdomain),
+            "headers": {"Accept": "application/json"},
+            "auth": _auth_config(api_key),
+            # Campayn's public API exposes no pagination on any list endpoint — every table is a
+            # single bare-array page, full refresh only.
+            "paginator": "single_page",
+        },
+        "resource_defaults": None,
+        "resources": [],
+    }
+
+    if config.fan_out_over_lists:
+        # Contacts/forms are nested under a list: enumerate /lists.json, then fetch the child
+        # resource per list, stamping each row with its parent list_id. Full refresh only —
+        # these endpoints expose no incremental filter.
+        rest_config["resources"] = [
+            {"name": "lists", "endpoint": {"path": CAMPAYN_ENDPOINTS["lists"].path}},
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": {"list_id": {"type": "resolve", "resource": "lists", "field": "id"}},
+                    # A list deleted between enumeration and this fetch 404s. Skip it rather than
+                    # failing the whole sync; any other HTTP error still raises.
+                    "response_actions": [{"status_code": 404, "action": "ignore"}],
+                },
+                "include_from_parent": ["id"],
+                "data_map": _stamp_list_id,
+            },
+        ]
+        resources = rest_api_resources(rest_config, team_id, job_id, None)
+        resource = next(r for r in resources if r.name == endpoint)
+    else:
+        rest_config["resources"] = [{"name": endpoint, "endpoint": {"path": config.path}}]
+        resource = rest_api_resource(rest_config, team_id, job_id, None)
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(subdomain=subdomain, api_key=api_key, endpoint=endpoint, logger=logger),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         # No stable creation-time field is exposed on any Campayn resource, so partitioning is disabled.
         partition_mode=None,
@@ -170,13 +119,12 @@ def campayn_source(
 
 
 def validate_credentials(subdomain: str, api_key: str) -> bool:
-    # /lists.json is the cheapest read and the entry point every fan-out depends on.
-    try:
-        # `redact_values` masks the API key in tracked telemetry — the credential check runs before
-        # the source is saved, so the raw key must not leak into HTTP logs/samples here either.
-        response = make_tracked_session(redact_values=(api_key,)).get(
-            f"{base_url(subdomain)}/lists.json", headers=_headers(api_key), timeout=15
-        )
-        return response.status_code == 200
-    except Exception:
-        return False
+    # /lists.json is the cheapest read and the entry point every fan-out depends on. The probe runs
+    # before the source is saved, so `redact_values` masks the API key in tracked telemetry here too.
+    ok, _status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{base_url(subdomain)}{CAMPAYN_ENDPOINTS['lists'].path}",
+        headers={"Authorization": f"TRUEREST apikey={api_key}", "Accept": "application/json"},
+        timeout=15,
+    )
+    return ok

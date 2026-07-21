@@ -175,12 +175,11 @@ class TestReconstructFlagAtVersion(BaseTest):
         assert v2["active"] is False
 
     def test_reconstruct_field_set_from_none(self):
-        flag = self._create_flag(rollback_conditions=None, version=1)
-        rollback = {"threshold": 5}
-        self._simulate_update(flag, {"rollback_conditions": (None, rollback)})
+        flag = self._create_flag(ensure_experience_continuity=None, version=1)
+        self._simulate_update(flag, {"ensure_experience_continuity": (None, True)})
 
         result = reconstruct_flag_at_version(flag, target_version=1, team_id=self.team.id)
-        assert result["rollback_conditions"] is None
+        assert result["ensure_experience_continuity"] is None
 
     def test_reconstruct_multiple_fields_in_one_update(self):
         flag = self._create_flag(name="V1", active=True, version=1)
@@ -269,12 +268,11 @@ class TestReconstructFlagAtVersion(BaseTest):
         assert result["filters"] == expected
 
     def test_reconstruct_field_cleared_to_none(self):
-        rollback = {"threshold": 5}
-        flag = self._create_flag(rollback_conditions=rollback, version=1)
-        self._simulate_update(flag, {"rollback_conditions": (rollback, None)})
+        flag = self._create_flag(ensure_experience_continuity=True, version=1)
+        self._simulate_update(flag, {"ensure_experience_continuity": (True, None)})
 
         result = reconstruct_flag_at_version(flag, target_version=1, team_id=self.team.id)
-        assert result["rollback_conditions"] == {"threshold": 5}
+        assert result["ensure_experience_continuity"] is True
 
 
 class TestTimestampBasedReconstruction(TestReconstructFlagAtVersion):

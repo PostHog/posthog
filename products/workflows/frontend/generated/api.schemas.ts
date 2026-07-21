@@ -331,6 +331,12 @@ export interface PaginatedHogFlowMinimalListApi {
  */
 export type HogFlowApiVariablesItem = { [key: string]: string }
 
+/**
+ * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
+ * @nullable
+ */
+export type HogFlowApiActionRedirects = { [key: string]: string } | null
+
 export interface HogFlowConversionEventApi {
     /** Event/action filters for this conversion event, same shape as trigger filters: {events: [{id, name, type: 'events', properties?: [<cond>]}], actions?: [...], properties?: [<cond>]}. bytecode is compiled server-side. */
     filters: HogFunctionFiltersApi
@@ -402,7 +408,10 @@ export type HogFlowActionApiConfig =
       }
 
 export interface HogFlowActionApi {
-    /** Unique node ID within the workflow. */
+    /**
+     * Unique node ID within the workflow.
+     * @maxLength 200
+     */
     id: string
     /**
      * Display name.
@@ -526,12 +535,30 @@ export interface HogFlowApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    /** Staged content changes awaiting publish — a full snapshot of the workflow's actions, edges and settings. Null when there's nothing staged. Test it with a use_draft test run, then promote it with the publish endpoint or throw it away with discard_draft. */
+    readonly draft: unknown
+    /**
+     * When the draft was last written; null when there's no staged draft. Pass this to publish (and as base_updated_at on further draft edits) so a concurrent editor's changes aren't clobbered — a mismatch returns 409.
+     * @nullable
+     */
+    readonly draft_updated_at: string | null
+    /**
+     * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
+     * @nullable
+     */
+    readonly action_redirects: HogFlowApiActionRedirects
 }
 
 /**
  * Variable: {key, type: string|number|boolean, default}.
  */
 export type PatchedHogFlowApiVariablesItem = { [key: string]: string }
+
+/**
+ * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
+ * @nullable
+ */
+export type PatchedHogFlowApiActionRedirects = { [key: string]: string } | null
 
 /**
  * Mixin for serializers to add user access control fields
@@ -584,6 +611,18 @@ export interface PatchedHogFlowApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+    /** Staged content changes awaiting publish — a full snapshot of the workflow's actions, edges and settings. Null when there's nothing staged. Test it with a use_draft test run, then promote it with the publish endpoint or throw it away with discard_draft. */
+    readonly draft?: unknown
+    /**
+     * When the draft was last written; null when there's no staged draft. Pass this to publish (and as base_updated_at on further draft edits) so a concurrent editor's changes aren't clobbered — a mismatch returns 409.
+     * @nullable
+     */
+    readonly draft_updated_at?: string | null
+    /**
+     * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
+     * @nullable
+     */
+    readonly action_redirects?: PatchedHogFlowApiActionRedirects
 }
 
 export interface MessageAssetApi {
@@ -759,6 +798,8 @@ export interface HogFlowInvocationApi {
     mock_async_functions?: boolean
     /** Start execution from this action ID instead of the trigger. Each test run executes a single node and returns the next action id. */
     current_action_id?: string
+    /** Test the workflow's staged draft instead of its live config. Requires an open draft; can't be combined with an explicit configuration override. */
+    use_draft?: boolean
 }
 
 export interface AppMetricSeriesApi {
@@ -775,6 +816,30 @@ export type AppMetricsTotalsResponseApiTotals = { [key: string]: number }
 
 export interface AppMetricsTotalsResponseApi {
     totals: AppMetricsTotalsResponseApiTotals
+}
+
+export interface HogFlowPublishRequestApi {
+    /** False (default) previews the publish: returns how many runs are in flight without changing anything. True applies the staged draft to the live workflow. */
+    confirm?: boolean
+    /** The draft_updated_at you loaded — required when confirm=true. A mismatch returns 409, so you never publish a draft someone else has changed since you read it. */
+    draft_updated_at?: string
+}
+
+export interface HogFlowPublishResponseApi {
+    /** Whether the draft was applied to the live workflow. */
+    published: boolean
+    /**
+     * Runs currently in flight (parked on waits/delays or executing) that will follow the new config once published. Null when the count is unavailable.
+     * @nullable
+     */
+    in_flight_runs: number | null
+    /**
+     * Echo of the staged draft's timestamp — pass it back with confirm=true to publish exactly this draft.
+     * @nullable
+     */
+    draft_updated_at: string | null
+    /** The workflow after publishing (only set when published=true). */
+    workflow?: HogFlowApi | null
 }
 
 /**

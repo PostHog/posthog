@@ -1,5 +1,7 @@
 import { LogicWrapper } from 'kea'
 
+import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/types'
+
 import type { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlResourceType, ActivityScope } from '~/types'
 
@@ -13,6 +15,7 @@ export enum Scene {
     AgenticAccountMismatch = 'AgenticAccountMismatch',
     AgenticAuthorize = 'AgenticAuthorize',
     AIGateway = 'AIGateway',
+    Alerts = 'Alerts',
     Annotations = 'Annotations',
     Approval = 'Approval',
     AsyncMigrations = 'AsyncMigrations',
@@ -97,7 +100,6 @@ export enum Scene {
     LiveEvents = 'LiveEvents',
     Login = 'Login',
     Login2FA = 'Login2FA',
-    EmailMFAVerify = 'EmailMFAVerify',
     MaterializedColumns = 'MaterializedColumns',
     Max = 'Max',
     Models = 'Models',
@@ -131,6 +133,7 @@ export enum Scene {
     PropertyDefinitions = 'PropertyDefinitions',
     PropertyDefinitionEdit = 'PropertyDefinitionEdit',
     QueryPerformance = 'QueryPerformance',
+    Quickstart = 'Quickstart',
     Replay = 'Replay',
     ReplayFilePlayback = 'ReplayFilePlayback',
     ReplayPlaylist = 'ReplayPlaylist',
@@ -160,6 +163,7 @@ export enum Scene {
     Survey = 'Survey',
     SurveyWizard = 'SurveyWizard',
     SurveyFormBuilder = 'SurveyFormBuilder',
+    SupportTickets = 'SupportTickets',
     Surveys = 'Surveys',
     SystemStatus = 'SystemStatus',
     ToolbarLaunch = 'ToolbarLaunch',
@@ -229,6 +233,12 @@ export interface SceneExport<T = SceneProps> {
     logic?: LogicWrapper
     /** product key associated with this scene - used for Quick Start setup tracking */
     productKey?: ProductKey
+    /**
+     * Declare this to have the app shell gate the scene behind the product's
+     * setup empty state until the product has received data (skippable, driven
+     * by real data detection). See lib/components/ProductEmptyState.
+     */
+    emptyState?: SceneProductEmptyState
     /** convert URL parameters from scenes.ts into logic props */
     paramsToProps?: (params: SceneParams) => T
     /** when was the scene last touched, unix timestamp for sortability */
@@ -336,6 +346,9 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     // Revenue analytics
     [Scene.RevenueAnalytics]: AccessControlResourceType.RevenueAnalytics,
 
+    // Toolbar
+    [Scene.ToolbarLaunch]: AccessControlResourceType.Toolbar,
+
     // Web Analytics
     [Scene.WebAnalytics]: AccessControlResourceType.WebAnalytics,
     [Scene.WebAnalyticsPageReports]: AccessControlResourceType.WebAnalytics,
@@ -345,6 +358,9 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
 
     // Marketing Analytics
     [Scene.MarketingAnalytics]: AccessControlResourceType.WebAnalytics,
+
+    // Metrics
+    [Scene.Metrics]: AccessControlResourceType.Metrics,
 
     // Surveys
     [Scene.Survey]: AccessControlResourceType.Survey,

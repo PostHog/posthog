@@ -7,7 +7,7 @@ analytics team. Scoped to a single `ai_product` via the required `product`
 query param; see `SUPPORTED_PRODUCTS` for the currently accepted values.
 
 Endpoint:
-- GET /api/llm_analytics/@me/spend/?product=<ai_product>&date_from=-30d&date_to=&limit=50&refresh=false
+- GET /api/llm_analytics/@me/spend/?product=<ai_product>&date_from=-30d&date_to=&limit=50&refresh=false&bucket_minutes=5
 """
 
 from __future__ import annotations
@@ -63,6 +63,11 @@ DEFAULT_DATE_FROM = "-30d"
 MAX_WINDOW_DAYS = 90
 # The most calendar days a MAX_WINDOW_DAYS window can touch: partial days at both edges.
 BY_DAY_MAX_ROWS = MAX_WINDOW_DAYS + 1
+# Sub-day series are only useful (and cheap) over short windows; a "last 24h"
+# view is the intended consumer. The cap bounds the series length regardless of
+# bucket size: 600 buckets is 50 hours at 5-minute buckets and 25 days hourly.
+BUCKET_MINUTES_CHOICES = [5, 15, 30, 60]
+MAX_TIME_BUCKETS = 600
 _RELATIVE_DATE_RE = re.compile(r"^-?\d+[hdwmqyHDWMQY](Start|End)?$")
 
 MIN_LIMIT = 1
@@ -78,9 +83,13 @@ def _internal_team_id() -> int:
     return settings.LLM_ANALYTICS_INTERNAL_TEAM_ID
 
 
-def _cache_key(email: str, date_from: str, date_to: str | None, product: str, limit: int) -> str:
+def _cache_key(
+    email: str, date_from: str, date_to: str | None, product: str, limit: int, bucket_minutes: int | None
+) -> str:
     to_slot = date_to or "_now"
-    return f"personal_spend:{email}:{date_from}:{to_slot}:{product}:{limit}"
+    # Suffix only when set, so bucketless requests keep their pre-bucket_minutes cache keys.
+    bucket_slot = f":{bucket_minutes}" if bucket_minutes else ""
+    return f"personal_spend:{email}:{date_from}:{to_slot}:{product}:{limit}{bucket_slot}"
 
 
 def _parse_date_param(value: str, field: str, now: datetime.datetime) -> datetime.datetime:
@@ -111,6 +120,40 @@ def _resolve_window(date_from: str, date_to: str | None) -> tuple[datetime.datet
         raise exceptions.ValidationError(
             {"date_from": f"Window between `date_from` and `date_to` cannot exceed {MAX_WINDOW_DAYS} days."}
         )
+    return from_dt, to_dt
+
+
+def _resolve_and_validate_window(
+    date_from: str, date_to: str | None, bucket_minutes: int | None
+) -> tuple[datetime.datetime, datetime.datetime]:
+    """Resolve the window and enforce the bucket cap on the resolved bounds. Shared by
+    the US compute path and the EU proxy, which must run this before its cache lookup:
+    with relative dates the same raw cache key can be cached while the resolved window
+    is under the cap and resolve over it moments later."""
+    from_dt, to_dt = _resolve_window(date_from, date_to)
+    if bucket_minutes is not None:
+        bucket_seconds = bucket_minutes * 60
+        # Count the bucket starts the window can actually produce rows for (unaligned
+        # edges add partial buckets), so `by_bucket` never exceeds MAX_TIME_BUCKETS rows.
+        from_bucket = int(from_dt.timestamp() // bucket_seconds)
+        to_ts = to_dt.timestamp()
+        last_bucket = int(to_ts // bucket_seconds)
+        if to_ts % bucket_seconds == 0:
+            # `date_to` is exclusive (`timestamp < date_to`), so an end aligned exactly
+            # on a bucket boundary can never produce a row in its own bucket.
+            last_bucket -= 1
+        n_buckets = last_bucket - from_bucket + 1
+        if n_buckets > MAX_TIME_BUCKETS:
+            max_hours = bucket_minutes * MAX_TIME_BUCKETS // 60
+            raise exceptions.ValidationError(
+                {
+                    "bucket_minutes": (
+                        f"A window this large would span more than {MAX_TIME_BUCKETS} buckets at "
+                        f"{bucket_minutes}-minute resolution; narrow the window to under {max_hours} hours, "
+                        "or pick a larger bucket size."
+                    )
+                }
+            )
     return from_dt, to_dt
 
 
@@ -157,6 +200,21 @@ class _SpendQueryParamsSerializer(serializers.Serializer):
         required=False,
         default=False,
         help_text="If true, bypass the result cache and re-run the underlying queries against ClickHouse.",
+    )
+    # No allow_null and no default: either would mark the generated schema nullable, and
+    # typed clients would then advertise `bucket_minutes: null`, which serializes to the
+    # literal string "null" in a GET query and gets rejected. Omitted means "no by_bucket".
+    bucket_minutes = serializers.ChoiceField(
+        choices=BUCKET_MINUTES_CHOICES,
+        required=False,
+        help_text=(
+            "When set, additionally return a `by_bucket` breakdown: a time-ascending UTC cost series for "
+            "the scoped product at this bucket size in minutes, with per-bucket cost split into uncached "
+            "input / output / cache read / cache creation components plus the matching token sums. "
+            f"Supported bucket sizes: {', '.join(str(c) for c in BUCKET_MINUTES_CHOICES)}. The window may "
+            f"span at most {MAX_TIME_BUCKETS} buckets of the chosen size (e.g. 50 hours at 5-minute "
+            "buckets)."
+        ),
     )
 
     def validate_product(self, value: str) -> str:
@@ -224,6 +282,55 @@ class _DayBreakdownRowSerializer(serializers.Serializer):
         help_text="Number of $ai_generation + $ai_embedding events on this day for the scoped product."
     )
     cost_usd = serializers.FloatField(help_text="Total cost in USD on this day for the scoped product.")
+
+
+class _BucketBreakdownRowSerializer(serializers.Serializer):
+    bucket_start = serializers.DateTimeField(
+        help_text="UTC start of the time bucket the events fall in (`toStartOfInterval(timestamp, ...)`)."
+    )
+    event_count = serializers.IntegerField(
+        help_text="Number of $ai_generation + $ai_embedding events in this bucket for the scoped product."
+    )
+    cost_usd = serializers.FloatField(
+        help_text=(
+            "Total cost in USD in this bucket (sum of `$ai_total_cost_usd`). Authoritative: the component "
+            "columns below can sum to less than this when the cost breakdown was unavailable for some "
+            "events; render any remainder as uncategorized rather than assuming the components reconcile."
+        )
+    )
+    input_cost_usd = serializers.FloatField(
+        help_text=(
+            "Cost of uncached (full-price) input tokens in USD, derived per event as `$ai_input_cost_usd` "
+            "minus the cache read/write costs (the stored input cost includes them), clamped at zero. "
+            "The four component columns are disjoint: they sum to `cost_usd` when the full breakdown is "
+            "present, so they can be stacked without double counting cache costs."
+        )
+    )
+    output_cost_usd = serializers.FloatField(help_text="Cost of output tokens in USD (sum of `$ai_output_cost_usd`).")
+    cache_read_cost_usd = serializers.FloatField(
+        help_text="Cost of prompt-cache reads in USD (sum of `$ai_cache_read_cost_usd`)."
+    )
+    cache_creation_cost_usd = serializers.FloatField(
+        help_text=(
+            "Cost of prompt-cache writes in USD (sum of `$ai_cache_creation_cost_usd`). A spike here with "
+            "near-zero cache reads is the signature of a cold session being revived: the full conversation "
+            "context is re-written to the cache at the cache-write rate instead of being read back cheaply."
+        )
+    )
+    input_tokens = serializers.IntegerField(
+        help_text=(
+            "Sum of `$ai_input_tokens` in this bucket. Whether cached tokens are included follows the "
+            "provider's reporting (`$ai_cache_reporting_exclusive`): Anthropic-style events exclude them, "
+            "OpenAI-style events include them, so don't stack this with the cache token sums."
+        )
+    )
+    output_tokens = serializers.IntegerField(help_text="Sum of `$ai_output_tokens` in this bucket.")
+    cache_read_input_tokens = serializers.IntegerField(
+        help_text="Sum of `$ai_cache_read_input_tokens` (prompt tokens served from cache) in this bucket."
+    )
+    cache_creation_input_tokens = serializers.IntegerField(
+        help_text="Sum of `$ai_cache_creation_input_tokens` (prompt tokens written to cache) in this bucket."
+    )
 
 
 class _TopTraceRowSerializer(serializers.Serializer):
@@ -310,6 +417,26 @@ class _DayBreakdownSerializer(serializers.Serializer):
     )
 
 
+class _BucketBreakdownSerializer(serializers.Serializer):
+    items = _BucketBreakdownRowSerializer(
+        many=True,
+        help_text=(
+            "One row per UTC time bucket that has events, ordered by bucket start ascending. Buckets with "
+            "no events are omitted; zero-fill client-side when rendering a continuous series."
+        ),
+    )
+    bucket_minutes = serializers.IntegerField(
+        help_text="Bucket size in minutes the series was computed at; echoes the request `bucket_minutes`."
+    )
+    truncated = serializers.BooleanField(
+        help_text=(
+            "Effectively always false: `by_bucket` ignores `limit` because truncating a time series by "
+            f"cost would be meaningless, and the {MAX_TIME_BUCKETS}-bucket window cap already bounds the "
+            "series length."
+        )
+    )
+
+
 class _TopTracesSerializer(serializers.Serializer):
     items = _TopTraceRowSerializer(many=True, help_text="Rows of top traces by cost, ordered by cost descending.")
     truncated = serializers.BooleanField(
@@ -328,6 +455,13 @@ class PersonalSpendAnalysisResponseSerializer(serializers.Serializer):
     by_model = _ModelBreakdownSerializer(help_text="Spend grouped by `$ai_model`. Scoped to `product` when set.")
     by_day = _DayBreakdownSerializer(
         help_text="Spend grouped by UTC day, ordered ascending. Scoped to `product`. Not subject to `limit`."
+    )
+    by_bucket = _BucketBreakdownSerializer(
+        required=False,
+        help_text=(
+            "Spend grouped by UTC time bucket with per-bucket cost/token components, ordered ascending. "
+            "Scoped to `product`. Only present when the request set `bucket_minutes`."
+        ),
     )
     top_traces = _TopTracesSerializer(
         help_text=(
@@ -623,6 +757,88 @@ def _fetch_by_day(
     return _truncate(rows, BY_DAY_MAX_ROWS)
 
 
+def _fetch_by_bucket(
+    team: Team,
+    email: str,
+    from_dt: datetime.datetime,
+    to_dt: datetime.datetime,
+    product: str,
+    bucket_minutes: int,
+) -> dict[str, Any]:
+    # The stored $ai_input_cost_usd INCLUDES prompt-cache read/write costs: on events
+    # carrying the cache cost columns, input + output reconciles to total and the cache
+    # costs sit inside input (verified against production events; the ingestion cost
+    # pipeline prices cache tokens inside input cost the same way). Uncached input is
+    # therefore derived per event as input minus cache read/write, clamped at zero so a
+    # future switch to exclusive reporting degrades to undercounting rather than
+    # double-subtracting. Events without the cache columns carry no cached tokens, so
+    # the subtraction is a no-op there. Fallback-priced events carry only
+    # $ai_total_cost_usd, so the components can undershoot cost_usd; the serializer
+    # help_text tells clients to render the remainder as uncategorized.
+    query = parse_select(
+        """
+        SELECT
+            toStartOfInterval(timestamp, toIntervalMinute({bucket_minutes})) AS bucket_start,
+            count() AS event_count,
+            round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS cost_usd,
+            round(sum(greatest(
+                toFloat(properties.$ai_input_cost_usd)
+                    - coalesce(toFloat(properties.$ai_cache_read_cost_usd), 0)
+                    - coalesce(toFloat(properties.$ai_cache_creation_cost_usd), 0),
+                0
+            )), 6) AS input_cost_usd,
+            round(sum(toFloat(properties.$ai_output_cost_usd)), 6) AS output_cost_usd,
+            round(sum(toFloat(properties.$ai_cache_read_cost_usd)), 6) AS cache_read_cost_usd,
+            round(sum(toFloat(properties.$ai_cache_creation_cost_usd)), 6) AS cache_creation_cost_usd,
+            sum(toFloat(properties.$ai_input_tokens)) AS input_tokens,
+            sum(toFloat(properties.$ai_output_tokens)) AS output_tokens,
+            sum(toFloat(properties.$ai_cache_read_input_tokens)) AS cache_read_input_tokens,
+            sum(toFloat(properties.$ai_cache_creation_input_tokens)) AS cache_creation_input_tokens
+        FROM events
+        WHERE {event_in}
+            AND {product_filter}
+            AND {email_filter}
+            AND {timestamp_filter}
+        GROUP BY bucket_start
+        ORDER BY bucket_start ASC
+        LIMIT {limit}
+        """
+    )
+    result = execute_hogql_query(
+        query=query,
+        placeholders={
+            "bucket_minutes": ast.Constant(value=bucket_minutes),
+            "event_in": _event_in(["$ai_generation", "$ai_embedding"]),
+            "product_filter": _product_filter(product),
+            "email_filter": _email_filter(email),
+            "timestamp_filter": _timestamp_filter(from_dt, to_dt),
+            # Not the request `limit`; same reasoning as by_day. +1 is the truncation probe row.
+            "limit": ast.Constant(value=MAX_TIME_BUCKETS + 1),
+        },
+        team=team,
+        # Buckets are documented as UTC; pin them like by_day does.
+        modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
+        query_type="PersonalSpendByBucket",
+    )
+    rows = [
+        {
+            "bucket_start": row[0],
+            "event_count": int(row[1] or 0),
+            "cost_usd": float(row[2] or 0.0),
+            "input_cost_usd": float(row[3] or 0.0),
+            "output_cost_usd": float(row[4] or 0.0),
+            "cache_read_cost_usd": float(row[5] or 0.0),
+            "cache_creation_cost_usd": float(row[6] or 0.0),
+            "input_tokens": int(row[7] or 0),
+            "output_tokens": int(row[8] or 0),
+            "cache_read_input_tokens": int(row[9] or 0),
+            "cache_creation_input_tokens": int(row[10] or 0),
+        }
+        for row in (result.results or [])
+    ]
+    return {**_truncate(rows, MAX_TIME_BUCKETS), "bucket_minutes": bucket_minutes}
+
+
 def _compute_spend_analysis(
     *,
     email: str,
@@ -631,12 +847,15 @@ def _compute_spend_analysis(
     product: str,
     limit: int,
     refresh: bool,
+    # Defaulted: callers splat validated_data, which omits the key entirely when
+    # the request didn't set it (the field has no serializer-level default).
+    bucket_minutes: int | None = None,
 ) -> dict[str, Any]:
     """Cached, email-scoped spend analysis shared by the US viewset and the
     cross-region receiver. Expects already-validated params."""
-    from_dt, to_dt = _resolve_window(date_from, date_to)
+    from_dt, to_dt = _resolve_and_validate_window(date_from, date_to, bucket_minutes)
 
-    cache_key = _cache_key(email, date_from, date_to, product, limit)
+    cache_key = _cache_key(email, date_from, date_to, product, limit, bucket_minutes)
 
     if not refresh:
         cached = cache.get(cache_key)
@@ -669,6 +888,11 @@ def _compute_spend_analysis(
             "by_tool": by_tool,
             "by_model": _fetch_by_model(team, email, from_dt, to_dt, product, limit),
             "by_day": _fetch_by_day(team, email, from_dt, to_dt, product),
+            **(
+                {"by_bucket": _fetch_by_bucket(team, email, from_dt, to_dt, product, bucket_minutes)}
+                if bucket_minutes is not None
+                else {}
+            ),
             # Deprecated — trace IDs are opaque and unactionable in the UI. Returned empty so
             # existing consumers don't crash while they remove the rendering. Drop the field
             # entirely once no consumer reads it.
@@ -754,7 +978,10 @@ class PersonalSpendViewSet(_PersonalSpendUserViewSet):
             "query param is required and scopes the tool / model / day / trace breakdowns to a single "
             f"product; supported values: {', '.join(sorted(SUPPORTED_PRODUCTS))}. `by_product` is "
             "always returned for cross-product visibility. `by_day` returns a day-ascending spend "
-            "series for the scoped product. Use `refresh=true` to bypass the 5-minute response cache."
+            "series for the scoped product. Pass `bucket_minutes` (5, 15, 30, or 60; the window may span "
+            f"at most {MAX_TIME_BUCKETS} buckets) to additionally get `by_bucket`, a time-ascending "
+            "series with per-bucket cost split into uncached input / output / cache read / cache creation "
+            "components. Use `refresh=true` to bypass the 5-minute response cache."
         ),
         tags=["AI observability"],
     )
@@ -769,7 +996,7 @@ class PersonalSpendViewSet(_PersonalSpendUserViewSet):
 
 
 _EU_REDIRECT_TARGET = "https://us.posthog.com/api/llm_analytics/@me/spend/"
-_EU_REDIRECT_FORWARDED_PARAMS = frozenset({"date_from", "date_to", "product", "limit", "refresh"})
+_EU_REDIRECT_FORWARDED_PARAMS = frozenset({"date_from", "date_to", "product", "limit", "refresh", "bucket_minutes"})
 
 
 def personal_spend_eu_redirect(request: HttpRequest) -> HttpResponseRedirect:
@@ -896,19 +1123,27 @@ class PersonalSpendEUProxyViewSet(_PersonalSpendUserViewSet):
 
         email = self._require_email(request)
 
-        # Validate in-region so bad requests 400 without paying for the hop.
+        # Validate in-region so bad requests 400 without paying for the hop. The window
+        # check must precede the cache lookup: the cache is keyed on the raw date
+        # strings, so a relative window cached while under the bucket cap could
+        # otherwise keep serving after it resolves over the cap.
         params = _SpendQueryParamsSerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
         data = params.validated_data
+        _resolve_and_validate_window(data["date_from"], data["date_to"], data.get("bucket_minutes"))
 
         # Same cache as the US compute path, so repeat loads skip the cross-region hop.
-        cache_key = _cache_key(email, data["date_from"], data["date_to"], data["product"], data["limit"])
+        cache_key = _cache_key(
+            email, data["date_from"], data["date_to"], data["product"], data["limit"], data.get("bucket_minutes")
+        )
         if not data["refresh"]:
             cached = cache.get(cache_key)
             if cached is not None:
                 return Response(cached, status=status.HTTP_200_OK)
 
-        body = json.dumps({**data, "email": email}).encode("utf-8")
+        # Omit None-valued params (serializer defaults) so the internal receiver's
+        # non-nullable fields (e.g. bucket_minutes) accept the payload.
+        body = json.dumps({**{k: v for k, v in data.items() if v is not None}, "email": email}).encode("utf-8")
         signature, ts = sign_cross_region_spend_request(body, secret)
         try:
             upstream = requests.post(

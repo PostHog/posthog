@@ -31,12 +31,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AmplitudeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.amplitude import (
+    AmplitudeSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class AmplitudeSource(ResumableSource[AmplitudeSourceConfig, AmplitudeResumeConfig]):
+    api_docs_url = "https://amplitude.com/docs/apis/analytics"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

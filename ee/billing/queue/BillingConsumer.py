@@ -10,6 +10,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.organization import Organization
 from posthog.models.user import User
+from posthog.utils import sanitize_ip_address
 
 from products.customer_analytics.backend.facade.api import notify_managers_of_usage_spike
 
@@ -246,6 +247,14 @@ class BillingConsumer(SQSConsumer):
             )
             return
 
+        # Only attribute an IP when we resolved an org-scoped actor. Without this gate the
+        # actor IP and actor identity could drift apart: a system-origin message (no
+        # distinct_id) or one whose distinct_id doesn't map to a member of this org is logged
+        # as a system activity, and pinning an IP to an unattributed row is misleading audit data.
+        # Sanitize so a malformed/non-string value can't fail the IP column write and leave the
+        # message looping on redelivery forever.
+        ip_address = sanitize_ip_address(body.get("ip_address")) if user is not None else None
+
         written = log_activity(
             organization_id=organization.id,
             team_id=None,
@@ -255,6 +264,7 @@ class BillingConsumer(SQSConsumer):
             scope="Billing",
             activity=activity,
             detail=Detail(name=detail_data.get("name"), changes=changes),
+            ip_address=ip_address,
         )
 
         # This SQS message exists only to create the audit row. log_activity swallows write

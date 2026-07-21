@@ -481,14 +481,18 @@ export function buildSegmentResolveValue(
     }
     return (s, dataIndex) => {
         const band = stackedData.get(s.key)
+        const raw = s.data[dataIndex]
         if (band) {
             const top = band.top[dataIndex]
             const bottom = band.bottom[dataIndex]
             if (Number.isFinite(top) && Number.isFinite(bottom)) {
-                return top - bottom
+                const size = top - bottom
+                // A diverging stack lays a negative segment out as [bottom = cumulative,
+                // top = previous] with top > bottom — the same ordering as a positive segment —
+                // so `top - bottom` alone loses the sign. Restore it from the raw value.
+                return typeof raw === 'number' && raw < 0 && size > 0 ? -size : size
             }
         }
-        const raw = s.data[dataIndex]
         return typeof raw === 'number' && Number.isFinite(raw) ? raw : 0
     }
 }

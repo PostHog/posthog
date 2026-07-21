@@ -1,4 +1,3 @@
-from collections.abc import Iterable
 from typing import cast
 
 from unittest.mock import MagicMock, patch
@@ -14,14 +13,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     WebhookCreationResult,
     WebhookDeletionResult,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RevenueCatSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.revenuecat import (
+    RevenueCatSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.constants import (
     CUSTOMER_RESOURCE_NAME,
     EVENT_RESOURCE_NAME,
     RESOURCE_TO_REVENUECAT_EVENT_TYPE,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat import (
-    RevenueCatResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.settings import (
     REVENUECAT_API_ENDPOINTS,
@@ -131,17 +129,16 @@ class TestRevenueCatSourceCreateWebhook:
 
 class TestRevenueCatSourceWebhookInputsUpdated:
     @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.source.api_client.create_webhook"
-    )
-    @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.source.api_client.delete_webhook"
     )
-    def test_recreates_integration_when_authorization_header_provided(self, mock_delete, mock_create):
-        # RevenueCat's API doesn't let you update the auth header on an existing
-        # integration in-place, so the source must delete + recreate to bind a
-        # new header value. Guard against regressions where we accidentally
-        # short-circuit one of the two calls.
-        mock_delete.return_value = WebhookDeletionResult(success=True)
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.source.api_client.create_webhook"
+    )
+    def test_binds_authorization_header_without_deleting_integration(self, mock_create, mock_delete):
+        # Binding the header goes through `create_webhook`, which updates the
+        # existing integration in place (or creates it fresh if
+        # auto-registration failed earlier). A delete + recreate here would
+        # drop deliveries in the gap.
         mock_create.return_value = WebhookCreationResult(success=True)
         source = RevenueCatSource()
 
@@ -154,7 +151,7 @@ class TestRevenueCatSourceWebhookInputsUpdated:
 
         assert success is True
         assert error is None
-        mock_delete.assert_called_once_with("k", "p", "https://example.com/h")
+        mock_delete.assert_not_called()
         mock_create.assert_called_once()
         kwargs = mock_create.call_args.kwargs
         assert kwargs["authorization_header_value"] == "Bearer my-secret"
@@ -162,27 +159,20 @@ class TestRevenueCatSourceWebhookInputsUpdated:
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.source.api_client.create_webhook"
     )
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.source.api_client.delete_webhook"
-    )
-    def test_skips_recreate_when_authorization_header_missing(self, mock_delete, mock_create):
+    def test_skips_api_call_when_authorization_header_missing(self, mock_create):
         source = RevenueCatSource()
 
         success, error = source.webhook_inputs_updated(_config(), "https://example.com/h", team_id=1, inputs={})
 
         assert success is True
         assert error is None
-        mock_delete.assert_not_called()
         mock_create.assert_not_called()
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.source.api_client.create_webhook"
     )
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.source.api_client.delete_webhook"
-    )
-    def test_propagates_delete_failure(self, mock_delete, mock_create):
-        mock_delete.return_value = WebhookDeletionResult(success=False, error="boom")
+    def test_propagates_bind_failure(self, mock_create):
+        mock_create.return_value = WebhookCreationResult(success=False, error="boom")
         source = RevenueCatSource()
 
         success, error = source.webhook_inputs_updated(
@@ -191,7 +181,6 @@ class TestRevenueCatSourceWebhookInputsUpdated:
 
         assert success is False
         assert error == "boom"
-        mock_create.assert_not_called()
 
 
 class TestRevenueCatSourceDeleteWebhook:
@@ -257,82 +246,31 @@ class TestRevenueCatSourceValidateCredentials:
 
 class TestRevenueCatSourcePipelineDispatch:
     @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.source.api_client.iterate_list_endpoint"
+        "products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.source.api_client.revenuecat_api_source"
     )
-    def test_api_schema_routes_to_iterate_list_endpoint(self, mock_iter):
-        mock_iter.return_value = iter([{"id": "cus_1"}, {"id": "cus_2"}])
+    def test_api_schema_delegates_to_transport_with_config_and_inputs(self, mock_api_source):
+        # Resume scoping and pagination now live inside `revenuecat_api_source`; the source just
+        # wires the config secret/project and the run's team/job/schema through to it.
+        sentinel = cast(SourceResponse, "API_RESPONSE")
+        mock_api_source.return_value = sentinel
         source = RevenueCatSource()
         inputs = MagicMock()
         inputs.schema_name = "customers"
-        inputs.logger = MagicMock()
+        inputs.team_id = 7
+        inputs.job_id = "job-1"
 
         manager = MagicMock()
-        manager.can_resume.return_value = False
         response = source.source_for_pipeline(_config("k", "p"), manager, inputs)
 
-        assert response.name == "customers"
-        assert response.primary_keys == ["id"]
-        # Customers partition by `first_seen_at` (they have no `created_at`) —
-        # `iterate_list_endpoint` normalizes that ms epoch field to Unix seconds.
-        assert response.partition_mode == "datetime"
-        assert response.partition_format == "week"
-        assert response.partition_keys == ["first_seen_at"]
-
-        rows = list(cast(Iterable[dict[str, str]], response.items()))
-        assert rows == [{"id": "cus_1"}, {"id": "cus_2"}]
-        mock_iter.assert_called_once()
-        kwargs = mock_iter.call_args.kwargs
+        assert response is sentinel
+        mock_api_source.assert_called_once()
+        kwargs = mock_api_source.call_args.kwargs
         assert kwargs["api_key"] == "k"
         assert kwargs["project_id"] == "p"
-        assert kwargs["path_suffix"] == "/customers"
-        assert kwargs["endpoint_name"] == "customers"
-        # The partition field must be handed to the iterator so it gets
-        # normalized ms->seconds; for customers that's `first_seen_at`.
-        assert kwargs["timestamp_fields"] == ("first_seen_at",)
-        assert kwargs["starting_after"] is None
-
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.source.api_client.iterate_list_endpoint"
-    )
-    def test_resumes_from_saved_state_when_endpoint_matches(self, mock_iter):
-        # Resumable state should only be honored when the saved endpoint matches
-        # the one we're currently syncing — otherwise we'd replay a customers
-        # cursor against products and skip rows.
-        mock_iter.return_value = iter([])
-        source = RevenueCatSource()
-        inputs = MagicMock()
-        inputs.schema_name = "customers"
-        inputs.logger = MagicMock()
-
-        manager = MagicMock()
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = RevenueCatResumeConfig(endpoint="customers", starting_after="cus_50")
-
-        response = source.source_for_pipeline(_config("k", "p"), manager, inputs)
-        list(cast(Iterable[dict[str, str]], response.items()))
-
-        kwargs = mock_iter.call_args.kwargs
-        assert kwargs["starting_after"] == "cus_50"
-
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.source.api_client.iterate_list_endpoint"
-    )
-    def test_ignores_resume_state_from_different_endpoint(self, mock_iter):
-        mock_iter.return_value = iter([])
-        source = RevenueCatSource()
-        inputs = MagicMock()
-        inputs.schema_name = "customers"
-        inputs.logger = MagicMock()
-
-        manager = MagicMock()
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = RevenueCatResumeConfig(endpoint="products", starting_after="prod_10")
-
-        response = source.source_for_pipeline(_config("k", "p"), manager, inputs)
-        list(cast(Iterable[dict[str, str]], response.items()))
-
-        kwargs = mock_iter.call_args.kwargs
-        assert kwargs["starting_after"] is None
+        assert kwargs["schema_name"] == "customers"
+        assert kwargs["team_id"] == 7
+        assert kwargs["job_id"] == "job-1"
+        assert kwargs["resumable_source_manager"] is manager
 
     def test_events_schema_routes_to_webhook_source_response(self):
         source = RevenueCatSource()
@@ -389,6 +327,72 @@ class TestRevenueCatWebhookTableTransformer:
         # for partitioning.
         assert rows[0]["event_timestamp_ms"] == 1658726374000
         assert rows[0]["created_at"] == 1658726374
+
+    def test_coerces_whole_valued_double_fields_to_float(self):
+        # RevenueCat documents these fields as doubles, but whole values arrive as JSON
+        # ints. If every row in the batch that creates the Delta table is whole (e.g. $0
+        # trials), the column would be locked to int64 and the first fractional price
+        # (19.99) would fail every later sync with an Arrow truncation error.
+        table = table_from_py_list(
+            [
+                {
+                    "api_version": "1.0",
+                    "event": {
+                        "id": "evt-1",
+                        "type": "INITIAL_PURCHASE",
+                        "price": 0,
+                        "price_in_purchased_currency": 0,
+                        "takehome_percentage": 1,
+                        "tax_percentage": 0,
+                        "commission_percentage": 0,
+                        "discount_percentage": 10,
+                        "discount_amount": 0,
+                        "renewal_number": 1,
+                        "event_timestamp_ms": 1658726374000,
+                    },
+                },
+                {
+                    "api_version": "1.0",
+                    "event": {"id": "evt-2", "type": "TRANSFER", "price": None},
+                },
+            ]
+        )
+
+        result = _webhook_table_transformer(table)
+
+        for field in (
+            "price",
+            "price_in_purchased_currency",
+            "takehome_percentage",
+            "tax_percentage",
+            "commission_percentage",
+            "discount_percentage",
+            "discount_amount",
+        ):
+            assert result.schema.field(field).type == pa.float64(), field
+        # Only the documented double fields are coerced — integer fields stay integers.
+        assert result.schema.field("renewal_number").type == pa.int64()
+        assert result.schema.field("event_timestamp_ms").type == pa.int64()
+
+        rows = result.to_pylist()
+        assert rows[0]["price"] == 0.0
+        assert rows[1]["price"] is None
+
+    def test_all_null_double_fields_are_still_typed_as_float(self):
+        # A first batch where a double field is null on every row (e.g. TRANSFER events)
+        # would otherwise infer a `null` column, which the delta write path stores as
+        # string — silently stringifying every later price instead of erroring.
+        table = table_from_py_list(
+            [
+                {"api_version": "1.0", "event": {"id": "evt-1", "type": "TRANSFER", "price": None}},
+                {"api_version": "1.0", "event": {"id": "evt-2", "type": "TRANSFER", "price": None}},
+            ]
+        )
+
+        result = _webhook_table_transformer(table)
+
+        assert result.schema.field("price").type == pa.float64()
+        assert result.column("price").to_pylist() == [None, None]
 
     def test_skips_created_at_derivation_when_event_timestamp_ms_missing(self):
         # Older RevenueCat events or test deliveries may omit the timestamp

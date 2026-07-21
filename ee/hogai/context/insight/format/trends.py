@@ -1,10 +1,20 @@
-from typing import Any
+from datetime import UTC, datetime
+from typing import Any, Optional
 
-from posthog.schema import AssistantTrendsQuery, Compare, TrendsQuery
+from posthog.schema import AssistantTrendsQuery, Compare, DateRange, TrendsQuery
 
 from posthog.hogql_queries.insights.utils.breakdowns import humanize_breakdown_label
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models import Team
 
-from .utils import format_matrix, format_number, strip_datetime_seconds
+from .utils import (
+    PARTIAL_BUCKET_MARKER,
+    format_matrix,
+    format_number,
+    partial_bucket_flags,
+    partial_bucket_note,
+    strip_datetime_seconds,
+)
 
 
 class TrendsResultsFormatter:
@@ -23,9 +33,13 @@ class TrendsResultsFormatter:
         self,
         query: AssistantTrendsQuery | TrendsQuery,
         results: list[dict[str, Any]],
+        team: Optional[Team] = None,
+        utc_now_datetime: Optional[datetime] = None,
     ):
         self._query = query
         self._results = results
+        self._team = team
+        self._utc_now_datetime = utc_now_datetime or datetime.now(UTC)
 
     def format(self) -> str:
         results = self._results
@@ -79,6 +93,8 @@ class TrendsResultsFormatter:
         result = results[0]
         dates = result["days"]
 
+        partial = self._partial_bucket_flags(dates)
+
         series_labels = []
         for series in results:
             label = self._extract_series_label(series)
@@ -92,12 +108,31 @@ class TrendsResultsFormatter:
 
         # Build data rows
         for i, date in enumerate(dates):
-            row = [strip_datetime_seconds(date)]
+            date_cell = strip_datetime_seconds(date)
+            if partial and partial[0][i]:
+                date_cell += PARTIAL_BUCKET_MARKER
+            row = [date_cell]
             for series in results:
                 row.append(format_number(series["data"][i]))
             matrix.append(row)
 
-        return format_matrix(matrix)
+        formatted = format_matrix(matrix)
+        if partial and any(partial[0]):
+            formatted = f"{formatted}\n\n{partial_bucket_note(partial[1])}"
+        return formatted
+
+    def _partial_bucket_flags(self, dates: list[str]) -> Optional[tuple[list[bool], str]]:
+        """Flag buckets still collecting data, plus the project timezone name.
+
+        Returns None when the team (hence project timezone) isn't available, so callers
+        render results exactly as before rather than guessing at completeness."""
+        if self._team is None:
+            return None
+        date_range = DateRange.model_validate(self._query.dateRange.model_dump()) if self._query.dateRange else None
+        query_date_range = QueryDateRange(date_range, self._team, self._query.interval, self._utc_now_datetime)
+        now_local = query_date_range.now_with_timezone.replace(tzinfo=None)
+        current_interval_start = query_date_range.align_with_interval(now_local)
+        return partial_bucket_flags(dates, current_interval_start), self._team.timezone
 
     def _extract_series_label(self, series: dict[str, Any]) -> str:
         action = series.get("action")

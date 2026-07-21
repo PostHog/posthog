@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MailchimpSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailchimp import (
+    MailchimpSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailchimp.mailchimp import (
     MailchimpResumeConfig,
     mailchimp_source,
@@ -35,6 +37,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MailchimpSource(ResumableSource[MailchimpSourceConfig, MailchimpResumeConfig]):
+    supported_versions = ("3.0",)
+    default_version = "3.0"
+    api_docs_url = "https://mailchimp.com/developer/marketing/api/"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

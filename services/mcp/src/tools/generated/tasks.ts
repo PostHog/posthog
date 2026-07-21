@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    TasksCreateBody,
     TasksListQueryParams,
     TasksRetrieveParams,
     TasksRunsListParams,
@@ -13,6 +14,71 @@ import {
 } from '@/generated/tasks/api'
 import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const TasksCreateSchema = TasksCreateBody.omit({
+    title_manually_set: true,
+    origin_product: true,
+    github_integration: true,
+    github_user_integration: true,
+    signal_report: true,
+    signal_report_task_relationship: true,
+    json_schema: true,
+    internal: true,
+    archived: true,
+    ci_prompt: true,
+    branch: true,
+    runtime_adapter: true,
+    model: true,
+    reasoning_effort: true,
+    pending_user_message: true,
+    pending_user_artifact_ids: true,
+    auto_publish: true,
+    channel: true,
+    sandbox_environment_id: true,
+    custom_image_id: true,
+    runtime: true,
+}).extend({
+    description: TasksCreateBody.shape['description']
+        .unwrap()
+        .describe(
+            'The task for the agent to carry out, written as a direct prompt (e.g. "Investigate the spike in $exception events on the checkout page and open a PR with a fix"). Passed verbatim to the agent as its instructions, so be specific.'
+        ),
+})
+
+const tasksCreate = (): ToolBase<typeof TasksCreateSchema, WithPostHogUrl<Schemas.TaskDetailDTO>> => ({
+    name: 'tasks-create',
+    schema: TasksCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof TasksCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.title !== undefined) {
+            body['title'] = params.title
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.repository !== undefined) {
+            body['repository'] = params.repository
+        }
+        const result = await context.api.request<Schemas.TaskDetailDTO>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, [
+            'id',
+            'task_number',
+            'title',
+            'description',
+            'origin_product',
+            'repository',
+            'internal',
+            'created_at',
+            'updated_at',
+        ]) as typeof result
+        return await withPostHogUrl(context, filtered, `/tasks/${filtered.id}`)
+    },
+})
 
 const TasksListSchema = TasksListQueryParams
 
@@ -25,6 +91,7 @@ const tasksList = (): ToolBase<typeof TasksListSchema, WithPostHogUrl<Schemas.Pa
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/`,
             query: {
+                all_team_tasks: params.all_team_tasks,
                 archived: params.archived,
                 channel: params.channel,
                 created_by: params.created_by,
@@ -178,6 +245,7 @@ const tasksRunsSessionLogsRetrieve = (): ToolBase<typeof TasksRunsSessionLogsRet
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'tasks-create': tasksCreate,
     'tasks-list': tasksList,
     'tasks-retrieve': tasksRetrieve,
     'tasks-runs-list': tasksRunsList,

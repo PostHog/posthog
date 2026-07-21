@@ -36,7 +36,10 @@ import {
     ExternalDataSourceSchema,
 } from '~/types'
 
-import { splitQualifiedTableName } from 'products/data_warehouse/frontend/shared/components/forms/schemaGroupingUtils'
+import {
+    splitQualifiedTableName,
+    supportsDirectQuery,
+} from 'products/data_warehouse/frontend/shared/components/forms/schemaGroupingUtils'
 import { DATA_WAREHOUSE_APP_SOURCE } from 'products/data_warehouse/frontend/shared/components/metrics/DataWarehouseMetrics'
 import {
     SourceEditorAction,
@@ -185,6 +188,16 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                     <span className="text-muted text-sm">{pluralize(filteredSchemas.length, 'schema', 'schemas')}</span>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
+                    {source?.direct_query_enabled && supportsDirectQuery(source.source_type) && (
+                        <LemonButton
+                            type="secondary"
+                            to={urls.sqlEditor({ connectionId: id })}
+                            tooltip="Open the SQL editor with this source selected as a live connection"
+                            data-attr="schemas-tab-query-directly"
+                        >
+                            Query directly
+                        </LemonButton>
+                    )}
                     <SourceEditorAction source={source}>
                         <LemonButton
                             type="secondary"
@@ -631,7 +644,9 @@ function SchemaBulkActions({
     schemas: readonly ExternalDataSourceSchema[]
     clearSelection: () => void
 }): JSX.Element {
-    const { bulkDisable, bulkSetFrequency, bulkSyncNow, bulkResync, bulkDeleteData } = useActions(sourceSettingsLogic)
+    const { bulkEnable, bulkDisable, bulkSetFrequency, bulkSyncNow, bulkResync, bulkDeleteData } =
+        useActions(sourceSettingsLogic)
+    const { bulkEnableLoading } = useValues(sourceSettingsLogic)
 
     // Wrap every action so the selection clears once it's been kicked off.
     const run = (action: () => void): void => {
@@ -646,6 +661,28 @@ function SchemaBulkActions({
     // mixed selection falls back to the non-CDC set (which CDC also supports).
     const allCdc = selected.length > 0 && selected.every((schema) => schema.sync_type === 'cdc')
     const frequencyOptions = allowedSyncFrequencies(allCdc ? 'cdc' : 'incremental')
+
+    const onEnable = (): void => {
+        const needingDefaults = selected.filter((schema) => !schema.should_sync && !schema.sync_type)
+        if (needingDefaults.length === 0) {
+            run(() => bulkEnable(selected))
+            return
+        }
+        LemonDialog.open({
+            title: `Enable ${pluralize(count, 'schema', 'schemas')}?`,
+            description: `${pluralize(
+                needingDefaults.length,
+                'selected schema has',
+                'selected schemas have'
+            )} no sync method configured yet. Default settings will be applied: incremental sync where the table supports it, otherwise a full refresh. Syncing starts right after enabling.`,
+            primaryButton: {
+                children: 'Enable',
+                type: 'primary',
+                onClick: () => run(() => bulkEnable(selected)),
+            },
+            secondaryButton: { children: 'Cancel', type: 'tertiary' },
+        })
+    }
 
     const onDisable = (): void => {
         const hasDataLossType = selected.some((schema) => schema.sync_type === 'cdc' || schema.sync_type === 'webhook')
@@ -668,6 +705,9 @@ function SchemaBulkActions({
 
     return (
         <>
+            <LemonButton type="secondary" size="small" onClick={onEnable} loading={bulkEnableLoading}>
+                Enable
+            </LemonButton>
             <LemonButton type="secondary" size="small" onClick={onDisable}>
                 Disable
             </LemonButton>

@@ -22,6 +22,10 @@ from uuid import UUID
 from pydantic.dataclasses import dataclass
 
 
+class InvalidCustomPropertyOptions(ValueError):
+    """Raised when a select property's options fail validation; the viewset maps it to a 400."""
+
+
 @dataclass(frozen=True)
 class AccountAssignment:
     """A user assigned to an account role (CSM, account executive, account owner)."""
@@ -149,6 +153,39 @@ class ExternalAccount:
     tags: list[str] = field(default_factory=list)
     relationships: dict[str, list[dict]] = field(default_factory=dict)
     custom_properties: dict[str, float | bool | str | None] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ExternalAccountAssignment:
+    """An active relationship assignment on the external list wire shape.
+
+    Carries the assigned user's id and current email plus their display name so
+    external consumers (the billing service's ownership sync) don't need a
+    second lookup. ``name`` is None when the user has no name set.
+    """
+
+    user_id: int
+    email: str
+    name: str | None = None
+
+
+@dataclass(frozen=True)
+class ExternalAccountListItem:
+    """One account row on the external list wire shape, with active relationship
+    assignments to current organization members keyed by definition name."""
+
+    external_id: str
+    name: str
+    relationships: dict[str, list[ExternalAccountAssignment]] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ExternalAccountListPage:
+    """A page of external account rows. ``next_cursor`` is the last account id
+    of a full page, or None when the listing is exhausted."""
+
+    results: list[ExternalAccountListItem] = field(default_factory=list)
+    next_cursor: str | None = None
 
 
 class ExternalAccountUpdateError(Enum):
@@ -309,6 +346,7 @@ class CustomPropertyDefinitionView:
     name: str = ""
     description: str | None = None
     display_type: str = "text"
+    target_type: str = "account"
     is_big_number: bool = False
     created_at: datetime | None = None
     created_by: int | None = None
@@ -325,15 +363,18 @@ class CustomPropertySourceView:
 
     ``definition`` / ``saved_query`` are ids (the definition this feeds, and the data-warehouse
     saved query read from). ``last_sync_error`` is null when the last run succeeded or hasn't run.
-    Defaults exist so the wrapping serializer can parse partial request bodies (see
-    :class:`AccountView`).
+    Account-target sources set ``saved_query`` + ``source_column``; person-target sources set
+    ``external_data_schema`` + ``column_property_map`` instead. Defaults exist so the wrapping
+    serializer can parse partial request bodies (see :class:`AccountView`).
     """
 
     id: UUID | None = None
     definition: UUID | None = None
     saved_query: UUID | None = None
-    source_column: str = ""
+    external_data_schema: UUID | None = None
+    source_column: str | None = ""
     key_column: str = ""
+    column_property_map: dict | None = None
     is_enabled: bool = True
     consecutive_failures: int = 0
     last_synced_at: datetime | None = None
