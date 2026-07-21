@@ -2,7 +2,10 @@ import { ApiConfig } from 'lib/api'
 
 import { CyclotronJobInvocationGlobals, HogFunctionConfigurationContextId } from '~/types'
 
-import { errorTrackingIssuesList } from 'products/error_tracking/frontend/generated/api'
+import {
+    errorTrackingFingerprintsList,
+    errorTrackingIssuesRetrieve,
+} from 'products/error_tracking/frontend/generated/api'
 
 export type SampleGlobalsLoader = (
     exampleGlobals: CyclotronJobInvocationGlobals
@@ -14,11 +17,15 @@ export type SampleGlobalsLoader = (
  */
 export const SAMPLE_GLOBALS_CONTEXTS: Partial<Record<HogFunctionConfigurationContextId, SampleGlobalsLoader>> = {
     'error-tracking': async (exampleGlobals) => {
-        const response = await errorTrackingIssuesList(String(ApiConfig.getCurrentProjectId()), { limit: 20 })
-        const issue = response.results[Math.floor(Math.random() * response.results.length)]
-        if (!issue) {
+        const projectId = String(ApiConfig.getCurrentProjectId())
+        // The issues list API doesn't expose fingerprints, so start from a fingerprint
+        // record (which alert templates rely on) and resolve its issue.
+        const response = await errorTrackingFingerprintsList(projectId, { limit: 20 })
+        const fingerprintRecord = response.results[Math.floor(Math.random() * response.results.length)]
+        if (!fingerprintRecord) {
             return exampleGlobals
         }
+        const issue = await errorTrackingIssuesRetrieve(projectId, fingerprintRecord.issue_id)
         return {
             ...exampleGlobals,
             event: {
@@ -29,6 +36,7 @@ export const SAMPLE_GLOBALS_CONTEXTS: Partial<Record<HogFunctionConfigurationCon
                     name: issue.name ?? 'Unnamed issue',
                     description: 'PostHog test alert',
                     status: issue.status,
+                    fingerprint: fingerprintRecord.fingerprint,
                 },
             },
         }
