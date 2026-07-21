@@ -1,4 +1,59 @@
 {
     "version": 1,
-    "entries": []
+    "entries": [
+        {
+            "id": "common/replay-shared/src/quarantine_e2e_scratch.test.ts",
+            "runner": "jest",
+            "reason": "throwaway e2e: replay-shared suite",
+            "owner": "@raul",
+            "added": "2026-07-21",
+            "expires": "2026-08-04",
+            "mode": "run"
+        },
+        {
+            "id": "frontend/src/test/quarantine_e2e_each_scratch.test.ts",
+            "runner": "jest",
+            "reason": "throwaway e2e: file scope covers test.each rows",
+            "owner": "@raul",
+            "added": "2026-07-21",
+            "expires": "2026-08-04",
+            "mode": "run"
+        },
+        {
+            "id": "frontend/src/test/quarantine_e2e_scratch.test.ts::QuarantineAsync always rejects",
+            "runner": "jest",
+            "reason": "throwaway e2e: skipped test",
+            "owner": "@raul",
+            "added": "2026-07-21",
+            "expires": "2026-08-04",
+            "mode": "skip"
+        },
+        {
+            "id": "frontend/src/test/quarantine_e2e_scratch.test.ts::QuarantineE2E always fails",
+            "runner": "jest",
+            "reason": "throwaway e2e: tolerated sync failure",
+            "owner": "@raul",
+            "added": "2026-07-21",
+            "expires": "2026-08-04",
+            "mode": "run"
+        },
+        {
+            "id": "nodejs/tests/quarantine_e2e_scratch.test.ts",
+            "runner": "jest",
+            "reason": "throwaway e2e: nodejs suite",
+            "owner": "@raul",
+            "added": "2026-07-21",
+            "expires": "2026-08-04",
+            "mode": "run"
+        },
+        {
+            "id": "product:engineering-analytics",
+            "runner": "jest",
+            "reason": "throwaway e2e: product scope",
+            "owner": "@raul",
+            "added": "2026-07-21",
+            "expires": "2026-08-04",
+            "mode": "run"
+        }
+    ]
 }
