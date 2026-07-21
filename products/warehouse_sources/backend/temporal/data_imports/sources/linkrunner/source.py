@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LinkrunnerSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.linkrunner import (
+    LinkrunnerSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkrunner.linkrunner import (
     LinkrunnerResumeConfig,
     linkrunner_source,
