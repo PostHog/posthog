@@ -724,13 +724,12 @@ impl Dispatcher {
             // worker, so a key deferred across several batches re-homes to a
             // single survivor — preserving per-distinct_id (person-batching)
             // locality instead of scattering its messages across workers.
-            // Fall back to load-based selection for a fresh key, or when the
-            // pinned worker is itself unhealthy (e.g. the drainer we're leaving).
-            let sticky = table
-                .pins
-                .get(&group.routing_key)
-                .map(|pin| pin.worker.clone())
-                .filter(|w| healthy.contains(w));
+            // Fall back to load-based selection for a fresh key, when the
+            // pinned worker is itself unhealthy (e.g. the drainer we're
+            // leaving), or when it is far more loaded than the rest of the
+            // pool (a saturated worker bounces the flush with 503s until the
+            // batch times out — see `sticky_pin_for`).
+            let sticky = sticky_pin_for(&table.pins, &group.routing_key, &healthy, &working_load);
             let worker = match sticky {
                 Some(worker) => worker,
                 None => {
@@ -942,11 +941,7 @@ impl Dispatcher {
             let Some((owning_batch, messages)) = table.stash.pop_next(key) else {
                 continue;
             };
-            let sticky = table
-                .pins
-                .get(key)
-                .map(|pin| pin.worker.clone())
-                .filter(|w| healthy.contains(w));
+            let sticky = sticky_pin_for(&table.pins, key, &healthy, &working_load);
             let worker = match sticky.or_else(|| router.select(&healthy, &working_load)) {
                 Some(worker) => worker,
                 None => {
@@ -1041,6 +1036,45 @@ fn decrement_pending(pending: &mut HashMap<String, u32>, batch_id: &str) {
             pending.remove(batch_id);
         }
     }
+}
+
+/// Cap on how much more loaded a pinned worker may be than the least-loaded
+/// healthy worker before a flush abandons stickiness. Beyond
+/// `min_load * FACTOR + SLACK` in-flight messages the pin is ignored and the
+/// group routes by load: a worker at its concurrency cap keeps 503ing the
+/// flush until the batch's deferred-flush timeout kills the process, so
+/// locality yields to load once the gap is this large. The slack keeps small
+/// absolute gaps sticky — an idle candidate (min 0) must not disqualify a pin
+/// holding a few hundred messages.
+const STICKY_PIN_LOAD_FACTOR: usize = 2;
+const STICKY_PIN_LOAD_SLACK: usize = 500;
+
+/// The key's pinned worker, if the pin may be honored for a flush: it must be
+/// healthy and not drastically more loaded than the least-loaded candidate
+/// (see `STICKY_PIN_LOAD_FACTOR`). Only consulted at flush/eager-release
+/// time, when the key has no send in flight — so declining the pin and
+/// routing elsewhere cannot reorder the key.
+fn sticky_pin_for(
+    pins: &HashMap<String, Pin>,
+    routing_key: &str,
+    healthy: &[WorkerId],
+    working_load: &WorkerLoad,
+) -> Option<WorkerId> {
+    let worker = pins.get(routing_key).map(|pin| pin.worker.clone())?;
+    if !healthy.contains(&worker) {
+        return None;
+    }
+    let pinned_load = working_load.get(&worker).copied().unwrap_or(0);
+    let min_load = healthy
+        .iter()
+        .map(|w| working_load.get(w).copied().unwrap_or(0))
+        .min()
+        .unwrap_or(0);
+    if pinned_load > min_load.saturating_mul(STICKY_PIN_LOAD_FACTOR) + STICKY_PIN_LOAD_SLACK {
+        counter!("ingestion_consumer_dispatcher_sticky_pin_overrides_total").increment(1);
+        return None;
+    }
+    Some(worker)
 }
 
 /// Add `count` to a worker's working load for this round, if it is a candidate.
@@ -2088,6 +2122,102 @@ mod tests {
         );
         let backstop = dispatcher.flush_deferred("batch-2");
         assert_eq!(backstop.len(), 1, "completion-time flush retries the group");
+    }
+
+    /// Pin key K, then load its worker far above the other one via unresolved
+    /// sends of other keys, and put K's group in the stash via a failed send.
+    /// Returns (dispatcher, pinned_worker, other_worker); K's group is stashed
+    /// under "b0" with no send in flight, the pinned worker holding 600
+    /// unresolved messages.
+    fn saturated_sticky_setup() -> (Dispatcher, WorkerId, WorkerId) {
+        let registry = healthy_registry(2);
+        let dispatcher = Dispatcher::new(Arc::clone(&registry));
+
+        let b0 = dispatcher.assign("b0", make_msgs(&[("t", "k")]));
+        let pinned = b0[0].worker.clone();
+
+        // Load the OTHER worker so the next 600-message key lands on the
+        // pinned one (bin-packing places on the least-loaded worker).
+        let b1 = dispatcher.assign("b1", make_msgs(&vec![("t", "b"); 500]));
+        let other = b1[0].worker.clone();
+        assert_ne!(other, pinned);
+        let b2 = dispatcher.assign("b2", make_msgs(&vec![("t", "d"); 600]));
+        assert_eq!(
+            b2[0].worker, pinned,
+            "600-msg key lands on the pinned worker"
+        );
+
+        // K's send fails: its group re-stashes, nothing for K is in flight.
+        dispatcher.defer_failed("b0", make_msgs(&[("t", "k")]));
+        dispatcher.on_sub_batch_resolved(&pinned, 1, &b0[0].routing_keys, false, true);
+
+        (dispatcher, pinned, other)
+    }
+
+    #[test]
+    fn test_flush_overrides_sticky_pin_on_saturated_worker() {
+        let (dispatcher, _pinned, other) = saturated_sticky_setup();
+
+        // The other worker's send resolves — it is now idle while the pinned
+        // worker still holds 600 unresolved messages.
+        dispatcher.on_sub_batch_resolved(&other, 500, &["t:b".to_string()], false, false);
+
+        let flushed = dispatcher.flush_deferred("b0");
+        assert_eq!(flushed.len(), 1);
+        assert_eq!(
+            flushed[0].worker, other,
+            "flush must abandon the saturated sticky pin for the idle worker"
+        );
+    }
+
+    #[test]
+    fn test_flush_keeps_sticky_pin_when_loads_comparable() {
+        let (dispatcher, pinned, _other) = saturated_sticky_setup();
+
+        // Both workers still loaded (600 vs 500) — locality wins.
+        let flushed = dispatcher.flush_deferred("b0");
+        assert_eq!(flushed.len(), 1);
+        assert_eq!(
+            flushed[0].worker, pinned,
+            "comparable loads keep the sticky pin for person-batching locality"
+        );
+    }
+
+    #[test]
+    fn test_eager_release_overrides_saturated_sticky_pin() {
+        let registry = healthy_registry(2);
+        let dispatcher = Dispatcher::new(Arc::clone(&registry));
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        dispatcher.set_eager_flush_sender(tx);
+
+        let b0 = dispatcher.assign("b0", make_msgs(&[("t", "k")]));
+        let pinned = b0[0].worker.clone();
+        let b2 = dispatcher.assign("b2", make_msgs(&vec![("t", "d"); 600]));
+        let other = b2[0].worker.clone();
+        assert_ne!(other, pinned);
+        let b3 = dispatcher.assign("b3", make_msgs(&vec![("t", "e"); 700]));
+        assert_eq!(
+            b3[0].worker, pinned,
+            "700-msg key lands on the pinned worker"
+        );
+
+        // A second K send is honored onto the pin, fails, and re-stashes; the
+        // resolve is marked failed so nothing releases yet.
+        let b1 = dispatcher.assign("b1", make_msgs(&[("t", "k")]));
+        assert_eq!(b1[0].worker, pinned);
+        dispatcher.defer_failed("b1", make_msgs(&[("t", "k")]));
+        dispatcher.on_sub_batch_resolved(&pinned, 1, &b1[0].routing_keys, false, true);
+        // The other worker drains fully; the pinned one still holds 700.
+        dispatcher.on_sub_batch_resolved(&other, 600, &["t:d".to_string()], false, false);
+
+        // K's original send resolves cleanly → eager release fires, and must
+        // route off the saturated pin.
+        dispatcher.on_sub_batch_resolved(&pinned, 1, &b0[0].routing_keys, false, false);
+        let flush = rx.try_recv().expect("eager release fires");
+        assert_eq!(
+            flush.sub_batch.worker, other,
+            "eager release must abandon the saturated sticky pin"
+        );
     }
 
     #[tokio::test]
