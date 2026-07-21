@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING, cast
 
 import posthoganalytics
+from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
@@ -42,6 +43,9 @@ class StreamlitAppSandboxSerializer(DataclassSerializer):
         dataclass = AppSandboxContract
 
 
+# Shares AppContract with StreamlitAppSerializer, so without its own component name the two
+# collapse into one schema and the fuller one loses active_version/sandbox.
+@extend_schema_serializer(component_name="AppSummaryContract")
 class StreamlitAppMinimalSerializer(DataclassSerializer):
     created_by = StreamlitAppUserSerializer(allow_null=True, required=False, help_text="User who created this app.")
 
