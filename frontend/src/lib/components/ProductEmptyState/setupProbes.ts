@@ -17,11 +17,11 @@ import type { ProductSetupStatus } from './types'
  */
 export interface ProductSetupProbe {
     productKey: ProductKey
-    /** Any of these events existing means the product has real data. */
+    /** Any of these events existing (within the preload lookback window) means the product has real data. */
     hasDataEvents: string[]
     /** Any of these existing (without `hasDataEvents`) means instrumented but no traffic yet. */
     waitingEvents?: string[]
-    /** Only probe when this flag is enabled — mirror the scene gate's `featureFlag`. */
+    /** Only probe when this flag is enabled. */
     featureFlag?: FeatureFlagKey
 }
 

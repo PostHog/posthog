@@ -77,7 +77,7 @@ Then **delete** the scene's bespoke empty/loading branches (including any custom
 
 ### 4b. Register a boot-time probe
 
-Add an entry to `PRODUCT_SETUP_PROBES` in `lib/components/ProductEmptyState/setupProbes.ts` — the event names that prove your product has data (and optionally the "instrumented but no traffic" events), mirroring your detection logic's semantics. This is what lets the app resolve your status before the user ever opens the scene. Products whose detection isn't event-based (exists APIs, entity counts) skip this for now; their status resolves on first scene visit.
+Add an entry to `PRODUCT_SETUP_PROBES` in `lib/components/ProductEmptyState/setupProbes.ts` — the event names that prove your product has data (and optionally the "instrumented but no traffic" events), mirroring your detection logic's semantics. This is what lets the app resolve your status before the user ever opens the scene. The probe query only looks back `PRELOAD_LOOKBACK_DAYS` (so it prunes to recent partitions); your in-scene detection stays the source of truth for anything older. Products whose detection isn't event-based (exists APIs, entity counts) skip this for now; their status resolves on first scene visit.
 
 ### 5. Test the status mapping
 
