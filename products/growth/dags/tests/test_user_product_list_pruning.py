@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.utils import timezone
 
@@ -140,6 +140,26 @@ class TestParseUsageCsv:
             parse_usage_csv(["distinct_id,team,segment", "u1,1,insights"], allowed_team_ids={1}, cutoff=CUTOFF)
 
 
+class TestIterCsvLines:
+    def test_reads_and_decodes_lines_from_s3(self):
+        # bucket/key extraction and byte decoding are the whole S3 read path; a
+        # wrong split would make the job read the wrong object (or none).
+        body = MagicMock()
+        body.iter_lines.return_value = [HEADER.encode(), f"u1,1,insights,{SEEN}".encode()]
+        s3_client = MagicMock()
+        s3_client.get_object.return_value = {"Body": body}
+
+        lines = list(user_product_list_pruning._iter_csv_lines(s3_client, "s3://scratchpad/dir/usage.csv"))
+
+        s3_client.get_object.assert_called_once_with(Bucket="scratchpad", Key="dir/usage.csv")
+        assert lines == [HEADER, f"u1,1,insights,{SEEN}"]
+
+    @pytest.mark.parametrize("bad_path", ["https://example.com/usage.csv", "s3://bucket-only", "s3:///key-only"])
+    def test_rejects_non_s3_paths(self, bad_path: str):
+        with pytest.raises(ValueError):
+            list(user_product_list_pruning._iter_csv_lines(MagicMock(), bad_path))
+
+
 class TestMappingDrift:
     def test_every_product_is_classified(self):
         # A new or renamed product must be added to URL_KEY_TO_PRODUCT_PATH (so the
@@ -203,21 +223,22 @@ class TestPruneUnusedUserProductsOp:
             f"d-gone,{team.id},heatmaps,{self._seen()}",
         ]
 
-        config = {"usage_csv_urls": ["https://example.com/usage.csv"], "window_days": 60}
+        config = {"usage_csv_s3_paths": ["s3://scratchpad/usage.csv"], "window_days": 60}
+        resources = {"s3": MagicMock()}
         with patch(
             "products.growth.dags.user_product_list_pruning._iter_csv_lines", return_value=iter(csv_lines)
         ) as mock_fetch:
-            prune_unused_user_products(build_op_context(op_config={**config, "dry_run": True}))
-            mock_fetch.assert_called_once_with("https://example.com/usage.csv")
+            prune_unused_user_products(build_op_context(op_config={**config, "dry_run": True}, resources=resources))
+            mock_fetch.assert_called_once_with(ANY, "s3://scratchpad/usage.csv")
 
         # Dry run: nothing deleted
         assert UserProductList.objects.count() == 6
 
         with patch(
             "products.growth.dags.user_product_list_pruning._iter_csv_lines",
-            side_effect=lambda url: iter(csv_lines),
+            side_effect=lambda client, path: iter(csv_lines),
         ):
-            prune_unused_user_products(build_op_context(op_config={**config, "dry_run": False}))
+            prune_unused_user_products(build_op_context(op_config={**config, "dry_run": False}, resources=resources))
 
         # active: unused Surveys deleted, used Product analytics kept
         assert set(UserProductList.objects.filter(user=active).values_list("product_path", flat=True)) == {
@@ -238,16 +259,19 @@ class TestPruneUnusedUserProductsOp:
         user_b = self._create_user_with_rows(team, "b@x.com", "d-b", ["Session replay", "Feature flags"])
 
         files = {
-            "https://example.com/part0.csv": [HEADER, f"d-a,{team.id},insights,{self._seen()}"],
-            "https://example.com/part1.csv": [HEADER, f"d-b,{team.id},replay,{self._seen()}"],
+            "s3://scratchpad/part0.csv": [HEADER, f"d-a,{team.id},insights,{self._seen()}"],
+            "s3://scratchpad/part1.csv": [HEADER, f"d-b,{team.id},replay,{self._seen()}"],
         }
 
         with patch(
             "products.growth.dags.user_product_list_pruning._iter_csv_lines",
-            side_effect=lambda url: iter(files[url]),
+            side_effect=lambda client, path: iter(files[path]),
         ):
             prune_unused_user_products(
-                build_op_context(op_config={"usage_csv_urls": list(files.keys()), "dry_run": False})
+                build_op_context(
+                    op_config={"usage_csv_s3_paths": list(files.keys()), "dry_run": False},
+                    resources={"s3": MagicMock()},
+                )
             )
 
         assert set(UserProductList.objects.filter(user=user_a).values_list("product_path", flat=True)) == {

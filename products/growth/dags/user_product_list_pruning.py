@@ -4,9 +4,12 @@ hasn't opened in the last 60 days, per (user, team), to simplify sidebars.
 "Usage" comes from PostHog's own self-capture ``$pageview`` events, which land
 in US ClickHouse under team 2 for both US and EU app traffic - so instead of
 querying ClickHouse from each region's Dagster, the aggregation below is run
-once (e.g. via Metabase) and exported as CSV(s) whose URLs are passed to the
-job in both regions. No schedule: launch manually from the Dagster UI, with
-`dry_run: true` (the default) first to review the run metadata.
+once (e.g. via Metabase), and the resulting CSV(s) are uploaded to the private
+scratchpad S3 bucket in each region. Their ``s3://bucket/key`` paths are passed
+to the job, which reads them straight from S3 with Dagster's read-only bucket
+grant (no public URLs, no pre-signed links). No schedule: launch manually from
+the Dagster UI, with `dry_run: true` (the default) first to review the run
+metadata.
 
 The aggregation query, ready to copy-run against US prod (team 2). The
 ``seg1 IN (...)`` whitelist keeps non-product pages (settings, persons,
@@ -45,7 +48,7 @@ one would make used products look unused):
 If the result exceeds the exporter's row cap (Metabase caps CSVs around 1M
 rows), partition it into N non-overlapping exports by adding
 ``AND modulo(sipHash64(distinct_id), N) = i`` (i in 0..N-1) to the WHERE
-clause and pass every file's URL to the job.
+clause and pass every file's S3 path to the job.
 
 Files are processed one at a time, so memory stays O(largest file): only one
 file's usage dict is held at any point. ASSUMPTION (trusted, not re-verified
@@ -66,19 +69,18 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import TypeVar
+from urllib.parse import urlparse
 
 from django.db import connections
 from django.utils import timezone
 
 import dagster
 import pydantic
-import requests
 
 from posthog.dags.common import JobOwners
 from posthog.models.file_system.user_product_list import UserProductList
 from posthog.models.user import User
 
-CSV_DOWNLOAD_TIMEOUT_SECONDS = (10, 600)  # (connect, read)
 TEAMS_PER_CONNECTION_CYCLE = 500
 # Stay well under Postgres' 65535 bind-parameter cap for IN (...) queries.
 SQL_IN_BATCH_SIZE = 10_000
@@ -313,11 +315,12 @@ def select_rows_to_prune(
 class PruneConfig(dagster.Config):
     """Configuration for the one-off unused-product pruning run."""
 
-    usage_csv_urls: list[str] = pydantic.Field(
+    usage_csv_s3_paths: list[str] = pydantic.Field(
         description=(
-            "URL(s) of CSV export(s) of the usage aggregation query "
-            "(columns: distinct_id, browsed_team_id, url_key, last_seen). Multiple files MUST "
-            "partition users by distinct_id (see module docstring) - the job trusts this"
+            "S3 path(s) (s3://bucket/key) of CSV export(s) of the usage aggregation query "
+            "(columns: distinct_id, browsed_team_id, url_key, last_seen), uploaded to the private "
+            "scratchpad bucket. Multiple files MUST partition users by distinct_id (see module "
+            "docstring) - the job trusts this"
         ),
     )
     dry_run: bool = pydantic.Field(
@@ -334,10 +337,19 @@ class PruneConfig(dagster.Config):
     )
 
 
-def _iter_csv_lines(url: str) -> Iterator[str]:
-    response = requests.get(url, stream=True, timeout=CSV_DOWNLOAD_TIMEOUT_SECONDS)
-    response.raise_for_status()
-    yield from response.iter_lines(decode_unicode=True)
+def _iter_csv_lines(s3_client, s3_path: str) -> Iterator[str]:
+    """Stream a usage CSV out of S3 one line at a time (keeps memory O(line))."""
+    parsed = urlparse(s3_path)
+    if parsed.scheme != "s3":
+        raise ValueError(f"Invalid S3 path scheme: {s3_path}. Expected s3://bucket/key")
+    bucket = parsed.netloc
+    key = parsed.path.lstrip("/")
+    if not bucket or not key:
+        raise ValueError(f"Invalid S3 path: {s3_path}. Expected s3://bucket/key")
+
+    response = s3_client.get_object(Bucket=bucket, Key=key)
+    for line in response["Body"].iter_lines():
+        yield line.decode("utf-8")
 
 
 T = TypeVar("T")
@@ -356,12 +368,15 @@ def _in_batches(items: list[T], size: int = SQL_IN_BATCH_SIZE) -> Iterator[list[
         jitter=dagster.Jitter.FULL,
     )
 )
-def prune_unused_user_products(context: dagster.OpExecutionContext, config: PruneConfig) -> None:
+def prune_unused_user_products(
+    context: dagster.OpExecutionContext, config: PruneConfig, s3: dagster.ResourceParam
+) -> None:
     """Retrying the whole op is safe: deletions are idempotent (already-deleted
     rows just aren't matched again)."""
-    if not config.usage_csv_urls:
-        raise dagster.Failure("usage_csv_urls cannot be empty")
+    if not config.usage_csv_s3_paths:
+        raise dagster.Failure("usage_csv_s3_paths cannot be empty")
 
+    s3_client = s3.get_client()
     cutoff = timezone.now() - timedelta(days=config.window_days)
 
     # Scope everything to teams that actually have sidebar rows in this region's Postgres;
@@ -379,9 +394,9 @@ def prune_unused_user_products(context: dagster.OpExecutionContext, config: Prun
 
     # One file at a time keeps memory at O(largest file); see the module
     # docstring for the partitioning assumption that makes this decision-safe.
-    for url in config.usage_csv_urls:
-        context.log.info(f"Downloading usage CSV: {url}")
-        parsed = parse_usage_csv(_iter_csv_lines(url), allowed_team_ids, cutoff)
+    for s3_path in config.usage_csv_s3_paths:
+        context.log.info(f"Reading usage CSV from S3: {s3_path}")
+        parsed = parse_usage_csv(_iter_csv_lines(s3_client, s3_path), allowed_team_ids, cutoff)
         usage = parsed.usage
         stale_rows_dropped += parsed.stale_rows_dropped
         context.log.info(f"File covers {len(usage)} teams, {sum(len(v) for v in usage.values())} (team, user) pairs")
@@ -389,7 +404,7 @@ def prune_unused_user_products(context: dagster.OpExecutionContext, config: Prun
             # Can't be a hard failure: a legitimately scoped export (few teams,
             # active users only) also has no usage near the cutoff boundary.
             context.log.warning(
-                f"Oldest usage in {url} is {parsed.oldest_last_seen.isoformat()}, well inside the "
+                f"Oldest usage in {s3_path} is {parsed.oldest_last_seen.isoformat()}, well inside the "
                 f"{config.window_days}-day window ending {cutoff.isoformat()}. If this is a full export, "
                 "the SQL INTERVAL was likely narrower than window_days and used products would look unused."
             )
