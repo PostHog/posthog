@@ -818,9 +818,10 @@ describe('Tool Filtering - Feature Flags', () => {
                 'engineering-analytics',
                 'stamphog',
                 'product-data-catalog',
+                'loops',
             ])
         )
-        expect(flags).toHaveLength(22)
+        expect(flags).toHaveLength(23)
     })
 
     // Exercise the real predicate (toolPassesFlagGate) over hand-rolled entries
