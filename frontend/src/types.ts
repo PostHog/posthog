@@ -307,6 +307,7 @@ export enum AccessControlResourceType {
     ActivityLog = 'activity_log',
     ErrorTracking = 'error_tracking',
     Tracing = 'tracing',
+    Toolbar = 'toolbar',
 }
 
 interface UserBaseType {
@@ -5769,6 +5770,7 @@ export const API_SCOPE_OBJECTS = [
     'tagger',
     'ticket',
     'task',
+    'toolbar',
     'tracing',
     'field_note',
     'uploaded_media',
