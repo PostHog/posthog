@@ -43,21 +43,30 @@ export function TicketPreviewContent({ ticketId }: { ticketId: string }): JSX.El
         )
     }
 
-    if (!preview || preview.messages.length === 0) {
+    if (!preview || preview.firstMessages.length === 0) {
         return <span className="text-xs text-muted-alt block p-3">No messages in this ticket yet</span>
     }
 
-    const hiddenCount = preview.totalCount - preview.messages.length
+    const hiddenCount = preview.totalCount - preview.firstMessages.length - (preview.lastMessage ? 1 : 0)
 
     return (
         <div className="flex flex-col gap-2 p-3 max-w-100">
-            {preview.messages.map((message) => (
+            {preview.firstMessages.map((message) => (
                 <TicketPreviewMessage key={message.id} message={message} />
             ))}
-            {hiddenCount > 0 && (
-                <span className="text-xs text-muted-alt">
-                    +{hiddenCount} more {hiddenCount === 1 ? 'message' : 'messages'}
-                </span>
+            {preview.lastMessage && (
+                <>
+                    {hiddenCount > 0 && (
+                        <div className="flex items-center gap-2 text-xs text-muted-alt">
+                            <div className="flex-1 border-t border-border" />
+                            <span className="shrink-0">
+                                {hiddenCount} more {hiddenCount === 1 ? 'message' : 'messages'}
+                            </span>
+                            <div className="flex-1 border-t border-border" />
+                        </div>
+                    )}
+                    <TicketPreviewMessage message={preview.lastMessage} />
+                </>
             )}
         </div>
     )

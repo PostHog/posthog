@@ -11,7 +11,10 @@ export interface TicketPreviewLogicProps {
 }
 
 export interface TicketPreview {
-    messages: TicketMessageApi[]
+    firstMessages: TicketMessageApi[]
+    // The newest message in the thread, shown after the truncation divider. Null when the
+    // whole thread already fits in firstMessages.
+    lastMessage: TicketMessageApi | null
     totalCount: number
 }
 
@@ -65,12 +68,24 @@ export const ticketPreviewLogic = kea<ticketPreviewLogicType>([
             null as TicketPreview | null,
             {
                 loadPreview: async (): Promise<TicketPreview> => {
-                    const response = await conversationsTicketsMessagesList(
-                        String(getCurrentTeamId()),
-                        props.ticketId,
-                        { limit: TICKET_PREVIEW_MESSAGE_COUNT }
-                    )
-                    return { messages: response.results, totalCount: response.count }
+                    const teamId = String(getCurrentTeamId())
+                    const first = await conversationsTicketsMessagesList(teamId, props.ticketId, {
+                        limit: TICKET_PREVIEW_MESSAGE_COUNT,
+                    })
+                    const totalCount = first.count
+
+                    // The thread is oldest-first, so the newest message lives on the last page.
+                    // Only fetch it when it isn't already in the first batch.
+                    let lastMessage: TicketMessageApi | null = null
+                    if (totalCount > TICKET_PREVIEW_MESSAGE_COUNT) {
+                        const last = await conversationsTicketsMessagesList(teamId, props.ticketId, {
+                            limit: 1,
+                            offset: totalCount - 1,
+                        })
+                        lastMessage = last.results[0] ?? null
+                    }
+
+                    return { firstMessages: first.results, lastMessage, totalCount }
                 },
             },
         ],
