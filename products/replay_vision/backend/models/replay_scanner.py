@@ -32,13 +32,13 @@ class ScannerProvider(models.TextChoices):
 
 
 class ScannerModel(models.TextChoices):
-    """Priced per observation in `billing.OBSERVATION_CREDITS_BY_MODEL`; new members need a price there."""
+    """The current Google lineup, one model per tier (cheapest first). Priced per observation in
+    `billing.OBSERVATION_CREDITS_BY_MODEL`; new members need token prices there. When Google supersedes
+    a tier's model, swap the member and remap existing scanners in a migration (see 0051)."""
 
-    GEMINI_2_5_FLASH = "gemini-2.5-flash", "Gemini 2.5 Flash"
-    GEMINI_3_FLASH = "gemini-3-flash-preview", "Gemini 3 Flash"
     GEMINI_3_5_FLASH_LITE = "gemini-3.5-flash-lite", "Gemini 3.5 Flash Lite"
-    GEMINI_3_5_FLASH = "gemini-3.5-flash", "Gemini 3.5 Flash"
     GEMINI_3_6_FLASH = "gemini-3.6-flash", "Gemini 3.6 Flash"
+    GEMINI_3_1_PRO = "gemini-3.1-pro-preview", "Gemini 3.1 Pro"
 
 
 def initial_watermark() -> "datetime":

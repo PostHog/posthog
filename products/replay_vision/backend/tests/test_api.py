@@ -68,7 +68,7 @@ class _VisionAPITestCase(APIBaseTest):
             "name": "my-scanner",
             "scanner_type": ScannerType.MONITOR,
             "scanner_config": {"prompt": "did the user check out?"},
-            "model": ScannerModel.GEMINI_3_FLASH,
+            "model": ScannerModel.GEMINI_3_6_FLASH,
         }
         defaults.update(overrides)
         return ReplayScanner.objects.create(**defaults)
@@ -82,7 +82,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "name": "checkout-monitor",
                 "scanner_type": ScannerType.MONITOR,
                 "scanner_config": {"prompt": "did checkout complete?"},
-                "model": ScannerModel.GEMINI_3_FLASH,
+                "model": ScannerModel.GEMINI_3_6_FLASH,
             },
             format="json",
         )
@@ -102,7 +102,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "name": "watermark-seed",
                 "scanner_type": ScannerType.MONITOR,
                 "scanner_config": {"prompt": "did checkout complete?"},
-                "model": ScannerModel.GEMINI_3_FLASH,
+                "model": ScannerModel.GEMINI_3_6_FLASH,
             },
             format="json",
         )
@@ -116,7 +116,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             "name": f"missing-{missing_field}",
             "scanner_type": ScannerType.MONITOR,
             "scanner_config": {"prompt": "p"},
-            "model": ScannerModel.GEMINI_3_FLASH,
+            "model": ScannerModel.GEMINI_3_6_FLASH,
         }
         del payload[missing_field]
         resp = self.client.post(self.scanners_url, data=payload, format="json")
@@ -130,7 +130,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "name": "explicit-provider",
                 "scanner_type": ScannerType.MONITOR,
                 "scanner_config": {"prompt": "p"},
-                "model": ScannerModel.GEMINI_3_FLASH,
+                "model": ScannerModel.GEMINI_3_6_FLASH,
                 "provider": ScannerProvider.GOOGLE,
             },
             format="json",
@@ -146,7 +146,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "name": f"rate-{value}",
                 "scanner_type": ScannerType.MONITOR,
                 "scanner_config": {"prompt": "p"},
-                "model": ScannerModel.GEMINI_3_FLASH,
+                "model": ScannerModel.GEMINI_3_6_FLASH,
                 "sampling_rate": value,
             },
             format="json",
@@ -162,7 +162,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "name": f"rate-ok-{value}",
                 "scanner_type": ScannerType.MONITOR,
                 "scanner_config": {"prompt": "p"},
-                "model": ScannerModel.GEMINI_3_FLASH,
+                "model": ScannerModel.GEMINI_3_6_FLASH,
                 "sampling_rate": value,
             },
             format="json",
@@ -178,7 +178,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "name": "dup",
                 "scanner_type": ScannerType.MONITOR,
                 "scanner_config": {"prompt": "p"},
-                "model": ScannerModel.GEMINI_3_FLASH,
+                "model": ScannerModel.GEMINI_3_6_FLASH,
             },
             format="json",
         )
@@ -193,7 +193,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             name="theirs",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_FLASH,
+            model=ScannerModel.GEMINI_3_6_FLASH,
         )
         resp = self.client.get(self.scanners_url)
         self.assertEqual(resp.status_code, 200)
@@ -245,7 +245,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "name": f"valid-{label}",
                 "scanner_type": scanner_type,
                 "scanner_config": scanner_config,
-                "model": ScannerModel.GEMINI_3_FLASH,
+                "model": ScannerModel.GEMINI_3_6_FLASH,
             },
             format="json",
         )
@@ -269,7 +269,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "name": f"invalid-{label}",
                 "scanner_type": scanner_type,
                 "scanner_config": scanner_config,
-                "model": ScannerModel.GEMINI_3_FLASH,
+                "model": ScannerModel.GEMINI_3_6_FLASH,
             },
             format="json",
         )
@@ -379,7 +379,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "name": f"invalid-{label}",
                 "scanner_type": scanner_type,
                 "scanner_config": scanner_config,
-                "model": ScannerModel.GEMINI_3_FLASH,
+                "model": ScannerModel.GEMINI_3_6_FLASH,
             },
             format="json",
         )
@@ -418,7 +418,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "name": "with-query",
                 "scanner_type": ScannerType.MONITOR,
                 "scanner_config": {"prompt": "p"},
-                "model": ScannerModel.GEMINI_3_FLASH,
+                "model": ScannerModel.GEMINI_3_6_FLASH,
                 "query": {"filter_test_accounts": True},
             },
             format="json",
@@ -434,7 +434,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "name": "stripped",
                 "scanner_type": ScannerType.MONITOR,
                 "scanner_config": {"prompt": "p"},
-                "model": ScannerModel.GEMINI_3_FLASH,
+                "model": ScannerModel.GEMINI_3_6_FLASH,
                 "query": {"date_from": "-7d", "date_to": "-1d", "filter_test_accounts": True},
             },
             format="json",
@@ -452,7 +452,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "name": "bad-query",
                 "scanner_type": ScannerType.MONITOR,
                 "scanner_config": {"prompt": "p"},
-                "model": ScannerModel.GEMINI_3_FLASH,
+                "model": ScannerModel.GEMINI_3_6_FLASH,
                 "query": {"this_field_does_not_exist": True},
             },
             format="json",
@@ -646,7 +646,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                     "name": "needs-recording-read",
                     "scanner_type": ScannerType.MONITOR,
                     "scanner_config": {"prompt": "p"},
-                    "model": ScannerModel.GEMINI_3_FLASH,
+                    "model": ScannerModel.GEMINI_3_6_FLASH,
                 },
                 format="json",
             )
@@ -685,7 +685,7 @@ class TestScannerDigestProvisioning(_VisionAPITestCase):
         "name": "checkout-monitor",
         "scanner_type": ScannerType.MONITOR,
         "scanner_config": {"prompt": "did checkout complete?"},
-        "model": ScannerModel.GEMINI_3_FLASH,
+        "model": ScannerModel.GEMINI_3_6_FLASH,
     }
 
     def test_create_provisions_daily_digest(self) -> None:
@@ -723,7 +723,7 @@ class TestScannerEstimatePersistence(_VisionAPITestCase):
             "name": "estimate-persistence",
             "scanner_type": ScannerType.MONITOR,
             "scanner_config": {"prompt": "p"},
-            "model": ScannerModel.GEMINI_3_FLASH,
+            "model": ScannerModel.GEMINI_3_6_FLASH,
         }
         payload.update(overrides)
         return payload
@@ -807,7 +807,7 @@ class TestScannerSignalSourceEnablement(_VisionAPITestCase):
             "name": "signal-enablement",
             "scanner_type": ScannerType.MONITOR,
             "scanner_config": {"prompt": "p"},
-            "model": ScannerModel.GEMINI_3_FLASH,
+            "model": ScannerModel.GEMINI_3_6_FLASH,
         }
         payload.update(overrides)
         return payload
@@ -935,7 +935,7 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
             name="theirs",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_FLASH,
+            model=ScannerModel.GEMINI_3_6_FLASH,
         )
         resp = self.client.get(self.observations_url(str(other_scanner.id)))
         self.assertEqual(resp.status_code, 404)
@@ -1571,7 +1571,7 @@ class TestObserveActionFeatureFlag(APIBaseTest):
                 name="off",
                 scanner_type=ScannerType.MONITOR,
                 scanner_config={"prompt": "p"},
-                model=ScannerModel.GEMINI_3_FLASH,
+                model=ScannerModel.GEMINI_3_6_FLASH,
             )
             resp = self.client.post(
                 f"/api/environments/{self.team.id}/vision/scanners/{scanner.id}/observe/",
@@ -1796,7 +1796,7 @@ class TestSessionReplayObservationViewSet(_VisionAPITestCase):
             name="theirs",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_FLASH,
+            model=ScannerModel.GEMINI_3_6_FLASH,
         )
         ReplayObservation.objects.create(
             scanner=other_scanner,
@@ -1940,20 +1940,20 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
         self.assertEqual(body["window_days"], 30)
         self.assertEqual(body["estimated_observations_per_month"], 3)
         # Defaults to the baseline model when the request names none.
-        self.assertEqual(body["credits_per_observation"], 5)
-        self.assertEqual(body["estimated_credits_per_month"], 15)
+        self.assertEqual(body["credits_per_observation"], 15)
+        self.assertEqual(body["estimated_credits_per_month"], 45)
 
     def test_estimate_prices_credits_at_proposed_model(self) -> None:
         for index in range(3):
             self._ingest_session(days_ago=index + 1)
         self._ingest_session(days_ago=40)
 
-        resp = self.client.post(self.estimate_url, data={"model": "gemini-3.5-flash"}, format="json")
+        resp = self.client.post(self.estimate_url, data={"model": "gemini-3.1-pro-preview"}, format="json")
         self.assertEqual(resp.status_code, 200)
 
         body = resp.json()
-        self.assertEqual(body["credits_per_observation"], 15)
-        self.assertEqual(body["estimated_credits_per_month"], body["estimated_observations_per_month"] * 15)
+        self.assertEqual(body["credits_per_observation"], 20)
+        self.assertEqual(body["estimated_credits_per_month"], body["estimated_observations_per_month"] * 20)
 
     def test_estimate_applies_sampling(self) -> None:
         for index in range(4):
@@ -1979,7 +1979,7 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
                 name=name,
                 scanner_type=ScannerType.MONITOR,
                 scanner_config={"prompt": "p"},
-                model=ScannerModel.GEMINI_3_FLASH,
+                model=ScannerModel.GEMINI_3_6_FLASH,
                 enabled=enabled,
                 estimated_monthly_observations=estimate,
             )
@@ -1988,13 +1988,13 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
         make("b", enabled=True, estimate=250)
         make("disabled", enabled=False, estimate=999)  # disabled scanners don't count
 
-        # New scanner (no scanner_id): others = both enabled scanners, credit-weighted at 5/observation.
+        # New scanner (no scanner_id): others = both enabled scanners, credit-weighted at 15/observation.
         new_body = self.client.post(self.estimate_url, data={}, format="json").json()
-        self.assertEqual(new_body["other_enabled_scanners_monthly_credits"], 350 * 5)
+        self.assertEqual(new_body["other_enabled_scanners_monthly_credits"], 350 * 15)
 
         # Editing scanner `a`: its own stored estimate is excluded so the forecast won't double-count it.
         edit_body = self.client.post(self.estimate_url, data={"scanner_id": str(a.id)}, format="json").json()
-        self.assertEqual(edit_body["other_enabled_scanners_monthly_credits"], 250 * 5)
+        self.assertEqual(edit_body["other_enabled_scanners_monthly_credits"], 250 * 15)
 
     def test_estimate_rejects_scanner_id_outside_the_request_team(self) -> None:
         # A scanner_id from another team (even same org) must be rejected, not silently excluded from the others-sum.
@@ -2004,7 +2004,7 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
             name="theirs",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_FLASH,
+            model=ScannerModel.GEMINI_3_6_FLASH,
             enabled=True,
             estimated_monthly_observations=500,
         )
