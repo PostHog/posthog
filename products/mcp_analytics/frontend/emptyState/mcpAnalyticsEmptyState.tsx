@@ -36,7 +36,7 @@ export const mcpAnalyticsEmptyState: SceneProductEmptyState = {
                 hint: 'Instrumenting another server? Re-run setup:',
             },
         },
-        wizard: { slug: 'mcp-analytics' },
+        wizard: { slug: 'mcp-analytics', pinProjectId: true },
         docsUrl: MCP_ANALYTICS_DOCS_URL,
         manualSetupUrl: 'https://posthog.com/docs/mcp-analytics/installation',
         previewLabel: 'Tool calls, once connected',

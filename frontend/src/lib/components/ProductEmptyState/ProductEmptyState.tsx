@@ -23,7 +23,9 @@ const ACCENT_TEXT = 'text-[var(--empty-state-accent)] dark:text-[var(--empty-sta
  * `emptyState` on the scene's `SceneExport` and the app shell gates for you).
  */
 export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX.Element {
-    const { wizardCommand, isCloudOrDev } = useWizardCommand(config.wizard?.slug)
+    const { wizardCommand, isCloudOrDev } = useWizardCommand(config.wizard?.slug, {
+        pinProjectId: config.wizard?.pinProjectId,
+    })
     const { skipEmptyState } = useActions(productSetupStatusLogic({ productKey: config.productKey }))
 
     // Mode-specific copy overrides the base; missing fields fall back to it.

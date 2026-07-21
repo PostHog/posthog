@@ -12,22 +12,11 @@ import { mcpAnalyticsOnboardingLogic } from '../mcpAnalyticsOnboardingLogic'
 
 export const MCP_ANALYTICS_DOCS_URL = 'https://posthog.com/docs/mcp-analytics'
 
-// The shared wizard hook only emits the base command; slot in our subcommand right
-// after the package reference (before any flags like `--region eu`). Matching
-// `@posthog/wizard@<anything>` keeps this working if the hook ever pins a version;
-// the fallback guarantees the subcommand is never silently dropped.
-const WIZARD_PKG_RE = /@posthog\/wizard@\S+/
-
 export function useMCPAnalyticsWizardCommand(): { command: string; isCloudOrDev: boolean } {
-    const { wizardCommand, isCloudOrDev } = useWizardCommand()
-    const { currentTeam } = useValues(teamLogic)
-    const base = WIZARD_PKG_RE.test(wizardCommand)
-        ? wizardCommand.replace(WIZARD_PKG_RE, '$& mcp-analytics')
-        : `${wizardCommand} mcp-analytics`
-    // Pin the project so the wizard targets this team directly — and, once the consent
-    // screen honors the hint, pre-selects it. Harmless if the user authorizes the same project.
-    const command = currentTeam?.id ? `${base} --project-id=${currentTeam.id}` : base
-    return { command, isCloudOrDev }
+    // Pinning the project keeps this surface and the in-scene empty state (which
+    // builds the same command from its `wizard` config) from drifting apart.
+    const { wizardCommand, isCloudOrDev } = useWizardCommand('mcp-analytics', { pinProjectId: true })
+    return { command: wizardCommand, isCloudOrDev }
 }
 
 /** Live "are events arriving yet?" status, driven by the same poll the scene uses. */

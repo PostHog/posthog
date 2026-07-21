@@ -40,6 +40,8 @@ export type ProductEmptyStateCopyByMode = {
 export interface ProductEmptyStateWizard {
     /** Subcommand for `npx -y @posthog/wizard@latest <slug>` */
     slug: string
+    /** Append `--project-id=<current team>` so the wizard pre-targets the project being viewed */
+    pinProjectId?: boolean
 }
 
 export interface ProductEmptyStatePrimaryAction {
