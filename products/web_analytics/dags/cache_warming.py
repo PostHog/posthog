@@ -1,4 +1,5 @@
 import json
+import statistics
 
 from django.utils.dateparse import parse_datetime
 
@@ -11,7 +12,6 @@ from posthog.hogql.constants import LimitContext
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dags.common import JobOwners
-from posthog.dags.common.resources import PostHogAnalyticsResource
 from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_cache import DjangoCacheQueryCacheManager
@@ -19,18 +19,16 @@ from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
 from posthog.models.instance_setting import get_instance_setting
 
-from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import is_precompute_enabled_for_team
 from products.web_analytics.dags.web_preaggregated_utils import check_for_concurrent_runs
 
-STALE_WEB_QUERIES_GAUGE = Gauge(
-    "posthog_cache_warming_stale_web_query_gauge",
-    "Number of stale web queries present",
-    ["team_id"],
+WARMING_SHAPES_SELECTED_GAUGE = Gauge(
+    "posthog_web_analytics_warming_shapes_selected",
+    "Number of hot query shapes selected for web analytics warming in the last run",
 )
-PRIORITY_WEB_QUERIES_COUNTER = Counter(
-    "posthog_cache_warming_priority_web_queries",
-    "Number of priority web queries warmed",
-    ["team_id", "normalized_query_hash", "is_cached"],
+WARMING_QUERIES_COUNTER = Counter(
+    "posthog_web_analytics_warming_queries_total",
+    "Web analytics warming outcomes per query shape",
+    ["outcome"],  # warmed | skipped_fresh | failed
 )
 
 cache_warming_retry_policy = RetryPolicy(
@@ -41,56 +39,49 @@ cache_warming_retry_policy = RetryPolicy(
 )
 
 
-def increment_counter(team_id: int, normalized_query_hash: str, is_cached: bool):
-    PRIORITY_WEB_QUERIES_COUNTER.labels(
-        team_id=team_id,
-        normalized_query_hash=normalized_query_hash,
-        is_cached=is_cached,
-    ).inc()
-
-
-def get_teams_enabled_for_web_analytics_cache_warming() -> list[int]:
-    value = get_instance_setting("WEB_ANALYTICS_WARMING_TEAMS_TO_WARM")
-    return value if isinstance(value, list) else []
-
-
-# Query kinds that carry the `useWebAnalyticsPrecompute` per-query opt-in.
+# Query kinds that carry the `useWebAnalyticsPrecompute` per-query toggle.
 LAZY_PRECOMPUTE_QUERY_KINDS = frozenset(
     {"WebStatsTableQuery", "WebOverviewQuery", "WebGoalsQuery", "WebVitalsPathBreakdownQuery"}
 )
 
+# Per-team ceiling on selected shapes. Bounds how much hourly background compute a
+# single tenant can claim by running many distinct shapes past the demand threshold
+# (the queries replay outside the tenant's own request throttles).
+MAX_SHAPES_PER_TEAM = 100
 
-def maybe_opt_into_lazy_precompute(team: Team, query_json: dict) -> dict:
-    """Opt an enrolled team's replayed query into the lazy precompute path.
 
-    Replayed queries are the team's real production shapes, which for a
-    restricted-enrolled team carry no per-query opt-in (users only send one via
-    the UI toggle). Without this, warming such a team never computes its lazy
-    jobs — so enrolling a team on `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` plus
-    this warming list is what populates its precompute from real query shapes
-    while its user-facing reads stay on the raw path (their queries still have
-    no opt-in). That combination is how a team is evaluated before its reads
-    are switched over.
+def maybe_opt_into_lazy_precompute(query_json: dict) -> dict:
+    """Opt a replayed query into the lazy precompute path.
 
-    The opt-in changes the runner's cache key, so the warmed Django-cache entry
-    differs from the one raw user reads hit — acceptable: the durable output of
-    warming an enrolled team is the precompute jobs (shared by query shape),
-    not the result-cache row.
+    Replayed production shapes carry no per-query toggle (users only send one via
+    the UI). Injecting an explicit `True` makes the warmer build precompute
+    buckets regardless of the opt-in default in the runner's eligibility gate,
+    while an explicit user `False` in the replayed shape is preserved. Whether a
+    team may build buckets at all is decided by the runner's own gate — warming
+    requests bypass the rollout flag there, so this injection needs no
+    enablement check (flag evaluation is unreliable in Dagster anyway).
     """
     if query_json.get("kind") not in LAZY_PRECOMPUTE_QUERY_KINDS:
         return query_json
     if query_json.get("useWebAnalyticsPrecompute") is not None:
         return query_json
-    if not is_precompute_enabled_for_team(team):
-        return query_json
     return {**query_json, "useWebAnalyticsPrecompute": True}
 
 
 def queries_to_keep_fresh(
-    context: dagster.OpExecutionContext, team_id: int, days: int = 7, minimum_query_count: int = 10
+    context: dagster.OpExecutionContext, days: int = 7, minimum_query_count: int = 10, max_shapes: int = 20000
 ) -> list[dict]:
+    """Fleet-wide demand selection: every (team, query shape) with at least
+    `minimum_query_count` runs in the window, hottest first, capped at
+    `max_shapes`.
+
+    The audience is implicit — any team with a hot shape is active on web
+    analytics and benefits from warming. One batched query replaces the previous
+    per-team loop, which could not scale past a handful of teams.
+    """
     context.log.info(
-        f"Searching the last {days} days for team {team_id}'s queries with at least {minimum_query_count} runs."
+        f"Selecting fleet-wide web analytics queries with >= {minimum_query_count} runs "
+        f"in the last {days} days (cap {max_shapes} shapes)."
     )
 
     results = sync_execute(
@@ -109,7 +100,7 @@ def queries_to_keep_fresh(
             FROM metrics_query_log_mv
             WHERE
                 timestamp >= now() - INTERVAL %(days)s DAY
-                AND team_id = %(team_id)s
+                AND team_id != 0
                 AND (
                     startsWith(query_type, 'stats_table_')
                     -- Overview strategy variants get their own tags (no_join today,
@@ -134,8 +125,15 @@ def queries_to_keep_fresh(
         HAVING query_count >= %(minimum_query_count)s
         ORDER BY
             query_count DESC
+        LIMIT %(max_shapes_per_team)s BY team_id
+        LIMIT %(max_shapes)s
         """,
-        {"team_id": team_id, "days": days, "minimum_query_count": minimum_query_count},
+        {
+            "days": days,
+            "minimum_query_count": minimum_query_count,
+            "max_shapes": max_shapes,
+            "max_shapes_per_team": MAX_SHAPES_PER_TEAM,
+        },
     )
 
     return [
@@ -149,59 +147,57 @@ def queries_to_keep_fresh(
     ]
 
 
-@dagster.op()
-def get_teams_for_warming_op(
-    context: dagster.OpExecutionContext, posthoganalytics: PostHogAnalyticsResource
-) -> list[int]:
-    team_ids = get_teams_enabled_for_web_analytics_cache_warming()
-
-    context.log.info(f"Found {len(team_ids)} teams for cache warming")
-    context.add_output_metadata({"team_count": len(team_ids), "team_ids": str(team_ids)})
-    return team_ids
-
-
 @dagster.op
-def get_queries_for_teams_op(
-    context: dagster.OpExecutionContext,
-    team_ids: list[int],
-) -> dict:
+def get_warmable_queries_op(context: dagster.OpExecutionContext) -> list[dict]:
     days = get_instance_setting("WEB_ANALYTICS_WARMING_DAYS")
     minimum_query_count = get_instance_setting("WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT")
+    max_shapes = get_instance_setting("WEB_ANALYTICS_WARMING_MAX_SHAPES")
 
-    all_queries = {}
-    query_count = 0
-    for team_id in team_ids:
-        queries = queries_to_keep_fresh(context, team_id, days=days, minimum_query_count=minimum_query_count)
+    queries = queries_to_keep_fresh(context, days=days, minimum_query_count=minimum_query_count, max_shapes=max_shapes)
+    team_count = len({q["team_id"] for q in queries})
 
-        context.log.info(f"Loading {len(queries)} frequent web analytics queries for team {team_id}")
-
-        STALE_WEB_QUERIES_GAUGE.labels(team_id=team_id).set(len(queries))
-        all_queries[team_id] = queries
-        query_count += len(queries)
-
-    context.log.info(f"Found {query_count} total queries to warm")
-    context.add_output_metadata({"query_count": query_count, "team_count": len(team_ids)})
-    return all_queries
+    WARMING_SHAPES_SELECTED_GAUGE.set(len(queries))
+    context.log.info(f"Selected {len(queries)} hot query shapes across {team_count} teams")
+    context.add_output_metadata(
+        {
+            "query_count": len(queries),
+            "team_count": team_count,
+            "cap_reached": len(queries) >= max_shapes,
+        }
+    )
+    return queries
 
 
 @dagster.op(retry_policy=cache_warming_retry_policy)
-def warm_queries_op(context: dagster.OpExecutionContext, queries: dict) -> None:
+def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) -> None:
     queries_warmed = 0
     queries_skipped = 0
+    queries_failed = 0
 
-    for team_id, query_infos in queries.items():
-        try:
-            team = Team.objects.get(pk=team_id)
-        except Team.DoesNotExist:
-            context.log.warning(f"Team {team_id} not found, skipping")
+    teams: dict[int, Team | None] = {}
+
+    for query_info in queries:
+        team_id = query_info["team_id"]
+        query_json = query_info["query_json"]
+        normalized_query_hash = query_info["normalized_query_hash"]
+
+        if team_id not in teams:
+            try:
+                teams[team_id] = Team.objects.get(pk=team_id)
+            except Team.DoesNotExist:
+                context.log.warning(f"Team {team_id} not found, skipping")
+                teams[team_id] = None
+        team = teams[team_id]
+        if team is None:
             continue
 
-        for query_info in query_infos:
-            team_id = query_info["team_id"]
-            query_json = query_info["query_json"]
-            normalized_query_hash = query_info["normalized_query_hash"]
+        try:
+            # Tag before any runner work so the whole request — including the lazy
+            # precompute gate, which lets warming traffic through regardless of the
+            # rollout flag — is classified as background warming.
+            tag_queries(team_id=team_id, trigger="webAnalyticsQueryWarming", feature=Feature.CACHE_WARMUP)
 
-            query_json = maybe_opt_into_lazy_precompute(team, query_json)
+            query_json = maybe_opt_into_lazy_precompute(query_json)
 
             runner = get_query_runner(
                 query=query_json,
@@ -210,46 +206,92 @@ def warm_queries_op(context: dagster.OpExecutionContext, queries: dict) -> None:
             )
 
             cache_manager = DjangoCacheQueryCacheManager(team_id=team.pk, cache_key=runner.get_cache_key())
+            cached_data = cache_manager.get_cache_data()
 
-            try:
-                cached_data = cache_manager.get_cache_data()
+            if cached_data is not None:
+                last_refresh = parse_datetime(cached_data["last_refresh"])
+                is_stale = runner._is_stale(last_refresh)
 
-                if cached_data is not None:
-                    last_refresh = parse_datetime(cached_data["last_refresh"])
-                    is_stale = runner._is_stale(last_refresh)
+                if not is_stale:
+                    WARMING_QUERIES_COUNTER.labels(outcome="skipped_fresh").inc()
+                    queries_skipped += 1
+                    continue
 
-                    if not is_stale:
-                        context.log.info(f"Query hash {normalized_query_hash} already cached, skipping warmup.")
-                        increment_counter(team_id, normalized_query_hash, is_cached=True)
-                        queries_skipped += 1
-                        continue
+            # TODO: We shouldn't try to run a query if it failed last run
+            runner.run(analytics_props={"source": EventSource.CACHE_WARMING})
+            WARMING_QUERIES_COUNTER.labels(outcome="warmed").inc()
+            queries_warmed += 1
 
-                tag_queries(team_id=team_id, trigger="webAnalyticsQueryWarming", feature=Feature.CACHE_WARMUP)
+        except Exception as e:
+            context.log.exception(f"Error warming query {normalized_query_hash} for team {team_id}")
+            capture_exception(e)
+            WARMING_QUERIES_COUNTER.labels(outcome="failed").inc()
+            queries_failed += 1
 
-                # TODO: We shouldn't try to run a query if it failed last run
-                runner.run(analytics_props={"source": EventSource.CACHE_WARMING})
-                increment_counter(team_id, normalized_query_hash, is_cached=False)
-                queries_warmed += 1
+    context.log.info(f"Warmed {queries_warmed} queries ({queries_skipped} already fresh, {queries_failed} failed)")
+    context.add_output_metadata(
+        {"queries_warmed": queries_warmed, "queries_skipped": queries_skipped, "queries_failed": queries_failed}
+    )
 
-            except Exception as e:
-                context.log.exception(f"Error warming query for team {team_id}")
-                capture_exception(e)
 
-    context.log.info(f"Warmed {queries_warmed} queries ({queries_skipped} were already cached)")
-    context.add_output_metadata({"queries_warmed": queries_warmed, "queries_skipped": queries_skipped})
+@dagster.op
+def report_warming_plan_op(context: dagster.OpExecutionContext, queries: list[dict]) -> None:
+    """Dry-run reporter: summarize what the warmer WOULD warm — team count, total
+    query shapes, and the per-team distribution — without running (or
+    precomputing) anything.
+
+    Reuses the real selection op, so the counts reflect exactly what a live run
+    at the current settings would touch.
+    """
+    shapes_per_team: dict[int, int] = {}
+    for q in queries:
+        shapes_per_team[q["team_id"]] = shapes_per_team.get(q["team_id"], 0) + 1
+    per_team = sorted(shapes_per_team.items(), key=lambda x: -x[1])
+    shape_counts = [c for _, c in per_team]
+    total_underlying_requests = sum(q["query_count"] for q in queries)
+    median_shapes = statistics.median(shape_counts) if shape_counts else 0
+
+    context.log.info(
+        f"DRY RUN — would warm {len(queries)} query shapes across {len(per_team)} teams "
+        f"(~{total_underlying_requests} underlying requests over the warming window). "
+        f"Per-team shapes: max={shape_counts[0] if shape_counts else 0}, median={median_shapes}. "
+        f"Top teams by shape count: {per_team[:10]}"
+    )
+    context.add_output_metadata(
+        {
+            "dry_run": True,
+            "team_count": len(per_team),
+            "total_query_shapes_to_warm": len(queries),
+            "total_underlying_requests": total_underlying_requests,
+            "max_shapes_per_team": shape_counts[0] if shape_counts else 0,
+            "median_shapes_per_team": median_shapes,
+            "top_10_teams_by_shape_count": str(per_team[:10]),
+        }
+    )
 
 
 @dagster.job(
-    description="Warms web analytics query cache for frequently-run queries",
+    description="Warms web analytics query cache and precompute buckets for frequently-run queries fleet-wide",
     tags={
         "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
         "dagster/web_analytics_cache_warming": "web_analytics_cache_warming",
     },
 )
 def web_analytics_cache_warming_job():
-    team_ids = get_teams_for_warming_op()
-    queries = get_queries_for_teams_op(team_ids)
+    queries = get_warmable_queries_op()
     warm_queries_op(queries)
+
+
+@dagster.job(
+    description="Dry run: report how many web analytics query shapes cache warming would warm, without warming",
+    tags={
+        "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
+        "dagster/web_analytics_cache_warming": "web_analytics_cache_warming_dry_run",
+    },
+)
+def web_analytics_cache_warming_dry_run_job():
+    queries = get_warmable_queries_op()
+    report_warming_plan_op(queries)
 
 
 @dagster.schedule(

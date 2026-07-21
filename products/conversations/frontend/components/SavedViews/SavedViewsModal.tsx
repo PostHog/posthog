@@ -138,7 +138,11 @@ export function SavedViewsModal({ id }: TicketViewsLogicProps): JSX.Element {
                             <IconHeart className="text-secondary" />
                         )
                     }
-                    tooltip={view.is_favorited ? 'Remove from favorites' : 'Add to favorites'}
+                    tooltip={
+                        view.is_favorited
+                            ? 'Remove from your favorites (only visible to you)'
+                            : 'Add to your favorites (only visible to you)'
+                    }
                 />
             ),
         },

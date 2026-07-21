@@ -9,14 +9,11 @@ from .announcement import Announcement
 
 
 class AnnouncementDelivery(TeamScopedRootMixin, UUIDModel):
-    """Per-channel delivery record for an `Announcement`. One row per target Slack channel."""
-
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
         SENT = "sent", "Sent"
         FAILED = "failed", "Failed"
 
-    # Unscoped sibling for Django framework internals (see Announcement for rationale).
     all_teams = models.Manager()  # noqa: DJ012
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
@@ -33,14 +30,12 @@ class AnnouncementDelivery(TeamScopedRootMixin, UUIDModel):
     class Meta(TeamScopedRootMixin.Meta):
         default_manager_name = "all_teams"
         constraints = [
-            # One row per (announcement, channel) — makes re-running send_announcement safe.
             models.UniqueConstraint(
                 fields=["announcement", "slack_channel_id"],
                 name="ca_announcement_delivery_uniq",
             ),
         ]
         indexes = [
-            # The send task's hot query: pending rows for one announcement.
             models.Index(fields=["announcement_id", "status"], name="ca_ann_deliv_status_idx"),
         ]
 
