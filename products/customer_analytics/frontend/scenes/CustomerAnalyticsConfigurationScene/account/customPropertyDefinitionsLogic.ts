@@ -275,10 +275,14 @@ export interface customPropertyDefinitionsLogicActions {
     }
     loadSelectedTableColumnsSuccess: (
         selectedTableColumns: string[],
-        payload?: any
+        payload?: {
+            tableId: string | null
+        }
     ) => {
         selectedTableColumns: string[]
-        payload?: any
+        payload?: {
+            tableId: string | null
+        }
     }
     loadWarehouseTables: () => any
     loadWarehouseTablesFailure: (
@@ -296,7 +300,7 @@ export interface customPropertyDefinitionsLogicActions {
         payload?: any
     }
     openCreateModal: (targetType?: CustomPropertyTargetType) => {
-        targetType?: CustomPropertyTargetType
+        targetType: CustomPropertyTargetType | undefined
     }
     openEditModal: (definition: CustomPropertyDefinitionApi) => {
         definition: CustomPropertyDefinitionApi
