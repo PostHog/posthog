@@ -254,7 +254,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                 new_state=AlertState.ERRORED,
             )
         except TableAccessDeniedError as err:
-            logger.exception(f"Alert id = {alert.id}, failed to evaluate", exc_info=err)
+            logger.exception("Alert failed to evaluate", alert_id=alert.id, exc_info=err)
             # A revoked creator's access-denied error is a known limitation - report it as an event
             # rather than capturing it, which would recur on every check until the alert is fixed.
             if creator_access_revoked(alert.created_by, alert.team):
@@ -277,7 +277,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                 )
                 error = {"message": str(err), "traceback": traceback.format_exc()}
         except Exception as err:
-            logger.exception(f"Alert id = {alert.id}, failed to evaluate", exc_info=err)
+            logger.exception("Alert failed to evaluate", alert_id=alert.id, exc_info=err)
             capture_exception(
                 err,
                 additional_properties={
