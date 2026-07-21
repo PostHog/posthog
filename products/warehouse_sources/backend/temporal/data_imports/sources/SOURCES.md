@@ -541,6 +541,7 @@ the row lists both.
 | trigger_dev                      | HTTP                        | requests                                                        | ✅                          |
 | twelve_labs                      | HTTP                        | requests                                                        | ✅                          |
 | twilio                           | HTTP                        | requests                                                        | ✅                          |
+| tyntec_sms                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | typeform                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | ubidots                          | HTTP                        | requests                                                        | ✅                          |
 | unleash                          | HTTP                        | requests                                                        | ✅                          |
@@ -975,7 +976,6 @@ doesn't conflict with concurrent PRs.
 - twenty
 - twitter
 - twitter_ads
-- tyntec_sms
 - uppromote
 - uptick
 - us_census
