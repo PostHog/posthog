@@ -187,6 +187,7 @@ the row lists both.
 | drata                            | HTTP                        | requests                                                        | ✅                          |
 | dropbox_sign                     | HTTP                        | requests                                                        | ✅                          |
 | drip                             | HTTP                        | requests                                                        | ✅                          |
+| dub                              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | dynatrace                        | HTTP                        | requests                                                        | ✅                          |
 | e2b                              | HTTP                        | requests                                                        | ✅                          |
 | e_conomic                        | HTTP                        | requests                                                        | ✅                          |
@@ -690,7 +691,6 @@ doesn't conflict with concurrent PRs.
 - drata
 - dremio
 - dropbox
-- dub
 - dubsado
 - dwolla
 - dynamics365
