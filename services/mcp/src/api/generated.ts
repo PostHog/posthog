@@ -74709,6 +74709,10 @@ export namespace Schemas {
      */
     has_evaluation_contexts?: FeatureFlagsListHasEvaluationContexts;
     /**
+     * Filter by exact feature flag key match. Case insensitive.
+     */
+    key?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;

@@ -104,10 +104,7 @@ export class ToolCatalog {
             import('@/tools/generated'),
         ])
 
-        const allFactories: Record<string, () => ToolBase<ZodObjectAny>> = {
-            ...TOOL_MAP,
-            ...GENERATED_TOOL_MAP,
-        }
+        const allFactories: Record<string, () => ToolBase<ZodObjectAny>> = { ...TOOL_MAP, ...GENERATED_TOOL_MAP }
 
         const defs = getToolDefinitions()
 

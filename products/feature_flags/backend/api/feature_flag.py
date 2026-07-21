@@ -2897,6 +2897,13 @@ class FeatureFlagViewSet(
                 description="Search by feature flag key or name. Case insensitive.",
             ),
             OpenApiParameter(
+                "key",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter by exact feature flag key match. Case insensitive.",
+            ),
+            OpenApiParameter(
                 "type",
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
@@ -3629,6 +3636,11 @@ class FeatureFlagViewSet(
                             | Q(name__iregex=regex_pattern)
                             | Q(experiment__name__iregex=regex_pattern, experiment__deleted=False)
                         ).distinct()
+            elif key == "key":
+                if isinstance(value, str):
+                    value = value.strip()
+                    if value:
+                        queryset = queryset.filter(key__iexact=value)
             elif key == "type":
                 if value == "boolean":
                     queryset = queryset.filter(
