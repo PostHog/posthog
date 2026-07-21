@@ -22,6 +22,7 @@ from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     ExpressionField,
     FieldTraverser,
+    SavedQuery,
     StringDatabaseField,
     StringJSONDatabaseField,
     Table,
@@ -1676,6 +1677,25 @@ class TestResolver(BaseTest):
 
         query = "SELECT * FROM very.deeply.nested.events"
         resolve_types(self._select(query), self.context, dialect="hogql")
+
+    def test_self_referencing_view_raises_clean_error(self):
+        view = SavedQuery(id="v1", name="cyclic_view", query="SELECT * FROM cyclic_view", fields={})
+        self.database.tables.merge_with(TableNode(children={"cyclic_view": TableNode(name="cyclic_view", table=view)}))
+
+        with self.assertRaises(QueryError) as ctx:
+            resolve_types(parse_select("SELECT * FROM cyclic_view"), self.context, dialect="clickhouse")
+        self.assertIn("nested views", str(ctx.exception))
+
+    def test_deeply_nested_query_raises_clean_error(self):
+        # A deeply nested expression used to overflow the Python stack while the resolver walked
+        # it, surfacing an uncaught RecursionError. Build the AST directly so the depth is exact
+        # and independent of the parser's own recursion limit.
+        expr: ast.Expr = ast.Constant(value=1)
+        for _ in range(1000):
+            expr = ast.ArithmeticOperation(left=expr, right=ast.Constant(value=1), op=ast.ArithmeticOperationOp.Add)
+
+        with self.assertRaises(QueryError):
+            resolve_types(ast.SelectQuery(select=[expr]), self.context, dialect="clickhouse")
 
     def test_nested_table_on_existing_table(self):
         table_group = TableNode(
