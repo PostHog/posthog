@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from django.http import HttpRequest
 from django.test import RequestFactory, SimpleTestCase, override_settings
 
@@ -10,7 +12,8 @@ from rest_framework.exceptions import (
     ValidationError,
 )
 
-from posthog.exceptions import exception_handler
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.exceptions import CONCURRENCY_LIMIT_USER_MESSAGE, exception_handler
 
 
 @override_settings(SITE_URL="https://us.posthog.com")
@@ -70,3 +73,17 @@ class TestExceptionHandlerWWWAuthenticate(SimpleTestCase):
             response["WWW-Authenticate"]
             == 'Bearer resource_metadata="https://us.posthog.com/.well-known/oauth-protected-resource"'
         )
+
+    def test_concurrency_limit_exceeded_becomes_clean_throttle_without_capture(self) -> None:
+        # A saturated query limiter used to reach the handler as an unhandled exception: a 500
+        # response plus an error-tracking capture. It must instead render as a 429 throttle and
+        # never be reported. Guards every DRF entry point that drives a query, not just /query.
+        exc = ConcurrencyLimitExceeded("Exceeded maximum concurrency limit: 6 for key: app:dashboard_query")
+        with patch("posthog.exceptions.capture_exception") as mock_capture:
+            response = exception_handler(exc, {"request": self._request()})
+
+        assert response is not None
+        assert response.status_code == 429
+        assert response.data["type"] == "throttled_error"
+        assert response.data["detail"] == CONCURRENCY_LIMIT_USER_MESSAGE
+        mock_capture.assert_not_called()
