@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import InvoiceninjaSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.invoiceninja import (
+    InvoiceninjaSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.invoiceninja.invoiceninja import (
     HOST_NOT_ALLOWED_ERROR,
     HTTP_NOT_ALLOWED_ERROR,

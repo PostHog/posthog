@@ -8,7 +8,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.charthop.c
 from products.warehouse_sources.backend.temporal.data_imports.sources.charthop.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.charthop.source import ChartHopSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ChartHopSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.charthop import (
+    ChartHopSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 CHECK_ACCESS_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.charthop.source.check_access"

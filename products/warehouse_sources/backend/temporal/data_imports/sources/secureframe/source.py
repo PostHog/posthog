@@ -25,7 +25,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SecureframeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.secureframe import (
+    SecureframeSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.secureframe.secureframe import (
     DEFAULT_REGION,
     SecureframeResumeConfig,

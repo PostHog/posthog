@@ -32,7 +32,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_
     GAINSIGHT_PX_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GainsightPxSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gainsightpx import (
+    GainsightPxSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

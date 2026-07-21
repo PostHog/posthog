@@ -1451,6 +1451,41 @@ def build_sandbox_custom_image(
     return _reload_image_dto(image.pk)
 
 
+def update_sandbox_custom_image(
+    image_id: str | UUID,
+    team_id: int,
+    user_id: int,
+    *,
+    name: str | None = None,
+    description: str | None = None,
+) -> contracts.SandboxCustomImageDTO | None:
+    """Rename (and optionally re-describe) a visible custom image.
+
+    Only mutable metadata (`name`, `description`) is editable here — the build spec,
+    status, and published image reference are managed by the build/scan flow. Returns
+    ``None`` when the image is not visible to the caller.
+    """
+    updates: dict[str, str] = {}
+    if name is not None:
+        updates["name"] = name
+    if description is not None:
+        updates["description"] = description
+    if not updates:
+        return get_sandbox_custom_image(image_id, team_id, user_id)
+
+    updated = (
+        _accessible_custom_images(team_id, user_id)
+        .filter(id=image_id)
+        .update(**updates, updated_at=django_timezone.now())
+    )
+    if not updated:
+        return None
+    # Re-read through get_sandbox_custom_image rather than _reload_image_dto: if a
+    # concurrent delete removes the row between the update above and this read,
+    # `.first()` returns None (→ 404) instead of .get() raising DoesNotExist (→ 500).
+    return get_sandbox_custom_image(image_id, team_id, user_id)
+
+
 def delete_sandbox_custom_image(image_id: str | UUID, team_id: int, user_id: int) -> bool:
     """Delete a visible custom image. Environments referencing it fall back to the default base (SET_NULL)."""
     image = _accessible_custom_images(team_id, user_id).filter(id=image_id).first()
