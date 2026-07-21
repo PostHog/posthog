@@ -14,15 +14,13 @@ use crate::allow_lists::AllowLists;
 use crate::blur::{blur_image_data_uri, pixelate_raw_rgba};
 
 /// Cumulative decompressed-bytes budget across all cv payloads in one message: the per-payload
-/// `gzip::MAX_DECOMPRESSED_BYTES` cap bounds each field, this bounds their sum so many high-ratio
+/// `compression::MAX_DECOMPRESSED_BYTES` cap bounds each field, this bounds their sum so many high-ratio
 /// fields can't decompress gigabytes serially. Real messages total under 10 MB.
 const CV_MESSAGE_DECOMPRESSION_BUDGET: usize = 256 * 1024 * 1024;
 
+/// Scrub context: the allow lists, the cv decompression budget, and the blur memo.
 pub struct Ctx<'a> {
     pub allow: &'a AllowLists,
-    /// Registrable-domain patterns (computed TS-side from the team's recording domains);
-    /// matching hosts and their subdomains collapse to example.com in the URL scrub.
-    pub first_party_hosts: Vec<String>,
     pub cv_budget: Cell<usize>,
     // key: the original data URI (data-image blur), or `raw:{w}x{h}:{base64}` (raw RGBA pixelate).
     // value: the blurred result, or `None` when blurring failed (caller falls back to a blank pixel).
@@ -31,21 +29,25 @@ pub struct Ctx<'a> {
 
 impl<'a> Ctx<'a> {
     pub fn new(allow: &'a AllowLists) -> Self {
-        Self::with_first_party_hosts(allow, Vec::new())
-    }
-
-    pub fn with_first_party_hosts(allow: &'a AllowLists, first_party_hosts: Vec<String>) -> Self {
         Self {
             allow,
-            first_party_hosts,
             cv_budget: Cell::new(CV_MESSAGE_DECOMPRESSION_BUDGET),
             blur_cache: RefCell::new(HashMap::new()),
         }
     }
 
-    /// The only budgeted cv decompression path — cv code must not call `gzip::gunzip` directly.
-    pub fn gunzip_cv(&self, raw: &[u8]) -> Result<Vec<u8>> {
-        let out = crate::gzip::gunzip(raw)?;
+    /// Restore the full cv decompression budget. The budget bounds one message; per-line callers
+    /// ([`crate::event::anonymize_line_with_ctx`]) reset it each call so a long session file
+    /// cannot exhaust it, while the blur memo keeps spanning the whole `Ctx`.
+    pub fn reset_cv_budget(&self) {
+        self.cv_budget.set(CV_MESSAGE_DECOMPRESSION_BUDGET);
+    }
+
+    /// The only budgeted cv decompression path — cv code must not call the [`crate::compression`]
+    /// codecs directly. Magic-byte dispatch (gzip or zstd, unknown fails closed) lives in
+    /// [`crate::compression::decompress_by_magic`]; this layers the cumulative budget on top.
+    pub fn decompress_cv(&self, raw: &[u8]) -> Result<Vec<u8>> {
+        let out = crate::compression::decompress_by_magic(raw)?;
         match self.cv_budget.get().checked_sub(out.len()) {
             Some(rest) => self.cv_budget.set(rest),
             None => bail!("message exceeds the cumulative cv decompression budget"),
@@ -84,6 +86,33 @@ impl<'a> Ctx<'a> {
 mod tests {
     use super::*;
     use crate::testkit::png_data_uri;
+
+    #[test]
+    fn decompress_cv_dispatches_on_magic_and_budgets_both_codecs() {
+        let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+        let payload = b"x".repeat(1000);
+        let gz = crate::compression::gzip(&payload).unwrap();
+        let zs = crate::compression::compress_cv(&payload).unwrap();
+        for compressed in [&gz, &zs] {
+            let ctx = Ctx::new(&allow);
+            assert_eq!(ctx.decompress_cv(compressed).unwrap(), payload);
+
+            let ctx = Ctx::new(&allow);
+            ctx.cv_budget.set(10);
+            let err = ctx.decompress_cv(compressed).unwrap_err().to_string();
+            assert!(err.contains("budget"), "got: {err}");
+        }
+    }
+
+    #[test]
+    fn decompress_cv_fails_closed_on_unknown_magic() {
+        let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+        let ctx = Ctx::new(&allow);
+        assert!(ctx
+            .decompress_cv(b"plainly not a compressed stream")
+            .is_err());
+        assert!(ctx.decompress_cv(b"").is_err());
+    }
 
     #[test]
     fn blur_memo_is_stable_and_keyed_per_image() {

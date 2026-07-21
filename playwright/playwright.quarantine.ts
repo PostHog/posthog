@@ -25,8 +25,9 @@ import * as fs from 'fs'
 import * as path from 'path'
 
 const SCHEMA_VERSION = 1
-const DEFAULT_RUNNER = 'pytest'
-const RUNNER = 'playwright'
+// Mirrors PYTEST_RUNNER/PLAYWRIGHT_RUNNER in core.py; pytest is also the schema default when an entry omits `runner`.
+const PYTEST_RUNNER = 'pytest'
+const PLAYWRIGHT_RUNNER = 'playwright'
 const PRODUCT_PREFIX = 'product:'
 
 // __dirname is <repo>/playwright, so the repo root is one directory up.
@@ -138,7 +139,7 @@ export function isIsoDate(value: string): boolean {
 export function activePlaywrightEntries(entries: RawEntry[], todayIso: string): QuarantineEntry[] {
     const active: QuarantineEntry[] = []
     for (const entry of entries) {
-        if ((entry.runner ?? DEFAULT_RUNNER) !== RUNNER) {
+        if ((entry.runner ?? PYTEST_RUNNER) !== PLAYWRIGHT_RUNNER) {
             continue
         }
         if (typeof entry.expires !== 'string' || !isIsoDate(entry.expires) || entry.expires < todayIso) {

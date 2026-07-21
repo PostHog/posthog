@@ -63,7 +63,7 @@ def _load_for_writing(path: Path) -> core.LoadResult:
 @click.option(
     "--runner",
     type=click.Choice(core.ADAPTED_RUNNERS),
-    default=core.DEFAULT_RUNNER,
+    default=core.PYTEST_RUNNER,
     show_default=True,
     help="Which enforcement adapter interprets the selector.",
 )

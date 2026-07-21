@@ -74,6 +74,7 @@
     "devDependencies": {
         "@cloudflare/vitest-pool-workers": "^0.16.13",
         "@cloudflare/workers-types": "^4.20260603.1",
+        "@modelcontextprotocol/client": "2.0.0-beta.4",
         "@posthog/openapi-codegen": "workspace:*",
         "@tailwindcss/postcss": "^4.1.10",
         "@types/dotenv": "^6.1.1",
