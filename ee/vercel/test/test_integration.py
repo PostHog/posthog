@@ -20,7 +20,10 @@ from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.api.vercel.types import VercelUserClaims
-from ee.vercel.integration import CLIENT_ENV_PREFIXES, VercelIntegration, _safe_vercel_sync
+from ee.vercel.integration import VercelIntegration, _safe_vercel_sync
+
+# Hardcoded independently of ee.vercel.integration.CLIENT_ENV_PREFIXES so a dropped prefix fails these tests.
+EXPECTED_PREFIXES = ["NEXT_PUBLIC_", "VITE_", "NUXT_PUBLIC_", "PUBLIC_"]
 
 
 class TestVercelIntegration(TestCase):
@@ -608,7 +611,7 @@ class TestVercelIntegration(TestCase):
         assert secrets[1]["name"] == "NEXT_PUBLIC_POSTHOG_HOST"
         assert secrets[1]["value"].startswith(("https://", "http://"))
 
-    @parameterized.expand([(prefix,) for prefix in CLIENT_ENV_PREFIXES])
+    @parameterized.expand([(prefix,) for prefix in EXPECTED_PREFIXES])
     def test_build_secrets_injects_framework_prefixed_aliases(self, prefix: str):
         team = Team.objects.create(organization=self.organization, name="Test Team", api_token="test_api_token")
         secrets = {secret["name"]: secret["value"] for secret in VercelIntegration._build_secrets(team)}
@@ -621,7 +624,7 @@ class TestVercelIntegration(TestCase):
         secrets = VercelIntegration._build_secrets(team)
 
         names = [secret["name"] for secret in secrets]
-        assert len(names) == len(set(names)) == 2 * len(CLIENT_ENV_PREFIXES)
+        assert len(names) == len(set(names)) == 2 * len(EXPECTED_PREFIXES)
 
     @parameterized.expand(
         [
@@ -1282,8 +1285,8 @@ class TestPushSecretsToVercel(TestCase):
         assert call_args[1]["resource_id"] == str(self.resource.pk)
 
         secrets = call_args[1]["secrets"]
-        assert len(secrets) == 2 * len(CLIENT_ENV_PREFIXES)
-        for prefix in CLIENT_ENV_PREFIXES:
+        assert len(secrets) == 2 * len(EXPECTED_PREFIXES)
+        for prefix in EXPECTED_PREFIXES:
             assert any(s["name"] == f"{prefix}POSTHOG_PROJECT_TOKEN" for s in secrets)
             assert any(s["name"] == f"{prefix}POSTHOG_HOST" for s in secrets)
 

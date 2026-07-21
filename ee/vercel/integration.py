@@ -612,12 +612,12 @@ class VercelIntegration:
     def _setup_vercel_client_for_team(team: Team) -> VercelSetupResult | None:
         resource = VercelIntegration._get_vercel_resource_for_team(team)
         if not resource:
-            logger.debug("Vercel resource not found for team", team_id=team.id, integration="vercel")
+            logger.info("Vercel resource not found for team", team_id=team.id, integration="vercel")
             return None
 
         installation = VercelIntegration._get_installation_for_organization(team.organization)
         if not installation:
-            logger.debug(
+            logger.info(
                 "Vercel installation not found for organization",
                 team_id=team.pk,
                 organization_id=team.organization.pk,

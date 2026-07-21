@@ -19,6 +19,7 @@ from django.core.management.base import BaseCommand
 
 import structlog
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
 from posthog.tasks.integrations import push_vercel_secrets
 
@@ -50,12 +51,13 @@ class Command(BaseCommand):
 
         enqueued = 0
         failed = 0
-        for team_id in team_ids:
+        for index, team_id in enumerate(team_ids):
             try:
-                push_vercel_secrets.delay(team_id)
-            except Exception:
+                push_vercel_secrets.apply_async(args=[team_id], countdown=index // 2)
+            except Exception as e:
                 failed += 1
                 logger.exception("Failed to enqueue Vercel secret push", team_id=team_id, integration="vercel")
+                capture_exception(e, {"team_id": team_id})
             else:
                 enqueued += 1
 
