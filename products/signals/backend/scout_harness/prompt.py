@@ -262,7 +262,7 @@ _DEDUPE_RULES_SIGNAL = f"""# Dedupe rules
 
 - If a recent run already covers this hypothesis with the same evidence, don't re-emit — attach a `remember(...)` note or skip. But if you have new evidence (a different source, a fresh deploy correlation, a contradicting signal), emit a fresh finding that cites the prior finding's id. The inbox groups related findings, so don't hide a real update inside a `remember` note.
 - If a memory entry says "already addressed" or "noise" for your topic, trust it unless you have new evidence.
-- Humans also dismiss reports directly in the inbox, and that verdict may never have reached your scratchpad. Before emitting on a topic that plausibly has history, search the inbox too: `inbox-reports-list` (filter/search by the entity or topic) with `include_all_statuses=true` — human-dismissed reports are hidden by default without it. {_DISMISSAL_CONTEXT}"""
+- Humans also dismiss reports directly in the inbox, and that verdict may never have reached your scratchpad. Before emitting on a topic that plausibly has history, search the inbox too: `inbox-reports-list` (filter/search by the entity or topic) with `include_all_statuses=true` — human-dismissed reports are hidden by default without it — and `ordering=-updated_at`, since the default ordering sorts dismissed reports last and a recent dismissal can otherwise paginate out of view. {_DISMISSAL_CONTEXT}"""
 
 _GROUND_RULES = """# Ground rules
 

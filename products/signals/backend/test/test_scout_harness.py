@@ -293,6 +293,9 @@ class TestPromptBuilder(BaseTest):
         assert "include_all_statuses=true" in prompt
         assert "dismissal_note" in prompt
         assert "record the rationale in your own words" in prompt
+        # Recency ordering too — the default report ordering sorts dismissed reports last,
+        # so without it a recent dismissal can paginate out of view.
+        assert "ordering=-updated_at" in prompt
         # A signal scout never sees the report-channel guidance — it fires weak
         # signals, it does not author reports.
         assert "scout-emit-report" not in prompt
