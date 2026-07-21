@@ -281,89 +281,166 @@ impl<B> Built<B> {
     }
 }
 
-/// Fluent builder that fuses sync segments and async stages into one composed type.
+/// Scoped composition builder: every stage boundary is a **nested callback**, so the
+/// code shape mirrors the execution shape (the Node builder's `sequentially` /
+/// `concurrently` / `concurrentlyPerGroup` closures). A run of sync steps is one
+/// `sequentially(|b| b.step(..).step(..))` scope; each async stage is its own
+/// scope-opening call whose per-item body is nested inside — never a flat
+/// `.step()`-lookalike that hides the concurrency boundary.
 ///
-/// `.step(...)` extends the current sync segment; `.stage(...)` / `.grouped_stage(...)`
-/// close it, append an async stage, and open a fresh sync segment; `.build()` closes the
-/// final segment. `O` is the pipeline's output enum, threaded through every stage.
-pub struct BatchBuilder<O, Prefix, Sync> {
+/// `Cur` tracks the builder's current item type so a `sequentially` scope knows its
+/// input. An async stage's processor carries its own input type, so async stages
+/// don't need `Cur` and re-establish it as the processor's output; a `sequentially`
+/// scope's output is `Step::Out` (resolved only against a concrete `Fx` at run) and
+/// so is not nameable here — it [`Sealed`]s `Cur`. The next stage must therefore be an
+/// async stage (its processor names the type again); two bare sync scopes back-to-back
+/// should just be merged into one. Every actual input/output match across stages is
+/// still enforced by the [`Then`]/[`BatchPipeline`] bounds when `run_batch` is
+/// monomorphized.
+pub struct Compose<O, Cur, Prefix> {
     prefix: Prefix,
-    sync: Sync,
-    _o: PhantomData<O>,
+    _pd: PhantomData<fn() -> (O, Cur)>,
 }
 
-/// Start a batch pipeline over input `In` with output enum `O`.
-pub fn batch_builder<In, O>() -> BatchBuilder<O, IdentityBatch<In, O>, Identity<In>> {
-    BatchBuilder {
+/// The sealed current-type marker (see [`Compose`]). Uninhabited: it is only ever a
+/// phantom type parameter, never a value.
+pub enum Sealed {}
+
+/// Start a scoped batch pipeline over input `In` with output enum `O`.
+pub fn compose<In, O>() -> Compose<O, In, IdentityBatch<In, O>> {
+    Compose {
         prefix: IdentityBatch::default(),
-        sync: Identity::default(),
-        _o: PhantomData,
+        _pd: PhantomData,
     }
 }
 
-impl<O, Prefix, Sync> BatchBuilder<O, Prefix, Sync> {
-    /// Extend the current sync segment with one step (no bounds — checked at run).
-    pub fn step<T>(self, step: T) -> BatchBuilder<O, Prefix, Chain<Sync, T>> {
-        BatchBuilder {
-            prefix: self.prefix,
-            sync: Chain::new(self.sync, step),
-            _o: PhantomData,
+/// Sync sub-scope handed to a [`Compose::sequentially`] callback. Chains sync steps
+/// into one fused [`Chain`] (exactly like [`chain::builder`](crate::framework::chain)),
+/// but as a nested scope so a run of steps reads as one unit.
+pub struct SyncScope<In, S> {
+    chain: S,
+    _in: PhantomData<fn(In) -> In>,
+}
+
+impl<In, S> SyncScope<In, S> {
+    /// Append one sync step to this scope (no bounds — checked at run).
+    pub fn step<T>(self, step: T) -> SyncScope<In, Chain<S, T>> {
+        SyncScope {
+            chain: Chain::new(self.chain, step),
+            _in: PhantomData,
+        }
+    }
+}
+
+/// Per-item scope handed to a [`Compose::concurrently`] callback. Its [`run`](ItemScope::run)
+/// names the async processor applied to each item (bounded concurrency, FIFO emission).
+pub struct ItemScope<In>(PhantomData<fn(In)>);
+
+/// The body of an [`ItemScope`] — the processor to run per item.
+pub struct ItemBody<P>(P);
+
+impl<In> ItemScope<In> {
+    /// Run `processor` on each item of the chunk, concurrently.
+    pub fn run<P: AsyncProcessor>(self, processor: P) -> ItemBody<P> {
+        ItemBody(processor)
+    }
+}
+
+/// Per-group scope handed to a [`Compose::grouped`] callback. Its
+/// [`in_order`](GroupScope::in_order) names the processor applied to each item; items
+/// within a group run in input order, groups run concurrently.
+pub struct GroupScope<In>(PhantomData<fn(In)>);
+
+/// The body of a [`GroupScope`] — the processor run per item, in-order within a group.
+pub struct GroupBody<P>(P);
+
+impl<In> GroupScope<In> {
+    /// Run `processor` on each item of a group, in input order (groups still run
+    /// concurrently with respect to each other).
+    pub fn in_order<P: AsyncProcessor>(self, processor: P) -> GroupBody<P> {
+        GroupBody(processor)
+    }
+}
+
+/// Builder state after a [`Compose::sequentially`] scope: a `SyncStage` appended, the
+/// current type [`Sealed`] (a sync scope's `Step::Out` is not nameable here).
+type SeqNext<O, Prefix, S> = Compose<O, Sealed, Then<Prefix, SyncStage<S, O>>>;
+/// Builder state after a [`Compose::concurrently`] stage: current type is the
+/// processor's output.
+type ConcurrentNext<O, Prefix, P> =
+    Compose<O, <P as AsyncProcessor>::Out, Then<Prefix, ConcurrentStage<P, O>>>;
+/// Builder state after a [`Compose::grouped`] stage: current type is the processor's
+/// output.
+type GroupedNext<O, Prefix, KF, P> =
+    Compose<O, <P as AsyncProcessor>::Out, Then<Prefix, GroupedStage<KF, P, O>>>;
+
+impl<O: Outputs, Cur, Prefix> Compose<O, Cur, Prefix> {
+    /// A sync scope: chain a run of sync steps, fused into one pass. The callback
+    /// receives a fresh [`SyncScope`] over the current item type and returns it after
+    /// chaining steps.
+    pub fn sequentially<F, S>(self, scope: F) -> SeqNext<O, Prefix, S>
+    where
+        F: FnOnce(SyncScope<Cur, Identity<Cur>>) -> SyncScope<Cur, S>,
+    {
+        let chain = scope(SyncScope {
+            chain: Identity::default(),
+            _in: PhantomData,
+        })
+        .chain;
+        Compose {
+            prefix: Then::new(self.prefix, SyncStage::new(chain)),
+            _pd: PhantomData,
         }
     }
 
-    /// Close the sync segment and append a per-item concurrent async stage.
-    #[allow(clippy::type_complexity)]
-    pub fn stage<P: AsyncProcessor>(
+    /// A per-item concurrent async stage. The callback receives an [`ItemScope`] and
+    /// names the processor run on each item ([`ItemScope::run`]).
+    pub fn concurrently<F, P>(
         self,
         max_concurrency: usize,
-        processor: P,
-    ) -> BatchBuilder<
-        O,
-        Then<Prefix, Then<SyncStage<Sync, O>, ConcurrentStage<P, O>>>,
-        Identity<P::Out>,
-    > {
-        BatchBuilder {
+        scope: F,
+    ) -> ConcurrentNext<O, Prefix, P>
+    where
+        F: FnOnce(ItemScope<Cur>) -> ItemBody<P>,
+        P: AsyncProcessor,
+    {
+        let ItemBody(processor) = scope(ItemScope(PhantomData));
+        Compose {
             prefix: Then::new(
                 self.prefix,
-                Then::new(
-                    SyncStage::new(self.sync),
-                    ConcurrentStage::new(max_concurrency, processor),
-                ),
+                ConcurrentStage::new(max_concurrency, processor),
             ),
-            sync: Identity::default(),
-            _o: PhantomData,
+            _pd: PhantomData,
         }
     }
 
-    /// Close the sync segment and append a grouped concurrent async stage.
-    #[allow(clippy::type_complexity)]
-    pub fn grouped_stage<F, P: AsyncProcessor>(
+    /// A grouped concurrent async stage keyed by `key_fn`. The callback receives a
+    /// [`GroupScope`] and names the processor run per item ([`GroupScope::in_order`]):
+    /// items within a group run in input order, groups run concurrently.
+    pub fn grouped<KF, F, P>(
         self,
         max_groups: usize,
-        key_fn: F,
-        processor: P,
-    ) -> BatchBuilder<
-        O,
-        Then<Prefix, Then<SyncStage<Sync, O>, GroupedStage<F, P, O>>>,
-        Identity<P::Out>,
-    > {
-        BatchBuilder {
+        key_fn: KF,
+        scope: F,
+    ) -> GroupedNext<O, Prefix, KF, P>
+    where
+        F: FnOnce(GroupScope<Cur>) -> GroupBody<P>,
+        P: AsyncProcessor,
+    {
+        let GroupBody(processor) = scope(GroupScope(PhantomData));
+        Compose {
             prefix: Then::new(
                 self.prefix,
-                Then::new(
-                    SyncStage::new(self.sync),
-                    GroupedStage::new(max_groups, key_fn, processor),
-                ),
+                GroupedStage::new(max_groups, key_fn, processor),
             ),
-            sync: Identity::default(),
-            _o: PhantomData,
+            _pd: PhantomData,
         }
     }
 
-    /// Close the final sync segment and produce the runnable pipeline.
-    pub fn build(self) -> Built<Then<Prefix, SyncStage<Sync, O>>> {
+    /// Produce the runnable pipeline.
+    pub fn build(self) -> Built<Prefix> {
         Built {
-            pipeline: Then::new(self.prefix, SyncStage::new(self.sync)),
+            pipeline: self.prefix,
         }
     }
 }
@@ -402,10 +479,10 @@ mod tests {
 
     #[test]
     fn composed_pipeline_with_async_stage_is_a_flat_struct() {
-        let pipeline = batch_builder::<u32, NoOutputs>()
-            .step(AddOne)
-            .stage(4, Double)
-            .step(AddOne)
+        let pipeline = compose::<u32, NoOutputs>()
+            .sequentially(|b| b.step(AddOne))
+            .concurrently(4, |item| item.run(Double))
+            .sequentially(|b| b.step(AddOne))
             .build();
         // The ZST sync steps and the ZST processor contribute nothing; the *only* storage
         // is the one stage's inline `max_concurrency: usize`. So the whole composed
@@ -419,10 +496,10 @@ mod tests {
 
     #[tokio::test]
     async fn composed_pipeline_runs_sync_stage_sync_positionally() {
-        let pipeline = batch_builder::<u32, NoOutputs>()
-            .step(AddOne) // +1
-            .stage(4, Double) // *2
-            .step(AddOne) // +1
+        let pipeline = compose::<u32, NoOutputs>()
+            .sequentially(|b| b.step(AddOne)) // +1
+            .concurrently(4, |item| item.run(Double)) // *2
+            .sequentially(|b| b.step(AddOne)) // +1
             .build();
         let mut fx = ();
         let out = pipeline.run_batch(vec![1, 2, 3], &mut fx).await;

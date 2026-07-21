@@ -44,8 +44,9 @@
 //! ## Pipeline shapes & combinators
 //!
 //! Async stages are part of the *composition*, not hand-wired afterward:
-//! [`framework::batch`]'s [`batch_builder`] fuses sync segments and async stages
-//! (`.step(..)`, `.stage(..)`, `.grouped_stage(..)`) into one flat, monomorphized
+//! [`framework::batch`]'s [`compose`] builder fuses sync segments and async stages
+//! via nested scopes (`.sequentially(|b| ..)`, `.concurrently(|item| ..)`,
+//! `.grouped(key, |group| ..)`) into one flat, monomorphized
 //! [`Built`] type — returned behind an opaque `impl BatchPipeline` (see
 //! [`pipeline::build_analytics_pipeline`](pipeline::build_analytics_pipeline)) so the
 //! builder chain, not a spelled-out `Then<…>` alias, is the pipeline description. The stages run the
@@ -62,7 +63,7 @@ pub mod pipeline;
 pub mod steps;
 
 // Ergonomic re-exports so the framework's core vocabulary is available at short paths.
-pub use framework::batch::{batch_builder, BatchPipeline, Built};
+pub use framework::batch::{compose, BatchPipeline, Built};
 pub use framework::chain::{builder, Chain, Identity, IntoOutputs, Pipeline, PipelineBuilder};
 pub use framework::chunk::{run_chunk_stage, run_pipeline, yield_now, ChunkStep};
 pub use framework::concurrency::{

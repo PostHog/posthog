@@ -28,7 +28,7 @@ use crate::compose_fx;
 use crate::events::capabilities::HasEventName;
 use crate::events::parsed::ParsedEvent;
 use crate::events::wrappers::{Restricted, Validated};
-use crate::framework::batch::{batch_builder, BatchPipeline, Built};
+use crate::framework::batch::{compose, BatchPipeline, Built};
 use crate::framework::concurrency::Branching;
 use crate::framework::fail_open::FallibleStepExt;
 use crate::framework::fx::WarningSink;
@@ -96,34 +96,45 @@ fn route_branch(
     }
 }
 
-/// Compose the analytics pipeline in one fluent chain.
+/// Compose the analytics pipeline as nested scopes, so the code shape mirrors the
+/// execution shape (the Node builder's `sequentially` / `concurrentlyPerGroup` /
+/// `concurrently` callbacks):
+///
+/// - one `sequentially` scope fuses the sync steps (validate → quota → branch),
+/// - `grouped` runs groups concurrently with items **in order within a group**
+///   (the `in_order` body makes that per-group ordering explicit — the flat
+///   `.grouped_stage()` hid it),
+/// - `concurrently` runs the geo processor per item.
 ///
 /// The return type is the composed [`Built`] pipeline behind `impl BatchPipeline`:
 /// every sync chain and async stage is still fused into one flat, monomorphized
 /// struct (no `Box`, no `dyn` — the boxless proof is the ZST
 /// `composed_pipeline_with_async_stage_is_a_flat_struct` test in
-/// [`framework::batch`](crate::framework::batch)). The opaque return just spares
-/// callers the spelled-out `Then<Then<…>>` shape — the builder chain below *is*
-/// the pipeline description. The two async stage processors are passed in so a
-/// caller (a test) can hold a shared probe handle before they move into the
-/// composition.
+/// [`framework::batch`](crate::framework::batch)). The two async stage processors are
+/// passed in so a caller (a test) can hold a shared probe handle before they move
+/// into the composition.
 pub fn build_analytics_pipeline(
     overflow: OverflowCheck,
     geo: GeoAnnotate,
 ) -> Built<impl BatchPipeline<ParsedEvent, AnalyticsFx, Out = Survivor, Outputs = AnalyticsOutputs>>
 {
-    batch_builder::<ParsedEvent, AnalyticsOutputs>()
-        .step(Validate)
-        .step(
-            FallibleStepExt::<Validated<ParsedEvent>, AnalyticsFx>::fail_open(ApplyQuota {
-                failing_token: FAILING_TOKEN,
-            }),
-        )
-        .step(Branching::new(
-            classify_branch as ClassifyFn,
-            route_branch as RouteFn,
-        ))
-        .grouped_stage(MAX_CONCURRENCY, group_key as GroupKeyFn, overflow)
-        .stage(MAX_CONCURRENCY, geo)
+    compose::<ParsedEvent, AnalyticsOutputs>()
+        .sequentially(|events| {
+            events
+                .step(Validate)
+                .step(
+                    FallibleStepExt::<Validated<ParsedEvent>, AnalyticsFx>::fail_open(ApplyQuota {
+                        failing_token: FAILING_TOKEN,
+                    }),
+                )
+                .step(Branching::new(
+                    classify_branch as ClassifyFn,
+                    route_branch as RouteFn,
+                ))
+        })
+        .grouped(MAX_CONCURRENCY, group_key as GroupKeyFn, |group| {
+            group.in_order(overflow)
+        })
+        .concurrently(MAX_CONCURRENCY, |item| item.run(geo))
         .build()
 }
