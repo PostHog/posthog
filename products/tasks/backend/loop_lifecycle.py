@@ -26,7 +26,13 @@ logger = logging.getLogger(__name__)
 _NON_TERMINAL_TASK_RUN_STATUSES = (TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS)
 
 DISABLED_REASON_OWNER_DEACTIVATED = "owner_deactivated"
+DISABLED_REASON_OWNER_REMOVED = "owner_removed_from_org"
 DISABLED_REASON_GITHUB_DISCONNECTED = "github_integration_disconnected"
+
+_PAUSE_MESSAGES = {
+    DISABLED_REASON_OWNER_DEACTIVATED: "This loop's owner was deactivated, so it has been paused.",
+    DISABLED_REASON_OWNER_REMOVED: "This loop's owner was removed from the organization, so it has been paused.",
+}
 
 
 def pause_loops_for_deactivated_user(user_id: int) -> None:
@@ -38,7 +44,7 @@ def pause_loops_for_deactivated_user(user_id: int) -> None:
     loops = list(Loop.objects.unscoped().filter(created_by_id=user_id, enabled=True, deleted=False))
     for loop in loops:
         try:
-            _pause_loop_and_cancel_runs(loop)
+            _pause_loop_and_cancel_runs(loop, DISABLED_REASON_OWNER_DEACTIVATED)
         except Exception:
             logger.exception("loop_lifecycle.owner_deactivation_pause_failed", extra={"loop_id": str(loop.id)})
 
@@ -52,18 +58,45 @@ def pause_loops_for_deactivated_user(user_id: int) -> None:
         logger.exception("loop_lifecycle.owner_deactivation_run_cancel_failed", extra={"user_id": user_id})
 
 
-def _cancel_loop_runs_authored_by(user_id: int) -> None:
-    """Cancel and signal every non-terminal loop run whose task this user created, regardless of who
-    currently owns the loop. Runs the loop-ownership pass already cancelled are terminal by now, so
-    they don't re-match; this only catches runs on loops that were taken over after firing."""
-    now = django_timezone.now()
-    runs = list(
-        TaskRun.objects.filter(
-            task__created_by_id=user_id,
-            task__origin_product=Task.OriginProduct.LOOP,
-            status__in=_NON_TERMINAL_TASK_RUN_STATUSES,
+def pause_loops_for_removed_member(user_id: int, organization_id: str) -> None:
+    """Pause every enabled loop a removed member owns in this org and cancel their in-flight runs.
+
+    Org membership removal, unlike account deactivation, leaves `is_active=True`, so the fire-time
+    membership guard blocks new fires but already-dispatched runs keep resolving `task.created_by`
+    as their credential owner and minting the former org's OAuth/GitHub/MCP tokens. Offboard those:
+    pause the loops and cancel + signal the in-flight runs, scoped to this organization's teams.
+    """
+    loops = list(
+        Loop.objects.unscoped().filter(
+            created_by_id=user_id, team__organization_id=organization_id, enabled=True, deleted=False
         )
     )
+    for loop in loops:
+        try:
+            _pause_loop_and_cancel_runs(loop, DISABLED_REASON_OWNER_REMOVED)
+        except Exception:
+            logger.exception("loop_lifecycle.member_removal_pause_failed", extra={"loop_id": str(loop.id)})
+
+    try:
+        _cancel_loop_runs_authored_by(user_id, organization_id=organization_id)
+    except Exception:
+        logger.exception("loop_lifecycle.member_removal_run_cancel_failed", extra={"user_id": user_id})
+
+
+def _cancel_loop_runs_authored_by(user_id: int, *, organization_id: str | None = None) -> None:
+    """Cancel and signal every non-terminal loop run whose task this user created, regardless of who
+    currently owns the loop. Runs the loop-ownership pass already cancelled are terminal by now, so
+    they don't re-match; this only catches runs on loops that were taken over after firing.
+    `organization_id` scopes the cancellation to that org's teams (membership removal is per-org)."""
+    now = django_timezone.now()
+    queryset = TaskRun.objects.filter(
+        task__created_by_id=user_id,
+        task__origin_product=Task.OriginProduct.LOOP,
+        status__in=_NON_TERMINAL_TASK_RUN_STATUSES,
+    )
+    if organization_id is not None:
+        queryset = queryset.filter(task__team__organization_id=organization_id)
+    runs = list(queryset)
     if not runs:
         return
     TaskRun.objects.filter(id__in=[run.id for run in runs]).update(
@@ -73,9 +106,9 @@ def _cancel_loop_runs_authored_by(user_id: int) -> None:
         signal_loop_run_cancelled(run.workflow_id)
 
 
-def _pause_loop_and_cancel_runs(loop: Loop) -> None:
+def _pause_loop_and_cancel_runs(loop: Loop, reason: str) -> None:
     loop.enabled = False
-    loop.disabled_reason = DISABLED_REASON_OWNER_DEACTIVATED
+    loop.disabled_reason = reason
     loop.save(update_fields=["enabled", "disabled_reason", "updated_at"])
     pause_loop_schedules(loop)
 
@@ -103,8 +136,8 @@ def _pause_loop_and_cancel_runs(loop: Loop) -> None:
         loop,
         "needs_attention",
         {
-            "reason": DISABLED_REASON_OWNER_DEACTIVATED,
-            "body": "This loop's owner was deactivated, so it has been paused.",
+            "reason": reason,
+            "body": _PAUSE_MESSAGES.get(reason, "This loop has been paused."),
         },
     )
 
@@ -171,4 +204,8 @@ def pause_loops_referencing_integrations(integrations: list[Integration], instal
                 )
 
 
-__all__ = ["pause_loops_for_deactivated_user", "pause_loops_referencing_integrations"]
+__all__ = [
+    "pause_loops_for_deactivated_user",
+    "pause_loops_for_removed_member",
+    "pause_loops_referencing_integrations",
+]

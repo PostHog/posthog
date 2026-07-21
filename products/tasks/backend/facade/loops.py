@@ -42,7 +42,11 @@ from posthog.models.scoping import team_scope
 from products.mcp_store.backend.facade.api import get_active_installations
 from products.tasks.backend import loop_service
 from products.tasks.backend.logic.services import loop_runs
-from products.tasks.backend.loop_lifecycle import pause_loops_for_deactivated_user, pause_loops_referencing_integrations
+from products.tasks.backend.loop_lifecycle import (
+    pause_loops_for_deactivated_user,
+    pause_loops_for_removed_member,
+    pause_loops_referencing_integrations,
+)
 from products.tasks.backend.models import Loop, LoopTrigger, SandboxEnvironment, Task, TaskRun
 
 logger = logging.getLogger(__name__)
@@ -1209,6 +1213,7 @@ __all__ = [
     "list_loop_runs_for_service",
     "list_loops",
     "pause_loops_for_deactivated_user",
+    "pause_loops_for_removed_member",
     "pause_loops_referencing_integrations",
     "preview_loop",
     "repository_accessible_via_integration",
