@@ -1168,7 +1168,7 @@ class TestRecalculationErrorRecovery(BaseTest):
                 Cohort,
                 "_safe_reset_calculating_state",
                 side_effect=OperationalError("the connection is closed"),
-            ),
+            ) as mock_reset,
             # Patch connections so the reconnect doesn't close the real test transaction's connection.
             patch("products.cohorts.backend.models.util.connections") as mock_connections,
         ):
@@ -1176,5 +1176,5 @@ class TestRecalculationErrorRecovery(BaseTest):
                 cohort.calculate_people_ch(pending_version=0)
 
         self.assertIs(ctx.exception, real_error)
-        assert cohort._safe_reset_calculating_state.call_count == 2
+        assert mock_reset.call_count == 2
         mock_connections[DEFAULT_DB_ALIAS].close.assert_called_once()
