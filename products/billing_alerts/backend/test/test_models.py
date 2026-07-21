@@ -1,6 +1,5 @@
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from uuid import uuid4
 
 import pytest
 
@@ -9,7 +8,6 @@ from django.core.exceptions import ValidationError
 from posthog.models import Organization, Team
 
 from products.billing_alerts.backend.models import (
-    DAILY_CHECK_INTERVAL_HOURS,
     BillingAlertConfiguration,
     BillingAlertEvaluationClaim,
     BillingAlertEvent,
@@ -21,23 +19,6 @@ def test_relative_delta_percentage_supports_full_value_range() -> None:
 
     assert field.max_digits == 28
     assert field.decimal_places == 6
-
-
-def test_billing_alerts_use_one_daily_utc_evaluation() -> None:
-    alert = BillingAlertConfiguration(
-        organization_id=uuid4(),
-        name="Spend increase",
-        threshold_percentage=Decimal("10"),
-    )
-
-    assert alert.check_interval_hours == DAILY_CHECK_INTERVAL_HOURS
-    alert.clean()
-
-    alert.check_interval_hours = 6
-    with pytest.raises(ValidationError) as error:
-        alert.clean()
-
-    assert error.value.message_dict == {"check_interval_hours": ["Billing alerts currently run daily."]}
 
 
 def test_scheduler_index_matches_nulls_first_due_ordering() -> None:

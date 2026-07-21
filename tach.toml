@@ -442,9 +442,7 @@ layer = "modules"
 [[modules]]
 path = "products.billing_alerts"
 depends_on = [
-    "ee",
     "posthog",
-    "products.cdp",
 ]
 layer = "modules"
 

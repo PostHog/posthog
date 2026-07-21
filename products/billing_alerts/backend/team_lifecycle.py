@@ -18,7 +18,7 @@ def disable_billing_alerts_before_team_delete(
     using: str,
     **kwargs: object,
 ) -> None:
-    """Leave alerts inert if feature code is rolled back while its tables remain."""
+    """Skip quietly when this receiver's code is deployed before its migration has run."""
     table_name = BillingAlertConfiguration._meta.db_table
     if table_name not in connections[using].introspection.table_names():
         return
@@ -28,7 +28,7 @@ def disable_billing_alerts_before_team_delete(
         enabled=False,
         state=BillingAlertConfiguration.State.NOT_FIRING,
         configuration_revision=F("configuration_revision") + 1,
-        snooze_until=None,
+        snoozed_until=None,
         pending_evaluation_date=None,
         retry_attempt_count=0,
         next_check_at=None,
