@@ -259,6 +259,28 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             "is not supported for conversion into Arrow data format": "One of the columns in this table has a type ClickHouse can't export (for example an `AggregateFunction` state column on an aggregating materialized view). Deselect that column in this schema's column settings, or sync a view that finalizes it, then resync.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `_get_client` already retries dropped connections and rate limits in-process
+        # (see clickhouse.py's `_is_retryable_connect_error`) before re-raising as
+        # `ClickHouseConnectionError`. Bare HTTP 502/503/504 responses skip that
+        # in-process retry by design (there's no proxy CONNECT to re-dial) and go
+        # straight to Temporal's activity retry instead. Either way, once Temporal
+        # retries the activity the failure is transient and self-recovering, so
+        # don't surface it as tracked exception noise.
+        return {
+            "UNEXPECTED_EOF_WHILE_READING",
+            "EOF occurred in violation of protocol",
+            "Connection reset by peer",
+            "Connection aborted",
+            "Tunnel connection failed: 502",
+            "Tunnel connection failed: 503",
+            "Tunnel connection failed: 504",
+            "returned response code 429",
+            "returned response code 502",
+            "returned response code 503",
+            "returned response code 504",
+        }
+
     def get_schemas(
         self,
         config: ClickHouseSourceConfig,

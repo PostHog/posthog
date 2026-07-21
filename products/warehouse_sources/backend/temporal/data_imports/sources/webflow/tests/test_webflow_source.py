@@ -124,6 +124,7 @@ class TestWebflowSource:
             api_token="token",
             site_id="site-1",
             schema_name="collection_blog",
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=manager,
         )

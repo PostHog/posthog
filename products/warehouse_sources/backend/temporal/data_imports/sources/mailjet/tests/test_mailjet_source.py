@@ -102,6 +102,8 @@ class TestMailJetSource:
 
         inputs = mock.MagicMock()
         inputs.schema_name = "contact"
+        inputs.team_id = 123
+        inputs.job_id = "job-1"
         inputs.should_use_incremental_field = False
         manager = mock.MagicMock()
 
@@ -111,7 +113,8 @@ class TestMailJetSource:
             api_key=self.config.api_key,
             secret_key=self.config.secret_key,
             endpoint="contact",
-            logger=inputs.logger,
+            team_id=123,
+            job_id="job-1",
             resumable_source_manager=manager,
             should_use_incremental_field=False,
             db_incremental_field_last_value=None,

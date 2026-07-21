@@ -1,4 +1,5 @@
 from copy import deepcopy
+from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -19,6 +20,7 @@ from products.feature_flags.backend.facade.api import (
 from products.feature_flags.backend.facade.filters import (
     group_cohort_restriction_blocker,
     groups_carry_restriction_marker,
+    replace_variant_distribution,
     restrict_groups_to_cohort,
     set_holdout,
     strip_group_cohort_restriction,
@@ -319,6 +321,54 @@ class TestFilterTransforms:
 
         assert result == {"groups": [{"properties": []}], "holdout": expected}
         assert filters["holdout"] == {"id": 1, "exclusion_percentage": 5}
+
+
+class TestReplaceVariantDistribution:
+    def test_rebuilds_variants_preserving_everything_else(self):
+        current_filters = {
+            "groups": [
+                {
+                    "properties": [
+                        {"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"}
+                    ],
+                    "rollout_percentage": 50,
+                    "variant": "test",
+                }
+            ],
+            "payloads": {"test": '{"color": "blue"}'},
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "rollout_percentage": 50},
+                    {"key": "test", "rollout_percentage": 50},
+                ]
+            },
+            "aggregation_group_type_index": None,
+            "holdout": None,
+        }
+        new_variants = [
+            {"key": "control", "rollout_percentage": 30},
+            {"key": "test", "rollout_percentage": 70},
+        ]
+
+        result = replace_variant_distribution(current_filters, new_variants)
+
+        assert result["multivariate"] == {"variants": new_variants}
+        assert {k: v for k, v in result.items() if k != "multivariate"} == {
+            k: v for k, v in current_filters.items() if k != "multivariate"
+        }
+
+    def test_does_not_alias_input(self):
+        current_filters: dict[str, Any] = {
+            "groups": [{"properties": [], "rollout_percentage": 100}],
+            "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]},
+        }
+        new_variants = [{"key": "control", "rollout_percentage": 100}]
+
+        result = replace_variant_distribution(current_filters, new_variants)
+        result["multivariate"]["variants"][0]["rollout_percentage"] = 0
+
+        assert new_variants == [{"key": "control", "rollout_percentage": 100}]
+        assert current_filters["multivariate"]["variants"][0]["rollout_percentage"] == 100
 
 
 class TestExperimentRuleFromFilters:

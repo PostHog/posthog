@@ -83,7 +83,7 @@ You can generate an API key under **Settings → API** in the [Rocketlane app](h
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            # An invalid or revoked api-key surfaces as a requests HTTPError when `_fetch_page` calls
+            # An invalid or revoked api-key surfaces as a requests HTTPError raised by the client's
             # `raise_for_status()`. Retrying can never satisfy a credential problem, so stop the sync.
             # Match the stable status text and base host, not the per-request path/query.
             "401 Client Error: Unauthorized for url: https://api.rocketlane.com": "Your Rocketlane API key is invalid or has been revoked. Generate a new key under Settings → API, then reconnect.",
@@ -141,6 +141,8 @@ You can generate an API key under **Settings → API** in the [Rocketlane app](h
         return rocketlane_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Rocketlane endpoint is full refresh
         )

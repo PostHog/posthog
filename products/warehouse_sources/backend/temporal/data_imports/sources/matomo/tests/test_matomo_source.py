@@ -63,6 +63,19 @@ class TestMatomoSource:
         error = "500 Server Error for url: https://myorg.matomo.cloud/index.php"
         assert not any(key in error for key in non_retryable_errors)
 
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "Matomo API error (retryable): status=500",
+            "Matomo API error (retryable): status=429",
+        ],
+    )
+    def test_retryable_errors_match_known_failures(self, observed_error):
+        # Matches the message `call()` raises in matomo.py after its internal retry loop
+        # exhausts; keeps this benign, self-recovering failure out of error tracking.
+        retryable_errors = self.source.get_retryable_errors()
+        assert any(key in observed_error for key in retryable_errors)
+
     def test_get_schemas(self):
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
 

@@ -18,7 +18,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.myhours import (
     MyHoursSourceConfig,
 )
@@ -28,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.my_hours.m
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.my_hours.settings import (
     ENDPOINTS,
+    INCREMENTAL_FIELDS,
     MY_HOURS_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -93,20 +97,8 @@ API keys are available on paid plans. Create one under **Settings → Integratio
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — My Hours list endpoints expose no server-side
-        # timestamp filter, so there is no incremental cursor to advance.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # timestamp filter, so there is no incremental cursor to advance (INCREMENTAL_FIELDS is empty).
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
         self, config: MyHoursSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -126,5 +118,6 @@ API keys are available on paid plans. Create one under **Settings → Integratio
         return my_hours_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
         )

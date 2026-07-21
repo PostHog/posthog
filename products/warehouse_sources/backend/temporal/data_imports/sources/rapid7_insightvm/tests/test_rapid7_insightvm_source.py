@@ -98,6 +98,7 @@ class TestRapid7InsightvmSource:
             api_key="key",
             region="us",
             endpoint="assets",
-            logger=logger,
+            team_id=self.team_id,
+            job_id="job-1",
             resumable_source_manager=manager,
         )

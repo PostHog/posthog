@@ -183,8 +183,8 @@ class TestBrazeSource:
         inputs.schema_name = "email_templates"
         inputs.should_use_incremental_field = True
         inputs.db_incremental_field_last_value = "2026-01-01T00:00:00Z"
-        inputs.incremental_field = "updated_at"
         inputs.team_id = 777
+        inputs.job_id = "job-1"
         manager = mock.MagicMock()
 
         self.source.source_for_pipeline(self.config, manager, inputs)
@@ -196,9 +196,9 @@ class TestBrazeSource:
         assert kwargs["endpoint"] == "email_templates"
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["team_id"] == 777
+        assert kwargs["job_id"] == "job-1"
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"
-        assert kwargs["incremental_field"] == "updated_at"
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.braze.source.braze_source")
     def test_source_for_pipeline_omits_last_value_on_full_refresh(self, mock_braze_source):

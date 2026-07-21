@@ -135,6 +135,7 @@ Create a token in Semgrep AppSec Platform under **Settings → Tokens** and gran
         return semgrep_source(
             api_token=config.api_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

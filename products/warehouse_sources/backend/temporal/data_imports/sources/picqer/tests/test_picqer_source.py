@@ -183,7 +183,8 @@ class TestPicqerSourceResponse:
             account="acme",
             api_key="key",
             endpoint="purchaseorders",
-            logger=mock.MagicMock(),
+            team_id=1,
+            job_id="job",
             resumable_source_manager=mock.MagicMock(),
         )
         assert response.primary_keys == ["idpurchaseorder"]
@@ -195,7 +196,8 @@ class TestPicqerSourceResponse:
             account="acme",
             api_key="key",
             endpoint="warehouses",
-            logger=mock.MagicMock(),
+            team_id=1,
+            job_id="job",
             resumable_source_manager=mock.MagicMock(),
         )
         assert response.primary_keys == ["idwarehouse"]

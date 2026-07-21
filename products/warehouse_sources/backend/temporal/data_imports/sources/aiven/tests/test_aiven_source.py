@@ -66,12 +66,15 @@ class TestSourceForPipeline:
     def test_passes_token_and_schema_through(self) -> None:
         inputs = MagicMock()
         inputs.schema_name = "invoices"
+        inputs.team_id = 7
+        inputs.job_id = "job-1"
         with patch.object(source_module, "aiven_source", return_value=MagicMock()) as aiven_source:
             AivenSource().source_for_pipeline(_config(), inputs)
         kwargs = aiven_source.call_args.kwargs
         assert kwargs["api_token"] == "tok"
         assert kwargs["endpoint"] == "invoices"
-        assert kwargs["logger"] is inputs.logger
+        assert kwargs["team_id"] == 7
+        assert kwargs["job_id"] == "job-1"
 
 
 class TestDocsAndErrors:

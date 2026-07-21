@@ -126,7 +126,8 @@ class TestCannySource:
         mock_source.assert_called_once_with(
             api_key="test-key",
             endpoint="comments",
-            logger=inputs.logger,
+            team_id=99,
+            job_id="job-xyz",
             resumable_source_manager=manager,
         )
 

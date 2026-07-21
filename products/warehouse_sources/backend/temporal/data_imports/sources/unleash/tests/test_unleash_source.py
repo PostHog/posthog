@@ -128,6 +128,7 @@ class TestUnleashSource:
         inputs = mock.MagicMock()
         inputs.schema_name = "features"
         inputs.team_id = self.team_id
+        inputs.job_id = "job-123"
         manager = mock.MagicMock()
 
         self.source.source_for_pipeline(self.config, manager, inputs)
@@ -138,7 +139,9 @@ class TestUnleashSource:
         assert kwargs["api_token"] == "user:secret-token"
         assert kwargs["endpoint"] == "features"
         assert kwargs["team_id"] == self.team_id
+        assert kwargs["job_id"] == "job-123"
         assert kwargs["resumable_source_manager"] is manager
+        assert "logger" not in kwargs
 
     def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
         inputs = mock.MagicMock()

@@ -113,6 +113,8 @@ class TestPexelsSource:
         config = PexelsSourceConfig(api_key="k", search_query="nature")
         inputs = mock.MagicMock(spec=SourceInputs)
         inputs.schema_name = "search_photos"
+        inputs.team_id = 123
+        inputs.job_id = "job-1"
         inputs.logger = mock.MagicMock()
         manager = mock.MagicMock()
 

@@ -19,7 +19,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sendowl import (
     SendowlSourceConfig,
 )
@@ -30,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sendowl.se
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sendowl.settings import (
     ENDPOINTS,
+    INCREMENTAL_FIELDS,
     SENDOWL_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -108,20 +112,9 @@ You can create an API key and secret under **Settings → API credentials** in t
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — SendOwl's list endpoints expose no reliable
-        # server-side timestamp filter for a genuine incremental cursor.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # server-side timestamp filter for a genuine incremental cursor (INCREMENTAL_FIELDS is empty,
+        # so build_endpoint_schemas marks each schema non-incremental/non-append).
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
         self, config: SendowlSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -151,6 +144,8 @@ You can create an API key and secret under **Settings → API credentials** in t
             api_key=config.api_key,
             api_secret=config.api_secret,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every SendOwl endpoint is full refresh
         )

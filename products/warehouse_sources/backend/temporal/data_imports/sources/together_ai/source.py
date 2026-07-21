@@ -135,5 +135,6 @@ You can find or create an API key in your [Together AI settings](https://api.tog
         return together_ai_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
         )

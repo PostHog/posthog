@@ -134,6 +134,8 @@ Set **Host** to the domain shown in your browser when you're logged into Wrike (
             access_token=config.access_token,
             host=config.host,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Wrike endpoint is full refresh
         )

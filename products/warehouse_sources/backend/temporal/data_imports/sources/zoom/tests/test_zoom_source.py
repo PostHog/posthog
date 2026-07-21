@@ -87,7 +87,8 @@ class TestZoomSource:
             client_id="cid",
             client_secret="secret",
             endpoint="meetings",
-            logger=inputs.logger,
+            team_id=1,
+            job_id="job-1",
             resumable_source_manager=manager,
         )
 

@@ -138,7 +138,8 @@ class WebflowSource(ResumableSource[WebflowSourceConfig, WebflowResumeConfig]):
             api_token=config.api_token,
             site_id=config.site_id,
             schema_name=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )
 

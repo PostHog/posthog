@@ -134,9 +134,9 @@ class TestPapersignPipelineWiring:
 
         inputs = MagicMock()
         inputs.schema_name = "documents"
+        inputs.team_id = 7
+        inputs.job_id = "job-1"
         manager = MagicMock()
-        logger = MagicMock()
-        inputs.logger = logger
 
         with patch.object(source_module, "papersign_source", side_effect=fake_source) as mock_source:
             result = PapersignSource().source_for_pipeline(_config(api_token="abc"), manager, inputs)
@@ -146,4 +146,5 @@ class TestPapersignPipelineWiring:
         assert captured["api_token"] == "abc"
         assert captured["endpoint"] == "documents"
         assert captured["resumable_source_manager"] is manager
-        assert captured["logger"] is logger
+        assert captured["team_id"] == 7
+        assert captured["job_id"] == "job-1"

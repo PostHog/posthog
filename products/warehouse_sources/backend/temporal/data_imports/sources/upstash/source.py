@@ -133,5 +133,6 @@ Create a management API key in the [Upstash console](https://console.upstash.com
             email=config.email,
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
         )

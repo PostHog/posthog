@@ -19,12 +19,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.teamtailor import (
     TeamtailorSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.teamtailor.settings import (
     ENDPOINTS,
+    INCREMENTAL_FIELDS,
     TEAMTAILOR_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.teamtailor.teamtailor import (
@@ -97,20 +101,9 @@ You can create an API key under **Settings → API keys** in Teamtailor. The key
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — Teamtailor's created-at/updated-at filter syntax is
-        # under-documented, so there is no incremental cursor we can advance safely.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # under-documented, so there is no incremental cursor we can advance safely. INCREMENTAL_FIELDS
+        # is empty, so build_endpoint_schemas marks every table full-refresh (no incremental/append).
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
         self, config: TeamtailorSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -133,6 +126,8 @@ You can create an API key under **Settings → API keys** in Teamtailor. The key
         return teamtailor_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Teamtailor endpoint is full refresh
         )

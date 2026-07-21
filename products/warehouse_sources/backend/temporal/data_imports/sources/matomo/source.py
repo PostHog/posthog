@@ -61,6 +61,12 @@ class MatomoSource(ResumableSource[MatomoSourceConfig, MatomoResumeConfig], Vali
             "Matomo API error:": None,
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # A 429 or 5xx is retried internally; if those retries still exhaust, the failure is
+        # transient and self-recovering, so let Temporal retry the activity without surfacing
+        # it as tracked exception noise.
+        return {"Matomo API error (retryable)"}
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(

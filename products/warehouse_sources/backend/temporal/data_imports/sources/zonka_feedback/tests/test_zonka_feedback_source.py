@@ -12,6 +12,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feedback.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feedback.source import ZonkaFeedbackSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feedback.zonka_feedback import (
+    ZONKA_API_VERSION_V1,
+    ZONKA_API_VERSION_V2_1,
     ZonkaFeedbackResumeConfig,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -148,6 +150,14 @@ class TestZonkaFeedbackSource:
         manager = self.source.get_resumable_source_manager(mock.MagicMock())
         assert isinstance(manager, ResumableSourceManager)
         assert manager._data_class is ZonkaFeedbackResumeConfig
+
+    def test_version_declaration_defaults_to_v2_1(self) -> None:
+        # New/unpinned sources must resolve to v2.1; an existing pin is honored verbatim so sources
+        # pinned to v1 keep syncing against the version they were created on.
+        assert self.source.supported_versions == (ZONKA_API_VERSION_V1, ZONKA_API_VERSION_V2_1)
+        assert self.source.default_version == ZONKA_API_VERSION_V2_1
+        assert self.source.resolve_api_version(None) == ZONKA_API_VERSION_V2_1
+        assert self.source.resolve_api_version(ZONKA_API_VERSION_V1) == ZONKA_API_VERSION_V1
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feedback.source.zonka_feedback_source"

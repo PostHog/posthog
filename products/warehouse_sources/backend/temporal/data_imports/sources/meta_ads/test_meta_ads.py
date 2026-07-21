@@ -8,7 +8,10 @@ from unittest import mock
 
 from django.db import OperationalError
 
-from requests.exceptions import JSONDecodeError as RequestsJSONDecodeError
+from requests.exceptions import (
+    ChunkedEncodingError,
+    JSONDecodeError as RequestsJSONDecodeError,
+)
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
@@ -453,6 +456,43 @@ class TestTransientErrorRetry:
             mock_get.return_value.get.side_effect = responses
             # Still surfaces the raw failure so it stays retryable at the Temporal layer.
             with pytest.raises(Exception, match="Meta API request failed: 500"):
+                list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
+
+        assert mock_get.return_value.get.call_count == META_TRANSIENT_ERROR_MAX_ATTEMPTS
+
+
+class TestNetworkTransientRetry:
+    INITIAL_URL = "https://graph.facebook.com/v20/act_123/campaigns"
+    PARAMS: dict[str, Any] = {"fields": "id,name", "limit": 500, "access_token": "tok"}
+
+    def test_connection_reset_reissues_same_request_then_succeeds(self, monkeypatch) -> None:
+        monkeypatch.setattr(meta_ads_module, "_backoff_sleep", lambda attempt: None)
+        manager = _build_manager()
+        responses = [
+            ChunkedEncodingError("Connection broken: ConnectionResetError(104, 'Connection reset by peer')"),
+            _mock_response(200, {"data": [{"id": "1"}], "paging": {}}),
+        ]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            batches = list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
+
+        assert batches == [[{"id": "1"}]]
+        assert mock_get.return_value.get.call_count == 2
+
+    def test_persistent_connection_reset_raises_after_bounded_attempts(self, monkeypatch) -> None:
+        monkeypatch.setattr(meta_ads_module, "_backoff_sleep", lambda attempt: None)
+        manager = _build_manager()
+        responses = [ChunkedEncodingError("Connection broken") for _ in range(META_TRANSIENT_ERROR_MAX_ATTEMPTS)]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            # Still surfaces the raw failure so it stays retryable at the Temporal layer.
+            with pytest.raises(ChunkedEncodingError):
                 list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
 
         assert mock_get.return_value.get.call_count == META_TRANSIENT_ERROR_MAX_ATTEMPTS

@@ -121,8 +121,10 @@ class TestDripSource:
             api_token="test_token",
             account_id="9999999",
             endpoint="subscribers",
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=manager,
+            db_incremental_field_last_value=None,
         )
 
     @parameterized.expand(ENDPOINTS)

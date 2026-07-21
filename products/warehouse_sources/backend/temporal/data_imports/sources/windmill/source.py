@@ -153,9 +153,9 @@ The audit logs table requires a workspace-admin token and is a Windmill Enterpri
             base_url=config.host,
             workspace=config.workspace,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
-            resumable_source_manager=resumable_source_manager,
             team_id=inputs.team_id,
+            job_id=inputs.job_id,
+            resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

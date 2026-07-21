@@ -1,123 +1,97 @@
-from collections.abc import Iterator
 from typing import Any
-from urllib.parse import urlencode
-
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
-from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_webfonts.settings import (
     GOOGLE_WEBFONTS_ENDPOINTS,
 )
 
 GOOGLE_WEBFONTS_BASE_URL = "https://www.googleapis.com"
-REQUEST_TIMEOUT_SECONDS = 60
-MAX_RETRY_ATTEMPTS = 5
+
+# The key rides the `X-goog-api-key` header (Google accepts either this or a `key` query param) so it
+# never lands in a logged request URL; the framework auth config redacts its value from logs and
+# raised error messages.
+GOOGLE_WEBFONTS_API_KEY_HEADER = "X-goog-api-key"
 
 
-class GoogleWebfontsRetryableError(Exception):
-    pass
-
-
-def _get_session(api_key: str) -> requests.Session:
-    # The key is sent via the `X-goog-api-key` header rather than the `key` query param so it
-    # never lands in a logged request URL. Google accepts either form.
-    # `retry=Retry(total=0)` disables the adapter's default retries so tenacity is the single
-    # retry layer — otherwise the two stack and multiply the backoff on 429/5xx.
-    return make_tracked_session(
-        headers={"X-goog-api-key": api_key, "Accept": "application/json"},
-        redact_values=(api_key,),
-        retry=Retry(total=0),
-    )
-
-
-def _build_url(path: str, params: dict[str, Any]) -> str:
-    query = urlencode(params)
-    return f"{GOOGLE_WEBFONTS_BASE_URL}{path}?{query}" if query else f"{GOOGLE_WEBFONTS_BASE_URL}{path}"
-
-
-def validate_credentials(api_key: str) -> bool:
-    """Confirm the API key is valid with a single catalog probe.
-
-    An invalid key returns 400 (`API_KEY_INVALID`) and a missing key 403; only a genuine key
-    returns 200. Connection-level failures (DNS, timeout, reset) raise `requests.RequestException`
-    so the caller can tell "unreachable" apart from "invalid key" instead of blaming the credential.
-    """
-    config = GOOGLE_WEBFONTS_ENDPOINTS["webfonts"]
-    params = {"sort": config.sort} if config.sort else {}
-    response = _get_session(api_key).get(
-        _build_url(config.path, params),
-        timeout=10,
-    )
-    return response.status_code == 200
-
-
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-) -> Iterator[list[dict[str, Any]]]:
-    config = GOOGLE_WEBFONTS_ENDPOINTS[endpoint]
-    session = _get_session(api_key)
-
-    @retry(
-        retry=retry_if_exception_type(
-            (
-                GoogleWebfontsRetryableError,
-                requests.ReadTimeout,
-                requests.ConnectionError,
-                requests.exceptions.ChunkedEncodingError,
-            )
-        ),
-        stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
-        wait=wait_exponential_jitter(initial=1, max=30),
-        reraise=True,
-    )
-    def fetch(path: str, params: dict[str, Any]) -> dict[str, Any]:
-        url = _build_url(path, params)
-        response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
-
-        if response.status_code == 429 or response.status_code >= 500:
-            raise GoogleWebfontsRetryableError(
-                f"Google Webfonts API error (retryable): status={response.status_code}, url={url}"
-            )
-
-        if not response.ok:
-            logger.error(f"Google Webfonts API error: status={response.status_code}, body={response.text}, url={url}")
-            response.raise_for_status()
-
-        return response.json()
-
-    params: dict[str, Any] = {}
-    if config.sort:
-        params["sort"] = config.sort
-
-    # The endpoint is unpaginated: the whole catalog arrives in a single `items` array.
-    data = fetch(config.path, params)
-    items = data.get(config.data_selector, []) or []
-    if items:
-        yield items
+def _endpoint_params(sort: str | None) -> dict[str, Any]:
+    return {"sort": sort} if sort else {}
 
 
 def google_webfonts_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
 ) -> SourceResponse:
     config = GOOGLE_WEBFONTS_ENDPOINTS[endpoint]
 
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": GOOGLE_WEBFONTS_BASE_URL,
+            # Only non-secret headers here; the API key rides in the framework auth config below so
+            # its value is redacted from logs and raised error messages.
+            "headers": {"Accept": "application/json"},
+            "auth": {
+                "type": "api_key",
+                "api_key": api_key,
+                "name": GOOGLE_WEBFONTS_API_KEY_HEADER,
+                "location": "header",
+            },
+        },
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": _endpoint_params(config.sort),
+                    # The catalog arrives in a single (unpaginated) `items` array. A missing/empty
+                    # selector yields no rows (leniently, as before) rather than failing loud.
+                    "data_selector": config.data_selector,
+                    "paginator": SinglePagePaginator(),
+                },
+            }
+        ],
+    }
+
+    resource = rest_api_resource(rest_config, team_id, job_id, None)
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
         sort_mode="asc",
+        column_hints=resource.column_hints,
     )
+
+
+def validate_credentials(api_key: str) -> tuple[bool, str | None]:
+    """Confirm the API key is valid with a single catalog probe.
+
+    An invalid key returns 400 (`API_KEY_INVALID`) and a missing key 403; only a genuine key returns
+    200. A connection-level failure (DNS, timeout, reset) surfaces as status ``None`` so the caller
+    can tell "unreachable" apart from "invalid key" instead of blaming the credential.
+    """
+    config = GOOGLE_WEBFONTS_ENDPOINTS["webfonts"]
+    params = _endpoint_params(config.sort)
+    query = f"?sort={params['sort']}" if params else ""
+    ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{GOOGLE_WEBFONTS_BASE_URL}{config.path}{query}",
+        headers={GOOGLE_WEBFONTS_API_KEY_HEADER: api_key, "Accept": "application/json"},
+    )
+    if ok:
+        return True, None
+    if status is None:
+        return False, "Could not reach the Google Fonts API. Check your network connection and try again."
+    return False, "Invalid Google API key"

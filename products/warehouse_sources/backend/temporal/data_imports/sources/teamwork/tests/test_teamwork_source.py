@@ -151,6 +151,7 @@ class TestSourceForPipeline:
         inputs = SimpleNamespace(
             schema_name=endpoint,
             team_id=1,
+            job_id="job-1",
             logger=MagicMock(),
             should_use_incremental_field=input_overrides.get("should_use_incremental_field", False),
             db_incremental_field_last_value=input_overrides.get("db_incremental_field_last_value", None),
