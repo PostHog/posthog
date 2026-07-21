@@ -518,6 +518,7 @@ the row lists both.
 | spacelift                        | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | sparkpost                        | HTTP                        | requests                                                        | ✅                          |
 | split_io                         | HTTP                        | requests                                                        | ✅                          |
+| spotlercrm                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | squadcast                        | HTTP                        | requests                                                        | ✅                          |
 | square                           | HTTP                        | requests                                                        | ✅                          |
 | squarespace                      | HTTP                        | requests                                                        | ✅                          |
@@ -951,7 +952,6 @@ doesn't conflict with concurrent PRs.
 - sonatype_nexus
 - spacelift
 - spotify_ads
-- spotlercrm
 - statsig
 - strava
 - streamelements
