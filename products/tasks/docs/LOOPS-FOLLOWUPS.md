@@ -23,6 +23,11 @@ File paths are relative to `products/tasks/backend/` unless noted.
   When no `Idempotency-Key` header is sent, `fire_key` falls back to a fresh UUID, so a double-click or an HTTP retry under `overlap_policy=allow` spawns a duplicate paid run.
   Decide: require the header, or derive a stable default from request attributes.
   Files: `facade/loops.py` (`fire_loop_manual` / `fire_loop_api`), `presentation/views/loops.py`.
+- **User-bound approval for MCP loop creation.**
+  `loops-create` uses the typed-confirm prepare/execute split, which is friction, not enforcement: the model supplies the `confirmation` argument, so a sufficiently steered agent can self-confirm (see the tradeoff note in `services/mcp/src/tools/confirmed-action-runtime.ts`).
+  A hard guarantee needs an approval channel the model cannot reach: client-rendered elicitation once host support is broad enough, a host-asserted origin marker on UI-app `callServerTool` calls, or removing `loops-create` from the agent tool surface and making the review card the only creation path.
+  All three are product/protocol decisions; MCP Apps today gives the review card no channel the model can't also read.
+  Files: `services/mcp/src/tools/confirmed-action-runtime.ts`, `products/tasks/mcp/tools.yaml`, `services/mcp/src/ui-apps/apps/loops-review.tsx`.
 
 ### Needs cross-repo (agent-prompt) work
 
