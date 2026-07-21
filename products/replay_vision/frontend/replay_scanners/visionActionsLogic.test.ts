@@ -58,6 +58,26 @@ describe('visionActionsLogic', () => {
             })
     })
 
+    it('keeps the built-in digest in the shared list so the Observations-tab card can find it', async () => {
+        // The digest must NOT be filtered out here: scannerDigestLogic reads this list to populate the
+        // hero card. The Summaries-and-alerts table hides it at render time instead (VisionActionsTab).
+        const digest = { ...action('digest'), is_scanner_digest: true } as VisionActionApi
+        useMocks({
+            get: {
+                '/api/projects/:team/vision/actions/': { results: [digest, action('a')], count: 2 },
+            },
+        })
+        logic.actions.loadActions()
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({
+                visionActions: expect.arrayContaining([
+                    expect.objectContaining({ id: 'digest', is_scanner_digest: true }),
+                    expect.objectContaining({ id: 'a' }),
+                ]),
+            })
+    })
+
     it('toggleActionEnabled optimistically flips the row and marks it in-flight', async () => {
         await expectLogic(logic, () => {
             logic.actions.loadActionsSuccess([action('a', true)])

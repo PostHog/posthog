@@ -7,22 +7,34 @@ calls show up in our HTTP logs, OTel metrics, and sample-capture pipeline.
 """
 
 import dataclasses
-from collections.abc import Callable, Iterator
-from typing import Any
+from collections.abc import Iterator
+from typing import Any, Optional
 from urllib.parse import urlencode, urljoin
 
 import requests
 import structlog
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     WebhookCreationResult,
     WebhookDeletionResult,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    JSONResponsePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.constants import (
     REVENUECAT_API_BASE_URL,
     REVENUECAT_AUTO_WEBHOOK_NAME,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.settings import (
+    REVENUECAT_API_ENDPOINTS,
 )
 
 LOGGER = structlog.get_logger(__name__)
@@ -35,13 +47,15 @@ REQUEST_TIMEOUT_SECONDS = 30
 class RevenueCatResumeConfig:
     """Cursor state for resumable list iteration.
 
-    ``starting_after`` is the RevenueCat-issued cursor value (the id of the last
-    item from the previous page). ``endpoint`` scopes the cursor to a single
-    endpoint so we never replay a customers cursor against products.
+    ``endpoint`` scopes the cursor to a single endpoint so we never replay a customers cursor
+    against products. ``next_url`` is the resolved RevenueCat ``next_page`` link the run resumes
+    from. ``starting_after`` (the last item's id) is retained so resume state written by the
+    pre-framework implementation still parses; new runs resume from ``next_url``.
     """
 
     endpoint: str
-    starting_after: str
+    starting_after: str | None = None
+    next_url: str | None = None
 
 
 def _auth_headers(api_key: str) -> dict[str, str]:
@@ -136,7 +150,7 @@ def _list_accessible_project_ids(session: requests.Session) -> list[str] | None:
         next_page = payload.get("next_page")
         if not next_page:
             return ids
-        # next_page already carries its own query string — see iterate_list_endpoint.
+        # next_page already carries its own query string, so re-send it as-is with no extra params.
         url = next_page if next_page.startswith("http") else urljoin(REVENUECAT_API_BASE_URL, next_page)
         params = None
 
@@ -234,78 +248,134 @@ def _ms_to_seconds(value: Any) -> Any:
     return value
 
 
-def iterate_list_endpoint(
+class RevenueCatCursorPaginator(JSONResponsePaginator):
+    """Follows RevenueCat's ``next_page`` body link.
+
+    RevenueCat returns the link as a root-relative path
+    (``/v2/projects/{id}/customers?starting_after=ID&limit=100``), and the base paginator assigns
+    it verbatim as the next request URL — which ``requests`` needs to be absolute. Resolve it
+    against the API host the same way the pre-framework client did
+    (``urljoin(REVENUECAT_API_BASE_URL, next_page)``) before it becomes the next request.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(next_url_path="next_page")
+
+    def update_state(self, response: requests.Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        if self._has_next_page and self._next_url and not self._next_url.startswith("http"):
+            self._next_url = urljoin(REVENUECAT_API_BASE_URL, self._next_url)
+
+
+def _normalize_timestamps(row: dict[str, Any], timestamp_fields: tuple[str, ...]) -> dict[str, Any]:
+    """Divide the endpoint's ms-epoch partition field(s) down to Unix seconds.
+
+    The partition layer treats bare ints as Unix seconds, so RevenueCat's ms epochs must be
+    scaled or a datetime partition buckets every row far in the future. Only the partition
+    field is touched (``created_at`` for most endpoints, ``first_seen_at`` for customers); other
+    ms fields such as ``last_seen_at`` are left as-is. See ``_ms_to_seconds``.
+    """
+    for field in timestamp_fields:
+        if field in row:
+            row[field] = _ms_to_seconds(row[field])
+    return row
+
+
+def revenuecat_api_source(
     api_key: str,
     project_id: str,
-    path_suffix: str,
-    *,
-    endpoint_name: str,
-    timestamp_fields: tuple[str, ...] = ("created_at",),
-    starting_after: str | None = None,
-    on_cursor_advance: Callable[[str, str], None] | None = None,
-) -> Iterator[dict[str, Any]]:
-    """Yield rows from a RevenueCat v2 list endpoint, transparently following the cursor.
+    schema_name: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager["RevenueCatResumeConfig"],
+) -> SourceResponse:
+    """Build the ``rest_source`` resource for a RevenueCat v2 list endpoint.
 
-    RevenueCat returns ``{"items": [...], "next_page": "/v2/path?starting_after=ID"}``.
-    When ``next_page`` is null/absent, the list is exhausted.
-
-    Rows are normalized in flight: any ms-epoch field named in ``timestamp_fields``
-    is divided by 1000 so it lands in the warehouse as a Unix-seconds int the
-    partition layer can interpret directly. This must cover the endpoint's
-    partition key — which is ``created_at`` for most endpoints but ``first_seen_at``
-    for customers (the customer object has no ``created_at``). See ``_ms_to_seconds``.
-
-    ``on_cursor_advance`` is invoked with the last item's id every time we finish
-    yielding a page so callers (e.g. the resumable manager) can checkpoint. We
-    save state *after* yielding so a crash re-yields the last page rather than
-    skipping it — merge dedupes on primary key.
+    RevenueCat returns ``{"items": [...], "next_page": "/v2/path?starting_after=ID"}`` and
+    paginates via that cursor link; a null/absent ``next_page`` ends the list. The key rides the
+    framework ``auth`` config so it is redacted from logs and raised error messages.
     """
-    project_id = _normalize_project_id(project_id)
-    session = _session(api_key)
+    endpoint = REVENUECAT_API_ENDPOINTS[schema_name]
+    normalized_project_id = _normalize_project_id(project_id)
+    timestamp_fields = tuple(endpoint.partition_keys)
+
     params: dict[str, Any] = {"limit": DEFAULT_PAGE_SIZE}
-    if starting_after:
-        params["starting_after"] = starting_after
 
-    url = f"{REVENUECAT_API_BASE_URL}{_project_path(project_id, path_suffix)}"
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    # Only honor saved state for the endpoint that wrote it — replaying a customers cursor against
+    # products would skip rows.
+    if resume is not None and resume.endpoint != schema_name:
+        resume = None
 
-    while True:
-        response = session.get(url, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
-        response.raise_for_status()
-        payload = response.json() or {}
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resume is not None:
+        if resume.next_url:
+            initial_paginator_state = {"next_url": resume.next_url}
+        elif resume.starting_after:
+            # Legacy pre-framework state stored only the cursor id; reproduce the old resumed first
+            # request (`?starting_after=<id>&limit=100`) so an in-flight sync still advances.
+            params["starting_after"] = resume.starting_after
 
-        rows = payload.get("items") or []
-        if not isinstance(rows, list):
-            return
+    def normalize(row: dict[str, Any]) -> dict[str, Any]:
+        return _normalize_timestamps(row, timestamp_fields)
 
-        last_id: str | None = None
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-            for field in timestamp_fields:
-                if field in row:
-                    row[field] = _ms_to_seconds(row[field])
-            yield row
-            # `id` is the declared primary key for every RevenueCat list
-            # endpoint (see settings.py). Access it directly so a malformed
-            # response missing `id` raises `KeyError` here rather than
-            # silently advancing the cursor to a stale value — which would
-            # corrupt the merge/dedupe step downstream.
-            last_id = row["id"]
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": REVENUECAT_API_BASE_URL,
+            "headers": {"Accept": "application/json", "Content-Type": "application/json"},
+            "auth": {"type": "bearer", "token": api_key},
+            "paginator": RevenueCatCursorPaginator(),
+        },
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": schema_name,
+                "endpoint": {
+                    "path": _project_path(normalized_project_id, endpoint.path_suffix),
+                    "params": params,
+                    # A 200 without `items` is a legit empty page (not an error) — leave the
+                    # selector non-required so it terminates rather than failing loud.
+                    "data_selector": "items",
+                },
+                "data_map": normalize,
+            }
+        ],
+    }
 
-        next_page = payload.get("next_page")
-        if last_id is not None and on_cursor_advance is not None:
-            on_cursor_advance(endpoint_name, last_id)
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
+        # the last page (merge dedupes on the primary key) rather than skipping it.
+        if state and state.get("next_url"):
+            resumable_source_manager.save_state(
+                RevenueCatResumeConfig(endpoint=schema_name, next_url=state["next_url"])
+            )
 
-        if not next_page:
-            return
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
 
-        # next_page is a relative path including its own query string (e.g.
-        # `/v2/projects/{id}/customers?starting_after=cus_abc&limit=20`). The
-        # path already encodes the next cursor, so re-send it as-is with no
-        # extra params — passing both `params=` and a query-bearing url would
-        # produce duplicate `limit=` values.
-        url = next_page if next_page.startswith("http") else urljoin(REVENUECAT_API_BASE_URL, next_page)
-        params = {}
+    def items() -> Iterator[list[dict[str, Any]]]:
+        # The framework passes non-dict page entries through untouched (data_map only runs on
+        # dicts), so drop them here — matching the old client's per-row dict guard — before a
+        # malformed row can reach the delta writer.
+        for page in resource:
+            yield [row for row in page if isinstance(row, dict)]
+
+    return SourceResponse(
+        items=items,
+        primary_keys=endpoint.primary_keys,
+        name=schema_name,
+        partition_keys=endpoint.partition_keys,
+        partition_mode="datetime",
+        partition_format="week",
+        partition_count=1,
+        partition_size=1,
+    )
 
 
 def _update_webhook_integration(api_key: str, project_id: str, webhook_id: str, updates: dict[str, Any]) -> None:

@@ -6,7 +6,7 @@ returns DTO-shaped responses. No model imports.
 """
 
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from typing import Any
 
 from django.conf import settings
@@ -34,6 +34,7 @@ from products.wizard.backend.facade.contracts import (
     UpsertWizardSessionRequest,
     WizardSessionDTO,
 )
+from products.wizard.backend.facade.enums import RunPhase
 from products.wizard.backend.presentation.serializers import (
     UpsertWizardSessionRequestSerializer,
     WizardSessionSerializer,
@@ -127,6 +128,15 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # Negative lookahead so a session_id of `stream` or `latest` can't collide
     # with the `@action(url_path=...)` detail-vs-action routes.
     lookup_value_regex = r"(?!(?:stream|latest)$)[^/]+"
+
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        if (
+            self.action == "create"
+            and isinstance(request.data, Mapping)
+            and request.data.get("run_phase") == RunPhase.COMPLETED.value
+        ):
+            return ["wizard_session:write", "event_definition:write"]
+        return None
 
     def check_permissions(self, request: Request) -> None:
         try:

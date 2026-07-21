@@ -302,16 +302,14 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                 if (values.isNew) {
                     const created = await visionActionsCreate(String(teamId), body)
                     lemonToast.success(
-                        form.mode === VisionActionModeEnumApi.Alert ? 'Alert created' : 'Group summary created'
+                        form.mode === VisionActionModeEnumApi.Alert ? 'Alert created' : 'Summary created'
                     )
                     visionActionsLogic.findMounted({ scannerId })?.actions.loadActions()
                     router.actions.push(urls.replayVisionAction(created.id))
                     return
                 }
                 const updated = await visionActionsPartialUpdate(String(teamId), values.actionId, body)
-                lemonToast.success(
-                    form.mode === VisionActionModeEnumApi.Alert ? 'Alert updated' : 'Group summary updated'
-                )
+                lemonToast.success(form.mode === VisionActionModeEnumApi.Alert ? 'Alert updated' : 'Summary updated')
                 visionActionsLogic.findMounted({ scannerId })?.actions.loadActions()
                 const runsLogic = visionActionRunsLogic.findMounted({ actionId: updated.id })
                 runsLogic?.actions.loadAction()
@@ -350,18 +348,9 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
             // Summarizer observations carry no verdict/tags/score, so threshold alerts don't apply:
             // their alerts are always "every new summary". Normalizing the form (not just the UI)
             // keeps validation and the submitted alert_config consistent with what the editor shows.
+            // The mode is fixed once the editor opens, so this only has to fire on init/load, not on a
+            // mode toggle.
             if (scannerType === 'summarizer' && values.actionForm.mode === VisionActionModeEnumApi.Alert) {
-                actions.setActionFormValues({
-                    alert_frequency: AlertConfigFrequencyEnumApi.EveryMatch,
-                    alert_metric: VisionAlertMetricEnumApi.Count,
-                })
-            }
-        },
-
-        setActionFormValue: ({ name, value }) => {
-            // Switching an existing action to alert mode on a summarizer scanner gets the same
-            // normalization as loading one.
-            if (name === 'mode' && value === VisionActionModeEnumApi.Alert && values.scannerType === 'summarizer') {
                 actions.setActionFormValues({
                     alert_frequency: AlertConfigFrequencyEnumApi.EveryMatch,
                     alert_metric: VisionAlertMetricEnumApi.Count,
@@ -430,10 +419,16 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
     })),
 
     urlToAction(({ actions }) => ({
-        [urls.replayVisionActionNew(':scannerId')]: ({ scannerId }) => {
+        [urls.replayVisionActionNew(':scannerId')]: ({ scannerId }, { mode }) => {
             actions.setActionId('new')
             actions.setScannerId(scannerId || '')
-            actions.resetActionForm(NEW_ACTION_FORM()) // clear values left from a previous edit
+            // Mode is picked before opening the editor (the "New summary" / "New alert" buttons), so the
+            // form opens committed to one shape rather than showing a type toggle.
+            const startMode =
+                mode === VisionActionModeEnumApi.Alert
+                    ? VisionActionModeEnumApi.Alert
+                    : VisionActionModeEnumApi.GroupSummary
+            actions.resetActionForm({ ...NEW_ACTION_FORM(), mode: startMode }) // clear values left from a previous edit
         },
         [urls.replayVisionActionEdit(':actionId')]: ({ actionId }) => {
             const id = actionId || 'new'

@@ -550,7 +550,19 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if filter.distinct_id:
             # Exact match on any of the person's distinct IDs; no matching person => no results.
             matched = get_person_by_distinct_id(team.pk, filter.distinct_id)
-            person_properties.append({"type": "hogql", "key": f"id = toUUID('{matched.uuid}')" if matched else "1 = 2"})
+            if matched is None:
+                # Return early: a constant-false predicate can't be pushed into the persons
+                # lazy table, so ClickHouse would still aggregate every person row for the
+                # team before filtering everything out.
+                return Response(
+                    {
+                        "results": [],
+                        "next": None,
+                        "previous": None,
+                        **({"count": 0} if "include_total" in request.GET else {}),
+                    }
+                )
+            person_properties.append({"type": "hogql", "key": f"id = toUUID('{matched.uuid}')"})
         actors_query = ActorsQuery(
             select=["id"],
             properties=person_properties,

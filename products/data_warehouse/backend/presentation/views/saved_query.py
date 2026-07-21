@@ -440,7 +440,7 @@ class DataWarehouseSavedQuerySerializer(
                 # The columns will be inferred from the query
                 client_types = self.context["request"].data.get("types", [])
                 if len(client_types) == 0:
-                    view.set_columns(view.get_columns())
+                    view.set_columns(view.get_columns(user=self.context["request"].user))
                 else:
                     columns = {
                         str(item[0]): {
@@ -581,7 +581,7 @@ class DataWarehouseSavedQuerySerializer(
                     # The columns will be inferred from the query
                     client_types = self.context["request"].data.get("types", [])
                     if len(client_types) == 0:
-                        view.set_columns(view.get_columns())
+                        view.set_columns(view.get_columns(user=self.context["request"].user))
                     else:
                         columns = {
                             str(item[0]): {
@@ -685,7 +685,7 @@ class DataWarehouseSavedQuerySerializer(
                 detail=(
                     'Query must be a JSON object with a "query" key, '
                     f"got {type(query).__name__}. "
-                    'Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}'
+                    'Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events WHERE timestamp >= now() - INTERVAL 7 DAY LIMIT 100"}'
                 )
             )
         if not isinstance(query.get("query"), str) or not query["query"].strip():

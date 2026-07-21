@@ -6,7 +6,7 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInp
 from products.warehouse_sources.backend.temporal.data_imports.sources.aha.aha import AhaResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.aha.settings import AHA_ENDPOINTS, ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.aha.source import AhaSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AhaSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.aha import AhaSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # Endpoints whose Aha! list action exposes the server-side `updated_since` filter.

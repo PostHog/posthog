@@ -9,7 +9,7 @@ from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFie
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import VercelSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vercel import VercelSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel import source as vercel_source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.source import VercelSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.vercel import VercelResumeConfig
@@ -63,9 +63,9 @@ class TestVercelSource:
         assert fields["team_id"].required is False
         assert fields["team_id"].secret is False
 
-    def test_get_schemas_incremental_only_for_deployments(self) -> None:
+    def test_get_schemas_sync_capabilities_per_endpoint(self) -> None:
         schemas = {s.name: s for s in self.source.get_schemas(self.config, team_id=1)}
-        assert set(schemas) == {"deployments", "projects", "teams", "domains", "aliases"}
+        assert set(schemas) == {"deployments", "projects", "teams", "domains", "aliases", "billing_charges"}
 
         deployments = schemas["deployments"]
         assert deployments.supports_incremental is True
@@ -73,8 +73,18 @@ class TestVercelSource:
         assert [f["field"] for f in deployments.incremental_fields] == ["created"]
         assert deployments.incremental_fields[0]["field_type"] == IncrementalFieldType.Integer
 
+        # Billing supports incremental merge but not append (append would duplicate restated charges),
+        # cursors on the charge period, and carries a lookback so restatements get re-read and merged.
+        billing = schemas["billing_charges"]
+        assert billing.supports_incremental is True
+        assert billing.supports_append is False
+        assert [f["field"] for f in billing.incremental_fields] == ["charge_period_start"]
+        assert billing.incremental_fields[0]["field_type"] == IncrementalFieldType.DateTime
+        assert billing.default_incremental_lookback_seconds == 60 * 60 * 24 * 35
+
         for full_refresh in ("projects", "teams", "domains", "aliases"):
             assert schemas[full_refresh].supports_incremental is False
+            assert schemas[full_refresh].supports_append is False
             assert schemas[full_refresh].incremental_fields == []
 
     def test_get_schemas_filters_by_names(self) -> None:
@@ -92,6 +102,10 @@ class TestVercelSource:
         [
             ("unauthorized", "401 Client Error: Unauthorized for url: https://api.vercel.com/v6/deployments?limit=100"),
             ("forbidden", "403 Client Error: Forbidden for url: https://api.vercel.com/v9/projects?limit=100"),
+            (
+                "billing_charges_team_not_found",
+                "404 Client Error: Not Found for url: https://api.vercel.com/v1/billing/charges?from=2026-01-01T00%3A00%3A00.000Z&to=2026-02-01T00%3A00%3A00.000Z&teamId=team_abc",
+            ),
         ]
     )
     def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
@@ -103,6 +117,9 @@ class TestVercelSource:
             ("rate_limit", "429 Client Error: Too Many Requests for url: https://api.vercel.com/v6/deployments"),
             ("server_error", "500 Server Error: Internal Server Error for url: https://api.vercel.com/v6/deployments"),
             ("read_timeout", "HTTPSConnectionPool(host='api.vercel.com', port=443): Read timed out."),
+            # Not-found on a non-billing endpoint is unrelated to the billing_charges team-lookup
+            # failure, so the match must stay scoped to that path rather than any 404 on the host.
+            ("not_found_other_endpoint", "404 Client Error: Not Found for url: https://api.vercel.com/v6/deployments"),
         ]
     )
     def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
