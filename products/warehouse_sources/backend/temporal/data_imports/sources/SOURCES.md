@@ -267,6 +267,7 @@ the row lists both.
 | hibob                            | HTTP                        | requests                                                        | ✅                          |
 | honeybadger                      | HTTP                        | requests                                                        | ✅                          |
 | honeycomb                        | HTTP                        | requests                                                        | ✅                          |
+| hoorayhr                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | humanitix                        | HTTP                        | requests                                                        | ✅                          |
 | hubplanner                       | HTTP                        | requests                                                        | ✅                          |
 | hubspot                          | HTTP                        | requests                                                        | ✅                          |
@@ -755,7 +756,6 @@ doesn't conflict with concurrent PRs.
 - hightouch
 - honeybadger
 - honeycomb
-- hoorayhr
 - hubplanner
 - humanitix
 - ikas
