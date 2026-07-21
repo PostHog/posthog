@@ -3,6 +3,8 @@ import dataclasses
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.db import OperationalError
+
 from temporalio.testing import ActivityEnvironment
 
 from posthog.temporal.signup_enrichment.workflow import (
@@ -69,3 +71,16 @@ async def test_failure_signal_emitted_only_on_final_attempt(attempt, expect_sign
         assert signals[0].kwargs["properties"]["error"] == "RuntimeError"
     else:
         assert signals == []
+
+
+async def test_recheck_retries_org_read_after_stale_connection_drop():
+    # The pooled connection has been idle through the 4h recheck delay; the first read raises
+    # OperationalError, the retry on a fresh connection succeeds — the activity must not blow up.
+    fields = EnrichmentFields(company_type="STARTUP", headcount=130)
+    pha_client, (get_client, enrich, det, snapshot) = _patches(enrich_return={"return_value": fields})
+    with get_client, enrich, det, snapshot, patch("posthog.models.Organization.objects") as org_objects:
+        org_objects.filter.return_value.exists.side_effect = [OperationalError("the connection is closed"), True]
+        result = await ActivityEnvironment().run(enrich_signup_organization_activity, _INPUTS, True)
+
+    assert result == {"matched": True, "fields_filled": 2}
+    assert org_objects.filter.return_value.exists.call_count == 2
