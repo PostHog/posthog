@@ -206,11 +206,10 @@ def _post_pr_opened_notification_once(
     # ``latest_actor_slack_user_id``: this ping is asynchronous (it can fire long
     # after the PR opened, once the CI follow-up loop settles), so the last person to
     # touch the thread is often a casual joiner rather than the person who owns the work.
-    state = task_run.state or {}
-    mapping = SlackThreadTaskMapping.objects.filter(task_run=task_run).first()
-    reply_target_slack_user_id = state.get("slack_actor_slack_user_id") or (
-        mapping.mentioning_slack_user_id if mapping else None
-    )
+    reply_target_slack_user_id = (task_run.state or {}).get("slack_actor_slack_user_id")
+    if not reply_target_slack_user_id:
+        mapping = SlackThreadTaskMapping.objects.filter(task_run=task_run).first()
+        reply_target_slack_user_id = mapping.mentioning_slack_user_id if mapping else None
 
     handler.post_pr_opened(pr_url, task_url, reply_target_slack_user_id=reply_target_slack_user_id)
 
