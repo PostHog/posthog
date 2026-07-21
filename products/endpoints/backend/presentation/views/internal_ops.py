@@ -5,9 +5,11 @@ the ``api/internal/data_modeling_ops/`` URL prefix and the OIDC auth from the
 data_modeling facade. Wired manually in posthog/urls.py.
 """
 
+import uuid
 from typing import Any
 
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db.models import Q
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import pagination, serializers, viewsets
@@ -17,13 +19,18 @@ from rest_framework.response import Response
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
+from products.data_modeling.backend.facade.fleet_ops import resolve_entity
 from products.data_modeling.backend.facade.internal_ops import (
     DataModelingOpsAuthenticationMixin,
+    InternalResolveMatchSerializer,
     scoped_to_team,
     team_id_filter,
 )
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobStatus
 from products.endpoints.backend.facade.models import Endpoint, EndpointVersion
+
+RESOLVE_KINDS = ("saved_query", "endpoint", "dag", "node", "job", "schedule", "workflow", "name")
+RESOLVE_MATCH_CAP = 50
 
 
 class InternalEndpointVersionSerializer(serializers.ModelSerializer):
@@ -169,3 +176,62 @@ class InternalEndpointsOpsViewSet(DataModelingOpsAuthenticationMixin, TeamAndOrg
                 ).data,
             }
         )
+
+
+def _endpoint_matches(query: str, *, include_partial: bool) -> list[dict]:
+    """Endpoints matching an id or name, across all teams."""
+    filters = Q(name__iexact=query)
+    if include_partial:
+        filters |= Q(name__icontains=query)
+    try:
+        uuid.UUID(query)
+        filters |= Q(id=query)
+    except ValueError:
+        pass
+    # nosemgrep: idor-lookup-without-team (staff-only fleet endpoint aggregates all teams)
+    endpoints = Endpoint.objects.filter(filters).exclude(deleted=True).order_by("name")[:RESOLVE_MATCH_CAP]
+    matches = [
+        {
+            "kind": "endpoint",
+            "team_id": endpoint.team_id,
+            "id": str(endpoint.id),
+            "name": endpoint.name,
+            "detail": {"is_active": endpoint.is_active, "current_version": endpoint.current_version},
+        }
+        for endpoint in endpoints
+    ]
+    return sorted(matches, key=lambda match: (match["name"].lower() != query.lower(), match["name"]))
+
+
+class InternalEndpointsOpsFleetViewSet(
+    DataModelingOpsAuthenticationMixin, TeamAndOrgViewSetMixin, viewsets.GenericViewSet
+):
+    """Cross-team typed search for the modeling-ops admin app.
+
+    Hosted in the endpoints product because resolution spans endpoints AND data_modeling
+    entities, and only this product may import both (tach: endpoints -> data_modeling).
+    """
+
+    scope_object = "INTERNAL"
+    serializer_class = _FallbackSerializer
+
+    @extend_schema(exclude=True)
+    def internal_resolve(self, request: Request, **kwargs: Any) -> Response:
+        kind = request.query_params.get("kind", "")
+        query = (request.query_params.get("q") or "").strip()
+        if kind not in RESOLVE_KINDS:
+            return Response({"error": f"kind must be one of {', '.join(RESOLVE_KINDS)}"}, status=400)
+        if not query:
+            return Response({"error": "q is required"}, status=400)
+
+        if kind == "endpoint":
+            matches = _endpoint_matches(query, include_partial=True)
+        elif kind == "name":
+            combined = resolve_entity("name", query) + _endpoint_matches(query, include_partial=True)
+            matches = sorted(
+                combined, key=lambda match: (match["name"].lower() != query.lower(), match["name"], match["kind"])
+            )[:RESOLVE_MATCH_CAP]
+        else:
+            matches = resolve_entity(kind, query)
+
+        return Response({"kind": kind, "q": query, "matches": InternalResolveMatchSerializer(matches, many=True).data})

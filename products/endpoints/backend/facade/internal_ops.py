@@ -5,6 +5,9 @@ modules. Only imported by posthog/urls.py (request time), so the DRF dependencie
 off the ``django.setup()`` path.
 """
 
-from products.endpoints.backend.presentation.views.internal_ops import InternalEndpointsOpsViewSet
+from products.endpoints.backend.presentation.views.internal_ops import (
+    InternalEndpointsOpsFleetViewSet,
+    InternalEndpointsOpsViewSet,
+)
 
-__all__ = ["InternalEndpointsOpsViewSet"]
+__all__ = ["InternalEndpointsOpsFleetViewSet", "InternalEndpointsOpsViewSet"]

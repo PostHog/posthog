@@ -47,11 +47,14 @@ from posthog.temporal.codec_server import decode_payloads
 
 from products.ai_observability.backend.api.personal_spend import PersonalSpendEUProxyViewSet
 from products.cdp.backend.api import hog_function_template
-from products.data_modeling.backend.facade.internal_ops import InternalDataModelingOpsViewSet
+from products.data_modeling.backend.facade.internal_ops import (
+    InternalDataModelingOpsFleetViewSet,
+    InternalDataModelingOpsViewSet,
+)
 from products.data_warehouse.backend.presentation.views.public_source_configs import PublicSourceConfigViewSet
 from products.demo.backend.facade.api import demo_route
 from products.early_access_features.backend.api import early_access_features
-from products.endpoints.backend.facade.internal_ops import InternalEndpointsOpsViewSet
+from products.endpoints.backend.facade.internal_ops import InternalEndpointsOpsFleetViewSet, InternalEndpointsOpsViewSet
 from products.legal_documents.backend.presentation.webhook import legal_document_pandadoc_webhook
 from products.messaging.backend.api.customerio_webhook import CustomerIOWebhookView
 from products.messaging.backend.api.push_subscriptions import push_subscriptions
@@ -543,6 +546,33 @@ urlpatterns = [
     path(
         "api/internal/data_modeling_ops/endpoints/<str:endpoint_id>",
         csrf_exempt(InternalEndpointsOpsViewSet.as_view({"get": "internal_endpoint_detail"})),
+    ),
+    # Fleet views for the same app: aggregates and cross-team searches that answer a
+    # question about the estate rather than about one entity. Same namespace and OIDC
+    # auth as the routes above.
+    path(
+        "api/internal/data_modeling_ops/teams",
+        csrf_exempt(InternalDataModelingOpsFleetViewSet.as_view({"get": "internal_teams"})),
+    ),
+    path(
+        "api/internal/data_modeling_ops/migration_matrix",
+        csrf_exempt(InternalDataModelingOpsFleetViewSet.as_view({"get": "internal_migration_matrix"})),
+    ),
+    path(
+        "api/internal/data_modeling_ops/orphans",
+        csrf_exempt(InternalDataModelingOpsFleetViewSet.as_view({"get": "internal_orphans"})),
+    ),
+    path(
+        "api/internal/data_modeling_ops/failing_schedules",
+        csrf_exempt(InternalDataModelingOpsFleetViewSet.as_view({"get": "internal_failing_schedules"})),
+    ),
+    path(
+        "api/internal/data_modeling_ops/duplicates",
+        csrf_exempt(InternalDataModelingOpsFleetViewSet.as_view({"get": "internal_duplicates"})),
+    ),
+    path(
+        "api/internal/data_modeling_ops/resolve",
+        csrf_exempt(InternalEndpointsOpsFleetViewSet.as_view({"get": "internal_resolve"})),
     ),
     # Test setup endpoint (only available in TEST mode)
     path("api/setup_test/<str:test_name>/", csrf_exempt(playwright_setup.setup_test)),

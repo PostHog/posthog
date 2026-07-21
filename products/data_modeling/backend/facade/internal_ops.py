@@ -10,6 +10,8 @@ from products.data_modeling.backend.presentation.internal_auth import (
     DataModelingOpsAuthenticationMixin,
     DataModelingOpsOIDCAuthentication,
 )
+from products.data_modeling.backend.presentation.internal_fleet_views import InternalDataModelingOpsFleetViewSet
+from products.data_modeling.backend.presentation.internal_serializers import InternalResolveMatchSerializer
 from products.data_modeling.backend.presentation.internal_views import (
     InternalDataModelingOpsViewSet,
     scoped_to_team,
@@ -19,7 +21,9 @@ from products.data_modeling.backend.presentation.internal_views import (
 __all__ = [
     "DataModelingOpsAuthenticationMixin",
     "DataModelingOpsOIDCAuthentication",
+    "InternalDataModelingOpsFleetViewSet",
     "InternalDataModelingOpsViewSet",
     "scoped_to_team",
     "team_id_filter",
+    "InternalResolveMatchSerializer",
 ]
