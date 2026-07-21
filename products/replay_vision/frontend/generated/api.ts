@@ -12,6 +12,7 @@ import type {
     AffectedCohortRequestApi,
     AffectedCohortResponseApi,
     ApplyPromptSuggestionRequestApi,
+    CreateTaskFromObservationResponseApi,
     CurrentPromptSuggestionApi,
     EstimateRequestApi,
     EstimateResponseApi,
@@ -290,6 +291,24 @@ export const visionObservationsRetrieve = async (
     return apiMutator<ReplayObservationApi>(getVisionObservationsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getVisionObservationsCreateTaskCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/observations/${id}/create_task/`
+}
+
+/**
+ * Create a PostHog Task from this observation's finding so it can be triaged and fixed. Title and description are derived from the scanner and its result. Record-only: this does not start the coding agent. Idempotent per observation: once a task exists, repeat calls return its id with a 200 instead of creating a duplicate.
+ */
+export const visionObservationsCreateTaskCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CreateTaskFromObservationResponseApi> => {
+    return apiMutator<CreateTaskFromObservationResponseApi>(getVisionObservationsCreateTaskCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 
@@ -618,6 +637,28 @@ export const visionScannersObservationsRetrieve = async (
         {
             ...options,
             method: 'GET',
+        }
+    )
+}
+
+export const getVisionScannersObservationsCreateTaskCreateUrl = (projectId: string, scannerId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/create_task/`
+}
+
+/**
+ * Create a PostHog Task from this observation's finding so it can be triaged and fixed. Title and description are derived from the scanner and its result. Record-only: this does not start the coding agent. Idempotent per observation: once a task exists, repeat calls return its id with a 200 instead of creating a duplicate.
+ */
+export const visionScannersObservationsCreateTaskCreate = async (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CreateTaskFromObservationResponseApi> => {
+    return apiMutator<CreateTaskFromObservationResponseApi>(
+        getVisionScannersObservationsCreateTaskCreateUrl(projectId, scannerId, id),
+        {
+            ...options,
+            method: 'POST',
         }
     )
 }
