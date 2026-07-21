@@ -77,6 +77,18 @@ class TestObservationCreateTask(_VisionAPITestCase):
         if expected_status != 201:
             create.assert_not_called()
 
+    def test_repeat_create_returns_existing_task_instead_of_duplicate(self) -> None:
+        # A client retry or double submit must return the task the first call minted, not mint a
+        # duplicate for the same finding.
+        task_id = uuid4()
+        with patch(_HAS_ACCESS, return_value=True), patch(_CREATE, return_value=task_id) as create:
+            first = self.client.post(self._url(), format="json")
+            second = self.client.post(self._url(), format="json")
+        self.assertEqual(first.status_code, 201, first.content)
+        self.assertEqual(second.status_code, 200, second.content)
+        self.assertEqual(second.json()["task_id"], str(task_id))
+        create.assert_called_once()
+
     def test_description_fences_finding_as_untrusted_data(self) -> None:
         # The description becomes a coding agent's prompt when the task is run. Instructions planted in a
         # recording surface in the model output, so the finding must land fenced and defanged, never raw.

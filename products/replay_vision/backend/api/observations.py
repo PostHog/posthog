@@ -4,6 +4,7 @@ from typing import Any, cast, get_args
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Case, CharField, FloatField, Func, IntegerField, Q, QuerySet, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
@@ -767,11 +768,15 @@ class ReplayObservationViewSet(
 
     @extend_schema(
         request=None,
-        responses={201: CreateTaskFromObservationResponseSerializer},
+        responses={
+            201: CreateTaskFromObservationResponseSerializer,
+            200: CreateTaskFromObservationResponseSerializer,
+        },
         description=(
             "Create a PostHog Task from this observation's finding so it can be triaged and fixed. "
             "Title and description are derived from the scanner and its result. Record-only: this does "
-            "not start the coding agent."
+            "not start the coding agent. Idempotent per observation: once a task exists, repeat calls "
+            "return its id with a 200 instead of creating a duplicate."
         ),
     )
     # task:write on top of the source-resource scopes: this mints a durable Task, so a token deliberately
@@ -792,13 +797,21 @@ class ReplayObservationViewSet(
         if not has_tasks_access(user):
             raise PermissionDenied("Creating a task requires access to PostHog Code.")
         title, description = _observation_task_content(observation, scanner)
-        task_id = tasks_facade.create_task_without_run(
-            team=self.team,
-            user_id=user.id,
-            origin_product=tasks_facade.TaskOriginProduct.USER_CREATED,
-            title=title,
-            description=description,
-        )
+        # Lock the observation row so a client retry or concurrent double submit returns the task the
+        # first call minted instead of creating a duplicate to triage.
+        with transaction.atomic():
+            locked = ReplayObservation.objects.select_for_update().get(pk=observation.pk)
+            if locked.created_task_id is not None:
+                return Response({"task_id": locked.created_task_id}, status=status.HTTP_200_OK)
+            task_id = tasks_facade.create_task_without_run(
+                team=self.team,
+                user_id=user.id,
+                origin_product=tasks_facade.TaskOriginProduct.USER_CREATED,
+                title=title,
+                description=description,
+            )
+            locked.created_task_id = task_id
+            locked.save(update_fields=["created_task_id"])
         return Response({"task_id": task_id}, status=status.HTTP_201_CREATED)
 
     @extend_schema(request=None, responses={202: RetryResponseSerializer})
