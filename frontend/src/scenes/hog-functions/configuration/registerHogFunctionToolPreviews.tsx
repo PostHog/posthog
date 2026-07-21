@@ -41,11 +41,14 @@ function renderPartialUpdatePreview(record: PermissionRequestRecord): ReactNode 
 // Register on module load (idempotent — re-registering the same key overwrites). A preview-only entry:
 // no `Renderer`, so the tool-result card still resolves to the generic MCP card via `lookupToolRenderer`.
 // cdp-functions-create is intentionally left to the default JSON payload (no current config to diff).
+// `requiresPostHogOrigin`: an imported MCP server's tool with a colliding bare name must not have its
+// approval payload dressed up as this first-party diff — untrusted calls keep the raw JSON payload.
 registerToolRenderers([
     {
         key: 'cdp-functions-partial-update',
         displayName: 'Update function',
         icon: <IconBolt />,
         renderPermissionPreview: renderPartialUpdatePreview,
+        requiresPostHogOrigin: true,
     },
 ])
