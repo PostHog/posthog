@@ -15,15 +15,15 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.permissions import OrganizationAdminReadPermissions
 
 from products.billing_alerts.backend.facade import api as billing_alerts_api
 from products.billing_alerts.backend.facade.api import BillingAlertConfiguration
-from products.billing_alerts.backend.presentation.permissions import IsOrganizationAdminOrOwner
 from products.billing_alerts.backend.presentation.serializers import (
     BillingAlertCheckNowResponseSerializer,
     BillingAlertConfigurationSerializer,
-    BillingAlertCreateDestinationSerializer,
     BillingAlertDeleteDestinationSerializer,
+    BillingAlertDestinationCreateDataSerializer,
     BillingAlertDestinationResponseSerializer,
     BillingAlertEventSerializer,
 )
@@ -33,10 +33,10 @@ from products.billing_alerts.backend.presentation.throttles import BillingAlertC
 @extend_schema(tags=["billing"])
 class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "organization"
-    queryset = billing_alerts_api.billing_alert_configuration_queryset()
+    queryset = BillingAlertConfiguration.objects.all()
     serializer_class = BillingAlertConfigurationSerializer
     lookup_field = "id"
-    permission_classes = [IsOrganizationAdminOrOwner]
+    permission_classes = [OrganizationAdminReadPermissions]
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return queryset.filter(organization_id=self.organization.id).order_by("-created_at")
@@ -111,14 +111,14 @@ class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(response.data)
 
     @extend_schema(
-        request=BillingAlertCreateDestinationSerializer,
+        request=BillingAlertDestinationCreateDataSerializer,
         responses={201: BillingAlertDestinationResponseSerializer},
         description="Create a notification destination for this alert. One HogFunction is created per alert event kind.",
     )
     @action(detail=True, methods=["POST"], url_path="destinations", required_scopes=["organization:write"])
     def create_destination(self, request: Request, *args: object, **kwargs: object) -> Response:
         alert = self.get_object()
-        serializer = BillingAlertCreateDestinationSerializer(data=request.data, context={"alert": alert})
+        serializer = BillingAlertDestinationCreateDataSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 

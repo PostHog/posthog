@@ -90,7 +90,7 @@
             "maxLength": 160,
             "type": "string"
         },
-        "snooze_until": {
+        "snoozed_until": {
             "anyOf": [
                 {
                     "format": "date-time",

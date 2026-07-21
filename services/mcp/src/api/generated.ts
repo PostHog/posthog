@@ -12638,6 +12638,24 @@ export namespace Schemas {
       Spend: 'spend',
     } as const;
 
+    /**
+     * * `not_firing` - Not firing
+     * * `firing` - Firing
+     * * `errored` - Errored
+     * * `snoozed` - Snoozed
+     * * `broken` - Broken
+     */
+    export type BillingAlertStateEnum = typeof BillingAlertStateEnum[keyof typeof BillingAlertStateEnum];
+
+
+    export const BillingAlertStateEnum = {
+      NotFiring: 'not_firing',
+      Firing: 'firing',
+      Errored: 'errored',
+      Snoozed: 'snoozed',
+      Broken: 'broken',
+    } as const;
+
     export interface BillingAlertEvent {
       /** Unique identifier for this billing alert event. */
       readonly id: string;
@@ -12680,39 +12698,70 @@ export namespace Schemas {
        * * `spend` - Spend */
       readonly metric: BillingAlertMetricEnum;
       /**
+         * Metric value for the evaluated billing date.
          * @nullable
          * @pattern ^-?\d{0,14}(?:\.\d{0,6})?$
          */
       readonly current_value: string | null;
       /**
+         * Average metric value across the baseline window.
          * @nullable
          * @pattern ^-?\d{0,14}(?:\.\d{0,6})?$
          */
       readonly baseline_value: string | null;
       /**
+         * Current value minus the baseline value.
          * @nullable
          * @pattern ^-?\d{0,14}(?:\.\d{0,6})?$
          */
       readonly absolute_delta: string | null;
       /**
+         * Percentage change against the baseline value.
          * @nullable
          * @pattern ^-?\d{0,22}(?:\.\d{0,6})?$
          */
       readonly relative_delta_percentage: string | null;
+      /** Whether the evaluated value breached the configured threshold. */
       readonly threshold_breached: boolean;
-      /** @nullable */
-      readonly state_before: string | null;
-      /** @nullable */
-      readonly state_after: string | null;
-      /** @nullable */
+      /** Alert state before this event was applied.
+       *
+       * * `not_firing` - Not firing
+       * * `firing` - Firing
+       * * `errored` - Errored
+       * * `snoozed` - Snoozed
+       * * `broken` - Broken */
+      readonly state_before: BillingAlertStateEnum | null;
+      /** Alert state after this event was applied.
+       *
+       * * `not_firing` - Not firing
+       * * `firing` - Firing
+       * * `errored` - Errored
+       * * `snoozed` - Snoozed
+       * * `broken` - Broken */
+      readonly state_after: BillingAlertStateEnum | null;
+      /**
+         * When notifications for this event were delivered.
+         * @nullable
+         */
       readonly notification_sent_at: string | null;
+      /** Notification targets recorded for this event. */
       readonly targets_notified: unknown;
-      /** @nullable */
+      /**
+         * Milliseconds spent fetching billing data for this evaluation.
+         * @nullable
+         */
       readonly query_duration_ms: number | null;
-      /** @nullable */
+      /**
+         * Exception class name recorded when the evaluation failed.
+         * @nullable
+         */
       readonly error_code: string | null;
-      /** @nullable */
+      /**
+         * Failure description recorded when the evaluation failed.
+         * @nullable
+         */
       readonly error_message: string | null;
+      /** Human-readable explanation of the evaluation outcome. */
       readonly reason: string;
     }
 
@@ -12722,6 +12771,16 @@ export namespace Schemas {
       /** Number of destination HogFunctions queued. */
       dispatched_destinations: number;
     }
+
+    /**
+     * * `USD` - USD
+     */
+    export type CurrencyEnum = typeof CurrencyEnum[keyof typeof CurrencyEnum];
+
+
+    export const CurrencyEnum = {
+      Usd: 'USD',
+    } as const;
 
     /**
      * * `relative_increase` - Relative increase
@@ -12735,34 +12794,6 @@ export namespace Schemas {
       RelativeIncrease: 'relative_increase',
       AbsoluteValue: 'absolute_value',
       AbsoluteIncrease: 'absolute_increase',
-    } as const;
-
-    /**
-     * * `not_firing` - Not firing
-     * * `firing` - Firing
-     * * `errored` - Errored
-     * * `snoozed` - Snoozed
-     * * `broken` - Broken
-     */
-    export type BillingAlertConfigurationStateEnum = typeof BillingAlertConfigurationStateEnum[keyof typeof BillingAlertConfigurationStateEnum];
-
-
-    export const BillingAlertConfigurationStateEnum = {
-      NotFiring: 'not_firing',
-      Firing: 'firing',
-      Errored: 'errored',
-      Snoozed: 'snoozed',
-      Broken: 'broken',
-    } as const;
-
-    /**
-     * * `24` - 24
-     */
-    export type CheckIntervalHoursEnum = typeof CheckIntervalHoursEnum[keyof typeof CheckIntervalHoursEnum];
-
-
-    export const CheckIntervalHoursEnum = {
-      Number24: 24,
     } as const;
 
     /**
@@ -12843,8 +12874,10 @@ export namespace Schemas {
        *
        * * `spend` - Spend */
       readonly metric: BillingAlertMetricEnum;
-      /** Server-controlled currency for spend values. */
-      readonly currency: string;
+      /** Server-controlled currency for spend values.
+       *
+       * * `USD` - USD */
+      readonly currency: CurrencyEnum;
       /** Revision incremented whenever evaluation behavior changes. */
       readonly configuration_revision: number;
       /** Threshold rule type.
@@ -12882,11 +12915,14 @@ export namespace Schemas {
          * @maximum 72
          */
       evaluation_delay_hours?: number;
-      readonly state: BillingAlertConfigurationStateEnum;
-      /** Billing alerts evaluate one UTC billing date per day.
+      /** Current lifecycle state of this alert.
        *
-       * * `24` - 24 */
-      check_interval_hours?: CheckIntervalHoursEnum;
+       * * `not_firing` - Not firing
+       * * `firing` - Firing
+       * * `errored` - Errored
+       * * `snoozed` - Snoozed
+       * * `broken` - Broken */
+      readonly state: BillingAlertStateEnum;
       /**
          * Minimum hours between repeated firing notifications.
          * @minimum 0
@@ -12897,37 +12933,35 @@ export namespace Schemas {
          * ISO 8601 timestamp until which evaluation and notifications are snoozed, or null to resume.
          * @nullable
          */
-      snooze_until?: string | null;
-      /** @nullable */
+      snoozed_until?: string | null;
+      /**
+         * When the next scheduled evaluation is due.
+         * @nullable
+         */
       readonly next_check_at: string | null;
-      /** @nullable */
+      /**
+         * When this alert was last evaluated.
+         * @nullable
+         */
       readonly last_checked_at: string | null;
-      /** @nullable */
+      /**
+         * When notifications were last delivered for this alert.
+         * @nullable
+         */
       readonly last_notified_at: string | null;
+      /** Number of consecutive failed evaluations. */
       readonly consecutive_failures: number;
       /** Notification destination groups configured for this alert, including their shared HogFunctions. */
       readonly destinations: readonly BillingAlertDestinationSummary[];
       /** Destination groups to create or delete in the same transaction as this configuration write. */
       destination_changes?: BillingAlertDestinationChanges;
+      /** When this alert was created. */
       readonly created_at: string;
-      readonly updated_at: string;
-    }
-
-    export interface BillingAlertCreateDestination {
-      /** Destination type.
-       *
-       * * `slack` - slack
-       * * `webhook` - webhook
-       * * `teams` - teams */
-      type: NotificationDestinationTypeEnum;
-      /** Slack integration ID in the alert execution project. */
-      slack_workspace_id?: number;
-      /** Slack channel ID for alert delivery. */
-      slack_channel_id?: string;
-      /** Optional Slack channel name shown in the UI. */
-      slack_channel_name?: string;
-      /** HTTPS webhook URL for webhook or Microsoft Teams delivery. */
-      webhook_url?: string;
+      /**
+         * When this alert was last updated.
+         * @nullable
+         */
+      readonly updated_at: string | null;
     }
 
     export interface BillingAlertDeleteDestination {
@@ -43425,8 +43459,10 @@ export namespace Schemas {
        *
        * * `spend` - Spend */
       readonly metric?: BillingAlertMetricEnum;
-      /** Server-controlled currency for spend values. */
-      readonly currency?: string;
+      /** Server-controlled currency for spend values.
+       *
+       * * `USD` - USD */
+      readonly currency?: CurrencyEnum;
       /** Revision incremented whenever evaluation behavior changes. */
       readonly configuration_revision?: number;
       /** Threshold rule type.
@@ -43464,11 +43500,14 @@ export namespace Schemas {
          * @maximum 72
          */
       evaluation_delay_hours?: number;
-      readonly state?: BillingAlertConfigurationStateEnum;
-      /** Billing alerts evaluate one UTC billing date per day.
+      /** Current lifecycle state of this alert.
        *
-       * * `24` - 24 */
-      check_interval_hours?: CheckIntervalHoursEnum;
+       * * `not_firing` - Not firing
+       * * `firing` - Firing
+       * * `errored` - Errored
+       * * `snoozed` - Snoozed
+       * * `broken` - Broken */
+      readonly state?: BillingAlertStateEnum;
       /**
          * Minimum hours between repeated firing notifications.
          * @minimum 0
@@ -43479,20 +43518,35 @@ export namespace Schemas {
          * ISO 8601 timestamp until which evaluation and notifications are snoozed, or null to resume.
          * @nullable
          */
-      snooze_until?: string | null;
-      /** @nullable */
+      snoozed_until?: string | null;
+      /**
+         * When the next scheduled evaluation is due.
+         * @nullable
+         */
       readonly next_check_at?: string | null;
-      /** @nullable */
+      /**
+         * When this alert was last evaluated.
+         * @nullable
+         */
       readonly last_checked_at?: string | null;
-      /** @nullable */
+      /**
+         * When notifications were last delivered for this alert.
+         * @nullable
+         */
       readonly last_notified_at?: string | null;
+      /** Number of consecutive failed evaluations. */
       readonly consecutive_failures?: number;
       /** Notification destination groups configured for this alert, including their shared HogFunctions. */
       readonly destinations?: readonly BillingAlertDestinationSummary[];
       /** Destination groups to create or delete in the same transaction as this configuration write. */
       destination_changes?: BillingAlertDestinationChanges;
+      /** When this alert was created. */
       readonly created_at?: string;
-      readonly updated_at?: string;
+      /**
+         * When this alert was last updated.
+         * @nullable
+         */
+      readonly updated_at?: string | null;
     }
 
     export interface PatchedBriefConfig {

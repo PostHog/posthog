@@ -23,7 +23,7 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.utils import action, log_activity_from_viewset
-from posthog.cdp.internal_events import is_managed_alert_internal_event
+from posthog.cdp.internal_events import MANAGED_ALERT_EVENT_PATTERN, is_managed_alert_internal_event
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.validation import (
@@ -591,9 +591,9 @@ class HogFunctionViewSet(
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = queryset.exclude(type=HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK.value)
+        # Managed alert destinations are single-event by construction, so events[0] is sufficient here.
         queryset = queryset.filter(
-            Q(filters__events__0__id__isnull=True)
-            | ~Q(filters__events__0__id__regex=r"^\$[a-z0-9_]+_alert_(firing|resolved|errored|auto_disabled)$")
+            Q(filters__events__0__id__isnull=True) | ~Q(filters__events__0__id__regex=MANAGED_ALERT_EVENT_PATTERN)
         )
 
         if not (self.action == "partial_update" and self.request.data.get("deleted") is False):

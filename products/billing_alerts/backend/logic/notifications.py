@@ -16,42 +16,40 @@ from products.alerts.backend.destinations import (
 )
 from products.billing_alerts.backend.alert_destinations import (
     BILLING_ALERT_EVENT_IDS,
-    DESTINATION_TYPE_BY_TEMPLATE_ID,
     EVENT_KIND_CONFIG,
     EventKind,
+    destination_groups_for_alerts,
 )
 from products.billing_alerts.backend.logic.state_machine import (
     BillingAlertAlreadyEvaluated,
     BillingAlertCheck,
-    billing_alert_dispatch_guard,
     commit_billing_alert_check,
+    lock_and_validate_billing_alert_claim,
     prepare_billing_alert_check,
     prepare_billing_alert_failure,
 )
 from products.billing_alerts.backend.models import BillingAlertConfiguration, BillingAlertEvent
-from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 NOTIFICATION_FLUSH_TIMEOUT_SECONDS = 10
+
+_EVENT_KIND_BY_MODEL_KIND: dict[str, EventKind] = {
+    BillingAlertEvent.Kind.BROKEN_CONFIG: "broken",
+    BillingAlertEvent.Kind.FIRING: "firing",
+    BillingAlertEvent.Kind.RESOLVED: "resolved",
+    BillingAlertEvent.Kind.ERRORED: "errored",
+}
 
 
 @dataclass(frozen=True)
 class PendingBillingAlertDispatch:
     check: BillingAlertCheck
+    # None means the check produced no delivery-worthy event; delivery itself happens at commit
+    # time, inside the batch barrier.
     event_name: str | None
-    destination_ids: list[str]
-    produce_result: ProduceResult | None
 
 
 def _kind_for_event(event: BillingAlertEvent) -> EventKind | None:
-    if event.kind == BillingAlertEvent.Kind.BROKEN_CONFIG:
-        return "broken"
-    if event.kind == BillingAlertEvent.Kind.FIRING:
-        return "firing"
-    if event.kind == BillingAlertEvent.Kind.RESOLVED:
-        return "resolved"
-    if event.kind == BillingAlertEvent.Kind.ERRORED:
-        return "errored"
-    return None
+    return _EVENT_KIND_BY_MODEL_KIND.get(event.kind)
 
 
 def _properties(event: BillingAlertEvent, now: datetime, *, consecutive_failures: int) -> dict:
@@ -86,57 +84,15 @@ def _destination_ids(event: BillingAlertEvent) -> tuple[list[str], bool]:
     if kind is None:
         return [], False
     event_id = EVENT_KIND_CONFIG[kind].event_id
-    rows = HogFunction.objects.filter(
-        team_id=event.alert.execution_team_id,
-        enabled=True,
-        deleted=False,
-        template_id__in=list(DESTINATION_TYPE_BY_TEMPLATE_ID),
-        filters__properties__contains=[{"key": "alert_id", "value": str(event.alert_id)}],
-    ).values_list("id", "template_id", "filters")
-    ids_by_template_and_event: dict[str, dict[str, str]] = {}
-    for destination_id, template_id, filters in rows:
-        if template_id is None or not isinstance(filters, dict):
-            continue
-        configured_events = filters.get("events") or []
-        if not isinstance(configured_events, list):
-            continue
-        configured_event_id = next(
-            (
-                configured_event.get("id")
-                for configured_event in configured_events
-                if isinstance(configured_event, dict) and configured_event.get("type") == "events"
-            ),
-            None,
-        )
-        if configured_event_id in BILLING_ALERT_EVENT_IDS:
-            ids_by_template_and_event.setdefault(template_id, {})[configured_event_id] = str(destination_id)
-
+    alert_id = str(event.alert_id)
+    groups = destination_groups_for_alerts(
+        team_ids={event.alert.execution_team_id},
+        alert_ids={alert_id},
+    ).get(alert_id, {})
     required_events = set(BILLING_ALERT_EVENT_IDS)
     return (
-        sorted(
-            event_ids[event_id] for event_ids in ids_by_template_and_event.values() if set(event_ids) == required_events
-        ),
-        bool(ids_by_template_and_event),
-    )
-
-
-def _enqueue(check: BillingAlertCheck) -> PendingBillingAlertDispatch:
-    event = check.event
-    kind = _kind_for_event(event)
-    if kind is None:
-        return PendingBillingAlertDispatch(
-            check=check,
-            event_name=None,
-            destination_ids=[],
-            produce_result=None,
-        )
-
-    event_name = EVENT_KIND_CONFIG[kind].event_id
-    return PendingBillingAlertDispatch(
-        check=check,
-        event_name=event_name,
-        destination_ids=[],
-        produce_result=None,
+        sorted(event_ids[event_id] for event_ids in groups.values() if set(event_ids) == required_events),
+        bool(groups),
     )
 
 
@@ -171,14 +127,9 @@ def prepare_billing_alert_dispatch(
             is_transient_error=is_transient_error,
             reason=failure_reason,
         )
-    if _kind_for_event(check.event) is not None:
-        return _enqueue(check)
-    return PendingBillingAlertDispatch(
-        check=check,
-        event_name=None,
-        destination_ids=[],
-        produce_result=None,
-    )
+    kind = _kind_for_event(check.event)
+    event_name = EVENT_KIND_CONFIG[kind].event_id if kind is not None else None
+    return PendingBillingAlertDispatch(check=check, event_name=event_name)
 
 
 def commit_pending_billing_alert_dispatches(
@@ -192,8 +143,7 @@ def commit_pending_billing_alert_dispatches(
         # Acquire every alert and claim lock in a stable order. The outer transaction retains
         # these locks through Kafka acknowledgement and lifecycle persistence.
         for dispatch in sorted(dispatches, key=lambda item: str(item.check.alert.id)):
-            with billing_alert_dispatch_guard(dispatch.check):
-                pass
+            lock_and_validate_billing_alert_claim(dispatch.check)
 
         prepared: list[tuple[PendingBillingAlertDispatch, list[str], ProduceResult | None]] = []
         for dispatch in dispatches:

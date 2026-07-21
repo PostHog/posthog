@@ -1,4 +1,5 @@
 from common.alerting.state_machine import (
+    BILLING_ALERT_POLICY,
     LOGS_ALERT_POLICY,
     MAX_CONSECUTIVE_FAILURES,
     AlertCheckOutcome,
@@ -21,6 +22,7 @@ from common.alerting.state_machine import (
 )
 
 __all__ = [
+    "BILLING_ALERT_POLICY",
     "LOGS_ALERT_POLICY",
     "MAX_CONSECUTIVE_FAILURES",
     "AlertCheckOutcome",

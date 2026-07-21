@@ -6,7 +6,7 @@ from typing import Any, cast
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Q, QuerySet
+from django.db.models import QuerySet
 from django.utils import timezone
 
 from rest_framework.exceptions import ValidationError as DRFValidationError
@@ -23,16 +23,15 @@ from products.alerts.backend.facade.api import (
     soft_delete_all_alert_destinations,
     validate_destination_data,
 )
-from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 from ..alert_destinations import (
     BILLING_ALERT_EVENT_IDS,
     BILLING_ALERT_SLACK_CONTEXT_ELEMENTS,
     BILLING_DESTINATION_TYPES,
-    DESTINATION_TYPE_BY_TEMPLATE_ID,
     EVENT_KIND_CONFIG,
     EVENT_KINDS,
     EventKind,
+    destination_groups_for_alerts,
 )
 from ..logic.notifications import evaluate_and_dispatch_billing_alert
 from ..logic.state_machine import (
@@ -45,11 +44,7 @@ from ..logic.state_machine import (
     billing_alert_snapshot,
     next_billing_alert_check_at,
 )
-from ..models import (
-    DAILY_CHECK_INTERVAL_HOURS as DAILY_CHECK_INTERVAL_HOURS,
-    BillingAlertConfiguration,
-    BillingAlertEvent,
-)
+from ..models import BillingAlertConfiguration, BillingAlertEvent
 
 
 @dataclass(frozen=True)
@@ -62,17 +57,13 @@ class BillingAlertExecutionTeamUnavailable(Exception):
     """Raised when an organization has no team to use for destination execution."""
 
 
-def billing_alert_configuration_queryset() -> QuerySet[BillingAlertConfiguration]:
-    return BillingAlertConfiguration.objects.all()
-
-
 def initialize_billing_alert_lifecycle(alert: BillingAlertConfiguration) -> None:
     """Apply lifecycle state implied by a newly created alert configuration."""
     snapshot = billing_alert_snapshot(alert)
 
     if not alert.enabled:
         update_fields = apply_outcome(alert, apply_disable(snapshot))
-    elif alert.snooze_until is not None:
+    elif alert.snoozed_until is not None:
         update_fields = apply_outcome(alert, apply_snooze(snapshot))
     else:
         return
@@ -84,8 +75,8 @@ def apply_billing_alert_configuration_lifecycle(
     alert: BillingAlertConfiguration,
     *,
     enabled_change: bool | None,
-    snooze_until_provided: bool,
-    snooze_until: datetime | None,
+    snoozed_until_provided: bool,
+    snoozed_until: datetime | None,
     threshold_changed: bool,
 ) -> None:
     """Apply one control-plane change through the shared lifecycle adapter."""
@@ -102,8 +93,8 @@ def apply_billing_alert_configuration_lifecycle(
         apply_outcome(alert, apply_disable(snapshot))
         snapshot = billing_alert_snapshot(alert)
 
-    if snooze_until_provided:
-        if snooze_until is None:
+    if snoozed_until_provided:
+        if snoozed_until is None:
             apply_outcome(alert, apply_unsnooze(snapshot))
         else:
             apply_outcome(alert, apply_snooze(snapshot))
@@ -113,19 +104,22 @@ def reschedule_billing_alert_configuration(
     alert: BillingAlertConfiguration,
     *,
     configuration_changed: bool,
-    cadence_changed: bool,
 ) -> None:
-    update_fields: list[str] = []
-    if configuration_changed:
-        alert.configuration_revision += 1
-        alert.pending_evaluation_date = None
-        alert.retry_attempt_count = 0
-        update_fields.extend(["configuration_revision", "pending_evaluation_date", "retry_attempt_count"])
-    if configuration_changed or cadence_changed:
-        alert.next_check_at = next_billing_alert_check_at(alert, timezone.now())
-        update_fields.append("next_check_at")
-    if update_fields:
-        alert.save(update_fields=[*update_fields, "updated_at"])
+    if not configuration_changed:
+        return
+    alert.configuration_revision += 1
+    alert.pending_evaluation_date = None
+    alert.retry_attempt_count = 0
+    alert.next_check_at = next_billing_alert_check_at(alert, timezone.now())
+    alert.save(
+        update_fields=[
+            "configuration_revision",
+            "pending_evaluation_date",
+            "retry_attempt_count",
+            "next_check_at",
+            "updated_at",
+        ]
+    )
 
 
 def execution_team_for_organization(organization_id: UUID, preferred_team: Team | None) -> Team:
@@ -161,63 +155,18 @@ def delete_alert_and_destinations(alert: BillingAlertConfiguration) -> None:
 def destinations_for_alerts(alerts: list[BillingAlertConfiguration]) -> dict[str, list[dict[str, Any]]]:
     alert_ids = {str(alert.id) for alert in alerts}
     team_ids = {alert.execution_team_id for alert in alerts if alert.team_id is not None}
-    destination_ids_by_alert_and_type: dict[str, dict[str, dict[str, UUID]]] = {alert_id: {} for alert_id in alert_ids}
-
     if not alert_ids or not team_ids:
         return {}
 
-    ownership_filter = Q(pk__in=[])
-    for alert_id in alert_ids:
-        ownership_filter |= Q(filters__properties__contains=[{"key": "alert_id", "value": alert_id}])
-
-    hog_functions = HogFunction.objects.filter(
-        ownership_filter,
-        team_id__in=team_ids,
-        enabled=True,
-        deleted=False,
-        template_id__in=list(DESTINATION_TYPE_BY_TEMPLATE_ID),
-    ).values_list("id", "template_id", "filters")
-
-    for hog_function_id, template_id, filters in hog_functions:
-        if template_id is None:
-            continue
-        destination_type = DESTINATION_TYPE_BY_TEMPLATE_ID.get(template_id)
-        if destination_type is None or not isinstance(filters, dict):
-            continue
-
-        properties = filters.get("properties") or []
-        events = filters.get("events") or []
-        if not isinstance(properties, list) or not isinstance(events, list):
-            continue
-
-        event_id = next(
-            (
-                event_filter.get("id")
-                for event_filter in events
-                if isinstance(event_filter, dict) and event_filter.get("type") == "events"
-            ),
-            None,
-        )
-        if event_id not in BILLING_ALERT_EVENT_IDS:
-            continue
-        for property_filter in properties:
-            if not isinstance(property_filter, dict) or property_filter.get("key") != "alert_id":
-                continue
-            alert_id = str(property_filter.get("value"))
-            if alert_id in destination_ids_by_alert_and_type:
-                destination_ids_by_alert_and_type[alert_id].setdefault(destination_type.value, {})[event_id] = (
-                    hog_function_id
-                )
-            break
-
+    groups = destination_groups_for_alerts(team_ids=team_ids, alert_ids=alert_ids)
     required_event_ids = set(BILLING_ALERT_EVENT_IDS)
     return {
         alert_id: [
-            {"type": destination_type, "hog_function_ids": sorted(hog_function_ids.values(), key=str)}
-            for destination_type, hog_function_ids in sorted(destinations.items())
+            {"type": destination_type, "hog_function_ids": sorted(hog_function_ids.values())}
+            for destination_type, hog_function_ids in sorted(groups.get(alert_id, {}).items())
             if set(hog_function_ids) == required_event_ids
         ]
-        for alert_id, destinations in destination_ids_by_alert_and_type.items()
+        for alert_id in alert_ids
     }
 
 
@@ -281,17 +230,12 @@ def delete_destination(alert: BillingAlertConfiguration, hog_function_ids: list[
         )
 
 
-def apply_destination_changes(
-    alert: BillingAlertConfiguration, *, request: Any, changes: dict[str, Any]
-) -> dict[str, list[list[UUID]]]:
+def apply_destination_changes(alert: BillingAlertConfiguration, *, request: Any, changes: dict[str, Any]) -> None:
     """Apply complete destination-group changes inside the caller's configuration transaction."""
-    deleted = changes.get("delete", [])
-    created: list[list[UUID]] = []
-    for hog_function_ids in deleted:
+    for hog_function_ids in changes.get("delete", []):
         delete_destination(alert, hog_function_ids)
     for destination_data in changes.get("create", []):
-        created.append(create_destination(alert, request=request, data=destination_data))
-    return {"created": created, "deleted": deleted}
+        create_destination(alert, request=request, data=destination_data)
 
 
 __all__ = [
@@ -305,7 +249,6 @@ __all__ = [
     "EventKind",
     "apply_billing_alert_configuration_lifecycle",
     "apply_destination_changes",
-    "billing_alert_configuration_queryset",
     "create_destination",
     "delete_alert_and_destinations",
     "delete_destination",

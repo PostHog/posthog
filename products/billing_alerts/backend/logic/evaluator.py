@@ -99,7 +99,6 @@ def billing_params(
     organization: Organization,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    _validate_supported_metric(alert)
     evaluation_date = expected_evaluation_date(alert, now)
     evaluation_start = evaluation_date - timedelta(days=alert.baseline_window_days)
     params: dict[str, Any] = {
@@ -157,55 +156,43 @@ def evaluate_billing_alert(
         "status": billing_response.get("status"),
     }
 
+    def result(*, reason: str, **overrides: Any) -> BillingAlertEvaluation:
+        values: dict[str, Any] = {
+            "evaluation_date": expected_date,
+            "period_start": period_start,
+            "period_end": period_end,
+            "current_value": None,
+            "baseline_value": None,
+            "absolute_delta": None,
+            "relative_delta_percentage": None,
+            "threshold_breached": False,
+            "payload": payload,
+            "query_duration_ms": query_duration_ms,
+            **overrides,
+        }
+        return BillingAlertEvaluation(reason=reason, **values)
+
     if expected_date not in totals:
-        return BillingAlertEvaluation(
-            evaluation_date=expected_date,
-            period_start=period_start,
-            period_end=period_end,
-            current_value=None,
-            baseline_value=None,
-            absolute_delta=None,
-            relative_delta_percentage=None,
-            threshold_breached=False,
+        return result(
             reason=f"Billing data for {expected_date.isoformat()} was not available yet.",
-            payload=payload,
             is_inconclusive=True,
-            query_duration_ms=query_duration_ms,
         )
 
     current_value = totals[expected_date]
 
     if current_value < alert.minimum_value:
-        return BillingAlertEvaluation(
-            evaluation_date=expected_date,
-            period_start=period_start,
-            period_end=period_end,
-            current_value=current_value,
-            baseline_value=None,
-            absolute_delta=None,
-            relative_delta_percentage=None,
-            threshold_breached=False,
+        return result(
             reason=f"Current value {current_value} is below the minimum value {alert.minimum_value}.",
-            payload=payload,
-            query_duration_ms=query_duration_ms,
+            current_value=current_value,
         )
 
     if alert.threshold_type == BillingAlertConfiguration.ThresholdType.ABSOLUTE_VALUE:
         threshold_value = alert.threshold_value or Decimal("0")
         breached = current_value >= threshold_value
-        reason = f"Current value {current_value} {'met' if breached else 'did not meet'} threshold {threshold_value}."
-        return BillingAlertEvaluation(
-            evaluation_date=expected_date,
-            period_start=period_start,
-            period_end=period_end,
+        return result(
+            reason=f"Current value {current_value} {'met' if breached else 'did not meet'} threshold {threshold_value}.",
             current_value=current_value,
-            baseline_value=None,
-            absolute_delta=None,
-            relative_delta_percentage=None,
             threshold_breached=breached,
-            reason=reason,
-            payload=payload,
-            query_duration_ms=query_duration_ms,
         )
 
     baseline_dates = [expected_date - timedelta(days=offset) for offset in range(alert.baseline_window_days, 0, -1)]
@@ -216,22 +203,13 @@ def evaluate_billing_alert(
     payload["missing_baseline_dates"] = [day.isoformat() for day in missing_baseline_dates]
 
     if missing_baseline_dates:
-        return BillingAlertEvaluation(
-            evaluation_date=expected_date,
-            period_start=period_start,
-            period_end=period_end,
-            current_value=current_value,
-            baseline_value=None,
-            absolute_delta=None,
-            relative_delta_percentage=None,
-            threshold_breached=False,
+        return result(
             reason=(
                 f"Baseline data for {len(available_baseline_dates)} of {len(baseline_dates)} days was available "
                 f"before {expected_date.isoformat()}."
             ),
-            payload=payload,
+            current_value=current_value,
             is_inconclusive=True,
-            query_duration_ms=query_duration_ms,
         )
 
     baseline_value = sum((totals[day] for day in available_baseline_dates), Decimal("0")) / Decimal(
@@ -251,24 +229,20 @@ def evaluate_billing_alert(
         )
     else:
         if baseline_value <= 0:
-            return BillingAlertEvaluation(
-                evaluation_date=expected_date,
-                period_start=period_start,
-                period_end=period_end,
+            return result(
+                reason="Baseline value is zero, so a relative increase cannot be calculated.",
                 current_value=current_value,
                 baseline_value=baseline_value,
                 absolute_delta=absolute_delta,
-                relative_delta_percentage=None,
-                threshold_breached=False,
-                reason="Baseline value is zero, so a relative increase cannot be calculated.",
-                payload=payload,
                 is_inconclusive=True,
-                query_duration_ms=query_duration_ms,
             )
         threshold_percentage = alert.threshold_percentage or Decimal("0")
         threshold_value = baseline_value * (Decimal("1") + (threshold_percentage / Decimal("100")))
-        breached = current_value >= max(alert.minimum_value, threshold_value)
-        relative_delta_percentage = (absolute_delta / baseline_value) * Decimal("100")
+        # current_value >= minimum_value was checked above, so max(minimum_value, threshold_value)
+        # reduces to threshold_value.
+        breached = current_value >= threshold_value
+        # baseline_value > 0 here, so relative_delta_percentage was computed above.
+        assert relative_delta_percentage is not None
         direction = "above" if relative_delta_percentage >= 0 else "below"
         reason = (
             f"Current value {current_value} was {abs(relative_delta_percentage).quantize(Decimal('0.01'))}% "
@@ -276,16 +250,11 @@ def evaluate_billing_alert(
             f"threshold is {threshold_percentage}%."
         )
 
-    return BillingAlertEvaluation(
-        evaluation_date=expected_date,
-        period_start=period_start,
-        period_end=period_end,
+    return result(
+        reason=reason,
         current_value=current_value,
         baseline_value=baseline_value,
         absolute_delta=absolute_delta,
         relative_delta_percentage=relative_delta_percentage,
         threshold_breached=breached,
-        reason=reason,
-        payload=payload,
-        query_duration_ms=query_duration_ms,
     )

@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from typing import Final, Literal
 
+from django.db.models import Q
+
 from products.alerts.backend.destination_configs import DestinationType, EventKindSpec
 from products.alerts.backend.facade.api import DESTINATION_TEMPLATE_IDS
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 EventKind = Literal["firing", "resolved", "errored", "broken"]
 
@@ -28,9 +31,40 @@ _BASE_DATA = {
 }
 
 
+_ERROR_DATA = {
+    "error_message": "{event.properties.error_message}",
+    "consecutive_failures": "{event.properties.consecutive_failures}",
+}
+
+
+def _spec(
+    *,
+    event: str,
+    display_kind: str,
+    header: str,
+    details: tuple[tuple[str, str], ...],
+    extra_data: dict[str, str] | None = None,
+) -> EventKindSpec:
+    return EventKindSpec(
+        event_id=f"$billing_alert_{event}",
+        display_kind=display_kind,
+        header=header,
+        details=details,
+        primary_action_url="{event.properties.alert_url}",
+        primary_action_label="View billing alert",
+        webhook_body={
+            "id": "{event.uuid}",
+            "type": f"billing_alert.{event}",
+            "timestamp": "{event.properties.triggered_at}",
+            "data": {**_BASE_DATA, **(extra_data or {})},
+        },
+        product_label=_PRODUCT_LABEL,
+    )
+
+
 EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
-    "firing": EventKindSpec(
-        event_id="$billing_alert_firing",
+    "firing": _spec(
+        event="firing",
         display_kind="firing",
         header="Billing alert '{event.properties.alert_name}' is firing",
         details=(
@@ -39,18 +73,9 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
             ("Baseline", "{event.properties.baseline_value}"),
             ("Reason", "{event.properties.reason}"),
         ),
-        primary_action_url="{event.properties.alert_url}",
-        primary_action_label="View billing alert",
-        webhook_body={
-            "id": "{event.uuid}",
-            "type": "billing_alert.firing",
-            "timestamp": "{event.properties.triggered_at}",
-            "data": _BASE_DATA,
-        },
-        product_label=_PRODUCT_LABEL,
     ),
-    "resolved": EventKindSpec(
-        event_id="$billing_alert_resolved",
+    "resolved": _spec(
+        event="resolved",
         display_kind="resolved",
         header="Billing alert '{event.properties.alert_name}' has resolved",
         details=(
@@ -59,59 +84,26 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
             ("Baseline", "{event.properties.baseline_value}"),
             ("Reason", "{event.properties.reason}"),
         ),
-        primary_action_url="{event.properties.alert_url}",
-        primary_action_label="View billing alert",
-        webhook_body={
-            "id": "{event.uuid}",
-            "type": "billing_alert.resolved",
-            "timestamp": "{event.properties.triggered_at}",
-            "data": _BASE_DATA,
-        },
-        product_label=_PRODUCT_LABEL,
     ),
-    "errored": EventKindSpec(
-        event_id="$billing_alert_errored",
+    "errored": _spec(
+        event="errored",
         display_kind="errored",
         header="Billing alert '{event.properties.alert_name}' could not evaluate",
         details=(
             ("Error", "{event.properties.error_message}"),
             ("Failure count", "{event.properties.consecutive_failures}"),
         ),
-        primary_action_url="{event.properties.alert_url}",
-        primary_action_label="View billing alert",
-        webhook_body={
-            "id": "{event.uuid}",
-            "type": "billing_alert.errored",
-            "timestamp": "{event.properties.triggered_at}",
-            "data": {
-                **_BASE_DATA,
-                "error_message": "{event.properties.error_message}",
-                "consecutive_failures": "{event.properties.consecutive_failures}",
-            },
-        },
-        product_label=_PRODUCT_LABEL,
+        extra_data=_ERROR_DATA,
     ),
-    "broken": EventKindSpec(
-        event_id="$billing_alert_auto_disabled",
+    "broken": _spec(
+        event="auto_disabled",
         display_kind="auto-disabled",
         header="Billing alert '{event.properties.alert_name}' was auto-disabled",
         details=(
             ("Reason", "{event.properties.consecutive_failures} consecutive check failures."),
             ("Last error", "{event.properties.error_message}"),
         ),
-        primary_action_url="{event.properties.alert_url}",
-        primary_action_label="View billing alert",
-        webhook_body={
-            "id": "{event.uuid}",
-            "type": "billing_alert.auto_disabled",
-            "timestamp": "{event.properties.triggered_at}",
-            "data": {
-                **_BASE_DATA,
-                "error_message": "{event.properties.error_message}",
-                "consecutive_failures": "{event.properties.consecutive_failures}",
-            },
-        },
-        product_label=_PRODUCT_LABEL,
+        extra_data=_ERROR_DATA,
     ),
 }
 
@@ -122,3 +114,58 @@ BILLING_ALERT_SLACK_CONTEXT_ELEMENTS = (
     "Organization-wide billing alert",
     "Execution project: <{project.url}|{project.name}>",
 )
+
+
+def destination_groups_for_alerts(
+    *,
+    team_ids: set[int],
+    alert_ids: set[str],
+) -> dict[str, dict[str, dict[str, str]]]:
+    """Map alert id -> destination type value -> event id -> HogFunction id for enabled,
+    billing-owned destinations.
+
+    This is the single implementation of destination-group resolution; callers enforce the
+    complete-group invariant (a group must cover every event kind) on the returned mapping.
+    """
+    if not team_ids or not alert_ids:
+        return {}
+
+    ownership_filter = Q(pk__in=[])
+    for alert_id in alert_ids:
+        ownership_filter |= Q(filters__properties__contains=[{"key": "alert_id", "value": alert_id}])
+
+    rows = HogFunction.objects.filter(
+        ownership_filter,
+        team_id__in=team_ids,
+        enabled=True,
+        deleted=False,
+        template_id__in=list(DESTINATION_TYPE_BY_TEMPLATE_ID),
+    ).values_list("id", "template_id", "filters")
+
+    groups: dict[str, dict[str, dict[str, str]]] = {}
+    for hog_function_id, template_id, filters in rows:
+        destination_type = DESTINATION_TYPE_BY_TEMPLATE_ID.get(template_id) if template_id else None
+        if destination_type is None or not isinstance(filters, dict):
+            continue
+        properties = filters.get("properties") or []
+        events = filters.get("events") or []
+        if not isinstance(properties, list) or not isinstance(events, list):
+            continue
+        event_id = next(
+            (
+                event_filter.get("id")
+                for event_filter in events
+                if isinstance(event_filter, dict) and event_filter.get("type") == "events"
+            ),
+            None,
+        )
+        if event_id not in BILLING_ALERT_EVENT_IDS:
+            continue
+        for property_filter in properties:
+            if not isinstance(property_filter, dict) or property_filter.get("key") != "alert_id":
+                continue
+            alert_id = str(property_filter.get("value"))
+            if alert_id in alert_ids:
+                groups.setdefault(alert_id, {}).setdefault(destination_type.value, {})[event_id] = str(hog_function_id)
+            break
+    return groups

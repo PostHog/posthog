@@ -21,14 +21,14 @@ def _snapshot(
     state: AlertState = AlertState.NOT_FIRING,
     cooldown: timedelta = timedelta(hours=24),
     last_notified_at: datetime | None = None,
-    snooze_until: datetime | None = None,
+    snoozed_until: datetime | None = None,
     consecutive_failures: int = 0,
 ) -> AlertSnapshot:
     return AlertSnapshot(
         state=state,
         cooldown=cooldown,
         last_notified_at=last_notified_at,
-        snooze_until=snooze_until,
+        snooze_until=snoozed_until,
         consecutive_failures=consecutive_failures,
     )
 
@@ -103,28 +103,27 @@ def test_cooldown_only_gates_repeated_firing() -> None:
 
 
 def test_clear_check_resolves_and_ends_snooze() -> None:
-    snooze_until = NOW + timedelta(hours=1)
+    snoozed_until = NOW + timedelta(hours=1)
     outcome = evaluate_alert_check(
-        _snapshot(state=AlertState.SNOOZED, snooze_until=snooze_until),
+        _snapshot(state=AlertState.SNOOZED, snoozed_until=snoozed_until),
         _evaluation(breached=False),
         NOW,
     )
     alert = BillingAlertConfiguration(
         state=BillingAlertConfiguration.State.SNOOZED,
-        snooze_until=snooze_until,
+        snoozed_until=snoozed_until,
     )
 
     apply_outcome(alert, outcome)
 
     assert outcome.notification == NotificationAction.RESOLVE
     assert alert.state == BillingAlertConfiguration.State.NOT_FIRING
-    assert alert.snooze_until is None
+    assert alert.snoozed_until is None
 
 
 def test_next_daily_check_waits_for_the_data_delay_boundary() -> None:
     alert = BillingAlertConfiguration(
         id=UUID(int=3),
-        check_interval_hours=24,
         evaluation_delay_hours=6,
     )
 
@@ -134,6 +133,6 @@ def test_next_daily_check_waits_for_the_data_delay_boundary() -> None:
 
 
 def test_next_daily_check_uses_today_after_the_data_delay_boundary_when_due() -> None:
-    alert = BillingAlertConfiguration(id=UUID(int=3), check_interval_hours=24, evaluation_delay_hours=18)
+    alert = BillingAlertConfiguration(id=UUID(int=3), evaluation_delay_hours=18)
 
     assert next_billing_alert_check_at(alert, NOW) == datetime(2026, 6, 23, 21, 0, tzinfo=UTC)

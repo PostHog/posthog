@@ -47,15 +47,30 @@ class BillingAlertConfiguration(UUIDModel):
         on_delete=models.SET_NULL,
         related_name="+",
     )
-    created_by_id = models.BigIntegerField(null=True, blank=True)
-    updated_by_id = models.BigIntegerField(null=True, blank=True)
+    # Constraint-free FKs avoid locking posthog_user; DO_NOTHING preserves audit history after user deletion.
+    created_by = models.ForeignKey(
+        "posthog.User",
+        null=True,
+        blank=True,
+        on_delete=models.DO_NOTHING,
+        db_constraint=False,
+        related_name="+",
+    )
+    updated_by = models.ForeignKey(
+        "posthog.User",
+        null=True,
+        blank=True,
+        on_delete=models.DO_NOTHING,
+        db_constraint=False,
+        related_name="+",
+    )
 
     name = models.CharField(max_length=160)
     description = models.TextField(blank=True)
     enabled = models.BooleanField(default=True)
 
     metric = models.CharField(max_length=20, choices=Metric.choices, default=Metric.SPEND)
-    currency = models.CharField(max_length=3, default="USD")
+    currency = models.CharField(max_length=3, choices=(("USD", "USD"),), default="USD")
     configuration_revision = models.PositiveIntegerField(default=1)
 
     threshold_type = models.CharField(
@@ -70,13 +85,8 @@ class BillingAlertConfiguration(UUIDModel):
     evaluation_delay_hours = models.PositiveSmallIntegerField(default=6)
 
     state = models.CharField(max_length=20, choices=State.choices, default=State.NOT_FIRING)
-    check_interval_hours = models.PositiveSmallIntegerField(
-        choices=((DAILY_CHECK_INTERVAL_HOURS, "Daily (UTC)"),),
-        default=DAILY_CHECK_INTERVAL_HOURS,
-        help_text="Billing alerts evaluate one UTC billing date per day.",
-    )
     cooldown_hours = models.PositiveSmallIntegerField(default=24)
-    snooze_until = models.DateTimeField(null=True, blank=True)
+    snoozed_until = models.DateTimeField(null=True, blank=True)
     next_check_at = models.DateTimeField(null=True, blank=True)
     pending_evaluation_date = models.DateField(null=True, blank=True)
     retry_attempt_count = models.PositiveSmallIntegerField(default=0)
@@ -96,16 +106,11 @@ class BillingAlertConfiguration(UUIDModel):
                 F("next_check_at").asc(nulls_first=True),
                 name="billing_alert_scheduler_idx",
             ),
-            models.Index(fields=["organization", "enabled", "state"], name="billing_alert_org_state_idx"),
         ]
         constraints = [
             models.CheckConstraint(
                 condition=Q(baseline_window_days__gte=1),
                 name="billing_alert_baseline_window_positive",
-            ),
-            models.CheckConstraint(
-                condition=Q(check_interval_hours=DAILY_CHECK_INTERVAL_HOURS),
-                name="billing_alert_supported_interval",
             ),
             models.CheckConstraint(condition=Q(minimum_value__gte=0), name="billing_alert_minimum_nonnegative"),
             models.CheckConstraint(
@@ -139,10 +144,6 @@ class BillingAlertConfiguration(UUIDModel):
 
         if self.baseline_window_days < 1:
             raise ValidationError({"baseline_window_days": "Must be at least 1."})
-        if self.check_interval_hours != DAILY_CHECK_INTERVAL_HOURS:
-            raise ValidationError({"check_interval_hours": "Billing alerts currently run daily."})
-        if self.minimum_value < 0:
-            raise ValidationError({"minimum_value": "Must be greater than or equal to 0."})
         if self.team_id:
             team_organization_id = (
                 Team.objects.filter(id=self.team_id).values_list("organization_id", flat=True).first()
@@ -150,16 +151,41 @@ class BillingAlertConfiguration(UUIDModel):
             if team_organization_id is not None and team_organization_id != self.organization_id:
                 raise ValidationError({"team": "Execution team must belong to the billing alert organization."})
 
-        if self.threshold_type == self.ThresholdType.RELATIVE_INCREASE:
-            if self.threshold_percentage is None:
-                raise ValidationError({"threshold_percentage": "Required for relative increase alerts."})
-            if self.threshold_percentage <= 0:
-                raise ValidationError({"threshold_percentage": "Must be greater than 0."})
-        elif self.threshold_type in (self.ThresholdType.ABSOLUTE_VALUE, self.ThresholdType.ABSOLUTE_INCREASE):
-            if self.threshold_value is None:
-                raise ValidationError({"threshold_value": "Required for absolute threshold alerts."})
-            if self.threshold_value < 0:
-                raise ValidationError({"threshold_value": "Must be greater than or equal to 0."})
+        errors = validate_threshold_configuration(
+            threshold_type=self.threshold_type,
+            threshold_percentage=self.threshold_percentage,
+            threshold_value=self.threshold_value,
+            minimum_value=self.minimum_value,
+        )
+        if errors:
+            raise ValidationError(errors)
+
+
+def validate_threshold_configuration(
+    *,
+    threshold_type: str,
+    threshold_percentage: Decimal | None,
+    threshold_value: Decimal | None,
+    minimum_value: Decimal,
+) -> dict[str, str]:
+    """Threshold policy shared by model validation and the DRF serializer."""
+    errors: dict[str, str] = {}
+    if minimum_value < 0:
+        errors["minimum_value"] = "Must be greater than or equal to 0."
+    if threshold_type == BillingAlertConfiguration.ThresholdType.RELATIVE_INCREASE:
+        if threshold_percentage is None:
+            errors["threshold_percentage"] = "Required for relative increase alerts."
+        elif threshold_percentage <= 0:
+            errors["threshold_percentage"] = "Must be greater than 0."
+    elif threshold_type in (
+        BillingAlertConfiguration.ThresholdType.ABSOLUTE_VALUE,
+        BillingAlertConfiguration.ThresholdType.ABSOLUTE_INCREASE,
+    ):
+        if threshold_value is None:
+            errors["threshold_value"] = "Required for absolute threshold alerts."
+        elif threshold_value < 0:
+            errors["threshold_value"] = "Must be greater than or equal to 0."
+    return errors
 
 
 class BillingAlertEvaluationClaim(UUIDModel):
@@ -231,8 +257,12 @@ class BillingAlertEvent(UUIDModel):
     minimum_value_snapshot = models.DecimalField(max_digits=20, decimal_places=6, null=True, blank=True)
     threshold_breached = models.BooleanField(default=False)
 
-    state_before = models.CharField(max_length=20, null=True, blank=True)
-    state_after = models.CharField(max_length=20, null=True, blank=True)
+    state_before = models.CharField(
+        max_length=20, choices=BillingAlertConfiguration.State.choices, null=True, blank=True
+    )
+    state_after = models.CharField(
+        max_length=20, choices=BillingAlertConfiguration.State.choices, null=True, blank=True
+    )
     notification_sent_at = models.DateTimeField(null=True, blank=True)
     targets_notified = models.JSONField(default=dict)
 
@@ -248,7 +278,6 @@ class BillingAlertEvent(UUIDModel):
         db_table = "billing_alerts_event"
         indexes = [
             models.Index(fields=["team", "-created_at"], name="billing_event_team_ts_idx"),
-            models.Index(fields=["kind", "-created_at"], name="billing_event_kind_ts_idx"),
         ]
         constraints = [
             models.UniqueConstraint(

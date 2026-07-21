@@ -22,7 +22,7 @@ from products.billing_alerts.backend.models import (
 )
 from products.billing_alerts.backend.presentation.serializers import (
     BillingAlertConfigurationSerializer,
-    BillingAlertCreateDestinationSerializer,
+    BillingAlertDestinationCreateDataSerializer,
 )
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
@@ -43,7 +43,6 @@ class TestBillingAlertAPI(APIBaseTest):
             "minimum_value": "0",
             "baseline_window_days": 7,
             "evaluation_delay_hours": 6,
-            "check_interval_hours": 24,
             "cooldown_hours": 24,
         }
         payload.update(overrides)
@@ -101,18 +100,18 @@ class TestBillingAlertAPI(APIBaseTest):
         assert alert.threshold_percentage == Decimal("50.00")
 
     def test_create_snoozed_alert_applies_snooze_transition(self) -> None:
-        snooze_until = timezone.now() + timedelta(hours=2)
+        snoozed_until = timezone.now() + timedelta(hours=2)
 
         response = self.client.post(
             self.url,
-            self._payload(snooze_until=snooze_until.isoformat()),
+            self._payload(snoozed_until=snoozed_until.isoformat()),
             format="json",
         )
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         alert = BillingAlertConfiguration.objects.get(id=response.json()["id"])
         assert alert.state == BillingAlertConfiguration.State.SNOOZED
-        assert alert.snooze_until == snooze_until
+        assert alert.snoozed_until == snoozed_until
 
     def test_enable_resets_lifecycle_state_and_failures(self) -> None:
         alert = self._alert(
@@ -145,7 +144,7 @@ class TestBillingAlertAPI(APIBaseTest):
         assert alert.consecutive_failures == 3
 
     def test_snooze_preserves_failure_count_and_sets_snoozed_state(self) -> None:
-        snooze_until = timezone.now() + timedelta(hours=2)
+        snoozed_until = timezone.now() + timedelta(hours=2)
         alert = self._alert(
             state=BillingAlertConfiguration.State.FIRING,
             consecutive_failures=2,
@@ -153,29 +152,29 @@ class TestBillingAlertAPI(APIBaseTest):
 
         response = self.client.patch(
             f"{self.url}{alert.id}/",
-            {"snooze_until": snooze_until.isoformat()},
+            {"snoozed_until": snoozed_until.isoformat()},
             format="json",
         )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         alert.refresh_from_db()
         assert alert.state == BillingAlertConfiguration.State.SNOOZED
-        assert alert.snooze_until == snooze_until
+        assert alert.snoozed_until == snoozed_until
         assert alert.consecutive_failures == 2
 
     def test_unsnooze_resets_state_and_failures(self) -> None:
         alert = self._alert(
             state=BillingAlertConfiguration.State.SNOOZED,
-            snooze_until=timezone.now() + timedelta(hours=2),
+            snoozed_until=timezone.now() + timedelta(hours=2),
             consecutive_failures=4,
         )
 
-        response = self.client.patch(f"{self.url}{alert.id}/", {"snooze_until": None}, format="json")
+        response = self.client.patch(f"{self.url}{alert.id}/", {"snoozed_until": None}, format="json")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         alert.refresh_from_db()
         assert alert.state == BillingAlertConfiguration.State.NOT_FIRING
-        assert alert.snooze_until is None
+        assert alert.snoozed_until is None
         assert alert.consecutive_failures == 0
 
     def test_threshold_edit_resets_firing_state_and_failures(self) -> None:
@@ -233,10 +232,10 @@ class TestBillingAlertAPI(APIBaseTest):
                 assert alert.consecutive_failures == 0
 
     def test_threshold_edit_preserves_snoozed_state(self) -> None:
-        snooze_until = timezone.now() + timedelta(hours=2)
+        snoozed_until = timezone.now() + timedelta(hours=2)
         alert = self._alert(
             state=BillingAlertConfiguration.State.SNOOZED,
-            snooze_until=snooze_until,
+            snoozed_until=snoozed_until,
             consecutive_failures=3,
         )
 
@@ -250,7 +249,7 @@ class TestBillingAlertAPI(APIBaseTest):
         alert.refresh_from_db()
         assert alert.minimum_value == Decimal("10.00")
         assert alert.state == BillingAlertConfiguration.State.SNOOZED
-        assert alert.snooze_until == snooze_until
+        assert alert.snoozed_until == snoozed_until
         assert alert.consecutive_failures == 3
 
     def test_model_rejects_execution_team_from_different_organization(self) -> None:
@@ -347,58 +346,46 @@ class TestBillingAlertAPI(APIBaseTest):
         assert not BillingAlertConfiguration.objects.exists()
 
     def test_webhook_destinations_require_https(self) -> None:
-        alert = self._alert()
-
-        serializer = BillingAlertCreateDestinationSerializer(
+        serializer = BillingAlertDestinationCreateDataSerializer(
             data={"type": "webhook", "webhook_url": "http://example.com/billing-alert"},
-            context={"alert": alert},
         )
 
         assert serializer.is_valid() is False
         assert "webhook_url" in serializer.errors
 
-        serializer = BillingAlertCreateDestinationSerializer(
+        serializer = BillingAlertDestinationCreateDataSerializer(
             data={"type": "webhook", "webhook_url": "https://"},
-            context={"alert": alert},
         )
 
         assert serializer.is_valid() is False
         assert "webhook_url" in serializer.errors
 
-        serializer = BillingAlertCreateDestinationSerializer(
+        serializer = BillingAlertDestinationCreateDataSerializer(
             data={"type": "webhook", "webhook_url": "https://example.com/billing-alert"},
-            context={"alert": alert},
         )
 
         assert serializer.is_valid(), serializer.errors
 
     def test_teams_destinations_require_a_microsoft_workflow_webhook(self) -> None:
-        alert = self._alert()
-
-        invalid = BillingAlertCreateDestinationSerializer(
+        invalid = BillingAlertDestinationCreateDataSerializer(
             data={"type": "teams", "webhook_url": "https://example.com/teams"},
-            context={"alert": alert},
         )
-        valid = BillingAlertCreateDestinationSerializer(
+        valid = BillingAlertDestinationCreateDataSerializer(
             data={
                 "type": "teams",
                 "webhook_url": "https://example.powerautomate.com/workflows/abc",
             },
-            context={"alert": alert},
         )
 
         assert invalid.is_valid() is False
         assert "webhook_url" in invalid.errors
         assert valid.is_valid(), valid.errors
 
-    def test_rejects_negative_minimum_and_unsupported_check_interval(self) -> None:
+    def test_rejects_negative_minimum(self) -> None:
         negative_minimum = self.client.post(self.url, self._payload(minimum_value="-1"), format="json")
-        unsupported_interval = self.client.post(self.url, self._payload(check_interval_hours=5), format="json")
 
         assert negative_minimum.status_code == status.HTTP_400_BAD_REQUEST
         assert negative_minimum.json()["attr"] == "minimum_value"
-        assert unsupported_interval.status_code == status.HTTP_400_BAD_REQUEST
-        assert unsupported_interval.json()["attr"] == "check_interval_hours"
 
     def test_check_now_uses_shared_organization_object_permissions(self) -> None:
         alert = BillingAlertConfiguration.objects.create(

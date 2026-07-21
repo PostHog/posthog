@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 
 from django.db.models import F, Q, QuerySet, Window
@@ -27,10 +27,12 @@ from products.billing_alerts.backend.logic.state_machine import (
     next_billing_alert_check_at,
 )
 from products.billing_alerts.backend.models import BillingAlertConfiguration
+from products.billing_alerts.backend.temporal.retry_policy import BILLING_ALERT_EVALUATE_RETRY_POLICY
 from products.billing_alerts.backend.temporal.types import BillingAlertInfo, EvaluateBillingAlertBatchActivityInputs
 
 MAX_DUE_BILLING_ALERTS_PER_TICK = 500
-MAX_ACTIVITY_ATTEMPTS = 3
+# Failure events are only recorded on the final attempt, so this must match the Temporal policy.
+MAX_ACTIVITY_ATTEMPTS = BILLING_ALERT_EVALUATE_RETRY_POLICY.maximum_attempts
 logger = structlog.get_logger(__name__)
 
 
@@ -39,7 +41,7 @@ def due_billing_alerts_q(now: datetime) -> QuerySet[BillingAlertConfiguration]:
     return (
         BillingAlertConfiguration.objects.filter(enabled=True)
         .filter(Q(next_check_at__lte=now) | Q(next_check_at__isnull=True))
-        .filter(Q(snooze_until__isnull=True) | Q(snooze_until__lte=now))
+        .filter(Q(snoozed_until__isnull=True) | Q(snoozed_until__lte=now))
         .exclude(state=BillingAlertConfiguration.State.BROKEN)
     )
 
@@ -60,7 +62,10 @@ def _due_billing_alerts_for_sweep(now: datetime) -> QuerySet[BillingAlertConfigu
             F("next_check_at").asc(nulls_first=True),
             "organization_id",
             "id",
-        )[:MAX_DUE_BILLING_ALERTS_PER_TICK]
+        )
+        .only("id", "organization_id", "baseline_window_days", "evaluation_delay_hours", "pending_evaluation_date")[
+            :MAX_DUE_BILLING_ALERTS_PER_TICK
+        ]
     )
 
 
@@ -204,18 +209,15 @@ async def discover_due_billing_alerts_activity() -> list[BillingAlertInfo]:
     @database_sync_to_async(thread_sensitive=False)
     def get_due_alerts() -> list[BillingAlertInfo]:
         now = datetime.now(UTC)
-        alerts = _due_billing_alerts_for_sweep(now).values_list(
-            "id", "organization_id", "baseline_window_days", "evaluation_delay_hours", "pending_evaluation_date"
-        )
+        alerts = _due_billing_alerts_for_sweep(now)
+        # The key must match _group_key so the batch activity's per-group billing fetch lines up
+        # with the workflow's batching.
         return [
             BillingAlertInfo(
-                alert_id=str(alert_id),
-                query_key=(
-                    f"{organization_id}:{baseline_window_days}:{evaluation_delay_hours}:"
-                    f"{pending_evaluation_date or (now - timedelta(hours=evaluation_delay_hours)).date() - timedelta(days=1)}"
-                ),
+                alert_id=str(alert.id),
+                query_key=":".join(str(part) for part in _group_key(alert, now)),
             )
-            for alert_id, organization_id, baseline_window_days, evaluation_delay_hours, pending_evaluation_date in alerts
+            for alert in alerts
         ]
 
     async with Heartbeater():
