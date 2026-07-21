@@ -2387,7 +2387,9 @@ class ExperimentService:
                         interaction_origin="experiments",
                         ai_stage="implementation",
                     )
-                    Experiment.objects.filter(id=experiment_id, team_id=team.id).update(
+                    # A concurrent reset may have already returned the experiment to draft —
+                    # only attach the pointer while it is still ended.
+                    Experiment.objects.filter(id=experiment_id, team_id=team.id, end_date__isnull=False).update(
                         flag_cleanup_task_id=created.task_id
                     )
                     # on_commit runs before the view serializes the response — reflect the id on the
