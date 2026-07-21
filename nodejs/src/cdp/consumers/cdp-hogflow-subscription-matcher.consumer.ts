@@ -1009,7 +1009,9 @@ function collectCandidateGlobals(
 function rewriteStatePersonId(stateBuffer: Buffer, newPersonId: string, jobId: string): Buffer | null {
     try {
         const parsed = parseJSON(stateBuffer.toString('utf-8'))
-        parsed.state = { ...parsed.state, personId: newPersonId }
+        // Flag the re-key so the worker resolves the person by this survivor personId, not the repointed
+        // distinct_id whose ~1min cache still points at the pre-merge person (see personIdRepointed).
+        parsed.state = { ...parsed.state, personId: newPersonId, personIdRepointed: true }
         return Buffer.from(JSON.stringify(parsed))
     } catch (err) {
         logger.warn('Failed to parse state during distinct_id-move re-key', { jobId, err })

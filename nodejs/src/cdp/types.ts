@@ -338,6 +338,11 @@ export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
 export type HogFlowInvocationContext = {
     event: HogFunctionInvocationGlobals['event']
     personId?: string // Persisted person UUID, used when distinct_id is not available (e.g. batch workflows, manual person triggers)
+    // Set by the subscription matcher when a person merge repointed this job's distinct_id and re-keyed
+    // personId onto the survivor. Tells the worker to resolve the person by personId, not the distinct_id
+    // (whose ~1min PersonsManager cache entry still points at the pre-merge person) — otherwise a
+    // merge-woken step reads stale person props (e.g. an email step gets no recipient and drops the send).
+    personIdRepointed?: boolean
     actionStepCount: number
     currentAction?: {
         id: string
