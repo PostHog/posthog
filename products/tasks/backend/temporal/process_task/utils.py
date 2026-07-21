@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Optional
 from urllib.parse import urlparse
 
 from django.conf import settings
+from django.db import transaction
 
 from pydantic import BaseModel
 
@@ -35,6 +36,7 @@ from products.tasks.backend.logic.services.run_actor import (
     get_task_run_actor_user as get_task_run_actor_user,
     get_task_run_credential_user as get_task_run_credential_user,
     is_slack_interaction_state as is_slack_interaction_state,
+    loop_owner_eligible_for_credentials,
 )
 from products.tasks.backend.redis import get_tasks_cache
 
@@ -967,6 +969,18 @@ def get_sandbox_github_token(
     else:
         run_state = parse_run_state(state)
         pr_authorship_mode = run_state.pr_authorship_mode
+
+    # Loop runs mint credentials as the owner, so gate every GitHub token resolution (initial
+    # provisioning, snapshot resume, and refresh all reach here) on current owner eligibility. A
+    # deactivated or team-access-revoked owner must not get a fresh team GitHub token handed to their
+    # still-running loop while the async cancellation is in flight.
+    loop_id = (state or {}).get("loop_id")
+    if loop_id is not None and task is not None:
+        owner_id = created_by.id if created_by is not None else task.created_by_id
+        with transaction.atomic():
+            if not loop_owner_eligible_for_credentials(owner_id, task.team):
+                logger.warning("loop_github_token_owner_ineligible", extra={"run_id": run_id, "task_id": str(task.id)})
+                return None
 
     if pr_authorship_mode == PrAuthorshipMode.USER:
         if task is not None and slack_interaction and created_by is None:

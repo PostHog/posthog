@@ -18,8 +18,8 @@ from django.db import connection, transaction
 from django.utils import timezone as django_timezone
 
 from posthog.models import User
-from posthog.models.organization import OrganizationMembership
 from posthog.temporal.oauth import PosthogMcpScopes, resolve_scopes
+from posthog.user_permissions import UserPermissions
 
 from products.tasks.backend.logic.services.code_usage_gate import cloud_usage_limit_response
 from products.tasks.backend.loop_notifications import dispatch_loop_event
@@ -228,18 +228,17 @@ class _FireDecision:
 
 
 def _owner_eligible_to_run(loop: Loop) -> bool:
-    """Whether the loop's owner may still have a run execute as them: an active user account that is
-    also a current member of the loop's org. A run mints team-scoped OAuth/GitHub/MCP credentials as
-    `loop.created_by`, so a deactivated account or a user removed from the org must not keep firing —
-    membership removal leaves `is_active=True`, so account state alone is insufficient."""
+    """Whether the loop's owner may still have a run execute as them: an active user account with
+    current effective access to the loop's team. A run mints team-scoped OAuth/GitHub/MCP credentials
+    as `loop.created_by`, so a deactivated account, a user removed from the org, or one whose access
+    to this (possibly private) project was revoked must not keep firing — account state alone, or
+    even org membership, is insufficient."""
     if loop.created_by_id is None:
         return False
     owner = loop.created_by
     if owner is None or not owner.is_active:
         return False
-    return OrganizationMembership.objects.filter(
-        user_id=loop.created_by_id, organization_id=loop.team.organization_id
-    ).exists()
+    return UserPermissions(user=owner, team=loop.team).current_team.effective_membership_level is not None
 
 
 def fire_loop(

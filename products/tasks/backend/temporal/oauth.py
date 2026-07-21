@@ -4,8 +4,6 @@ from typing import TYPE_CHECKING, Any
 
 from django.db import transaction
 
-from posthog.models.organization import OrganizationMembership
-from posthog.models.user import User
 from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
     ARRAY_APP_CLIENT_ID_EU,
@@ -18,7 +16,11 @@ from posthog.temporal.oauth import (
 )
 
 from products.tasks.backend.exceptions import OAuthTokenError, TaskInvalidStateError
-from products.tasks.backend.logic.services.run_actor import get_task_run_credential_user, is_slack_interaction_state
+from products.tasks.backend.logic.services.run_actor import (
+    get_task_run_credential_user,
+    is_slack_interaction_state,
+    loop_owner_eligible_for_credentials,
+)
 from products.tasks.backend.models import Task
 
 if TYPE_CHECKING:
@@ -114,13 +116,12 @@ def create_oauth_access_token_for_run(
     # a deactivation or membership removal can't commit between the check and token creation, and the
     # async loop cancellation can't revoke a token already handed to the sandbox.
     credential_owner_id = actor_user.id if actor_user is not None else task.created_by_id
-    organization_id = task.team.organization_id
     with transaction.atomic():
-        if credential_owner_id is None or not _loop_credential_owner_eligible(credential_owner_id, organization_id):
+        if not loop_owner_eligible_for_credentials(credential_owner_id, task.team):
             raise TaskInvalidStateError(
-                f"Loop task {task.id} credential owner is no longer an active org member",
+                f"Loop task {task.id} credential owner can no longer access its team",
                 {"task_id": task.id},
-                cause=RuntimeError("loop credential owner is not an active org member"),
+                cause=RuntimeError("loop credential owner is not an active team member"),
             )
         return create_oauth_access_token(
             task,
@@ -129,21 +130,6 @@ def create_oauth_access_token_for_run(
             allow_task_creator_fallback=not is_slack_interaction_state(state),
             loop_id=loop_id if isinstance(loop_id, str) else None,
         )
-
-
-def _loop_credential_owner_eligible(user_id: int, organization_id: Any) -> bool:
-    # Fresh, locked reads (must run inside a transaction): the owner row and its membership are
-    # locked so a concurrent deactivation / membership removal serializes against the mint rather
-    # than slipping in between a stale check and token creation.
-    is_active = User.objects.select_for_update().filter(id=user_id).values_list("is_active", flat=True).first()
-    if not is_active:
-        return False
-    membership = (
-        OrganizationMembership.objects.select_for_update()
-        .filter(user_id=user_id, organization_id=organization_id)
-        .first()
-    )
-    return membership is not None
 
 
 def create_wizard_oauth_access_token(task: Task) -> str:
