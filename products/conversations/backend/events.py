@@ -312,11 +312,15 @@ def _get_assignment_properties(ticket: Ticket) -> dict:
     return {"assignee_type": None, "assignee_id": None, "assignee_role_name": None}
 
 
-def _role_name_for_assignee(assignee_type: str | None, assignee_id: str | None) -> str | None:
+def _role_name_for_assignee(ticket: Ticket, assignee_type: str | None, assignee_id: str | None) -> str | None:
     """Look up a role's name for the assignment event; None for user or empty assignees."""
     if assignee_type != "role" or not assignee_id:
         return None
-    return Role.objects.filter(id=assignee_id).values_list("name", flat=True).first()
+    return (
+        Role.objects.filter(id=assignee_id, organization_id=ticket.team.organization_id)
+        .values_list("name", flat=True)
+        .first()
+    )
 
 
 def _get_sla_properties(ticket: Ticket, now: datetime) -> dict:
@@ -422,7 +426,7 @@ def capture_ticket_assigned(
     properties = _get_ticket_base_properties(ticket)
     properties["assignee_type"] = assignee_type
     properties["assignee_id"] = assignee_id
-    properties["assignee_role_name"] = _role_name_for_assignee(assignee_type, assignee_id)
+    properties["assignee_role_name"] = _role_name_for_assignee(ticket, assignee_type, assignee_id)
     properties.update(_get_actor_properties(actor, actor_type))
     properties.update(_get_customer_properties(ticket, include_distinct_id=True))
 
