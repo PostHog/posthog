@@ -146,6 +146,30 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
             },
             setup=seed_ranked_metric_with_decoy_table,
         ),
+        # The incident replayed verbatim: no official-definition nudge in the prompt. The agent
+        # may well touch the raw warehouse tables first (the seeded `paid_bills` table and the
+        # decoy rollup are tempting) — the data-catalog trust advisory attached to those query
+        # results is what should redirect it. Rescue counts as success, so this case requires
+        # catalog consultation but deliberately not catalog-before-answer ordering.
+        SandboxedEvalCase(
+            name="governed_metric_vs_raw_table_unprompted",
+            prompt="Who are our top customers by revenue?",
+            expected={
+                "metrics_catalog_queried": {},
+                "governed_behavior_correctness": {
+                    "expected_behavior": (
+                        f"Arrived at the approved metric '{RANKED_METRIC_NAME}' without being told official "
+                        "definitions exist — either by consulting the catalog directly, or after being redirected "
+                        "by the data-catalog trust advisory on raw warehouse query results. The final ranking must "
+                        "come from the governed definition (paid_bill sums over the trailing 30 days excluding the "
+                        f"personal/free plan), cited as approved. Reading raw tables (paid_bills, "
+                        f"'{DECOY_REVENUE_TABLE_NAME}') is acceptable; presenting them as the source of the final "
+                        "answer is not."
+                    )
+                },
+            },
+            setup=seed_ranked_metric_with_decoy_table,
+        ),
         # Empty catalog — the normal case: derive without stalling. Consulting the catalog is
         # allowed (and finding nothing is fine), so only the judge grades this case.
         SandboxedEvalCase(
