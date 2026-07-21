@@ -143,18 +143,27 @@ class TestMergeFiltersByPriority(SimpleTestCase):
         )
         assert len(merged["properties"]) == 2
 
-    def test_dashboard_properties_as_property_group_dict_are_flattened(self):
-        # Dashboard filters can store `properties` as a PropertyGroupFilter dict rather than a flat list;
-        # the merge must flatten it to leaves instead of iterating the dict's keys and raising.
-        dashboard_prop = {"key": "$country", "value": "US", "type": "event"}
-        tile_prop = {"key": "$browser", "value": "Chrome", "type": "event"}
+    def test_property_group_dicts_are_flattened_for_conflict_resolution(self):
+        country_prop = {"key": "$country", "value": "US", "type": "event"}
+        dashboard_browser_prop = {
+            "key": "$browser",
+            "value": ["Chrome"],
+            "type": "event",
+            "operator": "exact",
+        }
+        tile_browser_prop = {
+            "key": "$browser",
+            "value": ["Firefox"],
+            "type": "event",
+            "operator": "exact",
+        }
 
         merged = merge_filters_by_priority(
-            {"properties": {"type": "AND", "values": [dashboard_prop]}},
-            {"properties": [tile_prop]},
+            {"properties": {"type": "AND", "values": [country_prop, dashboard_browser_prop]}},
+            {"properties": {"type": "OR", "values": [tile_browser_prop]}},
         )
 
-        assert merged["properties"] == [dashboard_prop, tile_prop]
+        assert merged["properties"] == [country_prop, tile_browser_prop]
 
 
 class TestDashboardFilterFromDict(SimpleTestCase):
