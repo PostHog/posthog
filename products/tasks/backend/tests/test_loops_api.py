@@ -2,6 +2,7 @@ from contextlib import nullcontext
 from datetime import timedelta
 from uuid import UUID
 
+import pytest
 from unittest.mock import patch
 
 from django.test import TestCase
@@ -10,6 +11,13 @@ from django.utils import timezone as django_timezone
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
+
+from posthog.constants import AvailableFeature
+
+try:
+    from ee.models.rbac.access_control import AccessControl
+except ImportError:
+    pass
 
 from posthog.models import (
     FileSystem,
@@ -877,6 +885,80 @@ class LoopInternalFacadeTest(LoopsAPITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
 
 
+@pytest.mark.ee
+class LoopObjectAccessControlAPITest(LoopsAPITestCase):
+    """Object-level RBAC (`AccessControl` rows with resource="loop"). The viewset never calls
+    `check_object_permissions` (the facade owns object loading), so `AccessControlPermission.
+    has_permission` admits anyone with a grant on ANY loop and the facade must enforce which one."""
+
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        self.loop_a = self._create_loop(self.owner_client, visibility="team")
+        self.loop_b = self._create_loop(self.owner_client, visibility="team")
+
+    def _grant(self, user: User, resource_id: str | None, access_level: str) -> None:
+        membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="loop",
+            resource_id=resource_id,
+            access_level=access_level,
+            organization_member=membership,
+        )
+
+    def test_a_specific_grant_does_not_open_other_loops(self):
+        AccessControl.objects.create(team=self.team, resource="loop", resource_id=None, access_level="none")
+        self._grant(self.peer, self.loop_a["id"], "viewer")
+
+        list_response = self.peer_client.get(self._loops_url())
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        self.assertEqual({row["id"] for row in list_response.json()["results"]}, {self.loop_a["id"]})
+
+        self.assertEqual(self.peer_client.get(self._loop_url(self.loop_a["id"])).status_code, status.HTTP_200_OK)
+        loop_b_url = self._loop_url(self.loop_b["id"])
+        self.assertEqual(self.peer_client.get(loop_b_url).status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(self.peer_client.get(f"{loop_b_url}runs/").status_code, status.HTTP_404_NOT_FOUND)
+        preview = self.peer_client.post(f"{loop_b_url}preview/", {"trigger_type": "schedule"}, format="json")
+        self.assertEqual(preview.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_an_editor_grant_on_one_loop_does_not_let_writes_reach_another(self):
+        AccessControl.objects.create(team=self.team, resource="loop", resource_id=None, access_level="none")
+        self._grant(self.peer, self.loop_a["id"], "editor")
+
+        allowed = self.peer_client.patch(self._loop_url(self.loop_a["id"]), {"name": "renamed"}, format="json")
+        self.assertEqual(allowed.status_code, status.HTTP_200_OK, allowed.content)
+
+        loop_b_url = self._loop_url(self.loop_b["id"])
+        self.assertEqual(
+            self.peer_client.patch(loop_b_url, {"name": "x"}, format="json").status_code, status.HTTP_404_NOT_FOUND
+        )
+        self.assertEqual(
+            self.peer_client.post(f"{loop_b_url}run/", {}, format="json").status_code, status.HTTP_404_NOT_FOUND
+        )
+
+    def test_a_loop_pinned_to_viewer_blocks_member_writes_but_not_reads(self):
+        AccessControl.objects.create(
+            team=self.team, resource="loop", resource_id=self.loop_a["id"], access_level="viewer"
+        )
+        loop_a_url = self._loop_url(self.loop_a["id"])
+
+        self.assertEqual(self.peer_client.get(loop_a_url).status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            self.peer_client.patch(loop_a_url, {"name": "x"}, format="json").status_code, status.HTTP_403_FORBIDDEN
+        )
+        self.assertEqual(
+            self.peer_client.post(f"{loop_a_url}run/", {}, format="json").status_code, status.HTTP_403_FORBIDDEN
+        )
+        # The owner keeps editing their own loop via the RBAC creator precheck.
+        owner_patch = self.owner_client.patch(loop_a_url, {"name": "mine"}, format="json")
+        self.assertEqual(owner_patch.status_code, status.HTTP_200_OK, owner_patch.content)
+
+
 class LoopActivityLogVisibilityAPITest(LoopsAPITestCase):
     def test_personal_loop_activity_is_hidden_from_a_teammate(self):
         from posthog.api.advanced_activity_logs.viewset import restrict_loop_activity
@@ -893,6 +975,23 @@ class LoopActivityLogVisibilityAPITest(LoopsAPITestCase):
         self.assertIn(team["id"], owner_ids)
         self.assertNotIn(personal["id"], peer_ids)
         self.assertIn(team["id"], peer_ids)
+
+    def test_deleted_personal_loop_activity_stays_hidden_org_wide(self):
+        # ActivityLog outlives its loop: project deletion cascades the Loop row away while the log
+        # keeps plain team/org ids, so the org route must judge rows by their persisted context
+        # (visibility + owner snapshotted at log time), not by live loop rows.
+        from posthog.api.advanced_activity_logs.viewset import restrict_loop_activity_for_org
+        from posthog.models.activity_logging.activity_log import ActivityLog
+
+        personal = self._create_loop(self.owner_client, visibility="personal")
+        Loop.objects.unscoped().filter(pk=personal["id"]).delete()
+
+        base = ActivityLog.objects.filter(scope="Loop")
+        owner_ids = {row.item_id for row in restrict_loop_activity_for_org(base, self.organization.id, self.owner)}
+        peer_ids = {row.item_id for row in restrict_loop_activity_for_org(base, self.organization.id, self.peer)}
+
+        self.assertIn(personal["id"], owner_ids)
+        self.assertNotIn(personal["id"], peer_ids)
 
 
 class LoopTriggerPayloadCapAPITest(LoopsAPITestCase):

@@ -214,7 +214,8 @@ The wiring lives in `products/tasks/backend/logic/services/loop_runs.py`:
 - Project admins can pause or delete any loop regardless of visibility (the kill switch when an owner is unavailable).
 - Rationale: a loop executes as its owner. Letting someone else edit its instructions without takeover is acting as the owner.
 - `scope_object = "loop"`: a new `APIScopeObject` (update `posthog/scopes.py`, the frontend scope lists and the MCP OAuth scope codegen). Deliberately not `task`: reusing `task` would retroactively grant every existing `task:write` credential the power to create automations that run arbitrary prompts as the key's owner.
-- Loop is not added to `ACCESS_CONTROL_RESOURCES` in v1; the visibility model is the restriction mechanism. Revisit if RBAC orgs ask for role-scoped loops.
+- Loop is not added to `ACCESS_CONTROL_RESOURCES` in v1 (no dedicated RBAC UI); the visibility model is the primary restriction mechanism. `AccessControl` rows with `resource="loop"` are still creatable through the RBAC API, and when they exist the facade enforces them at object level (viewer to read, editor to write/fire — `_rbac_denied` / `_rbac_filter_visible`), since the viewset's facade pattern never runs DRF's `check_object_permissions`. Owners keep access to their own loops via the RBAC creator precheck.
+- Creating a loop through the MCP tool surface is a confirmed action (`loops-create-prepare` / `loops-create-execute`): an agent cannot plant a persistent automation in one tool call. The confirmation comes from the human — the review card's "Create loop" button or a typed 'confirm' in chat.
 
 ## Activity log and audit
 

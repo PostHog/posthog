@@ -38,6 +38,8 @@ from posthog.models.file_system.file_system import FileSystem
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
+from posthog.models.team.team import Team
+from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
 
 from products.mcp_store.backend.facade.api import get_active_installations
 from products.tasks.backend import loop_service
@@ -463,6 +465,29 @@ def _visible_loop_queryset(team_id: int, user_id: int | None) -> QuerySet[Loop]:
     return Loop.objects.filter(team_id=team_id, deleted=False, internal=False).filter(visibility_q)
 
 
+def _rbac_denied(loop: Loop, user: User | None, required_level: AccessControlLevel) -> bool:
+    """Object-level RBAC for `AccessControl` rows with resource="loop". The viewset never calls
+    `get_object()`/`check_object_permissions` (the facade owns object loading), so without this an
+    admin-configured per-loop grant is enforced only at resource level: `AccessControlPermission.
+    has_permission` admits anyone with a grant on ANY loop, expecting an object check that would
+    otherwise never run. `user=None` means a PSAK/service caller, which object-level RBAC does not
+    apply to (matching `AccessControlPermission.has_object_permission`). Loop owners always pass
+    via the RBAC creator precheck."""
+    if user is None:
+        return False
+    uac = UserAccessControl(user=user, team=loop.team)
+    return not uac.check_access_level_for_object(loop, required_level=required_level)
+
+
+def _rbac_filter_visible(loops: QuerySet[Loop], team_id: int, user: User | None) -> QuerySet[Loop]:
+    if user is None:
+        return loops
+    team = Team.objects.filter(id=team_id).first()
+    if team is None:
+        return loops.none()
+    return UserAccessControl(user=user, team=team).filter_queryset_by_access_level(loops)
+
+
 def _is_owner(loop: Loop, user: User | None) -> bool:
     return user is not None and loop.created_by_id == user.id
 
@@ -501,6 +526,12 @@ def _fetch_loop_for_write(loop_id: str | UUID, team_id: int, user: User | None) 
     )
     if loop is None:
         return None
+    # RBAC before the visibility rules: a loop the user may not even view stays a 404, while one
+    # they can view but not edit is a clean 403.
+    if _rbac_denied(loop, user, "viewer"):
+        return None
+    if _rbac_denied(loop, user, "editor"):
+        raise LoopPermissionError("You do not have editor access to this loop.")
     if loop.visibility == Loop.Visibility.TEAM or _is_owner(loop, user):
         return loop
     if user_id is not None and _is_team_admin(loop, user):
@@ -632,6 +663,7 @@ def list_loops(team_id: int, user: User | None) -> list[LoopDTO]:
         .prefetch_related("triggers")
         .order_by("-created_at")
     )
+    loops = _rbac_filter_visible(loops, team_id, user)
     return [_loop_to_dto(loop) for loop in loops]
 
 
@@ -660,8 +692,16 @@ def hidden_personal_loop_ids_for_org(organization_id: str | UUID, user: User | N
 
 def get_loop(loop_id: str | UUID, team_id: int, user: User | None) -> LoopDTO | None:
     user_id = getattr(user, "id", None)
-    loop = _visible_loop_queryset(team_id, user_id).prefetch_related("triggers").filter(pk=loop_id).first()
-    return _loop_to_dto(loop) if loop is not None else None
+    loop = (
+        _visible_loop_queryset(team_id, user_id)
+        .select_related("team")
+        .prefetch_related("triggers")
+        .filter(pk=loop_id)
+        .first()
+    )
+    if loop is None or _rbac_denied(loop, user, "viewer"):
+        return None
+    return _loop_to_dto(loop)
 
 
 # --- Internal loops ---
@@ -1009,9 +1049,11 @@ def fire_loop_manual(
     """Manual fire from the UI (`loops/:id/run/`). Visibility (`_visible_loop_queryset`) already
     encodes who may fire a loop manually: owner-only for personal, any member for team."""
     user_id = getattr(user, "id", None)
-    loop = _visible_loop_queryset(team_id, user_id).filter(pk=loop_id).first()
-    if loop is None:
+    loop = _visible_loop_queryset(team_id, user_id).select_related("team").filter(pk=loop_id).first()
+    if loop is None or _rbac_denied(loop, user, "viewer"):
         return None
+    if _rbac_denied(loop, user, "editor"):
+        raise LoopPermissionError("You do not have editor access to this loop.")
 
     fire_key = idempotency_key or f"manual-{uuid4().hex}"
     trigger_context = loop_runs.render_trigger_context("manual", None, loop)
@@ -1082,8 +1124,8 @@ def preview_loop(
     effects. `sample_payload` is `{"trigger_type": ..., "payload": ...}`; omitted entirely (or
     `trigger_type` omitted) defaults to a synthetic schedule fire."""
     user_id = getattr(user, "id", None)
-    loop = _visible_loop_queryset(team_id, user_id).filter(pk=loop_id).first()
-    if loop is None:
+    loop = _visible_loop_queryset(team_id, user_id).select_related("team").filter(pk=loop_id).first()
+    if loop is None or _rbac_denied(loop, user, "viewer"):
         return None
 
     sample_payload = sample_payload or {}
@@ -1125,8 +1167,8 @@ def list_loop_runs(
     scoped to `team_id` first and only ever touches historical rows going forward.
     """
     user_id = getattr(user, "id", None)
-    loop = _visible_loop_queryset(team_id, user_id).filter(pk=loop_id).first()
-    if loop is None:
+    loop = _visible_loop_queryset(team_id, user_id).select_related("team").filter(pk=loop_id).first()
+    if loop is None or _rbac_denied(loop, user, "viewer"):
         return None
     return _loop_runs_page(loop, team_id, cursor=cursor, limit=limit)
 
