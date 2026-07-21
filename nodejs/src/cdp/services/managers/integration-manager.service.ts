@@ -48,10 +48,13 @@ export class IntegrationManagerService {
             try {
                 const result = await this.gateway.fetchMany(ids, teamId)
                 gatewayRequestsCounter.inc({ result: 'ok' })
+                logger.info('[IntegrationManager]', 'Loaded integrations via gateway service', { ids, teamId })
                 return result
             } catch (error) {
                 logger.warn('[IntegrationManager]', 'Gateway fetch failed, falling back to Postgres', {
                     error: String(error),
+                    ids,
+                    teamId,
                 })
                 gatewayRequestsCounter.inc({ result: 'fallback' })
             }
@@ -64,7 +67,7 @@ export class IntegrationManagerService {
     }
 
     private async fetchIntegrations(ids: string[]): Promise<Record<string, IntegrationType | undefined>> {
-        logger.info('[IntegrationManager]', 'Fetching integrations', { ids })
+        logger.info('[IntegrationManager]', 'Loading integrations via Postgres (direct DB)', { ids })
 
         const response = await this.postgres.query<IntegrationType>(
             PostgresUse.COMMON_READ,
