@@ -1,9 +1,9 @@
 import pytest
 from unittest.mock import patch
 
-from products.tasks.backend.exceptions import SandboxExecutionError
+from products.tasks.backend.exceptions import SandboxExecutionError, SandboxTimeoutError
 from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
-from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxConfig
+from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxConfig, wait_for_health_check
 
 
 @pytest.fixture
@@ -43,6 +43,30 @@ def test_start_agent_server_health_check_timeout_is_retryable_and_not_captured(s
         sandbox.start_agent_server(repository=None, task_id="t1", run_id="r1")
 
     assert exc.value.non_retryable is False
+    capture_exception.assert_not_called()
+
+
+def test_wait_for_health_check_swallows_execute_timeout_without_capturing():
+    # When the agent-server binds its port but never answers /health, the in-sandbox poll loop
+    # outlasts the exec timeout and execute() raises SandboxTimeoutError. That must collapse to a
+    # quiet False (the caller then raises its own non-capturing error), not escape as a captured issue.
+    seen: dict[str, object] = {}
+
+    def fake_execute(command: str, timeout_seconds: int | None = None, *, capture_timeout: bool = True):
+        seen["capture_timeout"] = capture_timeout
+        raise SandboxTimeoutError(
+            "Execution timed out",
+            {"sandbox_id": "sbx"},
+            cause=TimeoutError(),
+            capture=capture_timeout,
+        )
+
+    with patch("products.tasks.backend.exceptions.capture_exception") as capture_exception:
+        result = wait_for_health_check(fake_execute, "sbx", 47821, max_attempts=1)
+
+    assert result is False
+    # The execute call must opt out of capture so the timeout it raises never mints an issue.
+    assert seen["capture_timeout"] is False
     capture_exception.assert_not_called()
 
 
