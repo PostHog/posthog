@@ -28,7 +28,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.crates_io.
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CratesIOSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cratesio import (
+    CratesIOSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

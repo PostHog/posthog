@@ -29,7 +29,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.decagon.se
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DecagonSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.decagon import (
+    DecagonSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

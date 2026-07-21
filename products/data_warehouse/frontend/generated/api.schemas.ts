@@ -58,6 +58,13 @@ export interface CheckDatabaseNameResponseApi {
     available: boolean
 }
 
+export interface CheckSchemaNameResponseApi {
+    /** The schema name that was checked */
+    name: string
+    /** Whether the schema name is free within the organization's warehouse */
+    available: boolean
+}
+
 export interface DeleteWarehouseOrgResponseApi {
     /** Deletion lifecycle message from the provisioner */
     status?: string
@@ -70,18 +77,6 @@ export interface DeprovisionWarehouseResponseApi {
     status: string
     /** duckgres org identifier (the PostHog organization id) */
     org: string
-}
-
-export interface EnableWarehouseBackfillRequestApi {
-    /** Name for this environment's warehouse tables (events_<name>, persons_<name>, …). Lowercase letters, numbers, and underscores only; used verbatim as the suffix and must be unique across the organization's environments. */
-    table_name: string
-}
-
-export interface EnableWarehouseBackfillResponseApi {
-    /** Whether warehouse backfill is now enabled */
-    enabled: boolean
-    /** Suffix used for this environment's tables (events_<suffix>, persons_<suffix>) */
-    table_suffix: string
 }
 
 /**
@@ -362,11 +357,23 @@ export interface ManagedWarehouseSourceSchemasResponseApi {
     schemas: ManagedWarehouseSourceTableStatusApi[]
 }
 
+export interface OnboardWarehouseTeamRequestApi {
+    /** Schema name for this project's data in the organization's warehouse. Lowercase letters, numbers, and underscores only, max 63 characters. Must be unique within the organization and cannot be changed later. */
+    schema_name: string
+}
+
+export interface OnboardWarehouseTeamResponseApi {
+    /** Whether this project is now onboarded onto the managed warehouse */
+    onboarded: boolean
+    /** Schema this project's data lands in */
+    schema_name: string
+}
+
 export interface ProvisionWarehouseRequestApi {
     /** Name for the new database */
     database_name: string
-    /** Name for the provisioning project's warehouse tables (events_<name>, persons_<name>, …). Lowercase letters, numbers, and underscores only; used verbatim as the suffix. Required so the first project gets its own per-environment tables. */
-    table_name: string
+    /** Schema name for the provisioning project's data in the warehouse. Lowercase letters, numbers, and underscores only, max 63 characters. Cannot be changed later. Required — the first project gets its own schema, and other projects pick theirs when they join. */
+    schema_name: string
 }
 
 export interface ProvisionWarehouseResponseApi {
@@ -456,6 +463,13 @@ export interface WarehouseStatusResponseApi {
      * @nullable
      */
     table_suffix: string | null
+    /** Whether this project is onboarded onto the managed warehouse. False when the warehouse exists but this project has not picked a schema yet — show the onboarding screen in that case. */
+    team_onboarded: boolean
+    /**
+     * Schema this project's data lands in. Null when the project is not onboarded.
+     * @nullable
+     */
+    schema_name: string | null
 }
 
 /**
@@ -3089,6 +3103,8 @@ export interface TableApi {
     deleted?: boolean | null
     /** @maxLength 128 */
     name: string
+    /** Dotted name the table is queried by in HogQL (e.g. `googleanalytics.devices` or `postgres.<prefix>.<table>`), as opposed to `name`, which is the underlying storage identifier. */
+    readonly hogql_name: string
     format: TableFormatEnumApi
     readonly created_by: UserBasicApi
     readonly created_at: string
@@ -3134,6 +3150,8 @@ export interface PatchedTableApi {
     deleted?: boolean | null
     /** @maxLength 128 */
     name?: string
+    /** Dotted name the table is queried by in HogQL (e.g. `googleanalytics.devices` or `postgres.<prefix>.<table>`), as opposed to `name`, which is the underlying storage identifier. */
+    readonly hogql_name?: string
     format?: TableFormatEnumApi
     readonly created_by?: UserBasicApi
     readonly created_at?: string
@@ -3225,6 +3243,14 @@ export type DataModelingJobsListParams = {
 export type DataWarehouseCheckDatabaseNameRetrieveParams = {
     /**
      * Database name to check
+     * @minLength 1
+     */
+    name: string
+}
+
+export type DataWarehouseCheckSchemaNameRetrieveParams = {
+    /**
+     * Schema name to check
      * @minLength 1
      */
     name: string

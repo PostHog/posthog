@@ -4942,6 +4942,9 @@ const api = {
                 media?: { mime_type: string; data: string }[]
             } | null
             error: string | null
+            // Direct (no-sandbox) runs only: the full capped row set for client-side paging,
+            // present while the backend's query result is alive (~20 min).
+            rows?: (string | number | null)[][]
         }> {
             return await new ApiRequest().notebook(notebookId).withAction(`sql_v2/runs/${runId}`).get()
         },
@@ -5668,8 +5671,14 @@ const api = {
     },
 
     dataWarehouseTables: {
-        async list(): Promise<PaginatedResponse<DataWarehouseTable>> {
-            return await new ApiRequest().dataWarehouseTables().get()
+        async list(params?: {
+            limit?: number
+            include_columns?: boolean
+        }): Promise<PaginatedResponse<DataWarehouseTable>> {
+            return await new ApiRequest()
+                .dataWarehouseTables()
+                .withQueryString(params ?? {})
+                .get()
         },
         async get(tableId: DataWarehouseTable['id']): Promise<DataWarehouseTable> {
             return await new ApiRequest().dataWarehouseTable(tableId).get()

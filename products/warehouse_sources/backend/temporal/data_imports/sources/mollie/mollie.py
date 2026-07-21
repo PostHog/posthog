@@ -1,27 +1,22 @@
 import dataclasses
-from collections.abc import Iterator
-from typing import Any
-from urllib.parse import urlencode
-
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from typing import Any, Optional
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    JSONResponsePaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.mollie.settings import MOLLIE_ENDPOINTS
 
 MOLLIE_BASE_URL = "https://api.mollie.com/v2"
 # Mollie list pages cap at 250 items.
 PAGE_SIZE = 250
-REQUEST_TIMEOUT_SECONDS = 60
-# Mollie's rate limits are not publicly documented — honor 429s with backoff.
-MAX_RETRY_ATTEMPTS = 5
-
-
-class MollieRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
@@ -31,92 +26,63 @@ class MollieResumeConfig:
     next_url: str
 
 
-def _get_session(api_key: str) -> requests.Session:
-    return make_tracked_session(headers={"Authorization": f"Bearer {api_key}"}, redact_values=(api_key,))
-
-
-def validate_credentials(api_key: str) -> bool:
-    """Confirm the API key is valid with a cheap one-payment listing probe.
-
-    Organization access tokens require a profileId on profile-scoped endpoints
-    (a 4xx that isn't 401), so only 401 means the credential itself is bad."""
-    try:
-        response = _get_session(api_key).get(
-            f"{MOLLIE_BASE_URL}/payments?{urlencode({'limit': 1})}",
-            timeout=10,
-        )
-        return response.status_code != 401
-    except requests.RequestException:
-        return False
-
-
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[MollieResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    config = MOLLIE_ENDPOINTS[endpoint]
-    session = _get_session(api_key)
-
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume_config is not None:
-        url: str = resume_config.next_url
-        logger.debug(f"Mollie: resuming {endpoint} from URL: {url}")
-    else:
-        url = f"{MOLLIE_BASE_URL}{config.path}?{urlencode({'limit': PAGE_SIZE})}"
-
-    @retry(
-        retry=retry_if_exception_type((MollieRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
-        wait=wait_exponential_jitter(initial=1, max=60),
-        reraise=True,
-    )
-    def fetch_page(page_url: str) -> dict[str, Any]:
-        response = session.get(page_url, timeout=REQUEST_TIMEOUT_SECONDS)
-
-        if response.status_code == 429 or response.status_code >= 500:
-            raise MollieRetryableError(f"Mollie API error (retryable): status={response.status_code}, url={page_url}")
-
-        if not response.ok:
-            logger.error(f"Mollie API error: status={response.status_code}, body={response.text}, url={page_url}")
-            response.raise_for_status()
-
-        return response.json()
-
-    while True:
-        data = fetch_page(url)
-        items = (data.get("_embedded") or {}).get(config.embedded_key, []) or []
-
-        if items:
-            yield items
-
-        next_url = ((data.get("_links") or {}).get("next") or {}).get("href")
-        if not next_url:
-            break
-
-        # Save state AFTER yielding the page so a crash re-yields the last page
-        # (merge dedupes on primary key) rather than skipping it.
-        resumable_source_manager.save_state(MollieResumeConfig(next_url=next_url))
-        url = next_url
-
-
 def mollie_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[MollieResumeConfig],
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = MOLLIE_ENDPOINTS[endpoint]
 
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": MOLLIE_BASE_URL,
+            # Bearer is supplied via the framework auth config so its value is redacted from logs
+            # and raised error messages.
+            "auth": {"type": "bearer", "token": api_key},
+            # Mollie paginates via the HAL `_links.next.href` URL, which is self-contained.
+            "paginator": JSONResponsePaginator(next_url_path="_links.next.href"),
+        },
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": {"limit": PAGE_SIZE},
+                    # Rows live under the HAL `_embedded.<key>` object. A missing block is a
+                    # legitimate empty page (yield nothing), not an error, so no data_selector_required.
+                    "data_selector": f"_embedded.{config.embedded_key}",
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"next_url": resume.next_url}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Save state AFTER yielding a page so a crash re-yields the last page (merge dedupes on
+        # primary key) rather than skipping it; persist only while a next page remains.
+        if state and state.get("next_url"):
+            resumable_source_manager.save_state(MollieResumeConfig(next_url=state["next_url"]))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-        ),
+        items=lambda: resource,
         primary_keys=[config.primary_key],
         partition_count=1,
         partition_size=1,
@@ -125,3 +91,16 @@ def mollie_source(
         partition_keys=[config.partition_key],
         sort_mode="asc",
     )
+
+
+def validate_credentials(api_key: str) -> bool:
+    """Confirm the API key is valid with a cheap one-payment listing probe.
+
+    Organization access tokens require a profileId on profile-scoped endpoints
+    (a 4xx that isn't 401), so only 401 means the credential itself is bad."""
+    _ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{MOLLIE_BASE_URL}/payments?limit=1",
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    return status is not None and status != 401
