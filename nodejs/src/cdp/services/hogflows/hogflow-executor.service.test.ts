@@ -675,32 +675,68 @@ describe('Hogflow Executor', () => {
             })
 
             describe('skip-forward for deleted steps (action_redirects)', () => {
-                const parkOnDeletedDelay = (hogFlow: HogFlow): ReturnType<typeof createExampleHogFlowInvocation> => {
+                const parkOnDeleted = (
+                    hogFlow: HogFlow,
+                    actionId = 'delay'
+                ): ReturnType<typeof createExampleHogFlowInvocation> => {
                     const invocation = createExampleHogFlowInvocation(hogFlow)
                     invocation.state.currentAction = {
-                        id: 'delay',
+                        id: actionId,
                         startedAtTimestamp: DateTime.now().minus({ hours: 3 }).toMillis(),
                     }
-                    hogFlow.actions = hogFlow.actions.filter((action) => action.id !== 'delay')
+                    hogFlow.actions = hogFlow.actions.filter((action) => action.id !== actionId)
                     hogFlow.updated_at = DateTime.now().toMillis()
                     return invocation
                 }
 
-                it('continues at the surviving successor instead of exiting', async () => {
-                    const hogFlow = buildFlow()
-                    const invocation = parkOnDeletedDelay(hogFlow)
-                    hogFlow.action_redirects = { delay: 'exit' }
+                // A run can be parked on any async step type. The redirect never inspects the
+                // deleted step - it was removed before the run executed it - so every park type
+                // must take the identical path: same metric, same log, same landing spot.
+                it.each([
+                    ['delay', { type: 'delay', config: { delay_duration: '2h' } }],
+                    [
+                        'wait_until_condition',
+                        {
+                            type: 'wait_until_condition',
+                            config: {
+                                condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
+                                max_wait_duration: '10m',
+                            },
+                        },
+                    ],
+                    [
+                        'wait_until_time_window',
+                        {
+                            type: 'wait_until_time_window',
+                            config: { time: ['10:00', '11:00'], day: 'any', timezone: 'UTC' },
+                        },
+                    ],
+                ] as const)(
+                    'continues at the surviving successor instead of exiting (parked on %s)',
+                    async (_parkType, parkedAction) => {
+                        const hogFlow = createHogFlow({
+                            actions: { parked: parkedAction as any },
+                            edges: [
+                                { from: 'trigger', to: 'parked', type: 'continue' },
+                                { from: 'parked', to: 'exit', type: 'continue' },
+                            ],
+                        })
+                        const invocation = parkOnDeleted(hogFlow, 'parked')
+                        hogFlow.action_redirects = { parked: 'exit' }
 
-                    const result = await executor.execute(invocation)
+                        const result = await executor.execute(invocation)
 
-                    expect(result.finished).toBe(true)
-                    expect(result.error).toBeUndefined()
-                    const redirectMetric = result.metrics.find((m) => m.metric_name === 'redirected_workflow_changed')
-                    expect(redirectMetric).toMatchObject({ metric_kind: 'other', instance_id: 'delay' })
-                    expect(result.metrics.map((m) => m.metric_name)).not.toContain('exited_workflow_changed')
-                    expect(result.metrics.map((m) => m.metric_name)).not.toContain('failed')
-                    expect(result.logs.map((l) => l.message).join('\n')).toContain('continuing at [Action:exit]')
-                })
+                        expect(result.finished).toBe(true)
+                        expect(result.error).toBeUndefined()
+                        const redirectMetric = result.metrics.find(
+                            (m) => m.metric_name === 'redirected_workflow_changed'
+                        )
+                        expect(redirectMetric).toMatchObject({ metric_kind: 'other', instance_id: 'parked' })
+                        expect(result.metrics.map((m) => m.metric_name)).not.toContain('exited_workflow_changed')
+                        expect(result.metrics.map((m) => m.metric_name)).not.toContain('failed')
+                        expect(result.logs.map((l) => l.message).join('\n')).toContain('continuing at [Action:exit]')
+                    }
+                )
 
                 it('enters the redirect target fresh, so a delay there parks from redirect time', async () => {
                     // The run spent 3h on the deleted step; the 2h delay it redirects into must still
@@ -713,7 +749,7 @@ describe('Hogflow Executor', () => {
                             { from: 'delay_2', to: 'exit', type: 'continue' },
                         ],
                     })
-                    const invocation = parkOnDeletedDelay(hogFlow)
+                    const invocation = parkOnDeleted(hogFlow)
                     hogFlow.action_redirects = { delay: 'delay_2' }
 
                     const result = await executor.execute(invocation)
@@ -793,7 +829,7 @@ describe('Hogflow Executor', () => {
                             { from: 'hop', to: 'exit', type: 'continue' },
                         ],
                     })
-                    const invocation = parkOnDeletedDelay(hogFlow)
+                    const invocation = parkOnDeleted(hogFlow)
                     hogFlow.edges = hogFlow.edges.filter((edge) => edge.from !== 'hop')
                     hogFlow.action_redirects = { delay: 'hop' }
 

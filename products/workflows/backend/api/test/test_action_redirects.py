@@ -6,6 +6,8 @@ from products.workflows.backend.api.action_redirects import MAX_ACTION_REDIRECTS
 
 
 def _actions(*ids: str) -> list[dict]:
+    # The type is arbitrary: compute_action_redirects only ever reads ids and edges. What kind of
+    # step was deleted can't matter - it was removed before the parked run executed it.
     return [{"id": action_id, "type": "function", "config": {}} for action_id in ids]
 
 
@@ -23,7 +25,11 @@ LINEAR_EDGES = [_edge("t", "a"), _edge("a", "b"), _edge("b", "c"), _edge("c", "x
 class TestComputeActionRedirects(TestCase):
     @parameterized.expand(
         [
-            # (name, old_ids, old_edges, new_ids, existing, expected)
+            # Each case: (name, old_ids, old_edges, new_ids, existing_map, expected_map).
+            # The sketch above each case draws the OLD graph with the steps this edit deletes
+            # in [brackets]; the expected map is where runs parked on a deleted step go.
+            #
+            # t -> a -> [b] -> c -> x
             (
                 "deleted_step_redirects_to_surviving_successor",
                 ["t", "a", "b", "c", "x"],
@@ -32,6 +38,7 @@ class TestComputeActionRedirects(TestCase):
                 None,
                 {"b": "c"},
             ),
+            # t -> [a] -> [b] -> [c] -> x        every deleted step walks to the first survivor
             (
                 "chain_of_steps_deleted_in_one_edit_walks_to_first_survivor",
                 ["t", "a", "b", "c", "x"],
@@ -40,6 +47,8 @@ class TestComputeActionRedirects(TestCase):
                 None,
                 {"a": "x", "b": "x", "c": "x"},
             ),
+            # t -> a -> [b]        b was the last step: nothing after it, so no entry
+            # (runs parked on b take the graceful exit)
             (
                 "dead_end_with_no_continue_edge_is_omitted",
                 ["t", "a", "b"],
@@ -48,6 +57,7 @@ class TestComputeActionRedirects(TestCase):
                 None,
                 None,
             ),
+            # t -> a -> [b] -> [x]        everything after b died too: no survivor, no entry
             (
                 "everything_downstream_also_deleted_is_omitted",
                 ["t", "a", "b", "x"],
@@ -56,6 +66,10 @@ class TestComputeActionRedirects(TestCase):
                 None,
                 None,
             ),
+            # t -> [cond] -branch-> targeted
+            #         \---continue-> fallthrough
+            # the walk takes cond's continue fall-through, never a branch edge: the config
+            # that decided who qualifies for `targeted` died with the node
             (
                 "deleted_branch_node_follows_continue_fallthrough_not_branch_edges",
                 ["t", "cond", "targeted", "fallthrough"],
@@ -68,6 +82,8 @@ class TestComputeActionRedirects(TestCase):
                 None,
                 {"cond": "fallthrough"},
             ),
+            # t -> [a] <-> [b]        a and b point at each other: the walk detects the loop
+            # of deleted nodes, finds no survivor, and omits both
             (
                 "cycle_of_deleted_nodes_terminates_and_is_omitted",
                 ["t", "a", "b"],
@@ -76,6 +92,9 @@ class TestComputeActionRedirects(TestCase):
                 None,
                 None,
             ),
+            # t -> [b] -> c -> x        with prior map {a: b} from an earlier edit:
+            # b resolves to c, and the stale a->b entry is rewritten to a->c so a run
+            # parked two edits back still resolves in one lookup
             (
                 "existing_entry_with_deleted_target_is_rewritten_through_this_edit",
                 ["t", "b", "c", "x"],
@@ -84,6 +103,8 @@ class TestComputeActionRedirects(TestCase):
                 {"a": "b"},
                 {"a": "c", "b": "c"},
             ),
+            # t -> a -> x        with prior map {b: x}, and this edit re-adds a step named b:
+            # runs parked on b can execute it normally again, so the entry is pruned
             (
                 "existing_entry_whose_key_was_readded_is_pruned",
                 ["t", "a", "x"],
@@ -92,6 +113,8 @@ class TestComputeActionRedirects(TestCase):
                 {"b": "x"},
                 None,
             ),
+            # t -> [b]        with prior map {a: b}: b dies as a dead end, so the a->b entry
+            # has nowhere to be rewritten and is dropped (those runs exit gracefully)
             (
                 "existing_entry_whose_target_died_with_no_survivor_is_dropped",
                 ["t", "b"],
@@ -100,6 +123,8 @@ class TestComputeActionRedirects(TestCase):
                 {"a": "b"},
                 None,
             ),
+            # t -> b -> x        nothing deleted: the prior {a: b} entry still points at a
+            # live step and is kept as-is
             (
                 "no_deletions_preserves_existing_entries_with_live_targets",
                 ["t", "b", "x"],
