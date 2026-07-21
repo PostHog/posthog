@@ -803,6 +803,7 @@ export const tasksRunCreateBodyOneBranchMax = 255
 
 export const tasksRunCreateBodyOnePendingUserArtifactIdsItemMax = 128
 
+export const tasksRunCreateBodyOneComputerUseDefault = false
 export const tasksRunCreateBodyTwoImportedMcpServersItemNameMax = 64
 
 export const tasksRunCreateBodyTwoImportedMcpServersItemUrlMax = 2048
@@ -818,6 +819,7 @@ export const tasksRunCreateBodyTwoBranchMax = 255
 
 export const tasksRunCreateBodyTwoPendingUserArtifactIdsItemMax = 128
 
+export const tasksRunCreateBodyTwoComputerUseDefault = false
 export const tasksRunCreateBodyThreeModeDefault = `background`
 export const tasksRunCreateBodyThreeBranchMax = 255
 
@@ -957,6 +959,10 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 .describe(
                     'Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.'
                 ),
+            computer_use: zod
+                .boolean()
+                .default(tasksRunCreateBodyOneComputerUseDefault)
+                .describe('Whether this cloud run may control an isolated virtual Linux desktop in its sandbox.'),
         })
         .describe('Request body for creating a new task run'),
     zod
@@ -1094,6 +1100,10 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 .describe(
                     'Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.'
                 ),
+            computer_use: zod
+                .boolean()
+                .default(tasksRunCreateBodyTwoComputerUseDefault)
+                .describe('Whether this cloud run may control an isolated virtual Linux desktop in its sandbox.'),
         })
         .describe('Request body for creating a new task run'),
     zod.object({
@@ -1362,6 +1372,7 @@ export const tasksRunsCreateBodyEnvironmentDefault = `local`
 export const tasksRunsCreateBodyModeDefault = `background`
 export const tasksRunsCreateBodyBranchMax = 255
 
+export const tasksRunsCreateBodyComputerUseDefault = false
 export const tasksRunsCreateBodyHomeQuickActionMax = 120
 
 export const TasksRunsCreateBody = /* @__PURE__ */ zod
@@ -1489,6 +1500,10 @@ export const TasksRunsCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.'
             ),
+        computer_use: zod
+            .boolean()
+            .default(tasksRunsCreateBodyComputerUseDefault)
+            .describe('Whether this cloud run may control an isolated virtual Linux desktop in its sandbox.'),
         home_quick_action: zod
             .string()
             .max(tasksRunsCreateBodyHomeQuickActionMax)

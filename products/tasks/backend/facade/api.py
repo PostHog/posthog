@@ -3619,6 +3619,7 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
     pending_user_message = (validated_data.pop("pending_user_message", None) or "").strip() or None
     pending_user_artifact_ids = validated_data.pop("pending_user_artifact_ids", None) or []
     warm_auto_publish = validated_data.pop("auto_publish", None)
+    computer_use = validated_data.pop("computer_use", False)
 
     if user_id is not None:
         validated_data["created_by"] = User.objects.get(id=user_id)
@@ -3627,6 +3628,7 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
         warm_branch_provided
         and validated_data["origin_product"] == Task.OriginProduct.USER_CREATED
         and validated_data.get("repository")
+        and not computer_use
         and user_id is not None
     ):
         warm_run = _find_idling_warm_run(
@@ -4268,7 +4270,7 @@ def run_task(
     pending_user_message = validated_data.get("pending_user_message")
     pending_user_artifact_ids = validated_data.get("pending_user_artifact_ids") or []
 
-    if not resume_from_run_id:
+    if not resume_from_run_id and not validated_data.get("computer_use", False):
         warm_run = _idling_warm_run_for_task(task)
         if warm_run is not None and (branch or None) == (warm_run.branch or None):
             warm_state = warm_run.state or {}
@@ -4355,6 +4357,9 @@ def run_task(
     if rtk_enabled is not None:
         extra_state = extra_state or {}
         extra_state["rtk_enabled"] = rtk_enabled
+    if validated_data.get("computer_use") is True:
+        extra_state = extra_state or {}
+        extra_state["computer_use"] = True
 
     if resume_from_run_id:
         previous_run = task.runs.filter(id=resume_from_run_id).first()

@@ -113,6 +113,10 @@ class TaskProcessingContext:
         return (self.state or {}).get("auto_publish") is True
 
     @property
+    def computer_use(self) -> bool:
+        return (self.state or {}).get("computer_use") is True
+
+    @property
     def has_github_credentials(self) -> bool:
         return self.github_integration_id is not None or self.github_user_integration_id is not None
 
@@ -364,6 +368,14 @@ def _is_modal_vm_sandbox_enabled(
     custom_image_available: bool = False,
     state: dict | None = None,
 ) -> bool:
+    if (state or {}).get("computer_use") is True:
+        log_with_activity_context(
+            "modal_vm_sandbox_required_for_computer_use",
+            run_id=run_id,
+            use_modal_vm_sandbox=True,
+        )
+        return True
+
     if allowed_domains is not None:
         log_with_activity_context(
             "modal_vm_sandbox_skipped_restricted_egress",

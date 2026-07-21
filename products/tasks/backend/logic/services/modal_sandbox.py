@@ -83,6 +83,7 @@ from products.tasks.backend.logic.services.sandbox import (
     WORKING_DIR,
     SandboxBase,
     build_agent_runtime_env_prefix,
+    build_computer_use_env_prefix,
     redact_sandbox_command,
     wait_for_health_check,
 )
@@ -952,6 +953,7 @@ class ModalSandbox(SandboxBase):
         event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
         rtk_enabled: bool = True,
+        computer_use: bool = False,
     ) -> str:
         env_prefix = build_agent_runtime_env_prefix(
             interaction_origin=interaction_origin,
@@ -969,6 +971,7 @@ class ModalSandbox(SandboxBase):
         # Only append when opted in: agent-server builds without the option reject unknown
         # flags, so default runs (and resumes of old snapshots) must not see it.
         auto_publish_flag = " --autoPublish true" if auto_publish else ""
+        computer_use_flag = " --computerUse true" if computer_use else ""
         repo_flag = f" --repositoryPath {shlex.quote(repo_path)}" if repo_path else ""
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
         domains_flag = f" --allowedDomains {shlex.quote(','.join(allowed_domains))}" if allowed_domains else ""
@@ -980,9 +983,11 @@ class ModalSandbox(SandboxBase):
         unset_flags = "".join(f"-u {name} " for name in SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS)
         server_cmd = (
             f"env {unset_flags}BASH_ENV={shlex.quote(BASH_ENV_SCRIPT)} "
-            f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
+            f"{build_computer_use_env_prefix(computer_use)}{env_prefix}"
+            f"./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
-            f"{create_pr_flag}{auto_publish_flag}{branch_flag}{mcp_servers_arg}{relay_mcp_servers_arg}"
+            f"{create_pr_flag}{auto_publish_flag}{computer_use_flag}{branch_flag}{mcp_servers_arg}"
+            f"{relay_mcp_servers_arg}"
             f"{domains_flag}{repo_ready_flag}"
         )
 
@@ -1073,6 +1078,7 @@ class ModalSandbox(SandboxBase):
         repo_ready_file: str | None = None,
         wait_for_health: bool = True,
         rtk_enabled: bool = True,
+        computer_use: bool = False,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -1111,6 +1117,15 @@ class ModalSandbox(SandboxBase):
             logger.warning(f"Installed agent-server in sandbox {self.id} predates --autoPublish; starting review-first")
             auto_publish = False
 
+        if computer_use:
+            desktop_result = self.start_virtual_desktop(restricted_egress=allowed_domains is not None)
+            if desktop_result.exit_code != 0:
+                raise SandboxExecutionError(
+                    "Virtual desktop failed to start",
+                    {"sandbox_id": self.id, "stderr": desktop_result.stderr},
+                    cause=RuntimeError(desktop_result.stderr or "virtual desktop command returned non-zero exit"),
+                )
+
         command = self._build_agent_server_command(
             repo_path,
             task_id,
@@ -1133,6 +1148,7 @@ class ModalSandbox(SandboxBase):
             event_ingest_keep_stream_open=event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
             rtk_enabled=rtk_enabled,
+            computer_use=computer_use,
         )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")
