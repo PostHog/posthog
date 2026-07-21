@@ -21,11 +21,6 @@ on:
     push:
         branches:
             - master
-    # Required so `Playwright tests pass` (a required status check) reports on
-    # merge queue entries — without it the queue would wait for the check until
-    # timeout. The jobs themselves skip on merge_group (the suite already runs
-    # in full on every PR) and the aggregator treats skipped as success.
-    merge_group:
 
 permissions:
     contents: read
@@ -85,11 +80,10 @@ jobs:
         # Drafts skip E2E (see the trigger comment); the `Playwright tests pass`
         # aggregator treats skipped as success, and drafts can't merge anyway.
         if: |
-            github.event_name != 'merge_group' && (
             github.event_name == 'push' ||
             github.event_name == 'workflow_dispatch' ||
             (github.event.pull_request.head.repo.full_name == github.repository &&
-             github.event.pull_request.draft != true))
+             github.event.pull_request.draft != true)
         name: Determine need to run E2E checks
         outputs:
             # Debounce can veto a PR run whose SHA has already been superseded (see below).
@@ -313,7 +307,7 @@ jobs:
         needs: [changes]
         # Narrow the suite only on incremental `synchronize` pushes to a ready
         # (non-draft) internal PR. Every other trigger — opened, reopened,
-        # ready_for_review, workflow_dispatch, push to master, merge_group — skips
+        # ready_for_review, workflow_dispatch, and push to master — skips
         # this job, leaving empty outputs so the playwright job runs the FULL suite.
         # The merge gate (ready_for_review run) and the post-merge master run always
         # run everything, so a selection miss is caught there. Fail-open is FULL,

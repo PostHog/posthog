@@ -21,9 +21,8 @@ on:
         # start without needing a new push. Cheap checks still run on drafts.
         # The `test-new-events-schema` label opts a PR into the doubled matrices that
         # rerun everything with CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=true; unlabeled
-        # PRs run legacy-schema only (master/merge-queue runs always cover both).
+        # PRs run legacy-schema only (master runs always cover both).
         types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
-    merge_group:
 
 concurrency:
     # PRs: one active run per branch, cancel stale. Push: per-SHA so master
@@ -467,8 +466,8 @@ jobs:
     select-tests:
         name: Select tests
         needs: [changes, turbo-discover]
-        # Only draft PRs do selective runs; ready PRs and non-PR events (push,
-        # merge_group) always run full, which build_django_matrix falls back to
+        # Only draft PRs do selective runs; ready PRs and pushes always run full,
+        # which build_django_matrix falls back to
         # when select-tests is skipped (empty MODE). The run-ci-backend label
         # forces the full matrices on a draft.
         if: |

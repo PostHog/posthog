@@ -1,6 +1,808 @@
 /******/ (() => { // webpackBootstrap
 /******/ 	var __webpack_modules__ = ({
 
+/***/ 5868:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.ChangeStatus = void 0;
+var ChangeStatus;
+(function (ChangeStatus) {
+    ChangeStatus["Added"] = "added";
+    ChangeStatus["Copied"] = "copied";
+    ChangeStatus["Deleted"] = "deleted";
+    ChangeStatus["Modified"] = "modified";
+    ChangeStatus["Renamed"] = "renamed";
+    ChangeStatus["Unmerged"] = "unmerged";
+})(ChangeStatus || (exports.ChangeStatus = ChangeStatus = {}));
+
+
+/***/ }),
+
+/***/ 8504:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Filter = void 0;
+const jsyaml = __importStar(__nccwpck_require__(4281));
+const picomatch_1 = __importDefault(__nccwpck_require__(4006));
+// Minimatch options used in all matchers
+const MatchOptions = {
+    dot: true
+};
+// picomatch.scan tells a real negation ('!foo/**') from an extglob group ('!(a|b)'),
+// so we let the matching library own that rule rather than re-deriving it by hand.
+function isNegatedPattern(pattern) {
+    return picomatch_1.default.scan(pattern).negated;
+}
+function positivePattern(pattern) {
+    return isNegatedPattern(pattern) ? pattern.slice(1) : pattern;
+}
+class Filter {
+    // Creates instance of Filter and load rules from YAML if it's provided
+    constructor(yaml) {
+        this.rules = {};
+        if (yaml) {
+            this.load(yaml);
+        }
+    }
+    // Load rules from YAML string
+    load(yaml) {
+        if (!yaml) {
+            return;
+        }
+        const doc = jsyaml.load(yaml);
+        if (typeof doc !== 'object') {
+            this.throwInvalidFormatError('Root element is not an object');
+        }
+        for (const [key, item] of Object.entries(doc)) {
+            this.rules[key] = this.parseFilterItemYaml(item);
+        }
+    }
+    match(files) {
+        const result = {};
+        for (const [key, patterns] of Object.entries(this.rules)) {
+            const includes = patterns.filter(rule => !rule.negated);
+            const excludes = patterns.filter(rule => rule.negated);
+            result[key] = files.filter(file => this.isMatch(file, includes, excludes));
+        }
+        return result;
+    }
+    // Positive patterns are includes, OR-ed together; every '!' pattern is an exclude
+    // that vetoes a match. A file matches when it hits at least one include (or there
+    // are no includes) and hits no exclude.
+    isMatch(file, includes, excludes) {
+        const matches = (rule) => (rule.status === undefined || rule.status.includes(file.status)) && rule.isMatch(file.filename);
+        const included = includes.length === 0 || includes.some(matches);
+        return included && !excludes.some(matches);
+    }
+    parseFilterItemYaml(item) {
+        if (Array.isArray(item)) {
+            return item.map(i => this.parseFilterItemYaml(i)).flat();
+        }
+        if (typeof item === 'string') {
+            return [
+                { status: undefined, negated: isNegatedPattern(item), isMatch: (0, picomatch_1.default)(positivePattern(item), MatchOptions) }
+            ];
+        }
+        if (typeof item === 'object') {
+            return Object.entries(item).map(([key, pattern]) => {
+                if (typeof key !== 'string' || (typeof pattern !== 'string' && !Array.isArray(pattern))) {
+                    this.throwInvalidFormatError(`Expected [key:string]= pattern:string | string[], but [${key}:${typeof key}]= ${pattern}:${typeof pattern} found`);
+                }
+                // A '!' pattern only becomes an exclude when it's a top-level filter entry (the
+                // string branch above). Inside this array form it would silently fall through to
+                // picomatch's raw array-negation semantics instead — matching nearly every file
+                // rather than excluding one — so reject it instead of matching the wrong thing.
+                if (Array.isArray(pattern) && pattern.some(p => isNegatedPattern(p))) {
+                    this.throwInvalidFormatError(`'!' patterns are not supported inside a change-status array (key '${key}') — write them as separate top-level filter entries instead`);
+                }
+                const negated = typeof pattern === 'string' && isNegatedPattern(pattern);
+                return {
+                    status: key
+                        .split('|')
+                        .map(x => x.trim())
+                        .filter(x => x.length > 0)
+                        .map(x => x.toLowerCase()),
+                    negated,
+                    isMatch: (0, picomatch_1.default)(negated ? positivePattern(pattern) : pattern, MatchOptions)
+                };
+            });
+        }
+        this.throwInvalidFormatError(`Unexpected element type '${typeof item}'`);
+    }
+    throwInvalidFormatError(message) {
+        throw new Error(`Invalid filter YAML format: ${message}.`);
+    }
+}
+exports.Filter = Filter;
+
+
+/***/ }),
+
+/***/ 9412:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.HEAD = exports.NULL_SHA = void 0;
+exports.getChangesInLastCommit = getChangesInLastCommit;
+exports.getChanges = getChanges;
+exports.getChangesOnHead = getChangesOnHead;
+exports.getChangesSinceMergeBase = getChangesSinceMergeBase;
+exports.parseGitDiffOutput = parseGitDiffOutput;
+exports.listAllFilesAsAdded = listAllFilesAsAdded;
+exports.getCurrentRef = getCurrentRef;
+exports.getShortName = getShortName;
+exports.isGitSha = isGitSha;
+const exec_1 = __nccwpck_require__(5236);
+const core = __importStar(__nccwpck_require__(7484));
+const file_1 = __nccwpck_require__(5868);
+exports.NULL_SHA = '0000000000000000000000000000000000000000';
+exports.HEAD = 'HEAD';
+async function getChangesInLastCommit() {
+    core.startGroup(`Change detection in last commit`);
+    let output = '';
+    try {
+        output = (await (0, exec_1.getExecOutput)('git', ['log', '--format=', '--no-renames', '--name-status', '-z', '-n', '1'])).stdout;
+    }
+    finally {
+        fixStdOutNullTermination();
+        core.endGroup();
+    }
+    return parseGitDiffOutput(output);
+}
+async function getChanges(base, head) {
+    const baseRef = await ensureRefAvailable(base);
+    const headRef = await ensureRefAvailable(head);
+    // Get differences between ref and HEAD
+    core.startGroup(`Change detection ${base}..${head}`);
+    let output = '';
+    try {
+        // Two dots '..' change detection - directly compares two versions
+        output = (await (0, exec_1.getExecOutput)('git', ['diff', '--no-renames', '--name-status', '-z', `${baseRef}..${headRef}`]))
+            .stdout;
+    }
+    finally {
+        fixStdOutNullTermination();
+        core.endGroup();
+    }
+    return parseGitDiffOutput(output);
+}
+async function getChangesOnHead() {
+    // Get current changes - both staged and unstaged
+    core.startGroup(`Change detection on HEAD`);
+    let output = '';
+    try {
+        output = (await (0, exec_1.getExecOutput)('git', ['diff', '--no-renames', '--name-status', '-z', 'HEAD'])).stdout;
+    }
+    finally {
+        fixStdOutNullTermination();
+        core.endGroup();
+    }
+    return parseGitDiffOutput(output);
+}
+async function getChangesSinceMergeBase(base, head, initialFetchDepth) {
+    let baseRef;
+    let headRef;
+    async function hasMergeBase() {
+        if (baseRef === undefined || headRef === undefined) {
+            return false;
+        }
+        return (await (0, exec_1.getExecOutput)('git', ['merge-base', baseRef, headRef], { ignoreReturnCode: true })).exitCode === 0;
+    }
+    let noMergeBase = false;
+    core.startGroup(`Searching for merge-base ${base}...${head}`);
+    try {
+        baseRef = await getLocalRef(base);
+        headRef = await getLocalRef(head);
+        if (!(await hasMergeBase())) {
+            await (0, exec_1.getExecOutput)('git', ['fetch', '--no-tags', `--depth=${initialFetchDepth}`, 'origin', base, head]);
+            if (baseRef === undefined || headRef === undefined) {
+                baseRef = baseRef !== null && baseRef !== void 0 ? baseRef : (await getLocalRef(base));
+                headRef = headRef !== null && headRef !== void 0 ? headRef : (await getLocalRef(head));
+                if (baseRef === undefined || headRef === undefined) {
+                    await (0, exec_1.getExecOutput)('git', ['fetch', '--tags', '--depth=1', 'origin', base, head], {
+                        ignoreReturnCode: true // returns exit code 1 if tags on remote were updated - we can safely ignore it
+                    });
+                    baseRef = baseRef !== null && baseRef !== void 0 ? baseRef : (await getLocalRef(base));
+                    headRef = headRef !== null && headRef !== void 0 ? headRef : (await getLocalRef(head));
+                    if (baseRef === undefined) {
+                        throw new Error(`Could not determine what is ${base} - fetch works but it's not a branch, tag or commit SHA`);
+                    }
+                    if (headRef === undefined) {
+                        throw new Error(`Could not determine what is ${head} - fetch works but it's not a branch, tag or commit SHA`);
+                    }
+                }
+            }
+            let depth = initialFetchDepth;
+            let lastCommitCount = await getCommitCount();
+            while (!(await hasMergeBase())) {
+                depth = Math.min(depth * 2, Number.MAX_SAFE_INTEGER);
+                await (0, exec_1.getExecOutput)('git', ['fetch', `--deepen=${depth}`, 'origin', base, head]);
+                const commitCount = await getCommitCount();
+                if (commitCount === lastCommitCount) {
+                    core.info('No more commits were fetched');
+                    core.info('Last attempt will be to fetch full history');
+                    await (0, exec_1.getExecOutput)('git', ['fetch']);
+                    if (!(await hasMergeBase())) {
+                        noMergeBase = true;
+                    }
+                    break;
+                }
+                lastCommitCount = commitCount;
+            }
+        }
+    }
+    finally {
+        core.endGroup();
+    }
+    // Three dots '...' change detection - finds merge-base and compares against it
+    let diffArg = `${baseRef}...${headRef}`;
+    if (noMergeBase) {
+        core.warning('No merge base found - change detection will use direct <commit>..<commit> comparison');
+        diffArg = `${baseRef}..${headRef}`;
+    }
+    // Get changes introduced on ref compared to base
+    core.startGroup(`Change detection ${diffArg}`);
+    let output = '';
+    try {
+        output = (await (0, exec_1.getExecOutput)('git', ['diff', '--no-renames', '--name-status', '-z', diffArg])).stdout;
+    }
+    finally {
+        fixStdOutNullTermination();
+        core.endGroup();
+    }
+    return parseGitDiffOutput(output);
+}
+function parseGitDiffOutput(output) {
+    const tokens = output.split('\u0000').filter(s => s.length > 0);
+    const files = [];
+    for (let i = 0; i + 1 < tokens.length; i += 2) {
+        files.push({
+            status: statusMap[tokens[i]],
+            filename: tokens[i + 1]
+        });
+    }
+    return files;
+}
+async function listAllFilesAsAdded() {
+    core.startGroup('Listing all files tracked by git');
+    let output = '';
+    try {
+        output = (await (0, exec_1.getExecOutput)('git', ['ls-files', '-z'])).stdout;
+    }
+    finally {
+        fixStdOutNullTermination();
+        core.endGroup();
+    }
+    return output
+        .split('\u0000')
+        .filter(s => s.length > 0)
+        .map(path => ({
+        status: file_1.ChangeStatus.Added,
+        filename: path
+    }));
+}
+async function getCurrentRef() {
+    core.startGroup(`Get current git ref`);
+    try {
+        const branch = (await (0, exec_1.getExecOutput)('git', ['branch', '--show-current'])).stdout.trim();
+        if (branch) {
+            return branch;
+        }
+        const describe = await (0, exec_1.getExecOutput)('git', ['describe', '--tags', '--exact-match'], { ignoreReturnCode: true });
+        if (describe.exitCode === 0) {
+            return describe.stdout.trim();
+        }
+        return (await (0, exec_1.getExecOutput)('git', ['rev-parse', exports.HEAD])).stdout.trim();
+    }
+    finally {
+        core.endGroup();
+    }
+}
+function getShortName(ref) {
+    if (!ref)
+        return '';
+    const heads = 'refs/heads/';
+    const tags = 'refs/tags/';
+    if (ref.startsWith(heads))
+        return ref.slice(heads.length);
+    if (ref.startsWith(tags))
+        return ref.slice(tags.length);
+    return ref;
+}
+function isGitSha(ref) {
+    return /^[a-z0-9]{40}$/.test(ref);
+}
+async function hasCommit(ref) {
+    return (await (0, exec_1.getExecOutput)('git', ['cat-file', '-e', `${ref}^{commit}`], { ignoreReturnCode: true })).exitCode === 0;
+}
+async function getCommitCount() {
+    const output = (await (0, exec_1.getExecOutput)('git', ['rev-list', '--count', '--all'])).stdout;
+    const count = parseInt(output);
+    return isNaN(count) ? 0 : count;
+}
+async function getLocalRef(shortName) {
+    if (isGitSha(shortName)) {
+        return (await hasCommit(shortName)) ? shortName : undefined;
+    }
+    const output = (await (0, exec_1.getExecOutput)('git', ['show-ref', shortName], { ignoreReturnCode: true })).stdout;
+    const refs = output
+        .split(/\r?\n/g)
+        .map(l => l.match(/refs\/(?:(?:heads)|(?:tags)|(?:remotes\/origin))\/(.*)$/))
+        .filter(match => match !== null && match[1] === shortName)
+        .map(match => { var _a; return (_a = match === null || match === void 0 ? void 0 : match[0]) !== null && _a !== void 0 ? _a : ''; }); // match can't be null here but compiler doesn't understand that
+    if (refs.length === 0) {
+        return undefined;
+    }
+    const remoteRef = refs.find(ref => ref.startsWith('refs/remotes/origin/'));
+    if (remoteRef) {
+        return remoteRef;
+    }
+    return refs[0];
+}
+async function ensureRefAvailable(name) {
+    core.startGroup(`Ensuring ${name} is fetched from origin`);
+    try {
+        let ref = await getLocalRef(name);
+        if (ref === undefined) {
+            await (0, exec_1.getExecOutput)('git', ['fetch', '--depth=1', '--no-tags', 'origin', name]);
+            ref = await getLocalRef(name);
+            if (ref === undefined) {
+                await (0, exec_1.getExecOutput)('git', ['fetch', '--depth=1', '--tags', 'origin', name]);
+                ref = await getLocalRef(name);
+                if (ref === undefined) {
+                    throw new Error(`Could not determine what is ${name} - fetch works but it's not a branch, tag or commit SHA`);
+                }
+            }
+        }
+        return ref;
+    }
+    finally {
+        core.endGroup();
+    }
+}
+function fixStdOutNullTermination() {
+    // Previous command uses NULL as delimiters and output is printed to stdout.
+    // We have to make sure next thing written to stdout will start on new line.
+    // Otherwise things like ::set-output wouldn't work.
+    core.info('');
+}
+const statusMap = {
+    A: file_1.ChangeStatus.Added,
+    C: file_1.ChangeStatus.Copied,
+    D: file_1.ChangeStatus.Deleted,
+    M: file_1.ChangeStatus.Modified,
+    R: file_1.ChangeStatus.Renamed,
+    U: file_1.ChangeStatus.Unmerged
+};
+
+
+/***/ }),
+
+/***/ 9835:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.csvEscape = csvEscape;
+// Returns filename escaped for CSV
+// Wraps file name into "..." only when it contains some potentially unsafe character
+function csvEscape(value) {
+    if (value === '')
+        return value;
+    // Only safe characters
+    if (/^[a-zA-Z0-9._+:@%/-]+$/m.test(value)) {
+        return value;
+    }
+    // https://tools.ietf.org/html/rfc4180
+    // If double-quotes are used to enclose fields, then a double-quote
+    // appearing inside a field must be escaped by preceding it with
+    // another double quote
+    return `"${value.replace(/"/g, '""')}"`;
+}
+
+
+/***/ }),
+
+/***/ 9797:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.backslashEscape = backslashEscape;
+exports.shellEscape = shellEscape;
+// Backslash escape every character except small subset of definitely safe characters
+function backslashEscape(value) {
+    return value.replace(/([^a-zA-Z0-9,._+:@%/-])/gm, '\\$1');
+}
+// Returns filename escaped for usage as shell argument.
+// Applies "human readable" approach with as few escaping applied as possible
+function shellEscape(value) {
+    if (value === '')
+        return value;
+    // Only safe characters
+    if (/^[a-zA-Z0-9,._+:@%/-]+$/m.test(value)) {
+        return value;
+    }
+    if (value.includes("'")) {
+        // Only safe characters, single quotes and white-spaces
+        if (/^[a-zA-Z0-9,._+:@%/'\s-]+$/m.test(value)) {
+            return `"${value}"`;
+        }
+        // Split by single quote and apply escaping recursively
+        return value.split("'").map(shellEscape).join("\\'");
+    }
+    // Contains some unsafe characters but no single quote
+    return `'${value}'`;
+}
+
+
+/***/ }),
+
+/***/ 5915:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+const fs = __importStar(__nccwpck_require__(9896));
+const core = __importStar(__nccwpck_require__(7484));
+const github = __importStar(__nccwpck_require__(3228));
+const filter_1 = __nccwpck_require__(8504);
+const file_1 = __nccwpck_require__(5868);
+const git = __importStar(__nccwpck_require__(9412));
+const shell_escape_1 = __nccwpck_require__(9797);
+const csv_escape_1 = __nccwpck_require__(9835);
+async function run() {
+    try {
+        const workingDirectory = core.getInput('working-directory', { required: false });
+        if (workingDirectory) {
+            process.chdir(workingDirectory);
+        }
+        const token = core.getInput('token', { required: false });
+        const ref = core.getInput('ref', { required: false });
+        const base = core.getInput('base', { required: false });
+        const filtersInput = core.getInput('filters', { required: true });
+        const filtersYaml = isPathInput(filtersInput) ? getConfigFileContent(filtersInput) : filtersInput;
+        const listFiles = core.getInput('list-files', { required: false }).toLowerCase() || 'none';
+        const initialFetchDepth = parseInt(core.getInput('initial-fetch-depth', { required: false })) || 10;
+        if (!isExportFormat(listFiles)) {
+            core.setFailed(`Input parameter 'list-files' is set to invalid value '${listFiles}'`);
+            return;
+        }
+        const filter = new filter_1.Filter(filtersYaml);
+        const files = await getChangedFiles(token, base, ref, initialFetchDepth);
+        core.info(`Detected ${files.length} changed files`);
+        const results = filter.match(files);
+        exportResults(results, listFiles);
+    }
+    catch (error) {
+        core.setFailed(getErrorMessage(error));
+    }
+}
+function isPathInput(text) {
+    return !(text.includes('\n') || text.includes(':'));
+}
+function getConfigFileContent(configPath) {
+    if (!fs.existsSync(configPath)) {
+        throw new Error(`Configuration file '${configPath}' not found`);
+    }
+    if (!fs.lstatSync(configPath).isFile()) {
+        throw new Error(`'${configPath}' is not a file.`);
+    }
+    return fs.readFileSync(configPath, { encoding: 'utf8' });
+}
+async function getChangedFiles(token, base, ref, initialFetchDepth) {
+    var _a, _b;
+    // if base is 'HEAD' only local uncommitted changes will be detected
+    // This is the simplest case as we don't need to fetch more commits or evaluate current/before refs
+    if (base === git.HEAD) {
+        if (ref) {
+            core.warning(`'ref' input parameter is ignored when 'base' is set to HEAD`);
+        }
+        return await git.getChangesOnHead();
+    }
+    switch (github.context.eventName) {
+        // To keep backward compatibility, commits in GitHub pull request event
+        // take precedence over manual inputs.
+        case 'pull_request':
+        case 'pull_request_review':
+        case 'pull_request_review_comment':
+        case 'pull_request_target': {
+            if (ref) {
+                core.warning(`'ref' input parameter is ignored when 'base' is set to HEAD`);
+            }
+            if (base) {
+                core.warning(`'base' input parameter is ignored when action is triggered by pull request event`);
+            }
+            const pr = github.context.payload.pull_request;
+            if (token) {
+                return await getChangedFilesFromApi(token, pr);
+            }
+            if (github.context.eventName === 'pull_request_target') {
+                // pull_request_target is executed in context of base branch and GITHUB_SHA points to last commit in base branch
+                // Therefore it's not possible to look at changes in last commit
+                // At the same time we don't want to fetch any code from forked repository
+                throw new Error(`'token' input parameter is required if action is triggered by 'pull_request_target' event`);
+            }
+            core.info('Github token is not available - changes will be detected using git diff');
+            const baseSha = (_a = github.context.payload.pull_request) === null || _a === void 0 ? void 0 : _a.base.sha;
+            const defaultBranch = (_b = github.context.payload.repository) === null || _b === void 0 ? void 0 : _b.default_branch;
+            const currentRef = await git.getCurrentRef();
+            return await git.getChanges(base || baseSha || defaultBranch, currentRef);
+        }
+    }
+    return getChangedFilesFromGit(base, ref, initialFetchDepth);
+}
+async function getChangedFilesFromGit(base, head, initialFetchDepth) {
+    var _a;
+    const defaultBranch = (_a = github.context.payload.repository) === null || _a === void 0 ? void 0 : _a.default_branch;
+    const beforeSha = github.context.eventName === 'push' ? github.context.payload.before : null;
+    const currentRef = await git.getCurrentRef();
+    head = git.getShortName(head || github.context.ref || currentRef);
+    base = git.getShortName(base || defaultBranch);
+    if (!head) {
+        throw new Error("This action requires 'head' input to be configured, 'ref' to be set in the event payload or branch/tag checked out in current git repository");
+    }
+    if (!base) {
+        throw new Error("This action requires 'base' input to be configured or 'repository.default_branch' to be set in the event payload");
+    }
+    const isBaseSha = git.isGitSha(base);
+    const isBaseSameAsHead = base === head;
+    // If base is commit SHA we will do comparison against the referenced commit
+    // Or if base references same branch it was pushed to, we will do comparison against the previously pushed commit
+    if (isBaseSha || isBaseSameAsHead) {
+        const baseSha = isBaseSha ? base : beforeSha;
+        if (!baseSha) {
+            core.warning(`'before' field is missing in event payload - changes will be detected from last commit`);
+            if (head !== currentRef) {
+                core.warning(`Ref ${head} is not checked out - results might be incorrect!`);
+            }
+            return await git.getChangesInLastCommit();
+        }
+        // If there is no previously pushed commit,
+        // we will do comparison against the default branch or return all as added
+        if (baseSha === git.NULL_SHA) {
+            if (defaultBranch && base !== defaultBranch) {
+                core.info(`First push of a branch detected - changes will be detected against the default branch ${defaultBranch}`);
+                return await git.getChangesSinceMergeBase(defaultBranch, head, initialFetchDepth);
+            }
+            else {
+                core.info('Initial push detected - all files will be listed as added');
+                if (head !== currentRef) {
+                    core.warning(`Ref ${head} is not checked out - results might be incorrect!`);
+                }
+                return await git.listAllFilesAsAdded();
+            }
+        }
+        core.info(`Changes will be detected between ${baseSha} and ${head}`);
+        return await git.getChanges(baseSha, head);
+    }
+    core.info(`Changes will be detected between ${base} and ${head}`);
+    return await git.getChangesSinceMergeBase(base, head, initialFetchDepth);
+}
+// Uses github REST api to get list of files changed in PR
+async function getChangedFilesFromApi(token, pullRequest) {
+    core.startGroup(`Fetching list of changed files for PR#${pullRequest.number} from Github API`);
+    try {
+        const client = github.getOctokit(token);
+        const per_page = 100;
+        const files = [];
+        core.info(`Invoking listFiles(pull_number: ${pullRequest.number}, per_page: ${per_page})`);
+        for await (const response of client.paginate.iterator(client.rest.pulls.listFiles.endpoint.merge({
+            owner: github.context.repo.owner,
+            repo: github.context.repo.repo,
+            pull_number: pullRequest.number,
+            per_page
+        }))) {
+            if (response.status !== 200) {
+                throw new Error(`Fetching list of changed files from GitHub API failed with error code ${response.status}`);
+            }
+            core.info(`Received ${response.data.length} items`);
+            for (const row of response.data) {
+                core.info(`[${row.status}] ${row.filename}`);
+                // There's no obvious use-case for detection of renames
+                // Therefore we treat it as if rename detection in git diff was turned off.
+                // Rename is replaced by delete of original filename and add of new filename
+                if (row.status === file_1.ChangeStatus.Renamed) {
+                    files.push({
+                        filename: row.filename,
+                        status: file_1.ChangeStatus.Added
+                    });
+                    files.push({
+                        // 'previous_filename' for some unknown reason isn't in the type definition or documentation
+                        filename: row.previous_filename,
+                        status: file_1.ChangeStatus.Deleted
+                    });
+                }
+                else {
+                    // Github status and git status variants are same except for deleted files
+                    const status = row.status === 'removed' ? file_1.ChangeStatus.Deleted : row.status;
+                    files.push({
+                        filename: row.filename,
+                        status
+                    });
+                }
+            }
+        }
+        return files;
+    }
+    finally {
+        core.endGroup();
+    }
+}
+function exportResults(results, format) {
+    core.info('Results:');
+    const changes = [];
+    for (const [key, files] of Object.entries(results)) {
+        const value = files.length > 0;
+        core.startGroup(`Filter ${key} = ${value}`);
+        if (files.length > 0) {
+            changes.push(key);
+            core.info('Matching files:');
+            for (const file of files) {
+                core.info(`${file.filename} [${file.status}]`);
+            }
+        }
+        else {
+            core.info('Matching files: none');
+        }
+        core.setOutput(key, value);
+        core.setOutput(`${key}_count`, files.length);
+        if (format !== 'none') {
+            const filesValue = serializeExport(files, format);
+            core.setOutput(`${key}_files`, filesValue);
+        }
+        core.endGroup();
+    }
+    if (results['changes'] === undefined) {
+        const changesJson = JSON.stringify(changes);
+        core.info(`Changes output set to ${changesJson}`);
+        core.setOutput('changes', changesJson);
+    }
+    else {
+        core.info('Cannot set changes output variable - name already used by filter output');
+    }
+}
+function serializeExport(files, format) {
+    const fileNames = files.map(file => file.filename);
+    switch (format) {
+        case 'csv':
+            return fileNames.map(csv_escape_1.csvEscape).join(',');
+        case 'json':
+            return JSON.stringify(fileNames);
+        case 'escape':
+            return fileNames.map(shell_escape_1.backslashEscape).join(' ');
+        case 'shell':
+            return fileNames.map(shell_escape_1.shellEscape).join(' ');
+        default:
+            return '';
+    }
+}
+function isExportFormat(value) {
+    return ['none', 'csv', 'shell', 'json', 'escape'].includes(value);
+}
+function getErrorMessage(error) {
+    if (error instanceof Error)
+        return error.message;
+    return String(error);
+}
+run();
+
+
+/***/ }),
+
 /***/ 4914:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -42126,820 +42928,6 @@ function wrappy (fn, cb) {
 
 /***/ }),
 
-/***/ 3765:
-/***/ ((__unused_webpack_module, exports) => {
-
-"use strict";
-
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.ChangeStatus = void 0;
-var ChangeStatus;
-(function (ChangeStatus) {
-    ChangeStatus["Added"] = "added";
-    ChangeStatus["Copied"] = "copied";
-    ChangeStatus["Deleted"] = "deleted";
-    ChangeStatus["Modified"] = "modified";
-    ChangeStatus["Renamed"] = "renamed";
-    ChangeStatus["Unmerged"] = "unmerged";
-})(ChangeStatus || (exports.ChangeStatus = ChangeStatus = {}));
-
-
-/***/ }),
-
-/***/ 9037:
-/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
-
-"use strict";
-
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.Filter = void 0;
-const jsyaml = __importStar(__nccwpck_require__(4281));
-const picomatch_1 = __importDefault(__nccwpck_require__(4006));
-// Minimatch options used in all matchers
-const MatchOptions = {
-    dot: true
-};
-// picomatch.scan tells a real negation ('!foo/**') from an extglob group ('!(a|b)'),
-// so we let the matching library own that rule rather than re-deriving it by hand.
-function isNegatedPattern(pattern) {
-    return picomatch_1.default.scan(pattern).negated;
-}
-function positivePattern(pattern) {
-    return isNegatedPattern(pattern) ? pattern.slice(1) : pattern;
-}
-class Filter {
-    // Creates instance of Filter and load rules from YAML if it's provided
-    constructor(yaml) {
-        this.rules = {};
-        if (yaml) {
-            this.load(yaml);
-        }
-    }
-    // Load rules from YAML string
-    load(yaml) {
-        if (!yaml) {
-            return;
-        }
-        const doc = jsyaml.load(yaml);
-        if (typeof doc !== 'object') {
-            this.throwInvalidFormatError('Root element is not an object');
-        }
-        for (const [key, item] of Object.entries(doc)) {
-            this.rules[key] = this.parseFilterItemYaml(item);
-        }
-    }
-    match(files) {
-        const result = {};
-        for (const [key, patterns] of Object.entries(this.rules)) {
-            const includes = patterns.filter(rule => !rule.negated);
-            const excludes = patterns.filter(rule => rule.negated);
-            result[key] = files.filter(file => this.isMatch(file, includes, excludes));
-        }
-        return result;
-    }
-    // Positive patterns are includes, OR-ed together; every '!' pattern is an exclude
-    // that vetoes a match. A file matches when it hits at least one include (or there
-    // are no includes) and hits no exclude.
-    isMatch(file, includes, excludes) {
-        const matches = (rule) => (rule.status === undefined || rule.status.includes(file.status)) && rule.isMatch(file.filename);
-        const included = includes.length === 0 || includes.some(matches);
-        return included && !excludes.some(matches);
-    }
-    parseFilterItemYaml(item) {
-        if (Array.isArray(item)) {
-            return item.map(i => this.parseFilterItemYaml(i)).flat();
-        }
-        if (typeof item === 'string') {
-            return [
-                { status: undefined, negated: isNegatedPattern(item), isMatch: (0, picomatch_1.default)(positivePattern(item), MatchOptions) }
-            ];
-        }
-        if (typeof item === 'object') {
-            return Object.entries(item).map(([key, pattern]) => {
-                if (typeof key !== 'string' || (typeof pattern !== 'string' && !Array.isArray(pattern))) {
-                    this.throwInvalidFormatError(`Expected [key:string]= pattern:string | string[], but [${key}:${typeof key}]= ${pattern}:${typeof pattern} found`);
-                }
-                // A '!' pattern only becomes an exclude when it's a top-level filter entry (the
-                // string branch above). Inside this array form it would silently fall through to
-                // picomatch's raw array-negation semantics instead — matching nearly every file
-                // rather than excluding one — so reject it instead of matching the wrong thing.
-                if (Array.isArray(pattern) && pattern.some(p => isNegatedPattern(p))) {
-                    this.throwInvalidFormatError(`'!' patterns are not supported inside a change-status array (key '${key}') — write them as separate top-level filter entries instead`);
-                }
-                const negated = typeof pattern === 'string' && isNegatedPattern(pattern);
-                return {
-                    status: key
-                        .split('|')
-                        .map(x => x.trim())
-                        .filter(x => x.length > 0)
-                        .map(x => x.toLowerCase()),
-                    negated,
-                    isMatch: (0, picomatch_1.default)(negated ? positivePattern(pattern) : pattern, MatchOptions)
-                };
-            });
-        }
-        this.throwInvalidFormatError(`Unexpected element type '${typeof item}'`);
-    }
-    throwInvalidFormatError(message) {
-        throw new Error(`Invalid filter YAML format: ${message}.`);
-    }
-}
-exports.Filter = Filter;
-
-
-/***/ }),
-
-/***/ 1243:
-/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
-
-"use strict";
-
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.HEAD = exports.NULL_SHA = void 0;
-exports.getChangesInLastCommit = getChangesInLastCommit;
-exports.getChanges = getChanges;
-exports.getChangesOnHead = getChangesOnHead;
-exports.getChangesSinceMergeBase = getChangesSinceMergeBase;
-exports.parseGitDiffOutput = parseGitDiffOutput;
-exports.listAllFilesAsAdded = listAllFilesAsAdded;
-exports.getCurrentRef = getCurrentRef;
-exports.getShortName = getShortName;
-exports.isGitSha = isGitSha;
-const exec_1 = __nccwpck_require__(5236);
-const core = __importStar(__nccwpck_require__(7484));
-const file_1 = __nccwpck_require__(3765);
-exports.NULL_SHA = '0000000000000000000000000000000000000000';
-exports.HEAD = 'HEAD';
-async function getChangesInLastCommit() {
-    core.startGroup(`Change detection in last commit`);
-    let output = '';
-    try {
-        output = (await (0, exec_1.getExecOutput)('git', ['log', '--format=', '--no-renames', '--name-status', '-z', '-n', '1'])).stdout;
-    }
-    finally {
-        fixStdOutNullTermination();
-        core.endGroup();
-    }
-    return parseGitDiffOutput(output);
-}
-async function getChanges(base, head) {
-    const baseRef = await ensureRefAvailable(base);
-    const headRef = await ensureRefAvailable(head);
-    // Get differences between ref and HEAD
-    core.startGroup(`Change detection ${base}..${head}`);
-    let output = '';
-    try {
-        // Two dots '..' change detection - directly compares two versions
-        output = (await (0, exec_1.getExecOutput)('git', ['diff', '--no-renames', '--name-status', '-z', `${baseRef}..${headRef}`]))
-            .stdout;
-    }
-    finally {
-        fixStdOutNullTermination();
-        core.endGroup();
-    }
-    return parseGitDiffOutput(output);
-}
-async function getChangesOnHead() {
-    // Get current changes - both staged and unstaged
-    core.startGroup(`Change detection on HEAD`);
-    let output = '';
-    try {
-        output = (await (0, exec_1.getExecOutput)('git', ['diff', '--no-renames', '--name-status', '-z', 'HEAD'])).stdout;
-    }
-    finally {
-        fixStdOutNullTermination();
-        core.endGroup();
-    }
-    return parseGitDiffOutput(output);
-}
-async function getChangesSinceMergeBase(base, head, initialFetchDepth) {
-    let baseRef;
-    let headRef;
-    async function hasMergeBase() {
-        if (baseRef === undefined || headRef === undefined) {
-            return false;
-        }
-        return (await (0, exec_1.getExecOutput)('git', ['merge-base', baseRef, headRef], { ignoreReturnCode: true })).exitCode === 0;
-    }
-    let noMergeBase = false;
-    core.startGroup(`Searching for merge-base ${base}...${head}`);
-    try {
-        baseRef = await getLocalRef(base);
-        headRef = await getLocalRef(head);
-        if (!(await hasMergeBase())) {
-            await (0, exec_1.getExecOutput)('git', ['fetch', '--no-tags', `--depth=${initialFetchDepth}`, 'origin', base, head]);
-            if (baseRef === undefined || headRef === undefined) {
-                baseRef = baseRef !== null && baseRef !== void 0 ? baseRef : (await getLocalRef(base));
-                headRef = headRef !== null && headRef !== void 0 ? headRef : (await getLocalRef(head));
-                if (baseRef === undefined || headRef === undefined) {
-                    await (0, exec_1.getExecOutput)('git', ['fetch', '--tags', '--depth=1', 'origin', base, head], {
-                        ignoreReturnCode: true // returns exit code 1 if tags on remote were updated - we can safely ignore it
-                    });
-                    baseRef = baseRef !== null && baseRef !== void 0 ? baseRef : (await getLocalRef(base));
-                    headRef = headRef !== null && headRef !== void 0 ? headRef : (await getLocalRef(head));
-                    if (baseRef === undefined) {
-                        throw new Error(`Could not determine what is ${base} - fetch works but it's not a branch, tag or commit SHA`);
-                    }
-                    if (headRef === undefined) {
-                        throw new Error(`Could not determine what is ${head} - fetch works but it's not a branch, tag or commit SHA`);
-                    }
-                }
-            }
-            let depth = initialFetchDepth;
-            let lastCommitCount = await getCommitCount();
-            while (!(await hasMergeBase())) {
-                depth = Math.min(depth * 2, Number.MAX_SAFE_INTEGER);
-                await (0, exec_1.getExecOutput)('git', ['fetch', `--deepen=${depth}`, 'origin', base, head]);
-                const commitCount = await getCommitCount();
-                if (commitCount === lastCommitCount) {
-                    core.info('No more commits were fetched');
-                    core.info('Last attempt will be to fetch full history');
-                    await (0, exec_1.getExecOutput)('git', ['fetch']);
-                    if (!(await hasMergeBase())) {
-                        noMergeBase = true;
-                    }
-                    break;
-                }
-                lastCommitCount = commitCount;
-            }
-        }
-    }
-    finally {
-        core.endGroup();
-    }
-    // Three dots '...' change detection - finds merge-base and compares against it
-    let diffArg = `${baseRef}...${headRef}`;
-    if (noMergeBase) {
-        core.warning('No merge base found - change detection will use direct <commit>..<commit> comparison');
-        diffArg = `${baseRef}..${headRef}`;
-    }
-    // Get changes introduced on ref compared to base
-    core.startGroup(`Change detection ${diffArg}`);
-    let output = '';
-    try {
-        output = (await (0, exec_1.getExecOutput)('git', ['diff', '--no-renames', '--name-status', '-z', diffArg])).stdout;
-    }
-    finally {
-        fixStdOutNullTermination();
-        core.endGroup();
-    }
-    return parseGitDiffOutput(output);
-}
-function parseGitDiffOutput(output) {
-    const tokens = output.split('\u0000').filter(s => s.length > 0);
-    const files = [];
-    for (let i = 0; i + 1 < tokens.length; i += 2) {
-        files.push({
-            status: statusMap[tokens[i]],
-            filename: tokens[i + 1]
-        });
-    }
-    return files;
-}
-async function listAllFilesAsAdded() {
-    core.startGroup('Listing all files tracked by git');
-    let output = '';
-    try {
-        output = (await (0, exec_1.getExecOutput)('git', ['ls-files', '-z'])).stdout;
-    }
-    finally {
-        fixStdOutNullTermination();
-        core.endGroup();
-    }
-    return output
-        .split('\u0000')
-        .filter(s => s.length > 0)
-        .map(path => ({
-        status: file_1.ChangeStatus.Added,
-        filename: path
-    }));
-}
-async function getCurrentRef() {
-    core.startGroup(`Get current git ref`);
-    try {
-        const branch = (await (0, exec_1.getExecOutput)('git', ['branch', '--show-current'])).stdout.trim();
-        if (branch) {
-            return branch;
-        }
-        const describe = await (0, exec_1.getExecOutput)('git', ['describe', '--tags', '--exact-match'], { ignoreReturnCode: true });
-        if (describe.exitCode === 0) {
-            return describe.stdout.trim();
-        }
-        return (await (0, exec_1.getExecOutput)('git', ['rev-parse', exports.HEAD])).stdout.trim();
-    }
-    finally {
-        core.endGroup();
-    }
-}
-function getShortName(ref) {
-    if (!ref)
-        return '';
-    const heads = 'refs/heads/';
-    const tags = 'refs/tags/';
-    if (ref.startsWith(heads))
-        return ref.slice(heads.length);
-    if (ref.startsWith(tags))
-        return ref.slice(tags.length);
-    return ref;
-}
-function isGitSha(ref) {
-    return /^[a-z0-9]{40}$/.test(ref);
-}
-async function hasCommit(ref) {
-    return (await (0, exec_1.getExecOutput)('git', ['cat-file', '-e', `${ref}^{commit}`], { ignoreReturnCode: true })).exitCode === 0;
-}
-async function getCommitCount() {
-    const output = (await (0, exec_1.getExecOutput)('git', ['rev-list', '--count', '--all'])).stdout;
-    const count = parseInt(output);
-    return isNaN(count) ? 0 : count;
-}
-async function getLocalRef(shortName) {
-    if (isGitSha(shortName)) {
-        return (await hasCommit(shortName)) ? shortName : undefined;
-    }
-    const output = (await (0, exec_1.getExecOutput)('git', ['show-ref', shortName], { ignoreReturnCode: true })).stdout;
-    const refs = output
-        .split(/\r?\n/g)
-        .map(l => l.match(/refs\/(?:(?:heads)|(?:tags)|(?:remotes\/origin))\/(.*)$/))
-        .filter(match => match !== null && match[1] === shortName)
-        .map(match => { var _a; return (_a = match === null || match === void 0 ? void 0 : match[0]) !== null && _a !== void 0 ? _a : ''; }); // match can't be null here but compiler doesn't understand that
-    if (refs.length === 0) {
-        return undefined;
-    }
-    const remoteRef = refs.find(ref => ref.startsWith('refs/remotes/origin/'));
-    if (remoteRef) {
-        return remoteRef;
-    }
-    return refs[0];
-}
-async function ensureRefAvailable(name) {
-    core.startGroup(`Ensuring ${name} is fetched from origin`);
-    try {
-        let ref = await getLocalRef(name);
-        if (ref === undefined) {
-            await (0, exec_1.getExecOutput)('git', ['fetch', '--depth=1', '--no-tags', 'origin', name]);
-            ref = await getLocalRef(name);
-            if (ref === undefined) {
-                await (0, exec_1.getExecOutput)('git', ['fetch', '--depth=1', '--tags', 'origin', name]);
-                ref = await getLocalRef(name);
-                if (ref === undefined) {
-                    throw new Error(`Could not determine what is ${name} - fetch works but it's not a branch, tag or commit SHA`);
-                }
-            }
-        }
-        return ref;
-    }
-    finally {
-        core.endGroup();
-    }
-}
-function fixStdOutNullTermination() {
-    // Previous command uses NULL as delimiters and output is printed to stdout.
-    // We have to make sure next thing written to stdout will start on new line.
-    // Otherwise things like ::set-output wouldn't work.
-    core.info('');
-}
-const statusMap = {
-    A: file_1.ChangeStatus.Added,
-    C: file_1.ChangeStatus.Copied,
-    D: file_1.ChangeStatus.Deleted,
-    M: file_1.ChangeStatus.Modified,
-    R: file_1.ChangeStatus.Renamed,
-    U: file_1.ChangeStatus.Unmerged
-};
-
-
-/***/ }),
-
-/***/ 6146:
-/***/ ((__unused_webpack_module, exports) => {
-
-"use strict";
-
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.csvEscape = csvEscape;
-// Returns filename escaped for CSV
-// Wraps file name into "..." only when it contains some potentially unsafe character
-function csvEscape(value) {
-    if (value === '')
-        return value;
-    // Only safe characters
-    if (/^[a-zA-Z0-9._+:@%/-]+$/m.test(value)) {
-        return value;
-    }
-    // https://tools.ietf.org/html/rfc4180
-    // If double-quotes are used to enclose fields, then a double-quote
-    // appearing inside a field must be escaped by preceding it with
-    // another double quote
-    return `"${value.replace(/"/g, '""')}"`;
-}
-
-
-/***/ }),
-
-/***/ 6880:
-/***/ ((__unused_webpack_module, exports) => {
-
-"use strict";
-
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.backslashEscape = backslashEscape;
-exports.shellEscape = shellEscape;
-// Backslash escape every character except small subset of definitely safe characters
-function backslashEscape(value) {
-    return value.replace(/([^a-zA-Z0-9,._+:@%/-])/gm, '\\$1');
-}
-// Returns filename escaped for usage as shell argument.
-// Applies "human readable" approach with as few escaping applied as possible
-function shellEscape(value) {
-    if (value === '')
-        return value;
-    // Only safe characters
-    if (/^[a-zA-Z0-9,._+:@%/-]+$/m.test(value)) {
-        return value;
-    }
-    if (value.includes("'")) {
-        // Only safe characters, single quotes and white-spaces
-        if (/^[a-zA-Z0-9,._+:@%/'\s-]+$/m.test(value)) {
-            return `"${value}"`;
-        }
-        // Split by single quote and apply escaping recursively
-        return value.split("'").map(shellEscape).join("\\'");
-    }
-    // Contains some unsafe characters but no single quote
-    return `'${value}'`;
-}
-
-
-/***/ }),
-
-/***/ 1730:
-/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
-
-"use strict";
-
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-const fs = __importStar(__nccwpck_require__(9896));
-const core = __importStar(__nccwpck_require__(7484));
-const github = __importStar(__nccwpck_require__(3228));
-const filter_1 = __nccwpck_require__(9037);
-const file_1 = __nccwpck_require__(3765);
-const git = __importStar(__nccwpck_require__(1243));
-const shell_escape_1 = __nccwpck_require__(6880);
-const csv_escape_1 = __nccwpck_require__(6146);
-async function run() {
-    try {
-        const workingDirectory = core.getInput('working-directory', { required: false });
-        if (workingDirectory) {
-            process.chdir(workingDirectory);
-        }
-        const token = core.getInput('token', { required: false });
-        const ref = core.getInput('ref', { required: false });
-        const base = core.getInput('base', { required: false });
-        const filtersInput = core.getInput('filters', { required: true });
-        const filtersYaml = isPathInput(filtersInput) ? getConfigFileContent(filtersInput) : filtersInput;
-        const listFiles = core.getInput('list-files', { required: false }).toLowerCase() || 'none';
-        const initialFetchDepth = parseInt(core.getInput('initial-fetch-depth', { required: false })) || 10;
-        if (!isExportFormat(listFiles)) {
-            core.setFailed(`Input parameter 'list-files' is set to invalid value '${listFiles}'`);
-            return;
-        }
-        const filter = new filter_1.Filter(filtersYaml);
-        const files = await getChangedFiles(token, base, ref, initialFetchDepth);
-        core.info(`Detected ${files.length} changed files`);
-        const results = filter.match(files);
-        exportResults(results, listFiles);
-    }
-    catch (error) {
-        core.setFailed(getErrorMessage(error));
-    }
-}
-function isPathInput(text) {
-    return !(text.includes('\n') || text.includes(':'));
-}
-function getConfigFileContent(configPath) {
-    if (!fs.existsSync(configPath)) {
-        throw new Error(`Configuration file '${configPath}' not found`);
-    }
-    if (!fs.lstatSync(configPath).isFile()) {
-        throw new Error(`'${configPath}' is not a file.`);
-    }
-    return fs.readFileSync(configPath, { encoding: 'utf8' });
-}
-async function getChangedFiles(token, base, ref, initialFetchDepth) {
-    var _a, _b;
-    // if base is 'HEAD' only local uncommitted changes will be detected
-    // This is the simplest case as we don't need to fetch more commits or evaluate current/before refs
-    if (base === git.HEAD) {
-        if (ref) {
-            core.warning(`'ref' input parameter is ignored when 'base' is set to HEAD`);
-        }
-        return await git.getChangesOnHead();
-    }
-    switch (github.context.eventName) {
-        // To keep backward compatibility, commits in GitHub pull request event
-        // take precedence over manual inputs.
-        case 'pull_request':
-        case 'pull_request_review':
-        case 'pull_request_review_comment':
-        case 'pull_request_target': {
-            if (ref) {
-                core.warning(`'ref' input parameter is ignored when 'base' is set to HEAD`);
-            }
-            if (base) {
-                core.warning(`'base' input parameter is ignored when action is triggered by pull request event`);
-            }
-            const pr = github.context.payload.pull_request;
-            if (token) {
-                return await getChangedFilesFromApi(token, pr);
-            }
-            if (github.context.eventName === 'pull_request_target') {
-                // pull_request_target is executed in context of base branch and GITHUB_SHA points to last commit in base branch
-                // Therefore it's not possible to look at changes in last commit
-                // At the same time we don't want to fetch any code from forked repository
-                throw new Error(`'token' input parameter is required if action is triggered by 'pull_request_target' event`);
-            }
-            core.info('Github token is not available - changes will be detected using git diff');
-            const baseSha = (_a = github.context.payload.pull_request) === null || _a === void 0 ? void 0 : _a.base.sha;
-            const defaultBranch = (_b = github.context.payload.repository) === null || _b === void 0 ? void 0 : _b.default_branch;
-            const currentRef = await git.getCurrentRef();
-            return await git.getChanges(base || baseSha || defaultBranch, currentRef);
-        }
-        // To keep backward compatibility, manual inputs take precedence over
-        // commits in GitHub merge queue event.
-        case 'merge_group': {
-            const mergeGroup = github.context.payload;
-            if (!base) {
-                base = mergeGroup.merge_group.base_sha;
-            }
-            if (!ref) {
-                ref = mergeGroup.merge_group.head_sha;
-            }
-            break;
-        }
-    }
-    return getChangedFilesFromGit(base, ref, initialFetchDepth);
-}
-async function getChangedFilesFromGit(base, head, initialFetchDepth) {
-    var _a;
-    const defaultBranch = (_a = github.context.payload.repository) === null || _a === void 0 ? void 0 : _a.default_branch;
-    const beforeSha = github.context.eventName === 'push' ? github.context.payload.before : null;
-    const currentRef = await git.getCurrentRef();
-    head = git.getShortName(head || github.context.ref || currentRef);
-    base = git.getShortName(base || defaultBranch);
-    if (!head) {
-        throw new Error("This action requires 'head' input to be configured, 'ref' to be set in the event payload or branch/tag checked out in current git repository");
-    }
-    if (!base) {
-        throw new Error("This action requires 'base' input to be configured or 'repository.default_branch' to be set in the event payload");
-    }
-    const isBaseSha = git.isGitSha(base);
-    const isBaseSameAsHead = base === head;
-    // If base is commit SHA we will do comparison against the referenced commit
-    // Or if base references same branch it was pushed to, we will do comparison against the previously pushed commit
-    if (isBaseSha || isBaseSameAsHead) {
-        const baseSha = isBaseSha ? base : beforeSha;
-        if (!baseSha) {
-            core.warning(`'before' field is missing in event payload - changes will be detected from last commit`);
-            if (head !== currentRef) {
-                core.warning(`Ref ${head} is not checked out - results might be incorrect!`);
-            }
-            return await git.getChangesInLastCommit();
-        }
-        // If there is no previously pushed commit,
-        // we will do comparison against the default branch or return all as added
-        if (baseSha === git.NULL_SHA) {
-            if (defaultBranch && base !== defaultBranch) {
-                core.info(`First push of a branch detected - changes will be detected against the default branch ${defaultBranch}`);
-                return await git.getChangesSinceMergeBase(defaultBranch, head, initialFetchDepth);
-            }
-            else {
-                core.info('Initial push detected - all files will be listed as added');
-                if (head !== currentRef) {
-                    core.warning(`Ref ${head} is not checked out - results might be incorrect!`);
-                }
-                return await git.listAllFilesAsAdded();
-            }
-        }
-        core.info(`Changes will be detected between ${baseSha} and ${head}`);
-        return await git.getChanges(baseSha, head);
-    }
-    core.info(`Changes will be detected between ${base} and ${head}`);
-    return await git.getChangesSinceMergeBase(base, head, initialFetchDepth);
-}
-// Uses github REST api to get list of files changed in PR
-async function getChangedFilesFromApi(token, pullRequest) {
-    core.startGroup(`Fetching list of changed files for PR#${pullRequest.number} from Github API`);
-    try {
-        const client = github.getOctokit(token);
-        const per_page = 100;
-        const files = [];
-        core.info(`Invoking listFiles(pull_number: ${pullRequest.number}, per_page: ${per_page})`);
-        for await (const response of client.paginate.iterator(client.rest.pulls.listFiles.endpoint.merge({
-            owner: github.context.repo.owner,
-            repo: github.context.repo.repo,
-            pull_number: pullRequest.number,
-            per_page
-        }))) {
-            if (response.status !== 200) {
-                throw new Error(`Fetching list of changed files from GitHub API failed with error code ${response.status}`);
-            }
-            core.info(`Received ${response.data.length} items`);
-            for (const row of response.data) {
-                core.info(`[${row.status}] ${row.filename}`);
-                // There's no obvious use-case for detection of renames
-                // Therefore we treat it as if rename detection in git diff was turned off.
-                // Rename is replaced by delete of original filename and add of new filename
-                if (row.status === file_1.ChangeStatus.Renamed) {
-                    files.push({
-                        filename: row.filename,
-                        status: file_1.ChangeStatus.Added
-                    });
-                    files.push({
-                        // 'previous_filename' for some unknown reason isn't in the type definition or documentation
-                        filename: row.previous_filename,
-                        status: file_1.ChangeStatus.Deleted
-                    });
-                }
-                else {
-                    // Github status and git status variants are same except for deleted files
-                    const status = row.status === 'removed' ? file_1.ChangeStatus.Deleted : row.status;
-                    files.push({
-                        filename: row.filename,
-                        status
-                    });
-                }
-            }
-        }
-        return files;
-    }
-    finally {
-        core.endGroup();
-    }
-}
-function exportResults(results, format) {
-    core.info('Results:');
-    const changes = [];
-    for (const [key, files] of Object.entries(results)) {
-        const value = files.length > 0;
-        core.startGroup(`Filter ${key} = ${value}`);
-        if (files.length > 0) {
-            changes.push(key);
-            core.info('Matching files:');
-            for (const file of files) {
-                core.info(`${file.filename} [${file.status}]`);
-            }
-        }
-        else {
-            core.info('Matching files: none');
-        }
-        core.setOutput(key, value);
-        core.setOutput(`${key}_count`, files.length);
-        if (format !== 'none') {
-            const filesValue = serializeExport(files, format);
-            core.setOutput(`${key}_files`, filesValue);
-        }
-        core.endGroup();
-    }
-    if (results['changes'] === undefined) {
-        const changesJson = JSON.stringify(changes);
-        core.info(`Changes output set to ${changesJson}`);
-        core.setOutput('changes', changesJson);
-    }
-    else {
-        core.info('Cannot set changes output variable - name already used by filter output');
-    }
-}
-function serializeExport(files, format) {
-    const fileNames = files.map(file => file.filename);
-    switch (format) {
-        case 'csv':
-            return fileNames.map(csv_escape_1.csvEscape).join(',');
-        case 'json':
-            return JSON.stringify(fileNames);
-        case 'escape':
-            return fileNames.map(shell_escape_1.backslashEscape).join(' ');
-        case 'shell':
-            return fileNames.map(shell_escape_1.shellEscape).join(' ');
-        default:
-            return '';
-    }
-}
-function isExportFormat(value) {
-    return ['none', 'csv', 'shell', 'json', 'escape'].includes(value);
-}
-function getErrorMessage(error) {
-    if (error instanceof Error)
-        return error.message;
-    return String(error);
-}
-run();
-
-
-/***/ }),
-
 /***/ 2613:
 /***/ ((module) => {
 
@@ -43254,7 +43242,7 @@ module.exports = require("util");
 /******/ 	// startup
 /******/ 	// Load entry module and return exports
 /******/ 	// This entry module is referenced by other modules so it can't be inlined
-/******/ 	var __webpack_exports__ = __nccwpck_require__(1730);
+/******/ 	var __webpack_exports__ = __nccwpck_require__(5915);
 /******/ 	module.exports = __webpack_exports__;
 /******/ 	
 /******/ })()

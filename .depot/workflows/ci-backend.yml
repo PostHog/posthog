@@ -55,7 +55,7 @@
 #   .depot/workflows/ci-backend-update-test-timing.yml, so shard counts match GitHub Actions.
 #   Committed .test_durations is the fallback.
 # - master (push) runs only check-migrations to prime the shared schema cache; the
-#   test matrices are skipped on master (canonical runs them). PRs/merge_group/dispatch
+#   test matrices are skipped on master (canonical runs them). PRs and dispatches
 #   run the full graph — that is where the apples-to-apples comparison happens
 # - check-migrations timeout widened to 60m because it also runs the folded OpenAPI generation
 
@@ -69,7 +69,7 @@ name: '[optional, does not block merge] Backend CI'
 # CI_DEPOT_SHADOW_PERCENT Depot CI variable (0-100; 0 or unset = fully off) is both the
 # master switch and the pull_request sample rate: when >0, pull_request runs are sampled at
 # that percent; master (push) runs only check-migrations to prime the schema cache (test
-# matrices are skipped there); workflow_dispatch and merge_group always run. The `sample` job rolls a deterministic
+# matrices are skipped there); workflow_dispatch always runs. The `sample` job rolls a deterministic
 # per-run dice; `changes` (root of the needs graph) only runs when sampled in, so the
 # whole workflow cascades off on a miss. This is a Depot variable, NOT a GitHub one —
 # Depot CI reads its own `vars` store. Set it with:
@@ -92,7 +92,6 @@ on:
         # `run-ci-backend` label (labeled/unlabeled re-trigger) to force the full
         # matrices on a draft. Mirrors canonical.
         types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
-    merge_group:
 concurrency:
     # PRs: one active run per branch, cancel stale. Push: per-SHA so master
     # pushes never cancel each other (check-migrations always completes).
@@ -164,7 +163,7 @@ jobs:
                   EVENT: ${{ github.event_name }}
               run: |
                   set -euo pipefail
-                  # Only pull_request is sampled; push/workflow_dispatch/merge_group always run
+                  # Only pull_request is sampled; push and workflow_dispatch always run
                   # when enabled (sampling them would skip cache priming or no-op a dispatch).
                   if [ "$EVENT" != "pull_request" ]; then
                       echo "sampled=true" >> "$GITHUB_OUTPUT"
@@ -545,8 +544,8 @@ jobs:
     select-tests:
         name: Select tests
         needs: [changes, turbo-discover]
-        # Only draft PRs do selective runs; ready PRs and non-PR events (push,
-        # merge_group) always run full, which build_django_matrix falls back to
+        # Only draft PRs do selective runs; ready PRs and pushes always run full,
+        # which build_django_matrix falls back to
         # when select-tests is skipped (empty MODE). The run-ci-backend label
         # forces the full matrices on a draft.
         if: |
