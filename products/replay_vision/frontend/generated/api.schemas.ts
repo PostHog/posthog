@@ -703,14 +703,18 @@ export const ScannerProviderEnumApi = {
 /**
  * * `gemini-2.5-flash` - Gemini 2.5 Flash
  * * `gemini-3-flash-preview` - Gemini 3 Flash
+ * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
  * * `gemini-3.5-flash` - Gemini 3.5 Flash
+ * * `gemini-3.6-flash` - Gemini 3.6 Flash
  */
 export type ScannerModelEnumApi = (typeof ScannerModelEnumApi)[keyof typeof ScannerModelEnumApi]
 
 export const ScannerModelEnumApi = {
     Gemini25Flash: 'gemini-2.5-flash',
     Gemini3FlashPreview: 'gemini-3-flash-preview',
+    Gemini35FlashLite: 'gemini-3.5-flash-lite',
     Gemini35Flash: 'gemini-3.5-flash',
+    Gemini36Flash: 'gemini-3.6-flash',
 } as const
 
 export interface FeedbackThemeSessionApi {
@@ -783,7 +787,9 @@ export interface ReplayScannerApi {
      *
      * * `gemini-2.5-flash` - Gemini 2.5 Flash
      * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.5-flash` - Gemini 3.5 Flash */
+     * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+     * * `gemini-3.5-flash` - Gemini 3.5 Flash
+     * * `gemini-3.6-flash` - Gemini 3.6 Flash */
     model: ScannerModelEnumApi
     /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
     enabled?: boolean
@@ -867,7 +873,9 @@ export interface PatchedReplayScannerApi {
      *
      * * `gemini-2.5-flash` - Gemini 2.5 Flash
      * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.5-flash` - Gemini 3.5 Flash */
+     * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+     * * `gemini-3.5-flash` - Gemini 3.5 Flash
+     * * `gemini-3.6-flash` - Gemini 3.6 Flash */
     model?: ScannerModelEnumApi
     /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
     enabled?: boolean
@@ -1300,7 +1308,9 @@ export interface EstimateRequestApi {
      *
      * * `gemini-2.5-flash` - Gemini 2.5 Flash
      * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.5-flash` - Gemini 3.5 Flash */
+     * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+     * * `gemini-3.5-flash` - Gemini 3.5 Flash
+     * * `gemini-3.6-flash` - Gemini 3.6 Flash */
     model?: ScannerModelEnumApi
 }
 

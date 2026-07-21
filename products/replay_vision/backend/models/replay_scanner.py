@@ -36,7 +36,9 @@ class ScannerModel(models.TextChoices):
 
     GEMINI_2_5_FLASH = "gemini-2.5-flash", "Gemini 2.5 Flash"
     GEMINI_3_FLASH = "gemini-3-flash-preview", "Gemini 3 Flash"
+    GEMINI_3_5_FLASH_LITE = "gemini-3.5-flash-lite", "Gemini 3.5 Flash Lite"
     GEMINI_3_5_FLASH = "gemini-3.5-flash", "Gemini 3.5 Flash"
+    GEMINI_3_6_FLASH = "gemini-3.6-flash", "Gemini 3.6 Flash"
 
 
 def initial_watermark() -> "datetime":

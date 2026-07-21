@@ -25,7 +25,12 @@ CREDITS_PER_DOLLAR = 100  # 1 credit = $0.01, matching ai_credits
 OBSERVATION_CREDITS_BY_MODEL: dict[str, int] = {
     ScannerModel.GEMINI_2_5_FLASH: 2,
     ScannerModel.GEMINI_3_FLASH: 5,
+    # Flash Lite matches 2.5 Flash token prices ($0.30/M in, $2.50/M out), so it inherits its price.
+    ScannerModel.GEMINI_3_5_FLASH_LITE: 2,
     ScannerModel.GEMINI_3_5_FLASH: 15,
+    # Same input price as 3.5 Flash and observations are video-input dominated, so the cheaper
+    # output ($7.50/M vs $9/M) doesn't move the per-observation cost.
+    ScannerModel.GEMINI_3_6_FLASH: 15,
     # Retired ids, kept for observations frozen before the lineup change.
     "gemini-3.1-flash-lite-preview": 2,
 }
