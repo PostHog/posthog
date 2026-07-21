@@ -5,8 +5,9 @@ Django-side loader. The ORM reads stay behind the function call (the `Database.c
 pattern), so this module imports without booting Django (no settings or app registry).
 """
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from functools import cache
 from typing import TYPE_CHECKING, cast
 
 from posthog.clickhouse.materialized_column_types import (
@@ -19,29 +20,39 @@ from posthog.property_columns import PropertyName, TableColumn
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
 
+MaterializedColumnsByTable = Mapping[
+    TablesWithMaterializedColumns, Mapping[tuple[PropertyName, TableColumn], MaterializedColumn]
+]
+
+
+def _no_materialized_columns() -> MaterializedColumnsByTable:
+    return {}
+
 
 @dataclass(frozen=True)
 class PropertyMetadata:
     """Property-definition types for the properties a query touches, plus the enabled
-    materialized-column map.
+    materialized-column registry.
 
     Property values are `{"type": <PropertyType value>}` dicts, plus a `"dmat"` key when a READY
     materialized-column slot backs an event property. Group keys are `"{group_type_index}_{name}"`.
-    `materialized_columns` is the instance-wide enabled-column snapshot, keyed by table name then
-    `(property_name, table_column)` — one fetch per query, so engine lookups are pure map reads.
+    `materialized_columns` is a loader for the instance-wide enabled-column registry (keyed by
+    table name then `(property_name, table_column)`), memoized per bundle by the Django-side
+    builder. It MUST stay lazy: it is invoked only on the first lookup against a
+    materialization-valid table, so queries that never resolve a property (SELECT 1, logs/spans
+    attribute reads, bare-blob selects) never touch the registry — assertNumQueries and
+    query_log-ordering tests depend on those compiles issuing zero registry queries.
     """
 
     event_properties: dict[str, dict[str, str | None]] = field(default_factory=dict)
     person_properties: dict[str, dict[str, str | None]] = field(default_factory=dict)
     group_properties: dict[str, dict[str, str | None]] = field(default_factory=dict)
-    materialized_columns: Mapping[
-        TablesWithMaterializedColumns, Mapping[tuple[PropertyName, TableColumn], MaterializedColumn]
-    ] = field(default_factory=dict)
+    materialized_columns: Callable[[], MaterializedColumnsByTable] = _no_materialized_columns
 
     def materialized_column(self, table_name: str, table_column: str, property_name: str) -> MaterializedColumn | None:
         if table_name not in MATERIALIZATION_VALID_TABLES:
             return None
-        columns = self.materialized_columns.get(cast(TablesWithMaterializedColumns, table_name))
+        columns = self.materialized_columns().get(cast(TablesWithMaterializedColumns, table_name))
         if columns is None:
             return None
         return columns.get((property_name, cast(TableColumn, table_column)))
@@ -163,5 +174,7 @@ def load_property_metadata(
         event_properties=event_properties,
         person_properties=person_properties,
         group_properties=group_properties,
-        materialized_columns=get_enabled_materialized_columns_by_table(),
+        # functools.cache on a fresh wrapper = one registry fetch per bundle (per query), and only
+        # if a materialized-column lookup actually happens (see the field docstring on laziness).
+        materialized_columns=cache(get_enabled_materialized_columns_by_table),
     )

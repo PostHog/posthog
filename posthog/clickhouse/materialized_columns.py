@@ -41,8 +41,9 @@ if EE_AVAILABLE:
     ]:
         """Enabled materialized columns for every materialization-valid table, or empty when disabled.
 
-        Snapshot used by the HogQL property-metadata loader: fetched once per query so the engine's
-        lookups are pure map reads with no Django dependency.
+        Registry fetch behind the HogQL property-metadata bundle: memoized per query and invoked
+        lazily on the first materialized-column lookup, so the engine's lookups are pure map reads
+        and property-free compiles issue no registry queries (see PropertyMetadata's docstring).
         """
         if not get_instance_setting("MATERIALIZED_COLUMNS_ENABLED"):
             return {}
