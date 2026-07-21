@@ -41,7 +41,13 @@ import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 import { urls } from 'scenes/urls'
 
-import { NodeKind, RecordingOrder, RecordingsQuery, RecordingsQueryResponse } from '~/queries/schema/schema-general'
+import {
+    NodeKind,
+    RecordingOrder,
+    RecordingsQuery,
+    RecordingsQueryResponse,
+    VALID_RECORDING_ORDERS,
+} from '~/queries/schema/schema-general'
 import {
     AnyPropertyFilter,
     FilterLogicalOperator,
@@ -179,11 +185,11 @@ const getDefaultFilterTestAccounts = (): boolean => {
 
 // The sort the user explicitly picked in the list settings. It wins over the relevance
 // rollout/experiment default, so users who prefer another order aren't re-defaulted
-// into relevance on every visit and filter reset. `order` stays a plain string: the
-// union of valid orders has no runtime source, and writes only come from the sort menu
+// into relevance on every visit and filter reset. Keyed per team, like the playlist
+// filter persistence below, so the preference doesn't leak across accounts
 export const preferredRecordingsSortStorage = localStorageSlot(
-    'replay_list_preferred_sort',
-    z.object({ order: z.string(), order_direction: z.enum(['ASC', 'DESC']) })
+    () => `${getCurrentTeamId()}__replay_list_preferred_sort`,
+    z.object({ order: z.enum(VALID_RECORDING_ORDERS), order_direction: z.enum(['ASC', 'DESC']) })
 )
 
 export const DEFAULT_RECORDING_FILTERS: RecordingUniversalFilters = {
@@ -215,7 +221,7 @@ export const getDefaultFilters = (
         date_from: personUUID ? '-30d' : '-3d',
         // Default to sorting by relevance for the surfacing-score rollout or the relevance-sort experiment's test arm
         order:
-            (preferredSort?.order as RecordingUniversalFilters['order']) ??
+            preferredSort?.order ??
             (!hasSpecificIntent &&
             (posthog.getFeatureFlag(FEATURE_FLAGS.REPLAY_PLAYLIST_SURFACING_SCORE) ||
                 posthog.getFeatureFlag(FEATURE_FLAGS.REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT) === 'test')

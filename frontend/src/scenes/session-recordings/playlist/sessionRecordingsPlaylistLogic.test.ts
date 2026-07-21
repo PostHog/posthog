@@ -1,3 +1,5 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -1465,7 +1467,17 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 ],
                 [
                     'an unparseable stored preference is ignored',
-                    () => localStorage.setItem('replay_list_preferred_sort', 'not json'),
+                    () => localStorage.setItem(`${MOCK_TEAM_ID}__replay_list_preferred_sort`, 'not json'),
+                    'surfacing_score',
+                    'DESC',
+                ],
+                [
+                    'a stored order outside the valid set is ignored',
+                    () =>
+                        localStorage.setItem(
+                            `${MOCK_TEAM_ID}__replay_list_preferred_sort`,
+                            JSON.stringify({ order: 'unknown', order_direction: 'DESC' })
+                        ),
                     'surfacing_score',
                     'DESC',
                 ],

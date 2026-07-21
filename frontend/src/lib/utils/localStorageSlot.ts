@@ -6,12 +6,14 @@ export interface LocalStorageSlot<T> {
 }
 
 // Stored data outlives deploys and can be edited by hand, so reads validate
-// against the schema before trusting it
-export function localStorageSlot<T>(key: string, schema: z.ZodType<T>): LocalStorageSlot<T> {
+// against the schema before trusting it. A function key is resolved on every
+// access, for keys that depend on runtime context (e.g. the current team)
+export function localStorageSlot<T>(key: string | (() => string), schema: z.ZodType<T>): LocalStorageSlot<T> {
+    const resolveKey = (): string => (typeof key === 'function' ? key() : key)
     return {
         get: (): T | null => {
             try {
-                const raw = localStorage.getItem(key)
+                const raw = localStorage.getItem(resolveKey())
                 if (!raw) {
                     return null
                 }
@@ -23,7 +25,7 @@ export function localStorageSlot<T>(key: string, schema: z.ZodType<T>): LocalSto
         },
         set: (value: T): void => {
             try {
-                localStorage.setItem(key, JSON.stringify(value))
+                localStorage.setItem(resolveKey(), JSON.stringify(value))
             } catch {
                 // localStorage can be unavailable. Losing the value is fine
             }
