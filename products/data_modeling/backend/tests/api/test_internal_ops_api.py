@@ -1,20 +1,23 @@
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Team
 
+from products.data_modeling.backend.logic.schedule_truth import extract_schedule_info
 from products.data_modeling.backend.models import DAG, DataModelingJob, DataWarehouseSavedQuery, Edge, Node, NodeType
 from products.data_modeling.backend.tests.api.oidc import OidcAuthTestMixin, mint_oidc_token
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
-class TestInternalDataModelingOpsAPI(OidcAuthTestMixin, APIBaseTest):
+class InternalOpsAPITestCase(OidcAuthTestMixin, APIBaseTest):
     def _get(self, path: str, token: str | None = None):
         base = "/api/internal/data_modeling_ops"
         if token is not None:
@@ -24,8 +27,11 @@ class TestInternalDataModelingOpsAPI(OidcAuthTestMixin, APIBaseTest):
     def _token(self) -> str:
         return mint_oidc_token()
 
+
+class TestInternalDataModelingOpsAPI(InternalOpsAPITestCase):
     # The client is session-logged-in (APIBaseTest), so the no-bearer row also proves
     # session auth cannot reach these routes.
+
     @parameterized.expand(
         [
             ("session_only_no_bearer", lambda: None),
@@ -79,7 +85,8 @@ class TestInternalDataModelingOpsAPI(OidcAuthTestMixin, APIBaseTest):
         self.assertEqual(data["failing_saved_query_count"], 1)
         self.assertEqual(data["saved_queries_with_sync_frequency_count"], 1)
 
-    def test_saved_query_detail_surfaces_duplicate_backing_tables_and_dag_context(self):
+    @patch("products.data_modeling.backend.presentation.internal_views.describe_schedules", return_value={})
+    def test_saved_query_detail_surfaces_duplicate_backing_tables_and_dag_context(self, _mock_describe):
         saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team, name="my_view", query={"query": "select * from events"}
         )
@@ -184,3 +191,117 @@ class TestInternalDataModelingOpsAPI(OidcAuthTestMixin, APIBaseTest):
         self.assertEqual({n["name"] for n in data["nodes"]}, {"events", "my_view"})
         self.assertEqual(len(data["edges"]), 1)
         self.assertEqual(data["edges"][0]["source_id"], str(events_table.id))
+
+
+def _fake_schedule_description(workflow: str, dag_attr: str | None = None):
+    spec = SimpleNamespace(
+        intervals=[SimpleNamespace(every=timedelta(hours=24))],
+        cron_expressions=[],
+        calendars=[],
+        jitter=None,
+        time_zone_name=None,
+    )
+    attrs = []
+    if dag_attr:
+        attrs.append(SimpleNamespace(key=SimpleNamespace(name="PostHogDagId"), value=dag_attr))
+    return SimpleNamespace(
+        schedule=SimpleNamespace(
+            action=SimpleNamespace(workflow=workflow),
+            spec=spec,
+            state=SimpleNamespace(paused=True, note="paused by ops"),
+        ),
+        info=SimpleNamespace(
+            next_action_times=[datetime(2026, 7, 4, 12, 0, tzinfo=UTC)],
+            recent_actions=[
+                SimpleNamespace(
+                    scheduled_at=datetime(2026, 7, 3, 12, 0, tzinfo=UTC),
+                    started_at=datetime(2026, 7, 3, 12, 0, 5, tzinfo=UTC),
+                    action=SimpleNamespace(workflow_id="data-modeling-run-abc", first_execution_run_id="run-1"),
+                )
+            ],
+        ),
+        typed_search_attributes=SimpleNamespace(search_attributes=attrs),
+    )
+
+
+class TestExtractScheduleInfo(SimpleTestCase):
+    def test_classifies_by_workflow_name_even_when_dag_attribute_present(self):
+        description = _fake_schedule_description("data-modeling-run", dag_attr="0198-some-dag")
+
+        info = extract_schedule_info("0197-some-saved-query", description)
+
+        self.assertEqual(info["kind"], "v1_saved_query")
+        self.assertEqual(info["search_attributes"], {"PostHogDagId": "0198-some-dag"})
+        self.assertTrue(info["paused"])
+        self.assertEqual(info["note"], "paused by ops")
+        self.assertEqual(info["next_run_at"], "2026-07-04T12:00:00+00:00")
+        self.assertEqual(info["spec"]["intervals"], ["1 day, 0:00:00"])
+        self.assertEqual(info["recent_actions"][0]["workflow_id"], "data-modeling-run-abc")
+
+
+class TestInternalSchedulesAPI(InternalOpsAPITestCase):
+    @patch("products.data_modeling.backend.presentation.internal_views.describe_schedules")
+    def test_schedules_keeps_unscheduled_materialized_entities_visible(self, mock_describe):
+        dag = DAG.objects.create(team=self.team, name="Default")
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="my_view", query={"query": "select 1"}, is_materialized=True
+        )
+        mock_describe.return_value = {
+            str(dag.id): extract_schedule_info(str(dag.id), _fake_schedule_description("data-modeling-execute-dag")),
+            str(saved_query.id): None,
+        }
+
+        response = self._get("/schedules", self._token())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        by_entity = {r["entity_id"]: r for r in response.json()["results"]}
+        self.assertEqual(set(by_entity), {str(dag.id), str(saved_query.id)})
+        self.assertEqual(by_entity[str(dag.id)]["schedule"]["kind"], "v2_dag")
+        self.assertIsNone(by_entity[str(saved_query.id)]["schedule"])
+        self.assertFalse(response.json()["truncated"])
+
+    @patch("products.data_modeling.backend.presentation.internal_views.describe_schedules")
+    def test_detail_reports_v2_coverage_from_dag_schedule(self, mock_describe):
+        dag = DAG.objects.create(team=self.team, name="Default")
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="my_view", query={"query": "select 1"}, is_materialized=True
+        )
+        Node.objects.create(team=self.team, dag=dag, saved_query=saved_query, type=NodeType.MAT_VIEW)
+        mock_describe.return_value = {
+            str(saved_query.id): None,
+            str(dag.id): extract_schedule_info(str(dag.id), _fake_schedule_description("data-modeling-execute-dag")),
+        }
+
+        response = self._get(f"/saved_queries/{saved_query.id}", self._token())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        truth = response.json()["schedule_truth"]
+        self.assertEqual(truth["covered_by"], "v2")
+        self.assertIsNone(truth["v1_schedule"])
+        self.assertEqual(truth["dag_schedules"][0]["schedule"]["kind"], "v2_dag")
+
+    @patch("products.data_modeling.backend.presentation.internal_views.describe_schedules")
+    def test_schedules_list_survives_temporal_outage(self, mock_describe):
+        mock_describe.side_effect = RuntimeError("temporal unreachable")
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="my_view", query={"query": "select 1"}, is_materialized=True
+        )
+
+        response = self._get("/schedules", self._token())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["temporal_error"], "temporal unreachable")
+        self.assertIsNone(data["results"][0]["schedule"])
+
+    @patch("products.data_modeling.backend.presentation.internal_views.describe_schedules")
+    def test_detail_survives_temporal_outage(self, mock_describe):
+        mock_describe.side_effect = RuntimeError("temporal unreachable")
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="my_view", query={"query": "select 1"}
+        )
+
+        response = self._get(f"/saved_queries/{saved_query.id}", self._token())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["schedule_truth"], {"error": "temporal unreachable"})
