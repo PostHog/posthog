@@ -447,8 +447,8 @@ export interface AssistantTrendsBreakdownFilter extends AssistantBreakdownFilter
     breakdown_path_cleaning?: boolean
 }
 
-// Remove deprecated display types.
-export type AssistantTrendsDisplayType = Exclude<TrendsFilterLegacy['display'], 'ActionsStackedBar'>
+// Remove deprecated display types, and SQL-insight-only displays that trends has no renderer for.
+export type AssistantTrendsDisplayType = Exclude<TrendsFilterLegacy['display'], 'ActionsStackedBar' | 'Scatter'>
 
 export interface AssistantTrendsFilter {
     /**

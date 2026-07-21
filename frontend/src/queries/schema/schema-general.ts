@@ -1255,6 +1255,20 @@ export interface HeatmapSettings {
     sortOrder?: HeatmapSortOrder
 }
 
+export interface ScatterSettings {
+    /** Column plotted on the x-axis; one dot per row. Datetime columns render on a time axis. */
+    xAxisColumn?: string
+    /** Numeric column plotted on the y-axis. */
+    yAxisColumn?: string
+    /** Column whose values color the dots and build the legend. An empty string means
+     *  explicitly cleared; distinct from unset so reloads don't re-apply defaults. */
+    colorByColumn?: string | null
+    yAxisScale?: 'linear' | 'logarithmic'
+    /** Column holding a person distinct_id, linking each dot to a person profile. An empty
+     *  string means explicitly cleared; distinct from unset so auto-detection doesn't re-apply. */
+    personColumn?: string | null
+}
+
 export interface PieChartSettings {
     /** What to render on each slice. Defaults to labels. */
     sliceContent?: 'labels' | 'values' | 'none'
@@ -1298,6 +1312,7 @@ export interface ChartSettings {
     showNullsAsZero?: boolean
     heatmap?: HeatmapSettings
     pie?: PieChartSettings
+    scatter?: ScatterSettings
     /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
     resultCustomizations?: Record<string, ResultCustomizationByValue>
 }

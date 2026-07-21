@@ -358,6 +358,56 @@ describe('dataVisualizationLogic', () => {
             },
         })
     })
+    it('auto-fills scatter columns, including the person column, when a scatter plot is picked', async () => {
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['timestamp', 'duration', 'distinct_id'],
+            types: [
+                ['timestamp', 'DateTime'],
+                ['duration', 'Float64'],
+                ['distinct_id', 'String'],
+            ],
+            results: [['2025-01-01 00:00:00', 1.5, 'user-1']],
+        })
+
+        logic.actions.setVisualizationType(ChartDisplayType.Scatter)
+
+        await expectLogic(logic).toMatchValues({
+            chartSettings: {
+                scatter: {
+                    xAxisColumn: 'timestamp',
+                    yAxisColumn: 'duration',
+                    personColumn: 'distinct_id',
+                },
+            },
+        })
+    })
+
+    it('keeps the other scatter settings when updating one of them', async () => {
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['timestamp', 'duration', 'distinct_id'],
+            types: [
+                ['timestamp', 'DateTime'],
+                ['duration', 'Float64'],
+                ['distinct_id', 'String'],
+            ],
+            results: [['2025-01-01 00:00:00', 1.5, 'user-1']],
+        })
+        logic.actions.setVisualizationType(ChartDisplayType.Scatter)
+
+        logic.actions.updateChartSettings({ scatter: { yAxisScale: 'logarithmic' } })
+
+        await expectLogic(logic).toMatchValues({
+            chartSettings: {
+                scatter: {
+                    xAxisColumn: 'timestamp',
+                    yAxisColumn: 'duration',
+                    personColumn: 'distinct_id',
+                    yAxisScale: 'logarithmic',
+                },
+            },
+        })
+    })
+
     it('stamps labels onto the slices when a pie chart is newly picked', async () => {
         logic.actions.setVisualizationType(ChartDisplayType.ActionsPie)
 

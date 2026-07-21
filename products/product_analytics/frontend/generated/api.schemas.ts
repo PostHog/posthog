@@ -1599,6 +1599,7 @@ export const ChartDisplayTypeApi = {
     TwoDimensionalHeatmap: 'TwoDimensionalHeatmap',
     BoxPlot: 'BoxPlot',
     SlopeGraph: 'SlopeGraph',
+    Scatter: 'Scatter',
 } as const
 
 export interface TrendsFormulaNodeApi {
@@ -7482,6 +7483,25 @@ export interface PieChartSettingsApi {
     valueDisplay?: ValueDisplayApi | null
 }
 
+export type YAxisScaleApi = (typeof YAxisScaleApi)[keyof typeof YAxisScaleApi]
+
+export const YAxisScaleApi = {
+    Linear: 'linear',
+    Logarithmic: 'logarithmic',
+} as const
+
+export interface ScatterSettingsApi {
+    /** Column whose values color the dots and build the legend. An empty string means explicitly cleared; distinct from unset so reloads don't re-apply defaults. */
+    colorByColumn?: string | null
+    /** Column holding a person distinct_id, linking each dot to a person profile. An empty string means explicitly cleared; distinct from unset so auto-detection doesn't re-apply. */
+    personColumn?: string | null
+    /** Column plotted on the x-axis; one dot per row. Datetime columns render on a time axis. */
+    xAxisColumn?: string | null
+    /** Numeric column plotted on the y-axis. */
+    yAxisColumn?: string | null
+    yAxisScale?: YAxisScaleApi | null
+}
+
 export type DisplayTypeApi = (typeof DisplayTypeApi)[keyof typeof DisplayTypeApi]
 
 export const DisplayTypeApi = {
@@ -7545,6 +7565,7 @@ export interface ChartSettingsApi {
     /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
     resultCustomizations?: ChartSettingsApiResultCustomizations
     rightYAxisSettings?: YAxisSettingsApi | null
+    scatter?: ScatterSettingsApi | null
     seriesBreakdownColumn?: string | null
     showLegend?: boolean | null
     showNullsAsZero?: boolean | null

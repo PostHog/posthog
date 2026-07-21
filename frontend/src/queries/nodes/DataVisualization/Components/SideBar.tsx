@@ -33,7 +33,8 @@ const TABS_TO_CONTENT: Record<SideBarTab, TabContent> = {
         shouldShow: (displayType: ChartDisplayType): boolean =>
             displayType !== ChartDisplayType.ActionsTable &&
             displayType !== ChartDisplayType.BoldNumber &&
-            displayType !== ChartDisplayType.TwoDimensionalHeatmap,
+            displayType !== ChartDisplayType.TwoDimensionalHeatmap &&
+            displayType !== ChartDisplayType.Scatter,
     },
 }
 
@@ -52,17 +53,23 @@ export const SideBar = (): JSX.Element => {
         [effectiveVisualizationType]
     )
 
+    // The active tab can become hidden when the display type changes (e.g. Display tab open,
+    // then switching to a chart type without one) — fall back rather than render orphaned content.
+    const visibleActiveTab = TABS_TO_CONTENT[activeSideBarTab].shouldShow(effectiveVisualizationType)
+        ? activeSideBarTab
+        : SideBarTab.Series
+
     return (
         <div className="bg-surface-primary w-[18rem] flex flex-col">
             <LemonTabs
                 size="small"
-                activeKey={activeSideBarTab}
+                activeKey={visibleActiveTab}
                 onChange={(tab) => setSideBarTab(tab as SideBarTab)}
                 tabs={tabs}
                 className="pt-1"
                 barClassName="px-3"
             />
-            <div className="flex-1 overflow-y-auto">{TABS_TO_CONTENT[activeSideBarTab].content}</div>
+            <div className="flex-1 overflow-y-auto">{TABS_TO_CONTENT[visibleActiveTab].content}</div>
         </div>
     )
 }
