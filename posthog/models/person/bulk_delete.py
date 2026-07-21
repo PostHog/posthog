@@ -16,6 +16,7 @@ from posthog.models.activity_logging.activity_log import Detail, LogActivityEntr
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person import Person
 from posthog.models.person.util import (
+    DistinctIdForPerson,
     _batched_get_distinct_ids_for_persons,
     _fetch_persons_by_distinct_ids_via_personhog,
     _fetch_persons_by_uuids_via_personhog,
@@ -72,14 +73,20 @@ def delete_persons_profile(
 
     deleted: builtins.list[Person] = []
     errors: builtins.list[uuid_lib.UUID] = []
-    distinct_ids_by_person = personhog_call(
-        "get_distinct_ids_for_deletion",
-        lambda: _batched_get_distinct_ids_for_persons(team_id, [person.pk for person in persons]),
-        caller_tag="persons/deletion-distinct-ids",
-    )
+    # A missing map entry (or a failed batch fetch) passes None below, making delete_person
+    # fall back to its own per-person lookup so failure isolation is preserved.
+    distinct_ids_by_person: dict[int, builtins.list[DistinctIdForPerson]] = {}
+    try:
+        distinct_ids_by_person = personhog_call(
+            "get_distinct_ids_for_deletion",
+            lambda: _batched_get_distinct_ids_for_persons(team_id, [person.pk for person in persons]),
+            caller_tag="persons/deletion-distinct-ids",
+        )
+    except Exception:
+        logger.exception("Batched distinct-id fetch failed, falling back to per-person lookups")
     for person in persons:
         try:
-            delete_person(person=person, distinct_ids=distinct_ids_by_person.get(person.pk, []))
+            delete_person(person=person, distinct_ids=distinct_ids_by_person.get(person.pk))
             deleted.append(person)
         except Exception:
             logger.exception("Failed to delete person", person_uuid=str(person.uuid))
