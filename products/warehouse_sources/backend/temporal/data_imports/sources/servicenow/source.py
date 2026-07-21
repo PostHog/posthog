@@ -25,7 +25,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ServiceNowSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.servicenow import (
+    ServiceNowSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.servicenow.servicenow import (
     SERVICENOW_API_VERSION_V1,
     SERVICENOW_API_VERSION_V2,

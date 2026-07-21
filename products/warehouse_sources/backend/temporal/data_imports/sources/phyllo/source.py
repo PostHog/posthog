@@ -25,7 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PhylloSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.phyllo import PhylloSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.phyllo.phyllo import (
     PhylloResumeConfig,
     phyllo_source,
