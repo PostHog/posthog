@@ -1,5 +1,9 @@
 //! URL scrub. `None` means "unchanged".
 //!
+//! Hosts identify the customer (the business running PostHog), not an individual user, so they
+//! pass through intact; the user-identifying URL parts (path, query, fragment, userinfo) are
+//! scrubbed:
+//!
 //! - Numbers (a bare run of digits) are masked to `$` per digit (length-preserving; `$` rather than
 //!   `#` so it doesn't clash with the fragment separator).
 //! - Path: keep allow-listed segments; a number -> `$$`; anything else -> `[redacted]`.
@@ -7,43 +11,13 @@
 //! - Fragment: kept only if it is an allow-listed alphanumeric token.
 //! - Userinfo (`user:pass@`) is always stripped from the authority.
 //! - A scheme without slashes (`mailto:`, `tel:`) is kept; the rest is scrubbed as a path.
-//! - With `collapse_host`, or when the host matches the context's first-party host patterns
-//!   (the team's recording domains), it additionally drops the port and collapses the host to
-//!   `example.com` (keeping a leading allow-listed subdomain label).
 
 use crate::allow_lists::AllowLists;
 use crate::context::Ctx;
 
 pub const URL_ALLOWLIST: &[&str] = &["about:blank", "about:srcdoc"];
 
-fn strip_port(host: &mut String) {
-    if let Some(ci) = host.rfind(':') {
-        let after = &host[ci + 1..];
-        if !after.is_empty() && after.bytes().all(|b| b.is_ascii_digit()) {
-            host.truncate(ci);
-        }
-    }
-}
-
-fn is_first_party_host(ctx: &Ctx<'_>, host_port: &str) -> bool {
-    if ctx.first_party_hosts.is_empty() {
-        return false;
-    }
-    let mut host = host_port.to_ascii_lowercase();
-    strip_port(&mut host);
-    ctx.first_party_hosts.iter().any(|pattern| {
-        host == *pattern
-            || (host.len() > pattern.len()
-                && host.ends_with(pattern.as_str())
-                && host.as_bytes()[host.len() - pattern.len() - 1] == b'.')
-    })
-}
-
 pub fn scrub_url(ctx: &Ctx<'_>, input: &str) -> Option<String> {
-    scrub_url_opts(ctx, input, false)
-}
-
-pub fn scrub_url_opts(ctx: &Ctx<'_>, input: &str, collapse_host: bool) -> Option<String> {
     let allow = ctx.allow;
     if URL_ALLOWLIST.contains(&input) {
         return None;
@@ -71,12 +45,6 @@ pub fn scrub_url_opts(ctx: &Ctx<'_>, input: &str, collapse_host: bool) -> Option
             // parse as the authority) must not pass through as if it were a hostname.
             out.push_str("[redacted]");
             changed = true;
-        } else if collapse_host || is_first_party_host(ctx, host_port) {
-            let collapsed = collapsed_host(allow, host_port);
-            if collapsed != host_port {
-                changed = true;
-            }
-            out.push_str(&collapsed);
         } else {
             out.push_str(host_port);
         }
@@ -172,25 +140,6 @@ fn scrub_tail(allow: &AllowLists, tail: &str) -> String {
         out.push_str(frag);
     }
     out
-}
-
-// Drop the port and rewrite the host to example.com. Keep a leading *subdomain* label
-// (only when there is one, i.e. >=3 labels) if it's url-allow-listed: `us.test.com` -> `us.example.com`.
-fn collapsed_host(allow: &AllowLists, host_port: &str) -> String {
-    let mut host = host_port;
-    if let Some(ci) = host.rfind(':') {
-        let after = &host[ci + 1..];
-        if !after.is_empty() && after.bytes().all(|b| b.is_ascii_digit()) {
-            host = &host[..ci];
-        }
-    }
-    let labels: Vec<&str> = host.split('.').collect();
-    let first = labels.first().copied().unwrap_or("");
-    if labels.len() > 2 && !first.is_empty() && allow.url_contains(first) {
-        format!("{first}.example.com")
-    } else {
-        "example.com".to_string()
-    }
 }
 
 // Pinned by `tests/fixtures/url-scheme-allowlist.json` (see `tests/parity.rs`).
