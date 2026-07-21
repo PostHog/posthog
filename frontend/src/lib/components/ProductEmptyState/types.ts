@@ -9,8 +9,11 @@ import type { ProductKey } from '~/queries/schema/schema-general'
  * Normalized setup status for a product, pushed into `productSetupStatusLogic`
  * by the product's own detection logic (data-existence query, exists API, opt-in
  * flag, or entity count). This is the single vocabulary every surface reads.
+ *
+ * `unknown` means detection failed and no earlier answer exists - surfaces must
+ * fail open (render the real product, never a spinner or the setup screen).
  */
-export type ProductSetupStatus = 'loading' | 'needs-setup' | 'waiting-for-data' | 'has-data'
+export type ProductSetupStatus = 'loading' | 'unknown' | 'needs-setup' | 'waiting-for-data' | 'has-data'
 
 /** The two empty-state variants. `waiting-for-data` is for products with an "installed but no traffic yet" middle state. */
 export type ProductEmptyStateMode = 'needs-setup' | 'waiting-for-data'

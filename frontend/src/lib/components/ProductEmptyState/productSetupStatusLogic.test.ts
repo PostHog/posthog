@@ -38,6 +38,7 @@ describe('productSetupStatusLogic', () => {
 
     it.each([
         ['loading', false],
+        ['unknown', false],
         ['needs-setup', true],
         ['waiting-for-data', true],
         ['has-data', false],

@@ -84,4 +84,23 @@ describe('mcpAnalyticsOnboardingLogic', () => {
         const setupLogic = productSetupStatusLogic({ productKey: ProductKey.MCP_ANALYTICS })
         expect(setupLogic.values.status).toBe(expected)
     })
+
+    // Guards the fail-open path: a persistently failing signal query must publish
+    // `unknown` (gate renders the scene), not leave the gate on its spinner forever.
+    it('publishes unknown when the signal query fails before any answer exists', async () => {
+        jest.spyOn(mockApi, 'query').mockRejectedValue(new Error('query failed'))
+        const logic = mcpAnalyticsOnboardingLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(productSetupStatusLogic({ productKey: ProductKey.MCP_ANALYTICS }).values.status).toBe('unknown')
+    })
+
+    it('a failing poll never downgrades an existing answer', async () => {
+        const logic = mountWith([[1, 1, 1, '2026-07-01T00:00:00Z']])
+        await expectLogic(logic).toFinishAllListeners()
+        jest.spyOn(mockApi, 'query').mockRejectedValue(new Error('query failed'))
+        logic.actions.loadSignals()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(productSetupStatusLogic({ productKey: ProductKey.MCP_ANALYTICS }).values.status).toBe('has-data')
+    })
 })

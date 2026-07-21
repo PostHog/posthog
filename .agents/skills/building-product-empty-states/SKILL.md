@@ -28,13 +28,21 @@ Template: `products/mcp_analytics/frontend/mcpAnalyticsOnboardingLogic.ts` — a
 ```ts
 connect(() => ({
     actions: [productSetupStatusLogic({ productKey: ProductKey.MY_PRODUCT }), ['setDetectedStatus']],
+    values: [productSetupStatusLogic({ productKey: ProductKey.MY_PRODUCT }), ['status as setupStatus']],
 })),
 listeners(({ actions, values }) => ({
     loadSignalsSuccess: () => actions.setDetectedStatus(values.hasData ? 'has-data' : 'needs-setup'),
+    loadSignalsFailure: () => {
+        // Never strand the gate on its spinner: if nothing has answered yet, fail
+        // open to the real scene. Don't downgrade an existing answer on a poll blip.
+        if (values.setupStatus === 'loading') {
+            actions.setDetectedStatus('unknown')
+        }
+    },
 })),
 ```
 
-Statuses: `loading` (unknown — the gate holds a spinner, never flashes the empty dashboard), `needs-setup`, `waiting-for-data` (optional middle state: instrumented but no traffic yet), `has-data`. Binary products simply never emit `waiting-for-data`.
+Statuses: `loading` (not yet known - the gate holds a spinner, never flashes the empty dashboard), `unknown` (detection failed with no earlier answer - the gate fails open to the scene), `needs-setup`, `waiting-for-data` (optional middle state: instrumented but no traffic yet), `has-data`. Binary products simply never emit `waiting-for-data`. **Your detection logic must handle its failure path** - a query that fails forever must not leave the status `loading`. Statuses are stamped with the team they were detected for, so project switches automatically reset to `loading`.
 
 ### 2. Create the config
 

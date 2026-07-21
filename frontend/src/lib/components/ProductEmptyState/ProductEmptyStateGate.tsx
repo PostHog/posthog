@@ -23,7 +23,7 @@ export interface ProductEmptyStateGateProps {
  * Gates scene content on the product's setup status:
  * - `loading` → hold a spinner (never flash the real scene before we know)
  * - `needs-setup` / `waiting-for-data` → the ProductEmptyState setup screen
- * - `has-data` (or the user skipped) → the scene, untouched
+ * - `has-data` / `unknown` (or the user skipped) → the scene, untouched
  *
  * Mounts the product's detection logic, which pushes its normalized status into
  * `productSetupStatusLogic`. Wired automatically by the app shell for scenes that
