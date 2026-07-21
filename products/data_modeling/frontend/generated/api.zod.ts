@@ -11,13 +11,39 @@ import * as zod from 'zod'
 
 export const dataModelingDagsCreateBodyNameMax = 2048
 
+export const dataModelingDagsCreateBodyScheduleAnchorHourMin = 0
+export const dataModelingDagsCreateBodyScheduleAnchorHourMax = 23
+
+export const dataModelingDagsCreateBodyScheduleAnchorMinuteMin = 0
+export const dataModelingDagsCreateBodyScheduleAnchorMinuteMax = 59
+
 export const DataModelingDagsCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(dataModelingDagsCreateBodyNameMax).describe('Human-readable name for this DAG'),
     description: zod.string().optional().describe("Optional description of the DAG's purpose"),
     sync_frequency: zod.string().nullish().describe("Sync frequency string (e.g. '24hour', '7day')"),
+    schedule_anchor_hour: zod
+        .number()
+        .min(dataModelingDagsCreateBodyScheduleAnchorHourMin)
+        .max(dataModelingDagsCreateBodyScheduleAnchorHourMax)
+        .nullish()
+        .describe(
+            "Hour of day (0-23), in the team's timezone, to pin the daily\/weekly\/monthly run time. When null, the run time is spread across the interval to balance load. Ignored for sub-daily cadences (15min-12hour)."
+        ),
+    schedule_anchor_minute: zod
+        .number()
+        .min(dataModelingDagsCreateBodyScheduleAnchorMinuteMin)
+        .max(dataModelingDagsCreateBodyScheduleAnchorMinuteMax)
+        .nullish()
+        .describe('Minute of the hour (0-59) paired with schedule_anchor_hour. Ignored unless the hour is set.'),
 })
 
 export const dataModelingDagsPartialUpdateBodyNameMax = 2048
+
+export const dataModelingDagsPartialUpdateBodyScheduleAnchorHourMin = 0
+export const dataModelingDagsPartialUpdateBodyScheduleAnchorHourMax = 23
+
+export const dataModelingDagsPartialUpdateBodyScheduleAnchorMinuteMin = 0
+export const dataModelingDagsPartialUpdateBodyScheduleAnchorMinuteMax = 59
 
 export const DataModelingDagsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -27,6 +53,20 @@ export const DataModelingDagsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Human-readable name for this DAG'),
     description: zod.string().optional().describe("Optional description of the DAG's purpose"),
     sync_frequency: zod.string().nullish().describe("Sync frequency string (e.g. '24hour', '7day')"),
+    schedule_anchor_hour: zod
+        .number()
+        .min(dataModelingDagsPartialUpdateBodyScheduleAnchorHourMin)
+        .max(dataModelingDagsPartialUpdateBodyScheduleAnchorHourMax)
+        .nullish()
+        .describe(
+            "Hour of day (0-23), in the team's timezone, to pin the daily\/weekly\/monthly run time. When null, the run time is spread across the interval to balance load. Ignored for sub-daily cadences (15min-12hour)."
+        ),
+    schedule_anchor_minute: zod
+        .number()
+        .min(dataModelingDagsPartialUpdateBodyScheduleAnchorMinuteMin)
+        .max(dataModelingDagsPartialUpdateBodyScheduleAnchorMinuteMax)
+        .nullish()
+        .describe('Minute of the hour (0-59) paired with schedule_anchor_hour. Ignored unless the hour is set.'),
 })
 
 export const DataModelingEdgesCreateBody = /* @__PURE__ */ zod.object({

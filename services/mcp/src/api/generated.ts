@@ -16487,6 +16487,20 @@ export namespace Schemas {
          * @nullable
          */
       sync_frequency?: string | null;
+      /**
+         * Hour of day (0-23), in the team's timezone, to pin the daily/weekly/monthly run time. When null, the run time is spread across the interval to balance load. Ignored for sub-daily cadences (15min-12hour).
+         * @minimum 0
+         * @maximum 23
+         * @nullable
+         */
+      schedule_anchor_hour?: number | null;
+      /**
+         * Minute of the hour (0-59) paired with schedule_anchor_hour. Ignored unless the hour is set.
+         * @minimum 0
+         * @maximum 59
+         * @nullable
+         */
+      schedule_anchor_minute?: number | null;
       readonly node_count: number;
       readonly created_at: string;
       /** @nullable */
@@ -44094,6 +44108,20 @@ export namespace Schemas {
          * @nullable
          */
       sync_frequency?: string | null;
+      /**
+         * Hour of day (0-23), in the team's timezone, to pin the daily/weekly/monthly run time. When null, the run time is spread across the interval to balance load. Ignored for sub-daily cadences (15min-12hour).
+         * @minimum 0
+         * @maximum 23
+         * @nullable
+         */
+      schedule_anchor_hour?: number | null;
+      /**
+         * Minute of the hour (0-59) paired with schedule_anchor_hour. Ignored unless the hour is set.
+         * @minimum 0
+         * @maximum 59
+         * @nullable
+         */
+      schedule_anchor_minute?: number | null;
       readonly node_count?: number;
       readonly created_at?: string;
       /** @nullable */

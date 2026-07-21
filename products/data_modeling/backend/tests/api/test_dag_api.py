@@ -131,6 +131,33 @@ class TestDAGViewSet(APIBaseTest):
         dag.refresh_from_db()
         self.assertEqual(dag.name, "my_dag")
 
+    def test_set_schedule_anchor_persists_and_round_trips(self):
+        dag = DAG.objects.create(team=self.team, name="my_dag")
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/data_modeling_dags/{dag.id}/",
+            {"schedule_anchor_hour": 0, "schedule_anchor_minute": 30},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["schedule_anchor_hour"], 0)
+        self.assertEqual(response.json()["schedule_anchor_minute"], 30)
+        dag.refresh_from_db()
+        self.assertEqual(dag.schedule_anchor_hour, 0)
+        self.assertEqual(dag.schedule_anchor_minute, 30)
+
+    def test_schedule_anchor_hour_out_of_range_is_rejected(self):
+        dag = DAG.objects.create(team=self.team, name="my_dag")
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/data_modeling_dags/{dag.id}/",
+            {"schedule_anchor_hour": 24},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        dag.refresh_from_db()
+        self.assertIsNone(dag.schedule_anchor_hour)
+
     def test_node_count_reflects_nodes(self):
         dag = DAG.objects.create(team=self.team, name="my_dag")
         Node.objects.create(team=self.team, dag=dag, name="events", type=NodeType.TABLE)

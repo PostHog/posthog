@@ -6,6 +6,7 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest import mock
 
+from parameterized import parameterized
 from temporalio.client import ScheduleCalendarSpec, ScheduleListActionStartWorkflow
 
 from products.data_modeling.backend.models import Node
@@ -250,6 +251,53 @@ class TestBuildScheduleSpecEdgeCases:
     def test_boundary_30d_is_monthly(self):
         spec = build_schedule_spec(uuid.uuid4(), timedelta(days=30))
         assert len(spec.calendars[0].day_of_month) == 1
+
+
+class TestAnchoredSchedule:
+    def test_daily_anchor_pins_exact_hour_and_minute_without_jitter(self):
+        spec = build_schedule_spec(uuid.uuid4(), timedelta(hours=24), anchor_hour=0, anchor_minute=30)
+        calendar = spec.calendars[0]
+        assert [r.start for r in calendar.hour] == [0]
+        assert [r.start for r in calendar.minute] == [30]
+        assert spec.jitter == timedelta(0)
+
+    def test_daily_anchor_minute_defaults_to_zero(self):
+        spec = build_schedule_spec(uuid.uuid4(), timedelta(hours=24), anchor_hour=9)
+        assert [r.start for r in spec.calendars[0].minute] == [0]
+
+    def test_daily_anchor_is_independent_of_entity_id(self):
+        # The whole point of anchoring is to escape the hash bucket, so different IDs must agree.
+        spec_a = build_schedule_spec(uuid.UUID(int=1), timedelta(hours=24), anchor_hour=0)
+        spec_b = build_schedule_spec(uuid.UUID(int=2), timedelta(hours=24), anchor_hour=0)
+        assert spec_a.calendars[0].hour[0].start == spec_b.calendars[0].hour[0].start == 0
+
+    @parameterized.expand([("6hr", timedelta(hours=6), 4), ("12hr", timedelta(hours=12), 2)])
+    def test_sub_daily_ignores_anchor_and_keeps_bucketing(self, _name, interval, expected_windows):
+        # Sub-daily cadences fire multiple times per day, so a single anchor hour is meaningless;
+        # they must keep the load-spread bucketing and 1hr jitter.
+        spec = build_schedule_spec(uuid.uuid4(), interval, anchor_hour=0, anchor_minute=0)
+        assert len(spec.calendars[0].hour) == expected_windows
+        assert spec.jitter == timedelta(hours=1)
+
+    @parameterized.expand(
+        [("weekly", timedelta(days=7), "day_of_week"), ("monthly", timedelta(days=30), "day_of_month")]
+    )
+    def test_weekly_monthly_anchor_pins_time_but_keeps_hashed_day(self, _name, interval, day_field):
+        entity_id = uuid.uuid4()
+        anchored = build_schedule_spec(entity_id, interval, anchor_hour=0, anchor_minute=15)
+        unanchored = build_schedule_spec(entity_id, interval)
+        cal = anchored.calendars[0]
+        assert [r.start for r in cal.hour] == [0]
+        assert [r.start for r in cal.minute] == [15]
+        assert anchored.jitter == timedelta(0)
+        # Day stays hash-bucketed (anchor is time-of-day only), so it matches the unanchored spec.
+        assert getattr(cal, day_field)[0].start == getattr(unanchored.calendars[0], day_field)[0].start
+
+    def test_unanchored_daily_preserves_hash_bucketing_and_jitter(self):
+        entity_id = uuid.uuid4()
+        spec = build_schedule_spec(entity_id, timedelta(hours=24))
+        assert spec.calendars[0].hour[0].start == _deterministic_int(entity_id, "hour") % 24
+        assert spec.jitter == timedelta(hours=1)
 
 
 @pytest.mark.django_db

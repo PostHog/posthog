@@ -170,7 +170,9 @@ def _short_interval_spec(entity_id: uuid.UUID, interval: timedelta, timezone: st
     )
 
 
-def _medium_interval_spec(entity_id: uuid.UUID, interval: timedelta, timezone: str) -> ScheduleSpec:
+def _medium_interval_spec(
+    entity_id: uuid.UUID, interval: timedelta, timezone: str, anchor_hour: int | None, anchor_minute: int
+) -> ScheduleSpec:
     """Medium intervals (6hr, 12hr, 24hr): deterministic hour bucket + up to 1hr jitter.
 
     For a 6hr interval: pick 1 of 6 hour-buckets and repeat 4x per day -> 6 distinct buckets.
@@ -178,8 +180,15 @@ def _medium_interval_spec(entity_id: uuid.UUID, interval: timedelta, timezone: s
     For a 24hr interval: pick 1 of 24 hour-buckets -> 24 distinct buckets.
 
     Jitter spreads each run randomly within its assigned hour.
+
+    A daily (24hr) interval fires once per day, so an `anchor_hour` can pin that single run to an
+    exact time. Sub-daily intervals (6hr/12hr) fire multiple times per day at interval-spaced
+    hours, so a single anchor hour is meaningless for them and is ignored — they always bucket.
     """
     interval_hours = int(interval.total_seconds() // 3600)
+    if anchor_hour is not None and interval_hours == 24:
+        return _anchored_spec(anchor_hour, anchor_minute, timezone, comment="Daily (anchored)")
+
     num_windows = 24 // interval_hours
     base_hour = _deterministic_int(entity_id, "hour") % interval_hours
     hours = [(base_hour + i * interval_hours) % 24 for i in range(num_windows)]
@@ -195,38 +204,65 @@ def _medium_interval_spec(entity_id: uuid.UUID, interval: timedelta, timezone: s
     )
 
 
-def _weekly_spec(entity_id: uuid.UUID, timezone: str) -> ScheduleSpec:
-    """Weekly schedule: deterministic day-of-week (0-6) + hour (0-23) + minute (0-59)."""
+def _weekly_spec(entity_id: uuid.UUID, timezone: str, anchor_hour: int | None, anchor_minute: int) -> ScheduleSpec:
+    """Weekly schedule: deterministic day-of-week (0-6) + hour (0-23) + minute (0-59).
+
+    The day-of-week stays hash-bucketed for load-spreading; `anchor_hour` only pins the run's
+    time of day within that day.
+    """
     day_of_week = _deterministic_int(entity_id, "day") % 7
-    hour = _deterministic_int(entity_id, "hour") % 24
+    hour = anchor_hour if anchor_hour is not None else _deterministic_int(entity_id, "hour") % 24
+    minute = anchor_minute if anchor_hour is not None else 0
 
     return ScheduleSpec(
         calendars=[
             ScheduleCalendarSpec(
-                comment="Weekly (load-spread)",
+                comment="Weekly (anchored)" if anchor_hour is not None else "Weekly (load-spread)",
                 day_of_week=[ScheduleRange(start=day_of_week, end=day_of_week)],
                 hour=[ScheduleRange(start=hour, end=hour)],
+                minute=[ScheduleRange(start=minute, end=minute)],
             )
         ],
-        jitter=timedelta(hours=1),
+        jitter=timedelta(0) if anchor_hour is not None else timedelta(hours=1),
         time_zone_name=timezone,
     )
 
 
-def _monthly_spec(entity_id: uuid.UUID, timezone: str) -> ScheduleSpec:
-    """Monthly schedule: deterministic day-of-month (1-28) + hour (0-23) + minute (0-59)."""
+def _monthly_spec(entity_id: uuid.UUID, timezone: str, anchor_hour: int | None, anchor_minute: int) -> ScheduleSpec:
+    """Monthly schedule: deterministic day-of-month (1-28) + hour (0-23) + minute (0-59).
+
+    The day-of-month stays hash-bucketed for load-spreading; `anchor_hour` only pins the run's
+    time of day within that day.
+    """
     day_of_month = (_deterministic_int(entity_id, "day") % 28) + 1
-    hour = _deterministic_int(entity_id, "hour") % 24
+    hour = anchor_hour if anchor_hour is not None else _deterministic_int(entity_id, "hour") % 24
+    minute = anchor_minute if anchor_hour is not None else 0
 
     return ScheduleSpec(
         calendars=[
             ScheduleCalendarSpec(
-                comment="Monthly (load-spread)",
+                comment="Monthly (anchored)" if anchor_hour is not None else "Monthly (load-spread)",
                 day_of_month=[ScheduleRange(start=day_of_month, end=day_of_month)],
                 hour=[ScheduleRange(start=hour, end=hour)],
+                minute=[ScheduleRange(start=minute, end=minute)],
             )
         ],
-        jitter=timedelta(hours=1),
+        jitter=timedelta(0) if anchor_hour is not None else timedelta(hours=1),
+        time_zone_name=timezone,
+    )
+
+
+def _anchored_spec(hour: int, minute: int, timezone: str, *, comment: str) -> ScheduleSpec:
+    """A calendar spec pinned to an exact time of day, with no load-spreading jitter."""
+    return ScheduleSpec(
+        calendars=[
+            ScheduleCalendarSpec(
+                comment=comment,
+                hour=[ScheduleRange(start=hour, end=hour)],
+                minute=[ScheduleRange(start=minute, end=minute)],
+            )
+        ],
+        jitter=timedelta(0),
         time_zone_name=timezone,
     )
 
@@ -235,6 +271,8 @@ def build_schedule_spec(
     entity_id: uuid.UUID,
     interval: timedelta,
     team_timezone: str = "UTC",
+    anchor_hour: int | None = None,
+    anchor_minute: int | None = None,
 ) -> ScheduleSpec:
     """Build a Temporal ScheduleSpec for a saved query based on its sync frequency.
 
@@ -242,17 +280,22 @@ def build_schedule_spec(
         entity_id: The saved query UUID (used for deterministic bucketing).
         interval: The sync frequency interval (e.g. timedelta(hours=24)).
         team_timezone: The team's timezone (e.g. "America/New_York"). Used for 6hr+ schedules.
+        anchor_hour: Optional hour of day (0-23), in the team's timezone, to pin the run time for
+            daily/weekly/monthly cadences. When set, load-spreading jitter is dropped so the run
+            fires at the exact time. Ignored for sub-daily cadences (<=1hr, 6hr, 12hr).
+        anchor_minute: Optional minute of the hour (0-59) paired with `anchor_hour`; defaults to 0.
 
     Returns:
         A ScheduleSpec ready to be used with Temporal's Schedule API.
     """
     total_hours = interval.total_seconds() / 3600
+    resolved_minute = anchor_minute or 0
 
     if total_hours <= 1:
         return _short_interval_spec(entity_id, interval, team_timezone)
     elif total_hours <= 24:
-        return _medium_interval_spec(entity_id, interval, team_timezone)
+        return _medium_interval_spec(entity_id, interval, team_timezone, anchor_hour, resolved_minute)
     elif total_hours <= 168:
-        return _weekly_spec(entity_id, team_timezone)
+        return _weekly_spec(entity_id, team_timezone, anchor_hour, resolved_minute)
     else:
-        return _monthly_spec(entity_id, team_timezone)
+        return _monthly_spec(entity_id, team_timezone, anchor_hour, resolved_minute)

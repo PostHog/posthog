@@ -77,6 +77,8 @@ def reconcile_dag_schedules(dag: DAG) -> None:
         organization_id=str(team.organization_id),
         team_timezone=team.timezone,
         desired_tiers=desired_tiers,
+        anchor_hour=dag.schedule_anchor_hour,
+        anchor_minute=dag.schedule_anchor_minute,
     )
 
 
@@ -137,6 +139,8 @@ async def _apply_reconciliation(
     organization_id: str,
     team_timezone: str,
     desired_tiers: dict[timedelta, set[str]],
+    anchor_hour: int | None = None,
+    anchor_minute: int | None = None,
 ) -> None:
     unsupported = sorted(interval for interval in desired_tiers if interval not in SCHEDULABLE_BUCKETS)
     if unsupported:
@@ -159,11 +163,15 @@ async def _apply_reconciliation(
     created: list[str] = []
     try:
         for schedule_id, (interval, node_ids) in plan.to_create.items():
-            schedule = _build_tier_schedule(dag_id, team_id, team_timezone, interval, node_ids)
+            schedule = _build_tier_schedule(
+                dag_id, team_id, team_timezone, interval, node_ids, anchor_hour, anchor_minute
+            )
             await a_create_schedule(temporal, id=schedule_id, schedule=schedule, search_attributes=search_attributes)
             created.append(schedule_id)
         for schedule_id, (interval, node_ids) in plan.to_update.items():
-            schedule = _build_tier_schedule(dag_id, team_id, team_timezone, interval, node_ids)
+            schedule = _build_tier_schedule(
+                dag_id, team_id, team_timezone, interval, node_ids, anchor_hour, anchor_minute
+            )
             await a_update_schedule(temporal, id=schedule_id, schedule=schedule, search_attributes=search_attributes)
     except Exception:
         for schedule_id in created:
@@ -191,10 +199,22 @@ async def _list_execute_dag_schedule_ids(temporal: Client, dag_id: str) -> set[s
 
 
 def _build_tier_schedule(
-    dag_id: str, team_id: int, team_timezone: str, interval: timedelta, node_ids: Iterable[str]
+    dag_id: str,
+    team_id: int,
+    team_timezone: str,
+    interval: timedelta,
+    node_ids: Iterable[str],
+    anchor_hour: int | None = None,
+    anchor_minute: int | None = None,
 ) -> Schedule:
     inputs = ExecuteDAGInputs(team_id=team_id, dag_id=dag_id, node_ids=sorted(node_ids), duckgres_only=False)
-    spec = build_schedule_spec(entity_id=uuid.UUID(dag_id), interval=interval, team_timezone=team_timezone)
+    spec = build_schedule_spec(
+        entity_id=uuid.UUID(dag_id),
+        interval=interval,
+        team_timezone=team_timezone,
+        anchor_hour=anchor_hour,
+        anchor_minute=anchor_minute,
+    )
     return Schedule(
         action=ScheduleActionStartWorkflow(
             DATA_MODELING_EXECUTE_DAG_WORKFLOW,
