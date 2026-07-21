@@ -27,6 +27,20 @@ class JSONStringFilterField(serializers.JSONField):
     pass
 
 
+class RepeatedOrCommaSeparatedListField(serializers.ListField):
+    """ListField for query params that accepts values either as repeated keys
+    (?ids=1&ids=2) or as a single comma-separated value (?ids=1,2). The latter is how our
+    generated TS client (and plain URLSearchParams) serializes a number[] query param, so
+    without this a caller using the generated client gets a validation error.
+    """
+
+    def get_value(self, dictionary):
+        value = super().get_value(dictionary)
+        if isinstance(value, list) and len(value) == 1 and isinstance(value[0], str) and "," in value[0]:
+            return value[0].split(",")
+        return value
+
+
 class JSONTolerantListField(serializers.ListField):
     """ListField that also accepts a single JSON-encoded array as the query value.
 
