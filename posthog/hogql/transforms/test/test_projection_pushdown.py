@@ -1,10 +1,13 @@
 import pytest
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.models import Table
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing
 from posthog.hogql.transforms.projection_pushdown import pushdown_projections
@@ -594,20 +597,51 @@ class TestProjectionPushdown(BaseTest):
 
         assert optimized.to_hogql() == self.snapshot
 
-    def test_cte_shared_by_union_branches_keeps_all_demanded_columns(self):
+    @parameterized.expand(
+        [
+            (
+                "single_cte",
+                "WITH base AS (SELECT * FROM (SELECT 1 AS a, 2 AS b, 3 AS d)) "
+                "SELECT a FROM base "
+                "UNION ALL SELECT b FROM base "
+                "UNION ALL SELECT d FROM base",
+                ("base",),
+            ),
+            (
+                "chained_ctes",
+                "WITH inner_base AS (SELECT * FROM (SELECT 1 AS a, 2 AS b, 3 AS d)), "
+                "mid AS (SELECT * FROM inner_base) "
+                "SELECT a FROM mid "
+                "UNION ALL SELECT b FROM mid "
+                "UNION ALL SELECT d FROM mid",
+                ("inner_base", "mid"),
+            ),
+        ]
+    )
+    def test_ctes_shared_by_union_branches_keep_all_demanded_columns(self, _name, query_str, cte_names):
         # The WITH lives on the first UNION branch but every sibling branch consumes it, so
         # pruning before all branches register their demands drops columns the siblings need.
-        optimized = self._optimize(
-            "WITH base AS (SELECT * FROM (SELECT 1 AS a, 2 AS b, 3 AS d)) "
-            "SELECT a FROM base "
-            "UNION ALL SELECT b FROM base "
-            "UNION ALL SELECT d FROM base"
-        )
+        # Chained CTEs need the fixpoint loop too: demands cross one CTE hop per collect pass.
+        optimized = self._optimize(query_str)
 
         first_branch = optimized.initial_select_query
         assert isinstance(first_branch, ast.SelectQuery)
         assert first_branch.ctes is not None
-        base_cte = first_branch.ctes["base"].expr
-        assert isinstance(base_cte, ast.SelectQuery)
-        base_cols = {self._col_name(col) for col in base_cte.select}
-        assert base_cols == {"a", "b", "d"}, f"CTE dropped columns demanded by sibling branches: got {base_cols}"
+        for cte_name in cte_names:
+            cte_query = first_branch.ctes[cte_name].expr
+            assert isinstance(cte_query, ast.SelectQuery)
+            cols = {self._col_name(col) for col in cte_query.select}
+            assert cols == {"a", "b", "d"}, f"CTE {cte_name} dropped demanded columns: got {cols}"
+
+    def test_pushdown_clears_cte_database_table_cache(self):
+        # The cache holds CTE tables built from pre-prune columns; pushdown must drop them so a
+        # wrongly pruned column fails loudly downstream instead of resolving against stale state.
+        modifiers = HogQLQueryModifiers(optimizeProjections=False)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
+        query = parse_select("SELECT event FROM (SELECT * FROM events) AS sub")
+        prepared = prepare_ast_for_printing(query, context, dialect="hogql")
+        assert prepared is not None
+
+        context.cte_database_table_cache[12345] = ("sentinel", Table(fields={}))
+        pushdown_projections(prepared, context)
+        assert context.cte_database_table_cache == {}
