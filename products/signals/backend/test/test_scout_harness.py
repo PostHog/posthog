@@ -285,6 +285,11 @@ class TestPromptBuilder(BaseTest):
         # The writing-style section is wired into the tail, carrying the
         # session-replay-vs-recording terminology rule scouts must follow.
         assert "session recordings" in prompt
+        # Dedupe rules point a signal scout at the inbox with `include_all_statuses=true` —
+        # human-dismissed reports are hidden by default, and their dismissal notes carry the
+        # human rationale the scout needs before re-surfacing a topic.
+        assert "include_all_statuses=true" in prompt
+        assert "dismissal_note" in prompt
         # A signal scout never sees the report-channel guidance — it fires weak
         # signals, it does not author reports.
         assert "scout-emit-report" not in prompt
@@ -367,6 +372,12 @@ class TestPromptBuilder(BaseTest):
         # Dropping either silently re-opens the duplicate-report failure mode for every report scout.
         assert "ordering=-updated_at" in prompt
         assert "source_product=signals_scout" in prompt
+        # The inbox search must widen to human-dismissed reports (`include_all_statuses=true`) and
+        # read their dismissal notes — a human's dismissal rationale is context the scout needs
+        # before re-surfacing a topic. Dropping either re-opens the "re-report what a human
+        # already dismissed" failure mode.
+        assert "include_all_statuses=true" in prompt
+        assert "dismissal_note" in prompt
         # Signal-only sections (weak-finding schema, tagging taxonomy) are dropped
         # for a report scout — it doesn't fire `emit_signal`.
         assert "scout-emit-signal" not in prompt
