@@ -696,8 +696,32 @@ class TestCohortUtils(BaseTest):
         sql = print_cohort_hogql_query(cohort, context, team=self.team)
 
         self.assertNotIn("event_count", sql)
-        self.assertNotIn("ORDER BY", sql)
-        self.assertIn("as actor_id", sql)
+        self.assertNotIn("order by", sql.lower())
+        self.assertIn("as actor_id", sql.lower())
+
+    def test_print_cohort_hogql_query_keeps_order_by_and_limit_for_bounded_query(self):
+        """A bounded cohort query (ORDER BY + LIMIT on a real column) must stay deterministic.
+
+        Here the ORDER BY targets a real column that survives the SELECT collapse, so dropping it
+        would leave the LIMIT selecting an arbitrary, non-deterministic subset on every recalculation.
+        Both the ordering and the limit must be preserved.
+        """
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Bounded Actors Cohort",
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT id AS actor_id, created_at FROM persons ORDER BY created_at DESC LIMIT 100",
+            },
+        )
+
+        context = HogQLContext(team_id=self.team.id, enable_select_queries=True)
+
+        sql = print_cohort_hogql_query(cohort, context, team=self.team)
+
+        self.assertIn("order by", sql.lower())
+        self.assertIn("limit 100", sql.lower())
+        self.assertIn("as actor_id", sql.lower())
 
 
 class TestGetNestedCohortIds(BaseTest):
