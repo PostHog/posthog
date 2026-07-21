@@ -1554,8 +1554,9 @@ export function CodeReviewScene(): JSX.Element {
                         ReviewHog reviews pull requests before humans do
                     </h2>
                     <p className="m-0 max-w-155 text-sm text-secondary">
-                        Specialist review skills read your changed code in parallel each from their own perspective, a blind-spot sweep catches
-                        what they missed, and only validated findings get published back to the pull request.
+                        Specialist review skills read your changed code in parallel each from their own perspective, a
+                        blind-spot sweep catches what they missed, and only validated findings get published back to the
+                        pull request.
                     </p>
                     <ProofCard />
                 </section>
