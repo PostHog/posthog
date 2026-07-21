@@ -83,6 +83,10 @@ Add an entry to `PRODUCT_SETUP_PROBES` in `lib/components/ProductEmptyState/setu
 
 Extend the detection logic's existing jest file with a parameterized push-through case: mount with mocked signals, assert `productSetupStatusLogic({ productKey }).values.status`. Reference: `products/mcp_analytics/frontend/mcpAnalyticsOnboardingLogic.test.ts`. Run `/writing-tests` first; don't re-test the shared gate or skip mechanics (covered in `productSetupStatusLogic.test.ts`).
 
+### 6. Add storybook coverage
+
+Add one story per mode to `lib/components/ProductEmptyState/ProductEmptyState.stories.tsx` with `productEmptyStateStory(myProductEmptyState, mode)` (from `storybookHelpers.ts`) - it renders your real config and gives you visual-regression snapshots for free. Default mocks answer queries and product intents so a bare call renders cleanly; pass `mocks` to drive your status indicator into a specific state (see the MCP stories).
+
 ## Migrating a ProductIntroduction call site
 
 - Full-scene "product not set up" uses → this system, via steps 1-4.
