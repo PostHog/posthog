@@ -1,4 +1,5 @@
 import json
+from typing import Any
 
 import pytest
 from unittest.mock import Mock, patch
@@ -37,7 +38,7 @@ def _client(mock_get_client: Mock, response: Mock | None = None, error: Exceptio
 
 
 def _call(**overrides):
-    kwargs = {
+    kwargs: dict[str, Any] = {
         "product": "survey_translation",
         "model": "claude-haiku-4-5",
         "system_prompt": "Translate.",
