@@ -66,6 +66,8 @@ uuid = { workspace = true }
 # Integration tests in `tests/` build `TeamFilters` via `freeze(UTC)`, so they name `chrono_tz::UTC`
 # directly (a normal dependency is not in scope for the separate integration-test crates).
 chrono-tz = { workspace = true }
+# Convergence/idempotency property tests for the seed-tile apply core (`workers::seed_path`).
+proptest = "1"
 serde_json = { workspace = true }
 tempfile = "3"
 # `test-util` enables the paused clock (`start_paused` / `tokio::time::advance`) the sweep timer

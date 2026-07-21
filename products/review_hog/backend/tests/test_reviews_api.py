@@ -508,9 +508,10 @@ class TestRecentReviewsAPI(APIBaseTest):
         assert rows[0]["in_progress"] is True
         assert {r["pr_number"] for r in rows[1:]} <= set(range(1, 6))
 
-    def test_perspective_stats_aggregate_latest_turns_of_my_reviews(self) -> None:
-        # Effectiveness must aggregate each report's LATEST turn only and never mix in a teammate's
-        # reviews — stale turns or foreign reports would inflate a perspective's record.
+    def test_perspective_stats_aggregate_latest_turns_per_scope(self) -> None:
+        # Effectiveness must aggregate each report's LATEST turn only and, on the default scope,
+        # never mix in a teammate's reviews — stale turns or foreign reports would inflate a
+        # perspective's record.
         logic = "review-hog-perspective-logic-correctness"
         blind = "review-hog-blind-spots-general"
         first = self._report(pr_number=1, acting_user=self.user, run_count=2)
@@ -532,6 +533,19 @@ class TestRecentReviewsAPI(APIBaseTest):
             {"skill_name": logic, "raised": 2, "kept": 1, "dismissed": 1},
             {"skill_name": blind, "raised": 1, "kept": 1, "dismissed": 0},
         ]
+
+        # scope=everyone folds the teammate's reviews in — the page-level "Entire project" switch;
+        # a filter regression here would keep project-wide stats silently personal.
+        res = self.client.get(f"{self.url}perspective_stats/?scope=everyone")
+
+        assert res.status_code == 200
+        data = res.json()
+        assert data["report_count"] == 3
+        assert data["perspectives"] == [
+            {"skill_name": blind, "raised": 2, "kept": 2, "dismissed": 0},
+            {"skill_name": logic, "raised": 2, "kept": 1, "dismissed": 1},
+        ]
+        assert self.client.get(f"{self.url}perspective_stats/?scope=everything").status_code == 400
 
     def test_retrieve_is_project_wide_but_never_cross_team(self) -> None:
         # Opening a teammate's review from the everyone-scope list must work, but another team's

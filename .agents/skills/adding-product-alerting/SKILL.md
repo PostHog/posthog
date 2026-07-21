@@ -4,7 +4,7 @@ description: >
   Recommended repo-engineering guide when adding alerting to a PostHog product or
   extending the shared alerts platform. Routes lifecycle state machines,
   AlertPolicy, destinations, HogFunction dispatch, email, fixed-cadence and calendar
-  scheduling, insight evaluation, and the AlertWizard. Use for product alert implementations,
+  scheduling, insight evaluation, the AlertWizard, and shared alert editor components. Use for product alert implementations,
   shared destination types, lifecycle or scheduling options, advanced alert settings,
   and platform alert infrastructure. Not for configuring alerts in an existing product.
 ---
@@ -24,6 +24,7 @@ This skill covers two jobs:
 | Request                                                                                                                                      | Path         | Read                                                                                       |
 | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------ |
 | Add alerting to a product                                                                                                                    | Adopt        | [adopting-platform-alerting.md](references/adopting-platform-alerting.md)                  |
+| Build or extend a product alert editor, destination UI, advanced options, or evaluation history                                              | Frontend     | [frontend-alerting.md](references/frontend-alerting.md)                                    |
 | Add a lifecycle rule, destination type, delivery behavior, schedule primitive, email capability, wizard option, or shared evaluation feature | Extend       | [extending-platform-alerting.md](references/extending-platform-alerting.md)                |
 | Change behavior for one existing product                                                                                                     | Adopt first  | Keep it product-owned unless the behavior is reusable and backed by a real second use case |
 | Understand ownership or choose the correct layer                                                                                             | Architecture | [architecture.md](references/architecture.md)                                              |
@@ -41,7 +42,8 @@ Both paths must preserve these rules:
 5. **Destinations are allowlisted.** Shared support does not automatically expose a destination in every product.
 6. **Scheduling math is shared, eligibility is product-owned.** Reuse fixed-cadence, calendar-anchor, timezone, and schedule-restriction helpers from `products/alerts/backend/scheduling.py`. Keep model-specific due predicates and persistence with the adopter.
 7. **Shared code has no product branches.** `common/alerting/` stays pure Python. Reusable Django behavior belongs in `products/alerts/backend/`.
-8. **Defaults remain backward compatible.** New platform options must preserve existing adopters until they explicitly opt in.
+8. **Frontend data is normalized at the product boundary.** Shared editor components render normalized definitions, destinations, advanced options, schedules, and history. Product API calls, payloads, and evaluation-specific fields stay in the product adapter.
+9. **Defaults remain backward compatible.** New platform options must preserve existing adopters until they explicitly opt in.
 
 ## Current limits
 
@@ -54,3 +56,4 @@ There is no generic alert base model, product registry, push-mode `submit_check(
 | Layer ownership, public contracts, and reference adopters | [architecture.md](references/architecture.md)                               |
 | Add alerting to a product                                 | [adopting-platform-alerting.md](references/adopting-platform-alerting.md)   |
 | Extend shared alert infrastructure                        | [extending-platform-alerting.md](references/extending-platform-alerting.md) |
+| Build the product alert frontend                          | [frontend-alerting.md](references/frontend-alerting.md)                     |

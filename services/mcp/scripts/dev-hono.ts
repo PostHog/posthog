@@ -7,6 +7,7 @@ import { existsSync } from 'fs'
 import { resolve } from 'path'
 
 import { copyInstructions } from './copy-instructions'
+import { createDevHonoChildEnv } from './dev-hono-env'
 import { honoEsbuildOptions, honoOutfile } from './hono-esbuild-config'
 
 // `.env` is the single local-dev env file (see .env.example). Wrangler reads
@@ -57,7 +58,7 @@ const launch = async (): Promise<void> => {
     await killChild()
     child = spawn(process.execPath, [honoOutfile], {
         stdio: 'inherit',
-        env: { ...process.env, SHUTDOWN_PRESTOP_DELAY_MS: '0' },
+        env: createDevHonoChildEnv(process.env),
     })
     child.on('exit', (code, signal) => {
         if (signal === 'SIGTERM') {

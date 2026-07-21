@@ -18,6 +18,9 @@ export const TracingSpansAggregateCreateParams = /* @__PURE__ */ zod.object({
 
 export const tracingSpansAggregateCreateBodyQueryOneCompareFilterOneCompareDefault = false
 export const tracingSpansAggregateCreateBodyQueryOneFilterGroupDefault = []
+export const tracingSpansAggregateCreateBodyQueryOneLimitMax = 5000
+
+export const tracingSpansAggregateCreateBodyQueryOneOffsetMin = 0
 
 export const TracingSpansAggregateCreateBody = /* @__PURE__ */ zod.object({
     query: zod
@@ -102,6 +105,21 @@ export const TracingSpansAggregateCreateBody = /* @__PURE__ */ zod.object({
                 )
                 .default(tracingSpansAggregateCreateBodyQueryOneFilterGroupDefault)
                 .describe('Property filters applied to spans in both windows.'),
+            limit: zod
+                .number()
+                .min(1)
+                .max(tracingSpansAggregateCreateBodyQueryOneLimitMax)
+                .optional()
+                .describe(
+                    'Max rows to return, ordered by total_duration_nano DESC. Defaults to 100; hard max 5000. Keep this small to bound the response size — a high value on high-cardinality span names (e.g. untemplated URL paths) returns a very large payload. Prefer narrowing with `serviceNames`/`filterGroup` over raising the limit.'
+                ),
+            offset: zod
+                .number()
+                .min(tracingSpansAggregateCreateBodyQueryOneOffsetMin)
+                .optional()
+                .describe(
+                    'Row offset for pagination. Combine with `limit` and the `next_offset` returned in the response to page through results beyond the first page.'
+                ),
         })
         .describe('The span aggregation query to execute.'),
 })
