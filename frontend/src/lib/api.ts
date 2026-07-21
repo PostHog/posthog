@@ -139,7 +139,6 @@ import {
     ExternalDataSchemaWithSource,
     ExternalDataSource,
     ExternalDataSourceCreatePayload,
-    ExternalDataSourceFileUpload,
     ExternalDataSourceRevenueAnalyticsConfig,
     ExternalDataSourceSchema,
     ExternalDataSourceSyncSchema,
@@ -224,6 +223,7 @@ import {
     UserBasicType,
     UserInterviewType,
     UserType,
+    WarehouseTableFileUpload,
     WebAnalyticsFilterPresetType,
     WebhookInfo,
 } from '~/types'
@@ -5705,6 +5705,19 @@ const api = {
         async refreshSchema(tableId: DataWarehouseTable['id']): Promise<void> {
             await new ApiRequest().dataWarehouseTable(tableId).withAction('refresh_schema').create()
         },
+        // FormData, not JSON — the browser sets the multipart boundary itself, so don't add a
+        // Content-Type header here (`api.createResponse` already skips it for FormData bodies).
+        async uploadFile(data: FormData): Promise<WarehouseTableFileUpload> {
+            return await new ApiRequest().dataWarehouseTables().withAction('upload_file').create({ data })
+        },
+        async createFromUpload(data: {
+            upload_id: string
+            filename: string
+            file_format: string
+            table_name: string
+        }): Promise<DataWarehouseTable> {
+            return await new ApiRequest().dataWarehouseTables().withAction('create_from_upload').create({ data })
+        },
     },
 
     dataWarehouseSavedQueries: {
@@ -5912,11 +5925,6 @@ const api = {
         },
         async create(data: Partial<ExternalDataSourceCreatePayload>): Promise<{ id: string }> {
             return await new ApiRequest().externalDataSources().create({ data })
-        },
-        // FormData, not JSON — the browser sets the multipart boundary itself, so don't add a
-        // Content-Type header here (`api.createResponse` already skips it for FormData bodies).
-        async uploadFile(data: FormData): Promise<ExternalDataSourceFileUpload> {
-            return await new ApiRequest().externalDataSources().withAction('upload_file').create({ data })
         },
         async delete(sourceId: ExternalDataSource['id']): Promise<void> {
             await new ApiRequest().externalDataSource(sourceId).delete()

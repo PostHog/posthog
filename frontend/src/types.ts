@@ -6181,8 +6181,8 @@ export interface ExternalDataSourceCreatePayload {
     payload: Record<string, any>
 }
 
-/** Response of `POST external_data_sources/upload_file` — the stored file a FileUpload source points at. */
-export interface ExternalDataSourceFileUpload {
+/** Response of `POST warehouse_tables/upload_file` — the stored file a self-managed table is built from. */
+export interface WarehouseTableFileUpload {
     upload_id: string
     filename: string
     file_format: string

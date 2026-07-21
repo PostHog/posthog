@@ -23,6 +23,7 @@ import { HogFunctionTemplateStatus } from '~/types'
 import type { FeatureFlagsSet } from '../../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { ManualLinkSourceType, UserType } from '../../../../../frontend/src/types'
 import { availableSourcesLogic } from './availableSourcesLogic'
+import { FILE_UPLOAD_FORMATS, FILE_UPLOAD_SOURCE_CONFIG, FILE_UPLOAD_SOURCE_NAME, fileUploadSourceUrl } from './fileUploadSource'
 import { sourceWizardLogic } from './sourceWizardLogic'
 
 // Helps kea-typegen reference the Fuse type without a bad `import { Fuse } from 'fuse.js'`.
@@ -50,23 +51,6 @@ const MANUAL_SOURCE_KEYWORDS: Record<string, string[]> = {
 // format ("csv", "parquet") should land on them rather than an empty result that pushes
 // them to request a source we already support. Matches the formats the link form accepts.
 const FILE_STORAGE_FORMAT_KEYWORDS = ['csv', 'parquet', 'delta', 'file', 'files', 'flat file']
-
-// One `FileUpload` source config backs three catalog tiles: users look for "CSV", not for a
-// generic "File upload". The chosen format rides along in the URL and seeds the upload form.
-export const FILE_UPLOAD_SOURCE_NAME: ExternalDataSourceType = 'FileUpload'
-
-export type FileUploadFormat = 'csv' | 'json' | 'parquet'
-
-export const FILE_UPLOAD_FORMATS: { format: FileUploadFormat; label: string; keywords: string[] }[] = [
-    { format: 'csv', label: 'CSV file', keywords: ['csv', 'spreadsheet', 'excel export', 'comma separated', 'upload'] },
-    { format: 'json', label: 'JSON file', keywords: ['json', 'ndjson', 'jsonl', 'upload'] },
-    { format: 'parquet', label: 'Parquet file', keywords: ['parquet', 'pqt', 'columnar', 'upload'] },
-]
-
-export function fileUploadSourceUrl(format: FileUploadFormat): string {
-    const url = urls.dataWarehouseSourceNew(FILE_UPLOAD_SOURCE_NAME)
-    return `${url}${url.includes('?') ? '&' : '?'}format=${format}`
-}
 
 // "Request a data warehouse source" survey. We render our own modal and submit the answer
 // directly as a `survey sent` event rather than using the posthog-js survey popover.
@@ -406,7 +390,6 @@ export interface sourceCatalogLogicMeta {
                       | 'Fauna'
                       | 'Featurebase'
                       | 'Feishu'
-                      | 'FileUpload'
                       | 'Fillout'
                       | 'Finage'
                       | 'FinancialModelling'
@@ -1115,7 +1098,6 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
                 allowedSources:
                     | (
-                          | 'FileUpload'
                           | 'ActiveCampaign'
                           | 'AcuityScheduling'
                           | 'Adapty'
@@ -1999,32 +1981,15 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                                 ? connector.releaseStatus
                                 : undefined
 
-                        const base = {
-                            iconType: connector.name,
-                            iconClassName: connector.iconClassName,
-                            category: connector.category ?? MANUAL_SOURCE_CATEGORY,
-                            status,
-                            releaseStatus,
-                            disabledReason: connector.disabledReason,
-                            existingSource: connector.existingSource,
-                        }
-
-                        // File upload is one source but three tiles, one per file format.
-                        if (connector.name === FILE_UPLOAD_SOURCE_NAME) {
-                            return FILE_UPLOAD_FORMATS.map(
-                                ({ format, label, keywords }): CatalogItem => ({
-                                    ...base,
-                                    name: `${FILE_UPLOAD_SOURCE_NAME}-${format}`,
-                                    label,
-                                    keywords,
-                                    url: fileUploadSourceUrl(format),
-                                })
-                            )
-                        }
-
                         return [
                             {
-                                ...base,
+                                iconType: connector.name,
+                                iconClassName: connector.iconClassName,
+                                category: connector.category ?? MANUAL_SOURCE_CATEGORY,
+                                status,
+                                releaseStatus,
+                                disabledReason: connector.disabledReason,
+                                existingSource: connector.existingSource,
                                 name: connector.name,
                                 label: connector.label ?? connector.name,
                                 keywords: connector.keywords ?? [],
@@ -2046,7 +2011,24 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                     })
                 )
 
-                return [...managed, ...selfManaged]
+                // File upload is self-managed too — the uploaded file becomes an in-place table — but
+                // it isn't a `manualConnector` (those link a user's own bucket). It's one entry with
+                // three tiles, one per format, since users search for "CSV" rather than "File upload".
+                const fileUpload = FILE_UPLOAD_FORMATS.map(
+                    ({ format, label, keywords }): CatalogItem => ({
+                        name: `${FILE_UPLOAD_SOURCE_NAME}-${format}`,
+                        label,
+                        iconType: FILE_UPLOAD_SOURCE_NAME,
+                        category: MANUAL_SOURCE_CATEGORY,
+                        keywords,
+                        status: 'stable',
+                        releaseStatus: FILE_UPLOAD_SOURCE_CONFIG.releaseStatus,
+                        url: fileUploadSourceUrl(format),
+                        selfManaged: true,
+                    })
+                )
+
+                return [...managed, ...selfManaged, ...fileUpload]
             },
             // featureFlags is a broad dependency that changes identity on every flag refresh;
             // keeping the previous array when the derived catalog is unchanged stops the Fuse

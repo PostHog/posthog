@@ -9,7 +9,7 @@ import api from 'lib/api'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { urls } from 'scenes/urls'
 
-import { FILE_UPLOAD_SOURCE_NAME, FileUploadFormat } from './sourceCatalogLogic'
+import { FileUploadFormat } from './fileUploadSource'
 
 // Mirrors MAX_FILE_UPLOAD_SIZE_BYTES on the backend. Checked here too so an oversized file fails
 // instantly instead of after uploading 50MB+ only to be rejected.
@@ -179,31 +179,25 @@ export const fileUploadSourceLogic = kea<fileUploadSourceLogicType>([
 
                 let upload
                 try {
-                    upload = await api.externalDataSources.uploadFile(formData)
+                    upload = await api.dataWarehouseTables.uploadFile(formData)
                 } catch (e: any) {
                     lemonToast.error(e.data?.message ?? e.message ?? 'Could not upload the file.')
                     return
                 }
 
                 try {
-                    await api.externalDataSources.create({
-                        source_type: FILE_UPLOAD_SOURCE_NAME,
-                        prefix: '',
-                        created_via: 'web',
-                        payload: {
-                            table_name,
-                            file_format,
-                            upload_id: upload.upload_id,
-                            filename: upload.filename,
-                            schemas: [{ name: table_name, should_sync: true, sync_type: 'full_refresh' }],
-                        },
+                    await api.dataWarehouseTables.createFromUpload({
+                        upload_id: upload.upload_id,
+                        filename: upload.filename,
+                        file_format,
+                        table_name,
                     })
                 } catch (e: any) {
-                    lemonToast.error(e.data?.message ?? e.message ?? 'Could not create the source.')
+                    lemonToast.error(e.data?.message ?? e.message ?? 'Could not create the table.')
                     return
                 }
 
-                lemonToast.success(`Table ${table_name} is being imported`)
+                lemonToast.success(`Table ${table_name} created`)
                 actions.loadDatabase()
                 router.actions.replace(urls.sources())
             },

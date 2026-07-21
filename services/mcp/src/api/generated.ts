@@ -17830,7 +17830,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `FileUpload` - FileUpload
      * * `Ashby` - Ashby
      * * `Supabase` - Supabase
      * * `CustomerIO` - CustomerIO
@@ -18700,7 +18699,6 @@ export namespace Schemas {
 
 
     export const ExternalDataSourceTypeEnum = {
-      FileUpload: 'FileUpload',
       Ashby: 'Ashby',
       Supabase: 'Supabase',
       CustomerIO: 'CustomerIO',
@@ -19584,7 +19582,6 @@ export namespace Schemas {
     export interface DatabaseSchemaRequest {
       /** The source type to validate against.
        *
-       * * `FileUpload` - FileUpload
        * * `Ashby` - Ashby
        * * `Supabase` - Supabase
        * * `CustomerIO` - CustomerIO
@@ -26475,7 +26472,6 @@ export namespace Schemas {
       readonly engine: EngineEnum | null;
       /** The source type (e.g. 'Postgres', 'MySQL', 'Snowflake').
        *
-       * * `FileUpload` - FileUpload
        * * `Ashby` - Ashby
        * * `Supabase` - Supabase
        * * `CustomerIO` - CustomerIO
@@ -27372,7 +27368,6 @@ export namespace Schemas {
     export interface ExternalDataSourceCreate {
       /** The source type (e.g. 'Postgres', 'Stripe').
        *
-       * * `FileUpload` - FileUpload
        * * `Ashby` - Ashby
        * * `Supabase` - Supabase
        * * `CustomerIO` - CustomerIO
@@ -58629,7 +58624,6 @@ export namespace Schemas {
     export interface SourceCredentialCreate {
       /** The source type these credentials are for (e.g. 'Stripe', 'Postgres').
        *
-       * * `FileUpload` - FileUpload
        * * `Ashby` - Ashby
        * * `Supabase` - Supabase
        * * `CustomerIO` - CustomerIO
@@ -59499,17 +59493,6 @@ export namespace Schemas {
       payload: SourceCredentialCreatePayload;
     }
 
-    export interface SourceFileUpload {
-      /** Id of the stored upload. Pass it in the source payload as {'upload_id': <id>} when creating the source. */
-      upload_id: string;
-      /** Sanitized name the file was stored under. */
-      filename: string;
-      /** Format the file will be parsed as: 'csv', 'json', or 'parquet'. */
-      file_format: string;
-      /** Size of the stored file in bytes. */
-      size_bytes: number;
-    }
-
     export interface SourceMappingSuggestion {
       /** The raw utm_source value seen on events */
       raw_utm_source: string;
@@ -59550,7 +59533,6 @@ export namespace Schemas {
     export interface SourcePreviewRequest {
       /** The source type to preview. Only 'Custom' (a user-defined REST API) is supported today.
        *
-       * * `FileUpload` - FileUpload
        * * `Ashby` - Ashby
        * * `Supabase` - Supabase
        * * `CustomerIO` - CustomerIO
@@ -60452,7 +60434,6 @@ export namespace Schemas {
     export interface SourceSetup {
       /** The source type to set up (e.g. 'Stripe', 'Postgres', 'Hubspot').
        *
-       * * `FileUpload` - FileUpload
        * * `Ashby` - Ashby
        * * `Supabase` - Supabase
        * * `CustomerIO` - CustomerIO
@@ -68456,25 +68437,6 @@ export namespace Schemas {
     source_type?: string;
     };
 
-    /**
-     * How the file should be parsed when it is imported.
-     */
-    export type EnvironmentsExternalDataSourcesUploadFileCreateBodyFileFormat = typeof EnvironmentsExternalDataSourcesUploadFileCreateBodyFileFormat[keyof typeof EnvironmentsExternalDataSourcesUploadFileCreateBodyFileFormat];
-
-
-    export const EnvironmentsExternalDataSourcesUploadFileCreateBodyFileFormat = {
-      Csv: 'csv',
-      Json: 'json',
-      Parquet: 'parquet',
-    } as const;
-
-    export type EnvironmentsExternalDataSourcesUploadFileCreateBody = {
-      /** The file to upload. */
-      file: Blob;
-      /** How the file should be parsed when it is imported. */
-      file_format: EnvironmentsExternalDataSourcesUploadFileCreateBodyFileFormat;
-    };
-
     export type EnvironmentsExternalDataSourcesWizardRetrieveParams = {
     /**
      * Comma-separated source type(s) to return config for, e.g. 'Postgres' or 'Postgres,Stripe'. Strongly recommended: the unfiltered response describes every supported source and is very large. Omit only to enumerate the available types.
@@ -75940,25 +75902,6 @@ export namespace Schemas {
      * Only return stored credentials for this source type (e.g. 'Stripe', 'Postgres').
      */
     source_type?: string;
-    };
-
-    /**
-     * How the file should be parsed when it is imported.
-     */
-    export type ExternalDataSourcesUploadFileCreateBodyFileFormat = typeof ExternalDataSourcesUploadFileCreateBodyFileFormat[keyof typeof ExternalDataSourcesUploadFileCreateBodyFileFormat];
-
-
-    export const ExternalDataSourcesUploadFileCreateBodyFileFormat = {
-      Csv: 'csv',
-      Json: 'json',
-      Parquet: 'parquet',
-    } as const;
-
-    export type ExternalDataSourcesUploadFileCreateBody = {
-      /** The file to upload. */
-      file: Blob;
-      /** How the file should be parsed when it is imported. */
-      file_format: ExternalDataSourcesUploadFileCreateBodyFileFormat;
     };
 
     export type ExternalDataSourcesWizardRetrieveParams = {

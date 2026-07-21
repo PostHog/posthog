@@ -23752,7 +23752,6 @@
         },
         "ExternalDataSourceType": {
             "enum": [
-                "FileUpload",
                 "Ashby",
                 "Supabase",
                 "CustomerIO",
