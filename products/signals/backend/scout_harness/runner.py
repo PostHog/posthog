@@ -234,7 +234,7 @@ async def arun_signals_scout(
     agent_runtime = await database_sync_to_async(resolve_agent_runtime, thread_sensitive=False)(team_id, STEP_SCOUT)
     if scout_model.model:
         runtime_adapter: str | None = scout_model.runtime_adapter
-        model = scout_model.model
+        model: str | None = scout_model.model
         reasoning_effort: str | None = scout_model.reasoning_effort
     elif agent_runtime.runtime_adapter:
         runtime_adapter = agent_runtime.runtime_adapter
