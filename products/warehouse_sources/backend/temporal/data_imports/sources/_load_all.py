@@ -818,6 +818,7 @@ from .vercel.source import VercelSource
 from .vespa.source import VespaSource
 from .visma_economic.source import VismaEconomicSource
 from .vitally.source import VitallySource
+from .vturb.source import VturbSource
 from .vultr.source import VultrSource
 from .vwo.source import VWOSource
 from .waiteraid.source import WaiteraidSource
