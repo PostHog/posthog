@@ -183,6 +183,19 @@ one sandbox session → zero or more emitted signals.
   The skill body is loaded into the system prompt; each scout has its own
   `SignalScoutConfig` row (keyed on `(team, skill_name)`) whose `enabled` flag and
   `run_interval_minutes` schedule the coordinator's per-scout due-check honors.
+- Scout sandbox GitHub credentials are **always read-only**: the runner requests
+  `github_read_access` on every scout run, so provisioning mints an ephemeral downscoped
+  installation token (`contents`/`metadata`/`pull_requests` read, team-level installs only, never
+  persisted — `get_readonly_github_token` in the tasks product) instead of the write-capable
+  token that task creation would otherwise attach, or injects nothing when the mint isn't
+  possible. The token backs the preinstalled `gh` CLI via `GH_TOKEN`/`GITHUB_TOKEN`.
+  Separately, the **`gh` prompt guidance** for code-derived reviewer evidence — commit history by
+  path, cross-checked against `scout-members-list`, cited in each reviewer's `reason` — renders
+  only for report-channel scouts whose team passes both the `github_read_access` posture in the
+  `signals-scout` flag payload (`team_configs`/`default_team_config`, resolved by
+  `team_limits.github_read_access_for_team`; default ON, an explicit `false` at either layer is
+  the kill switch) AND the mint-feasibility preflight
+  (`tasks_facade.can_mint_readonly_github_token`), so a tokenless run is never steered at `gh`.
 - `MultiTurnSession.start()` creates a Tasks `(Task, TaskRun)` pair to drive the
   sandbox. The bridge row links to its `TaskRun` via a `OneToOne` FK (`task_run`), created
   by the `on_task_run_created` hook before the agent's first turn — this powers the
@@ -197,6 +210,9 @@ one sandbox session → zero or more emitted signals.
   `_self_heal_stale_runs`). They join on `run_id`/`task_run_id` and are the event-derived
   (no-warehouse-lag) basis for throughput, stall, and worker-death alerting — a `started`
   with no `finished` is a run that died before finalize; a reaped run emits no `finished`.
+  When the `scouts-model-selection` gate (or a runtime pin) routes the run, `started` and
+  `finished` also carry `model` / `runtime_adapter`, so run outcomes are sliceable by model
+  without joining through `$ai_generation`; absence means the agent-server default served it.
   The report channel adds `signals_scout_report_emitted` / `signals_scout_report_edited`
   (plus customer-facing `$scout_report_*` copies), stamped with derived classification
   properties (`report_kind` = `finding`/`self_improvement`, `is_self_improvement_report`)

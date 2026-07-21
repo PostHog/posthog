@@ -63,6 +63,7 @@ jobs:
                         # its Rust tests; a rust-side change (incl. the shared fixtures) must run it.
                         - 'rust/replay-anonymizer/**'
                         - 'rust/replay-anonymizer-node/**'
+                        - '**/crosslang/**'
                         - 'posthog/clickhouse/**'
                         - 'ee/migrations/**'
                         - 'posthog/management/commands/setup_test_environment.py'

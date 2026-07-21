@@ -10,7 +10,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.delighted.
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.delighted.source import DelightedSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DelightedSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.delighted import (
+    DelightedSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

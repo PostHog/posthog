@@ -33,7 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dbt.settin
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DbtSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dbt import DbtSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
