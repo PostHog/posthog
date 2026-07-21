@@ -513,6 +513,8 @@ export interface HogQLQueryModifiers {
     usePreaggregatedIntermediateResults?: boolean
     optimizeProjections?: boolean
     pushDownPredicates?: boolean
+    /** Derive events.timestamp bounds from UUIDv7 constants compared against events.uuid, so uuid point lookups prune partitions instead of scanning full event history. On unless explicitly disabled. **/
+    uuidV7TimestampBounds?: boolean
     /** If these are provided, the query will fail if these skip indexes are not used */
     forceClickhouseDataSkippingIndexes?: string[]
     inlineCohortCalculation?: 'off' | 'auto' | 'always'

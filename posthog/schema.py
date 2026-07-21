@@ -5153,6 +5153,14 @@ class HogQLQueryModifiers(BaseModel):
         description=("Try to automatically convert HogQL queries to use preaggregated tables at the AST level *"),
     )
     useWebAnalyticsPreAggregatedTables: bool | None = None
+    uuidV7TimestampBounds: bool | None = Field(
+        default=None,
+        description=(
+            "Derive events.timestamp bounds from UUIDv7 constants compared against"
+            " events.uuid, so uuid point lookups prune partitions instead of scanning"
+            " full event history. On unless explicitly disabled. *"
+        ),
+    )
 
 
 class HogQuery(BaseModel):

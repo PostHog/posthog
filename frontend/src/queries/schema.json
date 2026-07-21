@@ -27117,6 +27117,10 @@
                 },
                 "useWebAnalyticsPreAggregatedTables": {
                     "type": "boolean"
+                },
+                "uuidV7TimestampBounds": {
+                    "description": "Derive events.timestamp bounds from UUIDv7 constants compared against events.uuid, so uuid point lookups prune partitions instead of scanning full event history. On unless explicitly disabled. *",
+                    "type": "boolean"
                 }
             },
             "type": "object"
