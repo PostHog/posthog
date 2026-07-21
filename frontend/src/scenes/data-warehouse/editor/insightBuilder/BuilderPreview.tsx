@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPalette } from '@posthog/icons'
+import { IconPalette, IconX } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -84,7 +84,9 @@ export function BuilderPreview({ tabId }: { tabId: string }): JSX.Element {
     }
 
     return (
-        <div className="flex min-h-0 flex-1 flex-col">
+        // min-w-0 keeps wide results from growing this flex item past the viewport, which would
+        // push the Format drawer off-screen
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             <div className="flex items-center justify-between border-b px-2 py-1">
                 <span className="text-xs font-semibold uppercase text-tertiary">Preview</span>
                 <LemonButton
@@ -100,8 +102,21 @@ export function BuilderPreview({ tabId }: { tabId: string }): JSX.Element {
             <div className="flex min-h-0 flex-1">
                 <div className="flex min-w-0 flex-1 flex-col">{content}</div>
                 {isChartSettingsPanelOpen ? (
-                    <div className="w-72 shrink-0 overflow-y-auto border-l">
-                        <SideBar />
+                    <div className="flex w-72 shrink-0 flex-col overflow-hidden border-l">
+                        <div className="flex shrink-0 items-center justify-between border-b px-2 py-1">
+                            <span className="text-xs font-semibold uppercase text-tertiary">Format</span>
+                            <LemonButton
+                                icon={<IconX />}
+                                size="xsmall"
+                                type="tertiary"
+                                onClick={() => toggleChartSettingsPanel(false)}
+                                tooltip="Close"
+                                data-attr="sql-builder-format-close"
+                            />
+                        </div>
+                        <div className="min-h-0 flex-1 overflow-y-auto">
+                            <SideBar />
+                        </div>
                     </div>
                 ) : null}
             </div>

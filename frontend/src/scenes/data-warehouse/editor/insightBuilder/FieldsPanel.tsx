@@ -1,7 +1,7 @@
 import { useDraggable } from '@dnd-kit/core'
 import { useActions, useValues } from 'kea'
 
-import { IconCalendar } from '@posthog/icons'
+import { IconCalendar, IconDatabase, IconPencil } from '@posthog/icons'
 import { LemonBanner, LemonTag } from '@posthog/lemon-ui'
 import {
     DropdownMenu,
@@ -16,7 +16,6 @@ import {
 import { Icon123, IconTextSize } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { Link } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
 
 import {
@@ -134,6 +133,9 @@ function FieldRow({ tabId, field }: { tabId: string; field: BuilderField }): JSX
                                 ))}
                             </DropdownMenuSubContent>
                         </DropdownMenuSub>
+                        <DropdownMenuItem onClick={() => addField('filters', field.name)}>
+                            Add to Filters
+                        </DropdownMenuItem>
                     </>
                 )}
             </DropdownMenuContent>
@@ -154,16 +156,24 @@ export function FieldsPanel({ tabId }: { tabId: string }): JSX.Element {
             <div className="flex items-center justify-between gap-2 px-2 pb-2">
                 <span className="text-xs font-semibold uppercase text-tertiary">Source</span>
                 {baseViewName ? (
-                    <LemonTag type="highlight" className="max-w-40 truncate" title={baseViewName}>
+                    <LemonTag
+                        type="highlight"
+                        icon={<IconDatabase />}
+                        className="max-w-40 truncate"
+                        title={baseViewName}
+                    >
                         {baseViewName}
                     </LemonTag>
                 ) : (
-                    <span className="truncate text-xs text-secondary">
-                        Custom query{' '}
-                        <Link onClick={() => setEditorMode(EditorMode.Data)} data-attr="sql-builder-source-edit">
-                            (Edit)
-                        </Link>
-                    </span>
+                    <LemonTag
+                        type="option"
+                        icon={<IconPencil />}
+                        onClick={() => setEditorMode(EditorMode.Data)}
+                        title="Edit the base query in the Data tab"
+                        data-attr="sql-builder-source-edit"
+                    >
+                        Custom query (Edit)
+                    </LemonTag>
                 )}
             </div>
             {baseOutOfSync ? (

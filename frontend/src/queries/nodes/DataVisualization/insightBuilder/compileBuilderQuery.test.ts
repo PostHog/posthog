@@ -5,6 +5,7 @@ import {
     compileBuilderQuery,
     detectSelectAllTarget,
     dimensionExpr,
+    filterExpr,
     isCompilableBase,
     measureExpr,
     sanitizeAlias,
@@ -191,6 +192,48 @@ describe('compileBuilderQuery', () => {
 
             expect(result.rowAliases).toEqual(['sum_amount'])
             expect(result.valueAliases).toEqual(['sum_amount_2'])
+        })
+    })
+
+    describe('filters', () => {
+        it('compiles complete filters into a WHERE clause before GROUP BY', () => {
+            const result = compileBuilderQuery(
+                config({
+                    rows: [{ column: 'plan' }],
+                    values: [{ column: 'amount', aggregation: 'sum' }],
+                    filters: [
+                        { column: 'region', operator: 'eq', value: 'EU' },
+                        { column: 'amount', operator: 'gt', value: '100' },
+                    ],
+                })
+            )
+
+            expect(result.sql).toContain("WHERE region = 'EU' AND amount > '100'")
+            expect(result.sql.indexOf('WHERE')).toBeLessThan(result.sql.indexOf('GROUP BY'))
+        })
+
+        it('skips incomplete filters so typing a value never breaks the query', () => {
+            const result = compileBuilderQuery(
+                config({
+                    values: [{ column: 'amount', aggregation: 'sum' }],
+                    filters: [
+                        { column: 'region', operator: 'eq' },
+                        { column: 'region', operator: 'neq', value: '' },
+                    ],
+                })
+            )
+
+            expect(result.sql).not.toContain('WHERE')
+        })
+
+        it.each([
+            [{ column: 'plan', operator: 'contains', value: '50%_off' } as const, "plan ILIKE '%50\\\\%\\\\_off%'"],
+            [{ column: 'plan', operator: 'not_contains', value: 'x' } as const, "plan NOT ILIKE '%x%'"],
+            [{ column: 'plan', operator: 'is_set' } as const, 'isNotNull(plan)'],
+            [{ column: 'plan', operator: 'is_not_set' } as const, 'isNull(plan)'],
+            [{ column: 'note', operator: 'eq', value: "it's" } as const, "note = 'it\\'s'"],
+        ])('compiles %o', (filter, expected) => {
+            expect(filterExpr(filter)).toEqual(expected)
         })
     })
 

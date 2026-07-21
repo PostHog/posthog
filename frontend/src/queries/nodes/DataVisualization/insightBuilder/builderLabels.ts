@@ -1,6 +1,7 @@
 import {
     InsightBuilderAggregation,
     InsightBuilderDateGrain,
+    InsightBuilderFilterOperator,
     InsightBuilderMeasure,
 } from '~/queries/schema/schema-general'
 
@@ -42,6 +43,37 @@ export const DATE_GRAIN_LABELS: Record<InsightBuilderDateGrain, string> = {
 }
 
 export const DATE_GRAIN_OPTIONS: InsightBuilderDateGrain[] = ['hour', 'day', 'week', 'month', 'quarter', 'year']
+
+export const FILTER_OPERATOR_LABELS: Record<InsightBuilderFilterOperator, string> = {
+    eq: '=',
+    neq: '≠',
+    gt: '>',
+    gte: '≥',
+    lt: '<',
+    lte: '≤',
+    contains: 'contains',
+    not_contains: "doesn't contain",
+    is_set: 'is set',
+    is_not_set: 'is not set',
+}
+
+export const FILTER_OPERATORS: InsightBuilderFilterOperator[] = [
+    'eq',
+    'neq',
+    'gt',
+    'gte',
+    'lt',
+    'lte',
+    'contains',
+    'not_contains',
+    'is_set',
+    'is_not_set',
+]
+
+/** Operators that compare against a value; is_set / is_not_set don't need one */
+export function operatorNeedsValue(operator: InsightBuilderFilterOperator): boolean {
+    return operator !== 'is_set' && operator !== 'is_not_set'
+}
 
 export function measureLabel(measure: InsightBuilderMeasure): string {
     if (measure.label) {

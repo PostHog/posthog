@@ -97,23 +97,23 @@ export function PivotTable(): JSX.Element {
     const twoRowHeader = hasColumnDims && multiValue
 
     return (
-        <div className="flex flex-col gap-2 p-2">
+        <div className="flex h-full min-h-0 flex-col gap-2 p-2">
             {pivotData.duplicateCount > 0 && (
-                <LemonBanner type="warning">
+                <LemonBanner type="warning" className="shrink-0">
                     {`Some rows share the same Row/Column combination. Only the latest value is shown for ${
                         pivotData.duplicateCount
                     } duplicate cell${pivotData.duplicateCount === 1 ? '' : 's'}.`}
                 </LemonBanner>
             )}
-            <div className="overflow-auto">
+            <div className="min-h-0 flex-1 overflow-auto">
                 <table className="min-w-full border-collapse text-xs" data-attr="pivot-table">
-                    <thead>
+                    <thead className="sticky top-0 z-20">
                         <tr>
                             {rowHeaders.map((header, index) => (
                                 <th
                                     key={`row-header-${index}`}
                                     rowSpan={twoRowHeader ? 2 : 1}
-                                    className={`${HEADER_CELL_CLASS} ${index === 0 ? 'sticky left-0 z-10' : ''}`}
+                                    className={`${HEADER_CELL_CLASS} ${index === 0 ? 'sticky left-0 z-30' : ''}`}
                                 >
                                     {header}
                                 </th>

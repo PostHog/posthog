@@ -2407,6 +2407,19 @@ class InsightBuilderDateGrain(StrEnum):
     YEAR = "year"
 
 
+class InsightBuilderFilterOperator(StrEnum):
+    EQ = "eq"
+    NEQ = "neq"
+    GT = "gt"
+    GTE = "gte"
+    LT = "lt"
+    LTE = "lte"
+    CONTAINS = "contains"
+    NOT_CONTAINS = "not_contains"
+    IS_SET = "is_set"
+    IS_NOT_SET = "is_not_set"
+
+
 class InsightFilterProperty(StrEnum):
     TRENDS_FILTER = "trendsFilter"
     FUNNELS_FILTER = "funnelsFilter"

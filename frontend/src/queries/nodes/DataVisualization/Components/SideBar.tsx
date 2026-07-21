@@ -34,7 +34,9 @@ const TABS_TO_CONTENT: Record<SideBarTab, TabContent> = {
         shouldShow: (displayType: ChartDisplayType): boolean =>
             displayType !== ChartDisplayType.ActionsTable &&
             displayType !== ChartDisplayType.BoldNumber &&
-            displayType !== ChartDisplayType.TwoDimensionalHeatmap,
+            displayType !== ChartDisplayType.TwoDimensionalHeatmap &&
+            // Pivot tables have no axes/legend/goal lines — none of the Display controls apply
+            displayType !== ChartDisplayType.PivotTable,
     },
 }
 

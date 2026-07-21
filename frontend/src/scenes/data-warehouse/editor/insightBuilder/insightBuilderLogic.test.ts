@@ -131,6 +131,34 @@ describe('insightBuilderLogic', () => {
         expect(settings?.seriesBreakdownColumn).toEqual('event')
     })
 
+    it('keeps a deliberately chosen chart while fields fill toward its requirements', async () => {
+        sqlLogic.actions.setQueryInput(BASE_QUERY)
+        builderLogic.actions.setBaseSnapshot(BASE_QUERY, null)
+        builderLogic.actions.addField('values', 'amount', { aggregation: 'sum' })
+        builderLogic.actions.setBuilderDisplay(ChartDisplayType.TwoDimensionalHeatmap)
+
+        await expectLogic(builderLogic, () => {
+            // Heatmap still needs a Column — adding the Row moves toward the requirement, not past it
+            builderLogic.actions.addField('rows', 'event')
+        }).toMatchValues({ builderDisplay: ChartDisplayType.TwoDimensionalHeatmap })
+    })
+
+    it('compiles filters into the query and reruns when a filter completes', async () => {
+        sqlLogic.actions.setQueryInput(BASE_QUERY)
+        builderLogic.actions.setBaseSnapshot(BASE_QUERY, null)
+        builderLogic.actions.addField('rows', 'event')
+        builderLogic.actions.addField('values', 'amount', { aggregation: 'sum' })
+        builderLogic.actions.addField('filters', 'event')
+
+        await expectLogic(builderLogic, () => {
+            builderLogic.actions.updateFilter(0, { operator: 'eq', value: 'purchase' })
+        }).toDispatchActions(sqlLogic, ['setSourceQuery'])
+
+        const node = sqlLogic.values.sourceQuery
+        expect(node.builder?.filters).toEqual([{ column: 'event', operator: 'eq', value: 'purchase' }])
+        expect(node.source.query).toContain("WHERE event = 'purchase'")
+    })
+
     it('compiles a bare select-all base against the object itself, dropping the preview LIMIT', async () => {
         sqlLogic.actions.setQueryInput('SELECT * FROM payments LIMIT 100')
         builderLogic.actions.refreshBase()

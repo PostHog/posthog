@@ -5,6 +5,7 @@ import {
     InsightBuilderConfig,
     InsightBuilderDateGrain,
     InsightBuilderDimension,
+    InsightBuilderFilter,
     InsightBuilderMeasure,
 } from '~/queries/schema/schema-general'
 import { escapeDottedHogQLIdentifier, escapePropertyAsHogQLIdentifier } from '~/queries/utils'
@@ -155,6 +156,51 @@ export function measureExpr(measure: InsightBuilderMeasure): string {
     return `${fn}(${ref})`
 }
 
+function escapeHogQLStringLiteral(value: string): string {
+    return `'${value.replaceAll('\\', '\\\\').replaceAll("'", "\\'")}'`
+}
+
+function escapeLikePattern(value: string): string {
+    // Escape LIKE wildcards so user text matches literally inside the %...% pattern
+    return value.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')
+}
+
+/** True when the filter has everything it needs to compile; incomplete filters are skipped. */
+export function isFilterComplete(filter: InsightBuilderFilter): boolean {
+    if (filter.operator === 'is_set' || filter.operator === 'is_not_set') {
+        return true
+    }
+    return filter.value !== undefined && filter.value !== ''
+}
+
+export function filterExpr(filter: InsightBuilderFilter): string {
+    const ref = escapePropertyAsHogQLIdentifier(filter.column)
+    const value = filter.value ?? ''
+
+    switch (filter.operator) {
+        case 'eq':
+            return `${ref} = ${escapeHogQLStringLiteral(value)}`
+        case 'neq':
+            return `${ref} != ${escapeHogQLStringLiteral(value)}`
+        case 'gt':
+            return `${ref} > ${escapeHogQLStringLiteral(value)}`
+        case 'gte':
+            return `${ref} >= ${escapeHogQLStringLiteral(value)}`
+        case 'lt':
+            return `${ref} < ${escapeHogQLStringLiteral(value)}`
+        case 'lte':
+            return `${ref} <= ${escapeHogQLStringLiteral(value)}`
+        case 'contains':
+            return `${ref} ILIKE ${escapeHogQLStringLiteral(`%${escapeLikePattern(value)}%`)}`
+        case 'not_contains':
+            return `${ref} NOT ILIKE ${escapeHogQLStringLiteral(`%${escapeLikePattern(value)}%`)}`
+        case 'is_set':
+            return `isNotNull(${ref})`
+        case 'is_not_set':
+            return `isNull(${ref})`
+    }
+}
+
 export function sanitizeAlias(raw: string, taken: Set<string>): string {
     let base = raw
         .toLowerCase()
@@ -260,6 +306,10 @@ export function compileBuilderQuery(config: InsightBuilderConfig): CompiledBuild
     const dimensionExprs = [...rowParts, ...columnParts].map((part) => part.expr)
 
     const lines = [`SELECT\n${selectList}`, `FROM ${buildFromClause(config)}`]
+    const filterExprs = (config.filters ?? []).filter(isFilterComplete).map(filterExpr)
+    if (filterExprs.length > 0) {
+        lines.push(`WHERE ${filterExprs.join(' AND ')}`)
+    }
     if (dimensionExprs.length > 0) {
         lines.push(`GROUP BY ${dimensionExprs.join(', ')}`)
     }

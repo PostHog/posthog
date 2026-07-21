@@ -1,7 +1,10 @@
 import { InsightBuilderDimension, InsightBuilderMeasure } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
-export type BuilderWell = 'rows' | 'columns' | 'values'
+export type BuilderWell = 'rows' | 'columns' | 'values' | 'filters'
+
+/** The wells that participate in chart capability checks — filters apply to every chart equally. */
+export type CapabilityWell = 'rows' | 'columns' | 'values'
 
 export interface BuilderWells {
     rows: InsightBuilderDimension[]
@@ -111,7 +114,7 @@ export const CHART_CAPABILITIES: ChartCapability[] = [
     },
 ]
 
-const WELL_LABELS: Record<BuilderWell, string> = {
+const WELL_LABELS: Record<CapabilityWell, string> = {
     rows: 'Rows',
     columns: 'Columns',
     values: 'Values',
@@ -121,7 +124,7 @@ export function getChartCapability(display: ChartDisplayType): ChartCapability |
     return CHART_CAPABILITIES.find((capability) => capability.display === display)
 }
 
-function wellProblems(well: BuilderWell, count: number, requirement: WellRequirement, chartLabel: string): string[] {
+function wellProblems(well: CapabilityWell, count: number, requirement: WellRequirement, chartLabel: string): string[] {
     const problems: string[] = []
     const label = WELL_LABELS[well]
 
@@ -168,33 +171,30 @@ export function validateWellsForDisplay(wells: BuilderWells, display: ChartDispl
     return problems
 }
 
-export interface WellDropResult {
-    /** 'add' appends, 'replace' swaps out the single occupant of a full one-slot well, 'deny' rejects */
-    mode: 'add' | 'replace' | 'deny'
-    reason?: string
-}
-
-export function canDropInWell(well: BuilderWell, wells: BuilderWells, display: ChartDisplayType): WellDropResult {
+/**
+ * True when adding to `well` just pushed the wells past what `display` supports — the signal to
+ * auto-switch to a chart that fits. Unmet minimums never trigger this: an incomplete chart the
+ * user chose deliberately stays selected while the preview guides them.
+ */
+export function isWellOverCapacity(well: BuilderWell, wells: BuilderWells, display: ChartDisplayType): boolean {
+    if (well === 'filters') {
+        return false
+    }
     const capability = getChartCapability(display)
     if (!capability) {
-        return { mode: 'add' }
+        return false
     }
 
     const requirement = capability[well]
-    const count = wells[well].length
-
-    if (requirement.max === 0) {
-        return { mode: 'deny', reason: `${capability.label}s don't use ${WELL_LABELS[well]}` }
+    if (requirement.max !== null && wells[well].length > requirement.max) {
+        return true
     }
-    if (requirement.max !== null && count >= requirement.max) {
-        return requirement.max === 1
-            ? { mode: 'replace' }
-            : {
-                  mode: 'deny',
-                  reason: `${capability.label}s support only ${requirement.max} fields in ${WELL_LABELS[well]}`,
-              }
-    }
-    return { mode: 'add' }
+    return (
+        capability.maxValuesWithColumns !== undefined &&
+        (well === 'values' || well === 'columns') &&
+        wells.columns.length > 0 &&
+        wells.values.length > capability.maxValuesWithColumns
+    )
 }
 
 /** Pick a sensible chart type for the current wells (used when the user hasn't chosen one explicitly). */
@@ -202,14 +202,17 @@ export function bestDisplayForWells(wells: BuilderWells, options?: { firstRowIsD
     const { rows, columns, values } = wells
 
     if (values.length >= 1 && rows.length === 0 && columns.length === 0) {
-        return ChartDisplayType.BoldNumber
+        return values.length === 1 ? ChartDisplayType.BoldNumber : ChartDisplayType.ActionsTable
     }
-    // Shapes a single chart can't express: many row dims, or a column split across several values
+    // Shapes a single chart can't express: many row dims, several column dims, or a column split across several values
     if (rows.length >= 2 && values.length >= 1) {
         return ChartDisplayType.PivotTable
     }
     if (rows.length === 1 && values.length >= 1) {
-        if (columns.length > 0) {
+        if (columns.length > 1) {
+            return ChartDisplayType.PivotTable
+        }
+        if (columns.length === 1) {
             return values.length > 1 ? ChartDisplayType.PivotTable : ChartDisplayType.ActionsStackedBar
         }
         return options?.firstRowIsDate ? ChartDisplayType.ActionsLineGraph : ChartDisplayType.ActionsBar

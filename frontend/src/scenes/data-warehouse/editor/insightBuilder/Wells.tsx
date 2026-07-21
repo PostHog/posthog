@@ -6,6 +6,7 @@ import { useActions, useValues } from 'kea'
 import { IconChevronDown } from '@posthog/icons'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@posthog/quill'
 
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { cn } from 'lib/utils/css-classes'
 
@@ -13,13 +14,17 @@ import {
     AGGREGATION_LABELS,
     DATE_GRAIN_LABELS,
     DATE_GRAIN_OPTIONS,
+    FILTER_OPERATORS,
+    FILTER_OPERATOR_LABELS,
     NON_NUMERIC_AGGREGATIONS,
     NUMERIC_AGGREGATIONS,
+    operatorNeedsValue,
 } from '~/queries/nodes/DataVisualization/insightBuilder/builderLabels'
 import { BuilderWell } from '~/queries/nodes/DataVisualization/insightBuilder/chartCapabilities'
 import {
     InsightBuilderAggregation,
     InsightBuilderDimension,
+    InsightBuilderFilter,
     InsightBuilderMeasure,
 } from '~/queries/schema/schema-general'
 
@@ -30,7 +35,7 @@ export function pillId(well: BuilderWell, index: number): string {
 }
 
 export function parsePillId(id: string): { well: BuilderWell; index: number } | null {
-    const match = /^pill:(rows|columns|values):(\d+)$/.exec(id)
+    const match = /^pill:(rows|columns|values|filters):(\d+)$/.exec(id)
     return match ? { well: match[1] as BuilderWell, index: parseInt(match[2], 10) } : null
 }
 
@@ -166,6 +171,76 @@ function MeasurePill({
     )
 }
 
+function FilterPill({
+    tabId,
+    index,
+    filter,
+}: {
+    tabId: string
+    index: number
+    filter: InsightBuilderFilter
+}): JSX.Element {
+    const { baseFields } = useValues(insightBuilderLogic({ tabId }))
+    const { removeField, updateFilter } = useActions(insightBuilderLogic({ tabId }))
+
+    const isMissing = baseFields.length > 0 && !baseFields.some((candidate) => candidate.name === filter.column)
+    const needsValue = operatorNeedsValue(filter.operator)
+
+    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+        id: pillId('filters', index),
+        data: { type: 'pill', well: 'filters', index, item: filter },
+    })
+
+    return (
+        <LemonSnack
+            ref={setNodeRef}
+            {...attributes}
+            {...listeners}
+            onClose={() => removeField('filters', index)}
+            className={cn(
+                'w-full cursor-grab justify-between',
+                isDragging && 'opacity-50',
+                isMissing && 'border border-danger'
+            )}
+            title={isMissing ? `"${filter.column}" is not in the base query results anymore` : undefined}
+            style={{ transform: CSS.Transform.toString(transform), transition }}
+            data-attr="sql-builder-well-pill"
+        >
+            <span className="flex w-full min-w-0 items-center gap-1">
+                <span className="shrink truncate">{filter.column}</span>
+                <PillMenu label={FILTER_OPERATOR_LABELS[filter.operator]}>
+                    {FILTER_OPERATORS.map((operator) => (
+                        <DropdownMenuItem
+                            key={operator}
+                            onClick={() =>
+                                updateFilter(
+                                    index,
+                                    operatorNeedsValue(operator) ? { operator } : { operator, value: undefined }
+                                )
+                            }
+                        >
+                            {FILTER_OPERATOR_LABELS[operator]}
+                        </DropdownMenuItem>
+                    ))}
+                </PillMenu>
+                {needsValue ? (
+                    // Stop pointer events from reaching the drag listeners so text selection inside
+                    // the input doesn't start a pill drag
+                    <span className="min-w-0 flex-1" onPointerDownCapture={(e) => e.stopPropagation()}>
+                        <LemonInput
+                            size="xsmall"
+                            placeholder="value"
+                            value={filter.value ?? ''}
+                            onChange={(value) => updateFilter(index, { value })}
+                            data-attr="sql-builder-filter-value"
+                        />
+                    </span>
+                ) : null}
+            </span>
+        </LemonSnack>
+    )
+}
+
 function Well({
     well,
     title,
@@ -200,7 +275,7 @@ function Well({
 }
 
 export function Wells({ tabId }: { tabId: string }): JSX.Element {
-    const { rows, columnDims, measures } = useValues(insightBuilderLogic({ tabId }))
+    const { rows, columnDims, measures, filterItems } = useValues(insightBuilderLogic({ tabId }))
 
     return (
         <div className="flex flex-col gap-3">
@@ -248,6 +323,16 @@ export function Wells({ tabId }: { tabId: string }): JSX.Element {
                             index={index}
                             measure={measure}
                         />
+                    ))}
+                </SortableContext>
+            </Well>
+            <Well well="filters" title="Filters" emptyHint="Drop a field to filter by" count={filterItems.length}>
+                <SortableContext
+                    items={filterItems.map((_, index) => pillId('filters', index))}
+                    strategy={verticalListSortingStrategy}
+                >
+                    {filterItems.map((filter, index) => (
+                        <FilterPill key={`${filter.column}-${index}`} tabId={tabId} index={index} filter={filter} />
                     ))}
                 </SortableContext>
             </Well>

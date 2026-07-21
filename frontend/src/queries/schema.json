@@ -26394,6 +26394,13 @@
                     "description": "When true, the SQL editor opens this insight in Build mode and treats source.query as compiled output",
                     "type": "boolean"
                 },
+                "filters": {
+                    "description": "Conditions on the base query's columns, applied before grouping",
+                    "items": {
+                        "$ref": "#/definitions/InsightBuilderFilter"
+                    },
+                    "type": "array"
+                },
                 "rows": {
                     "items": {
                         "$ref": "#/definitions/InsightBuilderDimension"
@@ -26428,6 +26435,28 @@
             },
             "required": ["column"],
             "type": "object"
+        },
+        "InsightBuilderFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "column": {
+                    "description": "Column name from the base query's result set",
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/InsightBuilderFilterOperator"
+                },
+                "value": {
+                    "description": "Comparison value; unused for is_set / is_not_set",
+                    "type": "string"
+                }
+            },
+            "required": ["column", "operator"],
+            "type": "object"
+        },
+        "InsightBuilderFilterOperator": {
+            "enum": ["eq", "neq", "gt", "gte", "lt", "lte", "contains", "not_contains", "is_set", "is_not_set"],
+            "type": "string"
         },
         "InsightBuilderMeasure": {
             "additionalProperties": false,

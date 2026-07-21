@@ -132,6 +132,7 @@ from posthog.schema_enums import (
     InlineCohortCalculation as InlineCohortCalculation,
     InsightBuilderAggregation as InsightBuilderAggregation,
     InsightBuilderDateGrain as InsightBuilderDateGrain,
+    InsightBuilderFilterOperator as InsightBuilderFilterOperator,
     InsightFilterProperty as InsightFilterProperty,
     InsightNodeKind as InsightNodeKind,
     InsightThresholdType as InsightThresholdType,
@@ -5183,27 +5184,13 @@ class DayItem(BaseModel):
     value: str | AwareDatetime | int
 
 
-class InsightBuilderConfig(BaseModel):
+class InsightBuilderFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    baseQuery: str = Field(
-        ...,
-        description=("Base SQL (the Data tab content). Compiled as FROM (baseQuery) unless baseView is set."),
-    )
-    baseView: str | None = Field(
-        default=None,
-        description=("Saved view name. When set, compiles FROM <view> so the insight tracks view updates."),
-    )
-    columns: list[InsightBuilderDimension]
-    enabled: bool = Field(
-        ...,
-        description=(
-            "When true, the SQL editor opens this insight in Build mode and treats source.query as compiled output"
-        ),
-    )
-    rows: list[InsightBuilderDimension]
-    values: list[InsightBuilderMeasure]
+    column: str = Field(..., description="Column name from the base query's result set")
+    operator: InsightBuilderFilterOperator
+    value: str | None = Field(default=None, description="Comparison value; unused for is_set / is_not_set")
 
 
 class InsightThreshold(BaseModel):
@@ -16776,6 +16763,33 @@ class InsightActorsQueryBase(BaseModel):
     response: ActorsQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class InsightBuilderConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    baseQuery: str = Field(
+        ...,
+        description=("Base SQL (the Data tab content). Compiled as FROM (baseQuery) unless baseView is set."),
+    )
+    baseView: str | None = Field(
+        default=None,
+        description=("Saved view name. When set, compiles FROM <view> so the insight tracks view updates."),
+    )
+    columns: list[InsightBuilderDimension]
+    enabled: bool = Field(
+        ...,
+        description=(
+            "When true, the SQL editor opens this insight in Build mode and treats source.query as compiled output"
+        ),
+    )
+    filters: list[InsightBuilderFilter] | None = Field(
+        default=None,
+        description="Conditions on the base query's columns, applied before grouping",
+    )
+    rows: list[InsightBuilderDimension]
+    values: list[InsightBuilderMeasure]
 
 
 class InsightQuery(RootModel[AssistantInsightVizNode | AssistantDataVisualizationNode]):

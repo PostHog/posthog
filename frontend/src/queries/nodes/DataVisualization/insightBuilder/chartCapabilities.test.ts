@@ -1,6 +1,6 @@
 import { ChartDisplayType } from '~/types'
 
-import { BuilderWells, bestDisplayForWells, canDropInWell, validateWellsForDisplay } from './chartCapabilities'
+import { BuilderWells, bestDisplayForWells, isWellOverCapacity, validateWellsForDisplay } from './chartCapabilities'
 
 const wells = (rows: number, columns: number, values: number): BuilderWells => ({
     rows: Array.from({ length: rows }, (_, i) => ({ column: `row_${i}` })),
@@ -57,23 +57,26 @@ describe('chartCapabilities', () => {
         })
     })
 
-    describe('canDropInWell', () => {
+    describe('isWellOverCapacity', () => {
         it.each([
-            // [well, display, rows, columns, values, expectedMode]
-            ['values' as const, ChartDisplayType.ActionsLineGraph, 1, 0, 1, 'add'],
-            ['rows' as const, ChartDisplayType.ActionsLineGraph, 1, 0, 1, 'replace'],
-            ['columns' as const, ChartDisplayType.ActionsLineGraph, 1, 1, 1, 'replace'],
-            ['columns' as const, ChartDisplayType.ActionsPie, 1, 0, 1, 'deny'],
-            ['rows' as const, ChartDisplayType.BoldNumber, 0, 0, 1, 'deny'],
-            ['values' as const, ChartDisplayType.BoldNumber, 0, 0, 1, 'replace'],
-            ['rows' as const, ChartDisplayType.ActionsTable, 5, 0, 0, 'add'],
-        ])('%s onto %s with %i/%i/%i wells → %s', (well, display, rows, columns, values, expectedMode) => {
-            expect(canDropInWell(well, wells(rows, columns, values), display).mode).toEqual(expectedMode)
-        })
-
-        it('includes a reason when denying', () => {
-            const result = canDropInWell('columns', wells(1, 0, 1), ChartDisplayType.ActionsPie)
-            expect(result.reason).toBeTruthy()
+            // [well, display, rows, columns, values, expected]
+            // Adding a Columns field to charts that don't use Columns — the auto-switch trigger
+            ['columns' as const, ChartDisplayType.ActionsBar, 1, 1, 1, true],
+            ['columns' as const, ChartDisplayType.ActionsPie, 1, 1, 1, true],
+            ['rows' as const, ChartDisplayType.BoldNumber, 1, 0, 1, true],
+            // A second field where only one fits
+            ['rows' as const, ChartDisplayType.ActionsLineGraph, 2, 0, 1, true],
+            ['values' as const, ChartDisplayType.ActionsStackedBar, 1, 1, 2, true],
+            // Line charts cap values at 1 once Columns is used
+            ['values' as const, ChartDisplayType.ActionsLineGraph, 1, 1, 2, true],
+            // Filling toward an unmet minimum is never over capacity — incomplete charts stay selected
+            ['rows' as const, ChartDisplayType.TwoDimensionalHeatmap, 1, 0, 1, false],
+            ['values' as const, ChartDisplayType.ActionsLineGraph, 1, 0, 1, false],
+            ['rows' as const, ChartDisplayType.ActionsTable, 5, 0, 0, false],
+            // Filters never affect chart choice
+            ['filters' as const, ChartDisplayType.BoldNumber, 0, 0, 1, false],
+        ])('%s added on %s with %i/%i/%i wells → %s', (well, display, rows, columns, values, expected) => {
+            expect(isWellOverCapacity(well, wells(rows, columns, values), display)).toEqual(expected)
         })
     })
 
@@ -81,9 +84,11 @@ describe('chartCapabilities', () => {
         it.each([
             // [rows, columns, values, firstRowIsDate, expected]
             [0, 0, 1, false, ChartDisplayType.BoldNumber],
+            [0, 0, 2, false, ChartDisplayType.ActionsTable],
             [1, 0, 1, true, ChartDisplayType.ActionsLineGraph],
             [1, 0, 1, false, ChartDisplayType.ActionsBar],
             [1, 1, 1, false, ChartDisplayType.ActionsStackedBar],
+            [1, 2, 1, false, ChartDisplayType.PivotTable],
             [1, 1, 2, false, ChartDisplayType.PivotTable],
             [2, 0, 1, false, ChartDisplayType.PivotTable],
             [2, 1, 2, false, ChartDisplayType.PivotTable],

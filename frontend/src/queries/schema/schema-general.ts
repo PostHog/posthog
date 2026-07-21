@@ -1348,6 +1348,26 @@ export interface InsightBuilderMeasure {
     label?: string
 }
 
+export type InsightBuilderFilterOperator =
+    | 'eq'
+    | 'neq'
+    | 'gt'
+    | 'gte'
+    | 'lt'
+    | 'lte'
+    | 'contains'
+    | 'not_contains'
+    | 'is_set'
+    | 'is_not_set'
+
+export interface InsightBuilderFilter {
+    /** Column name from the base query's result set */
+    column: string
+    operator: InsightBuilderFilterOperator
+    /** Comparison value; unused for is_set / is_not_set */
+    value?: string
+}
+
 export interface InsightBuilderConfig {
     /** When true, the SQL editor opens this insight in Build mode and treats source.query as compiled output */
     enabled: boolean
@@ -1358,6 +1378,8 @@ export interface InsightBuilderConfig {
     rows: InsightBuilderDimension[]
     columns: InsightBuilderDimension[]
     values: InsightBuilderMeasure[]
+    /** Conditions on the base query's columns, applied before grouping */
+    filters?: InsightBuilderFilter[]
 }
 
 export interface DataVisualizationNode extends Node<never> {

@@ -6,8 +6,8 @@ import { useState } from 'react'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { measureLabel } from '~/queries/nodes/DataVisualization/insightBuilder/builderLabels'
-import { BuilderWell, canDropInWell } from '~/queries/nodes/DataVisualization/insightBuilder/chartCapabilities'
-import { InsightBuilderDimension, InsightBuilderMeasure } from '~/queries/schema/schema-general'
+import { BuilderWell } from '~/queries/nodes/DataVisualization/insightBuilder/chartCapabilities'
+import { InsightBuilderDimension, InsightBuilderFilter, InsightBuilderMeasure } from '~/queries/schema/schema-general'
 
 import { BuilderPreview } from './BuilderPreview'
 import { ChartTypePicker } from './ChartTypePicker'
@@ -23,7 +23,12 @@ import { Wells, parsePillId } from './Wells'
 
 type DragData =
     | { type: 'field'; field: BuilderField }
-    | { type: 'pill'; well: BuilderWell; index: number; item: InsightBuilderDimension | InsightBuilderMeasure }
+    | {
+          type: 'pill'
+          well: BuilderWell
+          index: number
+          item: InsightBuilderDimension | InsightBuilderMeasure | InsightBuilderFilter
+      }
 
 function dragLabel(data: DragData): string {
     if (data.type === 'field') {
@@ -34,7 +39,7 @@ function dragLabel(data: DragData): string {
 
 export function BuilderCanvas({ tabId }: { tabId: string }): JSX.Element {
     const logic = insightBuilderLogic({ tabId })
-    const { wells, builderDisplay, baseFields } = useValues(logic)
+    const { wells, filterItems, baseFields } = useValues(logic)
     const { addField, removeField, moveField } = useActions(logic)
     const [activeDragLabel, setActiveDragLabel] = useState<string | null>(null)
 
@@ -56,7 +61,6 @@ export function BuilderCanvas({ tabId }: { tabId: string }): JSX.Element {
         column: string,
         source: Partial<BuilderField>,
         options?: {
-            replace?: boolean
             dateGrain?: InsightBuilderDimension['dateGrain']
             aggregation?: InsightBuilderMeasure['aggregation']
         }
@@ -72,12 +76,12 @@ export function BuilderCanvas({ tabId }: { tabId: string }): JSX.Element {
                     (column === COUNT_STAR_COLUMN
                         ? 'count'
                         : defaultAggregationForField({ isNumerical: source.isNumerical ?? true })),
-                replace: options?.replace,
             })
+        } else if (targetWell === 'filters') {
+            addField('filters', column)
         } else {
             addField(targetWell, column, {
                 dateGrain: options?.dateGrain ?? (source.isDate ? DEFAULT_DATE_GRAIN : undefined),
-                replace: options?.replace,
             })
         }
     }
@@ -96,38 +100,25 @@ export function BuilderCanvas({ tabId }: { tabId: string }): JSX.Element {
             return
         }
 
+        // Drops always land — if the addition exceeds the current chart, the logic switches to one that fits
         if (data.type === 'field') {
-            const drop = canDropInWell(targetWell, wells, builderDisplay)
-            if (drop.mode === 'deny') {
-                if (drop.reason) {
-                    lemonToast.info(drop.reason)
-                }
-                return
-            }
-            addToWell(targetWell, data.field.name, data.field, { replace: drop.mode === 'replace' })
+            addToWell(targetWell, data.field.name, data.field)
             return
         }
 
         // Pill drag: reorder within a well, or transfer between wells
         if (data.well === targetWell) {
             const overPill = typeof over?.id === 'string' ? parsePillId(over.id) : null
-            const toIndex = overPill ? overPill.index : wells[targetWell].length - 1
+            const wellLength = targetWell === 'filters' ? filterItems.length : wells[targetWell].length
+            const toIndex = overPill ? overPill.index : wellLength - 1
             moveField(targetWell, data.index, toIndex)
             return
         }
 
-        const drop = canDropInWell(targetWell, wells, builderDisplay)
-        if (drop.mode === 'deny') {
-            if (drop.reason) {
-                lemonToast.info(drop.reason)
-            }
-            return
-        }
         const column = data.item.column
         const field = baseFields.find((candidate) => candidate.name === column)
         removeField(data.well, data.index)
         addToWell(targetWell, column, field ?? {}, {
-            replace: drop.mode === 'replace',
             dateGrain: 'dateGrain' in data.item ? data.item.dateGrain : undefined,
             aggregation: 'aggregation' in data.item ? data.item.aggregation : undefined,
         })
