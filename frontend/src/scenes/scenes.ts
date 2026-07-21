@@ -831,6 +831,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.groupsNew(':groupTypeIndex')]: [Scene.GroupsNew, 'groupsNew'],
     [urls.group(':groupTypeIndex', ':groupKey', false)]: [Scene.Group, 'group'],
     [urls.group(':groupTypeIndex', ':groupKey', false, ':groupTab')]: [Scene.Group, 'groupWithTab'],
+    // Must precede the cohort detail route, or /cohorts/staff resolves as cohort id "staff".
+    [urls.cohortsStaffTools()]: ['CohortsStaffTools' as Scene, 'cohortsStaffTools'],
     [urls.cohort(':id')]: [Scene.Cohort, 'cohort'],
     [urls.cohortCalculationHistory(':id')]: [Scene.CohortCalculationHistory, 'cohortCalculationHistory'],
     [urls.cohorts()]: [Scene.Cohorts, 'cohorts'],

@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+from products.warehouse_sources.backend.types import IncrementalField
+
 
 @dataclass
 class SmartreachEndpointConfig:
@@ -26,4 +28,4 @@ SMARTREACH_ENDPOINTS: dict[str, SmartreachEndpointConfig] = {
 
 ENDPOINTS = tuple(SMARTREACH_ENDPOINTS.keys())
 
-INCREMENTAL_FIELDS: dict[str, list[dict[str, str]]] = {}
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}

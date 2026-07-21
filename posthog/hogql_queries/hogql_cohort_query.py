@@ -36,7 +36,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectQuery, SelectSetNode, SelectSetQuery
-from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
+from posthog.hogql.constants import HogQLGlobalSettings, HogQLQuerySettings, LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast
@@ -81,6 +81,20 @@ def parse_and_validate_positive_integer(value: Optional[Union[str, int]], value_
     if parsed_value <= 0:
         raise ValueError(f"{value_name} must be greater than 0, got {value}")
     return parsed_value
+
+
+def _apply_in_order_aggregation(query: ast.SelectQuery) -> ast.SelectQuery:
+    """Set optimize_aggregation_in_order on the inner argMax-dedup subquery.
+
+    The behavioral subqueries fix team_id + condition in WHERE and GROUP BY the trailing
+    precalculated_events sort-key columns (date, distinct_id, uuid), so ClickHouse can stream
+    the dedup in primary-key order instead of materializing a full hash table over every
+    matched event. Mirrors select_from_person_distinct_id_overrides_table.
+    """
+    inner = query.select_from.table if query.select_from else None
+    if isinstance(inner, ast.SelectQuery):
+        inner.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
+    return query
 
 
 def unwrap_cohort(filter: Filter, team_id: int, team: Optional[Team] = None, cohort: Optional[Cohort] = None) -> Filter:
@@ -1079,15 +1093,28 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         if date_to_datetime:
             date_filter = "date >= toDate({date_from}) AND date <= toDate({date_to})"
 
-        # Build query using precalculated_events
+        # Build query using precalculated_events. person_id is resolved with argMax over
+        # (distinct_id, date, uuid) rather than read raw: a person merge re-emits the row for
+        # the same key with a new person_id, and ReplacingMergeTree only collapses the stale
+        # copy on its own schedule, not synchronously with the write. Without this, a merged-away
+        # person keeps matching until the background merge happens to run.
         query_str = f"""
             SELECT DISTINCT
                 person_id as id
-            FROM precalculated_events
-            WHERE
-                team_id = {{team_id}}
-                AND condition = {{condition_hash}}
-                AND {date_filter}
+            FROM
+            (
+                SELECT
+                    distinct_id,
+                    date,
+                    uuid,
+                    argMax(person_id, _timestamp) as person_id
+                FROM precalculated_events
+                WHERE
+                    team_id = {{team_id}}
+                    AND condition = {{condition_hash}}
+                    AND {date_filter}
+                GROUP BY date, distinct_id, uuid
+            )
         """
 
         query_params: dict[str, ast.Expr] = {
@@ -1098,7 +1125,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         if date_to_datetime:
             query_params["date_to"] = ast.Constant(value=date_to_datetime)
 
-        return cast(ast.SelectQuery, parse_select(query_str, query_params))
+        return _apply_in_order_aggregation(cast(ast.SelectQuery, parse_select(query_str, query_params)))
 
     def get_performed_event_multiple(self, prop: Property) -> ast.SelectQuery:
         """
@@ -1162,11 +1189,20 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         query_str = f"""
             SELECT
                 person_id as id
-            FROM precalculated_events
-            WHERE
-                team_id = {{team_id}}
-                AND condition = {{condition_hash}}
-                AND {date_filter}
+            FROM
+            (
+                SELECT
+                    distinct_id,
+                    date,
+                    uuid,
+                    argMax(person_id, _timestamp) as person_id
+                FROM precalculated_events
+                WHERE
+                    team_id = {{team_id}}
+                    AND condition = {{condition_hash}}
+                    AND {date_filter}
+                GROUP BY date, distinct_id, uuid
+            )
             GROUP BY person_id
             HAVING count() {sql_operator} {{min_matches}}
         """
@@ -1180,9 +1216,11 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         if date_to_datetime:
             query_params["date_to"] = ast.Constant(value=date_to_datetime)
 
-        return cast(
-            ast.SelectQuery,
-            parse_select(query_str, query_params),
+        return _apply_in_order_aggregation(
+            cast(
+                ast.SelectQuery,
+                parse_select(query_str, query_params),
+            )
         )
 
     def get_dynamic_cohort_condition(self, prop: Property) -> ast.SelectQuery:

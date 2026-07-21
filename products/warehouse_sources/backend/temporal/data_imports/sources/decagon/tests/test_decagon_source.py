@@ -8,7 +8,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.decagon.decagon import DecagonResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.decagon.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.decagon.source import DecagonSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DecagonSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.decagon import (
+    DecagonSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
