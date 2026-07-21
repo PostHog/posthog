@@ -8,6 +8,7 @@ import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { colonDelimitedDuration } from 'lib/utils/durations'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 
@@ -62,6 +63,67 @@ function OpenExperimentButton({ item }: { item: ExperimentSessionContextItemApi 
     )
 }
 
+const OUT_OF_WINDOW_TOOLTIP =
+    "The exposure was captured just outside this recording's playable range, so there's no moment to jump to."
+
+// Position of the exposure within the recording, so the list's chronological order is legible rather than
+// implied. Deliberately always relative (not the player's Relative/UTC/device setting like the inspector's
+// ItemTimeDisplay): "where in this recording" is the whole point here, and an absolute date would not fit
+// the sidebar's width. An exposure captured before the recording starts clamps to zero — the row's tooltip
+// is what explains that it landed outside the playable range.
+function ExposureTime({ timeInRecording }: { timeInRecording: number }): JSX.Element {
+    return (
+        <span className="text-secondary text-xs tabular-nums shrink-0 min-w-10 text-right">
+            {colonDelimitedDuration(Math.max(0, timeInRecording) / 1000, null)}
+        </span>
+    )
+}
+
+function ExperimentContextRow({
+    item,
+    onSeek,
+    outOfWindow,
+    timeInRecording,
+}: {
+    item: ExperimentSessionContextItemApi
+    onSeek?: () => void
+    outOfWindow?: boolean
+    timeInRecording?: number | null
+}): JSX.Element {
+    let name: JSX.Element
+    if (onSeek) {
+        name = (
+            <Link
+                title="Jump to when this session matched the experiment's exposure criteria"
+                onClick={onSeek}
+                data-attr="replay-experiment-context-jump-to-first-exposure"
+            >
+                {item.experiment_name}
+            </Link>
+        )
+    } else if (outOfWindow) {
+        name = (
+            <Tooltip title={OUT_OF_WINDOW_TOOLTIP}>
+                <span>{item.experiment_name}</span>
+            </Tooltip>
+        )
+    } else {
+        name = <span>{item.experiment_name}</span>
+    }
+
+    // The name lives in its own flex-1 truncate box so the variant tag and open-experiment icon
+    // stay right-aligned whether the name is a plain span or a Link (a Link with no `to` renders a
+    // button wrapped in a non-flex span, which would otherwise let its tag hug the text).
+    return (
+        <div className="flex flex-row items-center gap-x-2 min-w-0">
+            {timeInRecording != null ? <ExposureTime timeInRecording={timeInRecording} /> : null}
+            <div className="flex-1 min-w-0 truncate">{name}</div>
+            <VariantTag item={item} />
+            <OpenExperimentButton item={item} />
+        </div>
+    )
+}
+
 export function PlayerSidebarExperimentsSection(): JSX.Element | null {
     const { logicProps, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
     const { seekToTimestamp } = useActions(sessionRecordingPlayerLogic)
@@ -87,35 +149,35 @@ export function PlayerSidebarExperimentsSection(): JSX.Element | null {
             <h4 className="font-semibold text-xs mb-0">Experiments</h4>
 
             {seenItems.map((item) => {
-                const evaluatedAtMs = item.first_flag_evaluation_timestamp
-                    ? dayjs(item.first_flag_evaluation_timestamp).valueOf()
+                const exposedAtMs = item.first_exposure_timestamp
+                    ? dayjs(item.first_exposure_timestamp).valueOf()
                     : null
-                // The backend can return a flag-evaluation timestamp from its ±1h slack around the
+                // The backend can return an exposure timestamp from its ±1h slack around the
                 // recording; seeking to an out-of-bounds time silently clamps to a boundary, so only
                 // offer the jump when the moment falls inside the playable recording.
                 const canSeek =
-                    evaluatedAtMs != null &&
+                    exposedAtMs != null &&
                     recordingStartMs != null &&
                     recordingEndMs != null &&
-                    evaluatedAtMs >= recordingStartMs &&
-                    evaluatedAtMs <= recordingEndMs
+                    exposedAtMs >= recordingStartMs &&
+                    exposedAtMs <= recordingEndMs
+                // Distinguish "seen but outside the window" (worth a tooltip) from "bounds not known
+                // yet" (transient, no tooltip) so we never explain a non-jump we can't actually vouch for.
+                const outOfWindow =
+                    exposedAtMs != null &&
+                    recordingStartMs != null &&
+                    recordingEndMs != null &&
+                    (exposedAtMs < recordingStartMs || exposedAtMs > recordingEndMs)
                 return (
-                    <div key={item.experiment_id} className="flex flex-row items-center gap-x-2 min-w-0">
-                        {canSeek ? (
-                            <Link
-                                className="truncate flex-1 min-w-0"
-                                title="Jump to when this session matched the experiment's exposure criteria"
-                                onClick={() => evaluatedAtMs != null && seekToTimestamp(evaluatedAtMs)}
-                                data-attr="replay-experiment-context-jump-to-first-exposure"
-                            >
-                                {item.experiment_name}
-                            </Link>
-                        ) : (
-                            <span className="truncate flex-1 min-w-0">{item.experiment_name}</span>
-                        )}
-                        <VariantTag item={item} />
-                        <OpenExperimentButton item={item} />
-                    </div>
+                    <ExperimentContextRow
+                        key={item.experiment_id}
+                        item={item}
+                        onSeek={canSeek && exposedAtMs != null ? () => seekToTimestamp(exposedAtMs) : undefined}
+                        outOfWindow={outOfWindow}
+                        timeInRecording={
+                            exposedAtMs != null && recordingStartMs != null ? exposedAtMs - recordingStartMs : null
+                        }
+                    />
                 )
             })}
 
@@ -126,18 +188,11 @@ export function PlayerSidebarExperimentsSection(): JSX.Element | null {
                     panels={[
                         {
                             key: 'enrolled',
-                            header: `Also enrolled, carried over (${enrolledItems.length})`,
+                            header: `Also enrolled, not exposed in this session (${enrolledItems.length})`,
                             content: (
                                 <div className="flex flex-col gap-y-1">
                                     {enrolledItems.map((item) => (
-                                        <div
-                                            key={item.experiment_id}
-                                            className="flex flex-row items-center gap-x-2 min-w-0"
-                                        >
-                                            <span className="truncate flex-1 min-w-0">{item.experiment_name}</span>
-                                            <VariantTag item={item} />
-                                            <OpenExperimentButton item={item} />
-                                        </div>
+                                        <ExperimentContextRow key={item.experiment_id} item={item} />
                                     ))}
                                 </div>
                             ),

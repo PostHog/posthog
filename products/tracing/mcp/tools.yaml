@@ -103,6 +103,8 @@ tools:
             include:
                 - results
                 - compare
+                - has_more
+                - next_offset
     apm-spans-count:
         operation: tracing_spans_count_create
         enabled: true
@@ -206,6 +208,9 @@ tools:
                 - results
     tracing-spans-has-spans-retrieve:
         operation: tracing_spans_has_spans_retrieve
+        enabled: false
+    tracing-spans-latency-heatmap-create:
+        operation: tracing_spans_latency_heatmap_create
         enabled: false
     tracing-spans-symbol-stats-create:
         operation: tracing_spans_symbol_stats_create

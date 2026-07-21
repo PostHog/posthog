@@ -129,6 +129,8 @@ class TestSourceForPipeline:
 
         assert captured["endpoint"] == "charges"
         assert captured["api_key"] == "sk_test"
+        assert captured["team_id"] is not None
+        assert captured["job_id"] is not None
         assert captured["db_incremental_field_last_value"] == 1000
         assert captured["db_incremental_field_earliest_value"] == 500
 

@@ -6,12 +6,12 @@ import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
 import { type CSSProperties } from 'react'
 
-import { IconPlus, IconTrash } from '@posthog/icons'
+import { IconPlus, IconThumbsDown, IconThumbsUp, IconTrash } from '@posthog/icons'
 
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { defaultSurveyAppearance } from 'scenes/surveys/constants'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
-import { sanitizeHTML } from 'scenes/surveys/utils'
+import { canQuestionSkipSubmitButton, isThumbQuestion, sanitizeHTML } from 'scenes/surveys/utils'
 
 import {
     type MultipleSurveyQuestion,
@@ -25,7 +25,11 @@ import {
 import { type NewSurvey } from '../constants'
 import { InlineEditable } from './InlineEditable'
 
-const RATING_EMOJI_PREVIEW = ['\u{1F621}', '\u{1F641}', '\u{1F610}', '\u{1F642}', '\u{1F60D}']
+// Per-scale lists mirroring posthog-js emojiScaleLists; scale 2 (thumbs) renders icons instead.
+const RATING_EMOJI_PREVIEW: Record<number, string[]> = {
+    3: ['\u{1F641}', '\u{1F610}', '\u{1F642}'],
+    5: ['\u{1F621}', '\u{1F641}', '\u{1F610}', '\u{1F642}', '\u{1F60D}'],
+}
 
 function getLuminance(color: string | undefined): number | null {
     if (!color) {
@@ -286,6 +290,8 @@ function QuestionCanvas({ question, index }: { question: SurveyQuestion; index: 
     }
 
     const buttonTextDefault = question.type === SurveyQuestionType.Link ? 'Continue' : 'Submit'
+    // Auto-submit hides the submit button at render time, so the preview should match.
+    const hidesSubmitButton = canQuestionSkipSubmitButton(question) && !!question.skipSubmitButton
 
     return (
         <form className="survey-form" name="surveyForm" onSubmit={(event) => event.preventDefault()}>
@@ -357,15 +363,17 @@ function QuestionCanvas({ question, index }: { question: SurveyQuestion; index: 
                     ) : null}
 
                     <div className="bottom-section">
-                        <InlineEditable
-                            as="span"
-                            value={question.buttonText || ''}
-                            onChange={(value) => updateField('buttonText', value)}
-                            placeholder={buttonTextDefault}
-                            ariaLabel="Submit button label"
-                            className="form-submit"
-                            data-attr={`canvas-question-${index}-button-text`}
-                        />
+                        {!hidesSubmitButton && (
+                            <InlineEditable
+                                as="span"
+                                value={question.buttonText || ''}
+                                onChange={(value) => updateField('buttonText', value)}
+                                placeholder={buttonTextDefault}
+                                ariaLabel="Submit button label"
+                                className="form-submit"
+                                data-attr={`canvas-question-${index}-button-text`}
+                            />
+                        )}
                         <KeyboardHints questionType={question.type} />
                     </div>
                 </div>
@@ -577,9 +585,18 @@ function RatingCanvas({
 }): JSX.Element {
     const scale = question.scale
     const length = scale === 10 ? 11 : scale
+    const isThumbs = isThumbQuestion(question)
+    // Emoji display is UI-restricted to scales 2/3/5; the [5] fallback is defensive.
+    const emojis = RATING_EMOJI_PREVIEW[scale] ?? RATING_EMOJI_PREVIEW[5]
     return (
         <div className="rating-section">
-            <div className={question.display === 'emoji' ? 'rating-options-emoji' : 'rating-options-number'}>
+            <div
+                className={
+                    question.display === 'emoji'
+                        ? `rating-options-emoji${isThumbs ? ' rating-options-emoji-2' : ''}`
+                        : 'rating-options-number'
+                }
+            >
                 {Array.from({ length }, (_, idx) => {
                     const value = scale === 10 ? idx : idx + 1
                     return (
@@ -590,27 +607,38 @@ function RatingCanvas({
                             tabIndex={-1}
                             aria-hidden
                         >
-                            {question.display === 'emoji'
-                                ? RATING_EMOJI_PREVIEW[idx] || RATING_EMOJI_PREVIEW[3]
-                                : value}
+                            {isThumbs ? (
+                                // value 1 = thumbs up, 2 = thumbs down (the stored response mapping).
+                                value === 1 ? (
+                                    <IconThumbsUp />
+                                ) : (
+                                    <IconThumbsDown />
+                                )
+                            ) : question.display === 'emoji' ? (
+                                (emojis[idx] ?? emojis[emojis.length - 1])
+                            ) : (
+                                value
+                            )}
                         </button>
                     )
                 })}
             </div>
-            <div className="rating-text">
-                <InlineEditable
-                    value={question.lowerBoundLabel || ''}
-                    onChange={onLowerBoundChange}
-                    placeholder="Low end label"
-                    ariaLabel="Lower bound label"
-                />
-                <InlineEditable
-                    value={question.upperBoundLabel || ''}
-                    onChange={onUpperBoundChange}
-                    placeholder="High end label"
-                    ariaLabel="Upper bound label"
-                />
-            </div>
+            {!isThumbs ? (
+                <div className="rating-text">
+                    <InlineEditable
+                        value={question.lowerBoundLabel || ''}
+                        onChange={onLowerBoundChange}
+                        placeholder="Low end label"
+                        ariaLabel="Lower bound label"
+                    />
+                    <InlineEditable
+                        value={question.upperBoundLabel || ''}
+                        onChange={onUpperBoundChange}
+                        placeholder="High end label"
+                        ariaLabel="Upper bound label"
+                    />
+                </div>
+            ) : null}
         </div>
     )
 }

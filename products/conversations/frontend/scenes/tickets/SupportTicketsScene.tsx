@@ -3,7 +3,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useMemo, useRef } from 'react'
 
-import { IconChevronDown, IconClock, IconRefresh, IconX } from '@posthog/icons'
+import { IconChevronDown, IconClock, IconRefresh } from '@posthog/icons'
 import {
     LemonBadge,
     LemonButton,
@@ -36,14 +36,9 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import {
-    AssigneeDisplay,
-    AssigneeIconDisplay,
-    AssigneeLabelDisplay,
-    AssigneeResolver,
-    AssigneeSelect,
-} from '../../components/Assignee'
+import { AssigneeDisplay, AssigneeMultiSelect, AssigneeResolver } from '../../components/Assignee'
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
+import { clearFilterButtonProps } from '../../components/clearFilterButtonProps'
 import { ComposeTicketButton } from '../../components/ComposeTicket'
 import { ConversationsDisabledBanner } from '../../components/ConversationsDisabledBanner'
 import { IdentityBadge } from '../../components/IdentityBadge/IdentityBadge'
@@ -159,7 +154,15 @@ export const SUPPORT_TICKETS_TABLE_COLUMNS: LemonTableColumns<Ticket> = [
         render: (_, ticket) =>
             ticket.priority ? (
                 <LemonTag
-                    type={ticket.priority === 'high' ? 'danger' : ticket.priority === 'medium' ? 'warning' : 'default'}
+                    type={
+                        ticket.priority === 'critical'
+                            ? 'danger'
+                            : ticket.priority === 'high'
+                              ? 'caution'
+                              : ticket.priority === 'medium'
+                                ? 'warning'
+                                : 'default'
+                    }
                 >
                     {ticket.priority}
                 </LemonTag>
@@ -432,7 +435,7 @@ export function SupportTicketsTableFilters(): JSX.Element {
         channelFilter,
         slaFilter,
         aiTriageResultFilter,
-        assigneeFilter,
+        assigneeFilterEntries,
         tagsFilter,
         tagsMatch,
         tagsExcludeFilter,
@@ -503,7 +506,14 @@ export function SupportTicketsTableFilters(): JSX.Element {
                         </div>
                     }
                 >
-                    <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        {...clearFilterButtonProps(
+                            statusFilter.length > 0 ? () => setStatusFilter([]) : null,
+                            'Clear status filter'
+                        )}
+                    >
                         {statusFilter.length === 0
                             ? 'All statuses'
                             : statusFilter.length === 1
@@ -540,7 +550,14 @@ export function SupportTicketsTableFilters(): JSX.Element {
                         </div>
                     }
                 >
-                    <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        {...clearFilterButtonProps(
+                            priorityFilter.length > 0 ? () => setPriorityFilter([]) : null,
+                            'Clear priority filter'
+                        )}
+                    >
                         {priorityFilter.length === 0
                             ? 'All priorities'
                             : priorityFilter.length === 1
@@ -626,7 +643,14 @@ export function SupportTicketsTableFilters(): JSX.Element {
                             </div>
                         }
                     >
-                        <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            {...clearFilterButtonProps(
+                                aiTriageResultFilter.length > 0 ? () => setAiTriageResultFilter([]) : null,
+                                'Clear AI result filter'
+                            )}
+                        >
                             {aiTriageResultFilter.length === 0
                                 ? 'All AI results'
                                 : aiTriageResultFilter.length === 1
@@ -677,7 +701,19 @@ export function SupportTicketsTableFilters(): JSX.Element {
                         </div>
                     }
                 >
-                    <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        {...clearFilterButtonProps(
+                            tagsFilter.length > 0 || tagsExcludeFilter.length > 0
+                                ? () => {
+                                      setTagsFilter([])
+                                      setTagsExcludeFilter([])
+                                  }
+                                : null,
+                            'Clear tag filter'
+                        )}
+                    >
                         {tagsFilter.length === 0 && tagsExcludeFilter.length === 0
                             ? 'All tags'
                             : [
@@ -691,40 +727,7 @@ export function SupportTicketsTableFilters(): JSX.Element {
                                   .join(', ')}
                     </LemonButton>
                 </LemonDropdown>
-                {(tagsFilter.length > 0 || tagsExcludeFilter.length > 0) && (
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconX />}
-                        onClick={() => {
-                            setTagsFilter([])
-                            setTagsExcludeFilter([])
-                        }}
-                        tooltip="Clear tag filter"
-                    />
-                )}
-                <AssigneeSelect
-                    assignee={assigneeFilter === 'all' || assigneeFilter === 'unassigned' ? null : assigneeFilter}
-                    onChange={(assignee) => setAssigneeFilter(assignee ?? 'all')}
-                >
-                    {(resolvedAssignee, isOpen) => (
-                        <LemonButton size="small" type="secondary" active={isOpen} sideIcon={<IconChevronDown />}>
-                            <span className="flex items-center gap-1">
-                                <AssigneeIconDisplay assignee={resolvedAssignee} size="small" />
-                                <AssigneeLabelDisplay
-                                    assignee={resolvedAssignee}
-                                    size="small"
-                                    placeholder="All assignees"
-                                />
-                            </span>
-                        </LemonButton>
-                    )}
-                </AssigneeSelect>
-                <LemonCheckbox
-                    checked={assigneeFilter === 'unassigned'}
-                    onChange={(checked) => setAssigneeFilter(checked ? 'unassigned' : 'all')}
-                    label="Unassigned only"
-                />
+                <AssigneeMultiSelect value={assigneeFilterEntries} onChange={setAssigneeFilter} />
             </div>
             <div className="flex items-center gap-2">
                 <SupportTicketsBulkActions />

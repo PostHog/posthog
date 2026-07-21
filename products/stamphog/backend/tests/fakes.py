@@ -101,6 +101,7 @@ _CONTENTS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/contents/(?P<path>.+)$
 _CHECK_RUNS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/commits/(?P<sha>[^/]+)/check-runs$")
 _COLLABORATOR_PERMISSION_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/collaborators/(?P<username>[^/]+)/permission$")
 _PR_REACTIONS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/issues/(?P<number>\d+)/reactions$")
+_PR_REACTION_DELETE_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/issues/(?P<number>\d+)/reactions/(?P<rid>\d+)$")
 
 _API_PREFIX = "https://api.github.com"
 
@@ -129,6 +130,8 @@ class GitHubRecorder:
         self.prs: dict[tuple[str, int], dict] = {}
         self.pr_files: dict[tuple[str, int], list[dict]] = {}
         self.pr_reviews: dict[tuple[str, int], list[dict]] = {}
+        # (repo, number) -> GraphQL reviewThreads node dicts for get_pr_review_threads; default none.
+        self.review_threads: dict[tuple[str, int], list[dict]] = {}
         # Pre-existing issue comments a GET returns (e.g. a user-planted sticky marker to exercise the
         # bot-identity filter in upsert_sticky_comment). Empty by default — most tests post fresh.
         self.issue_comments: dict[tuple[str, int], list[dict]] = {}
@@ -138,6 +141,12 @@ class GitHubRecorder:
         self.collaborator_permissions: dict[tuple[str, str], str] = {}
         # (repo, number) -> raw reaction dicts for the in-flight reviewer-bot wait; default none.
         self.pr_reactions: dict[tuple[str, int], list[dict]] = {}
+        # (repo, number) -> id of the reaction stamphog's own add_pr_reaction posted, so a repeat POST
+        # returns the same id (GitHub's real idempotency) and a DELETE has something to clear.
+        self._own_reactions: dict[tuple[str, int], int] = {}
+        # Test hook: force every reaction POST to return this response (e.g. a 500) to
+        # exercise the client's fail-open path without monkeypatching bound methods.
+        self.reaction_response_override: FakeResponse | None = None
         self.teams_by_login: dict[str, list[str]] = {}
         self.policy_files: dict[str, str] = {}
         self.github_writes: list[dict[str, Any]] = []
@@ -175,6 +184,10 @@ class GitHubRecorder:
             per_page = int(params.get("per_page", 30))
             items = self.pr_reactions.get((m.group("repo"), int(m.group("number"))), [])
             return FakeResponse(200, json_data=items[per_page * (page - 1) : per_page * page])
+        if method == "POST" and (m := _PR_REACTIONS_RE.match(path)):
+            return self._add_reaction(m.group("repo"), int(m.group("number")), json_body)
+        if method == "DELETE" and (m := _PR_REACTION_DELETE_RE.match(path)):
+            return self._remove_reaction(m.group("repo"), int(m.group("number")), int(m.group("rid")))
         if method == "GET" and (m := _CONTENTS_RE.match(path)):
             return self._get_contents(m.group("path"))
         if method == "POST" and path == "/graphql":
@@ -230,15 +243,59 @@ class GitHubRecorder:
         return FakeResponse(200, text=content, headers={"Content-Type": "text/plain; charset=utf-8"})
 
     def _graphql(self, body: dict) -> FakeResponse:
-        login = str(((body.get("variables") or {}).get("login")) or "")
+        query = str(body.get("query") or "")
+        variables = body.get("variables") or {}
+        # Two GraphQL callers share /graphql: get_pr_review_threads and get_user_team_slugs. Route by
+        # the query's shape (only the review-threads query mentions reviewThreads).
+        if "reviewThreads" in query:
+            repo = f"{variables.get('owner', '')}/{variables.get('name', '')}"
+            number = int(variables.get("pr") or 0)
+            nodes = self.review_threads.get((repo, number), [])
+            data = {
+                "data": {
+                    "repository": {
+                        "pullRequest": {
+                            "reviewThreads": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": nodes}
+                        }
+                    }
+                }
+            }
+            return FakeResponse(200, json_data=data)
+        login = str(variables.get("login") or "")
         slugs = self.teams_by_login.get(login, [])
-        data = {"data": {"organization": {"teams": {"nodes": [{"slug": s} for s in slugs]}}}}
-        return FakeResponse(200, json_data=data)
+        teams_data = {"data": {"organization": {"teams": {"nodes": [{"slug": s} for s in slugs]}}}}
+        return FakeResponse(200, json_data=teams_data)
 
     def _record_write(self, kind: str, repo: str, number: int, body: dict | None) -> FakeResponse:
         new_id = self._alloc_id()
         self.github_writes.append({"kind": kind, "repo": repo, "number": number, "body": body or {}, "id": new_id})
         return FakeResponse(201 if kind != "issue_comment_edit" else 200, json_data={"id": new_id})
+
+    def _add_reaction(self, repo: str, number: int, body: dict | None) -> FakeResponse:
+        """Mirror GitHub's real idempotency: a repeat POST with the same identity returns 200 + the
+        existing id instead of stacking a second reaction; only the first POST is a 201 creation."""
+        if self.reaction_response_override is not None:
+            return self.reaction_response_override
+        content = (body or {}).get("content", "")
+        key = (repo, number)
+        existing_id = self._own_reactions.get(key)
+        if existing_id is not None:
+            return FakeResponse(200, json_data={"id": existing_id, "content": content})
+        new_id = self._alloc_id()
+        self._own_reactions[key] = new_id
+        self.github_writes.append(
+            {"kind": "add_reaction", "repo": repo, "number": number, "content": content, "id": new_id}
+        )
+        return FakeResponse(201, json_data={"id": new_id, "content": content})
+
+    def _remove_reaction(self, repo: str, number: int, reaction_id: int) -> FakeResponse:
+        key = (repo, number)
+        if self._own_reactions.get(key) == reaction_id:
+            del self._own_reactions[key]
+        self.github_writes.append(
+            {"kind": "remove_reaction", "repo": repo, "number": number, "reaction_id": reaction_id}
+        )
+        return FakeResponse(204)
 
     def _remove_label(self, repo: str, number: int, label: str) -> FakeResponse:
         self.github_writes.append({"kind": "remove_label", "repo": repo, "number": number, "label": label})
@@ -248,6 +305,11 @@ class GitHubRecorder:
         self.github_writes.append(
             {"kind": "dismiss_review", "repo": repo, "number": number, "review_id": review_id, "body": body or {}}
         )
+        # Reflect the dismissal in the reviews list like real GitHub does (state -> DISMISSED), so a
+        # subsequent get_pr_reviews / list_own_active_approvals no longer sees it as active.
+        for review in self.pr_reviews.get((repo, number), []):
+            if review.get("id") == review_id:
+                review["state"] = "DISMISSED"
         return FakeResponse(200, json_data={})
 
 
@@ -256,6 +318,39 @@ def _extract(query: str, prefix: str) -> str:
         if token.startswith(prefix):
             return token[len(prefix) :]
     return ""
+
+
+def review_thread_node(
+    *,
+    path: str,
+    comments: list[tuple[str, str]],
+    is_resolved: bool = False,
+    is_outdated: bool = False,
+    line: int | None = 1,
+    author_association: str = "MEMBER",
+    author_typename: str = "User",
+    comments_have_next_page: bool = False,
+    thread_id: str = "RT_1",
+) -> dict[str, Any]:
+    """Build one GraphQL reviewThreads node (what get_pr_review_threads parses), from (author, body) pairs."""
+    return {
+        "id": thread_id,
+        "isResolved": is_resolved,
+        "isOutdated": is_outdated,
+        "path": path,
+        "line": line,
+        "comments": {
+            "pageInfo": {"hasNextPage": comments_have_next_page, "endCursor": "cc"},
+            "nodes": [
+                {
+                    "author": {"login": author, "__typename": author_typename},
+                    "authorAssociation": author_association,
+                    "body": body,
+                }
+                for author, body in comments
+            ],
+        },
+    }
 
 
 def noop_remember_observed_core_limit(*args: Any, **kwargs: Any) -> None:

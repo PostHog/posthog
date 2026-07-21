@@ -274,8 +274,9 @@ def matomo_source(
             db_incremental_field_last_value=db_incremental_field_last_value,
         ),
         primary_keys=list(config.primary_keys),
-        partition_count=1,
-        partition_size=1,
+        partition_mode=config.partition_mode,
+        partition_keys=config.partition_keys,
+        partition_format=config.partition_format,
         # Visits are fetched ascending by serverTimestamp; report days are
         # walked oldest-first — both cursors only move forward.
         sort_mode="asc",

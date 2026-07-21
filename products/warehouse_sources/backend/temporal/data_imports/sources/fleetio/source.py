@@ -19,7 +19,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.fleetio.fleetio import (
     FleetioResumeConfig,
     fleetio_source,
@@ -27,7 +30,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fleetio.fl
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.fleetio.settings import (
     ENDPOINTS,
-    FLEETIO_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FleetioSourceConfig
@@ -113,22 +115,7 @@ Create an API key under **Account Menu → Account Settings → API Keys** in Fl
         names: list[str] | None = None,
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
-        def _build_schema(endpoint: str) -> SourceSchema:
-            endpoint_config = FLEETIO_ENDPOINTS[endpoint]
-            has_incremental = len(endpoint_config.incremental_fields) > 0
-            return SourceSchema(
-                name=endpoint,
-                supports_incremental=has_incremental,
-                supports_append=has_incremental,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-                should_sync_default=endpoint_config.should_sync_default,
-            )
-
-        schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
         self, config: FleetioSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -151,7 +138,8 @@ Create an API key under **Account Menu → Account Settings → API Keys** in Fl
             api_key=config.api_key,
             account_token=config.account_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

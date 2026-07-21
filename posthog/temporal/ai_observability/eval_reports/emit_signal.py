@@ -70,7 +70,7 @@ class EvalReportSignalSummary(BaseModel):
 
 SUMMARIZE_REPORT_SYSTEM_PROMPT = """You are a concise technical writer. Your job is to produce a short signal description from a PostHog LLM evaluation REPORT.
 
-Unlike a per-result signal (one judge verdict), a report is an analytical narrative over many evaluation results in a time window. It already contains a title, several titled sections, metrics, and citations to specific generations. Your output should distill that narrative into a signal that fits alongside signals from other observability tools.
+Unlike a per-result signal (one judge verdict), a report is an analytical narrative over many evaluation results in a time window. It already contains a title, several titled sections, metrics, and citations to specific traces. Your output should distill that narrative into a signal that fits alongside signals from other observability tools.
 
 You will be given:
 - Evaluation context: name, optional description, and evaluation criteria when applicable
@@ -99,7 +99,7 @@ Produce:
    - 0.8-0.9 = high, should be prioritized
    - 1.0 = critical, act immediately
 
-Base significance on: the magnitude of the outcome-distribution change, the prevalence of concerning outcomes in the evaluation's own semantics, breadth across generations (citation count as proxy), and how actionable the finding is from the report's prose. A sentiment label describes the user's message, not whether the AI response was good or bad.
+Base significance on: the magnitude of the outcome-distribution change, the prevalence of concerning outcomes in the evaluation's own semantics, breadth across cited traces, and how actionable the finding is from the report's prose. A sentiment label describes the user's message, not whether the AI response was good or bad.
 
 The output will be fed into a signal grouping and investigation system that groups related findings across observability tools. Write for an engineer who hasn't seen this evaluation before.
 

@@ -192,9 +192,24 @@ _FOREIGN_SERVER_UNREACHABLE_ERROR = (
     "persists, check that the foreign server is running and reachable from your source database."
 )
 
+# sshtunnel raises BaseSSHTunnelForwarderError("Could not establish session to SSH gateway") when it
+# can't open a session to the bastion — the SSH host/port is wrong or unreachable, the bastion is
+# down, or its firewall blocks PostHog's IPs. The raw message tells the user nothing actionable, so
+# replace it with concrete guidance on both the validate and sync paths.
+_SSH_GATEWAY_SESSION_ERROR = "Could not establish session to SSH gateway"
+_SSH_GATEWAY_UNREACHABLE_MESSAGE = (
+    "Could not connect to your SSH tunnel — PostHog couldn't open a session to the SSH gateway. "
+    "Check that the SSH host and port point to a reachable SSH server (not the database port), that "
+    "the bastion is running, and that PostHog's IP addresses are allowed through its firewall."
+)
+
 
 @SourceRegistry.register
 class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+    # xmin replication is Postgres-only; per-table availability is still decided by
+    # `SourceSchema.supports_xmin` at discovery.
+    supports_xmin = True
+
     def __init__(self, source_name: str = "Postgres"):
         super().__init__()
         self.source_name = source_name
@@ -490,7 +505,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             ),
             "SSLRequiredError": None,
             "SSL/TLS connection is required": None,
-            "Could not establish session to SSH gateway": None,
+            _SSH_GATEWAY_SESSION_ERROR: _SSH_GATEWAY_UNREACHABLE_MESSAGE,
             # paramiko raises a bare, message-less EOFError when the SSH gateway accepts the TCP
             # connection but drops it mid-handshake (a non-SSH service on the port, the bastion
             # refusing PostHog's IPs, a proxy resetting the stream). sshtunnel doesn't wrap it, so
@@ -629,6 +644,22 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # against the source data, so retrying re-evaluates the same view and hits the same row.
             "cannot call jsonb_each on a non-object": "A view you're syncing calls jsonb_each() on a JSON value that isn't an object for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only call jsonb_each() when jsonb_typeof(col) = 'object'), or remove that view from the sync.",
             "cannot call jsonb_each_text on a non-object": "A view you're syncing calls jsonb_each_text() on a JSON value that isn't an object for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only call jsonb_each_text() when jsonb_typeof(col) = 'object'), or remove that view from the sync.",
+            # A selected relation's own definition writes to the database while we read it — a view or
+            # trigger that calls a function which runs REFRESH MATERIALIZED VIEW (or INSERT/UPDATE/DELETE).
+            # We read inside a read-only transaction and never write to the source, so Postgres rejects
+            # the write with SQLSTATE 25006 "cannot execute <stmt> in a read-only transaction". The write
+            # lives in the customer's schema and is deterministic, so retrying re-reads into the same
+            # wall. Match the stable read-only-transaction phrase and exclude the volatile statement
+            # kind and relation name; it appears in both the raw activity-level str(e) and the
+            # Temporal-wrapped "ReadOnlySqlTransaction: ..." workflow-level form.
+            "in a read-only transaction": (
+                "One of the tables or views you selected to sync tries to write to your database while "
+                "PostHog is reading it (for example a view or trigger that refreshes a materialized "
+                "view), and PostHog reads inside a read-only transaction so the write is rejected "
+                '("cannot execute ... in a read-only transaction"). PostHog never writes to your '
+                "source. Remove that relation from the sync, or change its definition so reading it "
+                "doesn't perform a write, then re-enable the sync."
+            ),
             # A selected relation is a postgres_fdw foreign table and the connecting role has no user
             # mapping for the foreign server it points at, so every SELECT fails with
             # "UndefinedObject: user mapping not found for user <user>, server <server>" (SQLSTATE
@@ -937,9 +968,12 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             capture_exception(e)
             return False, f"Could not connect to {self.source_name}. Please check all connection details are valid."
         except BaseSSHTunnelForwarderError as e:
+            raw = e.value or ""
+            if _SSH_GATEWAY_SESSION_ERROR in raw:
+                return False, _SSH_GATEWAY_UNREACHABLE_MESSAGE
             return (
                 False,
-                e.value
+                raw
                 or f"Could not connect to {self.source_name} via the SSH tunnel. Please check all connection details are valid.",
             )
         except Exception as e:

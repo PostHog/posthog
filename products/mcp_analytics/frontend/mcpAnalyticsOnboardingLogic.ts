@@ -3,10 +3,18 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { addProductIntent } from 'lib/utils/product-intents'
+import { userLogic } from 'scenes/userLogic'
 
 import { HogQLQueryResponse, NodeKind, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { asNumber } from './queryResultParsers'
+
+// These intents fire on view, not on a user action, so during impersonation they'd register
+// staff navigation as the team's intent — and the read-only middleware rejects the write (403),
+// toasting on every mount. Skip firing while impersonating.
+function isImpersonatedSession(): boolean {
+    return userLogic.findMounted()?.values.user?.is_impersonated ?? false
+}
 
 export type MCPOnboardingState = 'not-instrumented' | 'connected-no-calls' | 'onboarded'
 
@@ -179,7 +187,11 @@ export const mcpAnalyticsOnboardingLogic = kea<mcpAnalyticsOnboardingLogicType>(
             // tool calls have landed yet. Separates an install problem (never
             // instrumented) from a traffic problem (wired up, but the server isn't
             // being called). Registered once per mount so the poll doesn't repeat it.
-            if (values.onboardingState === 'connected-no-calls' && !cache.registeredConnected) {
+            if (
+                values.onboardingState === 'connected-no-calls' &&
+                !cache.registeredConnected &&
+                !isImpersonatedSession()
+            ) {
                 cache.registeredConnected = true
                 void addProductIntent({
                     product_type: ProductKey.MCP_ANALYTICS,
@@ -197,10 +209,12 @@ export const mcpAnalyticsOnboardingLogic = kea<mcpAnalyticsOnboardingLogicType>(
         actions.loadSignals()
         // Register product intent so activation lands in the standard cross-customer
         // funnel (`has_activated_mcp_analytics` flips once tool calls arrive too).
-        void addProductIntent({
-            product_type: ProductKey.MCP_ANALYTICS,
-            intent_context: ProductIntentContext.MCP_ANALYTICS_VIEWED,
-        })
+        if (!isImpersonatedSession()) {
+            void addProductIntent({
+                product_type: ProductKey.MCP_ANALYTICS,
+                intent_context: ProductIntentContext.MCP_ANALYTICS_VIEWED,
+            })
+        }
         cache.disposables.add(() => {
             const id = window.setInterval(() => actions.loadSignals(), POLL_INTERVAL_MS)
             return () => clearInterval(id)
