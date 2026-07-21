@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import { markExecPayload, buildToolResultPayload, estimateResponseTokens } from '@/lib/build-tool-result'
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
-import { ToolInputValidationError } from '@/lib/errors'
+import { findRecoverableApiError, PostHogApiError, ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { formatResponse } from '@/lib/response'
 
@@ -35,6 +35,11 @@ export interface ExecInnerCallProperties {
     success: boolean
     output_format: 'json' | 'text' | 'structured'
     error_message?: string
+    /**
+     * HTTP status when the failure was a typed PostHog API error — value-free,
+     * safe for consumers that must not forward raw error messages.
+     */
+    error_status?: number
     /** Input rejected by the tool's schema before dispatch — no handler ran. */
     validation_error?: boolean
     /**
@@ -254,15 +259,22 @@ function stripOutputFormatProperty(jsonSchema: Record<string, unknown>): Record<
     return { ...jsonSchema, properties: rest }
 }
 
-function findTool(tools: Tool<ZodObjectAny>[], name: string): Tool<ZodObjectAny> {
+function findTool(tools: Tool<ZodObjectAny>[], scopeGatedTools: ScopeGatedTool[], name: string): Tool<ZodObjectAny> {
     const tool = tools.find((t) => t.name === name)
     if (!tool) {
         const redirect = DEPRECATED_TOOL_REDIRECTS[name]
         if (redirect) {
             throw new Error(redirect(tools))
         }
-        const available = tools.map((t) => t.name).join(', ')
-        throw new Error(`Unknown tool: "${name}". Available tools: ${available}`)
+        const scopeGatedTool = scopeGatedTools.find((candidate) => candidate.name === name)
+        if (scopeGatedTool) {
+            throw new Error(
+                `Tool "${name}" exists, but this MCP connection is missing the required scope(s): ${scopeGatedTool.missingScopes.join(', ')}. Reconnect or reauthorize the PostHog MCP connection and approve these scopes. Logging in to PostHog in a browser does not update MCP permissions.`
+            )
+        }
+        throw new Error(
+            `Unknown tool: "${name}". Run "search ${name}" to find the current tool name before claiming the capability is unavailable.`
+        )
     }
     return tool
 }
@@ -404,7 +416,7 @@ export function createExecTool(
                     if (!infoArgs) {
                         throw new Error('Usage: info [--json] <tool_name>')
                     }
-                    const tool = findTool(allTools, infoArgs)
+                    const tool = findTool(allTools, scopeGatedTools, infoArgs)
                     // `io: 'input'` mirrors the advertised `tools/list` schema and the executor's
                     // validation: fields with a Zod `.default()` (e.g. a query `kind` discriminator)
                     // are optional and auto-filled. The default `io: 'output'` would list them as
@@ -447,7 +459,7 @@ export function createExecTool(
                         throw new Error('Usage: schema <tool_name> [field_path]')
                     }
                     const { verb: schemaToolName, rest: fieldPath } = parseCommand(rest)
-                    const schemaTool = findTool(allTools, schemaToolName)
+                    const schemaTool = findTool(allTools, scopeGatedTools, schemaToolName)
                     // See the `info` command: `io: 'input'` keeps this in sync with the advertised
                     // schema and validation, so `.default()` fields aren't shown as required.
                     const fullJsonSchema = stripOutputFormatProperty(
@@ -497,7 +509,7 @@ export function createExecTool(
                         throw new Error('Usage: call [--json] [--confirm] <tool_name> <json_input>')
                     }
                     const { verb: toolName, rest: jsonBody } = parseCommand(callArgs)
-                    const tool = findTool(allTools, toolName)
+                    const tool = findTool(allTools, scopeGatedTools, toolName)
                     if (options.requireDestructiveConfirmation && tool.annotations.destructiveHint && !confirmed) {
                         throw new Error(
                             `Tool "${tool.name}" is destructive. Re-run with "call --confirm ${tool.name} ..." after verifying the target IDs. Use "info ${tool.name}" to inspect the tool first.`
@@ -562,11 +574,16 @@ export function createExecTool(
                     try {
                         result = await tool.handler(context, input)
                     } catch (err) {
+                        // PostHogValidationError is the API's 400 validation_error body.
+                        const apiError = findRecoverableApiError(err)
                         trackInnerCall?.(tool.name, {
                             duration_ms: Date.now() - startedAt,
                             success: false,
                             output_format: useJson ? 'json' : 'text',
                             error_message: err instanceof Error ? err.message : String(err),
+                            ...(apiError
+                                ? { error_status: apiError instanceof PostHogApiError ? apiError.status : 400 }
+                                : {}),
                             input,
                         })
                         throw err

@@ -29,7 +29,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.
     DOCKERHUB_ENDPOINTS,
     ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DockerhubSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dockerhub import (
+    DockerhubSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

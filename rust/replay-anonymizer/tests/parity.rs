@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use posthog_replay_anonymizer::allow_lists::AllowLists;
 use posthog_replay_anonymizer::{
-    anonymize_event_str, anonymize_message, context::Ctx, text::scrub_text, url::scrub_url_opts,
+    anonymize_event_str, anonymize_message, context::Ctx, text::scrub_text, url::scrub_url,
     url::URL_SCHEME_ALLOWLIST,
 };
 use serde_json::Value;
@@ -51,18 +51,8 @@ fn url_fixtures() {
         let allow = allow_of(&case);
         let input = case["input"].as_str().unwrap();
         let expected = case["expected"].as_str().unwrap();
-        let collapse_host = case["collapseHost"].as_bool().unwrap_or(false);
-        let first_party_hosts: Vec<String> = case["firstPartyHosts"]
-            .as_array()
-            .map(|a| {
-                a.iter()
-                    .filter_map(|v| v.as_str().map(String::from))
-                    .collect()
-            })
-            .unwrap_or_default();
-        let ctx = Ctx::with_first_party_hosts(&allow, first_party_hosts);
-        let actual =
-            scrub_url_opts(&ctx, input, collapse_host).unwrap_or_else(|| input.to_string());
+        let ctx = Ctx::new(&allow);
+        let actual = scrub_url(&ctx, input).unwrap_or_else(|| input.to_string());
         assert_eq!(actual, expected, "url case: {}", case["name"]);
     }
 }

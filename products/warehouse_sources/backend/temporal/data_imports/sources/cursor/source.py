@@ -31,7 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cursor.set
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CursorSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cursor import CursorSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
