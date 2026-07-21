@@ -468,6 +468,10 @@ TEAM_CONFIG_ADMIN_FIELDS_SET: set[str] = (TEAM_CONFIG_FIELDS_SET - TEAM_CONFIG_M
     "is_demo",
     "app_urls",
     "access_control",
+    # Renaming a project/environment is admin-only (the settings UI gates TeamDisplayName behind
+    # useRestrictedArea(Admin)). Excluded from the create-time gate below so members allowed to
+    # create projects can still name them.
+    "name",
 }
 
 # Fields that are not member-safe but carry their own `field_access_control` (enforced in
@@ -2518,8 +2522,9 @@ def validate_team_attrs(
         # On create there's no team yet, so check the creator's org-level membership. Without this a
         # non-admin member (allowed to create projects via members_can_create_projects) could set
         # admin-only team fields like receive_org_level_activity_logs. `is_demo` is excluded — demo
-        # project creation is intentionally open to members and gated separately.
-        admin_fields_touched = (TEAM_CONFIG_ADMIN_FIELDS_SET - {"is_demo"}) & attrs.keys()
+        # project creation is intentionally open to members and gated separately. `name` is excluded
+        # too — naming a project you're allowed to create is not the same as renaming an existing one.
+        admin_fields_touched = (TEAM_CONFIG_ADMIN_FIELDS_SET - {"is_demo", "name"}) & attrs.keys()
         if admin_fields_touched:
             membership = OrganizationMembership.objects.filter(
                 user=cast(User, view.request.user), organization_id=view.organization_id

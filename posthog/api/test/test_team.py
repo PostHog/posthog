@@ -3187,9 +3187,13 @@ _MEMBER_SAFE_TEAM_CONFIG_FIELDS_FOR_PROJECTS: list[tuple[str, Any, str]] = [
 # `@field_access_control`; with access controls enabled that governs it instead (see
 # test_web_analytics_editor_can_write_app_urls_with_access_control), but without it the
 # blanket project-admin gate still applies here.
+# `name` (the project/environment rename) is admin-only in the settings UI (TeamDisplayName
+# is gated behind useRestrictedArea(Admin)); a MEMBER must not rename via the API. It stays
+# member-settable at creation time — see test_member_can_create_project_when_org_allows.
 _UNANNOTATED_SENSITIVE_FIELDS: list[tuple[str, Any, str]] = [
     ("is_demo", True, "is_demo"),
     ("app_urls", ["https://evil.example.com"], "app_urls"),
+    ("name", "Renamed by member", "name"),
 ]
 
 
