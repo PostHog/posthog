@@ -6,7 +6,6 @@ from fastapi import HTTPException
 from llm_gateway.products.config import (
     ALLOWED_PRODUCTS,
     BEDROCK_MODELS,
-    CreditBucket,
     POSTHOG_AI_DEV_APP_ID,
     POSTHOG_AI_EU_APP_ID,
     POSTHOG_AI_US_APP_ID,
@@ -19,6 +18,7 @@ from llm_gateway.products.config import (
     TWIG_US_APP_ID,
     WIZARD_EU_APP_ID,
     WIZARD_US_APP_ID,
+    CreditBucket,
     check_free_tier_model_access,
     check_product_access,
     get_product_config,
