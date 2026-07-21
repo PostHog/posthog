@@ -526,7 +526,7 @@ export function EngineeringAnalyticsTestHealth(): JSX.Element {
             <BrokenTestsPanel />
             <ActiveTestHealthQueue />
             <QuarantineRegister />
-            {/* Rendered once for the whole tab: the leaderboard rows, the register rows, and the
+            {/* Rendered once for the whole tab: the queue rows, the register rows, and the
                 register's no-file empty state all open it. */}
             <QuarantineTestModal
                 modal={quarantineModal}

@@ -515,6 +515,17 @@ class FlakyTestClassification(StrEnum):
     # Failing while masked as xfail.
     QUARANTINED = "quarantined"
 
+    @classmethod
+    def from_run_evidence(
+        cls, *, quarantined_failed_run_count: int, rerun_passed_run_count: int
+    ) -> "FlakyTestClassification":
+        # Quarantine wins over a recovery proof: an xfail is already masked, so surface that first.
+        if quarantined_failed_run_count > 0:
+            return cls.QUARANTINED
+        if rerun_passed_run_count > 0:
+            return cls.CONFIRMED_FLAKE
+        return cls.SUSPECTED_REGRESSION
+
 
 @dataclass(frozen=True)
 class FlakyTestItem:

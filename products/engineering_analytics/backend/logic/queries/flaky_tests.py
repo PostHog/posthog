@@ -5,8 +5,8 @@ by nodeid, and ranks by blast radius: how many PRs a test broke and how often it
 
 A test is a ``confirmed_flake`` only where the evidence already carries proof (an in-job retry
 recovered it), and every other failure is an honest ``suspected_regression`` rather than a guess
-dressed up as one. The old bar, "failed on enough distinct PRs", proved only that a failure was
-not the PR's fault, which labelled real regressions flaky.
+dressed up as one. Failing on many distinct PRs proves only that a failure is not one PR's
+fault, never that the test is flaky: real regressions fail across PRs too.
 
 Every figure is an absolute count: the emitter drops sub-threshold passes, so there is no
 denominator to divide by.
@@ -41,12 +41,7 @@ _SELECT = """
         uniqIf(pr_number, failed_in_run AND pr_number != '') AS failed_pr_count,
         countIf(failed_in_run AND branch IN ('master', 'main')) AS master_failed_run_count,
         countIf(quarantined_in_run) AS quarantined_failed_run_count,
-        max(run_signal_at) AS last_signal_at,
-        multiIf(
-            quarantined_failed_run_count > 0, 'quarantined',
-            rerun_passed_run_count > 0, 'confirmed_flake',
-            'suspected_regression'
-        ) AS classification
+        max(run_signal_at) AS last_signal_at
     FROM (__RUN_EVIDENCE__)
     GROUP BY nodeid
     HAVING rerun_passed_run_count > 0
@@ -97,7 +92,10 @@ def query_flaky_tests(
                 nodeid=nodeid,
                 # Prefer the emitter's exact selector; reconstruct from the nodeid for older spans.
                 selector=selector or selector_from_nodeid(nodeid),
-                classification=FlakyTestClassification(classification),
+                classification=FlakyTestClassification.from_run_evidence(
+                    quarantined_failed_run_count=quarantined_failed_run_count,
+                    rerun_passed_run_count=rerun_passed_run_count,
+                ),
                 rerun_passed_run_count=rerun_passed_run_count,
                 failed_run_count=failed_run_count,
                 failed_pr_count=failed_pr_count,
@@ -114,7 +112,6 @@ def query_flaky_tests(
                 master_failed_run_count,
                 quarantined_failed_run_count,
                 last_signal_at,
-                classification,
             ) in rows[:limit]
         ],
         truncated=len(rows) > limit,

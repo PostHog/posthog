@@ -45,8 +45,8 @@ autonomous agents (e.g. PostHog Code) reasoning about their own PRs.
   an xfail, any master/main failure, or failures on ≥ `min_failed_prs` distinct PRs (`failed_pr_count`). Answers
   "what is this failing test costing us" and picks quarantine candidates. **It does not answer "which tests are
   flaky"**: this queue only sees Backend CI and only proves a flake for tests hand-marked
-  `@pytest.mark.flaky(reruns=N)`. Counts are absolute signal, never rates —
-  passing runs are mostly not emitted, so there is no honest denominator.
+  `@pytest.mark.flaky(reruns=N)`. Counts are absolute signal, never rates: passing runs are mostly not
+  emitted, so there is no honest denominator.
 
 There is no aggregate time-to-merge tool and no "counts" tool — derive those from `pull-requests` (the stuck/failing
 counts, the merge-time percentiles).

@@ -175,7 +175,7 @@ const meta: Meta = {
         mockDate: '2026-07-02',
         featureFlags: [FEATURE_FLAGS.ENGINEERING_ANALYTICS],
         testOptions: {
-            // A per-row quarantine button only renders once the leaderboard has data rows.
+            // A per-row quarantine button only renders once the queue has data rows.
             waitForSelector: '[data-attr="eng-analytics-flaky-quarantine"]',
         },
     },
