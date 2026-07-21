@@ -23,6 +23,7 @@ const AI_PRODUCT_MARKUP: Record<string, number> = {
     product_analytics: AI_COST_MARKUP_PERCENT,
     surveys: AI_COST_MARKUP_PERCENT,
     survey_translation: AI_COST_MARKUP_PERCENT,
+    survey_summary: AI_COST_MARKUP_PERCENT,
     posthog_code: 0,
 }
 

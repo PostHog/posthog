@@ -6,7 +6,7 @@ from rest_framework import exceptions
 
 from products.surveys.backend.llm import generate_structured_output_via_gateway
 
-from ..constants import DEFAULT_MODEL, SUMMARY_GATEWAY_PRODUCT
+from ..constants import DEFAULT_MODEL, SUMMARIZATION_TIMEOUT, SUMMARY_GATEWAY_PRODUCT
 from ..models import SummarizationModel
 from .schema import SurveySummaryResponse
 
@@ -90,6 +90,7 @@ def summarize_with_gateway(
         },
         team_id=team_id,
         distinct_id=distinct_id,
+        timeout_seconds=SUMMARIZATION_TIMEOUT,
     )
 
     return SummarizationResult(summary=summary, trace_id=trace_id)

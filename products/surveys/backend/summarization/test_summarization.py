@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from rest_framework import exceptions
 
+from .constants import SUMMARIZATION_TIMEOUT
 from .formatting import format_as_markdown
 from .llm.gateway import SummarizationResult, summarize_with_gateway
 from .llm.schema import SurveySummaryResponse, SurveyTheme
@@ -94,6 +95,13 @@ def _gateway_response(content: str | None) -> MagicMock:
     return response
 
 
+def _mock_client(mock_get_client: MagicMock) -> MagicMock:
+    """Wire the client so `.with_options(...)` returns the same mock the helper uses."""
+    client = mock_get_client.return_value
+    client.with_options.return_value = client
+    return client
+
+
 class TestSummarizeWithGateway:
     """Error handling for edge cases and API failures."""
 
@@ -104,7 +112,7 @@ class TestSummarizeWithGateway:
 
     @patch("products.surveys.backend.llm.gateway.get_llm_client")
     def test_empty_api_response_raises_error(self, mock_get_client):
-        mock_get_client.return_value.chat.completions.create.return_value = _gateway_response(None)
+        _mock_client(mock_get_client).chat.completions.create.return_value = _gateway_response(None)
 
         with pytest.raises(exceptions.ValidationError) as exc_info:
             summarize_with_gateway("Question", ["Response"])
@@ -112,7 +120,7 @@ class TestSummarizeWithGateway:
 
     @patch("products.surveys.backend.llm.gateway.get_llm_client")
     def test_api_error_wrapped_as_api_exception(self, mock_get_client):
-        mock_get_client.return_value.chat.completions.create.side_effect = Exception("API Error")
+        _mock_client(mock_get_client).chat.completions.create.side_effect = Exception("API Error")
 
         with pytest.raises(exceptions.APIException) as exc_info:
             summarize_with_gateway("Question", ["Response"])
@@ -120,7 +128,9 @@ class TestSummarizeWithGateway:
 
     @patch("products.surveys.backend.llm.gateway.get_llm_client")
     def test_returns_summarization_result_with_trace_id(self, mock_get_client):
-        mock_get_client.return_value.chat.completions.create.return_value = _gateway_response(json.dumps(VALID_SUMMARY))
+        _mock_client(mock_get_client).chat.completions.create.return_value = _gateway_response(
+            json.dumps(VALID_SUMMARY)
+        )
 
         result = summarize_with_gateway("What do you want?", ["Make it faster"])
 
@@ -131,7 +141,9 @@ class TestSummarizeWithGateway:
 
     @patch("products.surveys.backend.llm.gateway.get_llm_client")
     def test_routes_through_survey_summary_product_on_haiku(self, mock_get_client):
-        mock_get_client.return_value.chat.completions.create.return_value = _gateway_response(json.dumps(VALID_SUMMARY))
+        _mock_client(mock_get_client).chat.completions.create.return_value = _gateway_response(
+            json.dumps(VALID_SUMMARY)
+        )
 
         summarize_with_gateway("What do you want?", ["Make it faster"], team_id=42)
 
@@ -142,7 +154,9 @@ class TestSummarizeWithGateway:
 
     @patch("products.surveys.backend.llm.gateway.get_llm_client")
     def test_gateway_owned_properties_are_not_sent_by_caller(self, mock_get_client):
-        mock_get_client.return_value.chat.completions.create.return_value = _gateway_response(json.dumps(VALID_SUMMARY))
+        _mock_client(mock_get_client).chat.completions.create.return_value = _gateway_response(
+            json.dumps(VALID_SUMMARY)
+        )
 
         summarize_with_gateway("What do you want?", ["Make it faster"], team_id=42)
 
@@ -151,3 +165,26 @@ class TestSummarizeWithGateway:
         assert "x-posthog-property-$ai_billable" not in headers
         assert headers["x-posthog-property-ai_feature"] == "survey_summary"
         assert headers["x-posthog-property-response_count"] == "1"
+
+    @patch("products.surveys.backend.llm.gateway.get_llm_client")
+    def test_bounds_the_call_with_the_summarization_timeout(self, mock_get_client):
+        _mock_client(mock_get_client).chat.completions.create.return_value = _gateway_response(
+            json.dumps(VALID_SUMMARY)
+        )
+
+        summarize_with_gateway("What do you want?", ["Make it faster"])
+
+        # Runs inline on a DRF worker; unbounded it inherits the SDK's 600s default.
+        assert mock_get_client.return_value.chat.completions.create.call_args.kwargs["timeout"] == SUMMARIZATION_TIMEOUT
+
+    @patch("products.surveys.backend.llm.gateway.get_llm_client")
+    def test_omits_optional_ids_rather_than_sending_the_string_none(self, mock_get_client):
+        _mock_client(mock_get_client).chat.completions.create.return_value = _gateway_response(
+            json.dumps(VALID_SUMMARY)
+        )
+
+        summarize_with_gateway("What do you want?", ["Make it faster"], survey_id=None, question_id=None)
+
+        headers = mock_get_client.return_value.chat.completions.create.call_args.kwargs["extra_headers"]
+        assert "x-posthog-property-survey_id" not in headers
+        assert "x-posthog-property-question_id" not in headers

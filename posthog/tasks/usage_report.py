@@ -1411,6 +1411,7 @@ POSTHOG_AI_PRODUCTS = [
     "product_analytics",
     "surveys",
     "survey_translation",
+    "survey_summary",
     "replay_vision",
 ]
 

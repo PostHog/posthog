@@ -6867,6 +6867,29 @@ class TestSurveySummarizeByQuestionId(APIBaseTest):
         self.assertEqual(mock_fetch.call_args.kwargs["question_index"], expected_index)
         self.assertEqual(mock_fetch.call_args.kwargs["question_id"], question_id)
 
+    @override_settings(LLM_GATEWAY_URL="", LLM_GATEWAY_API_KEY="")
+    @patch("products.surveys.backend.api.survey.is_cloud", return_value=True)
+    @patch("products.surveys.backend.api.survey.summarize_responses")
+    def test_summarize_rejects_when_gateway_unconfigured(self, mock_summarize, _mock_cloud):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/{self.survey.id}/summarize_responses/?question_id=q1"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_summarize.assert_not_called()
+
+    @override_settings(LLM_GATEWAY_URL="https://llm-gateway.test", LLM_GATEWAY_API_KEY="")
+    @patch("products.surveys.backend.api.survey.is_cloud", return_value=True)
+    @patch("products.surveys.backend.api.survey.summarize_responses")
+    def test_summarize_rejects_on_partial_gateway_config(self, mock_summarize, _mock_cloud):
+        # Pins the `and`: a URL without a key must not pass the guard.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/{self.survey.id}/summarize_responses/?question_id=q1"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_summarize.assert_not_called()
+
 
 class TestSurveyLifecycleActions(APIBaseTest):
     def setUp(self):

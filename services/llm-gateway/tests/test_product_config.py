@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from llm_gateway.products.config import (
     ALLOWED_PRODUCTS,
     BEDROCK_MODELS,
+    CreditBucket,
     POSTHOG_AI_DEV_APP_ID,
     POSTHOG_AI_EU_APP_ID,
     POSTHOG_AI_US_APP_ID,
@@ -627,3 +628,23 @@ class TestServerCredentialConfigInvariant:
         # broken _CODE_APP_PRODUCTS derivation can't quietly hollow out this class.
         assert "posthog_code" in _CODE_APP_PRODUCTS
         assert PRODUCTS["posthog_code"].requires_server_credential is False
+
+
+class TestSurveyProductConfig:
+    # The Django callers assume these two facts and cannot observe either one:
+    # billing moved out of caller code into `credit_bucket`, and the model default
+    # lives in the surveys package while the allowlist lives here. Both are
+    # revertible with a green posthog-side suite unless pinned here.
+    @pytest.mark.parametrize("product", ["survey_summary", "survey_translation"])
+    def test_survey_products_bill_into_ai_credits(self, product: str):
+        assert PRODUCTS[product].credit_bucket == CreditBucket.AI_CREDITS, (
+            f"'{product}' is customer-facing and previously set $ai_billable client-side; "
+            "dropping the bucket makes it silently free"
+        )
+
+    @pytest.mark.parametrize("product", ["survey_summary", "survey_translation"])
+    def test_survey_products_allow_the_model_the_django_callers_default_to(self, product: str):
+        # products/surveys/backend/summarization/constants.py and translation.py
+        # both default to this model; a rename on either side 400s every call.
+        assert PRODUCTS[product].allowed_models is not None
+        assert "claude-haiku-4-5" in PRODUCTS[product].allowed_models
