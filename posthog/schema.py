@@ -2881,6 +2881,20 @@ class Integer(RootModel[int]):
     root: int
 
 
+class AccountCustomPropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    label: str | None = None
+    operator: PropertyOperator
+    type: Literal["account_custom_property"] = Field(
+        default="account_custom_property",
+        description=("Customer analytics account custom property — the key is the property definition id"),
+    )
+    value: list[str | float | bool] | str | float | bool | None = None
+
+
 class ActionConversionGoal(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -13853,6 +13867,7 @@ class ConversionGoalFilter1(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -13905,6 +13920,7 @@ class ConversionGoalFilter1(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -13944,6 +13960,7 @@ class ConversionGoalFilter2(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -13995,6 +14012,7 @@ class ConversionGoalFilter2(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -14036,6 +14054,7 @@ class ConversionGoalFilter3(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -14088,6 +14107,7 @@ class ConversionGoalFilter3(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -14138,6 +14158,7 @@ class DashboardFilter(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -15221,6 +15242,7 @@ class DataWarehouseNode(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -15273,6 +15295,7 @@ class DataWarehouseNode(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -15592,6 +15615,7 @@ class EntityNode(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -15642,6 +15666,7 @@ class EntityNode(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -15752,6 +15777,7 @@ class ErrorTrackingIssueFilteringToolOutput(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -15952,6 +15978,7 @@ class EventsNode(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -16004,6 +16031,7 @@ class EventsNode(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -16042,6 +16070,7 @@ class EventsQueryActionStep(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -16140,6 +16169,7 @@ class ExperimentApiExposureConfig(BaseModel):
         | MetricPropertyFilter
         | SpanPropertyFilter
         | RevenueAnalyticsPropertyFilter
+        | AccountCustomPropertyFilter
         | WorkflowVariablePropertyFilter
     ] = Field(
         ...,
@@ -16217,6 +16247,7 @@ class ExperimentDataWarehouseNode(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -16267,6 +16298,7 @@ class ExperimentDataWarehouseNode(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -16305,6 +16337,7 @@ class ExperimentEventExposureConfig(BaseModel):
         | MetricPropertyFilter
         | SpanPropertyFilter
         | RevenueAnalyticsPropertyFilter
+        | AccountCustomPropertyFilter
         | WorkflowVariablePropertyFilter
     ]
     response: dict[str, Any] | None = None
@@ -16350,6 +16383,7 @@ class FeatureFlagGroupType(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -16436,6 +16470,7 @@ class FunnelExclusionActionsNode(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -16489,6 +16524,7 @@ class FunnelExclusionActionsNode(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -16526,6 +16562,7 @@ class FunnelExclusionEventsNode(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -16580,6 +16617,7 @@ class FunnelExclusionEventsNode(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -16618,6 +16656,7 @@ class FunnelsDataWarehouseNode(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -16670,6 +16709,7 @@ class FunnelsDataWarehouseNode(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -16848,6 +16888,7 @@ class HogQLFilters(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -17039,6 +17080,7 @@ class LifecycleDataWarehouseNode(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -17090,6 +17132,7 @@ class LifecycleDataWarehouseNode(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -18180,6 +18223,7 @@ class PersonsNode(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -18214,6 +18258,7 @@ class PersonsNode(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -18262,6 +18307,7 @@ class PropertyGroupFilterValue(BaseModel):
         | MetricPropertyFilter
         | SpanPropertyFilter
         | RevenueAnalyticsPropertyFilter
+        | AccountCustomPropertyFilter
         | WorkflowVariablePropertyFilter
     ]
 
@@ -22472,6 +22518,7 @@ class RetentionEntity(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -22930,6 +22977,7 @@ class TileFilters(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -22968,6 +23016,7 @@ class TraceNeighborsQuery(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -23013,6 +23062,7 @@ class TraceQuery(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -23095,6 +23145,7 @@ class TracesQuery(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -23625,6 +23676,7 @@ class ActionsNode(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -23676,6 +23728,7 @@ class ActionsNode(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -24772,6 +24825,7 @@ class MCPHarnessBreakdownQuery(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -25325,6 +25379,7 @@ class RecordingsQuery(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -25378,6 +25433,7 @@ class RecordingsQuery(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -25433,6 +25489,7 @@ class RetentionQuery(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
@@ -26087,6 +26144,7 @@ class GroupNode(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -26143,6 +26201,7 @@ class GroupNode(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -26187,6 +26246,7 @@ class InsightsQueryBaseCalendarHeatmapResponse(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
@@ -26234,6 +26294,7 @@ class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
@@ -26281,6 +26342,7 @@ class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
@@ -26328,6 +26390,7 @@ class InsightsQueryBasePathsQueryResponse(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
@@ -26375,6 +26438,7 @@ class InsightsQueryBaseRetentionQueryResponse(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
@@ -26422,6 +26486,7 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
@@ -26571,6 +26636,7 @@ class SessionsQuery(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -26604,6 +26670,7 @@ class SessionsQuery(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -26640,6 +26707,7 @@ class SessionsQuery(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -26698,6 +26766,7 @@ class CalendarHeatmapQuery(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
@@ -26869,6 +26938,7 @@ class LifecycleQuery(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
@@ -26945,6 +27015,7 @@ class StickinessQuery(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
@@ -27153,6 +27224,7 @@ class TrendsQuery(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
@@ -27498,6 +27570,7 @@ class FunnelsQuery(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
@@ -28035,6 +28108,7 @@ class PathsQuery(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
@@ -28337,6 +28411,7 @@ class FunnelCorrelationActorsQuery(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -28442,6 +28517,7 @@ class SessionBatchEventsQuery(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -28482,6 +28558,7 @@ class SessionBatchEventsQuery(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -28601,6 +28678,7 @@ class EventsQuery(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None
@@ -28637,6 +28715,7 @@ class EventsQuery(BaseModel):
             | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | AccountCustomPropertyFilter
             | WorkflowVariablePropertyFilter
         ]
         | None

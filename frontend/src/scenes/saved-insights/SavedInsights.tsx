@@ -1,6 +1,7 @@
 import './SavedInsights.scss'
 
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { ComponentType } from 'react'
 
 import {
@@ -83,8 +84,6 @@ import {
     QueryBasedInsightModel,
     SavedInsightsTabs,
 } from '~/types'
-
-import { Alerts } from 'products/alerts/frontend/views/Alerts'
 
 import { ReloadInsight } from './ReloadInsight'
 import { SavedInsightListItem, savedInsightsLogic } from './savedInsightsLogic'
@@ -855,6 +854,7 @@ export function NewInsightButton(): JSX.Element {
 }
 
 export function SavedInsights(): JSX.Element {
+    const { push } = useActions(router)
     const {
         loadInsights,
         updateFavoritedInsight,
@@ -863,16 +863,8 @@ export function SavedInsights(): JSX.Element {
         setSavedInsightsFilters,
         bulkDeleteInsights,
     } = useActions(savedInsightsLogic)
-    const {
-        insights,
-        insightsLoading,
-        filters,
-        sorting,
-        pagination,
-        alertModalId,
-        usingFilters,
-        bulkDeleteResponseLoading,
-    } = useValues(savedInsightsLogic)
+    const { insights, insightsLoading, filters, sorting, pagination, usingFilters, bulkDeleteResponseLoading } =
+        useValues(savedInsightsLogic)
 
     const { currentProjectId } = useValues(projectLogic)
     const summarizeInsight = useSummarizeInsight()
@@ -1096,14 +1088,17 @@ export function SavedInsights(): JSX.Element {
             />
             <LemonTabs
                 activeKey={tab}
-                onChange={(tab) => setSavedInsightsFilters({ tab })}
+                onChange={(tab) => {
+                    if (tab === SavedInsightsTabs.Alerts) {
+                        push(urls.alerts())
+                        return
+                    }
+                    setSavedInsightsFilters({ tab })
+                }}
                 tabs={[
                     { key: SavedInsightsTabs.All, label: 'All insights' },
                     { key: SavedInsightsTabs.Yours, label: 'My insights' },
-                    {
-                        key: SavedInsightsTabs.Alerts,
-                        label: <div className="flex items-center gap-2">Alerts</div>,
-                    },
+                    { key: SavedInsightsTabs.Alerts, label: 'Alerts' },
                     { key: SavedInsightsTabs.History, label: 'History' },
                 ]}
                 sceneInset
@@ -1111,8 +1106,6 @@ export function SavedInsights(): JSX.Element {
 
             {tab === SavedInsightsTabs.History ? (
                 <ActivityLog scope={ActivityScope.INSIGHT} />
-            ) : tab === SavedInsightsTabs.Alerts ? (
-                <Alerts alertId={alertModalId} />
             ) : (
                 <>
                     <SavedInsightsFilters

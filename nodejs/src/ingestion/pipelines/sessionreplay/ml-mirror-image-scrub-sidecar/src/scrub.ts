@@ -1,7 +1,7 @@
 /**
  * The image-scrub pipelines. Two entry points over the same input so throughput stays comparable:
  *  - blurOnly:  the cheap baseline (downsample + gaussian blur), kept in sync with the inline
- *               anonymizer's rust/replay-anonymizer-node/src/blur.rs so comparisons are apples-to-apples.
+ *               anonymizer's rust/replay-anonymizer/src/blur.rs so comparisons are apples-to-apples.
  *  - advancedScrub: NSFW/gore gate -> faces, text regions, and QR/barcodes solid-filled.
  *
  * All three models (safety gate, YuNet faces, DBNet text) run on native onnxruntime-node —

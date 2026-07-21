@@ -51,10 +51,13 @@ from posthog.temporal.messaging.constants import (
     REALTIME_COHORT_CALCULATION_P95_P99_SCHEDULE_ID,
     REALTIME_COHORT_CALCULATION_P99_P100_SCHEDULE_ID,
     REALTIME_COHORT_CALCULATION_SCHEDULE_ID,
+    RECONCILE_PRECALCULATED_DATA_SCHEDULE_ID,
+    RECONCILE_PRECALCULATED_DATA_WORKFLOW_NAME,
 )
 from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator import (
     RealtimeCohortCalculationCoordinatorWorkflowInputs,
 )
+from posthog.temporal.messaging.reconcile_precalculated_data_workflow import ReconcilePrecalculatedDataWorkflowInputs
 
 # Default configuration for realtime cohort calculation coordinator
 DEFAULT_COORDINATOR_PARALLELISM = 6
@@ -202,6 +205,29 @@ async def create_realtime_cohort_calculation_schedule_with_id(
             realtime_cohort_calculation_schedule,
             trigger_immediately=False,
         )
+
+
+async def create_reconcile_precalculated_data_schedule(client: Client):
+    """Create or update the schedule that repairs precalculated_events rows after person merges."""
+    from posthog.settings.schedules import RECONCILE_PRECALCULATED_DATA_INTERVAL_MINUTES
+
+    schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            RECONCILE_PRECALCULATED_DATA_WORKFLOW_NAME,
+            asdict(ReconcilePrecalculatedDataWorkflowInputs()),
+            id=RECONCILE_PRECALCULATED_DATA_SCHEDULE_ID,
+            task_queue=settings.MESSAGING_TASK_QUEUE,
+        ),
+        spec=ScheduleSpec(
+            intervals=[ScheduleIntervalSpec(every=timedelta(minutes=RECONCILE_PRECALCULATED_DATA_INTERVAL_MINUTES))]
+        ),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+    )
+
+    if await a_schedule_exists(client, RECONCILE_PRECALCULATED_DATA_SCHEDULE_ID):
+        await a_update_schedule(client, RECONCILE_PRECALCULATED_DATA_SCHEDULE_ID, schedule)
+    else:
+        await a_create_schedule(client, RECONCILE_PRECALCULATED_DATA_SCHEDULE_ID, schedule, trigger_immediately=False)
 
 
 async def create_all_realtime_cohort_calculation_schedules(client: Client):

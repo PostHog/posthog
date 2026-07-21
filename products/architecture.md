@@ -83,6 +83,36 @@ A product whose views still hold business logic is not soundly skippable even if
 This is also why "no in-process callers, so we don't need a facade" is the wrong test: a product whose only consumers are over HTTP (node services, the generated TS/MCP types) is _not_ facade-optional — there the facade's whole job is sealing its own presentation.
 The genuine exception is a product with essentially no Django-side logic (a thin shim over an external service): it has nothing to seal, but it is then simply not isolated — no `backend:contract-check`, still paying the full suite — which is an accept-the-cost choice, not "isolated without a facade".
 
+### Wiring couplings
+
+Core sometimes needs behavior from a product, not data: query runners it dispatches on, Temporal workflows it registers, Max tools it offers.
+These cross the boundary as classes — allowed only under all three rules:
+
+1. **Approved interface.**
+   The class implements a core-owned base from the approved list — today `QueryRunner` (`posthog/hogql_queries/query_runner.py`), `MaxTool` (`ee/hogai/tool.py`), Temporal's `@workflow.defn`/`@activity.defn`, and Celery's `@shared_task`.
+   Core code may rely only on the base's interface, never on product-specific members.
+   Extending the list is a core PR: define the base and validate at the registration point.
+   DRF viewsets are not part of this channel: they live in `presentation/`, register through `routes.py`, and never pass through the facade (facades must not import DRF) — their soundness is governed by the presentation rules above.
+2. **Designated location.**
+   The implementation lives in the product's wiring location — `backend/hogql_queries/`, `backend/max_tools.py`, `backend/temporal/`, `backend/tasks/` (a flat `backend/tasks.py` also qualifies) — and isolated products keep those locations in their `backend:contract-check` inputs, so any change to a wiring implementation still re-runs the full suite.
+3. **Validated registration.**
+   Registration points check `issubclass(cls, Base)` and reject anything else.
+   Import linters (tach, import-linter) see only the import graph; _what an object is_ can only be checked at runtime, at the door.
+   `ee/hogai/registry.py` (MaxTool) is the reference implementation: subclass auto-registration with validation.
+
+Django models never cross, with or without an approved base.
+A model cannot be narrowed: whatever interface it presents, the object still carries managers, `save()`/`delete()`, FK descriptors that query other tables on attribute access, and reverse relations added by other apps.
+Two core registries are keyed by model class identity and are explicit, sanctioned exceptions: the team-extension registry and the file-system unfiled registry (`FileSystemSyncMixin`).
+There the class crosses for registration only, core drives only the registry's mixin methods, and the model's module must stay in the product's contract-check inputs.
+
+A behavioral class that fits no approved interface must not cross at all.
+Wrap it in a facade function returning contracts, or register a plain function (see the managed-view provider registry in `products/data_modeling/backend/facade/managed_viewset_hooks.py`).
+A product whose facade hands out unapproved behavior is not soundly isolated: it loses `backend:contract-check` and pays the full suite until fixed.
+
+Why shape rules rather than location rules: publicness-by-location without a constrained API shape rots.
+Shopify's Packwerk `app/public` folders became a "catch-all drawer" of models, controllers, and jobs for exactly this reason.
+The facade stays honest only if what crosses is a frozen dataclass or an implementation of a core-owned interface — nothing else.
+
 # 3. Folder Structure
 
 Each product adopts the following structure:
@@ -188,7 +218,9 @@ If input and output shapes are identical, reuse the same dataclass.
 
 # 5. Facades: The Public Interface
 
-Each product exposes a facade via `backend/facade/api.py`. This is the **only** file other products are allowed to import.
+Each product exposes a facade via the `backend/facade/` package — the only place core and other products may import from (tach enforces this).
+`api.py` holds the data capabilities: functions that accept and return contracts.
+Capability submodules (`queries.py`, `temporal.py`, `max_tools.py`, `tasks.py`, …) exist only to re-export wiring implementations — see [Wiring couplings](#wiring-couplings) — and contain no logic of their own.
 
 ### Responsibilities
 
@@ -388,6 +420,7 @@ Turbo uses file-based inputs to determine cache validity. The key distinction:
 
 - `backend/facade/contracts.py` — frozen dataclasses (enums can live here too)
 - `backend/facade/enums.py` — optional, for exported enums/constants/shared types when contracts.py grows
+- the product's wiring locations (`backend/hogql_queries/`, `backend/max_tools.py`, `backend/temporal/`, `backend/tasks/`) — implementations core registers and drives (see [Wiring couplings](#wiring-couplings))
 
 **Implementation inputs** (used by `backend:test`):
 

@@ -106,6 +106,12 @@ import {
     aiSuggestionOnReject,
     aiSuggestionOnRejectText,
 } from './suggestions/aiSuggestion'
+import {
+    queryHistorySuggestionOnAccept,
+    queryHistorySuggestionOnAcceptText,
+    queryHistorySuggestionOnReject,
+    queryHistorySuggestionOnRejectText,
+} from './suggestions/queryHistorySuggestion'
 import { ViewEmptyState } from './ViewLoadingState'
 
 export interface SqlEditorLogicProps {
@@ -246,7 +252,7 @@ export interface SuggestionPayload {
     acceptText?: string
     rejectText?: string
     diffShowRunButton?: boolean
-    source?: 'max_ai' | 'hogql_fixer' | 'materialization_fix'
+    source?: 'max_ai' | 'hogql_fixer' | 'query_history' | 'materialization_fix'
     onAccept: (
         shouldRunQuery: boolean,
         actions: sqlEditorLogicType['actions'],
@@ -523,7 +529,7 @@ export interface sqlEditorLogicValues {
     sourceQuery: DataVisualizationNode
     splitQueryRanges: QueryRange[]
     suggestedQueryInput: string
-    suggestedSource: 'hogql_fixer' | 'materialization_fix' | 'max_ai' | null
+    suggestedSource: 'hogql_fixer' | 'materialization_fix' | 'max_ai' | 'query_history' | null
     suggestionPayload: SuggestionPayload | null
     upstream: {
         edges: DataModelingEdge[]
@@ -969,7 +975,7 @@ export interface sqlEditorLogicActions {
         suggestedQueryInput: string,
         source?: SuggestionPayload['source']
     ) => {
-        source: 'hogql_fixer' | 'materialization_fix' | 'max_ai' | undefined
+        source: 'hogql_fixer' | 'materialization_fix' | 'max_ai' | 'query_history' | undefined
         suggestedQueryInput: string
     }
     setUpstreamViewMode: (mode: 'graph' | 'table') => {
@@ -1012,7 +1018,7 @@ export interface sqlEditorLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         suggestedSource: (
             suggestionPayload: SuggestionPayload | null
-        ) => 'hogql_fixer' | 'materialization_fix' | 'max_ai' | null
+        ) => 'hogql_fixer' | 'materialization_fix' | 'max_ai' | 'query_history' | null
         diffShowRunButton: (suggestionPayload: SuggestionPayload | null) => boolean | undefined
         acceptText: (suggestionPayload: SuggestionPayload | null) => string
         rejectText: (suggestionPayload: SuggestionPayload | null) => string
@@ -1626,16 +1632,22 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     return
                 }
 
+                const isQueryHistory = source === 'query_history'
+                if (isQueryHistory) {
+                    // Accept/cancel of the restore is captured via sql-editor-accepted/rejected-suggestion
+                    posthog.capture('sql-editor-history-restore-initiated')
+                }
+
                 // Always create suggestion payload when a new suggestion comes in, even for consecutive suggestions
                 // Only skip diff mode if the editor is completely empty
                 if (values.queryInput && values.queryInput.trim() !== '') {
                     actions._setSuggestionPayload({
                         suggestedValue: suggestedQueryInput,
                         originalValue: values.queryInput, // Store the current content as original for diff mode
-                        acceptText: aiSuggestionOnAcceptText,
-                        rejectText: aiSuggestionOnRejectText,
-                        onAccept: aiSuggestionOnAccept,
-                        onReject: aiSuggestionOnReject,
+                        acceptText: isQueryHistory ? queryHistorySuggestionOnAcceptText : aiSuggestionOnAcceptText,
+                        rejectText: isQueryHistory ? queryHistorySuggestionOnRejectText : aiSuggestionOnRejectText,
+                        onAccept: isQueryHistory ? queryHistorySuggestionOnAccept : aiSuggestionOnAccept,
+                        onReject: isQueryHistory ? queryHistorySuggestionOnReject : aiSuggestionOnReject,
                         source,
                         diffShowRunButton: true,
                     })
@@ -1893,6 +1905,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     query,
                 })
 
+                // Tag only the executed query — keeping tags out of sourceQuery so saved
+                // insights/views and change detection never pick them up
+                const executedSource: HogQLQuery = {
+                    ...newSource,
+                    tags: { ...newSource.tags, productKey: 'sql_editor' },
+                }
+
                 actions.setSourceQuery({
                     ...values.sourceQuery,
                     source: newSource,
@@ -1904,14 +1923,14 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 if (!cache.umountDataNode) {
                     cache.umountDataNode = dataNodeLogic({
                         key: values.dataLogicKey,
-                        query: newSource,
+                        query: executedSource,
                     }).mount()
                 }
 
                 dataNodeLogic({
                     key: values.dataLogicKey,
-                    query: newSource,
-                }).actions.loadData(!switchTab ? 'force_async' : 'async', undefined, newSource)
+                    query: executedSource,
+                }).actions.loadData(!switchTab ? 'force_async' : 'async', undefined, executedSource)
 
                 // Mark the first query task as complete when the query is run
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.RunFirstQuery)

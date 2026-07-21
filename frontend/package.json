@@ -119,6 +119,7 @@
         "@posthog/products-platform-features": "workspace:*",
         "@posthog/products-posthog-ai": "workspace:*",
         "@posthog/products-product-analytics": "workspace:*",
+        "@posthog/products-pulse": "workspace:*",
         "@posthog/products-replay": "workspace:*",
         "@posthog/products-replay-vision": "workspace:*",
         "@posthog/products-revenue-analytics": "workspace:*",

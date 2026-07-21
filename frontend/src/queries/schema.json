@@ -45,6 +45,30 @@
             "enum": ["none", "member", "admin", "viewer", "editor", "manager"],
             "type": "string"
         },
+        "AccountCustomPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "account_custom_property",
+                    "description": "Customer analytics account custom property — the key is the property definition id",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
+            "type": "object"
+        },
         "AccountsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -653,7 +677,16 @@
             "type": "object"
         },
         "AggregationAxisFormat": {
-            "enum": ["numeric", "duration", "duration_ms", "percentage", "percentage_scaled", "currency", "short"],
+            "enum": [
+                "numeric",
+                "duration",
+                "duration_ms",
+                "duration_ns",
+                "percentage",
+                "percentage_scaled",
+                "currency",
+                "short"
+            ],
             "type": "string"
         },
         "AlertCalculationInterval": {
@@ -1160,6 +1193,9 @@
                 },
                 {
                     "$ref": "#/definitions/RevenueAnalyticsPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/AccountCustomPropertyFilter"
                 },
                 {
                     "$ref": "#/definitions/WorkflowVariablePropertyFilter"
@@ -23627,6 +23663,7 @@
                 "Pinecone",
                 "PlatformSh",
                 "PromptingCompany",
+                "PromptWatch",
                 "Qdrant",
                 "Render",
                 "Replicate",
@@ -23755,7 +23792,13 @@
                 "Kajabi",
                 "Shopware",
                 "Dubsado",
-                "Campfire"
+                "Campfire",
+                "Crisp",
+                "Kommo",
+                "Axiom",
+                "Plivo",
+                "DataForSEO",
+                "Sleekplan"
             ],
             "type": "string"
         },
@@ -34306,6 +34349,7 @@
                 "data warehouse sources table",
                 "experiment created",
                 "experiment analyzed",
+                "experiment view recordings",
                 "feature flag created",
                 "session_replay_set_filters",
                 "session_replay_experiment_link_clicked",
@@ -34486,6 +34530,7 @@
                 "platform_and_support",
                 "product_analytics",
                 "product_tours",
+                "pulse",
                 "revenue_analytics",
                 "review_hog",
                 "session_replay",
@@ -34556,6 +34601,7 @@
                 "data_warehouse_person_property",
                 "error_tracking_issue",
                 "revenue_analytics",
+                "account_custom_property",
                 "flag",
                 "log",
                 "log_attribute",
@@ -47604,6 +47650,7 @@
                 "replay",
                 "replay_saved_filters",
                 "revenue_analytics_properties",
+                "account_custom_properties",
                 "resources",
                 "error_tracking_properties",
                 "activity_log_properties",
