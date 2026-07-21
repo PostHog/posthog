@@ -16,7 +16,7 @@ from posthog.session_recordings.queries.test.session_replay_sql import produce_r
 from products.access_control.backend.facade.api import upsert_property_access_control
 from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
 from products.actions.backend.models.action import Action
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.api.test.base import APILicensedTest
@@ -656,6 +656,40 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
             "metrics_in_session": [],
             "seen_reason": "exposure",
         }
+
+    def test_metrics_in_session_includes_saved_metric(self) -> None:
+        self._create_recording()
+        inline_metric = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "uuid": "11111111-1111-1111-1111-111111111111",
+            "name": "Purchases",
+            "source": {"kind": "EventsNode", "event": "purchase"},
+        }
+        saved_query = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "uuid": "33333333-3333-3333-3333-333333333333",
+            "name": "Signups",
+            "source": {"kind": "EventsNode", "event": "signup"},
+        }
+        experiment = self._create_experiment(metrics=[inline_metric])
+        saved = ExperimentSavedMetric.objects.create(team=self.team, name="Signups", query=saved_query)
+        ExperimentToSavedMetric.objects.create(experiment=experiment, saved_metric=saved, metadata={})
+        self._create_session_event(properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"})
+        self._create_session_event(event="signup", timestamp="2026-01-01T10:08:00Z")
+        self._create_session_event(event="purchase", timestamp="2026-01-01T10:09:00Z")
+        flush_persons_and_events()
+
+        response = self._get_session_context()
+
+        assert response.status_code == status.HTTP_200_OK
+        result = next(r for r in response.json()["results"] if r["experiment_id"] == experiment.id)
+        # Both the inline and the saved/shared metric surface, sorted by first occurrence.
+        assert [(hit["metric_uuid"], hit["metric_name"]) for hit in result["metrics_in_session"]] == [
+            (saved_query["uuid"], "Signups"),
+            (inline_metric["uuid"], "Purchases"),
+        ]
 
     def test_team_isolation(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other team")

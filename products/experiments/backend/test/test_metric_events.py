@@ -109,6 +109,37 @@ class TestResolveMetricEvents(MetricEventsTestMixin):
         assert sources[0].matches_all_events is False
         assert sources[0].action_ids == ()
 
+    @parameterized.expand(
+        [
+            ("mean", _metric("mean", name=None, source=_events_node("$pageview")), "$pageview"),
+            (
+                "funnel",
+                _metric("funnel", name=None, series=[_events_node("signed up"), _events_node("activated")]),
+                "signed up",
+            ),
+            (
+                "ratio",
+                _metric("ratio", name=None, numerator=_events_node("purchase"), denominator=_events_node("$pageview")),
+                "purchase / $pageview",
+            ),
+            (
+                "retention",
+                _retention_metric(_events_node("signed up"), _events_node("uploaded file")),
+                "signed up / uploaded file",
+            ),
+        ]
+    )
+    def test_unnamed_metric_defaults_to_event_derived_title(
+        self, _name: str, metric: dict[str, Any], expected_title: str
+    ) -> None:
+        # An unnamed metric must read the same event-derived title the recordings tab shows, not a
+        # "Metric <uuid>" placeholder.
+        experiment = self._experiment(metrics=[{**metric, "name": None}])
+
+        sources = resolve_metric_events(experiment)
+
+        assert sources[0].metric_name == expected_title
+
     def test_resolves_action_source_to_action_id(self) -> None:
         action = Action.objects.create(team=self.team, name="Purchased", steps_json=[{"event": "purchase"}])
         experiment = self._experiment(

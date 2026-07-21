@@ -7,6 +7,7 @@ import { ExperimentMetric, NodeKind, ProductIntentContext, ProductKey } from '~/
 import { Experiment, FilterLogicalOperator, RecordingUniversalFilters, UniversalFiltersGroupValue } from '~/types'
 
 import type { ExperimentIdType } from '../../../types'
+import type { ExperimentSavedMetric } from '../experimentLogic'
 import { getDefaultMetricTitle } from '../MetricsView/shared/utils'
 import {
     applySessionLinkability,
@@ -145,31 +146,45 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             (selectedVariantKey: string | null, variantKeys: string[]): string | null =>
                 selectedVariantKey !== null && variantKeys.includes(selectedVariantKey) ? selectedVariantKey : null,
         ],
-        // Inline primary + secondary metrics with at least one event/action source; saved/shared
-        // metrics live in a separate payload and are not offered yet. A metric is unlinkable only
-        // when every one of its sources is a never-session-linked event — with no linkable source
-        // at all, its filter could only match zero sessions. Fails open while the check loads.
+        // Every metric with at least one event/action source: inline primary + secondary, then
+        // saved/shared metrics (their definition lives in `saved_metrics[].query`) — the same set
+        // the backend `resolve_metric_events` scans, deduped by uuid so a shared metric linked more
+        // than once shows one chip. A metric is unlinkable only when every one of its sources is a
+        // never-session-linked event — with no linkable source at all, its filter could only match
+        // zero sessions. Fails open while the check loads.
         metricOptions: [
             (s) => [s.linkabilityLoaded, s.unlinkableEventNames, (_, props) => props.experiment],
             (
                 linkabilityLoaded: boolean,
                 unlinkableEventNames: Set<string>,
                 experiment: Experiment
-            ): ExperimentReplayMetricOption[] =>
-                [...(experiment.metrics || []), ...(experiment.metrics_secondary || [])]
+            ): ExperimentReplayMetricOption[] => {
+                const inlineMetrics = [...(experiment.metrics || []), ...(experiment.metrics_secondary || [])]
+                const savedMetrics = ((experiment.saved_metrics || []) as ExperimentSavedMetric[]).map(
+                    (saved) => saved.query
+                )
+                const seenUuids = new Set<string>()
+                return [...inlineMetrics, ...savedMetrics]
                     .filter((metric): metric is ExperimentMetric => metric?.kind === NodeKind.ExperimentMetric)
                     .map((metric, index) => ({
                         uuid: metric.uuid ?? `unsaved-${index}`,
                         name: metric.name || getDefaultMetricTitle(metric),
                         filters: getMetricSessionFilters(metric),
                     }))
-                    .filter((option) => option.filters.length > 0)
+                    .filter((option) => {
+                        if (option.filters.length === 0 || seenUuids.has(option.uuid)) {
+                            return false
+                        }
+                        seenUuids.add(option.uuid)
+                        return true
+                    })
                     .map((option) => ({
                         ...option,
                         unlinkable:
                             linkabilityLoaded &&
                             option.filters.every((filter) => isUnlinkableEventFilter(filter, unlinkableEventNames)),
-                    })),
+                    }))
+            },
         ],
         effectiveMetricUuid: [
             (s) => [s.selectedMetricUuid, s.metricOptions],
@@ -193,7 +208,16 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 unlinkableEventNames: Set<string>,
                 experiment: Experiment
             ): RecordingUniversalFilters => {
-                const metricFilters = metricOptions.find((option) => option.uuid === effectiveMetricUuid)?.filters ?? []
+                const linkableMetricFilters = (
+                    metricOptions.find((option) => option.uuid === effectiveMetricUuid)?.filters ?? []
+                ).filter((filter) => !isUnlinkableEventFilter(filter, unlinkableEventNames))
+                // A recordings query carries a single AND/OR operand across the whole flattened
+                // filter tree (see `deriveOperand`), so "exposed to the variant AND (any of the
+                // metric's events)" can't be expressed — an OR anywhere flips the exposure filter to
+                // OR too. Match the metric on its primary event (the first session-linkable source:
+                // a mean metric's event, a funnel's entry step, a ratio's numerator) rather than
+                // ANDing every source, which used to require a session to fire *all* funnel steps.
+                const primaryMetricFilter = linkableMetricFilters[0]
                 return {
                     ...DEFAULT_RECORDING_FILTERS,
                     date_from: experiment.start_date ?? DEFAULT_RECORDING_FILTERS.date_from,
@@ -206,11 +230,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                                 type: FilterLogicalOperator.And,
                                 values: [
                                     ...getViewRecordingFiltersForVariant(experiment, effectiveVariantKey ?? undefined),
-                                    // Never AND a never-session-linked event into the query — it
-                                    // could only zero out the whole list.
-                                    ...metricFilters.filter(
-                                        (filter) => !isUnlinkableEventFilter(filter, unlinkableEventNames)
-                                    ),
+                                    ...(primaryMetricFilter ? [primaryMetricFilter] : []),
                                 ],
                             },
                         ],

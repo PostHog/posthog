@@ -23,6 +23,7 @@ from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentRatioMetric,
+    ExperimentRetentionMetric,
 )
 
 from posthog.hogql import ast
@@ -87,6 +88,32 @@ def _metric_source_nodes(metric: ExperimentMetric) -> list[MetricSourceNode | Ex
     return [metric.start_event, metric.completion_event]
 
 
+def _source_title(node: MetricSourceNode | ExperimentDataWarehouseNode) -> str | None:
+    """Display name for one metric source node, mirroring the frontend `getDefaultName`."""
+    if isinstance(node, EventsNode):
+        return node.name or node.event
+    if isinstance(node, ActionsNode):
+        return node.name or f"Action {node.id}"
+    if isinstance(node, ExperimentDataWarehouseNode):
+        return node.table_name
+
+
+def _default_metric_title(metric: ExperimentMetric) -> str:
+    """A title derived from a metric's source events, mirroring the frontend
+    `getDefaultMetricTitle` — so an unnamed metric reads the same in the player and the
+    recordings tab (a `$pageview` mean metric shows "$pageview", not "Metric a34f9547")."""
+    if isinstance(metric, ExperimentMeanMetric):
+        return _source_title(metric.source) or "Untitled metric"
+    if isinstance(metric, ExperimentFunnelMetric):
+        return (_source_title(metric.series[0]) if metric.series else None) or "Untitled funnel"
+    if isinstance(metric, ExperimentRatioMetric):
+        return (
+            f"{_source_title(metric.numerator) or 'Numerator'} / {_source_title(metric.denominator) or 'Denominator'}"
+        )
+    if isinstance(metric, ExperimentRetentionMetric):
+        return f"{_source_title(metric.start_event) or 'Start event'} / {_source_title(metric.completion_event) or 'Completion event'}"
+
+
 def resolve_metric_events(experiment: Experiment) -> list[MetricEventSource]:
     """Map every metric of an experiment (inline and saved) to its event/action sources.
 
@@ -107,7 +134,7 @@ def resolve_metric_events(experiment: Experiment) -> list[MetricEventSource]:
         sources.append(
             MetricEventSource(
                 metric_uuid=metric_uuid,
-                metric_name=metric.name or f"Metric {metric_uuid[:8]}",
+                metric_name=metric.name or _default_metric_title(metric),
                 session_linkable=bool(nodes),
                 event_names=tuple(
                     node.event for node in nodes if isinstance(node, EventsNode) and node.event is not None

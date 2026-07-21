@@ -55,7 +55,7 @@ function MetricHitRow({
     canSeek: boolean
     onSeek: () => void
 }): JSX.Element {
-    const label = `Jump to first ${hit.metric_name}`
+    const label = `Jump to first ${hit.metric_name} event`
     return (
         <div className="flex flex-row items-center gap-x-2 min-w-0 pl-3 text-xs">
             {canSeek ? (

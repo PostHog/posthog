@@ -247,4 +247,50 @@ describe('experimentReplayTabLogic', () => {
         ])
         partiallyLinkable.unmount()
     })
+
+    it('filters a multi-source metric on its primary event only, not every source', async () => {
+        // Both funnel steps are session-linkable here. The recordings query flattens to a single
+        // AND operand, so ANDing every step would demand a session fire *all* of them; we filter on
+        // the entry step (series[0]) instead.
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setSelectedMetricUuid('metric-funnel')
+        expect(logic.values.recordingsFilters.filter_group.values).toEqual([
+            {
+                type: FilterLogicalOperator.And,
+                values: [
+                    ...getViewRecordingFiltersForVariant(EXPERIMENT, undefined),
+                    { id: 'server_side_step', name: 'server_side_step', type: 'events', properties: [] },
+                ],
+            },
+        ])
+    })
+
+    it('offers saved/shared metrics in the facet, deduped by uuid', async () => {
+        const savedMetric = {
+            query: {
+                kind: NodeKind.ExperimentMetric,
+                metric_type: ExperimentMetricType.MEAN,
+                uuid: 'metric-saved',
+                name: 'Signups',
+                source: { kind: NodeKind.EventsNode, event: 'signup' },
+            },
+        }
+        const withSaved = experimentReplayTabLogic({
+            experiment: {
+                ...EXPERIMENT,
+                id: 46,
+                // Same saved metric linked twice (e.g. primary + secondary) must yield one chip.
+                saved_metrics: [savedMetric, savedMetric],
+            } as unknown as Experiment,
+        })
+        withSaved.mount()
+        await expectLogic(withSaved).toFinishAllListeners()
+
+        expect(withSaved.values.metricOptions.map((option) => option.uuid)).toEqual([
+            'metric-purchase',
+            'metric-funnel',
+            'metric-saved',
+        ])
+        withSaved.unmount()
+    })
 })
