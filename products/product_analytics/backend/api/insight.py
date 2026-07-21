@@ -51,6 +51,11 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
+from posthog.api.sharing_publish_gate import (
+    blocked_access_for_user,
+    check_can_add_insight_to_shared_dashboard,
+    is_publicly_shared,
+)
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action, format_paginated_url
 from posthog.auth import (
@@ -63,7 +68,7 @@ from posthog.caching.fetch_from_cache import InsightResult, fetch_cached_respons
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import AccessMethod, tags_context
-from posthog.constants import INSIGHT
+from posthog.constants import INSIGHT, AvailableFeature
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import EventSource, get_event_source, get_request_analytics_properties, report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -141,6 +146,11 @@ from posthog.utils import (
 
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.cohorts.backend.models.cohort import Cohort
+from products.dashboards.backend.access import (
+    DashboardAccessMethod,
+    dashboard_access_method,
+    record_dashboard_cache_outcome,
+)
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.api.insight_metadata import (
@@ -737,6 +747,11 @@ class InsightSerializer(InsightBasicSerializer):
                 if dashboard.team_id != team_id:
                     raise serializers.ValidationError("Dashboard not found")
 
+                # The dashboard's public link must not expose a query the editor can't run.
+                check_can_add_insight_to_shared_dashboard(
+                    request.user, dashboard, validated_data.get("query"), self.user_access_control
+                )
+
             # Counts the field being accepted as write input (even an empty list), after
             # permission checks so rejected requests don't inflate the metric.
             _record_deprecated_dashboards_field_used(self.context, usage="write")
@@ -816,6 +831,26 @@ class InsightSerializer(InsightBasicSerializer):
         if validated_data.keys() & Insight.MATERIAL_INSIGHT_FIELDS:
             instance.last_modified_at = now()
             instance.last_modified_by = self.context["request"].user
+
+        # Shared links execute without access checks, so an edit that adds a table
+        # the editor can't run must not reach a publicly shared surface.
+        # Unshared insights save without any access query.
+        new_query = validated_data.get("query")
+        if (
+            isinstance(new_query, dict)
+            and new_query != instance.query
+            and instance.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
+            # org admins have full access, so skip the gate for a faster save
+            and not (self.user_access_control and self.user_access_control.is_organization_admin)
+            and is_publicly_shared(instance)
+        ):
+            blocked = blocked_access_for_user(self.context["request"].user, instance.team, [new_query])
+            if blocked:
+                blocked_list = ", ".join(f"`{name}`" for name in blocked)
+                raise serializers.ValidationError(
+                    f"Can't save this query: you don't have access to {blocked_list}, "
+                    "and this insight is publicly shared."
+                )
 
         if validated_data.get("deleted", False):
             DashboardTile.objects_including_soft_deleted.filter(insight__id=instance.id).update(deleted=True)
@@ -924,6 +959,11 @@ class InsightSerializer(InsightBasicSerializer):
 
             if dashboard.team != instance.team:
                 raise serializers.ValidationError("Dashboard not found")
+
+            # The dashboard's public link must not expose a query the editor can't run.
+            check_can_add_insight_to_shared_dashboard(
+                self.context["request"].user, dashboard, instance.query, self.user_access_control
+            )
 
             tile, _ = DashboardTile.objects_including_soft_deleted.get_or_create(insight=instance, dashboard=dashboard)
 
@@ -1287,7 +1327,7 @@ class InsightSerializer(InsightBasicSerializer):
                     and not self.context.get("require_parsed_results")
                 )
                 with tags_context(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.INSIGHT, **shared_tags):
-                    return calculate_for_query_based_insight(
+                    insight_result = calculate_for_query_based_insight(
                         insight,
                         team=self.context["get_team"](),
                         dashboard=dashboard,
@@ -1301,6 +1341,21 @@ class InsightSerializer(InsightBasicSerializer):
                         analytics_props=get_request_analytics_properties(self.context["request"]),
                         allow_raw_results=allow_raw_results,
                     )
+                    access_method: DashboardAccessMethod | None = self.context.get("dashboard_access_method")
+                    if (
+                        dashboard is not None
+                        and access_method is not None
+                        and execution_mode
+                        not in {
+                            ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                            ExecutionMode.CALCULATE_ASYNC_ALWAYS,
+                        }
+                    ):
+                        record_dashboard_cache_outcome(
+                            access_method,
+                            is_cached=insight_result.is_cached,
+                        )
+                    return insight_result
             except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
                 raise ValidationError(str(e), getattr(e, "code_name", None))
             except ConcurrencyLimitExceeded as e:
@@ -2116,7 +2171,14 @@ When set, the specified dashboard's filters and date range override will be appl
 
         if dashboard_tile is not None:
             # context is used in the to_representation method to report filters used
-            serializer_context.update({"dashboard": dashboard_tile.dashboard})
+            serializer_context.update(
+                {
+                    "dashboard": dashboard_tile.dashboard,
+                    "dashboard_access_method": dashboard_access_method(
+                        request, is_shared=serializer_context["is_shared"]
+                    ),
+                }
+            )
 
         try:
             serialized_data = self.get_serializer(instance, context=serializer_context).data

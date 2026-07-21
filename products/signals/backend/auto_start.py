@@ -53,6 +53,7 @@ class ReviewerContent(TypedDict):
     github_login: str
     github_name: str | None
     relevant_commits: list[dict]
+    reason: str | None
 
 
 _PRIORITY_RANK: dict[Priority, int] = {
@@ -581,6 +582,7 @@ async def _latest_reviewers_content(report_id: str) -> tuple[list[ReviewerConten
                     github_login=str(entry["github_login"]),
                     github_name=entry.get("github_name"),
                     relevant_commits=entry.get("relevant_commits") or [],
+                    reason=entry.get("reason"),
                 )
             )
     return reviewers, editor_user_id

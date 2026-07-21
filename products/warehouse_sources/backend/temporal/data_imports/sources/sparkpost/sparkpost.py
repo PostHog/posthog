@@ -1,20 +1,23 @@
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import urlencode, urljoin, urlparse
+from urllib.parse import urljoin, urlparse
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.sparkpost.settings import (
-    SPARKPOST_ENDPOINTS,
-    SparkPostEndpointConfig,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BaseNextUrlPaginator,
+    SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.sparkpost.settings import SPARKPOST_ENDPOINTS
 
 # SparkPost runs fully independent US and EU stacks that do not share data; the user picks which one
 # their account lives on. The set is a fixed allow-list, so the host can't be retargeted at an
@@ -25,12 +28,6 @@ SPARKPOST_HOSTS = {
 }
 DEFAULT_REGION = "us"
 
-REQUEST_TIMEOUT_SECONDS = 60
-
-
-class SparkPostRetryableError(Exception):
-    pass
-
 
 @dataclasses.dataclass
 class SparkPostResumeConfig:
@@ -40,15 +37,6 @@ class SparkPostResumeConfig:
 def base_url(region: Optional[str]) -> str:
     resolved = (region or DEFAULT_REGION).lower()
     return SPARKPOST_HOSTS.get(resolved, SPARKPOST_HOSTS[DEFAULT_REGION])
-
-
-def _get_headers(api_key: str) -> dict[str, str]:
-    # SparkPost authenticates with the API key passed verbatim in the Authorization header (no
-    # "Bearer" prefix).
-    return {
-        "Authorization": api_key,
-        "Accept": "application/json",
-    }
 
 
 def _format_from(value: Any) -> str:
@@ -76,34 +64,75 @@ def _format_from(value: Any) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M")
 
 
-def validate_credentials(region: Optional[str], api_key: str) -> tuple[bool, str | None]:
-    """Validate SparkPost credentials with a single cheap probe against ``/api/v1/account``."""
-    url = f"{base_url(region)}/api/v1/account"
-    try:
-        session = make_tracked_session(redact_values=(api_key,))
-        response = session.get(url, headers=_get_headers(api_key), timeout=10)
-        if response.status_code == 200:
-            return True, None
-        # 403 means the key authenticated but lacks the ``Account`` scope this probe uses. The key
-        # is genuine, and a user who only grants the per-data-type read scopes (as our caption
-        # suggests) shouldn't be blocked from connecting — real per-endpoint scope gaps surface at
-        # sync time via get_non_retryable_errors. Only 401 is a definitively bad key.
-        if response.status_code == 403:
-            return True, None
-        if response.status_code == 401:
-            return False, "Invalid SparkPost API key. Check the API key and selected region, then try again."
-        return False, f"SparkPost credential validation failed (status {response.status_code})."
-    except requests.exceptions.RequestException as e:
-        return False, str(e)
+def _is_same_host(url: str, host: str) -> bool:
+    """True only for ``https`` URLs whose netloc matches the resolved SparkPost API host."""
+    parsed = urlparse(url)
+    return parsed.scheme == "https" and parsed.netloc == urlparse(host).netloc
 
 
-def _build_initial_params(
-    config: SparkPostEndpointConfig,
-    should_use_incremental_field: bool,
-    db_incremental_field_last_value: Any,
-) -> dict[str, Any]:
+class SparkPostLinksPaginator(BaseNextUrlPaginator):
+    """Follows SparkPost's HAL-style ``links: [{"href": ..., "rel": ...}]`` next link.
+
+    The ``next`` href is usually a host-relative path (e.g. ``/api/v1/events/message?cursor=...``);
+    it's resolved against the API host and re-pinned to that host (https + exact netloc) so a tampered
+    response can't redirect the authenticated request (and its API key) off-host. A missing / off-host
+    / non-https next link — or a page that returned no rows — terminates pagination.
+    """
+
+    def __init__(self, host: str) -> None:
+        super().__init__()
+        self._host = host
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        # A page with no rows ends the walk before we even look for a next link, matching the
+        # source's "stop as soon as a page returns nothing" behavior.
+        if not data:
+            self._has_next_page = False
+            return
+
+        try:
+            body = response.json()
+        except Exception:
+            body = None
+
+        next_url = self._extract_next_url(body)
+        if next_url:
+            self._next_url = next_url
+            self._has_next_page = True
+        else:
+            self._has_next_page = False
+
+    def _extract_next_url(self, body: Any) -> Optional[str]:
+        links = body.get("links") if isinstance(body, dict) else None
+        if not isinstance(links, list):
+            return None
+        for link in links:
+            if isinstance(link, dict) and link.get("rel") == "next":
+                href = link.get("href")
+                if not isinstance(href, str) or not href:
+                    return None
+                # ``urljoin`` resolves a relative path against the host and leaves an absolute URL
+                # as-is; either way we re-pin it to the resolved host so a tampered response can't
+                # send our authenticated request at an internal address (SSRF).
+                resolved = urljoin(f"{self._host}/", href)
+                return resolved if _is_same_host(resolved, self._host) else None
+        return None
+
+
+def sparkpost_source(
+    region: Optional[str],
+    api_key: str,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[SparkPostResumeConfig],
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Optional[Any] = None,
+) -> SourceResponse:
+    config = SPARKPOST_ENDPOINTS[endpoint]
+    host = base_url(region)
+
     params: dict[str, Any] = {}
-
     if config.pagination == "cursor":
         # ``cursor=initial`` opts the request into SparkPost's cursor-based pagination; we then walk
         # the ``rel: next`` links it returns.
@@ -119,147 +148,66 @@ def _build_initial_params(
             cutoff = datetime.now(UTC) - timedelta(days=config.default_lookback_days)
         else:
             cutoff = None
-
         if cutoff is not None:
             params[config.timestamp_filter_param] = _format_from(cutoff)
 
-    return params
+    paginator = SparkPostLinksPaginator(host) if config.pagination == "cursor" else SinglePagePaginator()
 
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": host,
+            # Only the non-secret Accept header lives here; the API key is supplied verbatim on the
+            # Authorization header via the framework auth so its value is redacted from logs/errors.
+            "headers": {"Accept": "application/json"},
+            "auth": {"type": "api_key", "api_key": api_key, "name": "Authorization", "location": "header"},
+            "paginator": paginator,
+        },
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": params,
+                    # SparkPost wraps every list endpoint in ``{"results": [...]}``. A 200 without
+                    # ``results`` (or a non-list value) yields no rows and stops — the endpoints are
+                    # best-effort and shouldn't fail loud on an empty/absent list.
+                    "data_selector": config.data_path,
+                },
+            }
+        ],
+    }
 
-def _build_initial_url(host: str, config: SparkPostEndpointConfig, params: dict[str, Any]) -> str:
-    url = f"{host}{config.path}"
-    if not params:
-        return url
-    return f"{url}?{urlencode(params)}"
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume_config = resumable_source_manager.load_state()
+        if resume_config is not None:
+            # Guard the persisted resume URL — only ever saved from the host-pinned paginator, but
+            # re-check so a tampered Redis state can't redirect our authenticated request.
+            if not _is_same_host(resume_config.next_url, host):
+                raise ValueError(f"SparkPost resume state contains an unexpected URL: {resume_config.next_url!r}")
+            initial_paginator_state = {"next_url": resume_config.next_url}
 
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Save AFTER a page is yielded and only while a next page remains — a crash re-yields the
+        # last batch (merge dedupes on the primary key) instead of skipping it.
+        if state and state.get("next_url"):
+            resumable_source_manager.save_state(SparkPostResumeConfig(next_url=str(state["next_url"])))
 
-def _extract_items(response_json: Any, config: SparkPostEndpointConfig) -> list[dict[str, Any]]:
-    if isinstance(response_json, dict):
-        items = response_json.get(config.data_path, [])
-        return items if isinstance(items, list) else []
-    return []
-
-
-def _is_same_host(url: str, host: str) -> bool:
-    """True only for ``https`` URLs whose netloc matches the resolved SparkPost API host."""
-    parsed = urlparse(url)
-    return parsed.scheme == "https" and parsed.netloc == urlparse(host).netloc
-
-
-def _compute_next_url(config: SparkPostEndpointConfig, response_json: Any, host: str) -> str | None:
-    if config.pagination != "cursor":
-        return None
-
-    # SparkPost returns pagination links as a list of ``{"href": ..., "rel": ...}`` objects; the
-    # ``next`` href is a path relative to the API host (e.g. ``/api/v1/events/message?cursor=...``).
-    links = response_json.get("links") if isinstance(response_json, dict) else None
-    if not isinstance(links, list):
-        return None
-
-    for link in links:
-        if isinstance(link, dict) and link.get("rel") == "next":
-            href = link.get("href")
-            if not isinstance(href, str) or not href:
-                return None
-            # ``urljoin`` resolves a relative path against the host and leaves an absolute URL as-is.
-            # Either way we re-pin it to the resolved host so a tampered response can't redirect our
-            # authenticated request at an internal address (SSRF) and leak the API key.
-            resolved = urljoin(f"{host}/", href)
-            return resolved if _is_same_host(resolved, host) else None
-    return None
-
-
-def get_rows(
-    region: Optional[str],
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[SparkPostResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = SPARKPOST_ENDPOINTS[endpoint]
-    headers = _get_headers(api_key)
-    host = base_url(region)
-    # One tracked session reused across pages and retries; the API key is redacted from logged URLs
-    # and captured samples.
-    session = make_tracked_session(headers=headers, redact_values=(api_key,))
-
-    params = _build_initial_params(config, should_use_incremental_field, db_incremental_field_last_value)
-
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume_config is not None:
-        url = resume_config.next_url
-        # Guard the persisted resume URL too — only ever saved from _compute_next_url (host-pinned),
-        # but re-check so a tampered Redis state can't redirect our authenticated request.
-        if not _is_same_host(url, host):
-            raise ValueError(f"SparkPost resume state contains an unexpected URL: {url!r}")
-        logger.debug(f"SparkPost: resuming from URL: {url}")
-    else:
-        url = _build_initial_url(host, config, params)
-
-    @retry(
-        retry=retry_if_exception_type((SparkPostRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(5),
-        wait=wait_exponential_jitter(initial=1, max=30),
-        reraise=True,
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        # ``from`` is injected as a static param above, so the framework's incremental machinery is
+        # unused here.
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
     )
-    def fetch_page(page_url: str) -> Any:
-        response = session.get(page_url, timeout=REQUEST_TIMEOUT_SECONDS)
-
-        # SparkPost applies dynamic rate limiting, returning 429 with guidance to back off 1-5s.
-        if response.status_code == 429 or response.status_code >= 500:
-            raise SparkPostRetryableError(
-                f"SparkPost API error (retryable): status={response.status_code}, url={page_url}"
-            )
-
-        if not response.ok:
-            logger.error(f"SparkPost API error: status={response.status_code}, body={response.text}, url={page_url}")
-            response.raise_for_status()
-
-        return response.json()
-
-    while True:
-        data = fetch_page(url)
-
-        items = _extract_items(data, config)
-        if not items:
-            break
-
-        yield items
-
-        next_url = _compute_next_url(config, data, host)
-        if not next_url:
-            break
-
-        # Save state AFTER yielding the batch — a crash re-yields the last batch (merge dedupes on
-        # primary key) instead of skipping it.
-        resumable_source_manager.save_state(SparkPostResumeConfig(next_url=next_url))
-        url = next_url
-
-
-def sparkpost_source(
-    region: Optional[str],
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[SparkPostResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Optional[Any] = None,
-) -> SourceResponse:
-    config = SPARKPOST_ENDPOINTS[endpoint]
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            region=region,
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         sort_mode="asc",
         partition_count=1,
@@ -267,4 +215,24 @@ def sparkpost_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="week" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
+        column_hints=resource.column_hints,
     )
+
+
+def validate_credentials(region: Optional[str], api_key: str) -> tuple[bool, str | None]:
+    """Validate SparkPost credentials with a single cheap probe against ``/api/v1/account``."""
+    ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{base_url(region)}/api/v1/account",
+        headers={"Authorization": api_key, "Accept": "application/json"},
+        # 403 means the key authenticated but lacks the ``Account`` scope this probe uses. The key is
+        # genuine, and a user who only grants the per-data-type read scopes (as our caption suggests)
+        # shouldn't be blocked from connecting — real per-endpoint scope gaps surface at sync time via
+        # get_non_retryable_errors. Only 401 is a definitively bad key.
+        ok_statuses=(200, 403),
+    )
+    if ok:
+        return True, None
+    if status == 401:
+        return False, "Invalid SparkPost API key. Check the API key and selected region, then try again."
+    return False, f"SparkPost credential validation failed (status {status})."

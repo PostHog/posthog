@@ -67,7 +67,9 @@ const toClickhouseDateTime = (value: string): string => {
 interface InvocationRow {
     invocation_id: string
     parent_run_id: string
-    attempts: number
+    // Prior rerun count for this invocation (argMax over version). Named to avoid
+    // shadowing the raw `attempts` column in the fetch query — see fetchPage.
+    latest_attempts: number
     last_scheduled_at: string
     first_scheduled_at: string
     invocation_globals: string
@@ -467,7 +469,12 @@ export class RerunPaginatorService {
                 SELECT
                     invocation_id,
                     argMax(parent_run_id, version)         AS parent_run_id,
-                    argMax(attempts, version)              AS attempts,
+                    -- NOT aliased 'attempts': that would shadow the raw column, and the
+                    -- max_attempts HAVING below (argMax(attempts, version) < …) would then
+                    -- resolve 'attempts' to this alias — an aggregate inside an aggregate,
+                    -- which ClickHouse rejects. Any caller setting max_attempts (the poison-
+                    -- pill autodrain always does) would fail every page. Keep the names distinct.
+                    argMax(attempts, version)              AS latest_attempts,
                     argMax(invocation_globals, version)    AS invocation_globals,
                     argMax(first_scheduled_at, version)    AS first_scheduled_at,
                     max(scheduled_at)                      AS last_scheduled_at
@@ -518,7 +525,7 @@ export class RerunPaginatorService {
         // across concurrent callers, so a sequential loop would defeat that.
         const rehydrated = await Promise.all(
             rows.map(async (row): Promise<CyclotronJobInvocation | null> => {
-                if (maxAttempts !== undefined && row.attempts >= maxAttempts) {
+                if (maxAttempts !== undefined && row.latest_attempts >= maxAttempts) {
                     counterRerunInvocationsSkipped.labels(state.function_kind, 'over_max_attempts').inc()
                     return null
                 }
@@ -614,7 +621,7 @@ export class RerunPaginatorService {
                     // rerun count) drives `is_retry` and `attempts` on the
                     // lifecycle rows.
                     attempts: 0,
-                    rerunAttempts: (row.attempts || 0) + 1,
+                    rerunAttempts: (row.latest_attempts || 0) + 1,
                     // Carry the original first-scheduled time forward — the
                     // producer writes this verbatim on every retry's lifecycle
                     // rows so ReplacingMergeTree doesn't collapse it away.
@@ -676,7 +683,7 @@ export class RerunPaginatorService {
                 // Sticky rerun counter — mirror the hog function path so the
                 // lifecycle row producer can derive `attempts` / `is_retry`
                 // for flows too, and the `max_attempts` guard actually trips.
-                rerunAttempts: (row.attempts || 0) + 1,
+                rerunAttempts: (row.latest_attempts || 0) + 1,
                 firstScheduledAt: row.first_scheduled_at,
             }
             return invocation

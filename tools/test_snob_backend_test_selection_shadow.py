@@ -261,6 +261,33 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
         self.assertEqual([], result.full_run_reasons)
         self.assertEqual({"changed_tests": ["posthog/test/test_version_requirement.py"]}, result.groups)
 
+    def test_segments_for_test_file_mirrors_matrix_partition(self) -> None:
+        selection = _load_selection_module()
+
+        self.assertEqual(selection.segments_for_test_file("posthog/models/test_a.py"), frozenset({"core"}))
+        # POE patterns run in both the Core matrix and the person-on-events matrix.
+        self.assertEqual(selection.segments_for_test_file("posthog/clickhouse/test_b.py"), frozenset({"core", "poe"}))
+        self.assertEqual(selection.segments_for_test_file("posthog/temporal/tests/test_c.py"), frozenset({"temporal"}))
+        # Explicitly ignored by the Core invocation, and not a draft-narrowable matrix.
+        self.assertEqual(selection.segments_for_test_file("posthog/dags/test_e.py"), frozenset())
+        # Product/turbo tests are not part of any draft-narrowable Django matrix.
+        self.assertEqual(selection.segments_for_test_file("products/warehouse_sources/backend/test_d.py"), frozenset())
+
+    def test_narrowable_baseline_excludes_turbo_product_tests(self) -> None:
+        selection = _load_selection_module()
+
+        durations = {
+            "posthog/models/test_a.py::t1": 100.0,
+            "posthog/clickhouse/test_b.py::t2": 70.0,
+            "posthog/temporal/tests/test_c.py::t3": 210.0,
+            "posthog/dags/test_e.py::t5": 42.0,  # ignored path
+            "products/warehouse_sources/backend/test_d.py::t4": 100_000.0,  # turbo-tests
+        }
+
+        # Only the Core/POE/Temporal universe counts; the huge product test and the ignored
+        # path are excluded, so a draft can never be credited with skipping them.
+        self.assertEqual(selection.narrowable_baseline_seconds(durations), 380.0)
+
 
 if __name__ == "__main__":
     unittest.main()

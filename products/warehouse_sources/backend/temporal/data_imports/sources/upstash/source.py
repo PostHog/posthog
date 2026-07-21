@@ -19,7 +19,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import UpstashSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.upstash import (
+    UpstashSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.upstash.settings import (
     ENDPOINTS,
     UPSTASH_ENDPOINTS,
@@ -131,5 +133,6 @@ Create a management API key in the [Upstash console](https://console.upstash.com
             email=config.email,
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
         )

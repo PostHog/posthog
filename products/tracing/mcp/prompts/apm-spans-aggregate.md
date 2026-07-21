@@ -6,7 +6,7 @@ Returns one row per `(service_name, name)` pair with the following metrics:
 - `total_duration_nano`, `avg_duration_nano`, `p50_duration_nano`, `p95_duration_nano`, `p99_duration_nano`, `p999_duration_nano` — duration stats in nanoseconds (1 second = 1,000,000,000 ns). `p999_duration_nano` is the 99.9th percentile and is only meaningful for `(service, name)` groups with enough spans; on low-volume operations it collapses to the max
 - `error_count` — spans with OTel status code `Error` (status_code = 2)
 
-Rows are ordered by `total_duration_nano` DESC and capped at 5000.
+Rows are ordered by `total_duration_nano` DESC. By default only the top 100 rows are returned — this keeps the response small, which matters because high span-name cardinality (e.g. untemplated URL paths) can otherwise produce an enormous payload. The top rows already surface the heaviest operations. When more rows genuinely exist the response sets `has_more: true` and `next_offset`; page through with `offset`, or raise `limit` (hard max 5000). Prefer narrowing with `serviceNames`/`filterGroup` over pulling a large page.
 
 Use to answer:
 
@@ -75,6 +75,14 @@ List of service names to restrict the aggregation to. Use `apm-services-list` to
 ## query.filterGroup
 
 A flat list of property filters applied to both the primary and comparison windows. See the "Property filters" section.
+
+## query.limit
+
+Max rows to return, ordered by `total_duration_nano` DESC. Defaults to 100; hard max 5000. Keep this small — a high value on high-cardinality span names returns a very large response. Narrow with `serviceNames`/`filterGroup` instead of raising it when you can.
+
+## query.offset
+
+Row offset for pagination. Combine with `limit` and the `next_offset` from a previous response to page through results beyond the first page.
 
 # Examples
 
@@ -146,7 +154,7 @@ Returns `results` for the last hour and `compare` for the hour before. Diff `tot
 # Reminders
 
 - Duration values are in nanoseconds. Divide by 1,000,000 for ms, 1,000,000,000 for seconds.
-- Results are ordered by `total_duration_nano` DESC and capped at 5000 rows.
+- Results are ordered by `total_duration_nano` DESC and default to the top 100 rows. Check `has_more`/`next_offset` to page; raise `limit` (max 5000) only when you truly need the long tail.
 - Use `apm-attributes-list` and `apm-attribute-values-list` to discover attribute keys/values before filtering.
 - Use `apm-services-list` to discover services before filtering by service name.
 - For parent → child breakdowns, use `apm-spans-tree` instead.

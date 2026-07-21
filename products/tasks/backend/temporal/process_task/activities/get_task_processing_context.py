@@ -117,6 +117,11 @@ class TaskProcessingContext:
         return self.github_integration_id is not None or self.github_user_integration_id is not None
 
     @property
+    def github_read_access(self) -> bool:
+        """Repo-less run that asked for a read-only GitHub token (see Task.create_and_run)."""
+        return (self.state or {}).get("github_read_access") is True
+
+    @property
     def sandbox_environment_id(self) -> str | None:
         return (self.state or {}).get("sandbox_environment_id")
 

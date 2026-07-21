@@ -563,11 +563,17 @@ SPECTACULAR_SETTINGS = {
         "IntegrationKindEnum": "posthog.models.integration.Integration.IntegrationKind",
         "TicketStatusEnum": "products.conversations.backend.models.constants.Status",
         "BatchImportStatusEnum": "products.managed_migrations.backend.models.batch_imports.BatchImport.Status",
+        # Shared by ExperimentMetricsRecalculation.status and ActiveRecalculationRun.status (same choice set).
+        "MetricsRecalculationStatusEnum": (
+            "products.experiments.backend.models.experiment.ExperimentMetricsRecalculation.Status"
+        ),
         "HealthIssueStatusEnum": "posthog.models.health_issue.HealthIssue.Status",
         "HealthIssueSeverityEnum": "posthog.models.health_issue.HealthIssue.Severity",
         "IngestionWarningSeverityEnum": "posthog.api.ingestion_warnings_v2.INGESTION_WARNING_SEVERITIES",
         # Disambiguates from the same-valued inline enum on the signals LogsAlertStateChangeSignalExtra contract.
         "LogsAlertThresholdOperatorEnum": "products.logs.backend.models.LogsAlertConfiguration.ThresholdOperator",
+        # Shared by _LogsGroupByBody.groupBySource and _LogsGroupByDimension.source (labels == values).
+        "LogsGroupBySourceEnum": "products.logs.backend.group_by_query_runner.GROUP_SOURCES",
         "LLMProviderEnum": "products.ai_observability.backend.models.provider_keys.LLMProvider",
         "EvaluationReportFrequencyEnum": (
             "products.ai_observability.backend.models.evaluation_reports.EvaluationReport.Frequency"
@@ -693,7 +699,7 @@ SPECTACULAR_SETTINGS = {
         # SignalReportBulkStateRequest) that both expose the same `state` ChoiceField. Pin the
         # shared enum to a stable name so it doesn't collide with the other `state` enums
         # (tasks, cdp) into a component-prefixed auto-name.
-        "SignalReportStateEnum": ["suppressed", "potential"],
+        "SignalReportStateEnum": ["suppressed", "potential", "resolved"],
         # Two serializers now expose an `op` ChoiceField (metrics filters and email-template design
         # patches). Pin both to stable names so neither gets a component-prefixed auto-name on collision.
         # "OpEnum" keeps the metrics filter enum at its pre-existing generated name.
@@ -737,6 +743,7 @@ SPECTACULAR_SETTINGS = {
             "span_attribute",
             "span_resource_attribute",
             "revenue_analytics",
+            "account_custom_property",
             "flag",
             "workflow_variable",
         ],

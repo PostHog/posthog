@@ -2976,17 +2976,39 @@ const api = {
         }> {
             return new ApiRequest().tracingSpans().withAction('duration-histogram').create({ signal, data: { query } })
         },
+        async latencyHeatmap(
+            query: {
+                dateRange?: { date_from?: string | null; date_to?: string | null }
+                serviceNames?: string[]
+                statusCodes?: number[]
+                filterGroup?: PropertyGroupFilter
+                // true (default) buckets root spans only (a distribution of traces); false buckets
+                // every matching span — pair with a span name filter for operation-scoped pages.
+                rootSpans?: boolean
+            },
+            signal?: AbortSignal
+        ): Promise<{
+            // Sparse cells ordered by time then bucket. Every time bucket appears at least once —
+            // empty buckets come back as a {time, bucket_ns: 0, count: 0} sentinel row.
+            results: { time: string; bucket_ns: number; count: number }[]
+        }> {
+            return new ApiRequest().tracingSpans().withAction('latency-heatmap').create({ signal, data: { query } })
+        },
         async aggregate(
             query: {
                 dateRange?: { date_from?: string | null; date_to?: string | null }
                 serviceNames?: string[]
                 filterGroup?: PropertyGroupFilter
                 compareFilter?: { compare?: boolean; compare_to?: string | null }
+                limit?: number
+                offset?: number
             },
             signal?: AbortSignal
         ): Promise<{
             results: AggregatedSpanRow[]
             compare?: AggregatedSpanRow[] | null
+            has_more?: boolean
+            next_offset?: number | null
         }> {
             return new ApiRequest().tracingSpans().withAction('aggregate').create({ signal, data: { query } })
         },

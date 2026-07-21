@@ -63,7 +63,7 @@ def _create_org_member_with_github(email: str, organization: Organization, login
 
 
 def _reviewer(login: str) -> ReviewerContent:
-    return ReviewerContent(github_login=login, github_name=None, relevant_commits=[])
+    return ReviewerContent(github_login=login, github_name=None, relevant_commits=[], reason=None)
 
 
 @pytest.mark.django_db
