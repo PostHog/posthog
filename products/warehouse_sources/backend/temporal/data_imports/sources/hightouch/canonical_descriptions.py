@@ -14,7 +14,6 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updatedAt": "The timestamp when the sync was last updated.",
             "destinationId": "The id of the destination that the sync is connected to.",
             "modelId": "The id of the model that the sync is connected to.",
-            "configuration": "The sync's configuration, specifying how data is mapped. The schema depends on the destination type.",
             "schedule": "The scheduling configuration: interval, cron expression, visual cron, or dbt Cloud job.",
             "status": "The sync's status (e.g. disabled, pending, cancelled, failed, queued, success, warning, querying, processing, reporting, interrupted).",
             "disabled": "Whether the sync has been disabled by the user.",
@@ -75,7 +74,6 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "workspaceId": "The id of the workspace that the source belongs to.",
             "createdAt": "The timestamp when the source was created.",
             "updatedAt": "The timestamp when the source was last updated.",
-            "configuration": "General metadata about the source, like connection details. The schema depends on the source type.",
         },
     },
     "destinations": {
@@ -90,7 +88,6 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "createdAt": "The timestamp when the destination was created.",
             "updatedAt": "The timestamp when the destination was last updated.",
             "syncs": "The ids of syncs that sync to this destination.",
-            "configuration": "General metadata about the destination, like hostname and username. The schema depends on the destination type.",
         },
     },
 }

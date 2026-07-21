@@ -146,6 +146,18 @@ class TestHightouchTransport:
         with pytest.raises(ValueError, match="Fan-out endpoint"):
             get_resource(endpoint="sync_runs")
 
+    @parameterized.expand([("syncs",), ("sources",), ("destinations",)])
+    def test_get_resource_strips_credential_bearing_configuration(self, endpoint) -> None:
+        # `configuration` objects carry third-party credentials (database passwords, API
+        # secrets, custom auth headers) that must not land in queryable warehouse tables.
+        resource = cast(dict[str, Any], get_resource(endpoint=endpoint))
+        row = resource["data_map"]({"id": 1, "slug": "prod", "configuration": {"password": "hunter2"}})
+        assert row == {"id": 1, "slug": "prod"}
+
+    def test_get_resource_models_keeps_all_fields(self) -> None:
+        resource = cast(dict[str, Any], get_resource(endpoint="models"))
+        assert "data_map" not in resource
+
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.hightouch.hightouch.rest_api_resource")
     def test_hightouch_source_top_level_response(self, mock_rest_api_resource) -> None:
         mock_rest_api_resource.return_value = Mock()

@@ -35,6 +35,11 @@ class HightouchEndpointConfig:
     sort_mode: Literal["asc", "desc"] = "asc"
     primary_key: str | list[str] = "id"
     fanout: DependentEndpointConfig | None = None
+    # Response fields dropped from every row before it is yielded. Hightouch `configuration`
+    # objects carry connection details (database credentials on sources, hostnames/usernames
+    # and API secrets on destinations, custom auth headers on HTTP-destination syncs), which
+    # must not be copied into warehouse tables any project member can query.
+    strip_fields: tuple[str, ...] = ()
 
 
 HIGHTOUCH_ENDPOINTS: dict[str, HightouchEndpointConfig] = {
@@ -44,6 +49,7 @@ HIGHTOUCH_ENDPOINTS: dict[str, HightouchEndpointConfig] = {
     "syncs": HightouchEndpointConfig(
         name="syncs",
         path="/syncs",
+        strip_fields=("configuration",),
     ),
     "sync_runs": HightouchEndpointConfig(
         name="sync_runs",
@@ -82,10 +88,12 @@ HIGHTOUCH_ENDPOINTS: dict[str, HightouchEndpointConfig] = {
     "sources": HightouchEndpointConfig(
         name="sources",
         path="/sources",
+        strip_fields=("configuration",),
     ),
     "destinations": HightouchEndpointConfig(
         name="destinations",
         path="/destinations",
+        strip_fields=("configuration",),
     ),
 }
 

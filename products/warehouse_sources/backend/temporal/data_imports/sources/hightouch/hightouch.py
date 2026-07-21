@@ -1,5 +1,5 @@
 import dataclasses
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any, Optional, cast
 
 from requests import Response
@@ -87,6 +87,15 @@ def _hightouch_incremental_window(cursor_path: str) -> IncrementalConfig:
     }
 
 
+def _drop_fields(fields: tuple[str, ...]) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    def _mapper(row: dict[str, Any]) -> dict[str, Any]:
+        for field in fields:
+            row.pop(field, None)
+        return row
+
+    return _mapper
+
+
 def _auth_headers(api_key: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
 
@@ -96,11 +105,17 @@ def _client_config(api_key: str) -> ClientConfig:
         "base_url": HIGHTOUCH_BASE_URL,
         "auth": {"type": "bearer", "token": api_key},
         "headers": {"Accept": "application/json"},
+        # `capture=False`: sync/source/destination responses carry `configuration` objects with
+        # third-party credentials the name-based sample scrubbers can't recognise, so keep the
+        # raw bodies out of HTTP sample capture (still metered and logged).
+        "session": make_tracked_session(capture=False, redact_values=(api_key,)),
     }
 
 
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
-    res = make_tracked_session(redact_values=(api_key,)).get(
+    # `capture=False` for the same reason as in `_client_config`: the probe response can carry
+    # credential-bearing sync `configuration` objects.
+    res = make_tracked_session(capture=False, redact_values=(api_key,)).get(
         f"{HIGHTOUCH_BASE_URL}/syncs",
         headers=_auth_headers(api_key),
         params={"limit": 1},
@@ -129,13 +144,16 @@ def get_resource(endpoint: str) -> EndpointResource:
         "paginator": HightouchPaginator(limit=config.page_size),
     }
 
-    return {
+    resource: EndpointResource = {
         "name": config.name,
         "table_name": config.name,
         "write_disposition": "replace",
         "endpoint": endpoint_config,
         "table_format": "delta",
     }
+    if config.strip_fields:
+        resource["data_map"] = _drop_fields(config.strip_fields)
+    return resource
 
 
 def _make_source_response(endpoint_config: HightouchEndpointConfig, items_fn: Any) -> SourceResponse:
