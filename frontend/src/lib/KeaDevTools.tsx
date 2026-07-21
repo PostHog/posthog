@@ -8,25 +8,7 @@ import { AutoSizer } from 'lib/components/AutoSizer'
 
 type MountedMap = Record<string, BuiltLogic>
 type SortMode = 'alpha' | 'recent'
-type Tab = 'logics' | 'actions' | 'graph' | 'memory' | 'featureFlags'
-
-type FeatureFlagValue = boolean | string
-type FeatureFlagOverrides = Record<string, FeatureFlagValue>
-type FeatureFlagOverrideSelection = FeatureFlagValue | null
-
-export function updateFeatureFlagOverrides(
-    overrides: FeatureFlagOverrides,
-    flagKey: string,
-    value: FeatureFlagOverrideSelection
-): FeatureFlagOverrides {
-    const updatedOverrides = { ...overrides }
-    if (value === null) {
-        delete updatedOverrides[flagKey]
-    } else {
-        updatedOverrides[flagKey] = value
-    }
-    return updatedOverrides
-}
+type Tab = 'logics' | 'actions' | 'graph' | 'memory'
 
 function useDebounce<T>(value: T, delay: number): T {
     const [debouncedValue, setDebouncedValue] = useState(value)
@@ -1915,113 +1897,6 @@ function MemoryTab({ store, mounted }: { store: KeaContext['store']; mounted: Mo
     )
 }
 
-function FeatureFlagsTab(): JSX.Element {
-    useStoreTick()
-    const [query, setQuery] = useState('')
-    const featureFlags = (window.posthog?.featureFlags.getFlagVariants() ?? {}) as FeatureFlagOverrides
-    const overrides = (window.posthog?.get_property('$override_feature_flags') ?? {}) as FeatureFlagOverrides
-    const flagKeys = Array.from(new Set([...Object.keys(featureFlags), ...Object.keys(overrides)]))
-        .filter((flagKey) => flagKey.toLowerCase().includes(query.trim().toLowerCase()))
-        .sort((a, b) => a.localeCompare(b))
-
-    const applyOverride = (flagKey: string, value: FeatureFlagOverrideSelection): void => {
-        if (!window.posthog) {
-            return
-        }
-        const updatedOverrides = updateFeatureFlagOverrides(overrides, flagKey, value)
-        window.posthog.featureFlags.overrideFeatureFlags(
-            Object.keys(updatedOverrides).length > 0 ? { flags: updatedOverrides } : false
-        )
-        window.posthog.featureFlags.reloadFeatureFlags()
-    }
-
-    const clearOverrides = (): void => {
-        if (!window.posthog) {
-            return
-        }
-        window.posthog.featureFlags.overrideFeatureFlags(false)
-        window.posthog.featureFlags.reloadFeatureFlags()
-    }
-
-    return (
-        <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, padding: 10, gap: 8, flex: 1 }}>
-            <div style={{ display: 'flex', gap: 8 }}>
-                <input
-                    type="search"
-                    placeholder="Search feature flags"
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                    style={inputStyle}
-                />
-                <button
-                    type="button"
-                    onClick={clearOverrides}
-                    disabled={Object.keys(overrides).length === 0}
-                    style={simpleBtnStyle}
-                >
-                    Clear overrides
-                </button>
-            </div>
-            <div style={{ flex: 1, overflow: 'auto', background: '#fff', borderRadius: 12 }}>
-                {flagKeys.length === 0 ? (
-                    <div style={{ padding: 12, color: 'rgba(0,0,0,0.6)' }}>No evaluated feature flags found.</div>
-                ) : (
-                    flagKeys.map((flagKey) => {
-                        const hasOverride = Object.prototype.hasOwnProperty.call(overrides, flagKey)
-                        const currentValue = featureFlags[flagKey]
-                        const overrideValue = overrides[flagKey]
-                        let selectedValue = 'default'
-                        if (typeof overrideValue === 'string') {
-                            selectedValue = `variant:${overrideValue}`
-                        } else if (hasOverride) {
-                            selectedValue = String(overrideValue)
-                        }
-                        return (
-                            <div
-                                key={flagKey}
-                                style={{
-                                    display: 'grid',
-                                    gridTemplateColumns: 'minmax(240px, 1fr) minmax(120px, auto) 160px',
-                                    alignItems: 'center',
-                                    gap: 12,
-                                    padding: '10px 12px',
-                                    borderBottom: '1px solid rgba(0,0,0,0.06)',
-                                    background: hasOverride ? 'rgba(99,102,241,0.08)' : '#fff',
-                                }}
-                            >
-                                <div style={{ fontWeight: 700, overflowWrap: 'anywhere' }}>{flagKey}</div>
-                                <code>{String(currentValue)}</code>
-                                <select
-                                    aria-label={`Override ${flagKey}`}
-                                    value={selectedValue}
-                                    onChange={(event) => {
-                                        const value = event.target.value
-                                        if (value === 'default') {
-                                            applyOverride(flagKey, null)
-                                        } else if (value.startsWith('variant:')) {
-                                            applyOverride(flagKey, value.slice('variant:'.length))
-                                        } else {
-                                            applyOverride(flagKey, value === 'true')
-                                        }
-                                    }}
-                                    style={inputStyle}
-                                >
-                                    <option value="default">Use evaluated value</option>
-                                    <option value="true">Enabled</option>
-                                    <option value="false">Disabled</option>
-                                    {typeof overrideValue === 'string' ? (
-                                        <option value={`variant:${overrideValue}`}>{overrideValue}</option>
-                                    ) : null}
-                                </select>
-                            </div>
-                        )
-                    })
-                )}
-            </div>
-        </div>
-    )
-}
-
 /* ---------- main component ---------- */
 
 export function KeaDevtools({
@@ -2294,8 +2169,6 @@ export function KeaDevtools({
                 <div style={{ color: 'rgba(0,0,0,0.55)' }}>Graph of {allKeys.length} logics</div>
             ) : activeTab === 'memory' ? (
                 <div style={{ color: 'rgba(0,0,0,0.55)' }}>Memory usage</div>
-            ) : activeTab === 'featureFlags' ? (
-                <div style={{ color: 'rgba(0,0,0,0.55)' }}>Feature flag overrides</div>
             ) : (
                 <div style={{ color: 'rgba(0,0,0,0.55)' }}>{activeTab}</div>
             )}
@@ -2324,13 +2197,6 @@ export function KeaDevtools({
                     title="Analyze store size by logic"
                 >
                     Memory
-                </button>
-                <button
-                    type="button"
-                    onClick={() => setActiveTab('featureFlags')}
-                    style={tabBtnStyle(activeTab === 'featureFlags')}
-                >
-                    Feature flags
                 </button>
                 <button
                     type="button"
@@ -2499,8 +2365,6 @@ export function KeaDevtools({
                 />
             ) : activeTab === 'memory' ? (
                 <MemoryTab store={store} mounted={mounted} />
-            ) : activeTab === 'featureFlags' ? (
-                <FeatureFlagsTab />
             ) : (
                 <></>
             )}
