@@ -56,7 +56,7 @@ Adding a server is a small PR to that file.
 
    `test_catalog_entries_are_valid` catches malformed entries (bad category, duplicate URL, unnormalized icon_domain) before they hit production.
 
-6. **Open the PR** — one server per PR, title `feat(mcp-store): add <name> to the MCP server catalog`.
+6. **Open the PR** — one server per PR, on an `mcp-store/`-prefixed branch (e.g. `mcp-store/add-pagerduty`), with a `feat(mcp-store)` title: `feat(mcp-store): add <name> to the MCP server catalog`.
    State the probe verdict and verification tier in the description.
    For `oauth_shared` servers, include the operator checklist so activation isn't forgotten.
 
