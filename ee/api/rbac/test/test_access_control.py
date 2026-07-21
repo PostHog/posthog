@@ -2009,10 +2009,16 @@ class TestAccessControlMembersEndpoint(BaseAccessControlTest):
         assert project["inherited_access_level_reason"] == "project_default"
 
     def test_members_without_project_access_hidden_when_org_restricts_member_list_visibility(self):
+        # Private project: default access "none", explicit grants for everyone but user3
         user3 = self._create_user("user3@example.com")
         user3_membership = user3.organization_memberships.get(organization=self.organization)
-        self._put_project_access_control({"access_level": "member"})
-        self._put_project_access_control({"organization_member": str(user3_membership.id), "access_level": "none"})
+        self._put_project_access_control({"access_level": "none"})
+        self._put_project_access_control(
+            {"organization_member": str(self.organization_membership.id), "access_level": "member"}
+        )
+        self._put_project_access_control(
+            {"organization_member": str(self.user2_membership.id), "access_level": "member"}
+        )
 
         # Non-editor with default visibility: full roster (current behavior preserved)
         self._org_membership(OrganizationMembership.Level.MEMBER)
