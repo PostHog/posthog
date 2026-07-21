@@ -367,9 +367,13 @@ def _fetch_observations(team: Team, action: VisionAction, run: VisionActionRun) 
 
 def _clean_scanner_name(action: VisionAction) -> str:
     """Scanner name is free-text; strip markdown/mrkdwn control chars so it can't garble the bold header
-    (in-app Markdown or the Slack `**`→`*` pass) and collapse any newlines that would break the line."""
+    (in-app Markdown or the Slack `**`→`*` pass) and collapse any newlines that would break the line.
+
+    Also strips link/autolink punctuation `[](){}<>`: `_linkify_summary_header` wraps this name in
+    `[name](run_url)` after the external-link strip pass, so a name like `x](//evil/)` would otherwise
+    break out of that link and plant a trusted-looking header link to an attacker domain."""
     raw_name = action.scanner.name if action.scanner_id else ""
-    return re.sub(r"\s+", " ", re.sub(r"[*_`#]", "", raw_name)).strip() or "your scanner"
+    return re.sub(r"\s+", " ", re.sub(r"[*_`#\[\]()<>{}]", "", raw_name)).strip() or "your scanner"
 
 
 def _summary_header(action: VisionAction, window_start: datetime | None, count: int, window_total: int = 0) -> str:

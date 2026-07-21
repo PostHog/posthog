@@ -255,6 +255,28 @@ class TestVisionActionSynthesis(BaseTest):
         self.assertNotIn("](https://evil.example", run.synthesized_markdown)
         self.assertNotIn("](https://evil.example", run.output["slack"])
 
+    def test_summary_header_name_cannot_break_out_of_the_run_link(self) -> None:
+        # _linkify_summary_header wraps the name in [name](run_url) AFTER the external-link strip pass.
+        # A name carrying `](url)` would break out of that link and plant a header link to an attacker
+        # domain (the "]" arms the injected link once linkify supplies the opening "["). The name's
+        # bracket/paren chars must be stripped so the only link the header can point to is the run page.
+        self.scanner.name = "Checkout](//attacker.example/)"
+        self.scanner.save()
+        self._observation("churned")
+        action = self._action()
+        run = self._run_for(action)
+
+        self._synthesize(action, run)
+
+        run.refresh_from_db()
+        run_url = f"{settings.SITE_URL}/project/{self.team.id}/replay-vision/actions/{action.id}/runs/{run.id}"
+        # The header still links, but only to the run page — the attacker domain can't be a link
+        # target. It may survive as inert label text; what must not exist is a link pointing at it.
+        self.assertIn(f"]({run_url})", run.synthesized_markdown)
+        self.assertNotIn("](//attacker.example", run.synthesized_markdown)
+        self.assertNotIn("attacker.example|", run.output["slack"])
+        self.assertNotIn("<//attacker.example", run.output["slack"])
+
     def test_persists_only_included_observation_ids(self) -> None:
         # observation_ids must track the summaries actually included — a blank-summary observation is
         # skipped by _fetch_observations, so its id must not land in the persisted list.
