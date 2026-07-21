@@ -993,6 +993,7 @@ doesn't conflict with concurrent PRs.
 - uservoice
 - vespa
 - visma_economic
+- vturb
 - vwo
 - waiteraid
 - wasabi
