@@ -1,4 +1,4 @@
-import type { PointClickData, TooltipConfig } from '@posthog/quill-charts'
+import type { PointClickData, Series, TooltipConfig } from '@posthog/quill-charts'
 
 import { getVisibilityKey } from 'scenes/funnels/funnelUtils'
 
@@ -124,6 +124,54 @@ function orderCompareSeriesPreviousFirst(
 export const FUNNEL_STEPS_BAR_TOOLTIP_CONFIG: TooltipConfig = {
     ...INSIGHT_TOOLTIP_CONFIG,
     resolveClickToNearestSeries: true,
+}
+
+/** Entry share (0–1) of each compare period relative to the larger period's entrants — where that
+ *  period's own 100% sits on the shared value scale. */
+export interface FunnelComparePeriodShares {
+    current: number
+    previous: number
+}
+
+/** Derives each compare period's entry share from the built series. At the first step every series
+ *  of a period sits at its period's entry level (pure compare and breakdown × compare alike), so the
+ *  first-step value of any series carries the share. Returns null unless this is a compare funnel
+ *  with entrants in both periods — callers then keep the single built-in value axis. */
+export function compareEntryShares(series: Series<FunnelStepsBarSeriesMeta>[]): FunnelComparePeriodShares | null {
+    const firstStepShare = (label: 'current' | 'previous'): number | undefined => {
+        const periodSeries = series.find((s) => s.meta?.compareLabel === label)
+        const firstStepValue = periodSeries?.data[0]
+        return firstStepValue != null && firstStepValue > 0 ? firstStepValue / RATE_TO_PERCENT : undefined
+    }
+    const current = firstStepShare('current')
+    const previous = firstStepShare('previous')
+    return current != null && previous != null ? { current, previous } : null
+}
+
+/** Thins a period axis' tick set so compressed labels can't overlap. The endpoints anchor the axis —
+ *  the top tick (100%, the period's defining reference) is always kept, the bottom (0%) whenever it
+ *  fits — and interior ticks are then kept top-down while they clear `minGapPx` from every kept one. */
+export function visibleComparePeriodTicks(
+    percents: number[],
+    toPixel: (percent: number) => number,
+    minGapPx: number = 14
+): number[] {
+    if (percents.length === 0) {
+        return []
+    }
+    const sorted = [...percents].sort((a, b) => b - a)
+    const top = sorted[0]
+    const bottom = sorted[sorted.length - 1]
+    const kept = [top]
+    if (bottom !== top && Math.abs(toPixel(bottom) - toPixel(top)) >= minGapPx) {
+        kept.push(bottom)
+    }
+    for (const percent of sorted.slice(1, -1)) {
+        if (kept.every((keptPercent) => Math.abs(toPixel(keptPercent) - toPixel(percent)) >= minGapPx)) {
+            kept.push(percent)
+        }
+    }
+    return kept.sort((a, b) => a - b)
 }
 
 export interface FunnelStepClickTarget {

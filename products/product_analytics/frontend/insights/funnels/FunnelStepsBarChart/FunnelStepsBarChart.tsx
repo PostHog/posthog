@@ -15,9 +15,11 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { ChartParams } from '~/types'
 
+import { FunnelComparePeriodAxes } from './FunnelComparePeriodAxes'
 import { FunnelStepsBarTooltip } from './FunnelStepsBarTooltip'
 import {
     buildFunnelStepsBarData,
+    compareEntryShares,
     FUNNEL_STEPS_BAR_TOOLTIP_CONFIG,
     resolveFunnelStepClick,
     type FunnelStepsBarSeriesMeta,
@@ -32,6 +34,15 @@ const CHART_CONFIG: FunnelChartConfig = {
     chartMinHeight: 150,
     margins: { left: DEFAULT_MARGINS.left },
     tooltip: FUNNEL_STEPS_BAR_TOOLTIP_CONFIG,
+}
+
+// Compare mode swaps the built-in percent axis for per-period axes (FunnelComparePeriodAxes):
+// the built-in one only reads correctly for the larger period. The right margin makes room for
+// the previous-period labels.
+const COMPARE_CHART_CONFIG: FunnelChartConfig = {
+    ...CHART_CONFIG,
+    hideValueAxis: true,
+    margins: { left: DEFAULT_MARGINS.left, right: 48 },
 }
 
 const handleChartError = (error: Error, info: ErrorInfo): void => {
@@ -72,9 +83,13 @@ export function FunnelStepsBarChart({
     const groupTypeLabel = aggregationLabel(querySource?.aggregation_group_type_index).plural
     const showTime = steps.some((step) => step.average_conversion_time != null)
 
+    const periodShares = useMemo(() => compareEntryShares(series), [series])
+    const chartConfig = periodShares ? COMPARE_CHART_CONFIG : CHART_CONFIG
+
     const breakdownCount = series.length
     const stepWidthPx = Math.max(BASE_STEP_WIDTH_PX, breakdownCount * PER_BAR_WIDTH_PX)
-    const chartWidth = DEFAULT_MARGINS.left + steps.length * stepWidthPx + DEFAULT_MARGINS.right
+    const chartMargins = { ...DEFAULT_MARGINS, ...chartConfig.margins }
+    const chartWidth = chartMargins.left + steps.length * stepWidthPx + chartMargins.right
 
     const onStepClick = useCallback(
         (clickData: FunnelStepClickData<FunnelStepsBarSeriesMeta>): void => {
@@ -133,13 +148,15 @@ export function FunnelStepsBarChart({
                     steps={stepLabels}
                     series={series}
                     theme={theme}
-                    config={CHART_CONFIG}
+                    config={chartConfig}
                     tooltip={renderTooltip}
                     onStepClick={showPersonsModal ? onStepClick : undefined}
                     stepFooter={renderStepFooter}
                     dataAttr="funnel-steps-bar-chart-canvas"
                     onError={handleChartError}
-                />
+                >
+                    {periodShares && <FunnelComparePeriodAxes shares={periodShares} />}
+                </FunnelChart>
             </div>
         </ScrollableShadows>
     )

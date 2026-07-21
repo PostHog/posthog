@@ -4,8 +4,10 @@ import { EntityTypes, type FunnelStepWithConversionMetrics } from '~/types'
 
 import {
     buildFunnelStepsBarData,
+    compareEntryShares,
     FUNNEL_STEPS_SERIES_KEY_PREFIX,
     resolveFunnelStepClick,
+    visibleComparePeriodTicks,
     type FunnelStepsBarSeriesMeta,
 } from './funnelStepsBarTransforms'
 
@@ -198,6 +200,62 @@ describe('buildFunnelStepsBarData', () => {
         })
         expect(target?.series).toBe(compareSteps[0].nested_breakdown?.[1])
         expect(target?.series.compare_label).toBe('previous')
+    })
+})
+
+describe('compareEntryShares', () => {
+    // Guards the contract FunnelComparePeriodAxes depends on: any change to how the builder tags
+    // compare series (compareLabel meta, first-step values) silently kills or mis-scales the axes.
+    it.each([
+        ['pure compare', compareSteps],
+        ['breakdown × compare (all values of a period share its entry level)', breakdownCompareSteps],
+    ])('derives period entry shares from the built series for %s', (_name, steps) => {
+        const { series } = buildFunnelStepsBarData(steps, options)
+
+        expect(compareEntryShares(series)).toEqual({ current: 1, previous: 0.8 })
+    })
+
+    it.each([
+        ['no breakdown', noBreakdownSteps],
+        ['plain breakdown', breakdownSteps],
+        ['empty steps', [] as FunnelStepWithConversionMetrics[]],
+    ])('returns null for a non-compare funnel (%s)', (_name, steps) => {
+        const { series } = buildFunnelStepsBarData(steps, options)
+
+        expect(compareEntryShares(series)).toBeNull()
+    })
+
+    it('returns null when a period has no entrants, so the chart keeps the single built-in axis', () => {
+        const emptyPreviousSteps: FunnelStepWithConversionMetrics[] = [
+            makeStep({
+                fromBasisStep: 1,
+                nested_breakdown: [
+                    makeStep({ fromBasisStep: 1, compare_label: 'current' }),
+                    makeStep({ fromBasisStep: 0, compare_label: 'previous' }),
+                ],
+            }),
+        ]
+        const { series } = buildFunnelStepsBarData(emptyPreviousSteps, options)
+
+        expect(compareEntryShares(series)).toBeNull()
+    })
+})
+
+describe('visibleComparePeriodTicks', () => {
+    // A period axis compressed to its entry share squeezes its ticks together; the thinning must
+    // drop colliding interior labels while never dropping 100% — the tick the whole feature exists
+    // to show. Pixel positions modeled as a vertical scale: y = 300 - share * percent * 3.
+    const toPixel =
+        (share: number) =>
+        (percent: number): number =>
+            300 - share * percent * 3
+
+    it.each([
+        ['uncompressed axis keeps every tick', 1, [0, 20, 40, 60, 80, 100]],
+        ['compressed axis drops colliding interior ticks but keeps both endpoints', 0.2, [0, 60, 100]],
+        ['degenerate axis keeps only the 100% anchor', 0.02, [100]],
+    ])('%s', (_name, share, expected) => {
+        expect(visibleComparePeriodTicks([0, 20, 40, 60, 80, 100], toPixel(share))).toEqual(expected)
     })
 })
 

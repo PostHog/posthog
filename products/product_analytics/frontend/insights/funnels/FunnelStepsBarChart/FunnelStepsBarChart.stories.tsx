@@ -81,6 +81,8 @@ export const Breakdown: Story = {
 
 // Compare to previous: each step shows the periods as side-by-side columns (previous left of current),
 // each capped at its period's entry level so a shorter period leaves a blank volume gap above its track.
+// Each period gets its own percent axis — current on the left, previous on the right, compressed to its
+// entry level — so both periods' first steps read 100% on their own side.
 export const Compare: Story = {
     render: () => <StoryRender insightFixture={funnelTopToBottomCompareFixture} />,
 }
@@ -88,6 +90,7 @@ export const Compare: Story = {
 // Breakdown + compare: each breakdown value shows its own conversion within its period, and the two
 // periods are scaled against each other — at the first step every value shares its period's height, the
 // larger period filling the column and the smaller one proportionally short, leaving a blank gap above.
+// The per-period axes apply here too: every value of a period reads its own conversion on that period's axis.
 export const BreakdownAndCompare: Story = {
     render: () => <StoryRender insightFixture={funnelTopToBottomBreakdownCompareFixture} />,
 }
