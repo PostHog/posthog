@@ -205,21 +205,38 @@ class TestTicketViewAPI(APIBaseTest):
         response = self.client.patch(f"{self.base_url}{created['short_id']}/", {"is_favorited": True}, format="json")
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["is_favorited"] is True
-        assert TicketViewFavorite.objects.filter(ticket_view_id=created["id"], user=self.user).count() == 1
+        assert (
+            TicketViewFavorite.objects.for_team(self.team.pk)
+            .filter(ticket_view_id=created["id"], user=self.user)
+            .count()
+            == 1
+        )
 
         # Idempotent: favoriting again doesn't create a second row
         self.client.patch(f"{self.base_url}{created['short_id']}/", {"is_favorited": True}, format="json")
-        assert TicketViewFavorite.objects.filter(ticket_view_id=created["id"], user=self.user).count() == 1
+        assert (
+            TicketViewFavorite.objects.for_team(self.team.pk)
+            .filter(ticket_view_id=created["id"], user=self.user)
+            .count()
+            == 1
+        )
 
         response = self.client.patch(f"{self.base_url}{created['short_id']}/", {"is_favorited": False}, format="json")
         assert response.json()["is_favorited"] is False
-        assert not TicketViewFavorite.objects.filter(ticket_view_id=created["id"], user=self.user).exists()
+        assert (
+            not TicketViewFavorite.objects.for_team(self.team.pk)
+            .filter(ticket_view_id=created["id"], user=self.user)
+            .exists()
+        )
 
     @parameterized.expand([("favorited", True), ("not_favorited", False)])
     def test_create_with_favorited_flag(self, _label, favorited):
         data = self._create_via_api(is_favorited=favorited)
         assert data["is_favorited"] is favorited
-        assert TicketViewFavorite.objects.filter(ticket_view_id=data["id"], user=self.user).exists() is favorited
+        assert (
+            TicketViewFavorite.objects.for_team(self.team.pk).filter(ticket_view_id=data["id"], user=self.user).exists()
+            is favorited
+        )
 
     def test_favorites_are_personal_to_each_user(self):
         created = self._create_via_api()
