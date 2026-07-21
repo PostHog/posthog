@@ -157,6 +157,7 @@ export function AgentsRoster(): JSX.Element {
         linearIssuesConfig,
         zendeskTicketsConfig,
         pgAnalyzeIssuesConfig,
+        healthChecksConfig,
         errorTrackingIsFullyEnabled,
         isSessionAnalysisToggling,
         isConversationsToggling,
@@ -167,6 +168,7 @@ export function AgentsRoster(): JSX.Element {
         isLinearIssuesToggling,
         isZendeskTicketsToggling,
         isPgAnalyzeIssuesToggling,
+        isHealthChecksToggling,
     } = useValues(signalSourcesLogic)
     const {
         toggleSessionAnalysis,
@@ -174,6 +176,7 @@ export function AgentsRoster(): JSX.Element {
         toggleErrorTracking,
         toggleEvalReports,
         toggleAnomalyInvestigation,
+        toggleHealthChecks,
         initiateDataWarehouseSourceToggle,
     } = useActions(signalSourcesLogic)
 
@@ -222,6 +225,13 @@ export function AgentsRoster(): JSX.Element {
                         requiresSetup: false,
                         syncStatus: anomalyInvestigationConfig?.status,
                     }
+                case 'health_checks':
+                    return {
+                        armed: !!healthChecksConfig?.enabled,
+                        loading: isHealthChecksToggling,
+                        requiresSetup: false,
+                        syncStatus: healthChecksConfig?.status,
+                    }
                 case 'github':
                     return dwState(githubIssuesConfig, isGithubIssuesToggling)
                 case 'linear':
@@ -243,6 +253,8 @@ export function AgentsRoster(): JSX.Element {
             isEvalReportsToggling,
             anomalyInvestigationConfig,
             isAnomalyInvestigationToggling,
+            healthChecksConfig,
+            isHealthChecksToggling,
             githubIssuesConfig,
             isGithubIssuesToggling,
             linearIssuesConfig,
@@ -272,6 +284,9 @@ export function AgentsRoster(): JSX.Element {
                 case 'analytics':
                     toggleAnomalyInvestigation()
                     return
+                case 'health_checks':
+                    toggleHealthChecks()
+                    return
                 case 'github':
                     initiateDataWarehouseSourceToggle('Github')
                     return
@@ -292,6 +307,7 @@ export function AgentsRoster(): JSX.Element {
             toggleSessionAnalysis,
             toggleEvalReports,
             toggleAnomalyInvestigation,
+            toggleHealthChecks,
             initiateDataWarehouseSourceToggle,
         ]
     )
