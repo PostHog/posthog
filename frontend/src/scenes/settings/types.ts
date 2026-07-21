@@ -211,6 +211,7 @@ export type SettingId =
     | 'path-cleaning'
     | 'person-display-name'
     | 'person-last-seen-at'
+    | 'warehouse-person-properties'
     | 'personal-api-keys'
     | 'personal-integrations-github'
     | 'personal-integrations-slack'
