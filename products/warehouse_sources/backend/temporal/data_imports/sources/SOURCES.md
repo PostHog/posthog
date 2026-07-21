@@ -559,6 +559,7 @@ the row lists both.
 | vantage                          | HTTP                        | requests                                                        | ✅                          |
 | vapi                             | HTTP                        | requests                                                        | ✅                          |
 | vellum                           | HTTP                        | requests                                                        | ✅                          |
+| veeqo                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | veracode                         | HTTP                        | requests (custom HMAC signing)                                  | ✅                          |
 | vercel                           | HTTP                        | requests                                                        | ✅                          |
 | vitally                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -981,7 +982,6 @@ doesn't conflict with concurrent PRs.
 - uppromote
 - uptick
 - uservoice
-- veeqo
 - vespa
 - visma_economic
 - vwo
