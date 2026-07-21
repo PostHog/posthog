@@ -14,6 +14,20 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 VIEW_MODULE = "products.data_warehouse.backend.presentation.views.external_data_source"
 
 
+class _CapturingBuffer(io.BytesIO):
+    """A BytesIO that publishes its contents to a sink on close, so the endpoint's
+    context-managed write is captured once the file handle is closed."""
+
+    def __init__(self, sink: dict[str, bytes], path: str) -> None:
+        super().__init__()
+        self._sink = sink
+        self._path = path
+
+    def close(self) -> None:
+        self._sink[self._path] = self.getvalue()
+        super().close()
+
+
 class _FakeS3:
     """Captures what the endpoint writes, standing in for the object store boundary."""
 
@@ -21,16 +35,7 @@ class _FakeS3:
         self.written: dict[str, bytes] = {}
 
     def open(self, path: str, mode: str) -> io.BytesIO:
-        fake = self
-        buffer = io.BytesIO()
-        original_close = buffer.close
-
-        def close() -> None:
-            fake.written[path] = buffer.getvalue()
-            original_close()
-
-        buffer.close = close  # type: ignore[method-assign]
-        return buffer
+        return _CapturingBuffer(self.written, path)
 
 
 @override_settings(DATAWAREHOUSE_BUCKET="test-bucket")

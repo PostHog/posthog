@@ -406,6 +406,7 @@ export interface sourceCatalogLogicMeta {
                       | 'Fauna'
                       | 'Featurebase'
                       | 'Feishu'
+                      | 'FileUpload'
                       | 'Fillout'
                       | 'Finage'
                       | 'FinancialModelling'

@@ -793,6 +793,7 @@ export interface sourceWizardLogicActions {
             | 'Fauna'
             | 'Featurebase'
             | 'Feishu'
+            | 'FileUpload'
             | 'Fillout'
             | 'Finage'
             | 'FinancialModelling'
