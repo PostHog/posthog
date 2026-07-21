@@ -666,9 +666,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
                 is_org_admin=is_org_admin,
             )
 
-            # When the org restricts member list visibility, members who can't manage
-            # access levels only see org members with access to this project — only
-            # editors need the full org roster to grant access.
+            # When the org restricts member list visibility, project members only see users with access to this project
             if hide_members_without_access and project_result.effective_access_level in (None, "none"):
                 continue
 
