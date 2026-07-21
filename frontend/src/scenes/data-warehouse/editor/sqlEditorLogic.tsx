@@ -240,6 +240,13 @@ export interface QueryTab {
 
 export type SqlEditorSource = 'insight' | 'endpoint' | 'view'
 
+/**
+ * What the user came to this scene to do. Modeling = author SQL/views/endpoints (the classic
+ * editor). Insight = build a chart (the two-row data-source + builder layout, flag-gated).
+ * Chosen by entry point: insight URLs/params set insight; view/draft/endpoint edits set modeling.
+ */
+export type EditorIntent = 'modeling' | 'insight'
+
 export interface DataWarehouseAccessControlModalProps {
     resource: AccessControlResourceType.WarehouseTable | AccessControlResourceType.WarehouseView
     resourceId: string
@@ -392,6 +399,9 @@ function getTabHash(values: sqlEditorLogicType['values']): Record<string, any> {
     if (values.dataSource) {
         hash['data_source'] = values.dataSource
     }
+    if (values.editorIntent === 'insight') {
+        hash['intent'] = 'insight'
+    }
 
     return hash
 }
@@ -499,6 +509,7 @@ export interface sqlEditorLogicValues {
     editingAccessControlObject: DataWarehouseAccessControlModalProps | null
     editingInsight: QueryBasedInsightModel | null
     editingView: DataWarehouseSavedQuery | undefined
+    editorIntent: EditorIntent
     editorKey: string
     editorSource: SqlEditorSource
     error: string | null
@@ -916,6 +927,9 @@ export interface sqlEditorLogicActions {
     setEditingInsightName: (name: string) => {
         name: string
     }
+    setEditorIntent: (intent: EditorIntent) => {
+        intent: EditorIntent
+    }
     setEditorSource: (source: SqlEditorSource) => {
         source: SqlEditorSource
     }
@@ -1199,6 +1213,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         setSourceQuery: (sourceQuery: DataVisualizationNode) => ({
             sourceQuery,
         }),
+        setEditorIntent: (intent: EditorIntent) => ({ intent }),
         setMetadata: (metadata: HogQLMetadataResponse | null) => ({ metadata }),
         setMetadataLoading: (loading: boolean) => ({ loading }),
         setInsightLoading: (loading: boolean) => ({ loading }),
@@ -1409,6 +1424,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             'insight' as SqlEditorSource,
             {
                 setEditorSource: (_, { source }) => source,
+            },
+        ],
+        editorIntent: [
+            'modeling' as EditorIntent,
+            {
+                setEditorIntent: (_, { intent }) => intent,
             },
         ],
         dashboardId: [
@@ -3021,6 +3042,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 searchParams.source === 'view'
             ) {
                 actions.setEditorSource(searchParams.source)
+                if (values.featureFlags[FEATURE_FLAGS.SQL_EDITOR_INSIGHT_BUILDER]) {
+                    actions.setEditorIntent(searchParams.source === 'insight' ? 'insight' : 'modeling')
+                }
             }
             if (searchParams.dashboard) {
                 const parsed = parseInt(searchParams.dashboard, 10)
@@ -3034,6 +3058,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 values.featureFlags[FEATURE_FLAGS.SQL_EDITOR_INSIGHT_BUILDER] &&
                 Object.values(DataSource).includes(hashParams.data_source as DataSource)
                     ? (hashParams.data_source as DataSource)
+                    : null
+            const intentFromUrl: EditorIntent | null =
+                values.featureFlags[FEATURE_FLAGS.SQL_EDITOR_INSIGHT_BUILDER] && hashParams.intent === 'insight'
+                    ? 'insight'
                     : null
             const draftIdFromUrl = searchParams.open_draft || hashParams.draft
             const viewIdFromUrl = searchParams.open_view || hashParams.view
@@ -3078,6 +3106,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 !hashParams.draft &&
                 !hashParams.output_tab &&
                 !hashParams.data_source &&
+                !hashParams.intent &&
                 values.queryInput !== null
             ) {
                 if (shouldSyncDatabaseConnection && !values.databaseLoading) {
@@ -3125,6 +3154,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 if (dataSourceFromUrl && values.dataSource !== dataSourceFromUrl) {
                     actions.setDataSource(dataSourceFromUrl)
                 }
+                if (intentFromUrl && values.editorIntent !== intentFromUrl) {
+                    actions.setEditorIntent(intentFromUrl)
+                }
 
                 if (
                     draftIdFromUrl &&
@@ -3152,6 +3184,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                         actions.createTab(draft.query.query, associatedView, undefined, draft)
                     }
+                    actions.setEditorIntent('modeling')
                     return
                 } else if (
                     viewIdFromUrl &&
@@ -3197,6 +3230,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     } else {
                         actions.editView(queryToOpen, view)
                     }
+                    actions.setEditorIntent('modeling')
                     actions.setViewLoading(false)
                     actions.setViewQueryLoading(false)
                     tabAdded = true
@@ -3221,6 +3255,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     if (shortId === 'new') {
                         // Add new blank tab
                         actions.createTab()
+                        if (values.featureFlags[FEATURE_FLAGS.SQL_EDITOR_INSIGHT_BUILDER]) {
+                            actions.setEditorIntent('insight')
+                        }
                         tabAdded = true
                         router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
                         return
@@ -3263,6 +3300,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     // editInsight → createTab infers the data source; here we just land on the
                     // Visualization tab so the insight opens showing its chart, not raw results
                     actions.editInsight(queryToOpen, insight)
+                    if (values.featureFlags[FEATURE_FLAGS.SQL_EDITOR_INSIGHT_BUILDER]) {
+                        actions.setEditorIntent('insight')
+                    }
                     if (!outputTabFromUrl) {
                         actions.setActiveTab(OutputTab.Visualization)
                     }

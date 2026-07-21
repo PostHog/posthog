@@ -15,8 +15,9 @@ const MAX_WIDTH = 420
 
 /**
  * A builder canvas side column that collapses to a narrow icon rail and, when expanded, can be
- * width-dragged. `side` picks which edge the resize handle sits on (right for left-side columns,
- * left for the right-side Format column).
+ * width-dragged. `side` is where the column sits in the canvas — the resize handle goes on the
+ * opposite (inner) edge: right edge for left-side columns, left edge for the right-side Format
+ * column.
  */
 export function BuilderColumnShell({
     columnKey,
@@ -25,6 +26,7 @@ export function BuilderColumnShell({
     collapsed,
     onToggle,
     side,
+    headerExtra,
     children,
 }: {
     columnKey: string
@@ -33,13 +35,15 @@ export function BuilderColumnShell({
     collapsed: boolean
     onToggle: () => void
     side: 'left' | 'right'
+    /** Extra control rendered in the header next to the label (e.g. "Edit source") */
+    headerExtra?: React.ReactNode
     children: React.ReactNode
 }): JSX.Element {
     const ref = useRef<HTMLDivElement>(null)
     const resizerProps: ResizerLogicProps = {
         containerRef: ref,
         logicKey: `sql-builder-col-${columnKey}`,
-        placement: side === 'left' ? 'left' : 'right',
+        placement: side === 'left' ? 'right' : 'left',
         persistent: true,
     }
     const { desiredSize } = useValues(resizerLogic(resizerProps))
@@ -67,23 +71,28 @@ export function BuilderColumnShell({
             // eslint-disable-next-line react/forbid-dom-props
             style={{ width }}
             className={cn(
-                'relative flex shrink-0 flex-col overflow-hidden bg-surface-primary',
+                // max-w caps each side column at a third of the canvas so the chart absorbs
+                // squeeze and the Format column is never pushed off-screen
+                'relative flex max-w-[33%] shrink-0 flex-col overflow-hidden bg-surface-primary',
                 side === 'left' ? 'border-r' : 'border-l'
             )}
             data-attr={`sql-builder-column-${columnKey}`}
         >
             <div className="flex shrink-0 items-center justify-between gap-1 border-b px-2 py-1">
-                <span className="flex items-center gap-1.5 text-xs font-semibold uppercase text-tertiary">
+                <span className="flex min-w-0 items-center gap-1.5 text-xs font-semibold uppercase text-tertiary">
                     {icon}
                     {label}
                 </span>
-                <LemonButton
-                    icon={side === 'left' ? <IconChevronLeft /> : <IconChevronRight />}
-                    size="xsmall"
-                    type="tertiary"
-                    onClick={onToggle}
-                    tooltip={`Collapse ${label}`}
-                />
+                <span className="flex items-center gap-1">
+                    {headerExtra}
+                    <LemonButton
+                        icon={side === 'left' ? <IconChevronLeft /> : <IconChevronRight />}
+                        size="xsmall"
+                        type="tertiary"
+                        onClick={onToggle}
+                        tooltip={`Collapse ${label}`}
+                    />
+                </span>
             </div>
             <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">{children}</div>
             <Resizer {...resizerProps} />

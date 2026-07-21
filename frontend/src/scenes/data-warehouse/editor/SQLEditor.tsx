@@ -182,10 +182,11 @@ export function SQLEditor({
         editor,
     })
 
-    const { sourceQuery, dataLogicKey } = useValues(logic)
+    const { sourceQuery, dataLogicKey, editorIntent } = useValues(logic)
     const { setSourceQuery } = useActions(logic)
     const sourceQueryRef = useRef(sourceQuery)
     sourceQueryRef.current = sourceQuery
+    const isInsightIntent = isBuilderLayout && editorIntent === 'insight'
 
     const dataVisualizationLogicProps: DataVisualizationLogicProps = {
         key: dataLogicKey,
@@ -253,7 +254,7 @@ export function SQLEditor({
                                                 onShareTab={onShareTab}
                                             />
                                         </div>
-                                    ) : isBuilderLayout ? (
+                                    ) : isInsightIntent ? (
                                         <BindLogic logic={editorSizingLogic} props={editorSizingLogicProps}>
                                             <div className="flex h-full min-h-0 flex-col overflow-hidden">
                                                 {showSceneTitle ? <SQLEditorSceneTitle /> : null}

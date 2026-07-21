@@ -33,6 +33,7 @@ import { ConnectionSelector } from './ConnectionSelector'
 import { editorSizingLogic } from './editorSizingLogic'
 import { applyExecuteSqlToolOutput, getExecuteSqlToolContext } from './maxSqlTool'
 import { OutputPane } from './OutputPane'
+import { DataSource } from './outputPaneLogic'
 import { QueryFiltersMenu } from './QueryFiltersMenu'
 import { QueryPane } from './QueryPane'
 import { QueryVariablesMenu } from './QueryVariablesMenu'
@@ -107,10 +108,15 @@ export function QueryWindow({
     } = useActions(logic)
 
     const { setSuggestedQueryInput, reportAIQueryPromptOpen } = useActions(logic)
+    const { editorIntent } = useValues(logic)
+    const { setEditorIntent, setDataSource } = useActions(logic)
     const vimModeFeatureEnabled = useFeatureFlag('SQL_EDITOR_VIM_MODE')
     const insightBuilderEnabled = useFeatureFlag('SQL_EDITOR_INSIGHT_BUILDER')
-    // The builder now owns "save as view" from the data-source row; keep it here otherwise
-    const showSaveAsView = insightBuilderEnabled && mode === SQLEditorMode.FullScene && showQueryPanel
+    const isFullSceneFlagOn = insightBuilderEnabled && mode === SQLEditorMode.FullScene && showQueryPanel
+    // Inside the builder's Custom SQL row, offer saving the base as a view
+    const showSaveAsView = isFullSceneFlagOn && editorIntent === 'insight'
+    // In the classic (modeling) editor, offer the bridge into the insight builder
+    const showBuildInsight = isFullSceneFlagOn && editorIntent === 'modeling'
     const { editorVimModeEnabled } = useValues(userPreferencesLogic)
     const { setEditorVimModeEnabled } = useActions(userPreferencesLogic)
     const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
@@ -300,6 +306,21 @@ export function QueryWindow({
                                     data-attr="sql-editor-save-as-view-button"
                                 >
                                     Save as view
+                                </LemonButton>
+                            ) : null}
+                            {showBuildInsight ? (
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    onClick={() => {
+                                        // Carry the current query into the builder as its Custom SQL base
+                                        setEditorIntent('insight')
+                                        setDataSource(DataSource.Sql)
+                                    }}
+                                    tooltip="Build an insight on this query"
+                                    data-attr="sql-editor-build-insight-button"
+                                >
+                                    Build insight
                                 </LemonButton>
                             ) : null}
                             <FixErrorButton type="secondary" size="small" source="action-bar" />

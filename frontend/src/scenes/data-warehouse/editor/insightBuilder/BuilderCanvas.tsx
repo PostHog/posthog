@@ -6,11 +6,14 @@ import { useState } from 'react'
 import { IconDatabase, IconGear, IconPalette } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+
 import { SideBar } from '~/queries/nodes/DataVisualization/Components/SideBar'
 import { measureLabel } from '~/queries/nodes/DataVisualization/insightBuilder/builderLabels'
 import { BuilderWell, isWellEnabled } from '~/queries/nodes/DataVisualization/insightBuilder/chartCapabilities'
 import { InsightBuilderDimension, InsightBuilderFilter, InsightBuilderMeasure } from '~/queries/schema/schema-general'
 
+import { outputPaneLogic } from '../outputPaneLogic'
 import { BuilderColumnShell } from './BuilderColumnShell'
 import { BuilderPreview } from './BuilderPreview'
 import { ChartTypePicker } from './ChartTypePicker'
@@ -44,6 +47,8 @@ export function BuilderCanvas({ tabId }: { tabId: string }): JSX.Element {
     const logic = insightBuilderLogic({ tabId })
     const { wells, filterItems, baseFields, builderDisplay, collapsedColumns } = useValues(logic)
     const { addField, removeField, moveField, toggleColumnCollapsed } = useActions(logic)
+    const { fullscreen } = useValues(outputPaneLogic({ tabId }))
+    const { setFullscreen } = useActions(outputPaneLogic({ tabId }))
     const [activeDragLabel, setActiveDragLabel] = useState<string | null>(null)
 
     // The 4px activation distance keeps plain clicks (menus, close buttons) from starting a drag
@@ -148,6 +153,19 @@ export function BuilderCanvas({ tabId }: { tabId: string }): JSX.Element {
                     side="left"
                     collapsed={!!collapsedColumns.data}
                     onToggle={() => toggleColumnCollapsed('data')}
+                    headerExtra={
+                        fullscreen ? (
+                            <LemonButton
+                                size="xsmall"
+                                type="secondary"
+                                onClick={() => setFullscreen(false)}
+                                tooltip="Exit fullscreen to change the data source"
+                                data-attr="sql-builder-edit-source"
+                            >
+                                Edit source
+                            </LemonButton>
+                        ) : undefined
+                    }
                 >
                     <FieldsPanel tabId={tabId} />
                 </BuilderColumnShell>

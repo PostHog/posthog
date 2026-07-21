@@ -541,6 +541,7 @@ interface OutputActionsProps {
     settingsOpen: boolean
     onShareTab?: () => void
     onToggleChartSettingsPanel: () => void
+    builderLayout?: boolean
 }
 
 function OutputActions({
@@ -554,8 +555,13 @@ function OutputActions({
     settingsOpen,
     onShareTab,
     onToggleChartSettingsPanel,
+    builderLayout,
 }: OutputActionsProps): JSX.Element | null {
     if (activeTab === OutputTab.Visualization) {
+        // The builder canvas owns chart type (Setup column) and settings (Format column)
+        if (builderLayout) {
+            return null
+        }
         return (
             <VisualizationActions
                 hasColumns={hasColumns}
@@ -592,7 +598,7 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
 
-    const { sourceQuery, exportContext, insightLoading, hasQueryInput, isEmbeddedMode, editingInsight } =
+    const { sourceQuery, exportContext, insightLoading, hasQueryInput, isEmbeddedMode, editingInsight, editorIntent } =
         useValues(sqlEditorLogic)
     const { setSourceQuery } = useActions(sqlEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
@@ -609,9 +615,14 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
     const { fullscreen } = useValues(outputPaneLogic)
     const { toggleFullscreen } = useActions(outputPaneLogic)
 
-    // In the builder layout the Visualization tab hosts the BI canvas. Legacy SQL insights (saved
-    // without a builder config) keep the classic Visualization panel so their chart still renders.
-    const builderLayout = insightBuilderEnabled && !isEmbeddedMode && !(editingInsight && !sourceQuery.builder?.enabled)
+    // The Visualization tab hosts the BI canvas only in insight intent — modeling intent (views,
+    // drafts, endpoints) keeps the classic editor. Legacy SQL insights (saved without a builder
+    // config) also keep the classic Visualization panel so their chart still renders.
+    const builderLayout =
+        insightBuilderEnabled &&
+        !isEmbeddedMode &&
+        editorIntent === 'insight' &&
+        !(editingInsight && !sourceQuery.builder?.enabled)
     // The builder canvas replaces the split view; force a single active tab there.
     const effectiveTab = builderLayout && activeTab === OutputTab.Both ? OutputTab.Visualization : activeTab
 
@@ -823,6 +834,7 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
         settingsOpen: isChartSettingsPanelOpen,
         onShareTab,
         onToggleChartSettingsPanel: toggleVisualizationSettingsPanel,
+        builderLayout,
     }
 
     const outputContent = splitView ? (

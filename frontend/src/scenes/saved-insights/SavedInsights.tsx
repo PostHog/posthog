@@ -783,20 +783,32 @@ export function NewInsightButton(): JSX.Element {
             title: 'Insight types',
             items: insightEntries
                 .filter(([, metadata]) => metadata.inMenu)
-                .map(([insightType, metadata]) => ({
-                    icon: metadata.icon ? <metadata.icon /> : undefined,
-                    label: (
-                        <div className="flex flex-col text-sm py-1">
-                            <strong>{metadata.name}</strong>
-                            <span className="text-xs font-normal">{metadata.description}</span>
-                        </div>
-                    ),
-                    to: INSIGHT_TYPE_URLS[insightType as InsightType],
-                    'data-attr': `new-insight-menu-${insightType.toLowerCase()}`,
-                    onClick: () => {
-                        eventUsageLogic.actions.reportSavedInsightNewInsightClicked(insightType)
-                    },
-                })),
+                .map(([insightType, metadata]) => {
+                    // With the insight builder, the SQL type becomes the broader "Custom" entry
+                    // that opens the data-source-first builder
+                    const isBuilderEntry =
+                        insightType === InsightType.SQL && !!featureFlags[FEATURE_FLAGS.SQL_EDITOR_INSIGHT_BUILDER]
+                    const name = isBuilderEntry ? 'Custom' : metadata.name
+                    const description = isBuilderEntry
+                        ? 'Create an insight on a connector, modeled view, or SQL query'
+                        : metadata.description
+                    return {
+                        icon: metadata.icon ? <metadata.icon /> : undefined,
+                        label: (
+                            <div className="flex flex-col text-sm py-1">
+                                <strong>{name}</strong>
+                                <span className="text-xs font-normal">{description}</span>
+                            </div>
+                        ),
+                        to: isBuilderEntry
+                            ? urls.sqlEditor({ source: 'insight' })
+                            : INSIGHT_TYPE_URLS[insightType as InsightType],
+                        'data-attr': `new-insight-menu-${insightType.toLowerCase()}`,
+                        onClick: () => {
+                            eventUsageLogic.actions.reportSavedInsightNewInsightClicked(insightType)
+                        },
+                    }
+                }),
         },
     ]
 

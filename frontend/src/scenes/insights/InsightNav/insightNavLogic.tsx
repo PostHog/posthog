@@ -574,7 +574,8 @@ export const insightNavLogic = kea<insightNavLogicType>([
             const query = getDefaultQuery(view, values.filterTestAccountsDefault)
 
             if (isDataVisualizationNode(query)) {
-                router.actions.push(urls.sqlEditor({ query: query.source.query }))
+                // Switching an insight to the SQL type is insight-building work — land in the builder
+                router.actions.push(urls.sqlEditor({ query: query.source.query, source: 'insight' }))
             } else if (isInsightVizNode(query)) {
                 const source = values.queryPropertyCache
                     ? mergeCachedProperties(query.source, values.queryPropertyCache)
