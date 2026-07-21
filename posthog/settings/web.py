@@ -960,8 +960,7 @@ API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_t
 # /api/environments deprecation
 
 # Requests to /api/environments/* are served through the equivalent /api/projects/*
-# viewset via an in-process path rewrite, gated by the `api-environments-redirect`
-# feature flag — see posthog.middleware.EnvironmentsRewriteMiddleware.
+# viewset via an in-process path rewrite — see posthog.middleware.EnvironmentsRewriteMiddleware.
 # ISO date announced to integrators via the `Sunset` response header (RFC 8594) on
 # /api/environments/* responses. Empty string omits the header.
 API_ENVIRONMENTS_SUNSET_DATE = get_from_env("API_ENVIRONMENTS_SUNSET_DATE", "2026-07-31")
