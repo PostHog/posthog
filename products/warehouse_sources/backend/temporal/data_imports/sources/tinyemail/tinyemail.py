@@ -41,6 +41,9 @@ def _client_config(api_key: str) -> ClientConfig:
         "base_url": TINYEMAIL_BASE_URL,
         "auth": {"type": "api_key", "name": "X-API-KEY", "api_key": api_key, "location": "header"},
         "headers": {"Accept": "application/json"},
+        # The API responds directly on a fixed host, and `requests` would replay the
+        # X-API-KEY header across a cross-host redirect — so never follow one.
+        "allow_redirects": False,
     }
 
 
@@ -126,7 +129,7 @@ def tinyemail_source(
 
 
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
-    session = make_tracked_session(redact_values=(api_key,))
+    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
     try:
         response = session.get(
             f"{TINYEMAIL_BASE_URL}/contacts",

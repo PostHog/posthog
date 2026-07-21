@@ -98,6 +98,7 @@ class TestTinyemailTransport:
 
         kwargs = mock_build_dependent_resource.call_args.kwargs
         assert kwargs["page_size_param"] == "size"
+        assert kwargs["client_config"]["allow_redirects"] is False
         assert kwargs["fanout"].parent_name == "contacts"
         assert isinstance(kwargs["parent_endpoint_extra"]["paginator"], SinglePagePaginator)
         assert kwargs["parent_endpoint_extra"]["data_selector"] == "contacts"
@@ -131,6 +132,8 @@ class TestTinyemailTransport:
         assert call.args[0] == "https://api.tinyemail.com/v1/contacts"
         assert call.kwargs["headers"]["X-API-KEY"] == "secret-key"
         assert mock_session.call_args.kwargs["redact_values"] == ("secret-key",)
+        # A followed cross-host redirect would replay the X-API-KEY header off-host.
+        assert mock_session.call_args.kwargs["allow_redirects"] is False
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.tinyemail.tinyemail.make_tracked_session")
     def test_validate_credentials_handles_request_exception(self, mock_session) -> None:
