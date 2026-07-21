@@ -95,7 +95,12 @@ export interface billingProductLogicValues {
     timeRemainingInSeconds: number // billingLogic
     timeTotalInSeconds: number // billingLogic
     unsubscribeError: UnsubscribeError | null // billingLogic
+    unusedPlatformAddonAmount: number // billingLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
+    amountDueBeforeCredits: number
+    amountDueToday: number
+    appliedCreditBalance: number
+    availableCreditBalance: number
     billingGaugeItems: BillingGaugeItemType[]
     billingLimitAsUsage: number
     billingLimitConfig: BillingLimitConfig
@@ -121,6 +126,7 @@ export interface billingProductLogicValues {
     combinedMonetaryGaugeItems: BillingGaugeItemType[]
     comparisonModalHighlightedFeatureKey: string | null
     confirmDowngradeModalOpen: boolean
+    confirmPurchaseModalOpen: boolean
     confirmUpgradeModalOpen: boolean
     currentAmountTotalActual: string
     currentAndUpgradePlans: {
@@ -222,6 +228,9 @@ export interface billingProductLogicActions {
     confirmProductDowngrade: () => {
         value: true
     }
+    confirmProductPurchase: () => {
+        value: true
+    }
     confirmProductUpgrade: () => {
         value: true
     }
@@ -233,6 +242,9 @@ export interface billingProductLogicActions {
         redirectPath: string | undefined
     }
     hideConfirmDowngradeModal: () => {
+        value: true
+    }
+    hideConfirmPurchaseModal: () => {
         value: true
     }
     hideConfirmUpgradeModal: () => {
@@ -323,6 +335,9 @@ export interface billingProductLogicActions {
     showConfirmDowngradeModal: () => {
         value: true
     }
+    showConfirmPurchaseModal: () => {
+        value: true
+    }
     showConfirmUpgradeModal: () => {
         value: true
     }
@@ -391,6 +406,14 @@ export interface billingProductLogicMeta {
             billing: BillingType | null,
             product: BillingProductV2AddonType | BillingProductV2Type
         ) => boolean
+        availableCreditBalance: (billing: BillingType | null) => number
+        amountDueBeforeCredits: (
+            proratedAmount: number,
+            unusedPlatformAddonAmount: number,
+            isSubscribedToAnotherAddon: boolean
+        ) => number
+        appliedCreditBalance: (amountDueBeforeCredits: number, availableCreditBalance: number) => number
+        amountDueToday: (amountDueBeforeCredits: number, appliedCreditBalance: number) => number
         customLimitUsd: (
             billing: BillingType | null,
             product: BillingProductV2AddonType | BillingProductV2Type
@@ -498,6 +521,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 'platformAddons',
                 'timeRemainingInSeconds',
                 'timeTotalInSeconds',
+                'unusedPlatformAddonAmount',
             ],
             featureFlagLogic,
             ['featureFlags'],
@@ -566,6 +590,9 @@ export const billingProductLogic = kea<billingProductLogicType>([
         showConfirmDowngradeModal: true,
         hideConfirmDowngradeModal: true,
         confirmProductDowngrade: true,
+        showConfirmPurchaseModal: true,
+        hideConfirmPurchaseModal: true,
+        confirmProductPurchase: true,
     }),
     reducers({
         billingLimitInput: [
@@ -692,6 +719,16 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 hideConfirmDowngradeModal: () => false,
             },
         ],
+        confirmPurchaseModalOpen: [
+            false as boolean,
+            {
+                showConfirmPurchaseModal: () => true,
+                hideConfirmPurchaseModal: () => false,
+                // Auto-close once the activation call settles (loading cleared), so the modal
+                // doesn't linger if the purchase succeeds or routes to payment entry.
+                setBillingProductLoading: (state, { productKey }) => (productKey ? state : false),
+            },
+        ],
     }),
     selectors(({ values }) => ({
         proratedAmount: [
@@ -772,6 +809,31 @@ export const billingProductLogic = kea<billingProductLogicType>([
 
                 return parentProduct.addons.some((a: BillingProductV2AddonType) => a.subscribed)
             },
+        ],
+        // Single source of truth for what an add-on purchase/switch costs. Cards show
+        // amountDueBeforeCredits (the price of the transaction); the confirmation modals
+        // additionally itemize the credit balance and show amountDueToday (what hits the card).
+        availableCreditBalance: [
+            (s) => [s.billing],
+            (billing: BillingType | null): number =>
+                billing?.discount_amount_usd ? parseFloat(billing.discount_amount_usd) : 0,
+        ],
+        amountDueBeforeCredits: [
+            (s) => [s.proratedAmount, s.unusedPlatformAddonAmount, s.isSubscribedToAnotherAddon],
+            (proratedAmount: number, unusedPlatformAddonAmount: number, isSubscribedToAnotherAddon: boolean): number =>
+                // Unused time on the current platform add-on only offsets a switch to another
+                // one; a fresh purchase has nothing to trade in.
+                Math.max(0, proratedAmount - (isSubscribedToAnotherAddon ? unusedPlatformAddonAmount : 0)),
+        ],
+        appliedCreditBalance: [
+            (s) => [s.amountDueBeforeCredits, s.availableCreditBalance],
+            (amountDueBeforeCredits: number, availableCreditBalance: number): number =>
+                Math.min(amountDueBeforeCredits, availableCreditBalance),
+        ],
+        amountDueToday: [
+            (s) => [s.amountDueBeforeCredits, s.appliedCreditBalance],
+            (amountDueBeforeCredits: number, appliedCreditBalance: number): number =>
+                Math.max(0, amountDueBeforeCredits - appliedCreditBalance),
         ],
         customLimitUsd: [
             (s, p) => [s.billing, p.product],
@@ -1163,6 +1225,16 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 to_product_key: props.product.type,
                 to_plan_key: String(upgradePlan.plan_key),
             })
+        },
+        confirmProductPurchase: () => {
+            const upgradePlan = values.currentAndUpgradePlans.upgradePlan
+            if (!upgradePlan) {
+                return
+            }
+            // Fresh flat-rate add-on purchase (nothing to switch from). Fire the same activation
+            // the "Add" button used to trigger directly — now gated behind the confirmation modal
+            // so a card-on-file customer sees what they'll be charged before it happens.
+            actions.initiateProductUpgrade(props.product, upgradePlan, '')
         },
         confirmProductDowngrade: () => {
             const targetPlan = values.currentAndUpgradePlans.upgradePlan

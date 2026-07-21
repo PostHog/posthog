@@ -68,7 +68,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     resolve_request_url,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CustomSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.custom import CustomSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField, IncrementalFieldType
 
@@ -257,7 +257,7 @@ def validate_manifest_structure(manifest: Any) -> None:
         raise ManifestValidationError(_format_validation_errors(exc)) from exc
 
 
-def _validate_resource_graph(manifest: dict[str, Any]) -> dict[str, Optional[ResolvedParam]]:
+def _validate_resource_graph(manifest: dict[str, Any]) -> dict[str, Optional[list[ResolvedParam]]]:
     """Surface parent/child fan-out errors at create-time instead of first sync.
 
     Reuses the REST engine's own :func:`build_resource_dependency_graph` so the
@@ -302,10 +302,17 @@ def _validate_resource_graph(manifest: dict[str, Any]) -> dict[str, Optional[Res
 
     client = manifest.get("client")
     base_url = client.get("base_url") if isinstance(client, dict) else None
-    for name, resolved_param in resolved.items():
-        if resolved_param is None:
+    for name, resolved_params in resolved.items():
+        if not resolved_params:
             continue
-        parent = resolved_param.resolve_config["resource"]
+        # The shared framework allows several resolve params bound from one parent row, but a
+        # custom-source resource is restricted to a single parent placeholder.
+        if len(resolved_params) > 1:
+            raise ManifestValidationError(
+                f"Resource {name!r} has multiple parent placeholders — a custom source resource "
+                "may depend on only a single parent field"
+            )
+        parent = resolved_params[0].resolve_config["resource"]
         if resolved.get(parent) is not None:
             raise ManifestValidationError(
                 f"Resource {name!r} depends on {parent!r}, which itself depends on another resource — "
@@ -324,16 +331,17 @@ def _validate_resource_graph(manifest: dict[str, Any]) -> dict[str, Optional[Res
         # placeholder survives in the same string the request is built from.
         endpoint = resource_map[name].get("endpoint")
         path = endpoint.get("path", "") if isinstance(endpoint, dict) else ""
-        if (
-            isinstance(path, str)
-            and isinstance(base_url, str)
-            and _placeholder_escapes_base(path, resolved_param.param_name, base_url)
-        ):
-            raise ManifestValidationError(
-                f"Resource {name!r}: the parent placeholder {{{resolved_param.param_name}}} must sit within the path "
-                "of the base URL (e.g. /forms/{form_id}/responses) — it must not start the path or follow a scheme "
-                "like 'https:', so the bound parent value can't redirect the request off the manifest's base URL"
-            )
+        for resolved_param in resolved_params:
+            if (
+                isinstance(path, str)
+                and isinstance(base_url, str)
+                and _placeholder_escapes_base(path, resolved_param.param_name, base_url)
+            ):
+                raise ManifestValidationError(
+                    f"Resource {name!r}: the parent placeholder {{{resolved_param.param_name}}} must sit within the path "
+                    "of the base URL (e.g. /forms/{form_id}/responses) — it must not start the path or follow a scheme "
+                    "like 'https:', so the bound parent value can't redirect the request off the manifest's base URL"
+                )
     return resolved
 
 
@@ -1926,7 +1934,7 @@ def _strip_engine_unsupported_incremental_keys(resource: dict[str, Any]) -> dict
 
 def _build_resource_graph(
     manifest: dict[str, Any],
-) -> tuple[Any, dict[str, EndpointResource], dict[str, Optional[ResolvedParam]]]:
+) -> tuple[Any, dict[str, EndpointResource], dict[str, Optional[list[ResolvedParam]]]]:
     """Run the REST engine's dependency-graph builder on a deep copy of the
     manifest. The builder binds path params in place, so it must never see the
     stored manifest's resources — hence the copy.
@@ -1993,8 +2001,8 @@ def _fanout_chain(manifest: dict[str, Any], chosen_name: str) -> FanoutChain:
     ancestor_names: list[str] = []
     seen: set[str] = {chosen_name}
     current = chosen_name
-    while (resolved_param := resolved.get(current)) is not None:
-        parent_name = resolved_param.resolve_config["resource"]
+    while resolved_params := resolved.get(current):
+        parent_name = resolved_params[0].resolve_config["resource"]
         if parent_name in seen:
             # The graph builder itself doesn't reject cycles (only the
             # create-time `static_order` check does), so a stored manifest can

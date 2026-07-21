@@ -189,6 +189,7 @@ def build_job_payload(
         "completed_metrics": completed_metrics,
         "failed_metrics": failed_metrics,
         "metric_errors": recalc.metric_errors,
+        "metric_retries": recalc.metric_retries,
         "trigger": recalc.trigger,
         "created_at": recalc.created_at,
         "started_at": recalc.started_at,
