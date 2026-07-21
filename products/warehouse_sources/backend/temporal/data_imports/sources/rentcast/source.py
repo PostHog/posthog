@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RentCastSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rentcast import (
+    RentCastSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.rentcast.rentcast import (
     RentCastResumeConfig,
     rentcast_source,

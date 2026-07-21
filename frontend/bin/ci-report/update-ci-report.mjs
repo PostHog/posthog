@@ -31,6 +31,7 @@ export const SECTIONS = [
     { id: 'hogql-parser-py', title: 'hogql-parser version' },
     { id: 'hogql-parser-npm', title: '@posthog/hogql-parser version' },
     { id: 'hogql-parser-rs', title: 'hogql-parser-rs version' },
+    { id: 'replay-anonymizer-crate', title: 'posthog-replay-anonymizer version' },
     { id: 'generated-docs', title: 'Generated docs' },
     { id: 'docs-preview', title: 'Docs preview' },
     { id: 'hobby-deploy', title: 'Hobby preview' },

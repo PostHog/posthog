@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GitBookSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gitbook import (
+    GitBookSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitbook.gitbook import (
     GitBookResumeConfig,
     gitbook_source,

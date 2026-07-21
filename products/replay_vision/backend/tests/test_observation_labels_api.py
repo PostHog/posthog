@@ -68,6 +68,20 @@ class TestObservationLabels(_VisionAPITestCase):
         self.assertEqual(delete_resp.status_code, 404, delete_resp.content)
         self.assertEqual(read_resp.status_code, 200, read_resp.content)
 
+    def test_label_write_denied_without_scanner_editor_access_on_session_route(self) -> None:
+        # The session route's get_object only checks the observation row; label writes must object-check the scanner.
+        with patch(
+            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+            side_effect=lambda obj, required_level=None, **_: not isinstance(obj, ReplayScanner),
+        ):
+            resp = self.client.post(
+                f"/api/environments/{self.team.id}/vision/observations/{self.observation.id}/label/",
+                {"is_correct": True},
+                format="json",
+            )
+        self.assertEqual(resp.status_code, 403, resp.json())
+        self.assertFalse(ReplayObservationLabel.objects.filter(observation=self.observation).exists())
+
     def test_relabeling_updates_the_single_shared_label(self) -> None:
         self.client.post(self._label_url(self.observation), {"is_correct": False, "feedback": "wrong"}, format="json")
         self.client.post(self._label_url(self.observation), {"is_correct": True}, format="json")

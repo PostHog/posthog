@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MonteCarloSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.montecarlo import (
+    MonteCarloSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.monte_carlo.monte_carlo import (
     MonteCarloResumeConfig,
     monte_carlo_source,

@@ -34,7 +34,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.freshservi
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FreshserviceSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.freshservice import (
+    FreshserviceSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # This first cut covers Freshservice's top-level v2 endpoints only. Fan-out resources
