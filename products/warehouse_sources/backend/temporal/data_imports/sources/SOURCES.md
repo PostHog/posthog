@@ -73,6 +73,7 @@ the row lists both.
 | attentive                        | HTTP (webhook-first)        | requests (webhook management)                                   | ✅                          |
 | attio                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | automox                          | HTTP                        | requests                                                        | ✅                          |
+| autumn                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | aviationstack                    | HTTP                        | requests                                                        | ✅                          |
 | aviator                          | HTTP                        | requests                                                        | ✅                          |
 | awin                             | HTTP                        | requests                                                        | ✅                          |
@@ -644,7 +645,6 @@ doesn't conflict with concurrent PRs.
 - asknicely
 - auth0
 - automox
-- autumn
 - aws_cloudtrail
 - axiom
 - azure_blob
