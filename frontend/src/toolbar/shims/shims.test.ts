@@ -1,9 +1,13 @@
 import { expectLogic } from 'kea-test-utils'
+import posthogJs from 'posthog-js'
+
+import typedPosthog from 'lib/posthog-typed'
 
 import { initKeaTests } from '~/test/init'
 
 import { featureFlagLogic, getFeatureFlagPayload } from './featureFlagLogic'
 import { membersLogic } from './membersLogic'
+import shimmedPosthog from './posthogTyped'
 import { sceneLogic } from './sceneLogic'
 import { surveyQuestionLabelsLogic } from './surveyQuestionLabelsLogic'
 import { isAuthenticatedTeam, teamLogic } from './teamLogic'
@@ -74,6 +78,24 @@ describe('toolbar shims', () => {
     describe('getFeatureFlagPayload', () => {
         it.each([['SOME_FLAG'], ['ANOTHER_FLAG'], ['']])('returns undefined for %s', (flag) => {
             expect(getFeatureFlagPayload(flag)).toBeUndefined()
+        })
+    })
+
+    describe('posthogTyped shim', () => {
+        it('exposes every runtime member lib/posthog-typed adds beyond posthog-js', () => {
+            // The toolbar build swaps lib/posthog-typed for the shim, invisible to the
+            // typechecker — if the generator grows a new runtime method, the shim must too,
+            // or toolbar code calling it crashes on customer pages.
+            for (const key of Object.keys(typedPosthog)) {
+                expect(typeof (shimmedPosthog as any)[key]).toBe(typeof (typedPosthog as any)[key])
+            }
+        })
+
+        it.each([['capture'], ['captureRaw']] as const)('%s delegates to posthog-js capture', (method) => {
+            const captureSpy = jest.spyOn(posthogJs, 'capture').mockReturnValue(undefined)
+            shimmedPosthog[method]('some event', { foo: 'bar' })
+            expect(captureSpy).toHaveBeenCalledWith('some event', { foo: 'bar' }, undefined)
+            captureSpy.mockRestore()
         })
     })
 })

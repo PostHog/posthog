@@ -1,7 +1,10 @@
 import * as fs from 'fs'
+import { createRequire } from 'module'
 import * as path from 'path'
 
 import { commonConfig, copyRRWebWorkerFiles, createHashlessEntrypoints, esbuildBuild, isDev } from '@posthog/esbuilder'
+
+const require = createRequire(import.meta.url)
 
 // `TOOLBAR_PUBLIC_PATH`, when set, overrides the default `publicPath` so the
 // toolbar bundle and its assets can be hosted under a versioned, content-pinned
@@ -34,6 +37,9 @@ const shimmedModules = {
     // app (TZLabel, Link, HeatmapEventsPanel), whose scenes/urls import would otherwise pull
     // every product manifest into the bundle.
     'scenes/urls': 'src/toolbar/urls.ts',
+    // Not a kea shim: the generated event typings are ~200 KB of source the toolbar must
+    // not bundle. The shim mirrors the module's small runtime (capture/captureRaw proxy).
+    'lib/posthog-typed': 'src/toolbar/shims/posthogTyped.ts',
 }
 
 // Modules replaced with an inert proxy that logs access in debug mode
@@ -80,9 +86,28 @@ function createToolbarModulePlugin(dirname) {
             path.resolve(dirname, shimFile),
         ])
     )
+    // lowlight's package index re-exports `all` — every highlight.js grammar, ~1.2 MB of
+    // source — alongside the `common` set our code actually uses. The re-export alone pulls
+    // all 192 grammars into the bundle graph, so resolve 'lowlight' to a pared-down module
+    // instead. Its relative imports bypass the package's exports map (which hides lib/).
+    const lowlightDir = path.dirname(require.resolve('lowlight'))
+
     return {
         name: 'toolbar-module-replacements',
         setup(build) {
+            build.onResolve({ filter: /^lowlight$/ }, () => ({
+                path: 'lowlight',
+                namespace: 'lowlight-common-only',
+            }))
+            build.onLoad({ filter: /.*/, namespace: 'lowlight-common-only' }, () => ({
+                contents: `
+                    export { createLowlight } from './lib/index.js'
+                    export { grammars as common } from './lib/common.js'
+                `,
+                resolveDir: lowlightDir,
+                loader: 'js',
+            }))
+
             build.onResolve({ filter: /.*/ }, (args) => {
                 const shimFile = shimmedModules[args.path] ?? shimmedModules[args.path.replace(/^~\//, '')]
                 if (shimFile) {
