@@ -48,7 +48,6 @@ vi.mock('@/tools', () => ({
         'tool-a': () => makeToolBase('tool-a'),
         'tool-b': () => makeToolBase('tool-b'),
     },
-    HANDWRITTEN_OVERRIDES: {},
 }))
 
 vi.mock('@/tools/generated', () => ({

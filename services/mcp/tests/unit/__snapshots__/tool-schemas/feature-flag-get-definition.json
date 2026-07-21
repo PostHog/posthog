@@ -2,20 +2,10 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "id": {
-            "anyOf": [
-                {
-                    "type": "number"
-                },
-                {
-                    "type": "string"
-                }
-            ],
-            "description": "The feature flag's numeric ID (e.g. 1234), as returned by feature-flag-get-all. A flag key string (e.g. \"new-checkout\") is also accepted here and resolved automatically. Provide either `id` or `key`."
-        },
-        "key": {
-            "description": "The feature flag key: the string identifier used in code (e.g. \"new-checkout\"). Use this when you have the key but not the numeric ID. Provide either `id` or `key`.",
-            "type": "string"
+            "description": "A unique integer value identifying this feature flag.",
+            "type": "number"
         }
     },
+    "required": ["id"],
     "type": "object"
 }
