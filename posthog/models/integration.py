@@ -107,6 +107,9 @@ REFRESH_BACKOFF_BASE_SECONDS = 120
 REFRESH_BACKOFF_MAX_SECONDS = 3600
 REFRESH_TERMINAL_FAILURE_COUNT = 5
 
+# `config` key flagging a grant that only the legacy fallback credentials can refresh.
+CONFIG_LEGACY_OAUTH_CLIENT = "oauth_uses_legacy_client"
+
 # Values for the counter's `reason` label, bucketed from the OAuth error response.
 REFRESH_FAILURE_REASON_INVALID_GRANT = "invalid_grant"
 REFRESH_FAILURE_REASON_INVALID_CLIENT = "invalid_client"
@@ -167,6 +170,21 @@ def record_refresh_failure(integration: "Integration", *, reason: str = REFRESH_
 def record_refresh_success(integration: "Integration") -> None:
     for key in ("refresh_failure_count", "refresh_invalid_grant_count", "refresh_next_attempt_at", "refresh_terminal"):
         integration.config.pop(key, None)
+
+
+def record_oauth_client_used(integration: "Integration", *, used_fallback: bool) -> None:
+    """Track whether the grant still depends on the legacy (fallback) OAuth credentials.
+
+    A refresh token minted by a since-migrated app can only be refreshed by that app's
+    credentials, so a successful fallback refresh identifies exactly the connections that break
+    when the legacy app is retired. The flag rides on `config`, which the API exposes, so the
+    product can tell those teams to reconnect. Reconnecting mints a grant on the primary
+    credentials and replaces `config` wholesale, which clears the flag.
+    """
+    if used_fallback:
+        integration.config[CONFIG_LEGACY_OAUTH_CLIENT] = True
+    else:
+        integration.config.pop(CONFIG_LEGACY_OAUTH_CLIENT, None)
 
 
 def refresh_backoff_active(integration: "Integration") -> bool:
@@ -1486,6 +1504,7 @@ class OauthIntegration:
         else:
             logger.info(f"Refreshed access token for {self}")
             record_refresh_success(self.integration)
+            record_oauth_client_used(self.integration, used_fallback=used_fallback)
             self.integration.sensitive_config["access_token"] = config["access_token"]
 
             # Some providers (e.g. Atlassian/Jira) rotate refresh tokens — each
