@@ -493,6 +493,15 @@ function composeToolSchema(
      */
     const optionalParamNames = new Set<string>()
 
+    /**
+     * Body fields whose Orval shape is `.nullable()` (or `.nullish()`). A
+     * `required` override unwraps one wrapper layer; nullish fields carry two
+     * (`ZodOptional<ZodNullable<...>>`), so we unwrap a second time for these
+     * to reach the base type — a required field must be neither omittable nor
+     * null.
+     */
+    const nullableParamNames = new Set<string>()
+
     const excludeSet = new Set(config.exclude_params ?? [])
     const includeSet = config.include_params ? new Set(config.include_params) : undefined
     // original → alias mapping from rename_params config
@@ -624,6 +633,9 @@ function composeToolSchema(
                 if (bodyAllOptional || !bodyRequiredSet.has(name)) {
                     optionalParamNames.add(fieldKey)
                 }
+                if (prop.nullable) {
+                    nullableParamNames.add(fieldKey)
+                }
             }
 
             if (bodyOmitFields.size > 0) {
@@ -734,8 +746,15 @@ function composeToolSchema(
                     if (override.required) {
                         // PATCH body fields are `.optional()` in the Orval shape; unwrap so the
                         // tool schema requires the field, matching the backend serializer.
+                        const wasOptional = optionalParamNames.has(paramName)
                         expr += '.unwrap()'
                         optionalParamNames.delete(paramName)
+                        // A `.nullish()` source is `ZodOptional<ZodNullable<...>>` — two
+                        // wrapper layers. The unwrap above peels the optional one; peel the
+                        // nullable one too so a required field can't be satisfied by `null`.
+                        if (wasOptional && nullableParamNames.has(paramName)) {
+                            expr += '.unwrap()'
+                        }
                     }
                     if (override.default !== undefined) {
                         expr += `.default(${JSON.stringify(override.default)}).optional()`
@@ -1197,6 +1216,7 @@ function generateToolCode(
             resultType,
             needsProjectId,
             needsOrgId,
+            paramFallbacks: composition.paramFallbacks,
         })
         return {
             code: wrapped.code,
@@ -1269,9 +1289,19 @@ function buildConfirmedActionFactories(args: {
     resultType: string
     needsProjectId: boolean
     needsOrgId: boolean
+    paramFallbacks: Record<string, string>
 }): { code: string } {
-    const { toolName, config, schemaName, schemaDecl, originalHandlerBody, resultType, needsProjectId, needsOrgId } =
-        args
+    const {
+        toolName,
+        config,
+        schemaName,
+        schemaDecl,
+        originalHandlerBody,
+        resultType,
+        needsProjectId,
+        needsOrgId,
+        paramFallbacks,
+    } = args
     const baseFactory = toCamelCase(toolName)
     const prepareName = `${toolName}-prepare`
     const executeName = `${toolName}-execute`
@@ -1336,12 +1366,40 @@ function buildConfirmedActionFactories(args: {
         )
     }
 
+    // Optional params with a state fallback (e.g. an omitted org/project `id`
+    // that defaults to the active one) are resolved to a concrete value BEFORE
+    // signing, so the confirmation is bound to the exact target the user saw.
+    // Otherwise the fallback would be re-read at execute time and a
+    // `switch-organization` / `switch-project` between prepare and execute
+    // could retarget the confirmed action at a different entity.
+    const fallbackMethodMap: Record<string, string> = {
+        orgId: 'context.stateManager.getOrgID()',
+        projectId: 'context.stateManager.getProjectId()',
+    }
+    let prepareFallbackBlock = ''
+    const resolvedFallbackNames: string[] = []
+    for (const [paramName, fallbackKey] of Object.entries(paramFallbacks)) {
+        const method = fallbackMethodMap[fallbackKey]
+        if (!method) {
+            continue
+        }
+        const entity = fallbackKey === 'orgId' ? 'organization' : 'project'
+        prepareFallbackBlock += `        const ${paramName} = params.${paramName} ?? await ${method}\n`
+        prepareFallbackBlock += `        if (!${paramName}) {\n`
+        prepareFallbackBlock += `            throw new Error('${paramName} is required. Provide it explicitly or set an active ${entity} first.')\n`
+        prepareFallbackBlock += `        }\n`
+        resolvedFallbackNames.push(paramName)
+    }
+    const prepareArgsExpr =
+        resolvedFallbackNames.length > 0 ? `{ ...params, ${resolvedFallbackNames.join(', ')} }` : 'params'
+
     // Prepare handler: validate args via the base schema (already happens
     // before our handler runs) and call into the runtime. Args are signed
-    // verbatim — bound to user identity + purpose (+ active scope).
+    // (with any state fallbacks resolved) — bound to user identity + purpose
+    // (+ active scope).
     const prepareHandler = `        const __runtime = getConfirmedActionRuntime()
-${scopeResolveBlock}        return await prepareConfirmedAction(context, {
-            args: params,
+${scopeResolveBlock}${prepareFallbackBlock}        return await prepareConfirmedAction(context, {
+            args: ${prepareArgsExpr},
             purpose: ${JSON.stringify(toolName)},
             actionLabel: ${JSON.stringify(actionLabel)},
             messageTemplate: ${JSON.stringify(messageTemplate)},

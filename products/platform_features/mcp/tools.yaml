@@ -284,6 +284,7 @@ tools:
                 description: >
                     Set to true to require every organization member to have 2FA enabled; false to lift the requirement.
                     Applies org-wide and takes effect immediately.
+                required: true
         feature_entitlement: 2fa_enforcement
         response:
             include:

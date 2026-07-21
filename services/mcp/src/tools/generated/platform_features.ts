@@ -344,9 +344,12 @@ const OrganizationEnforce2faSchema = PartialUpdateParams.extend(
     id: PartialUpdateParams.shape['id']
         .describe('Organization ID. If omitted, targets the active organization.')
         .optional(),
-    enforce_2fa: PartialUpdateBody.shape['enforce_2fa'].describe(
-        'Set to true to require every organization member to have 2FA enabled; false to lift the requirement. Applies org-wide and takes effect immediately.'
-    ),
+    enforce_2fa: PartialUpdateBody.shape['enforce_2fa']
+        .unwrap()
+        .unwrap()
+        .describe(
+            'Set to true to require every organization member to have 2FA enabled; false to lift the requirement. Applies org-wide and takes effect immediately.'
+        ),
 })
 
 const OrganizationEnforce2faSchemaExecute = z.strictObject({
@@ -364,8 +367,12 @@ const organizationEnforce2faPrepare = (): ToolBase<
     schema: OrganizationEnforce2faSchema,
     handler: async (context: Context, params: z.infer<typeof OrganizationEnforce2faSchema>) => {
         const __runtime = getConfirmedActionRuntime()
+        const id = params.id ?? (await context.stateManager.getOrgID())
+        if (!id) {
+            throw new Error('id is required. Provide it explicitly or set an active organization first.')
+        }
         return await prepareConfirmedAction(context, {
-            args: params,
+            args: { ...params, id },
             purpose: 'organization-enforce-2fa',
             actionLabel: 'change 2FA enforcement',
             messageTemplate:
