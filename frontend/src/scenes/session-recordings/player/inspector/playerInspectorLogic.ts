@@ -565,6 +565,7 @@ export interface playerInspectorLogicActions {
             | 'inactivity'
             | 'inspector-summary'
             | 'logs'
+            | 'metric-event'
             | 'network'
             | 'offline-status'
             | 'performance'
@@ -678,7 +679,7 @@ export interface playerInspectorLogicMeta {
             segments: import('@common/replay-shared/src').RecordingSegment[],
             runtimeDoctorEvents: InspectorListItemDoctor[],
             experimentVariantItems: InspectorListItemExperimentVariant[],
-            metricEventItems: any
+            metricEventItems: InspectorListItemMetricEvent[]
         ) => InspectorListItem[]
         allItems: (
             start: Dayjs | null,
