@@ -54,6 +54,13 @@ export type AccountsOverviewTileMetric =
 
 export type AccountsOverviewTileMetricType = AccountsOverviewTileMetric['type']
 
+// Per-tile value display format. A subset of OverviewGrid's WebAnalyticsItemKind
+// (we omit `duration_s`, no account metric is a duration), so `format` maps 1:1
+// to the render `kind`. `currency` uses the team's base currency; `percentage`
+// treats the value as already in percent units (85 → "85%").
+export const TILE_VALUE_FORMATS = ['unit', 'currency', 'percentage'] as const
+export type TileValueFormat = (typeof TILE_VALUE_FORMATS)[number]
+
 export function isColumnAggregateMetric(
     metric: AccountsOverviewTileMetric
 ): metric is Extract<AccountsOverviewTileMetric, { type: ColumnAggregateType }> {
@@ -64,6 +71,10 @@ export interface AccountsOverviewTile {
     id: string
     label: string
     metric: AccountsOverviewTileMetric
+    // Custom subtitle; empty/whitespace/undefined falls back to the auto-derived caption.
+    caption?: string
+    // Value display format; undefined renders as a plain unit.
+    format?: TileValueFormat
 }
 
 export interface TileFilter {
@@ -131,6 +142,27 @@ export function tileMetricExpression(tile: AccountsOverviewTile): string {
             // sum | avg | min | max | median: the metric type is the HogQL aggregate fn name.
             return applyScale(`${metric.type}(${metric.columnExpression})`, metric.scale)
     }
+}
+
+// The auto-derived subtitle for a tile, from its metric. `count` has none.
+export function autoCaption(tile: AccountsOverviewTile): string | undefined {
+    const { metric } = tile
+    switch (metric.type) {
+        case 'count':
+            return undefined
+        case 'count_threshold':
+            return `${metric.columnLabel} ${metric.operator} ${metric.value}`
+        default:
+            // sum | avg | min | max | median: the metric type reads as the aggregation verb.
+            return `${metric.type} of ${metric.columnLabel}${scaleSuffix(metric.scale)}`
+    }
+}
+
+// The subtitle shown on a tile: the user's custom caption when set, else the
+// auto-derived one. A whitespace-only caption is treated as unset.
+export function tileCaption(tile: AccountsOverviewTile): string | undefined {
+    const custom = tile.caption?.trim()
+    return custom ? custom : autoCaption(tile)
 }
 
 // A tile only acts as a row-level predicate when it represents an

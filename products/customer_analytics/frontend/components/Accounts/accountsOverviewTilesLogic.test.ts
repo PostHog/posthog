@@ -12,6 +12,7 @@ import {
     numericColumnOptions,
     parseTileValues,
     stripHogqlAlias,
+    tileCaption,
     tileFilterFor,
     tileMetricExpression,
     tileToRowFilter,
@@ -150,6 +151,49 @@ describe('tileMetricExpression', () => {
                 metric: { type: 'sum', columnExpression: 'mrr', columnLabel: 'MRR', scale },
             })
         ).toBe(expected)
+    })
+})
+
+describe('tileCaption', () => {
+    const sum: AccountsOverviewTile = {
+        id: 's',
+        label: 'MRR',
+        metric: { type: 'sum', columnExpression: 'mrr', columnLabel: 'MRR' },
+    }
+    const count: AccountsOverviewTile = { id: 'c', label: 'Accounts', metric: { type: 'count' } }
+
+    // A custom caption must win over the derived one, an empty/whitespace caption must fall
+    // back to it, and, since count tiles have no derived caption, a custom caption is the
+    // only way they get a subtitle at all. A regression in the precedence silently either
+    // drops the user's subtitle or blanks the auto one.
+    it.each<[string, AccountsOverviewTile, string | undefined]>([
+        ['custom overrides derived', { ...sum, caption: 'Monthly recurring' }, 'Monthly recurring'],
+        ['whitespace-only caption falls back to derived', { ...sum, caption: '   ' }, 'sum of MRR'],
+        ['undefined caption uses derived', sum, 'sum of MRR'],
+        [
+            'derived caption keeps the scale suffix',
+            { ...sum, metric: { ...sum.metric, scale: 12 } } as AccountsOverviewTile,
+            'sum of MRR × 12',
+        ],
+        ['count tile has no derived caption', count, undefined],
+        ['count tile shows a custom caption', { ...count, caption: 'Book size' }, 'Book size'],
+        [
+            'threshold tile derives from its predicate',
+            {
+                id: 't',
+                label: 'At risk',
+                metric: {
+                    type: 'count_threshold',
+                    columnExpression: 'health_score',
+                    columnLabel: 'Health score',
+                    operator: '<',
+                    value: 6,
+                },
+            },
+            'Health score < 6',
+        ],
+    ])('%s', (_name, tile, expected) => {
+        expect(tileCaption(tile)).toBe(expected)
     })
 })
 

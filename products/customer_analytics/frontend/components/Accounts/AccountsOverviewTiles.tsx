@@ -8,21 +8,8 @@ import {
     accountsOverviewTilesLogic,
     AccountsOverviewTile,
     isTileClickable,
-    scaleSuffix,
+    tileCaption,
 } from './accountsOverviewTilesLogic'
-
-function tileCaption(tile: AccountsOverviewTile): string | undefined {
-    const { metric } = tile
-    switch (metric.type) {
-        case 'count':
-            return undefined
-        case 'count_threshold':
-            return `${metric.columnLabel} ${metric.operator} ${metric.value}`
-        default:
-            // sum | avg | min | max | median: the metric type reads as the aggregation verb.
-            return `${metric.type} of ${metric.columnLabel}${scaleSuffix(metric.scale)}`
-    }
-}
 
 function tileLabelByKey(tiles: AccountsOverviewTile[]): (key: string) => string {
     const labelsById = new Map(tiles.map((tile) => [tile.id, tile.label]))
@@ -36,7 +23,7 @@ export function AccountsOverviewTiles(): JSX.Element {
     const overviewItems: OverviewItem[] = reconciledTiles.map((tile) => ({
         key: tile.id,
         value: tileValues[tile.id] ?? undefined,
-        kind: 'unit',
+        kind: tile.format ?? 'unit',
         caption: tileCaption(tile),
         selected: selectedTileId === tile.id,
         onClick: isTileClickable(tile) ? () => toggleTileSelection(tile) : undefined,

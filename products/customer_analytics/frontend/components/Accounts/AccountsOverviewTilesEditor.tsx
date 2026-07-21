@@ -17,8 +17,11 @@ import {
     AccountsOverviewTile,
     AccountsOverviewTileMetric,
     AccountsOverviewTileMetricType,
+    autoCaption,
     isColumnAggregateMetric,
     scaleSuffix,
+    TILE_VALUE_FORMATS,
+    TileValueFormat,
 } from './accountsOverviewTilesLogic'
 import {
     ACCOUNTS_OVERVIEW_THRESHOLD_OPERATORS,
@@ -38,6 +41,12 @@ const METRIC_TYPE_LABELS: Record<AccountsOverviewTileMetricType, string> = {
 
 function fallbackColumn(options: AccountColumnOption[]): AccountColumnOption | null {
     return options[0] ?? null
+}
+
+const FORMAT_LABELS: Record<TileValueFormat, string> = {
+    unit: 'Number',
+    currency: 'Currency',
+    percentage: 'Percentage',
 }
 
 const COLUMN_AGGREGATE_LABEL_PREFIX: Record<'sum' | 'avg' | 'min' | 'max' | 'median', string> = {
@@ -194,12 +203,22 @@ function TileEditorRow({ tile, numericColumns, onChange, onRemove }: TileEditorR
         [numericColumns]
     )
 
+    // Merge a partial update onto the current tile so caption/format (and any other
+    // field the handler doesn't touch) survive; updateTile replaces the whole tile.
+    const emit = (patch: Partial<Omit<AccountsOverviewTile, 'id'>>): void =>
+        onChange({ label: tile.label, metric: tile.metric, caption: tile.caption, format: tile.format, ...patch })
+
+    // The label auto-refreshes only while it still matches the derived default; once
+    // the user types their own it sticks. Metric edits recompute the default the same way.
+    const labelAfterMetricChange = (nextMetric: AccountsOverviewTileMetric): string =>
+        tile.label === defaultLabelForMetric(tile.metric) ? defaultLabelForMetric(nextMetric) : tile.label
+
     const onMetricTypeChange = (next: AccountsOverviewTileMetricType): void => {
         const nextMetric = metricOfType(next, numericColumns, tile.metric)
         if (!nextMetric) {
             return
         }
-        onChange({ label: tile.label, metric: nextMetric })
+        emit({ metric: nextMetric })
     }
 
     const onColumnChange = (expression: string): void => {
@@ -210,40 +229,28 @@ function TileEditorRow({ tile, numericColumns, onChange, onRemove }: TileEditorR
         if (!column) {
             return
         }
-        const previousLabelLooksAuto = tile.label === defaultLabelForMetric(tile.metric)
         const nextMetric: AccountsOverviewTileMetric = {
             ...tile.metric,
             columnExpression: column.expression,
             columnLabel: column.name,
         }
-        onChange({
-            label: previousLabelLooksAuto ? defaultLabelForMetric(nextMetric) : tile.label,
-            metric: nextMetric,
-        })
+        emit({ label: labelAfterMetricChange(nextMetric), metric: nextMetric })
     }
 
     const onOperatorChange = (operator: AccountsOverviewThresholdOperator): void => {
         if (tile.metric.type !== 'count_threshold') {
             return
         }
-        const previousLabelLooksAuto = tile.label === defaultLabelForMetric(tile.metric)
         const nextMetric: AccountsOverviewTileMetric = { ...tile.metric, operator }
-        onChange({
-            label: previousLabelLooksAuto ? defaultLabelForMetric(nextMetric) : tile.label,
-            metric: nextMetric,
-        })
+        emit({ label: labelAfterMetricChange(nextMetric), metric: nextMetric })
     }
 
     const onThresholdValueChange = (value: number): void => {
         if (tile.metric.type !== 'count_threshold') {
             return
         }
-        const previousLabelLooksAuto = tile.label === defaultLabelForMetric(tile.metric)
         const nextMetric: AccountsOverviewTileMetric = { ...tile.metric, value }
-        onChange({
-            label: previousLabelLooksAuto ? defaultLabelForMetric(nextMetric) : tile.label,
-            metric: nextMetric,
-        })
+        emit({ label: labelAfterMetricChange(nextMetric), metric: nextMetric })
     }
 
     // Clearing the input (valueAsNumber → NaN) drops the multiplier back to a no-op.
@@ -252,12 +259,16 @@ function TileEditorRow({ tile, numericColumns, onChange, onRemove }: TileEditorR
             return
         }
         const scale = value === undefined || !Number.isFinite(value) ? undefined : value
-        const previousLabelLooksAuto = tile.label === defaultLabelForMetric(tile.metric)
         const nextMetric: AccountsOverviewTileMetric = { ...tile.metric, scale }
-        onChange({
-            label: previousLabelLooksAuto ? defaultLabelForMetric(nextMetric) : tile.label,
-            metric: nextMetric,
-        })
+        emit({ label: labelAfterMetricChange(nextMetric), metric: nextMetric })
+    }
+
+    const onCaptionChange = (value: string): void => {
+        emit({ caption: value.trim() ? value : undefined })
+    }
+
+    const onFormatChange = (format: TileValueFormat): void => {
+        emit({ format: format === 'unit' ? undefined : format })
     }
 
     return (
@@ -274,7 +285,7 @@ function TileEditorRow({ tile, numericColumns, onChange, onRemove }: TileEditorR
                     </span>
                     <LemonInput
                         value={tile.label}
-                        onChange={(label) => onChange({ label, metric: tile.metric })}
+                        onChange={(label) => emit({ label })}
                         placeholder="Tile label"
                         fullWidth
                         data-attr={`accounts-overview-tile-label-${tile.id}`}
@@ -288,6 +299,16 @@ function TileEditorRow({ tile, numericColumns, onChange, onRemove }: TileEditorR
                             data-attr={`accounts-overview-tile-remove-${tile.id}`}
                         />
                     </Tooltip>
+                </div>
+                <div className="pl-6">
+                    <LemonInput
+                        value={tile.caption ?? ''}
+                        onChange={onCaptionChange}
+                        placeholder={autoCaption(tile) ?? 'Subtitle (optional)'}
+                        size="small"
+                        fullWidth
+                        data-attr={`accounts-overview-tile-caption-${tile.id}`}
+                    />
                 </div>
                 <div className="flex flex-wrap items-center gap-2 pl-6">
                     <LemonSelect
@@ -351,6 +372,20 @@ function TileEditorRow({ tile, numericColumns, onChange, onRemove }: TileEditorR
                             </div>
                         </Tooltip>
                     ) : null}
+                    <LemonSelect
+                        size="small"
+                        value={tile.format ?? 'unit'}
+                        onChange={(value) => value && onFormatChange(value)}
+                        options={TILE_VALUE_FORMATS.map((format) => ({
+                            value: format,
+                            label: FORMAT_LABELS[format],
+                            tooltip:
+                                format === 'percentage'
+                                    ? 'Value is treated as already a percentage (85 → 85%)'
+                                    : undefined,
+                        }))}
+                        data-attr={`accounts-overview-tile-format-${tile.id}`}
+                    />
                 </div>
             </div>
         </div>
