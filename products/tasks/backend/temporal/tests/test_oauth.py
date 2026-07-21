@@ -83,6 +83,29 @@ def test_run_token_fails_closed_for_slack_run_with_unresolvable_actor(mock_creat
     assert create_oauth_access_token_for_run(task, {}) == "token"
 
 
+@pytest.mark.django_db
+@patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
+def test_loop_run_fails_closed_when_owner_is_not_a_current_org_member(mock_create: MagicMock) -> None:
+    from posthog.models import Organization, Team
+    from posthog.models.organization import OrganizationMembership
+    from posthog.models.user import User
+
+    organization = Organization.objects.create(name="loop-cred-org")
+    team = Team.objects.create(organization=organization, name="loop-cred-team")
+    owner = User.objects.create(email="loop-owner-cred@example.com")
+    task = Task.objects.create(team=team, title="Loop run", created_by=owner, origin_product=Task.OriginProduct.LOOP)
+    state = {"loop_id": "loop-1"}
+
+    # Re-check at mint time: a just-offboarded owner (no membership) must not mint credentials for an
+    # in-flight run, even though the async loop cancellation may not have landed yet.
+    with pytest.raises(TaskInvalidStateError):
+        create_oauth_access_token_for_run(task, state)
+    mock_create.assert_not_called()
+
+    OrganizationMembership.objects.create(organization=organization, user=owner)
+    assert create_oauth_access_token_for_run(task, state) == "token"
+
+
 @patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
 def test_loop_fired_run_excludes_loop_write_scope(mock_create: MagicMock) -> None:
     """A run whose state carries loop_id must never receive a loop:write-scoped token,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from posthog.models.organization import OrganizationMembership
 from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
     ARRAY_APP_CLIENT_ID_EU,
@@ -95,12 +96,31 @@ def create_oauth_access_token_for_run(
     """
     actor_user = get_task_run_credential_user(task, state)
     loop_id = (state or {}).get("loop_id")
+    if loop_id is not None:
+        # Loop run: re-verify the credential owner is eligible at mint time, not just at dispatch.
+        # Offboarding / deactivation cancels loops asynchronously, so without this a token could be
+        # minted in the window after `is_active` / org membership is revoked but before the cancel
+        # signal lands — and that async signal can't revoke a token already handed to the sandbox.
+        credential_owner = actor_user or (task.created_by if task.created_by_id is not None else None)
+        if credential_owner is None or not _loop_credential_owner_eligible(credential_owner, task.team.organization_id):
+            raise TaskInvalidStateError(
+                f"Loop task {task.id} credential owner is no longer an active org member",
+                {"task_id": task.id},
+                cause=RuntimeError("loop credential owner is not an active org member"),
+            )
     return create_oauth_access_token(
         task,
         scopes=scopes,
         user=actor_user,
         allow_task_creator_fallback=not is_slack_interaction_state(state),
         loop_id=loop_id if isinstance(loop_id, str) else None,
+    )
+
+
+def _loop_credential_owner_eligible(user: User, organization_id: Any) -> bool:
+    return (
+        user.is_active
+        and OrganizationMembership.objects.filter(user_id=user.id, organization_id=organization_id).exists()
     )
 
 
