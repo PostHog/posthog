@@ -75,12 +75,17 @@ def normalize_base_url(base_url: Optional[str]) -> str:
 
 
 def _host_of(base_url: str) -> str:
-    # `urlparse` treats a backslash (and its `%5c` encoding) as userinfo, so
-    # `https://127.0.0.1\@example.com` parses as host `example.com` while requests/urllib3 (per the
-    # WHATWG URL rules) treat `\` as a path separator and connect to `127.0.0.1`. Normalize to `/`
-    # first so the host we validate is the host the request actually reaches (SSRF bypass guard).
-    normalized = base_url.replace("\\", "/").replace("%5c", "/").replace("%5C", "/")
-    return (urlparse(normalized).hostname or "").lower()
+    # A real Plunk base URL is just `<scheme>://<host>[:port]`. `urlparse` and requests/urllib3
+    # disagree on how to split an authority that carries userinfo, a backslash, or percent-encoding,
+    # and the disagreement is an SSRF bypass: for `https://safe.example%5c@127.0.0.1`, `urlparse`
+    # reads host `safe.example` (validated) while requests connects to `127.0.0.1` (it keeps
+    # `safe.example%5c` as userinfo — it does not decode `%5c`); a raw `\` flips the split the other
+    # way. Rather than reconcile two parsers, reject any authority that isn't an unambiguous bare
+    # host — none of these forms appear in a legitimate Plunk URL.
+    netloc = urlparse(base_url).netloc
+    if "@" in netloc or "\\" in netloc or "%" in netloc:
+        return ""
+    return (urlparse(base_url).hostname or "").lower()
 
 
 def _is_https(base_url: str) -> bool:

@@ -109,16 +109,27 @@ class TestNormalizeBaseUrl:
         "url, expected_host",
         [
             ("https://plunk.example.com", "plunk.example.com"),
-            # Backslash (and its %5c encoding) is userinfo to urlparse but a path separator to
-            # requests/urllib3 — the host must reflect the address the request actually reaches,
-            # or the SSRF check validates a decoy host while the key goes elsewhere.
-            ("https://127.0.0.1\\@example.com", "127.0.0.1"),
-            ("https://127.0.0.1%5c@example.com", "127.0.0.1"),
-            ("https://127.0.0.1%5C@example.com", "127.0.0.1"),
+            ("https://plunk.example.com:8443", "plunk.example.com"),
         ],
     )
-    def test_host_reflects_real_connect_target(self, url, expected_host):
+    def test_host_of_plain_authority(self, url, expected_host):
         assert plunk_module._host_of(url) == expected_host
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            # urlparse and requests/urllib3 split these authorities differently, so validating the
+            # urlparse host lets a request reach a different address (SSRF). urllib3 does NOT decode
+            # `%5c`, so `safe.example%5c` stays userinfo and requests connects to `127.0.0.1`, while
+            # a raw `\` is a path separator and flips the split the other way. Reject them outright.
+            "https://safe.example%5c@127.0.0.1",
+            "https://safe.example%5C@127.0.0.1",
+            "https://127.0.0.1\\@example.com",
+            "https://user:pass@127.0.0.1",
+        ],
+    )
+    def test_host_of_rejects_ambiguous_authority(self, url):
+        assert plunk_module._host_of(url) == ""
 
 
 class TestValidateCredentials:
@@ -188,6 +199,19 @@ class TestValidateCredentials:
             valid, msg = validate_credentials("https://10.0.0.1", "sk_test", team_id=99)
             assert valid is False
             assert msg == "internal address"
+            patched.return_value.get.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "url",
+        ["https://safe.example%5c@127.0.0.1", "https://safe.example%5C@127.0.0.1"],
+    )
+    def test_rejects_ambiguous_authority_before_request(self, url):
+        # The urlparse host (`safe.example`) is not the address requests reaches (`127.0.0.1`), so
+        # validation must fail before the key-bearing probe goes out (SSRF bypass guard).
+        with self._patch_session(self._resp(status_code=200)) as patched:
+            valid, msg = validate_credentials(url, "sk_test", team_id=99)
+            assert valid is False
+            assert msg == "Invalid Plunk API URL"
             patched.return_value.get.assert_not_called()
 
     def test_rejects_plaintext_http_before_sending_key(self):
