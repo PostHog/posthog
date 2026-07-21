@@ -7965,6 +7965,8 @@ export interface InsightBuilderDimensionApi {
     column: string
     /** Date bucketing applied to DATE/DATETIME columns */
     dateGrain?: InsightBuilderDateGrainApi | null
+    /** Fixed-width numeric bucketing for numeric columns: floor(col / binWidth) * binWidth. Mutually exclusive with dateGrain. */
+    numericBinWidth?: number | null
 }
 
 export type InsightBuilderFilterOperatorApi =

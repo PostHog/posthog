@@ -7525,6 +7525,8 @@ export namespace Schemas {
       column: string;
       /** Date bucketing applied to DATE/DATETIME columns */
       dateGrain?: InsightBuilderDateGrain | null;
+      /** Fixed-width numeric bucketing for numeric columns: floor(col / binWidth) * binWidth. Mutually exclusive with dateGrain. */
+      numericBinWidth?: number | null;
     }
 
     export type InsightBuilderFilterOperator = typeof InsightBuilderFilterOperator[keyof typeof InsightBuilderFilterOperator];
