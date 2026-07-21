@@ -20,7 +20,6 @@ from products.tasks.backend.temporal.slack_relay.activities import (
     _append_unconfirmed_attachment_notice,
     _markdown_to_slack_mrkdwn,
     _neutralize_approx_tildes,
-    _normalize_labeled_mentions_to_bare,
     _repair_link_trailing_markers,
     _split_markdown_for_slack,
     _wrap_bare_urls_in_emphasis,
@@ -535,22 +534,6 @@ class TestNeutralizeApproxTildes(unittest.TestCase):
     )
     def test_neutralize(self, _name, text, expected):
         assert _neutralize_approx_tildes(text) == expected
-
-
-class TestNormalizeLabeledMentionsToBare(unittest.TestCase):
-    @parameterized.expand(
-        [
-            ("single_word_name", "hi <@U123|vojta>", "hi <@U123>"),
-            ("name_with_space", "hi <@U123|Radu Raicea>", "hi <@U123>"),
-            ("multiple_mentions", "<@U1|A B> and <@U2|C>", "<@U1> and <@U2>"),
-            ("already_bare_untouched", "hi <@U123>", "hi <@U123>"),
-            ("channel_link_kept", "see <#C123|general>", "see <#C123|general>"),
-            ("url_link_kept", "<https://x.com|label>", "<https://x.com|label>"),
-            ("broadcast_kept", "<!here>", "<!here>"),
-        ]
-    )
-    def test_normalize(self, _name, text, expected):
-        assert _normalize_labeled_mentions_to_bare(text) == expected
 
 
 class TestAppendUnconfirmedAttachmentNotice(unittest.TestCase):

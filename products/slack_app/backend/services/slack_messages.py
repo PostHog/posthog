@@ -120,6 +120,22 @@ def labeled_mentions_to_display_names(text: str) -> str:
     return re.sub(r"<@[A-Z0-9]+\|([^>]+)>", r"@\1", text)
 
 
+_RE_LABELED_USER_MENTION = re.compile(r"<@([A-Z0-9]+)\|[^>]*>")
+
+
+def normalize_labeled_mentions_to_bare(text: str) -> str:
+    """Rewrite labeled `<@U_ID|display name>` mentions to the bare `<@U_ID>` for outbound posts.
+
+    We feed the agent the labeled form so it can echo a token to ping a participant back, but
+    that form only reliably notifies inbound: when a bot posts it, Slack does not consistently
+    linkify it, so a display name containing a space renders as inert text and the user is never
+    notified. The bare `<@U_ID>` is the canonical outbound mention — Slack resolves the current
+    name itself. Only `<@…>` user mentions are rewritten; channel links (`<#C…|name>`),
+    broadcast/subteam refs (`<!…>`), and URL links (`<https://…|label>`) keep their labels.
+    """
+    return _RE_LABELED_USER_MENTION.sub(r"<@\1>", text)
+
+
 def flatten_block_text(node: Any) -> list[str]:
     """Best-effort plain-text extraction from a Slack block-kit subtree.
 
