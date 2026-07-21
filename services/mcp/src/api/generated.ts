@@ -69807,6 +69807,24 @@ export namespace Schemas {
     workflow_name: string;
     };
 
+    export type EnvironmentsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsEvaluationContextSuggestionsDestroyParams = {
+    /**
+     * Name of the evaluation context to restore to suggestions.
+     */
+    context_name: string;
+    };
+
     export type ErrorTrackingAssignmentRulesListParams = {
     /**
      * Number of results to return per page.
