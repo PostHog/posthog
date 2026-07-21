@@ -4,7 +4,9 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import TaboolaSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.taboola import (
+    TaboolaSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.taboola.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,

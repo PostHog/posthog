@@ -23,7 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PicqerSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.picqer import PicqerSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.picqer.picqer import (
     PicqerResumeConfig,
     picqer_source,
