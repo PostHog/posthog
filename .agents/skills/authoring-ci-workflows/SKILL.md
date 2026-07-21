@@ -101,7 +101,7 @@ Gates and the workers they inspect need **opposite** conditions:
 `!cancelled()` is identical to `always()` on any run that is not cancelled, so failure-path reporting still works; only cancelled runs skip.
 Measured on a live superseded run ([evidence](https://github.com/PostHog/posthog/actions/runs/29765284128)): an `always()` worker dispatched and ran to completion _after_ the cancel, while the `!cancelled()` worker never started and reported `cancelled` (not `skipped`), so the gate still fails closed.
 
-Three rules for the gate body:
+Four rules for the gate body:
 
 1. **Allowlist every dependency, never denylist.** Assert `success`/`skipped` and fail everything else.
    A dependency tested only against `== 'failure'` lets `cancelled` through, and one bad dependency is enough — a gate that clears four correctly and one with a bare `failure` test is still wrong.

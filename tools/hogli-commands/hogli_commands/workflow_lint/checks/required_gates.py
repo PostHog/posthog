@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterator
+from pathlib import Path
 
 from ..check import CheckResult, Issue, WorkflowCheck
 from ..model import Job, Workflow
@@ -53,14 +54,13 @@ def _bash(job: Job) -> str:
     return "\n".join(step.run for step in job.steps if step.run)
 
 
-def _exempt_jobs(path: str, job_names: frozenset[str]) -> frozenset[str]:
+def _exempt_jobs(path: Path, job_names: frozenset[str]) -> frozenset[str]:
     """Job ids carrying an allow marker, with a reason, in the comments above them.
 
     Keyed off the parsed job names rather than indentation depth, so it doesn't
     care how the file is formatted and can't be fooled by a nested mapping key.
     """
-    with open(path, encoding="utf-8") as fh:
-        lines = fh.read().splitlines()
+    lines = path.read_text(encoding="utf-8").splitlines()
 
     exempt: set[str] = set()
     for idx, line in enumerate(lines):
@@ -141,7 +141,7 @@ class RequiredGateCheck(WorkflowCheck):
             if not gates:
                 continue
             # Only worth re-reading the file once we know there's a gate to exempt.
-            exempt = _exempt_jobs(str(wf.path), frozenset(job.name for job in wf.jobs))
+            exempt = _exempt_jobs(wf.path, frozenset(job.name for job in wf.jobs))
             for job in gates:
                 if job.name in exempt:
                     continue
