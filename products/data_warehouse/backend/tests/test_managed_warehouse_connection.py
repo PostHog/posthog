@@ -19,6 +19,7 @@ from products.data_warehouse.backend.managed_warehouse_connection import (
     update_managed_warehouse_password,
 )
 from products.data_warehouse.backend.presentation.views import managed_warehouse
+from products.data_warehouse.backend.tasks import reconcile_all_managed_warehouse_tables_task
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
@@ -365,6 +366,45 @@ class TestReconcileManagedWarehouseTables:
             get_schemas.assert_called_once()
         source = ExternalDataSource.objects.get(team_id=team.id, prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX)
         assert ExternalDataSchema.objects.filter(source=source, name=f"shadow_{team.id}_models.new_model").exists()
+
+    def test_reintrospection_revives_a_dropped_and_recreated_table(self) -> None:
+        org, team = self._setup()
+        table = _source_schema("recreated", f"team_{team.id}")
+        events = _source_schema("events_prod")
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.get_schemas",
+            return_value=[events, table],
+        ):
+            reconcile_managed_warehouse_tables(team_id=team.id, organization_id=org.id)
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.get_schemas",
+            return_value=[events],
+        ):
+            reconcile_managed_warehouse_tables(team_id=team.id, organization_id=org.id)
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.get_schemas",
+            return_value=[events, table],
+        ):
+            reconcile_managed_warehouse_tables(team_id=team.id, organization_id=org.id)
+
+        source = ExternalDataSource.objects.get(team_id=team.id, prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX)
+        schema = ExternalDataSchema.objects.get(source=source, name=f"team_{team.id}.recreated")
+        assert schema.deleted is False
+        assert schema.table is not None
+        assert schema.table.deleted is False
+
+    def test_periodic_sweep_schedules_every_managed_project(self) -> None:
+        org, team = self._setup()
+
+        with patch(
+            "products.data_warehouse.backend.tasks.tasks.schedule_managed_warehouse_tables_reconcile"
+        ) as schedule:
+            reconcile_all_managed_warehouse_tables_task()
+
+        schedule.assert_called_once_with(team_id=team.id, organization_id=org.id)
 
     def test_does_nothing_for_a_team_that_has_not_joined_the_warehouse(self) -> None:
         # A non-member team polling status while the warehouse is ready must not get a connection.

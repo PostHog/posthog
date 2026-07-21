@@ -78,7 +78,10 @@ from products.conversations.backend.tasks import (
     wake_snoozed_tickets,
 )
 from products.data_modeling.backend.facade.tasks import cleanup_expired_test_saved_queries
-from products.data_warehouse.backend.facade.tasks import send_external_data_failure_digest_catchup
+from products.data_warehouse.backend.facade.tasks import (
+    reconcile_all_managed_warehouse_tables_task,
+    send_external_data_failure_digest_catchup,
+)
 from products.endpoints.backend.facade.tasks import deactivate_stale_materializations
 from products.feature_flags.backend.tasks import (
     cleanup_stale_flag_definitions_expiry_tracking_task,
@@ -481,6 +484,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour=str(EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC), minute="15"),
         send_external_data_failure_digest_catchup.s(),
         name="send external data failure digest catch-up",
+    )
+
+    sender.add_periodic_task(
+        crontab(minute="*/5"),
+        reconcile_all_managed_warehouse_tables_task.s(),
+        name="reconcile managed warehouse SQL editor tables",
+        expires=300,
     )
 
     # Every 30 minutes, send decide request counts to the main posthog instance

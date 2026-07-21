@@ -4,6 +4,7 @@ import structlog
 from celery import shared_task
 from prometheus_client import Counter
 
+from posthog.ducklake.models import DuckgresServerTeam
 from posthog.redis import get_client, redis
 from posthog.scoping_audit import skip_team_scope_audit
 
@@ -71,6 +72,19 @@ def schedule_managed_warehouse_tables_reconcile(*, team_id: int, organization_id
     except Exception:
         client.delete(schedule_key)
         raise
+
+
+@shared_task(ignore_result=True, name="products.data_warehouse.backend.tasks.reconcile_all_managed_warehouse_tables")
+@skip_team_scope_audit
+def reconcile_all_managed_warehouse_tables_task() -> None:
+    memberships = (
+        DuckgresServerTeam.objects.filter(backfill_enabled=True, table_suffix__isnull=False)
+        .exclude(table_suffix="")
+        .values_list("team_id", "server__organization_id")
+        .iterator()
+    )
+    for team_id, organization_id in memberships:
+        schedule_managed_warehouse_tables_reconcile(team_id=team_id, organization_id=organization_id)
 
 
 @shared_task(ignore_result=True, name="products.data_warehouse.backend.tasks.send_external_data_failure_digest_task")

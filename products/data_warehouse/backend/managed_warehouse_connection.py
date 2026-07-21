@@ -326,12 +326,17 @@ def reconcile_managed_warehouse_tables(*, team_id: int, organization_id: str | U
             return
 
         for schema in source_schemas:
-            ExternalDataSchema.objects.get_or_create(
+            schema_model, _created = ExternalDataSchema.objects.get_or_create(
                 team_id=team_id,
                 source=source,
                 name=schema.name,
                 defaults={"should_sync": True, "sync_type": None, "sync_type_config": {}},
             )
+            if schema_model.deleted:
+                schema_model.deleted = False
+                schema_model.deleted_at = None
+                schema_model.should_sync = True
+                schema_model.save(update_fields=["deleted", "deleted_at", "should_sync", "updated_at"])
 
         reconcile_postgres_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
 
