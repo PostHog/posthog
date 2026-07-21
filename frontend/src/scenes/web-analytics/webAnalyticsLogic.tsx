@@ -3320,7 +3320,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }
             if (path_cleaning !== undefined) {
                 const parsedPathCleaning = [true, 'true', 1, '1'].includes(path_cleaning)
-                if (parsedPathCleaning !== values.isPathCleaningEnabled) {
+                if (parsedPathCleaning !== values._isPathCleaningEnabled) {
                     actions.setIsPathCleaningEnabled(parsedPathCleaning)
                 }
             }
