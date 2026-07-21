@@ -11214,6 +11214,17 @@ class TestExternalDataSourceSetup(APIBaseTest):
         mock_capture_exception.assert_not_called()
         assert not ExternalDataSource.objects.filter(team=self.team).exists()
 
+    def test_create_rejects_unreleased_source_without_persisting(self):
+        # AmazonS3 is an unreleased scaffold with no get_schemas. Creating it must 400 before
+        # persisting — otherwise the row is saved and get_schemas 500s, orphaning it.
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={"source_type": "AmazonS3", "prefix": "s3_create_test", "payload": {}},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "is not yet available" in response.json()["message"]
+        assert not ExternalDataSource.objects.filter(team=self.team).exists()
+
     def _create_stripe_webhook_template(self):
         from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 

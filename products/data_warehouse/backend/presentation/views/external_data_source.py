@@ -2063,6 +2063,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     payload[key] = value.strip()
         source_type_model = ExternalDataSourceType(source_type)
         source = SourceRegistry.get_source(source_type_model)
+        # Unreleased sources are scaffolds without schema discovery — the UI hides them, but the API
+        # would otherwise persist a row and then 500 when `get_schemas` (below) raises
+        # NotImplementedError, letting a caller accumulate orphaned rows. Reject before persistence.
+        if source.get_source_config.unreleasedSource:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Source type '{source_type}' is not yet available."},
+            )
         max_instances = source.max_instances_per_team
         if max_instances is not None and count_active_sources(self.team_id, source_type_model) >= max_instances:
             return Response(
