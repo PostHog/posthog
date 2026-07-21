@@ -878,26 +878,38 @@ export function PromptVersionSidebar({
                                         onClick={(e) => e.stopPropagation()}
                                     >
                                         {(labelsByVersion[versionPrompt.version] ?? []).map((label) => (
-                                            <PromptLabelChip
+                                            <AccessControlAction
                                                 key={label.name}
-                                                label={label.name}
-                                                onRemove={readOnly ? undefined : () => requestRemoveLabel(label.name)}
-                                                data-attr={`llma-prompt-label-${label.name}`}
-                                            />
+                                                resourceType={AccessControlResourceType.LlmAnalytics}
+                                                minAccessLevel={AccessControlLevel.Editor}
+                                            >
+                                                <PromptLabelChip
+                                                    label={label.name}
+                                                    onRemove={
+                                                        readOnly ? undefined : () => requestRemoveLabel(label.name)
+                                                    }
+                                                    data-attr={`llma-prompt-label-${label.name}`}
+                                                />
+                                            </AccessControlAction>
                                         ))}
                                         {!readOnly &&
                                             (labelPickerVersion === versionPrompt.version ? (
                                                 <PromptLabelPicker version={versionPrompt.version} />
                                             ) : (
-                                                <LemonButton
-                                                    size="xsmall"
-                                                    icon={<IconPlusSmall />}
-                                                    onClick={() => openLabelPicker(versionPrompt.version)}
-                                                    tooltip="Point a label at this version"
-                                                    data-attr={`llma-prompt-add-label-${versionPrompt.version}`}
+                                                <AccessControlAction
+                                                    resourceType={AccessControlResourceType.LlmAnalytics}
+                                                    minAccessLevel={AccessControlLevel.Editor}
                                                 >
-                                                    Add label
-                                                </LemonButton>
+                                                    <LemonButton
+                                                        size="xsmall"
+                                                        icon={<IconPlusSmall />}
+                                                        onClick={() => openLabelPicker(versionPrompt.version)}
+                                                        tooltip="Point a label at this version"
+                                                        data-attr={`llma-prompt-add-label-${versionPrompt.version}`}
+                                                    >
+                                                        Add label
+                                                    </LemonButton>
+                                                </AccessControlAction>
                                             ))}
                                     </div>
                                 ) : null}

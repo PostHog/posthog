@@ -79,8 +79,9 @@ import type {
 import { QueryContext } from '~/queries/types'
 
 import type {
-    LLMPromptLabelApi,
-    LLMPromptLabelSummaryApi,
+    LLMPromptListApi,
+    LLMPromptResolveResponseApi,
+    LLMPromptVersionSummaryApi,
 } from 'products/ai_observability/frontend/generated/api.schemas'
 import { AlertType } from 'products/alerts/frontend/types'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
@@ -7771,7 +7772,7 @@ export interface LLMPrompt {
     version_count: number
     first_version_created_at: string
     /** All labels on the prompt with the version each points to. Only present on list responses. */
-    all_labels?: LLMPromptLabelSummaryApi[]
+    all_labels?: LLMPromptListApi['all_labels']
 }
 
 export interface LLMPromptPublic {
@@ -7795,14 +7796,14 @@ export interface LLMPromptVersionSummary {
     created_by: UserBasicType
     created_at: string
     is_latest: boolean
-    labels?: string[]
+    labels?: LLMPromptVersionSummaryApi['labels']
 }
 
 export interface LLMPromptResolveResponse {
     prompt: LLMPrompt
     versions: LLMPromptVersionSummary[]
     has_more: boolean
-    labels: LLMPromptLabelApi[]
+    labels: LLMPromptResolveResponseApi['labels']
 }
 
 // Managed viewset
