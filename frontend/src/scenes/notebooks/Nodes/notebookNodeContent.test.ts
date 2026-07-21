@@ -74,6 +74,20 @@ describe('buildNotebookDependencyGraph', () => {
         expect(graph.upstreamSourcesByNode['reader'].sql_df.nodeId).toEqual('named')
     })
 
+    it('an invalid SQL frame name binds nothing (not exported, not browsable)', () => {
+        // A non-empty but invalid name like `people-df` can never be referenced (bare
+        // `people-df` is not a valid identifier), so it must not enter the dependency
+        // graph or the schema browser as an export the way a valid name does.
+        const content = {
+            type: 'doc',
+            content: [sqlV2Node('bad', 'people-df', 'select 1'), sqlV2Node('ok', 'sql_df', 'select id from events')],
+        }
+        const graph = buildNotebookDependencyGraph(content)
+        expect(graph.nodesById['bad'].exports).toEqual([])
+        expect(graph.nodesById['ok'].exports).toEqual(['sql_df'])
+        expect(collectNotebookFrameNodes(content).map((frame) => frame.name)).toEqual(['sql_df'])
+    })
+
     it('links PythonV2 cells in both directions (python reads sql, sql joins the python frame)', () => {
         // Journey 10 staleness walks these edges: without PythonV2 in the graph, running a
         // SQL cell never marks its Python dependents stale, and vice versa.
