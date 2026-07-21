@@ -1185,6 +1185,7 @@ class GitHubIntegrationBase:
                         }
                     )
         return out
+
     def add_reaction_to_comment(self, repository: str, comment_id: int, content: str = "eyes") -> dict[str, Any]:
         """React to an issue/PR conversation comment (e.g. an "eyes" ack). ``repository`` is
         ``owner/repo`` or a bare repo. GitHub returns 200 if the reaction already existed, 201 if created."""
