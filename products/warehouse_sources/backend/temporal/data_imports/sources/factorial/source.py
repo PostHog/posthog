@@ -30,7 +30,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.factorial.
     FACTORIAL_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FactorialSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.factorial import (
+    FactorialSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

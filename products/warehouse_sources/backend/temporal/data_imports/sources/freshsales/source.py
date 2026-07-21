@@ -29,7 +29,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.freshsales
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FreshsalesSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.freshsales import (
+    FreshsalesSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

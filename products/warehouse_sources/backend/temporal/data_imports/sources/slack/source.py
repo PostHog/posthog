@@ -33,7 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SlackSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.slack import SlackSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.slack.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.slack.slack import (
     SlackResumeConfig,

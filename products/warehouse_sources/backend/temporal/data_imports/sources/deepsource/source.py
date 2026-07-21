@@ -31,7 +31,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.deepsource
     DEEPSOURCE_ENDPOINTS,
     ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DeepsourceSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.deepsource import (
+    DeepsourceSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _ENDPOINT_DESCRIPTIONS: dict[str, str] = {

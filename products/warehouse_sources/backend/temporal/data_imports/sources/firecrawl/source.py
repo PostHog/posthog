@@ -29,7 +29,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firecrawl.
     ENDPOINTS,
     FIRECRAWL_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FirecrawlSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.firecrawl import (
+    FirecrawlSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _ENDPOINT_DESCRIPTIONS: dict[str, str] = {
@@ -147,6 +149,7 @@ You can create an API key in your [Firecrawl dashboard](https://www.firecrawl.de
         return firecrawl_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

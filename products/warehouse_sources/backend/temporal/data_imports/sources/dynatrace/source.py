@@ -31,7 +31,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dynatrace.
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DynatraceSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dynatrace import (
+    DynatraceSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SCHEMA_DESCRIPTIONS: dict[str, str] = {
@@ -173,7 +175,7 @@ Create an [access token](https://docs.dynatrace.com/docs/manage/identity-access-
             api_token=config.api_token,
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
-            logger=inputs.logger,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

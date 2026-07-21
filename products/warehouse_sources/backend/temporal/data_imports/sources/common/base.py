@@ -2,7 +2,7 @@ import datetime
 import dataclasses
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, Generic, Optional, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Generic, Optional, TypeVar, Union, cast
 
 import structlog
 
@@ -171,11 +171,7 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
     @property
     def _config_class(self) -> type[ConfigType]:
-        config = get_config_for_source(self.source_type)
-        if not config:
-            raise ValueError(f"Config class for {self.source_type} does not exist in SOURCE_CONFIG_MAPPING")
-
-        return config
+        return cast(type[ConfigType], get_config_for_source(self.source_type))
 
     def resolve_api_version(self, pinned: str | None) -> str:
         """Effective vendor API version for a source instance's stored pin.

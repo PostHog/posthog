@@ -30,7 +30,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.deno_deplo
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DenoDeploySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.denodeploy import (
+    DenoDeploySourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -136,7 +138,8 @@ Create an organization access token in your [Deno Deploy dashboard](https://app.
         return deno_deploy_source(
             access_token=config.access_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

@@ -29,7 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.frill.sett
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FrillSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.frill import FrillSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

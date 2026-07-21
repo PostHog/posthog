@@ -22,7 +22,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import TailscaleSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tailscale import (
+    TailscaleSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.tailscale.settings import (
     AUDIT_LOG_RETENTION_DAYS,
     AUDIT_LOGS_ENDPOINT,

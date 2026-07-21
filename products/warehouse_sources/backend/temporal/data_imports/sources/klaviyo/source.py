@@ -25,7 +25,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import KlaviyoSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.klaviyo import (
+    KlaviyoSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.constants import (
     KLAVIYO_API_VERSION_2024_10_15,
     KLAVIYO_API_VERSION_2026_07_15,

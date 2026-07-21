@@ -32,7 +32,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.concord.se
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ConcordSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.concord import (
+    ConcordSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

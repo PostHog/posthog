@@ -30,7 +30,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.emailoctop
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import EmailOctopusSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.emailoctopus import (
+    EmailOctopusSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -141,7 +143,8 @@ You can create an API key in your [EmailOctopus account settings](https://emailo
         return emailoctopus_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             api_version=self.resolve_api_version(inputs.api_version),
             should_use_incremental_field=inputs.should_use_incremental_field,

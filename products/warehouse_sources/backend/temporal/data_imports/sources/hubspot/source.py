@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import HubspotSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hubspot import (
+    HubspotSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.auth import (
     hubspot_access_token_is_valid,
     hubspot_refresh_access_token,

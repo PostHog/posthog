@@ -30,7 +30,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cronitor.s
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CronitorSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cronitor import (
+    CronitorSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

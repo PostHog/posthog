@@ -201,7 +201,6 @@ from .decagon.source import DecagonSource
 from .deel.source import DeelSource
 from .deepgram.source import DeepgramSource
 from .deepsource.source import DeepsourceSource
-from .delighted.source import DelightedSource
 from .deno_deploy.source import DenoDeploySource
 from .deputy.source import DeputySource
 from .devin_ai.source import DevinAISource

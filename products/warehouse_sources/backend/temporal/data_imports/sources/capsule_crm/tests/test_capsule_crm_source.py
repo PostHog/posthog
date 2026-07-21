@@ -10,7 +10,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.capsule_cr
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.capsule_crm.source import CapsuleCRMSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CapsuleCRMSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.capsulecrm import (
+    CapsuleCRMSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

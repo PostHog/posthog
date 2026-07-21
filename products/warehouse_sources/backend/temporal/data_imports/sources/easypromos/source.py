@@ -30,7 +30,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.easypromos
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import EasypromosSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.easypromos import (
+    EasypromosSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -142,6 +144,7 @@ Get the token from the **Utilities** menu of your Easypromos account. The REST A
         return easypromos_source(
             access_token=config.access_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

@@ -25,7 +25,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PipedriveSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pipedrive import (
+    PipedriveSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.pipedrive.pipedrive import (
     PipedriveResumeConfig,
     normalize_company_domain,
@@ -160,7 +162,9 @@ You can find your personal API token in Pipedrive under **Settings > Personal pr
             company_domain=normalize_company_domain(config.company_domain),
             api_token=config.api_token,
             endpoint=inputs.schema_name,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             api_version=self.resolve_api_version(inputs.api_version),
-            logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Pipedrive endpoint is full refresh
         )

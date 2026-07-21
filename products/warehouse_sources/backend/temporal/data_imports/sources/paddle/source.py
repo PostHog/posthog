@@ -18,8 +18,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PaddleSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.paddle import PaddleSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.paddle import (
     PaddlePermissionError,
     PaddleResumeConfig,
@@ -113,21 +116,7 @@ class PaddleSource(ResumableSource[PaddleSourceConfig, PaddleResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=bool(PADDLE_INCREMENTAL_FIELDS.get(endpoint)),
-                supports_append=bool(PADDLE_INCREMENTAL_FIELDS.get(endpoint)),
-                incremental_fields=PADDLE_INCREMENTAL_FIELDS.get(endpoint, []),
-            )
-            for endpoint in PADDLE_ENDPOINTS
-        ]
-
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-
-        return schemas
+        return build_endpoint_schemas(PADDLE_ENDPOINTS, PADDLE_INCREMENTAL_FIELDS, names)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[PaddleResumeConfig]:
         return ResumableSourceManager[PaddleResumeConfig](inputs, PaddleResumeConfig)
@@ -141,8 +130,9 @@ class PaddleSource(ResumableSource[PaddleSourceConfig, PaddleResumeConfig]):
         return paddle_source(
             api_key=config.paddle_api_key,
             endpoint=inputs.schema_name,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
+            resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value,
-            logger=inputs.logger,
-            resumable_source_manager=resumable_source_manager,
         )
