@@ -526,6 +526,23 @@ impl Dispatcher {
         assignments.into_sub_batches()
     }
 
+    /// Record a batch's arrival order for the stash. Must be called from the
+    /// consumer loop in true batch order, before the batch is processed —
+    /// per-batch assignment runs on spawned tasks and failed sends re-defer in
+    /// gather order, so no later call site can establish the order reliably.
+    pub fn register_batch(&self, batch_id: &str) {
+        self.pin_table
+            .lock()
+            .unwrap()
+            .stash
+            .register_batch(batch_id);
+    }
+
+    /// Forget a fully completed (committed) batch's arrival order.
+    pub fn release_batch(&self, batch_id: &str) {
+        self.pin_table.lock().unwrap().stash.release_batch(batch_id);
+    }
+
     /// Whether `batch_id` still has deferred groups awaiting flush.
     pub fn has_deferred(&self, batch_id: &str) -> bool {
         self.pin_table.lock().unwrap().stash.has_batch(batch_id)

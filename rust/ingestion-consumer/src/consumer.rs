@@ -274,6 +274,10 @@ impl IngestionConsumer {
     fn spawn_batch_processing(&self, collected: CollectedBatch) -> InFlightBatch {
         let batch_size = collected.messages.len();
         let batch_id = make_batch_id();
+        // Register here, on the consumer loop, so the stash learns batch order
+        // before the spawned tasks race: assignment and failed-send deferrals
+        // can reach the stash out of batch order.
+        self.dispatcher.register_batch(&batch_id);
         record_if(&self.debug_recorder, || DebugEventKind::BatchDispatched {
             batch_id: batch_id.clone(),
             messages: batch_size,
@@ -335,6 +339,7 @@ impl IngestionConsumer {
         // uncommitted behind any earlier failed batch, preserving at-least-once
         // delivery across worker or pipeline failures.
         self.commit_offsets(&processed.offsets)?;
+        self.dispatcher.release_batch(&batch_id);
         emit_latest_processed_timestamp_metrics(&processed.stats, &self.group_id);
         record_if(&self.debug_recorder, || DebugEventKind::BatchCommitted {
             batch_id: batch_id.clone(),
