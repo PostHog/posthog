@@ -268,6 +268,7 @@ the row lists both.
 | hetzner                          | HTTP                        | requests                                                        | ✅                          |
 | hex                              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | hibob                            | HTTP                        | requests                                                        | ✅                          |
+| hightouch                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | honeybadger                      | HTTP                        | requests                                                        | ✅                          |
 | honeycomb                        | HTTP                        | requests                                                        | ✅                          |
 | hoorayhr                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -778,7 +779,6 @@ doesn't conflict with concurrent PRs.
 - heygen
 - hibob
 - high_level
-- hightouch
 - honeybadger
 - honeycomb
 - hubplanner
