@@ -43,6 +43,7 @@ import re
 import sys
 import json
 import argparse
+import traceback
 import subprocess
 from pathlib import Path
 
@@ -268,23 +269,30 @@ def _compute_result(args: argparse.Namespace) -> dict:
 
     Each step is tagged separately so telemetry points at the real cause — a git
     environment failure reads as ``git_diff_failed``, not ``map_load_failed`` — and
-    carries whatever counts were known by the time the failure hit."""
+    carries whatever counts were known by the time the failure hit. The category is
+    the low-cardinality bucket; the traceback (git's captured stderr, the unresolved
+    map target, the unforeseen bug) is printed to stderr so the CI step log keeps the
+    specific cause a category alone can't carry."""
     try:
         area_map = load_map(Path(args.map))
         all_specs = discover_specs(REPO_ROOT)
     except (OSError, ValueError):
+        traceback.print_exc(file=sys.stderr)
         return _error_result("map_load_failed")
 
     try:
         changed = changed_files_from_git(args.base_ref)
     except (subprocess.CalledProcessError, OSError):
+        traceback.print_exc(file=sys.stderr)
         return _error_result("git_diff_failed", total_spec_count=len(all_specs))
 
     try:
         return select(changed, area_map, all_specs)
     except MapError:
+        traceback.print_exc(file=sys.stderr)
         return _error_result("map_target_unresolved", changed, len(all_specs))
     except Exception:
+        traceback.print_exc(file=sys.stderr)
         return _error_result("unexpected_error", changed, len(all_specs))
 
 
