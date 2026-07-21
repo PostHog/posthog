@@ -86,6 +86,7 @@ PERMISSIONS = [
     "rak_credit_note_read",
     "rak_invoice_read",
     "rak_plan_read",  # This is `price` in the UI, but `plan` in their API
+    "rak_coupon_read",  # Coupons is an importable table and needs its own scope; refunds ride on charge_read
     "rak_subscription_read",
     "rak_application_fee_read",
     "rak_transfer_read",

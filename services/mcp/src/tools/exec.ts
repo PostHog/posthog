@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import { markExecPayload, buildToolResultPayload, estimateResponseTokens } from '@/lib/build-tool-result'
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
-import { ToolInputValidationError } from '@/lib/errors'
+import { findRecoverableApiError, PostHogApiError, ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { formatResponse } from '@/lib/response'
 
@@ -35,6 +35,11 @@ export interface ExecInnerCallProperties {
     success: boolean
     output_format: 'json' | 'text' | 'structured'
     error_message?: string
+    /**
+     * HTTP status when the failure was a typed PostHog API error — value-free,
+     * safe for consumers that must not forward raw error messages.
+     */
+    error_status?: number
     /** Input rejected by the tool's schema before dispatch — no handler ran. */
     validation_error?: boolean
     /**
@@ -191,6 +196,45 @@ export function formatInputValidationError(toolName: string, error: z.ZodError):
         return path ? `parameter "${path}": ${issue.message}` : issue.message
     })
     return `Invalid input for "${toolName}": ${[...new Set(parts)].join('; ')}`
+}
+
+/** Caps on what we record so a single failure can't blow up analytics cardinality. */
+const MAX_VALIDATION_DESCRIPTORS = 20
+const MAX_KEY_LENGTH = 64
+
+/**
+ * Derives a value-free descriptor of a validation failure for telemetry, so a
+ * contract regression (agents sending a field name the schema doesn't accept) is
+ * diagnosable from the `$mcp_tool_call` event alone — without ever recording the
+ * request payload.
+ *
+ * `fields` are the offending top-level field + issue code (e.g. `orgId:invalid_type`);
+ * for a union rejection the path is empty and it reads `(root):invalid_union`, which
+ * is why `inputKeys` — the top-level keys the caller actually sent — carries the real
+ * signal there (it surfaces the unaccepted alias, e.g. `organizationId`).
+ *
+ * Records only structural information (field names, issue codes). It never touches
+ * input VALUES: the ZodError embeds raw values in `issue.input` and `.message` (see
+ * `formatInputValidationError`), so we read `issue.path[0]`/`issue.code` and the
+ * input's own key names only.
+ */
+export function describeValidationError(
+    error: z.ZodError,
+    input: Record<string, unknown>
+): { fields: string[]; inputKeys: string[] } {
+    const fields = [
+        ...new Set(
+            error.issues.map((issue) => {
+                const top = issue.path.length ? String(issue.path[0]) : '(root)'
+                return `${top.slice(0, MAX_KEY_LENGTH)}:${issue.code}`
+            })
+        ),
+    ].slice(0, MAX_VALIDATION_DESCRIPTORS)
+    const inputKeys = Object.keys(input)
+        .sort()
+        .slice(0, MAX_VALIDATION_DESCRIPTORS)
+        .map((key) => key.slice(0, MAX_KEY_LENGTH))
+    return { fields, inputKeys }
 }
 
 /** Whether the tool's input schema declares an `output_format` field. */
@@ -511,8 +555,10 @@ export function createExecTool(
                             validation_error: true,
                         })
                         // Typed so the executor's catch skips exception capture and
-                        // classifies it as `validation`, not `internal`.
-                        throw new ToolInputValidationError(message)
+                        // classifies it as `validation`, not `internal`. The value-free
+                        // descriptor rides along so the errored `$mcp_tool_call` records
+                        // which field/alias was rejected — without the payload.
+                        throw new ToolInputValidationError(message, describeValidationError(validation.error, input))
                     }
                     input = validation.data as Record<string, unknown>
 
@@ -521,11 +567,16 @@ export function createExecTool(
                     try {
                         result = await tool.handler(context, input)
                     } catch (err) {
+                        // PostHogValidationError is the API's 400 validation_error body.
+                        const apiError = findRecoverableApiError(err)
                         trackInnerCall?.(tool.name, {
                             duration_ms: Date.now() - startedAt,
                             success: false,
                             output_format: useJson ? 'json' : 'text',
                             error_message: err instanceof Error ? err.message : String(err),
+                            ...(apiError
+                                ? { error_status: apiError instanceof PostHogApiError ? apiError.status : 400 }
+                                : {}),
                             input,
                         })
                         throw err

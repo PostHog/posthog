@@ -3,12 +3,14 @@ import { createExampleInvocation } from '~/cdp/_tests/fixtures'
 import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
 import { logger } from '~/common/utils/logger'
 import { UUIDT } from '~/common/utils/utils'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
+import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
 import { RecipientPreferencesService } from './recipient-preferences.service'
 import { RecipientTokensService } from './recipient-tokens.service'
 
@@ -19,6 +21,7 @@ describe('RecipientPreferencesService', () => {
     let team: Team
     let service: RecipientPreferencesService
     let mockRecipientsManager: RecipientsManagerService
+    let mockEmailSuppressionService: EmailSuppressionService
     let mockRecipientsManagerGet: jest.SpyInstance
     let mockRecipientsManagerGetPreference: jest.SpyInstance
     let mockRecipientsManagerGetAllMarketingMessagingPreference: jest.SpyInstance
@@ -35,7 +38,8 @@ describe('RecipientPreferencesService', () => {
             'getAllMarketingMessagingPreference'
         )
 
-        service = new RecipientPreferencesService(mockRecipientsManager)
+        mockEmailSuppressionService = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+        service = new RecipientPreferencesService(mockRecipientsManager, mockEmailSuppressionService)
     })
 
     afterEach(async () => {
@@ -340,6 +344,126 @@ describe('RecipientPreferencesService', () => {
 
                 expect(result).toBe(false)
                 expect(mockRecipientsManagerGetAllMarketingMessagingPreference).toHaveBeenCalledWith(recipient)
+            })
+
+            describe('when the recipient is on the suppression list (enforce enabled)', () => {
+                // EmailSuppressionService reads EMAIL_SUPPRESSION_ENFORCE_ENABLED once in its
+                // constructor, so we flip the env then rebuild both services so the fresh instance
+                // reads it. Suppression is a deliverability signal that must apply even to
+                // transactional messages — the parameterized case guards that ordering.
+                let originalEnforceEnv: string | undefined
+
+                beforeEach(() => {
+                    originalEnforceEnv = process.env.EMAIL_SUPPRESSION_ENFORCE_ENABLED
+                    process.env.EMAIL_SUPPRESSION_ENFORCE_ENABLED = 'true'
+                    mockEmailSuppressionService = new EmailSuppressionService(
+                        hub.postgres,
+                        emailSuppressionConfigFromEnv()
+                    )
+                    service = new RecipientPreferencesService(mockRecipientsManager, mockEmailSuppressionService)
+                })
+
+                afterEach(() => {
+                    if (originalEnforceEnv === undefined) {
+                        delete process.env.EMAIL_SUPPRESSION_ENFORCE_ENABLED
+                    } else {
+                        process.env.EMAIL_SUPPRESSION_ENFORCE_ENABLED = originalEnforceEnv
+                    }
+                })
+
+                const insertSuppressionRow = async (email: string): Promise<void> => {
+                    await hub.postgres.query(
+                        PostgresUse.COMMON_WRITE,
+                        `INSERT INTO posthog_messagesuppression
+                            (id, team_id, identifier, source, reason, transient_bounce_count,
+                             suppressed, suppressed_at, deleted, created_at, updated_at)
+                         VALUES (gen_random_uuid(), $1, $2, 'BOUNCE', 'test row', 5,
+                             true, NOW(), false, NOW(), NOW())`,
+                        [team.id, email],
+                        'test-insert-suppression'
+                    )
+                }
+
+                it.each([
+                    ['marketing', 'marketing' as const],
+                    ['transactional', 'transactional' as const],
+                ])('skips a %s email to a suppressed recipient', async (_label, categoryType) => {
+                    const email = `suppressed-${categoryType}@example.com`
+                    await insertSuppressionRow(email)
+                    const action = createEmailAction(email, '123e4567-e89b-12d3-a456-426614174000', categoryType)
+                    const invocation = createFunctionStepInvocation(action)
+
+                    const result = await service.shouldSkipAction(invocation, action)
+
+                    expect(result).toBe(true)
+                })
+
+                // A suppressed address placed in cc or bcc must still block the send, because SES
+                // delivers to every recipient list, not just `to`.
+                it.each([
+                    ['cc', 'suppressed-cc@example.com', 'suppressed-cc@example.com'],
+                    ['bcc', 'suppressed-bcc@example.com', 'suppressed-bcc@example.com'],
+                    [
+                        'cc RFC-822 bracketed',
+                        'suppressed-name@example.com',
+                        '"Blocked User" <suppressed-name@example.com>',
+                    ],
+                    [
+                        'bcc mixed comma-separated list',
+                        'suppressed-mixed@example.com',
+                        'ok@example.com, suppressed-mixed@example.com, other@example.com',
+                    ],
+                ] as const)(
+                    'skips when a suppressed address appears in %s',
+                    async (field, suppressedEmail, headerValue) => {
+                        await insertSuppressionRow(suppressedEmail)
+                        const action = createEmailAction(
+                            'legit-to@example.com',
+                            '123e4567-e89b-12d3-a456-426614174000',
+                            'marketing'
+                        )
+                        const invocation = createFunctionStepInvocation(action)
+                        // Inject the cc/bcc into the resolved invocation inputs (this is what the
+                        // executor sees at send time after template resolution).
+                        const emailInputs = invocation.state.globals!.inputs!.email as {
+                            to: { email: string }
+                            cc?: string
+                            bcc?: string
+                        }
+                        if (field.startsWith('cc')) {
+                            emailInputs.cc = headerValue
+                        } else {
+                            emailInputs.bcc = headerValue
+                        }
+
+                        const result = await service.shouldSkipAction(invocation, action)
+
+                        expect(result).toBe(true)
+                    }
+                )
+
+                it('does not skip when cc/bcc contain only non-suppressed addresses', async () => {
+                    // Sanity check: the CC/BCC scan must not over-suppress. `to` is not suppressed
+                    // and cc/bcc contain unrelated addresses → fall through to the opt-out path.
+                    const action = createEmailAction(
+                        'legit-to@example.com',
+                        '123e4567-e89b-12d3-a456-426614174000',
+                        'marketing'
+                    )
+                    const invocation = createFunctionStepInvocation(action)
+                    const emailInputs = invocation.state.globals!.inputs!.email as {
+                        to: { email: string }
+                        cc?: string
+                        bcc?: string
+                    }
+                    emailInputs.cc = 'ok1@example.com, ok2@example.com'
+                    emailInputs.bcc = 'ok3@example.com'
+                    mockRecipientsManagerGet.mockResolvedValue(null)
+
+                    const result = await service.shouldSkipAction(invocation, action)
+
+                    expect(result).toBe(false)
+                })
             })
         })
 
