@@ -175,6 +175,14 @@ def test_semantic_metadata_queried(
             0.0,
         ),
         (
+            "regional_mcp_before_catalog",
+            [
+                ("mcp__posthog_us__exec", {"command": "SELECT count() FROM events"}, "completed"),
+                ("execute-sql", {"query": CATALOG_QUERY}, "completed"),
+            ],
+            0.0,
+        ),
+        (
             "failed_catalog_does_not_unlock",
             [
                 ("execute-sql", {"query": CATALOG_QUERY}, "failed"),
@@ -257,6 +265,16 @@ def test_metrics_catalog_before_data_discovery(
                 ("data-catalog-metric-run", {"name": METRIC_NAME}, "failed"),
             ],
             {"metric_name": METRIC_NAME, "outcome": "succeeded"},
+            0.0,
+        ),
+        (
+            "mixed_outcomes_do_not_pass",
+            [
+                ("execute-sql", {"query": CATALOG_QUERY}, "completed"),
+                ("data-catalog-metric-run", {"name": METRIC_NAME}, "failed"),
+                ("data-catalog-metric-run", {"name": METRIC_NAME}, "completed"),
+            ],
+            {"metric_name": METRIC_NAME, "outcome": "failed"},
             0.0,
         ),
         (
