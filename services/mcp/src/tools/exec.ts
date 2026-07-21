@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import { markExecPayload, buildToolResultPayload, estimateResponseTokens } from '@/lib/build-tool-result'
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
-import { ToolInputValidationError } from '@/lib/errors'
+import { findRecoverableApiError, PostHogApiError, ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { formatResponse } from '@/lib/response'
 
@@ -35,6 +35,11 @@ export interface ExecInnerCallProperties {
     success: boolean
     output_format: 'json' | 'text' | 'structured'
     error_message?: string
+    /**
+     * HTTP status when the failure was a typed PostHog API error — value-free,
+     * safe for consumers that must not forward raw error messages.
+     */
+    error_status?: number
     /** Input rejected by the tool's schema before dispatch — no handler ran. */
     validation_error?: boolean
     /**
@@ -562,11 +567,16 @@ export function createExecTool(
                     try {
                         result = await tool.handler(context, input)
                     } catch (err) {
+                        // PostHogValidationError is the API's 400 validation_error body.
+                        const apiError = findRecoverableApiError(err)
                         trackInnerCall?.(tool.name, {
                             duration_ms: Date.now() - startedAt,
                             success: false,
                             output_format: useJson ? 'json' : 'text',
                             error_message: err instanceof Error ? err.message : String(err),
+                            ...(apiError
+                                ? { error_status: apiError instanceof PostHogApiError ? apiError.status : 400 }
+                                : {}),
                             input,
                         })
                         throw err
