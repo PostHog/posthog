@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken'
 
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
+import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
 
 import {
@@ -54,18 +55,19 @@ describe('IntegrationGatewayService', () => {
         it('mints a team-scoped token and normalizes missing ids to null', async () => {
             mockInternalFetch.mockResolvedValue({
                 status: 200,
-                json: async () => ({
-                    integrations: {
-                        '1': {
-                            id: 1,
-                            team_id: 42,
-                            kind: 'slack',
-                            config: {},
-                            sensitive_config: { access_token: 'tok' },
+                json: () =>
+                    Promise.resolve({
+                        integrations: {
+                            '1': {
+                                id: 1,
+                                team_id: 42,
+                                kind: 'slack',
+                                config: {},
+                                sensitive_config: { access_token: 'tok' },
+                            },
                         },
-                    },
-                }),
-                dump: async () => {},
+                    }),
+                dump: () => Promise.resolve(),
             })
 
             const result = await new IntegrationGatewayService(config('*')).fetchMany([1, 2], 42)
@@ -76,7 +78,7 @@ describe('IntegrationGatewayService', () => {
 
             const [url, opts] = mockInternalFetch.mock.calls[0]
             expect(url).toBe('http://gw:3350/api/v1/credentials/fetch')
-            expect(JSON.parse(opts.body)).toEqual({ integration_ids: [1, 2] })
+            expect(parseJSON(opts.body)).toEqual({ integration_ids: [1, 2] })
 
             const token = (opts.headers.Authorization as string).replace('Bearer ', '')
             // nosemgrep: javascript.jsonwebtoken.security.jwt-hardcode.hardcoded-jwt-secret
@@ -88,7 +90,11 @@ describe('IntegrationGatewayService', () => {
         })
 
         it('throws on a non-200 so the manager falls back to Postgres', async () => {
-            mockInternalFetch.mockResolvedValue({ status: 503, json: async () => ({}), dump: async () => {} })
+            mockInternalFetch.mockResolvedValue({
+                status: 503,
+                json: () => Promise.resolve({}),
+                dump: () => Promise.resolve(),
+            })
             await expect(new IntegrationGatewayService(config('*')).fetchMany([1], 42)).rejects.toThrow('503')
         })
     })
