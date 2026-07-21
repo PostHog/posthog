@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconSparkles } from '@posthog/icons'
-import { LemonTabs } from '@posthog/lemon-ui'
+import { LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -162,6 +162,71 @@ export function ExperimentView(): JSX.Element {
         return <LegacyExperimentView />
     }
 
+    const tabs: LemonTab<string>[] = [
+        {
+            key: 'settings',
+            label: 'Settings',
+            content: <SettingsTab />,
+        },
+        {
+            key: 'metrics',
+            label: 'Metrics',
+            content: <MetricsTab />,
+        },
+        // Both AI analysis actions require a launched experiment with primary metrics
+        ...(isExperimentLaunched && orderedPrimaryMetricsWithResults.length > 0
+            ? [
+                  {
+                      key: 'ai_analysis',
+                      label: (
+                          <div className="flex items-center gap-1">
+                              <IconSparkles />
+                              <span>AI analysis</span>
+                          </div>
+                      ),
+                      content: <AiAnalysisTab />,
+                  },
+              ]
+            : []),
+        ...(featureFlags[FEATURE_FLAGS.EXPERIMENT_RECORDINGS_TAB]
+            ? [
+                  {
+                      key: 'recordings',
+                      label: 'Recordings',
+                      content: <ExperimentReplayTab experiment={experiment} />,
+                  },
+              ]
+            : []),
+        ...(!isExperimentDraft
+            ? [
+                  {
+                      key: 'code',
+                      label: 'Code',
+                      content: <CodeTab />,
+                  },
+              ]
+            : []),
+        {
+            key: 'variants',
+            label: 'Variants',
+            content: <VariantsTab />,
+        },
+        {
+            key: 'history',
+            label: 'History',
+            content: <ActivityLog scope={ActivityScope.EXPERIMENT} id={experimentId} />,
+        },
+        ...(experiment.feature_flag
+            ? [
+                  {
+                      key: 'feedback',
+                      label: 'User feedback',
+                      content: <ExperimentFeedbackTab experiment={experiment} />,
+                  },
+              ]
+            : []),
+    ]
+
     return (
         <SceneContent>
             <PageHeaderCustom />
@@ -187,73 +252,11 @@ export function ExperimentView(): JSX.Element {
                     <Info />
                     <ExperimentHeader />
                     <LemonTabs
-                        activeKey={activeTabKey}
+                        // Fall back to the default tab if the active one is conditionally hidden
+                        activeKey={tabs.some((tab) => tab.key === activeTabKey) ? activeTabKey : 'metrics'}
                         onChange={(key) => setActiveTabKey(key)}
                         sceneInset
-                        tabs={[
-                            {
-                                key: 'settings',
-                                label: 'Settings',
-                                content: <SettingsTab />,
-                            },
-                            {
-                                key: 'metrics',
-                                label: 'Metrics',
-                                content: <MetricsTab />,
-                            },
-                            // Both AI analysis actions require a launched experiment with primary metrics
-                            ...(isExperimentLaunched && orderedPrimaryMetricsWithResults.length > 0
-                                ? [
-                                      {
-                                          key: 'ai_analysis',
-                                          label: (
-                                              <div className="flex items-center gap-1">
-                                                  <IconSparkles />
-                                                  <span>AI analysis</span>
-                                              </div>
-                                          ),
-                                          content: <AiAnalysisTab />,
-                                      },
-                                  ]
-                                : []),
-                            ...(featureFlags[FEATURE_FLAGS.EXPERIMENT_RECORDINGS_TAB]
-                                ? [
-                                      {
-                                          key: 'recordings',
-                                          label: 'Recordings',
-                                          content: <ExperimentReplayTab experiment={experiment} />,
-                                      },
-                                  ]
-                                : []),
-                            ...(!isExperimentDraft
-                                ? [
-                                      {
-                                          key: 'code',
-                                          label: 'Code',
-                                          content: <CodeTab />,
-                                      },
-                                  ]
-                                : []),
-                            {
-                                key: 'variants',
-                                label: 'Variants',
-                                content: <VariantsTab />,
-                            },
-                            {
-                                key: 'history',
-                                label: 'History',
-                                content: <ActivityLog scope={ActivityScope.EXPERIMENT} id={experimentId} />,
-                            },
-                            ...(experiment.feature_flag
-                                ? [
-                                      {
-                                          key: 'feedback',
-                                          label: 'User feedback',
-                                          content: <ExperimentFeedbackTab experiment={experiment} />,
-                                      },
-                                  ]
-                                : []),
-                        ]}
+                        tabs={tabs}
                     />
 
                     {/* Modern experiment modals */}
