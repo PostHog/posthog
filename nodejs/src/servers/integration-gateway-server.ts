@@ -5,7 +5,12 @@ import { EncryptedFields } from '~/common/utils/encryption-utils'
 import { logger } from '~/common/utils/logger'
 import { GatewayAuth } from '~/integration-gateway/auth'
 import { CredentialCache } from '~/integration-gateway/cache'
-import { IntegrationGatewayConfig, getDefaultIntegrationGatewayConfig, splitCsv } from '~/integration-gateway/config'
+import {
+    IntegrationGatewayConfig,
+    getDefaultIntegrationGatewayConfig,
+    parseRefreshTeams,
+    splitCsv,
+} from '~/integration-gateway/config'
 import { IntegrationService } from '~/integration-gateway/integration.service'
 import { RefreshManager } from '~/integration-gateway/refresh/manager'
 import { IntegrationRepository } from '~/integration-gateway/repository'
@@ -65,18 +70,31 @@ export class IntegrationGatewayServer implements NodeServer {
             this.config.INTEGRATION_GATEWAY_CACHE_MAX_CAPACITY
         )
 
-        // Token refresh is opt-in per kind; when disabled we never even connect to Redis and
-        // Django's beat owns all refresh.
+        // Token refresh is opt-in per (kind, team): a kind must be in REFRESH_KINDS (capability) and
+        // the row's team in REFRESH_TEAMS (rollout). If either is empty no row is ever owned, so we
+        // never even connect to Redis and Django's beat owns all refresh.
         const refreshKinds = splitCsv(this.config.INTEGRATION_GATEWAY_REFRESH_KINDS)
+        const refreshTeams = parseRefreshTeams(this.config.INTEGRATION_GATEWAY_REFRESH_TEAMS)
+        const refreshTeamsEmpty = refreshTeams !== '*' && refreshTeams.size === 0
         let refreshManager: RefreshManager | null = null
-        if (refreshKinds.length > 0) {
+        if (refreshKinds.length > 0 && !refreshTeamsEmpty) {
             this.redisPool = createRedisPoolFromConfig({
                 connection: { url: this.config.REDIS_URL, name: 'integration-gateway-refresh' },
                 poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
                 poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
             })
-            refreshManager = new RefreshManager(repository, encryptedFields, this.redisPool, this.config, refreshKinds)
-            logger.info('🔑', '[integration-gateway] just-in-time token refresh enabled', { kinds: refreshKinds })
+            refreshManager = new RefreshManager(
+                repository,
+                encryptedFields,
+                this.redisPool,
+                this.config,
+                refreshKinds,
+                refreshTeams
+            )
+            logger.info('🔑', '[integration-gateway] just-in-time token refresh enabled', {
+                kinds: refreshKinds,
+                teams: refreshTeams === '*' ? '*' : [...refreshTeams],
+            })
         }
 
         const service = new IntegrationService(repository, encryptedFields, cache, refreshManager)

@@ -166,6 +166,12 @@ INTEGRATION_GATEWAY_JWT_SECRET = get_from_env(
     "INTEGRATION_GATEWAY_JWT_SECRET",
     LOCAL_DEV_INTEGRATION_GATEWAY_JWT_SECRET if DEBUG or TEST else "",
 )
-# Integration kinds whose OAuth refresh is owned by the gateway (comma-separated). Excluded from the
-# Celery refresh_integrations beat so exactly one system refreshes each kind.
+# Integration kinds the gateway is capable of refreshing (comma-separated) — the shared capability
+# contract with the gateway's providerFor (hubspot, salesforce, google-*).
 INTEGRATION_GATEWAY_REFRESH_KINDS = get_list(get_from_env("INTEGRATION_GATEWAY_REFRESH_KINDS", ""))
+# Team ids whose OAuth refresh is owned by the gateway (comma-separated), or "*" for all teams. The
+# rollout gate: a row is refreshed by the gateway (and excluded from the Celery beat below) only when
+# its kind is in INTEGRATION_GATEWAY_REFRESH_KINDS AND its team is here. Gating by team — not by kind
+# alone — lets us move refresh over one team at a time and never leaves an out-of-rollout team without
+# a refresher. Empty => the gateway owns no refresh and the beat handles everything (dark by default).
+INTEGRATION_GATEWAY_REFRESH_TEAMS = get_list(get_from_env("INTEGRATION_GATEWAY_REFRESH_TEAMS", ""))

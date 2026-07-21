@@ -2,6 +2,7 @@ import { EncryptedFields } from '~/common/utils/encryption-utils'
 import { fetch } from '~/common/utils/request'
 import { RedisPool } from '~/types'
 
+import { RefreshTeamGate } from '../config'
 import { IntegrationRepository } from '../repository'
 import { IntegrationRow } from '../types'
 import { nowSecs } from './expiry'
@@ -51,6 +52,7 @@ function setup(
         rowOverrides?: Partial<IntegrationRow>
         lockResult?: 'OK' | null
         config?: Partial<RefreshManagerConfig>
+        ownedTeams?: RefreshTeamGate
     } = {}
 ) {
     const encryptedFields = new EncryptedFields(SALT)
@@ -76,9 +78,42 @@ function setup(
         acquire: jest.fn().mockResolvedValue(client),
         release: jest.fn().mockResolvedValue(undefined),
     } as unknown as RedisPool
-    const manager = new RefreshManager(repository, encryptedFields, redisPool, makeConfig(opts.config), ['hubspot'])
+    const manager = new RefreshManager(
+        repository,
+        encryptedFields,
+        redisPool,
+        makeConfig(opts.config),
+        ['hubspot'],
+        opts.ownedTeams ?? '*'
+    )
     return { manager, repository, encryptedFields, row, client }
 }
+
+describe('RefreshManager.owns', () => {
+    it('owns a configured kind for any team when the team gate is "*"', () => {
+        const { manager } = setup({ ownedTeams: '*' })
+        expect(manager.owns('hubspot', 2)).toBe(true)
+        expect(manager.owns('hubspot', 999)).toBe(true)
+    })
+
+    it('owns a configured kind only for teams in the allowlist', () => {
+        const { manager } = setup({ ownedTeams: new Set([2, 7]) })
+        expect(manager.owns('hubspot', 2)).toBe(true)
+        expect(manager.owns('hubspot', 7)).toBe(true)
+        // Out-of-rollout team => not owned, so Django's beat keeps refreshing it.
+        expect(manager.owns('hubspot', 3)).toBe(false)
+    })
+
+    it('never owns a kind outside the capability set, even for an allowlisted team', () => {
+        const { manager } = setup({ ownedTeams: '*' })
+        expect(manager.owns('slack', 2)).toBe(false)
+    })
+
+    it('owns nothing when the team allowlist is empty', () => {
+        const { manager } = setup({ ownedTeams: new Set() })
+        expect(manager.owns('hubspot', 2)).toBe(false)
+    })
+})
 
 describe('RefreshManager', () => {
     it('refreshes an expired token, re-encrypting the new tokens and writing them back', async () => {

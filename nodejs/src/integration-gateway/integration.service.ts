@@ -49,30 +49,35 @@ export class IntegrationService {
         if (misses.length > 0) {
             const rows = await this.repository.fetchByIds(misses)
             dbLoaded = rows.length
-            for (let row of rows) {
-                // Team-scope BEFORE any refresh/decrypt/cache. Skipping cross-team rows here (rather
-                // than only filtering at the end) ensures a wrong-team caller can never trigger a
-                // refresh — an outbound OAuth call plus a DB write — against another team's integration.
-                if (row.team_id !== teamId) {
-                    continue
-                }
-                // Just-in-time refresh for owned kinds before decrypt/cache, so a stale token is
-                // never cached. No-op when refresh is disabled, the kind isn't owned, the token is
-                // still fresh, or the refresh fails (fail-open).
-                if (this.refresh?.owns(row.kind)) {
-                    row = await this.refresh.refresh(row)
-                }
-                const decrypted: DecryptedIntegration = {
-                    id: row.id,
-                    team_id: row.team_id,
-                    kind: row.kind,
-                    config: row.config,
-                    sensitive_config: this.encryptedFields.decryptObject(row.sensitive_config, {
-                        ignoreDecryptionErrors: true,
-                    }),
-                }
-                this.cache.insert(row.id, decrypted)
-                resolved.set(row.id, decrypted)
+            // Team-scope BEFORE any refresh/decrypt/cache. Skipping cross-team rows here (rather
+            // than only filtering at the end) ensures a wrong-team caller can never trigger a
+            // refresh — an outbound OAuth call plus a DB write — against another team's integration.
+            const ownRows = rows.filter((row) => row.team_id === teamId)
+            // Process misses concurrently: each row's JIT refresh is an independent outbound OAuth
+            // call (Redis-locked per integration), so a batch of stale rows refreshes in parallel
+            // rather than serially inflating latency with the number of stale rows.
+            const decryptedRows = await Promise.all(
+                ownRows.map(async (row) => {
+                    // No-op when refresh is disabled, the kind/team isn't owned, the token is still
+                    // fresh, or the refresh fails (fail-open) — so a stale token is never cached.
+                    if (this.refresh?.owns(row.kind, row.team_id)) {
+                        row = await this.refresh.refresh(row)
+                    }
+                    const decrypted: DecryptedIntegration = {
+                        id: row.id,
+                        team_id: row.team_id,
+                        kind: row.kind,
+                        config: row.config,
+                        sensitive_config: this.encryptedFields.decryptObject(row.sensitive_config, {
+                            ignoreDecryptionErrors: true,
+                        }),
+                    }
+                    return decrypted
+                })
+            )
+            for (const decrypted of decryptedRows) {
+                this.cache.insert(decrypted.id, decrypted)
+                resolved.set(decrypted.id, decrypted)
             }
         }
 

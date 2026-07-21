@@ -4,8 +4,11 @@ from typing import Optional
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import override_settings
+
 from parameterized import parameterized
 
+from posthog.models import Team
 from posthog.models.integration import Integration
 from posthog.tasks.integrations import refresh_integration, refresh_integrations
 
@@ -58,6 +61,50 @@ class TestIntegrationsTasks(APIBaseTest):
             refresh_integrations()
 
         assert refresh_integration_mock.call_args_list == [((eligible.id,),), ((backoff_elapsed.id,),)]
+
+    @override_settings(INTEGRATION_GATEWAY_REFRESH_KINDS=["hubspot"], INTEGRATION_GATEWAY_REFRESH_TEAMS=[])
+    def test_gateway_owns_nothing_when_no_teams_configured(self) -> None:
+        # Kinds set but no teams => the gateway owns nothing, so the beat still refreshes everything.
+        expired = {"refreshed_at": time.time() - 3600}
+        hubspot = self.create_integration("hubspot", config=expired)
+
+        with patch("posthog.tasks.integrations.refresh_integration.delay") as refresh_integration_mock:
+            refresh_integrations()
+
+        assert refresh_integration_mock.call_args_list == [((hubspot.id,),)]
+
+    @override_settings(INTEGRATION_GATEWAY_REFRESH_KINDS=["hubspot"], INTEGRATION_GATEWAY_REFRESH_TEAMS=["*"])
+    def test_gateway_owns_configured_kind_for_all_teams(self) -> None:
+        expired = {"refreshed_at": time.time() - 3600}
+        _hubspot = self.create_integration("hubspot", config=expired)  # gateway-owned => excluded
+        slack = self.create_integration("slack", config=expired)  # kind not gateway-owned => beat refreshes
+
+        with patch("posthog.tasks.integrations.refresh_integration.delay") as refresh_integration_mock:
+            refresh_integrations()
+
+        assert refresh_integration_mock.call_args_list == [((slack.id,),)]
+
+    def test_gateway_owns_configured_kind_only_for_rolled_out_teams(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Team 2")
+        expired = {"refreshed_at": time.time() - 3600}
+        _mine = self.create_integration("hubspot", config=expired)  # my team is rolled out => excluded
+        theirs = Integration.objects.create(
+            team=other_team,
+            kind="hubspot",
+            config={"refreshed_at": time.time() - 3600, "expires_in": 3600},
+            sensitive_config={"refresh_token": "REFRESH"},
+        )  # out-of-rollout team keeps its beat refresher
+        slack = self.create_integration("slack", config=expired)  # kind not gateway-owned => beat refreshes
+
+        with override_settings(
+            INTEGRATION_GATEWAY_REFRESH_KINDS=["hubspot"],
+            INTEGRATION_GATEWAY_REFRESH_TEAMS=[str(self.team.id)],
+        ):
+            with patch("posthog.tasks.integrations.refresh_integration.delay") as refresh_integration_mock:
+                refresh_integrations()
+
+        scheduled = {call.args[0] for call in refresh_integration_mock.call_args_list}
+        assert scheduled == {theirs.id, slack.id}
 
     def test_refresh_integration_skips_when_backed_off(self) -> None:
         integration = self.create_integration(

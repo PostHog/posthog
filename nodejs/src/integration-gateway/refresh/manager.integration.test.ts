@@ -91,7 +91,7 @@ describe('RefreshManager (real DB + Redis + mock OAuth)', () => {
 
     it('refreshes an expired token end-to-end: calls the provider, re-encrypts, and persists', async () => {
         const integration = await seedExpiredHubspot()
-        const manager = new RefreshManager(repository, encryptedFields, hub.redisPool, config(), ['hubspot'])
+        const manager = new RefreshManager(repository, encryptedFields, hub.redisPool, config(), ['hubspot'], '*')
 
         const row = (await repository.fetchOne(integration.id))!
         const updated = await manager.refresh(row)
@@ -120,7 +120,7 @@ describe('RefreshManager (real DB + Redis + mock OAuth)', () => {
 
     it('honors the real Redis single-flight lock: a held lock skips the refresh', async () => {
         const integration = await seedExpiredHubspot()
-        const manager = new RefreshManager(repository, encryptedFields, hub.redisPool, config(), ['hubspot'])
+        const manager = new RefreshManager(repository, encryptedFields, hub.redisPool, config(), ['hubspot'], '*')
         const row = (await repository.fetchOne(integration.id))!
 
         // Pre-hold the lock so the manager observes it as taken.

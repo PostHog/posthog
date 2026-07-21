@@ -99,6 +99,9 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_INTEGRATION_GATEWAY_URL: string
     CDP_INTEGRATION_GATEWAY_JWT_SECRET: string
     CDP_INTEGRATION_GATEWAY_ROLLOUT: string
+    // Hot-path timeout for the gateway credential fetch. Kept short so a degraded gateway fails fast
+    // to the Postgres fallback instead of every read paying the long default external-request timeout.
+    CDP_INTEGRATION_GATEWAY_TIMEOUT_MS: number
     CDP_FETCH_RETRIES: number
     CDP_FETCH_BACKOFF_BASE_MS: number
     CDP_FETCH_BACKOFF_MAX_MS: number
@@ -259,6 +262,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_INTEGRATION_GATEWAY_URL: '',
         CDP_INTEGRATION_GATEWAY_JWT_SECRET: isDevEnv() || isTestEnv() ? 'integration-gateway-dev-secret' : '',
         CDP_INTEGRATION_GATEWAY_ROLLOUT: '',
+        CDP_INTEGRATION_GATEWAY_TIMEOUT_MS: 3000,
         CDP_FETCH_RETRIES: 3,
         CDP_FETCH_BACKOFF_BASE_MS: 1000,
         CDP_FETCH_BACKOFF_MAX_MS: 30000,
