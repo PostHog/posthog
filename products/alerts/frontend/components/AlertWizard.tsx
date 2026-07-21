@@ -81,7 +81,20 @@ export function AlertWizard({
     }
 
     return (
-        <div className="flex flex-col min-h-0 flex-1 overflow-hidden">
+        <div
+            className="flex flex-col min-h-0 flex-1 overflow-hidden"
+            onKeyDown={(event) => {
+                if (
+                    event.key === 'Enter' &&
+                    !event.nativeEvent.isComposing &&
+                    !isLast &&
+                    event.target instanceof HTMLInputElement
+                ) {
+                    event.preventDefault()
+                    goNext()
+                }
+            }}
+        >
             <header className="border-b p-4">
                 <AlertEditorHeader title={title} onBack={onBack} />
                 <nav aria-label="Alert setup progress" className="mt-3">

@@ -25,6 +25,23 @@ export const rescaleThresholdBound = (value: number | undefined, toType: Insight
     return toType === InsightThresholdType.PERCENTAGE ? roundPercent(value / 100) : roundPercent(value * 100)
 }
 
+export function thresholdForUnitChange(
+    configuration: InsightThreshold,
+    targetType: InsightThresholdType
+): InsightThreshold {
+    if (configuration.type === targetType) {
+        return configuration
+    }
+
+    return {
+        type: targetType,
+        bounds: {
+            lower: rescaleThresholdBound(configuration.bounds?.lower, targetType),
+            upper: rescaleThresholdBound(configuration.bounds?.upper, targetType),
+        },
+    }
+}
+
 export function thresholdForConditionChange(
     configuration: InsightThreshold,
     conditionType: AlertConditionType,
@@ -41,11 +58,5 @@ export function thresholdForConditionChange(
         return configuration
     }
 
-    return {
-        type: targetType,
-        bounds: {
-            lower: rescaleThresholdBound(configuration.bounds?.lower, targetType),
-            upper: rescaleThresholdBound(configuration.bounds?.upper, targetType),
-        },
-    }
+    return thresholdForUnitChange(configuration, targetType)
 }

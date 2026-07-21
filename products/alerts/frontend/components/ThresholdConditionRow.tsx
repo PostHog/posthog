@@ -11,6 +11,7 @@ import {
     fractionToPercentInput,
     inputToStoredBound,
     thresholdForConditionChange,
+    thresholdForUnitChange,
 } from 'products/alerts/frontend/logic/thresholdPercent'
 import { isFunnelsAlertConfig } from 'products/alerts/frontend/types'
 
@@ -106,11 +107,16 @@ export function ThresholdConditionRow({
                     </LemonField>
                 </Group>
                 {!isFunnelAlert && isRelative && (
-                    <Group name={['threshold', 'configuration']}>
-                        <LemonField name="type">
-                            <LemonSegmentedButton size="small" options={UNIT_OPTIONS} />
-                        </LemonField>
-                    </Group>
+                    <LemonSegmentedButton
+                        size="small"
+                        value={alertForm.threshold.configuration.type}
+                        options={UNIT_OPTIONS}
+                        onChange={(newType) =>
+                            onSetAlertFormValue('threshold', {
+                                configuration: thresholdForUnitChange(alertForm.threshold.configuration, newType),
+                            })
+                        }
+                    />
                 )}
             </div>
 

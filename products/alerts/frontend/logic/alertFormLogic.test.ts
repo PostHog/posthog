@@ -194,6 +194,24 @@ describe('alertFormLogic', () => {
         }
     )
 
+    it.each([
+        ['legacy', 'legacy' as const, '', {}],
+        ['redesigned', 'redesigned' as const, 'Weekly signups alert', { upper: 1 }],
+    ])('keeps %s creation defaults scoped to its UI', (_name, uiVersion, expectedName, expectedBounds) => {
+        const logic = alertFormLogic({
+            alert: null,
+            insightId: 42,
+            onEditSuccess: jest.fn(),
+            insightVizDataLogicProps: insightLogicProps,
+            insightName: 'Weekly signups',
+            uiVersion,
+        })
+        logic.mount()
+
+        expect(logic.values.alertForm.name).toBe(expectedName)
+        expect(logic.values.alertForm.threshold.configuration.bounds).toEqual(expectedBounds)
+    })
+
     it('shows success toast and no error toast when create succeeds', async () => {
         const logic = mountForm()
 

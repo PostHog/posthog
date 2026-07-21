@@ -32,6 +32,7 @@ import { buildAlertSummary } from 'products/alerts/frontend/components/alertSumm
 import { AlertWizard } from 'products/alerts/frontend/components/AlertWizard'
 import { ThresholdConditionRow } from 'products/alerts/frontend/components/ThresholdConditionRow'
 import { isSubDailyAlertInterval } from 'products/alerts/frontend/logic/alertIntervalHelpers'
+import { quietHoursFormError } from 'products/alerts/frontend/logic/scheduleRestrictionValidation'
 import { deriveAlertCheckPreviewSeries } from 'products/alerts/frontend/logic/trendsAlertPreview'
 import { InsightAlertNotificationSection } from 'products/alerts/frontend/views/InsightAlertNotificationSection'
 
@@ -354,6 +355,7 @@ export function EditAlertModalV2({
         />
     )
     const nameError = alertFormSubmitAttempted && !alertForm.name ? 'Enter an alert name.' : undefined
+    const scheduleRestrictionFormError = quietHoursFormError(alertForm.schedule_restriction)
 
     return (
         <LemonModal onClose={handleClose} isOpen={isOpen} width={900} simple title="">
@@ -383,6 +385,7 @@ export function EditAlertModalV2({
                                 advancedNode,
                                 summary,
                                 thresholdBoundsFormError,
+                                scheduleRestrictionFormError,
                                 alertFormHasErrors,
                                 alertName: alertForm.name,
                             })}

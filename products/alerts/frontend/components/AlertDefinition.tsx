@@ -23,15 +23,19 @@ export function AlertDefinitionRow({ label, children, className }: AlertDefiniti
 }
 
 export function AlertStateIndicator({ alert }: { alert: AlertType }): JSX.Element {
+    if (!alert.enabled) {
+        return <LemonTag type="muted">Disabled</LemonTag>
+    }
+
     switch (alert.state) {
         case AlertState.FIRING:
-            return <LemonTag type="danger">FIRING</LemonTag>
+            return <LemonTag type="danger">Firing</LemonTag>
         case AlertState.ERRORED:
-            return <LemonTag type="danger">ERRORED</LemonTag>
+            return <LemonTag type="danger">Errored</LemonTag>
         case AlertState.SNOOZED:
-            return <LemonTag type="muted">SNOOZED</LemonTag>
+            return <LemonTag type="muted">Snoozed</LemonTag>
         case AlertState.NOT_FIRING:
-            return <LemonTag type="success">NOT FIRING</LemonTag>
+            return <LemonTag type="success">Not firing</LemonTag>
     }
 }
 

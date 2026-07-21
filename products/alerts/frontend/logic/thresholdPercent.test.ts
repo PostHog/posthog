@@ -1,6 +1,11 @@
 import { AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
 
-import { fractionToPercentInput, rescaleThresholdBound, thresholdForConditionChange } from './thresholdPercent'
+import {
+    fractionToPercentInput,
+    rescaleThresholdBound,
+    thresholdForConditionChange,
+    thresholdForUnitChange,
+} from './thresholdPercent'
 
 describe('thresholdPercent', () => {
     // Stored 0–1 fractions render as percentage inputs without float noise — guards the ×100
@@ -30,6 +35,26 @@ describe('thresholdPercent', () => {
         // Entered as "99%" under a has-value (ABSOLUTE) condition, then switched to relative.
         const asFraction = rescaleThresholdBound(99, InsightThresholdType.PERCENTAGE)
         expect(fractionToPercentInput(asFraction)).toBe(99) // was 9900 before the fix
+    })
+
+    it.each([
+        [
+            InsightThresholdType.PERCENTAGE,
+            { lower: 0.1, upper: 0.25 },
+            InsightThresholdType.ABSOLUTE,
+            { lower: 10, upper: 25 },
+        ],
+        [
+            InsightThresholdType.ABSOLUTE,
+            { lower: 10, upper: 25 },
+            InsightThresholdType.PERCENTAGE,
+            { lower: 0.1, upper: 0.25 },
+        ],
+    ])('preserves displayed bounds when switching from %s to %s', (fromType, bounds, toType, expectedBounds) => {
+        expect(thresholdForUnitChange({ type: fromType, bounds }, toType)).toEqual({
+            type: toType,
+            bounds: expectedBounds,
+        })
     })
 
     it('preserves displayed percentage values when switching to an absolute condition', () => {

@@ -11,6 +11,7 @@ interface WizardStepInput {
     advancedNode: ReactNode
     summary: { fires: string; cadence: string; notifies: string }
     thresholdBoundsFormError?: string
+    scheduleRestrictionFormError?: string
     alertFormHasErrors: boolean
     alertName: string
 }
@@ -20,17 +21,16 @@ export function buildWizardSteps(input: WizardStepInput): AlertWizardStep[] {
     const reviewFires = summary.fires || 'a configured threshold'
     const reviewCadence = summary.cadence || 'a cadence'
     const reviewNotifies = summary.notifies || 'no one yet'
-    const monitorCannotAdvanceReason = !input.alertName
-        ? 'Enter an alert name.'
-        : input.thresholdBoundsFormError || 'Fix the errors above before continuing.'
+    const monitorCannotAdvanceReason = !input.alertName ? 'Enter an alert name.' : input.thresholdBoundsFormError
+    const monitorCanAdvance = !monitorCannotAdvanceReason
 
     return [
         {
             key: 'monitor',
             title: 'Monitor',
             description: 'Pick what this alert watches and when it should fire.',
-            canAdvance: !alertFormHasErrors,
-            cannotAdvanceReason: alertFormHasErrors ? monitorCannotAdvanceReason : undefined,
+            canAdvance: monitorCanAdvance,
+            cannotAdvanceReason: monitorCannotAdvanceReason,
             content: (
                 <div className="space-y-4">
                     {input.nameNode}
@@ -43,7 +43,8 @@ export function buildWizardSteps(input: WizardStepInput): AlertWizardStep[] {
             key: 'schedule',
             title: 'Schedule',
             description: 'How often this alert runs.',
-            canAdvance: true,
+            canAdvance: !input.scheduleRestrictionFormError,
+            cannotAdvanceReason: input.scheduleRestrictionFormError,
             content: (
                 <div className="space-y-3">
                     {input.scheduleNode}
