@@ -22,6 +22,8 @@ import {
     resolveFunnelStepClick,
     type FunnelStepsBarSeriesMeta,
 } from './funnelStepsBarTransforms'
+// PROTOTYPE (throwaway, dev-only) — compare-mode dual-axis exploration, see ./prototype/PROTOTYPE.md
+import { useFunnelCompareAxesPrototype } from './prototype/FunnelCompareAxesPrototype'
 
 const BASE_STEP_WIDTH_PX = 240
 const PER_BAR_WIDTH_PX = 20
@@ -72,9 +74,22 @@ export function FunnelStepsBarChart({
     const groupTypeLabel = aggregationLabel(querySource?.aggregation_group_type_index).plural
     const showTime = steps.some((step) => step.average_conversion_time != null)
 
+    // PROTOTYPE (throwaway, dev-only): null in production and for non-compare funnels — the chart
+    // then renders exactly as before. See ./prototype/PROTOTYPE.md.
+    const axesPrototype = useFunnelCompareAxesPrototype({
+        steps,
+        series,
+        baseConfig: CHART_CONFIG,
+        resolvedDateRange: insightData?.resolved_date_range,
+        compareTo: querySource?.compareFilter?.compare_to,
+    })
+    const chartSeries = axesPrototype?.series ?? series
+    const chartConfig = axesPrototype?.config ?? CHART_CONFIG
+    const chartMargins = { ...DEFAULT_MARGINS, ...chartConfig.margins }
+
     const breakdownCount = series.length
     const stepWidthPx = Math.max(BASE_STEP_WIDTH_PX, breakdownCount * PER_BAR_WIDTH_PX)
-    const chartWidth = DEFAULT_MARGINS.left + steps.length * stepWidthPx + DEFAULT_MARGINS.right
+    const chartWidth = chartMargins.left + steps.length * stepWidthPx + chartMargins.right
 
     const onStepClick = useCallback(
         (clickData: FunnelStepClickData<FunnelStepsBarSeriesMeta>): void => {
@@ -131,15 +146,18 @@ export function FunnelStepsBarChart({
             <div className="flex flex-1 flex-col" style={{ width: chartWidth }} data-attr="funnel-steps-bar-chart">
                 <FunnelChart<FunnelStepsBarSeriesMeta>
                     steps={stepLabels}
-                    series={series}
+                    series={chartSeries}
                     theme={theme}
-                    config={CHART_CONFIG}
+                    config={chartConfig}
                     tooltip={renderTooltip}
                     onStepClick={showPersonsModal ? onStepClick : undefined}
                     stepFooter={renderStepFooter}
                     dataAttr="funnel-steps-bar-chart-canvas"
                     onError={handleChartError}
-                />
+                >
+                    {axesPrototype?.overlay}
+                </FunnelChart>
+                {axesPrototype?.switcher}
             </div>
         </ScrollableShadows>
     )
