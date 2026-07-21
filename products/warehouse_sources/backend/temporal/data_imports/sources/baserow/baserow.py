@@ -4,15 +4,22 @@ from typing import Any, Optional
 from urllib.parse import urlparse
 
 import requests
+from requests import PreparedRequest, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.baserow.settings import (
+    CONNECT_TIMEOUT_SECONDS,
     DEFAULT_BASE_URL,
+    MAX_PAGES_PER_SYNC,
+    MAX_RESPONSE_BYTES,
     PAGE_SIZE,
+    READ_TIMEOUT_SECONDS,
     REQUEST_TIMEOUT_SECONDS,
+    RESPONSE_READ_CHUNK_BYTES,
     ROWS_PRIMARY_KEYS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_adapter
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import _NoRedirectSession
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
@@ -68,14 +75,65 @@ def hostname_of(base_url: Optional[str]) -> str:
     return urlparse(normalize_base_url(base_url)).hostname or ""
 
 
+class _BoundedSession(_NoRedirectSession):
+    """No-redirect session that also bounds each request on time and response size.
+
+    The base_url is user-supplied, so a hostile host could accept the connection and
+    then stall the response (``RESTClient.send()`` passes no timeout) or return an
+    arbitrarily large / highly compressed body (``requests`` buffers and decodes it
+    eagerly before returning) to exhaust a worker. Pin a connect/read timeout when the
+    caller supplies none, and stream the body under a hard per-response byte cap.
+    """
+
+    def send(self, request: PreparedRequest, **kwargs: Any) -> Response:
+        kwargs.setdefault("timeout", (CONNECT_TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS))
+        kwargs["stream"] = True
+        response = super().send(request, **kwargs)
+        try:
+            body = _read_capped(response)
+        finally:
+            response.close()
+        response._content = body
+        response._content_consumed = True  # type: ignore[attr-defined]
+        return response
+
+
+def _read_capped(response: Response) -> bytes:
+    # Stream *decoded* chunks and abort the instant the running total crosses the cap. A
+    # single read(decode_content=True) would inflate the whole compressed body at once — a
+    # gzipped page decompresses fully before any size check — so a bomb is bounded only by
+    # decoding incrementally and stopping early.
+    chunks: list[bytes] = []
+    decoded = 0
+    for chunk in response.raw.stream(RESPONSE_READ_CHUNK_BYTES, decode_content=True):
+        decoded += len(chunk)
+        if decoded > MAX_RESPONSE_BYTES:
+            raise ValueError(f"Baserow response body exceeded the {MAX_RESPONSE_BYTES}-byte limit")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _bounded_session(database_token: str, *, extra_headers: Optional[dict[str, str]] = None) -> requests.Session:
+    """A tracked, no-redirect, time- and size-bounded session for Baserow's user-supplied host.
+
+    No-redirect is an SSRF boundary: a user-supplied base_url must not be able to bounce API
+    calls (and the token header) to an internal host via a 3xx. The bounds keep a hostile host
+    from stalling a request or returning an unbounded body. Credentials are registered for
+    value-based log redaction.
+    """
+    session = _BoundedSession()
+    adapter = make_tracked_adapter(redact_values=(database_token,))
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    headers = {"Accept": "application/json"}
+    if extra_headers:
+        headers.update(extra_headers)
+    session.headers.update(headers)
+    return session
+
+
 def _get_session(database_token: str) -> requests.Session:
-    # No-redirect session is an SSRF boundary: a user-supplied base_url must not be able
-    # to bounce API calls (and the token header) to an internal host via a 3xx.
-    return make_tracked_session(
-        redact_values=(database_token,),
-        headers={"Authorization": f"Token {database_token}", "Accept": "application/json"},
-        allow_redirects=False,
-    )
+    return _bounded_session(database_token, extra_headers={"Authorization": f"Token {database_token}"})
 
 
 class BaserowPaginator(JSONResponsePaginator):
@@ -89,21 +147,40 @@ class BaserowPaginator(JSONResponsePaginator):
     def __init__(self, base_url: str) -> None:
         super().__init__(next_url_path="next")
         self._allowed_netloc = urlparse(normalize_base_url(base_url)).netloc.lower()
+        # Cycle guards: a host that keeps returning a `next` link can otherwise keep a
+        # resumable import issuing requests until its week-long activity timeout. Track the
+        # link we just followed to catch a repeated URL, and count pages as a coarse backstop.
+        self._previous_next_url: Optional[str] = None
+        self._pages_followed = 0
 
     def _pin(self, url: str) -> None:
         target = urlparse(url)
         if target.scheme != "https" or target.netloc.lower() != self._allowed_netloc:
             raise ValueError(f"Baserow pagination URL {url!r} is not on the configured instance")
 
+    def _guard_progress(self) -> None:
+        if self._next_url is None:
+            return
+        self._pin(self._next_url)
+        if self._next_url == self._previous_next_url:
+            raise ValueError(f"Baserow pagination is not advancing (repeated next URL {self._next_url!r})")
+        self._pages_followed += 1
+        if self._pages_followed > MAX_PAGES_PER_SYNC:
+            raise ValueError(f"Baserow sync exceeded the {MAX_PAGES_PER_SYNC}-page limit")
+        self._previous_next_url = self._next_url
+
     def update_state(self, response: requests.Response, data: Optional[list[Any]] = None) -> None:
         super().update_state(response, data)
-        if self._has_next_page and self._next_url is not None:
-            self._pin(self._next_url)
+        if self._has_next_page:
+            self._guard_progress()
 
     def set_resume_state(self, state: dict[str, Any]) -> None:
         super().set_resume_state(state)
         if self._next_url is not None:
+            # Seed the repeat guard from the resumed link so a host that immediately echoes it
+            # back is caught, and pin it here too (a tampered resume URL must not be followed).
             self._pin(self._next_url)
+            self._previous_next_url = self._next_url
 
 
 def list_tables(base_url: Optional[str], database_token: str) -> list[dict[str, Any]]:
@@ -171,7 +248,7 @@ def check_table_read_permission(base_url: Optional[str], database_token: str, ta
 def validate_credentials(base_url: Optional[str], database_token: str) -> tuple[bool, int | None]:
     base = normalize_base_url(base_url)
     return validate_via_probe(
-        lambda: make_tracked_session(redact_values=(database_token,)),
+        lambda: _bounded_session(database_token),
         f"{base}/api/database/tables/all-tables/",
         headers={"Authorization": f"Token {database_token}"},
         timeout=REQUEST_TIMEOUT_SECONDS,
@@ -200,6 +277,10 @@ def baserow_rows_source(
                 "location": "header",
             },
             "paginator": BaserowPaginator(base),
+            # RESTClient.send() passes no timeout and buffers the whole body eagerly, so the
+            # row-page reads run through the bounded session — otherwise a user-controlled host
+            # could stall a request or return an unbounded page and occupy an import worker.
+            "session": _bounded_session(database_token),
         },
         "resources": [
             {

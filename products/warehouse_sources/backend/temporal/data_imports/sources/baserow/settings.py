@@ -8,3 +8,26 @@ PAGE_SIZE = 200
 ROWS_PRIMARY_KEYS = ["id"]
 
 REQUEST_TIMEOUT_SECONDS = 30.0
+
+# Split connect/read timeouts for the row-sync path: RESTClient.send() supplies no
+# timeout, so without this a user-controlled host could accept the connection and then
+# leave a row response unfinished, occupying an import worker until the resumable
+# activity's week-long timeout.
+CONNECT_TIMEOUT_SECONDS = 10.0
+READ_TIMEOUT_SECONDS = 30.0
+
+# Hard per-response cap on decoded body bytes. `requests` buffers and decodes the whole
+# body before returning, so a hostile host could return an arbitrarily large — or highly
+# compressed — page and exhaust a worker's memory. The body is streamed and decoded
+# incrementally under this ceiling and aborted the instant it is crossed. Sized well above
+# a legitimate 200-row page while still bounding a single response.
+MAX_RESPONSE_BYTES = 100 * 1024 * 1024
+# Compressed bytes pulled per streamed read while enforcing the cap; small so a
+# decompression bomb can inflate at most one chunk's worth past the cap before we abort.
+RESPONSE_READ_CHUNK_BYTES = 64 * 1024
+
+# Coarse backstop on pages followed in a single sync run — far above any realistic Baserow
+# table (200 rows/page), so it never bites a legitimate sync. Paired with the same-URL
+# cycle guard in BaserowPaginator, it stops a host that returns an endless stream of
+# distinct `next` URLs from keeping a resumable import running until its activity timeout.
+MAX_PAGES_PER_SYNC = 1_000_000

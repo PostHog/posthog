@@ -5,17 +5,24 @@ from typing import Any, cast
 import pytest
 from unittest.mock import MagicMock, patch
 
+import requests
 from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.baserow.baserow import (
     BaserowPaginator,
     BaserowResumeConfig,
+    _BoundedSession,
+    _read_capped,
     baserow_rows_source,
     check_table_read_permission,
     normalize_base_url,
     resolve_table_id,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.baserow.settings import DEFAULT_BASE_URL
+from products.warehouse_sources.backend.temporal.data_imports.sources.baserow.settings import (
+    CONNECT_TIMEOUT_SECONDS,
+    DEFAULT_BASE_URL,
+    READ_TIMEOUT_SECONDS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 BASE_URL = "https://api.baserow.io"
@@ -105,6 +112,26 @@ class TestBaserowPaginator:
         with pytest.raises(ValueError):
             paginator.set_resume_state({"next_url": "https://evil.example.com/api/database/rows/table/1/?page=2"})
 
+    def test_rejects_repeated_next_url(self) -> None:
+        # A host that keeps echoing the same next link would otherwise loop until the
+        # activity timeout; the second identical link aborts the sync.
+        next_url = f"{BASE_URL}/api/database/rows/table/1/?page=2"
+        paginator = BaserowPaginator(BASE_URL)
+        paginator.update_state(self._response({"count": 300, "next": next_url, "results": []}))
+        with pytest.raises(ValueError, match="not advancing"):
+            paginator.update_state(self._response({"count": 300, "next": next_url, "results": []}))
+
+    def test_aborts_when_page_budget_exhausted(self) -> None:
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.baserow.baserow.MAX_PAGES_PER_SYNC",
+            2,
+        ):
+            paginator = BaserowPaginator(BASE_URL)
+            paginator.update_state(self._response({"count": 9, "next": f"{BASE_URL}/rows/?page=2", "results": []}))
+            paginator.update_state(self._response({"count": 9, "next": f"{BASE_URL}/rows/?page=3", "results": []}))
+            with pytest.raises(ValueError, match="page limit"):
+                paginator.update_state(self._response({"count": 9, "next": f"{BASE_URL}/rows/?page=4", "results": []}))
+
 
 class TestResolveTableId:
     def test_schema_metadata_short_circuits_without_listing_tables(self) -> None:
@@ -153,6 +180,47 @@ class TestCheckTableReadPermission:
         assert (reason is not None) is expects_reason
 
 
+def _streamed_response(chunks: list[bytes], status_code: int = 200) -> Response:
+    resp = Response()
+    resp.status_code = status_code
+    raw = MagicMock()
+    raw.stream.return_value = iter(chunks)
+    resp.raw = raw
+    return resp
+
+
+class TestBoundedSession:
+    def test_read_capped_returns_full_body_under_limit(self) -> None:
+        assert _read_capped(_streamed_response([b"ab", b"cd"])) == b"abcd"
+
+    def test_read_capped_aborts_over_limit(self) -> None:
+        # A hostile host can return an arbitrarily large / highly compressed body; the cap
+        # aborts mid-stream instead of buffering it all into worker memory.
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.baserow.baserow.MAX_RESPONSE_BYTES",
+            3,
+        ):
+            with pytest.raises(ValueError, match="exceeded"):
+                _read_capped(_streamed_response([b"ab", b"cd"]))
+
+    def test_send_defaults_timeout_and_streams_on_row_sync_path(self) -> None:
+        # RESTClient.send() passes no timeout — the session must supply one so a stalled
+        # host can't hang the request thread, and stream so the body stays capped.
+        prepared = Request(method="GET", url=f"{BASE_URL}/x").prepare()
+        with patch.object(requests.Session, "send", return_value=_streamed_response([b"{}"])) as parent_send:
+            _BoundedSession().send(prepared)
+        forwarded = parent_send.call_args.kwargs
+        assert forwarded["allow_redirects"] is False
+        assert forwarded["stream"] is True
+        assert forwarded["timeout"] == (CONNECT_TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS)
+
+    def test_send_respects_explicit_timeout(self) -> None:
+        prepared = Request(method="GET", url=f"{BASE_URL}/x").prepare()
+        with patch.object(requests.Session, "send", return_value=_streamed_response([b"{}"])) as parent_send:
+            _BoundedSession().send(prepared, timeout=5)
+        assert parent_send.call_args.kwargs["timeout"] == 5
+
+
 def _make_http_response(body: dict[str, Any], status_code: int = 200) -> Response:
     resp = Response()
     resp.status_code = status_code
@@ -180,13 +248,16 @@ class TestBaserowRowsSourceResumeBehavior:
             sent.append((request.url, dict(request.params or {})))
             return next(response_iter)
 
+        # The rows source injects its own bounded session, so intercept the factory rather
+        # than RESTClient's internal make_tracked_session (which it no longer calls).
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-        ) as MockSession:
-            mock_session = MockSession.return_value
+            "products.warehouse_sources.backend.temporal.data_imports.sources.baserow.baserow._bounded_session"
+        ) as mock_factory:
+            mock_session = MagicMock()
             mock_session.headers = {}
             mock_session.prepare_request.side_effect = lambda req: req
             mock_session.send.side_effect = fake_send
+            mock_factory.return_value = mock_session
 
             source = baserow_rows_source(
                 base_url=None,
