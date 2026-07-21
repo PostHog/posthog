@@ -549,6 +549,25 @@ export const VisionScannersAffectedCohortCreateBody = /* @__PURE__ */ zod
     .describe('Body of POST \/vision\/scanners\/:id\/affected_cohort\/. Same qualifiers as the impact GET.')
 
 /**
+ * Apply this scanner to many sessions on demand. Starts as many as fit under the in-flight
+ * caps and monthly credit quota, reporting the rest as skipped rather than failing the batch.
+ */
+export const visionScannersBulkObserveCreateBodySessionIdsItemMax = 128
+
+export const visionScannersBulkObserveCreateBodySessionIdsMax = 200
+
+export const VisionScannersBulkObserveCreateBody = /* @__PURE__ */ zod
+    .object({
+        session_ids: zod
+            .array(zod.string().max(visionScannersBulkObserveCreateBodySessionIdsItemMax))
+            .max(visionScannersBulkObserveCreateBodySessionIdsMax)
+            .describe(
+                'Session recording IDs to scan on demand, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole batch. Already-running sessions are a no-op.'
+            ),
+    })
+    .describe('Body of POST \/vision\/scanners\/{id}\/bulk_observe\/.')
+
+/**
  * Apply this scanner to one specific session, on demand. Returns 202 with the workflow handle.
  */
 export const visionScannersObserveCreateBodySessionIdMax = 128

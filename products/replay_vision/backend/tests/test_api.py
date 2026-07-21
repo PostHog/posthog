@@ -1560,6 +1560,122 @@ class TestObserveAction(_VisionAPITestCase):
 
 @patch("products.replay_vision.backend.api.trigger.async_to_sync")
 @patch("products.replay_vision.backend.api.trigger.sync_connect")
+class TestBulkObserveAction(_VisionAPITestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.scanner = self._create_scanner()
+
+    def bulk_url(self, scanner_id: str) -> str:
+        return f"{self.scanners_url}{scanner_id}/bulk_observe/"
+
+    def _in_flight(self, session_id: str) -> None:
+        ReplayObservation.objects.create(
+            scanner=self.scanner,
+            session_id=session_id,
+            scanner_snapshot=_snapshot_for(self.scanner),
+            triggered_by=ObservationTrigger.ON_DEMAND,
+            status=ObservationStatus.PENDING,
+        )
+
+    def test_starts_a_scan_per_session_and_reports_started(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        mock_sync_connect.return_value = MagicMock()
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+
+        resp = self.client.post(
+            self.bulk_url(str(self.scanner.id)), data={"session_ids": ["a", "b", "c"]}, format="json"
+        )
+        self.assertEqual(resp.status_code, 202, resp.json())
+        body = resp.json()
+        self.assertEqual(body["started"], 3)
+        self.assertEqual([r["scan_outcome"] for r in body["results"]], ["started", "started", "started"])
+        self.assertEqual(start_workflow.call_count, 3)
+
+    def test_deduplicates_session_ids(self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock) -> None:
+        mock_sync_connect.return_value = MagicMock()
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+
+        resp = self.client.post(
+            self.bulk_url(str(self.scanner.id)), data={"session_ids": ["dup", "dup", "other"]}, format="json"
+        )
+        self.assertEqual(resp.status_code, 202, resp.json())
+        # The repeated id collapses to one — a second start would be a wasted no-op.
+        self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["dup", "other"])
+        self.assertEqual(start_workflow.call_count, 2)
+
+    def test_scans_what_fits_under_the_in_flight_cap_and_skips_the_rest(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+        # Two slots already used against a cap of 3 → only one new scan fits; the other two are skipped.
+        self._in_flight("running-1")
+        self._in_flight("running-2")
+
+        with patch("products.replay_vision.backend.api.scanners.MAX_IN_FLIGHT_APPLIES_PER_SCANNER", 3):
+            resp = self.client.post(
+                self.bulk_url(str(self.scanner.id)), data={"session_ids": ["x", "y", "z"]}, format="json"
+            )
+        self.assertEqual(resp.status_code, 202, resp.json())
+        body = resp.json()
+        self.assertEqual(body["started"], 1)
+        self.assertEqual([r["scan_outcome"] for r in body["results"]], ["started", "skipped_limit", "skipped_limit"])
+
+    def test_skips_for_quota_when_the_credit_budget_is_the_tighter_limit(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+        # Enough in-flight headroom, but only one observation's worth of credits left → quota is the
+        # binding limit, so the skip reason must say quota, not in-flight.
+        cost = observation_credits_for_model(self.scanner.model)
+        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", cost):
+            resp = self.client.post(
+                self.bulk_url(str(self.scanner.id)), data={"session_ids": ["p", "q"]}, format="json"
+            )
+        self.assertEqual(resp.status_code, 202, resp.json())
+        body = resp.json()
+        self.assertEqual(body["started"], 1)
+        self.assertEqual([r["scan_outcome"] for r in body["results"]], ["started", "skipped_quota"])
+
+    def test_already_running_session_is_a_no_op_and_consumes_no_headroom(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        mock_sync_connect.return_value = MagicMock()
+
+        def _start(*args: Any, **kwargs: Any) -> None:
+            # The first session is already running elsewhere; the rest start normally.
+            if kwargs["id"] == build_apply_scanner_workflow_id(self.scanner.id, "already"):
+                raise WorkflowAlreadyStartedError(workflow_id=kwargs["id"], workflow_type=APPLY_SCANNER_WORKFLOW_NAME)
+
+        mock_async_to_sync.return_value = MagicMock(side_effect=_start)
+
+        resp = self.client.post(
+            self.bulk_url(str(self.scanner.id)), data={"session_ids": ["already", "fresh"]}, format="json"
+        )
+        self.assertEqual(resp.status_code, 202, resp.json())
+        body = resp.json()
+        self.assertEqual(body["started"], 1)
+        self.assertEqual([r["scan_outcome"] for r in body["results"]], ["already_running", "started"])
+
+    def test_rejects_empty_and_oversized_batches(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        empty = self.client.post(self.bulk_url(str(self.scanner.id)), data={"session_ids": []}, format="json")
+        self.assertEqual(empty.status_code, 400)
+        too_many = self.client.post(
+            self.bulk_url(str(self.scanner.id)),
+            data={"session_ids": [f"s{i}" for i in range(201)]},
+            format="json",
+        )
+        self.assertEqual(too_many.status_code, 400)
+
+
+@patch("products.replay_vision.backend.api.trigger.async_to_sync")
+@patch("products.replay_vision.backend.api.trigger.sync_connect")
 class TestObserveActionFeatureFlag(APIBaseTest):
     def test_flag_off_returns_404(self, _mock_sync_connect: MagicMock, _mock_async_to_sync: MagicMock) -> None:
         with patch(
